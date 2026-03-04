@@ -167,7 +167,7 @@ public enum SpecialTextType {
     },
 
     CODE_AGENT_CHANGES(
-            "Code Agent Changes",
+            "Last Code Agent Changes",
             SyntaxConstants.SYNTAX_STYLE_NONE,
             SyntaxConstants.SYNTAX_STYLE_NONE,
             true // droppable

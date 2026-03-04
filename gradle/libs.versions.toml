@@ -6,7 +6,7 @@ jgit = "7.5.0.202512021534-r"
 nullaway = "0.12.7"
 flatlaf = "3.6.2"
 flexmark = "0.64.8"
-treesitter = "0.25.3"
+treesitter = "0.26.6"
 treesitter-lang = "0.23.4"
 palantirJavaFormat = "2.73.0"
 picocli = "4.7.7"
@@ -74,7 +74,7 @@ apache-compress = "org.apache.commons:commons-compress:1.26.2"
 apache-commons-text = "org.apache.commons:commons-text:1.12.0"
 handlebars = "com.github.jknack:handlebars:4.5.0"
 mustache = "com.github.spullara.mustache.java:compiler:0.9.10"
-mcp-sdk = { module = "io.modelcontextprotocol.sdk:mcp", version = "0.12.1" }
+mcp-sdk = { module = "io.modelcontextprotocol.sdk:mcp", version = "0.18.1" }
 uuid-creator = "com.github.f4b6a3:uuid-creator:6.1.1"
 pcollections = "org.pcollections:pcollections:5.0.0"
 
@@ -103,6 +103,8 @@ jsoup = "org.jsoup:jsoup:1.19.1"
 jgit-core = { module = "org.eclipse.jgit:org.eclipse.jgit", version.ref = "jgit" }
 jgit-gpg = { module = "org.eclipse.jgit:org.eclipse.jgit.gpg.bc", version.ref = "jgit" }
 jgit-ssh = { module = "org.eclipse.jgit:org.eclipse.jgit.ssh.apache", version.ref = "jgit" }
+# We are not using this lib directly but it is required to get ssh-agent support
+jgit-ssh-agent = { module = "org.eclipse.jgit:org.eclipse.jgit.ssh.apache.agent", version.ref = "jgit" }
 bouncycastle = "org.bouncycastle:bcprov-jdk18on:1.80"
 
 # TreeSitter
@@ -145,7 +147,7 @@ junit = ["junit-jupiter-api", "junit-jupiter-engine", "junit-jupiter-params"]
 junit-runtime = ["junit-platform-engine", "junit-platform-launcher", "junit-platform-commons"]
 ui = ["flatlaf", "flatlaf-extras", "rsyntaxtextarea", "autocomplete", "jgoodies-forms"]
 markdown = ["flexmark-core", "flexmark-html2md", "handlebars", "mustache"]
-git = ["jgit-core", "jgit-gpg", "jgit-ssh", "bouncycastle"]
+git = ["jgit-core", "jgit-gpg", "jgit-ssh", "jgit-ssh-agent", "bouncycastle"]
 treesitter = ["treesitter-core", "treesitter-java", "treesitter-cpp", "treesitter-csharp", "treesitter-go", "treesitter-javascript", "treesitter-php", "treesitter-python", "treesitter-rust", "treesitter-typescript", "treesitter-scala"]
 maven-resolver = ["maven-embedder", "maven-resolver-api", "maven-resolver-spi", "maven-resolver-util", "maven-resolver-impl", "maven-resolver-connector-basic", "maven-resolver-transport-http"]
 apache = ["apache-compress", "apache-commons-text"]

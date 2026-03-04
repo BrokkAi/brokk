@@ -896,18 +896,7 @@ public class Chrome
 
     @Override
     public void prepareOutputForNextStream(List<TaskEntry> history) {
-        if (SwingUtilities.isEventDispatchThread()) {
-            rightPanel.getHistoryOutputPanel().prepareOutputForNextStream(history);
-        } else {
-            try {
-                SwingUtilities.invokeAndWait(
-                        () -> rightPanel.getHistoryOutputPanel().prepareOutputForNextStream(history));
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            } catch (InvocationTargetException e) {
-                logger.error("Error preparing output for next stream", e);
-            }
-        }
+        SwingUtil.runOnEdt(() -> rightPanel.getHistoryOutputPanel().prepareOutputForNextStream(history));
     }
 
     @Override
@@ -2009,7 +1998,15 @@ public class Chrome
             var ip = rightPanel.getInstructionsPanel();
             var hop = rightPanel.getHistoryOutputPanel();
             if (lastRelevantFocusOwner == ip.getInstructionsArea()) {
-                ip.getInstructionsArea().copy();
+                JTextArea area = ip.getInstructionsArea();
+                if (area.getSelectionStart() == area.getSelectionEnd()) {
+                    String instructions = ip.getInstructions();
+                    if (!instructions.isBlank()) {
+                        ip.clearCommandInput();
+                        return;
+                    }
+                }
+                area.copy();
             } else if (SwingUtilities.isDescendingFrom(lastRelevantFocusOwner, hop.getLlmStreamArea())) {
                 hop.getLlmStreamArea().copy(); // Assumes MarkdownOutputPanel has copy()
             } else if (SwingUtilities.isDescendingFrom(lastRelevantFocusOwner, hop.getHistoryTable())) {

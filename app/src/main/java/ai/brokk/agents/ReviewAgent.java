@@ -26,7 +26,6 @@ import ai.brokk.prompts.WorkspacePrompts;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.WorkspaceTools;
 import ai.brokk.util.ContentDiffUtils;
-import ai.brokk.util.Messages;
 import ai.brokk.util.ReviewParser;
 import ai.brokk.util.ReviewParser.CodeExcerpt;
 import ai.brokk.util.ReviewParser.RawExcerpt;
@@ -255,16 +254,12 @@ public class ReviewAgent {
                     reviewContext.addFragments(SpecialTextType.REVIEW_METADATA.create(cm, metadata.toJson()));
 
             IConsoleIO io = requireNonNull(turn1Io);
-            String rawMessagesLog = Messages.format(io.getLlmRawMessages());
-
-            if (!rawMessagesLog.isBlank()) {
-                contextWithMeta = contextWithMeta.addHistoryEntry(
-                        publishedMessages,
-                        turn1Messages,
-                        TaskResult.Type.REVIEW,
-                        turn1Model,
-                        "Please review this diff");
-            }
+            contextWithMeta = contextWithMeta.addHistoryEntry(
+                    io.getLlmRawMessages(),
+                    publishedMessages,
+                    TaskResult.Type.REVIEW,
+                    turn1Model,
+                    "Please review this diff");
 
             var result = new TaskResult(contextWithMeta, new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS));
             scope.append(result);

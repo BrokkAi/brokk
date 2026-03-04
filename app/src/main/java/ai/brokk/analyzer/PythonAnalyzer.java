@@ -7,6 +7,7 @@ import ai.brokk.project.IProject;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashSet;
@@ -21,7 +22,6 @@ import java.util.stream.Collectors;
 import org.jetbrains.annotations.Nullable;
 import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
-import org.treesitter.TSParser;
 import org.treesitter.TSQuery;
 import org.treesitter.TSQueryCapture;
 import org.treesitter.TSQueryCursor;
@@ -37,6 +37,15 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
     @Override
     public Optional<String> extractCallReceiver(String reference) {
         return ClassNameExtractor.extractForPython(reference);
+    }
+
+    @Override
+    public List<String> getTestModules(Collection<ProjectFile> files) {
+        return files.stream()
+                .map(file -> resolveModuleInfo(file).moduleQualifiedPackage())
+                .distinct()
+                .sorted()
+                .toList();
     }
 
     // PY_LANGUAGE field removed, createTSLanguage will provide new instances.
@@ -89,8 +98,12 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
     }
 
     @Override
-    protected String getQueryResource() {
-        return "treesitter/python.scm";
+    protected Optional<String> getQueryResource(QueryType type) {
+        return switch (type) {
+            case DEFINITIONS -> Optional.of("treesitter/python/definitions.scm");
+            case IMPORTS -> Optional.of("treesitter/python/imports.scm");
+            case IDENTIFIERS -> Optional.of("treesitter/python/identifiers.scm");
+        };
     }
 
     /**
@@ -375,43 +388,46 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
 
     @Override
     protected boolean containsTestMarkers(TSTree tree, SourceContent sourceContent) {
-        var query = getThreadLocalQuery();
-        var cursor = new TSQueryCursor();
-        cursor.exec(query, tree.getRootNode());
+        try (TSQuery query = createQuery(QueryType.DEFINITIONS)) {
+            if (query == null) return false;
+            try (TSQueryCursor cursor = new TSQueryCursor()) {
+                cursor.exec(query, tree.getRootNode());
 
-        var match = new TSQueryMatch();
-        while (cursor.nextMatch(match)) {
-            for (var cap : match.getCaptures()) {
-                String captureName = query.getCaptureNameForId(cap.getIndex());
-                if (!TEST_MARKER.equals(captureName)) {
-                    continue;
-                }
+                var match = new TSQueryMatch();
+                while (cursor.nextMatch(match)) {
+                    for (var cap : match.getCaptures()) {
+                        String captureName = query.getCaptureNameForId(cap.getIndex());
+                        if (!TEST_MARKER.equals(captureName)) {
+                            continue;
+                        }
 
-                TSNode node = cap.getNode();
-                if (node == null || node.isNull()) {
-                    continue;
-                }
+                        TSNode node = cap.getNode();
+                        if (node == null || node.isNull()) {
+                            continue;
+                        }
 
-                // Case A: Function name starting with test_
-                if (IDENTIFIER.equals(node.getType())) {
-                    TSNode parent = node.getParent();
-                    if (parent != null && FUNCTION_DEFINITION.equals(parent.getType())) {
-                        TSNode nameNode = parent.getChildByFieldName(FIELD_NAME);
-                        if (nameNode != null
-                                && nameNode.getStartByte() == node.getStartByte()
-                                && nameNode.getEndByte() == node.getEndByte()) {
-                            String text = sourceContent.substringFrom(node);
-                            if (text.startsWith("test_")) {
+                        // Case A: Function name starting with test_
+                        if (IDENTIFIER.equals(node.getType())) {
+                            TSNode parent = node.getParent();
+                            if (parent != null && FUNCTION_DEFINITION.equals(parent.getType())) {
+                                TSNode nameNode = parent.getChildByFieldName(FIELD_NAME);
+                                if (nameNode != null
+                                        && nameNode.getStartByte() == node.getStartByte()
+                                        && nameNode.getEndByte() == node.getEndByte()) {
+                                    String text = sourceContent.substringFrom(node);
+                                    if (text.startsWith("test_")) {
+                                        return true;
+                                    }
+                                }
+                            }
+                        }
+
+                        // Case B: Pytest marks
+                        if (DECORATOR.equals(node.getType())) {
+                            if (isPytestMark(node, sourceContent)) {
                                 return true;
                             }
                         }
-                    }
-                }
-
-                // Case B: Pytest marks
-                if (DECORATOR.equals(node.getType())) {
-                    if (isPytestMark(node, sourceContent)) {
-                        return true;
                     }
                 }
             }
@@ -472,44 +488,38 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
      */
     private String getPackageNameForFile(ProjectFile file) {
         // Python's package naming is directory-based, relative to project root or __init__.py markers.
-        var absPath = file.absPath();
-        var projectRoot = getProject().getRoot();
-        var parentDir = absPath.getParent();
+        Path projectRoot = getProject().getRoot();
+        Path relPath = file.getRelPath();
+        Path parentRel = relPath.getParent();
 
         // If the file is directly in the project root, the package path is empty
-        if (parentDir == null || parentDir.equals(projectRoot)) {
+        if (parentRel == null || parentRel.toString().isEmpty()) {
             return "";
         }
 
         // Find the highest directory containing __init__.py between project root and the file's parent
-        var effectivePackageRoot = projectRoot;
-        var current = parentDir;
-        while (current != null && !current.equals(projectRoot)) {
-            if (Files.exists(current.resolve("__init__.py"))) {
-                effectivePackageRoot = current; // Found a potential root, keep checking higher
+        // Note: we must still check the filesystem for __init__.py existence.
+        Path effectivePackageRootRel = null;
+        Path currentRel = parentRel;
+        while (currentRel != null) {
+            if (Files.exists(projectRoot.resolve(currentRel).resolve("__init__.py"))) {
+                effectivePackageRootRel = currentRel;
             }
-            current = current.getParent();
+            currentRel = currentRel.getParent();
         }
 
-        // Calculate the relative path from the (parent of the effective package root OR project root)
-        // to the file's parent directory.
-        Path rootForRelativize =
-                effectivePackageRoot.equals(projectRoot) ? projectRoot : effectivePackageRoot.getParent();
-        if (rootForRelativize == null) { // Should not happen if projectRoot is valid
-            rootForRelativize = projectRoot;
+        // If no __init__.py found, it's a top-level module or in a non-package directory.
+        if (effectivePackageRootRel == null) {
+            return parentRel.toString().replace('/', '.').replace('\\', '.');
         }
 
-        // If parentDir is not under rootForRelativize (e.g. parentDir is projectRoot, effectivePackageRoot is deeper
-        // due to missing __init__.py)
-        // or if parentDir is the same as rootForRelativize, then there's no relative package path.
-        if (!parentDir.startsWith(rootForRelativize) || parentDir.equals(rootForRelativize)) {
-            return "";
+        // The import root is the parent of the top-most package directory.
+        Path importRootRel = effectivePackageRootRel.getParent();
+        if (importRootRel == null) {
+            return parentRel.toString().replace('/', '.').replace('\\', '.');
         }
 
-        var relPath = rootForRelativize.relativize(parentDir);
-
-        // Convert path separators to dots for package name
-        return relPath.toString().replace('/', '.').replace('\\', '.');
+        return importRootRel.relativize(parentRel).toString().replace('/', '.').replace('\\', '.');
     }
 
     @Override
@@ -598,74 +608,74 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
             CodeUnit cu, TSNode classNode, String signature, SourceContent sourceContent) {
         // Extract superclass names from Python class definition
         // Pattern: class Child(Parent1, Parent2): ...
-        var query = getThreadLocalQuery();
-
-        // Use the actual definition node for range matching.
-        // If classNode is a decorated_definition, we must find the inner class_definition node
-        // to match the 'type.decl' capture in python.scm.
-        TSNode matchNode = classNode;
-        if (DECORATED_DEFINITION.equals(classNode.getType())) {
-            for (int i = 0; i < classNode.getNamedChildCount(); i++) {
-                TSNode child = classNode.getNamedChild(i);
-                if (CLASS_DEFINITION.equals(child.getType())) {
-                    matchNode = child;
-                    break;
-                }
-            }
-        }
-
-        // Ascend to root node for matching
-        TSNode root = classNode;
-        while (root.getParent() != null && !root.getParent().isNull()) {
-            root = root.getParent();
-        }
-
-        var cursor = new TSQueryCursor();
-        cursor.exec(query, root);
-
-        var match = new TSQueryMatch();
-        List<TSNode> aggregateSuperNodes = new ArrayList<>();
-
-        final int targetStart = matchNode.getStartByte();
-        final int targetEnd = matchNode.getEndByte();
-
-        while (cursor.nextMatch(match)) {
-            TSNode declNode = null;
-            List<TSNode> superCapturesThisMatch = new ArrayList<>();
-
-            for (var cap : match.getCaptures()) {
-                var capName = query.getCaptureNameForId(cap.getIndex());
-                var n = cap.getNode();
-                if (n == null || n.isNull()) continue;
-
-                if ("type.decl".equals(capName)) {
-                    declNode = n;
-                } else if ("type.super".equals(capName)) {
-                    superCapturesThisMatch.add(n);
+        try (TSQuery query = createQuery(QueryType.DEFINITIONS);
+                TSQueryCursor cursor = new TSQueryCursor()) {
+            if (query == null) return List.of();
+            // Use the actual definition node for range matching.
+            // If classNode is a decorated_definition, we must find the inner class_definition node
+            // to match the 'type.decl' capture in python.scm.
+            TSNode matchNode = classNode;
+            if (DECORATED_DEFINITION.equals(classNode.getType())) {
+                for (int i = 0; i < classNode.getNamedChildCount(); i++) {
+                    TSNode child = classNode.getNamedChild(i);
+                    if (CLASS_DEFINITION.equals(child.getType())) {
+                        matchNode = child;
+                        break;
+                    }
                 }
             }
 
-            if (declNode != null && declNode.getStartByte() == targetStart && declNode.getEndByte() == targetEnd) {
-                aggregateSuperNodes.addAll(superCapturesThisMatch);
+            // Ascend to root node for matching
+            TSNode root = classNode;
+            while (root.getParent() != null && !root.getParent().isNull()) {
+                root = root.getParent();
             }
-        }
 
-        // Sort by position to preserve source order
-        aggregateSuperNodes.sort(Comparator.comparingInt(TSNode::getStartByte));
+            List<TSNode> aggregateSuperNodes = new ArrayList<>();
+            cursor.exec(query, root);
 
-        List<String> supers = new ArrayList<>(aggregateSuperNodes.size());
-        for (var s : aggregateSuperNodes) {
-            var text = sourceContent
-                    .substringFromBytes(s.getStartByte(), s.getEndByte())
-                    .strip();
-            if (!text.isEmpty()) {
-                supers.add(text);
+            var match = new TSQueryMatch();
+            final int targetStart = matchNode.getStartByte();
+            final int targetEnd = matchNode.getEndByte();
+
+            while (cursor.nextMatch(match)) {
+                TSNode declNode = null;
+                List<TSNode> superCapturesThisMatch = new ArrayList<>();
+
+                for (var cap : match.getCaptures()) {
+                    var capName = query.getCaptureNameForId(cap.getIndex());
+                    var n = cap.getNode();
+                    if (n == null || n.isNull()) continue;
+
+                    if ("type.decl".equals(capName)) {
+                        declNode = n;
+                    } else if ("type.super".equals(capName)) {
+                        superCapturesThisMatch.add(n);
+                    }
+                }
+
+                if (declNode != null && declNode.getStartByte() == targetStart && declNode.getEndByte() == targetEnd) {
+                    aggregateSuperNodes.addAll(superCapturesThisMatch);
+                }
             }
-        }
 
-        // Deduplicate while preserving order
-        var unique = new LinkedHashSet<>(supers);
-        return List.copyOf(unique);
+            // Sort by position to preserve source order
+            aggregateSuperNodes.sort(Comparator.comparingInt(TSNode::getStartByte));
+
+            List<String> supers = new ArrayList<>(aggregateSuperNodes.size());
+            for (var s : aggregateSuperNodes) {
+                var text = sourceContent
+                        .substringFromBytes(s.getStartByte(), s.getEndByte())
+                        .strip();
+                if (!text.isEmpty()) {
+                    supers.add(text);
+                }
+            }
+
+            // Deduplicate while preserving order
+            var unique = new LinkedHashSet<>(supers);
+            return List.copyOf(unique);
+        }
     }
 
     /**
@@ -724,15 +734,18 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
     private @Nullable ProjectFile resolveModuleFile(String modulePath) {
         var basePath = modulePath.replace('.', '/');
 
-        // Try module.py first
-        var moduleFilePath = basePath + ".py";
-        var moduleFile = new ProjectFile(getProject().getRoot(), moduleFilePath);
-        if (Files.exists(moduleFile.absPath())) {
-            return moduleFile;
+        // Try module.py first (only if modulePath is not empty, e.g. "pkg.mod")
+        if (!basePath.isEmpty()) {
+            var moduleFilePath = basePath + ".py";
+            var moduleFile = new ProjectFile(getProject().getRoot(), moduleFilePath);
+            if (Files.exists(moduleFile.absPath())) {
+                return moduleFile;
+            }
         }
 
         // Fall back to package __init__.py
-        var initFilePath = basePath + "/__init__.py";
+        // If basePath is empty, result is "__init__.py". If not, "path/to/__init__.py"
+        var initFilePath = basePath.isEmpty() ? "__init__.py" : basePath + "/__init__.py";
         var initFile = new ProjectFile(getProject().getRoot(), initFilePath);
         if (Files.exists(initFile.absPath())) {
             return initFile;
@@ -769,89 +782,85 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
             var tree = parser.parseString(null, importLine);
             var rootNode = tree.getRootNode();
 
-            var query = getThreadLocalQuery();
-            var cursor = new TSQueryCursor();
-            cursor.exec(query, rootNode);
+            try (TSQuery query = createQuery(QueryType.IMPORTS)) {
+                if (query == null) continue;
+                try (var cursor = new TSQueryCursor()) {
+                    cursor.exec(query, rootNode);
 
-            var match = new TSQueryMatch();
-            String currentModule = null;
-            String wildcardModule = null;
+                    var match = new TSQueryMatch();
+                    String currentModule = null;
+                    String wildcardModule = null;
 
-            // Prepare SourceContent for this import line to use textSlice overloads
-            SourceContent importSc = SourceContent.of(importLine);
+                    // Prepare SourceContent for this import line to use textSlice overloads
+                    SourceContent importSc = SourceContent.of(importLine);
 
-            // Collect all captures from this import statement
-            while (cursor.nextMatch(match)) {
-                for (var cap : match.getCaptures()) {
-                    var capName = query.getCaptureNameForId(cap.getIndex());
-                    var node = cap.getNode();
-                    if (node == null || node.isNull()) continue;
+                    // Collect all captures from this import statement
+                    while (cursor.nextMatch(match)) {
+                        // Reset per-match state
+                        currentModule = null;
+                        wildcardModule = null;
 
-                    var text = importSc.substringFromBytes(node.getStartByte(), node.getEndByte());
+                        for (var cap : match.getCaptures()) {
+                            var capName = query.getCaptureNameForId(cap.getIndex());
+                            var node = cap.getNode();
+                            if (node == null || node.isNull()) continue;
 
-                    switch (capName) {
-                        case IMPORT_MODULE -> currentModule = text;
-                        case IMPORT_RELATIVE -> {
-                            // Resolve relative import to absolute package path
-                            var absolutePath = resolveRelativeImport(file, text);
-                            currentModule = absolutePath.orElse(null);
-                        }
-                        case IMPORT_MODULE_WILDCARD -> wildcardModule = text;
-                        case IMPORT_RELATIVE_WILDCARD -> {
-                            // Resolve relative wildcard import to absolute package path
-                            var absolutePath = resolveRelativeImport(file, text);
-                            wildcardModule = absolutePath.orElse(null);
-                        }
-                        case IMPORT_WILDCARD -> {
-                            // Wildcard import - expand and add all public symbols (may overwrite previous imports)
-                            if (wildcardModule != null && !wildcardModule.isEmpty()) {
-                                var moduleFile = resolveModuleFile(wildcardModule);
-                                if (moduleFile != null) {
-                                    var decls = getDeclarations(moduleFile);
-                                    for (CodeUnit child : decls) {
-                                        // Import public classes and functions (no underscore prefix)
-                                        // TODO: Consider including public top-level constants (fields)
-                                        if ((child.isClass() || child.isFunction())
-                                                && !child.identifier().startsWith("_")) {
-                                            resolvedByName.put(child.identifier(), child);
+                            var text = importSc.substringFromBytes(node.getStartByte(), node.getEndByte());
+
+                            switch (capName) {
+                                case IMPORT_MODULE -> currentModule = text;
+                                case IMPORT_RELATIVE -> {
+                                    // Resolve relative import to absolute package path
+                                    var absolutePath = resolveRelativeImport(file, text);
+                                    currentModule = absolutePath.orElse(null);
+                                }
+                                case IMPORT_MODULE_WILDCARD -> wildcardModule = text;
+                                case IMPORT_RELATIVE_WILDCARD -> {
+                                    // Resolve relative wildcard import to absolute package path
+                                    var absolutePath = resolveRelativeImport(file, text);
+                                    wildcardModule = absolutePath.orElse(null);
+                                }
+                                case IMPORT_WILDCARD -> {
+                                    // Wildcard import - expand and add all public symbols (may overwrite previous
+                                    // imports)
+                                    if (wildcardModule != null && !wildcardModule.isEmpty()) {
+                                        var moduleFile = resolveModuleFile(wildcardModule);
+                                        if (moduleFile != null) {
+                                            var decls = getDeclarations(moduleFile);
+                                            for (CodeUnit child : decls) {
+                                                // Import public classes and functions (no underscore prefix)
+                                                if ((child.isClass() || child.isFunction())
+                                                        && !child.identifier().startsWith("_")) {
+                                                    resolvedByName.put(child.identifier(), child);
+                                                }
+                                            }
                                         }
                                     }
-                                } else {
-                                    log.trace("Could not find module file for wildcard import: {}", wildcardModule);
+                                }
+                                case IMPORT_NAME -> {
+                                    if (currentModule != null) {
+                                        // from X import Y
+                                        var moduleFile = resolveModuleFile(currentModule);
+                                        if (moduleFile != null) {
+                                            var decls = getDeclarations(moduleFile);
+                                            decls.stream()
+                                                    .filter(cu ->
+                                                            cu.identifier().equals(text)
+                                                                    && (cu.isClass() || cu.isFunction()))
+                                                    .findFirst()
+                                                    .ifPresent(cu -> resolvedByName.put(cu.identifier(), cu));
+                                        }
+                                    } else if (wildcardModule == null) {
+                                        // import X
+                                        var definitions = getDefinitions(text);
+                                        definitions.stream()
+                                                .filter(cu -> cu.isClass() || cu.isFunction())
+                                                .findFirst()
+                                                .ifPresent(cu -> resolvedByName.put(cu.identifier(), cu));
+                                    }
                                 }
                             }
                         }
-                        case IMPORT_NAME -> {
-                            // For "from X import Y" style, we need the module
-                            if (currentModule != null) {
-                                // In Python, modules (files) don't add a level to class FQNs
-                                // "from package.module import Class" means:
-                                //   - Look for Class in file package/module.py or package/__init__.py
-                                //   - The FQN will be package.Class, not package.module.Class
-
-                                // Try to find the symbol in the module file
-                                var moduleFile = resolveModuleFile(currentModule);
-                                if (moduleFile != null) {
-                                    var decls = getDeclarations(moduleFile);
-                                    decls.stream()
-                                            .filter(cu ->
-                                                    cu.identifier().equals(text) && (cu.isClass() || cu.isFunction()))
-                                            .findFirst()
-                                            .ifPresent(cu -> resolvedByName.put(cu.identifier(), cu));
-                                } else {
-                                    log.trace("Could not find module file for import: {}", currentModule);
-                                }
-                            } else if (currentModule == null && wildcardModule == null) {
-                                // For "import X" style (no module context)
-                                var definitions = getDefinitions(text);
-                                definitions.stream()
-                                        .filter(cu -> cu.isClass() || cu.isFunction())
-                                        .findFirst()
-                                        .ifPresent(cu -> resolvedByName.put(cu.identifier(), cu));
-                            }
-                        }
-                            // Note: IMPORT_ALIAS captures the alias name, but we don't need it
-                            // for resolution - we only care about the original name
                     }
                 }
             }
@@ -861,20 +870,15 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
     }
 
     @Override
-    protected void createModulesFromImports(
+    protected FileAnalysisAccumulator createModulesFromImports(
             ProjectFile file,
             List<String> localImportStatements,
             TSNode rootNode,
             String modulePackageName,
-            Map<String, CodeUnit> localCuByFqName,
-            List<CodeUnit> localTopLevelCUs,
-            Map<CodeUnit, List<String>> localSignatures,
-            Map<CodeUnit, List<Range>> localSourceRanges,
-            Map<CodeUnit, List<CodeUnit>> localChildren,
-            Map<String, Set<CodeUnit>> localCodeUnitsBySymbol) {
+            FileAnalysisAccumulator acc) {
 
         if (modulePackageName.isBlank()) {
-            return;
+            return acc;
         }
 
         int idx = modulePackageName.lastIndexOf('.');
@@ -883,25 +887,29 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
 
         CodeUnit moduleCu = CodeUnit.module(file, parentPkg, simpleName);
 
-        // Register module in symbol index for getDefinitions() lookup
-        localCodeUnitsBySymbol
-                .computeIfAbsent(moduleCu.identifier(), k -> new HashSet<>())
-                .add(moduleCu);
-        if (!moduleCu.shortName().equals(moduleCu.identifier())) {
-            localCodeUnitsBySymbol
-                    .computeIfAbsent(moduleCu.shortName(), k -> new HashSet<>())
-                    .add(moduleCu);
+        // If the module CodeUnit already exists in context (e.g. from another file in the same package),
+        // we should still associate this file's TLDs with it.
+        CodeUnit existing = acc.getByFqName(moduleCu.fqName());
+        CodeUnit targetCu = (existing != null && existing.isModule()) ? existing : moduleCu;
+
+        if (existing == null) {
+            acc.addLookupKey(targetCu.fqName(), targetCu);
         }
 
-        List<CodeUnit> children = localTopLevelCUs.stream()
+        acc.addSignature(targetCu, "# module " + modulePackageName)
+                .setHasBody(targetCu, true)
+                .addSymbolIndex(targetCu.identifier(), targetCu)
+                .addSymbolIndex(targetCu.shortName(), targetCu);
+
+        List<CodeUnit> children = acc.topLevelCUs().stream()
                 .filter(cu -> modulePackageName.equals(cu.packageName()))
-                .filter(cu -> cu.isClass() || cu.isFunction() || cu.isField())
+                .filter(cu -> !cu.isModule())
                 .toList();
 
-        localChildren.put(moduleCu, children);
-        localCuByFqName.put(moduleCu.fqName(), moduleCu);
-
-        localSignatures.computeIfAbsent(moduleCu, k -> new ArrayList<>()).add("# module " + modulePackageName);
+        for (CodeUnit child : children) {
+            acc.addChild(targetCu, child);
+        }
+        return acc;
     }
 
     @Override
@@ -956,7 +964,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
             if (nameNode != null && !nameNode.isNull()) {
                 identifier = sourceContent.substringFrom(nameNode).strip();
             } else {
-                // For "import module" style, check import.module
+                // For "import module" style (import pkg.mod), check import.module or import.relative
                 TSNode moduleNode = capturedNodesForMatch.get(IMPORT_MODULE);
                 if (moduleNode == null || moduleNode.isNull()) {
                     moduleNode = capturedNodesForMatch.get(IMPORT_RELATIVE);
@@ -964,10 +972,10 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
 
                 if (moduleNode != null && !moduleNode.isNull()) {
                     String modulePath = sourceContent.substringFrom(moduleNode).strip();
-                    // For 'import a.b.c', the identifier used in code is 'a'
-                    // For 'from a.b import c', identifier is 'c' (handled above in nameNode block)
-                    int dotIdx = modulePath.indexOf('.');
-                    identifier = dotIdx != -1 ? modulePath.substring(0, dotIdx) : modulePath;
+                    // Strip leading dots for relative imports before finding first segment
+                    String cleanPath = modulePath.replaceFirst("^\\.+", "");
+                    int cleanDotIdx = cleanPath.indexOf('.');
+                    identifier = cleanDotIdx != -1 ? cleanPath.substring(0, cleanDotIdx) : cleanPath;
                 }
             }
         }
@@ -1078,8 +1086,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
     @Override
     public Set<String> extractTypeIdentifiers(String source) {
         Set<String> identifiers = new HashSet<>();
-        TSParser parser = getTSParser();
-        TSTree tree = parser.parseString(null, source);
+        TSTree tree = treeOf(source);
         if (tree == null) return identifiers;
         TSNode rootNode = tree.getRootNode();
 
@@ -1087,30 +1094,38 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
             return identifiers;
         }
 
-        // Capture all identifiers. This is intentionally broad because Python doesn't distinguish
-        // type identifiers from value identifiers syntactically. The AST-based approach still
-        // provides value over regex by excluding identifiers in comments and string literals.
-        String queryStr = "(identifier) @id";
+        try (TSQuery query = createQuery(QueryType.IDENTIFIERS)) {
+            if (query != null) {
+                try (TSQueryCursor cursor = new TSQueryCursor()) {
+                    cursor.exec(query, rootNode);
 
-        TSQuery query = new TSQuery(getTSLanguage(), queryStr);
-        TSQueryCursor cursor = new TSQueryCursor();
-        cursor.exec(query, rootNode);
-
-        SourceContent sc = SourceContent.of(source);
-        TSQueryMatch match = new TSQueryMatch();
-        while (cursor.nextMatch(match)) {
-            for (TSQueryCapture capture : match.getCaptures()) {
-                TSNode node = capture.getNode();
-                if (node != null && !node.isNull()) {
-                    String text = sc.substringFrom(node).strip();
-                    if (!text.isEmpty()) {
-                        identifiers.add(text);
+                    SourceContent sc = SourceContent.of(source);
+                    TSQueryMatch match = new TSQueryMatch();
+                    while (cursor.nextMatch(match)) {
+                        for (TSQueryCapture capture : match.getCaptures()) {
+                            TSNode node = capture.getNode();
+                            if (node != null && !node.isNull()) {
+                                String text = sc.substringFrom(node).strip();
+                                if (!text.isEmpty()) {
+                                    identifiers.add(text);
+                                }
+                            }
+                        }
                     }
                 }
             }
         }
 
         return identifiers;
+    }
+
+    private @Nullable TSTree treeOf(String source) {
+        try {
+            return getTSParser().parseString(null, source);
+        } catch (Exception e) {
+            log.debug("Failed to parse ad-hoc source string: {}", e.getMessage());
+            return null;
+        }
     }
 
     @Override

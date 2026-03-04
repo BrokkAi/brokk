@@ -35,8 +35,8 @@ jobs:
     - name: Check commit
       run: git rev-parse HEAD
 
-    - name: Run full test suite with static analysis
-      run: ./gradlew check
+    - name: Run full test suite with static analysis and integration tests
+      run: ./gradlew check intTest
 
     - name: Build assembly
       run: ./gradlew shadowJar

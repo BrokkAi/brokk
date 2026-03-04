@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Any
 
 from brokk_code.acp_server import (
     BASE_MODEL_IDS,
@@ -6,15 +7,19 @@ from brokk_code.acp_server import (
     DEFAULT_REASONING_LEVEL,
     REASONING_LEVEL_IDS,
     BrokkAcpBridge,
+    _available_model_names,
     _build_available_models,
     _extract_session_id_for_cancel,
+    _fetch_normalized_catalog_with_retries,
+    _known_session_ids,
     _model_variants_for_model,
     _normalize_model_catalog,
     _parse_model_selection,
     _reasoning_options_for_model,
     _sanitize_reasoning_level_for_model,
-    build_context_chip_blocks,
+    conversation_payload_to_session_updates,
     extract_prompt_text,
+    extract_resource_file_paths,
     map_executor_event_to_session_update,
     normalize_mode,
     resolve_model_selection,
@@ -27,6 +32,22 @@ def _text_block(value: str) -> dict[str, str]:
 
 def _thought_block(value: str) -> dict[str, str]:
     return {"sessionUpdate": "agent_thought_chunk", "text": value}
+
+
+def _start_tool_call(**kwargs: Any) -> dict[str, Any]:
+    return {"sessionUpdate": "tool_call", **kwargs}
+
+
+def _update_tool_call(**kwargs: Any) -> dict[str, Any]:
+    return {"sessionUpdate": "tool_call_update", **kwargs}
+
+
+def _tool_content(block: Any) -> dict[str, Any]:
+    return {"type": "content", "content": block}
+
+
+def _text_block_helper(text: str) -> dict[str, str]:
+    return {"type": "text", "text": text}
 
 
 def test_normalize_mode_defaults_and_known_values() -> None:
@@ -145,6 +166,71 @@ def test_parse_model_selection_routes_model_and_variant() -> None:
     assert _parse_model_selection("model/gpt-5.2", catalog) == ("gpt-5.2", None)
 
 
+def test_available_model_names_filters_invalid_entries_and_preserves_order() -> None:
+    catalog = [
+        {"name": "alpha"},
+        {"name": None},
+        {"name": "   "},
+        {"name": "beta"},
+        {"name": "alpha"},
+        {"location": "missing-name"},
+    ]
+
+    assert _available_model_names(catalog) == ["alpha", "beta", "alpha"]
+
+
+def test_parse_model_selection_ignores_none_model_name() -> None:
+    catalog = [{"name": None}, {"name": "gpt-5.2"}]
+
+    assert _parse_model_selection("None", catalog) == ("None", None)
+    assert _parse_model_selection("gpt-5.2", catalog) == ("gpt-5.2", None)
+
+
+async def test_fetch_normalized_catalog_with_retries_recovers_after_transient_failures() -> None:
+    calls = {"count": 0}
+
+    async def fetch_payload() -> dict[str, object]:
+        calls["count"] += 1
+        if calls["count"] < 3:
+            raise RuntimeError("executor not ready")
+        return {"models": [{"name": "gpt-5.2"}]}
+
+    catalog = await _fetch_normalized_catalog_with_retries(
+        fetch_payload,
+        attempts=4,
+        initial_backoff_seconds=0,
+    )
+
+    assert catalog == [
+        {
+            "name": "gpt-5.2",
+            "location": "gpt-5.2",
+            "supportsReasoningEffort": False,
+            "supportsReasoningDisable": False,
+        }
+    ]
+    assert calls["count"] == 3
+
+
+async def test_fetch_normalized_catalog_with_retries_returns_none_when_catalog_stays_empty() -> (
+    None
+):
+    calls = {"count": 0}
+
+    async def fetch_payload() -> dict[str, object]:
+        calls["count"] += 1
+        return {"models": []}
+
+    catalog = await _fetch_normalized_catalog_with_retries(
+        fetch_payload,
+        attempts=3,
+        initial_backoff_seconds=0,
+    )
+
+    assert catalog is None
+    assert calls["count"] == 3
+
+
 def test_extract_prompt_text_from_blocks() -> None:
     prompt = [
         {"type": "text", "text": "Hello"},
@@ -158,11 +244,78 @@ def test_extract_prompt_text_from_string() -> None:
     assert extract_prompt_text("  direct prompt  ") == "direct prompt"
 
 
+def test_extract_resource_file_paths_supports_zed_resource_shape_and_relative_links() -> None:
+    prompt = [
+        {
+            "type": "resource",
+            "resource": {"resource": {"uri": "file:///workspace/src/main.py"}},
+        },
+        {
+            "type": "embedded_resource",
+            "resource": {"uri": "file:///workspace/README.md"},
+        },
+        {"type": "resource_link", "uri": "src/utils.py"},
+        {"type": "resource_link", "uri": "https://example.com/docs"},
+        {"type": "resource", "resource": {"uri": "zed:///agent/diagnostics"}},
+    ]
+
+    assert extract_resource_file_paths(prompt, "/workspace") == [
+        "src/main.py",
+        "README.md",
+        "src/utils.py",
+    ]
+
+
+def test_extract_resource_file_paths_ignores_relative_links_without_cwd() -> None:
+    prompt = [{"type": "resource_link", "uri": "src/utils.py"}]
+    assert extract_resource_file_paths(prompt, "") == []
+
+
 def test_map_executor_token_event() -> None:
     event = {"type": "LLM_TOKEN", "data": {"token": "abc"}}
     assert map_executor_event_to_session_update(event, _text_block) == {
         "sessionUpdate": "agent_message_chunk",
         "text": "abc",
+    }
+
+
+def test_map_executor_reasoning_token_event() -> None:
+    event = {"type": "LLM_TOKEN", "data": {"token": "thinking", "isReasoning": True}}
+    # Should use thought block when isReasoning is True
+    assert map_executor_event_to_session_update(event, _text_block, _thought_block) == {
+        "sessionUpdate": "agent_thought_chunk",
+        "text": "thinking",
+    }
+
+
+def test_map_executor_reasoning_token_event_strict_parsing() -> None:
+    # Truthy strings
+    for val in ["true", "True", " 1 ", "yes"]:
+        event = {"type": "LLM_TOKEN", "data": {"token": "t", "isReasoning": val}}
+        assert map_executor_event_to_session_update(event, _text_block, _thought_block) == {
+            "sessionUpdate": "agent_thought_chunk",
+            "text": "t",
+        }
+
+    # Falsy strings (previously incorrectly treated as True by bool())
+    for val in ["false", "0", "no", ""]:
+        event = {"type": "LLM_TOKEN", "data": {"token": "t", "isReasoning": val}}
+        assert map_executor_event_to_session_update(event, _text_block, _thought_block) == {
+            "sessionUpdate": "agent_message_chunk",
+            "text": "t",
+        }
+
+    # Booleans
+    event_true = {"type": "LLM_TOKEN", "data": {"token": "t", "isReasoning": True}}
+    assert map_executor_event_to_session_update(event_true, _text_block, _thought_block) == {
+        "sessionUpdate": "agent_thought_chunk",
+        "text": "t",
+    }
+
+    event_false = {"type": "LLM_TOKEN", "data": {"token": "t", "isReasoning": False}}
+    assert map_executor_event_to_session_update(event_false, _text_block, _thought_block) == {
+        "sessionUpdate": "agent_message_chunk",
+        "text": "t",
     }
 
 
@@ -179,20 +332,155 @@ def test_map_executor_unknown_event() -> None:
     assert map_executor_event_to_session_update(event, _text_block) is None
 
 
-def test_map_executor_notification_event_to_thought_when_available() -> None:
+def test_map_executor_info_notification_event_is_suppressed() -> None:
     event = {"type": "NOTIFICATION", "data": {"level": "INFO", "message": "planning"}}
+    assert map_executor_event_to_session_update(event, _text_block, _thought_block) is None
+
+
+def test_map_executor_error_notification_event_surfaces_as_message() -> None:
+    event = {"type": "NOTIFICATION", "data": {"level": "ERROR", "message": "critical failure"}}
     assert map_executor_event_to_session_update(event, _text_block, _thought_block) == {
-        "sessionUpdate": "agent_thought_chunk",
-        "text": "[INFO] planning",
+        "sessionUpdate": "agent_message_chunk",
+        "text": "\n\n[ERROR] critical failure\n",
     }
 
 
-def test_map_executor_state_hint_to_thought_when_available() -> None:
+def test_map_executor_state_hint_surfaces_as_message() -> None:
     event = {"type": "STATE_HINT", "data": {"message": "indexing workspace"}}
+    assert map_executor_event_to_session_update(event, _text_block, _thought_block) is None
+
+
+def test_map_executor_warning_notification_event_surfaces_as_message() -> None:
+    event = {"type": "NOTIFICATION", "data": {"level": "WARN", "message": "slow network"}}
     assert map_executor_event_to_session_update(event, _text_block, _thought_block) == {
-        "sessionUpdate": "agent_thought_chunk",
-        "text": "indexing workspace",
+        "sessionUpdate": "agent_message_chunk",
+        "text": "\n\n[WARN] slow network\n",
     }
+
+
+def test_map_executor_cost_notification_event_is_suppressed() -> None:
+    event = {"type": "NOTIFICATION", "data": {"level": "COST", "message": "$0.0012 for gpt"}}
+    assert map_executor_event_to_session_update(event, _text_block, _thought_block) is None
+
+
+def test_map_executor_status_token_is_passed_through() -> None:
+    token = "\n**Brokk** performing initial workspace review..."
+    event = {"type": "LLM_TOKEN", "data": {"token": token}}
+    assert map_executor_event_to_session_update(event, _text_block, _thought_block) == {
+        "sessionUpdate": "agent_message_chunk",
+        "text": token,
+    }
+
+
+def test_map_executor_status_token_mojibake_is_minimally_normalized() -> None:
+    token = "\n**Brokk** performing initial workspace reviewâ€¦"
+    event = {"type": "LLM_TOKEN", "data": {"token": token}}
+    assert map_executor_event_to_session_update(event, _text_block, _thought_block) == {
+        "sessionUpdate": "agent_message_chunk",
+        "text": "\n**Brokk** performing initial workspace review...",
+    }
+
+
+def test_map_executor_tool_call_structured() -> None:
+    event = {
+        "type": "TOOL_CALL",
+        "data": {"name": "read_file", "arguments": '{"path": "foo.py"}', "id": "call-1"},
+    }
+    update = map_executor_event_to_session_update(
+        event,
+        _text_block,
+        _thought_block,
+        _start_tool_call,
+        _update_tool_call,
+        _tool_content,
+        _text_block_helper,
+    )
+    assert update["sessionUpdate"] == "tool_call"
+    assert update["tool_call_id"] == "call-1"
+    assert update["title"] == "read_file"
+    assert update["content"][0]["content"]["text"] == '{"path": "foo.py"}'
+
+
+def test_map_executor_tool_call_fallback() -> None:
+    # No ID or no callbacks -> now returns None instead of a text prefix
+    event = {"type": "TOOL_CALL", "data": {"name": "read_file", "arguments": "{}"}}
+    update = map_executor_event_to_session_update(event, _text_block)
+    assert update is None
+
+
+def test_map_executor_tool_output_structured() -> None:
+    event = {
+        "type": "TOOL_OUTPUT",
+        "data": {"status": "SUCCESS", "id": "call-1", "result": "done"},
+    }
+    update = map_executor_event_to_session_update(
+        event,
+        _text_block,
+        _thought_block,
+        _start_tool_call,
+        _update_tool_call,
+        _tool_content,
+        _text_block_helper,
+    )
+    assert update["sessionUpdate"] == "tool_call_update"
+    assert update["tool_call_id"] == "call-1"
+    assert update["status"] == "completed"
+    assert update["content"][0]["content"]["text"] == "done"
+
+
+def test_map_executor_tool_output_fallback() -> None:
+    event = {"type": "TOOL_OUTPUT", "data": {"status": "ERROR"}}
+    update = map_executor_event_to_session_update(event, _text_block)
+    assert update is None
+
+
+def test_conversation_payload_to_session_updates_replays_user_assistant_and_reasoning() -> None:
+    conversation_data = {
+        "entries": [
+            {
+                "messages": [
+                    {"role": "user", "text": "Hello"},
+                    {"role": "assistant", "reasoning": "Thinking...", "text": "Hi there"},
+                    {"role": "tool", "text": "Tool output"},
+                    {"role": "assistant", "text": "   "},
+                ]
+            },
+            {"summary": "Condensed summary"},
+        ]
+    }
+
+    def _user_update(text: str) -> dict[str, str]:
+        return {"sessionUpdate": "user_message_chunk", "text": text}
+
+    def _agent_update(text: str) -> dict[str, str]:
+        return {"sessionUpdate": "agent_message_chunk", "text": text}
+
+    def _thought_update(text: str) -> dict[str, str]:
+        return {"sessionUpdate": "agent_thought_chunk", "text": text}
+
+    updates = conversation_payload_to_session_updates(
+        conversation_data,
+        update_user_message_text=_user_update,
+        update_agent_message_text=_agent_update,
+        update_agent_thought_text=_thought_update,
+    )
+
+    assert updates == [
+        {"sessionUpdate": "user_message_chunk", "text": "Hello"},
+        {"sessionUpdate": "agent_thought_chunk", "text": "Thinking..."},
+        {"sessionUpdate": "agent_message_chunk", "text": "Hi there"},
+        {"sessionUpdate": "agent_message_chunk", "text": "Tool output"},
+        {"sessionUpdate": "agent_message_chunk", "text": "Condensed summary"},
+    ]
+
+
+def test_conversation_payload_to_session_updates_handles_missing_entries() -> None:
+    updates = conversation_payload_to_session_updates(
+        {"entries": "bad"},
+        update_user_message_text=_text_block,
+        update_agent_message_text=_thought_block,
+    )
+    assert updates == []
 
 
 def test_extract_session_id_for_cancel() -> None:
@@ -200,6 +488,22 @@ def test_extract_session_id_for_cancel() -> None:
     assert _extract_session_id_for_cancel(({"sessionId": "def"},), {}) == "def"
     assert _extract_session_id_for_cancel((), {"params": {"sessionId": "ghi"}}) == "ghi"
     assert _extract_session_id_for_cancel((), {}) is None
+
+
+def test_known_session_ids_collects_ids_without_leaking_names() -> None:
+    entries = [
+        {"id": "session-a"},
+        {"sessionId": "session-b"},
+        {"session_id": "session-c"},
+        {"id": ""},
+        {},
+    ]
+    assert _known_session_ids(entries) == {"session-a", "session-b", "session-c"}
+
+
+def test_known_session_ids_handles_bad_payload() -> None:
+    assert _known_session_ids(None) == set()
+    assert _known_session_ids("bad") == set()
 
 
 async def test_ensure_ready_bootstraps_session_before_wait_ready() -> None:
@@ -223,81 +527,12 @@ async def test_ensure_ready_bootstraps_session_before_wait_ready() -> None:
     assert calls == ["start", "create_session:ACP Bootstrap Session", "wait_ready"]
 
 
-def test_build_context_chip_blocks() -> None:
-    context_data = {
-        "usedTokens": 1500,
-        "maxTokens": 100000,
-        "fragments": [
-            {"chipKind": "EDIT", "shortDescription": "foo.py:10-20", "tokens": 400},
-            {
-                "chipKind": "HISTORY",
-                "shortDescription": "Prior chat",
-                "tokens": 250,
-                "pinned": True,
-            },
-        ],
-    }
-    blocks = build_context_chip_blocks(context_data, {})
-    assert blocks == []
-
-
-def test_build_context_chip_blocks_empty() -> None:
-    blocks = build_context_chip_blocks({"usedTokens": 10, "fragments": []}, {})
-    assert blocks == []
-
-
-def test_build_context_chip_blocks_uses_fragment_resource_payload() -> None:
-    context_data = {
-        "fragments": [
-            {"id": "frag-1", "chipKind": "EDIT", "shortDescription": "script.py"},
-        ]
-    }
-    blocks = build_context_chip_blocks(
-        context_data,
-        {
-            "frag-1": {
-                "uri": "file:///tmp/script.py",
-                "mimeType": "text/x-python",
-                "text": "def hello():\n    print('Hello, world!')\n",
-            }
-        },
-    )
-    assert blocks[0]["uri"] == "file:///tmp/script.py"
-    assert blocks[0]["mime_type"] == "text/x-python"
-    assert "def hello():" in blocks[0]["text"]
-
-
-def test_build_context_chip_blocks_orders_by_chip_kind() -> None:
-    context_data = {
-        "fragments": [
-            {"id": "h", "chipKind": "HISTORY"},
-            {"id": "o", "chipKind": "OTHER"},
-            {"id": "e", "chipKind": "EDIT"},
-            {"id": "s", "chipKind": "SUMMARY"},
-        ]
-    }
-    blocks = build_context_chip_blocks(
-        context_data,
-        {
-            "h": {"uri": "file:///tmp/h.txt", "mimeType": "text/plain", "text": "h"},
-            "o": {"uri": "file:///tmp/o.txt", "mimeType": "text/plain", "text": "o"},
-            "e": {"uri": "file:///tmp/e.txt", "mimeType": "text/plain", "text": "e"},
-            "s": {"uri": "file:///tmp/s.txt", "mimeType": "text/plain", "text": "s"},
-        },
-    )
-    assert [block["uri"] for block in blocks] == [
-        "file:///tmp/e.txt",
-        "file:///tmp/s.txt",
-        "file:///tmp/h.txt",
-        "file:///tmp/o.txt",
-    ]
-
-
-async def test_prompt_emits_context_snapshot_after_stream() -> None:
+async def test_prompt_emits_tokens_but_no_snapshot(tmp_path: Path) -> None:
     updates: list[tuple[str, dict[str, str]]] = []
 
     class StubExecutor:
-        workspace_dir = Path(".").resolve()
+        def __init__(self, workspace_dir: Path):
+            self.workspace_dir = workspace_dir
 
         async def start(self) -> None:
             pass
@@ -308,7 +543,6 @@ async def test_prompt_emits_context_snapshot_after_stream() -> None:
         async def wait_ready(self) -> bool:
             return True
 
-        # Accept session_id kwarg for compatibility with new API.
         async def submit_job(
             self,
             task_input: str,
@@ -319,35 +553,11 @@ async def test_prompt_emits_context_snapshot_after_stream() -> None:
             mode: str = "LUTZ",
             session_id: str | None = None,
         ) -> str:
-            # For this test the executor session should match the created session.
             assert session_id == "session-1"
             return "job-1"
 
         async def stream_events(self, job_id: str):
             yield {"type": "LLM_TOKEN", "data": {"token": "abc"}}
-
-        async def get_context(self) -> dict[str, object]:
-            return {
-                "usedTokens": 250,
-                "maxTokens": 1000,
-                "fragments": [
-                    {
-                        "id": "frag-1",
-                        "chipKind": "EDIT",
-                        "shortDescription": "main.py",
-                        "tokens": 50,
-                    }
-                ],
-            }
-
-        async def get_context_fragment(self, fragment_id: str) -> dict[str, object]:
-            assert fragment_id == "frag-1"
-            return {
-                "id": "frag-1",
-                "uri": "file:///repo/main.py",
-                "mimeType": "text/x-python",
-                "text": "print('hi')\n",
-            }
 
     async def send_update(session_id: str, update: dict[str, str]) -> None:
         updates.append((session_id, update))
@@ -355,19 +565,7 @@ async def test_prompt_emits_context_snapshot_after_stream() -> None:
     def update_agent_message_text(text: str) -> dict[str, str]:
         return {"sessionUpdate": "agent_message_chunk", "text": text}
 
-    def update_agent_thought_text(text: str) -> dict[str, str]:
-        return {"sessionUpdate": "agent_thought_chunk", "text": text}
-
-    def build_context_snapshot_update(uri: str, mime_type: str, text: str) -> dict[str, str]:
-        return {
-            "sessionUpdate": "agent_message_chunk",
-            "uri": uri,
-            "mimeType": mime_type,
-            "text": text,
-            "kind": "embedded_resource",
-        }
-
-    bridge = BrokkAcpBridge(StubExecutor())  # type: ignore[arg-type]
+    bridge = BrokkAcpBridge(StubExecutor(tmp_path))  # type: ignore[arg-type]
     await bridge.prompt(
         prompt=[{"type": "text", "text": "hello"}],
         session_id="acp-session-1",
@@ -378,207 +576,8 @@ async def test_prompt_emits_context_snapshot_after_stream() -> None:
         reasoning_level_code="disable",
         send_update=send_update,
         update_agent_message_text=update_agent_message_text,
-        update_agent_thought_text=update_agent_thought_text,
-        build_context_snapshot_update=build_context_snapshot_update,
     )
 
-    assert len(updates) == 6
+    # Only one update for the token "abc" - no snapshot blocks
+    assert len(updates) == 1
     assert updates[0][1]["text"] == "abc"
-    assert "Context Snapshot" in updates[1][1]["text"]
-    assert "Editable Context" in updates[2][1]["text"]
-    assert updates[3][1]["text"] == "- "
-    assert updates[4][1]["kind"] == "embedded_resource"
-    assert updates[4][1]["uri"] == "file:///repo/main.py"
-    assert updates[4][1]["mimeType"] == "text/x-python"
-    assert updates[4][1]["text"] == "print('hi')\n"
-    assert updates[5][1]["text"] == " | 50\n"
-
-
-async def test_prompt_emits_discarded_context_as_json_markdown_text() -> None:
-    updates: list[tuple[str, dict[str, str]]] = []
-
-    class StubExecutor:
-        workspace_dir = Path(".").resolve()
-
-        async def start(self) -> None:
-            pass
-
-        async def create_session(self, name: str = "ignored") -> str:
-            return "session-1"
-
-        async def wait_ready(self) -> bool:
-            return True
-
-        async def submit_job(
-            self,
-            task_input: str,
-            planner_model: str,
-            code_model: str | None = None,
-            reasoning_level: str | None = None,
-            reasoning_level_code: str | None = None,
-            mode: str = "LUTZ",
-            session_id: str | None = None,
-        ) -> str:
-            assert session_id == "session-1"
-            return "job-1"
-
-        async def stream_events(self, job_id: str):
-            yield {"type": "LLM_TOKEN", "data": {"token": "abc"}}
-
-        async def get_context(self) -> dict[str, object]:
-            return {
-                "usedTokens": 250,
-                "maxTokens": 1000,
-                "fragments": [
-                    {
-                        "id": "frag-dc",
-                        "chipKind": "OTHER",
-                        "shortDescription": "Discarded Context",
-                        "tokens": 10,
-                    }
-                ],
-            }
-
-        async def get_context_fragment(self, fragment_id: str) -> dict[str, object]:
-            assert fragment_id == "frag-dc"
-            return {
-                "id": "frag-dc",
-                "uri": "brokk://context/fragment/frag-dc",
-                "mimeType": "text/plain",
-                "text": "dropped items here",
-            }
-
-    async def send_update(session_id: str, update: dict[str, str]) -> None:
-        updates.append((session_id, update))
-
-    def update_agent_message_text(text: str) -> dict[str, str]:
-        return {"sessionUpdate": "agent_message_chunk", "text": text}
-
-    def update_agent_thought_text(text: str) -> dict[str, str]:
-        return {"sessionUpdate": "agent_thought_chunk", "text": text}
-
-    def build_context_snapshot_update(uri: str, mime_type: str, text: str) -> dict[str, str]:
-        return {
-            "sessionUpdate": "agent_message_chunk",
-            "uri": uri,
-            "mimeType": mime_type,
-            "text": text,
-            "kind": "embedded_resource",
-        }
-
-    bridge = BrokkAcpBridge(StubExecutor())  # type: ignore[arg-type]
-    await bridge.prompt(
-        prompt=[{"type": "text", "text": "hello"}],
-        session_id="acp-session-1",
-        mode="LUTZ",
-        planner_model="gpt-5.2",
-        code_model="gemini-3-flash-preview",
-        reasoning_level="low",
-        reasoning_level_code="disable",
-        send_update=send_update,
-        update_agent_message_text=update_agent_message_text,
-        update_agent_thought_text=update_agent_thought_text,
-        build_context_snapshot_update=build_context_snapshot_update,
-    )
-
-    json_blocks = [u[1]["text"] for u in updates if "```json" in u[1].get("text", "")]
-    assert len(json_blocks) == 1
-    assert '"title": "Discarded Context"' in json_blocks[0]
-    assert '"content": "dropped items here"' in json_blocks[0]
-
-
-async def test_prompt_emits_summary_as_list_item_with_resource_and_tokens() -> None:
-    updates: list[tuple[str, dict[str, str]]] = []
-
-    class StubExecutor:
-        workspace_dir = Path(".").resolve()
-
-        async def start(self) -> None:
-            pass
-
-        async def create_session(self, name: str = "ignored") -> str:
-            return "session-1"
-
-        async def wait_ready(self) -> bool:
-            return True
-
-        async def submit_job(
-            self,
-            task_input: str,
-            planner_model: str,
-            code_model: str | None = None,
-            reasoning_level: str | None = None,
-            reasoning_level_code: str | None = None,
-            mode: str = "LUTZ",
-            session_id: str | None = None,
-        ) -> str:
-            assert session_id == "session-1"
-            return "job-1"
-
-        async def stream_events(self, job_id: str):
-            yield {"type": "LLM_TOKEN", "data": {"token": "abc"}}
-
-        async def get_context(self) -> dict[str, object]:
-            return {
-                "usedTokens": 250,
-                "maxTokens": 1000,
-                "fragments": [
-                    {
-                        "id": "frag-s",
-                        "chipKind": "SUMMARY",
-                        "shortDescription": "Summary of worker.go",
-                        "tokens": 12,
-                    }
-                ],
-            }
-
-        async def get_context_fragment(self, fragment_id: str) -> dict[str, object]:
-            assert fragment_id == "frag-s"
-            return {
-                "id": "frag-s",
-                "uri": "brokk://context/fragment/frag-s",
-                "mimeType": "text/plain",
-                "text": "summary text",
-            }
-
-    async def send_update(session_id: str, update: dict[str, str]) -> None:
-        updates.append((session_id, update))
-
-    def update_agent_message_text(text: str) -> dict[str, str]:
-        return {"sessionUpdate": "agent_message_chunk", "text": text}
-
-    def update_agent_thought_text(text: str) -> dict[str, str]:
-        return {"sessionUpdate": "agent_thought_chunk", "text": text}
-
-    def build_context_snapshot_update(uri: str, mime_type: str, text: str) -> dict[str, str]:
-        return {
-            "sessionUpdate": "agent_message_chunk",
-            "uri": uri,
-            "mimeType": mime_type,
-            "text": text,
-            "kind": "embedded_resource",
-        }
-
-    bridge = BrokkAcpBridge(StubExecutor())  # type: ignore[arg-type]
-    await bridge.prompt(
-        prompt=[{"type": "text", "text": "hello"}],
-        session_id="acp-session-1",
-        mode="LUTZ",
-        planner_model="gpt-5.2",
-        code_model="gemini-3-flash-preview",
-        reasoning_level="low",
-        reasoning_level_code="disable",
-        send_update=send_update,
-        update_agent_message_text=update_agent_message_text,
-        update_agent_thought_text=update_agent_thought_text,
-        build_context_snapshot_update=build_context_snapshot_update,
-    )
-
-    assert len(updates) == 6
-    assert updates[0][1]["text"] == "abc"
-    assert "Context Snapshot" in updates[1][1]["text"]
-    assert "Summaries" in updates[2][1]["text"]
-    assert updates[3][1]["text"] == "- "
-    assert updates[4][1]["kind"] == "embedded_resource"
-    assert updates[4][1]["text"] == "summary text"
-    assert updates[5][1]["text"] == " | 12\n"

@@ -1802,6 +1802,81 @@ public class JavaAnalyzerTest {
     }
 
     @Test
+    public void testExtractSignatureWithFinalVarargs() throws IOException {
+        String code =
+                """
+                public class FinalVarargs {
+                    public void foo(final Object... args) {}
+                    public void bar(final String s) {}
+                    public void baz(final int... numbers) {}
+                }
+                """;
+        try (var testProject =
+                InlineTestProjectCreator.code(code, "FinalVarargs.java").build()) {
+            var analyzer = new JavaAnalyzer(testProject);
+
+            // foo(final Object... args) -> (Object[])
+            var fooDefs = analyzer.getDefinitions("FinalVarargs.foo");
+            assertEquals(1, fooDefs.size());
+            assertEquals(
+                    "(Object[])",
+                    fooDefs.iterator().next().signature(),
+                    "Signature for 'final Object... args' should be '(Object[])' - modifiers should be ignored");
+
+            // bar(final String s) -> (String)
+            var barDefs = analyzer.getDefinitions("FinalVarargs.bar");
+            assertEquals(1, barDefs.size());
+            assertEquals(
+                    "(String)",
+                    barDefs.iterator().next().signature(),
+                    "Signature for 'final String s' should be '(String)'");
+
+            // baz(final int... numbers) -> (int[])
+            var bazDefs = analyzer.getDefinitions("FinalVarargs.baz");
+            assertEquals(1, bazDefs.size());
+            assertEquals(
+                    "(int[])",
+                    bazDefs.iterator().next().signature(),
+                    "Signature for 'final int... numbers' should be '(int[])'");
+        }
+    }
+
+    @Test
+    public void testLambdaParenting() throws IOException {
+        String code =
+                """
+                package p;
+                import java.util.List;
+                public class LambdaTest {
+                    public void process(List<String> list) {
+                        list.forEach(s -> {
+                            System.out.println(s);
+                        });
+                    }
+                }
+                """;
+        try (var testProject =
+                InlineTestProjectCreator.code(code, "LambdaTest.java").build()) {
+            var analyzer = new JavaAnalyzer(testProject);
+            var file = new ProjectFile(testProject.getRoot(), "LambdaTest.java");
+
+            var declarations = analyzer.getDeclarations(file);
+            var processMethod = declarations.stream()
+                    .filter(cu -> cu.fqName().equals("p.LambdaTest.process"))
+                    .findFirst()
+                    .orElseThrow();
+
+            var lambda = declarations.stream()
+                    .filter(cu -> cu.fqName().contains("$anon$"))
+                    .findFirst()
+                    .orElseThrow();
+
+            var children = analyzer.getDirectChildren(processMethod);
+            assertTrue(children.contains(lambda), "Lambda should be a child of the enclosing method 'process'");
+        }
+    }
+
+    @Test
     public void testFindNearestDeclaration_MethodParameter() throws IOException {
         String content =
                 """

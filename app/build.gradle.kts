@@ -83,6 +83,17 @@ val errorproneCompile by configurations.creating {
     isCanBeConsumed = false
 }
 
+// Force Jackson version alignment to prevent MCP SDK from pulling in unreleased versions
+configurations.all {
+    resolutionStrategy {
+        force("com.fasterxml.jackson.core:jackson-databind:2.18.3")
+        force("com.fasterxml.jackson.core:jackson-core:2.18.3")
+        force("com.fasterxml.jackson.core:jackson-annotations:2.18.3")
+        force("com.fasterxml.jackson.dataformat:jackson-dataformat-smile:2.18.3")
+        force("com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:2.18.3")
+    }
+}
+
 dependencies {
     // NullAway - version must match local jar version
     implementation(libs.nullaway)
@@ -473,7 +484,11 @@ tasks.named("check") {
 
 
 tasks.withType<Test> {
-    useJUnitPlatform()
+    useJUnitPlatform {
+        if (name == "test") {
+            excludeTags("git-integration")
+        }
+    }
 
     // Exclude GitRepoTest on Windows when property is set
     if (project.hasProperty("excludeGitRepoTest")) {
@@ -590,6 +605,17 @@ tasks.withType<Test> {
     systemProperty("java.awt.headless", "true")
 }
 
+tasks.register<Test>("intTest") {
+    description = "Runs integration tests (e.g. git cloning)"
+    group = "verification"
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    useJUnitPlatform {
+        includeTags("git-integration")
+    }
+    shouldRunAfter("test")
+}
+
 tasks.register<JavaExec>("runCli") {
     group = "application"
     description = "Runs the Brokk CLI"
@@ -676,7 +702,7 @@ tasks.register<JavaExec>("runPageRankBenchmark") {
 
 tasks.register<JavaExec>("runUsageBenchEval") {
     group = "application"
-    description = "Runs the UsageBenchEval tool for FuzzyUsageFinder evaluation"
+    description = "Runs the UsageBenchEval tool for UsageFinder evaluation"
     mainClass.set("ai.brokk.tools.UsageBenchEval")
     classpath = sourceSets.test.get().runtimeClasspath
     jvmArgumentProviders.add(object : CommandLineArgumentProvider {
@@ -768,7 +794,7 @@ tasks.shadowJar {
 tasks.shadowJar {
     enabled = project.hasProperty("enableShadowJar") ||
               System.getenv("CI") == "true" ||
-              gradle.startParameter.taskNames.contains("shadowJar")
+              gradle.startParameter.taskNames.any { it.contains("shadowJar") }
 }
 
 // When shadowJar is enabled, disable the regular jar task to avoid creating two JARs

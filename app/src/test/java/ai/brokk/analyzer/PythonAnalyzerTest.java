@@ -1,8 +1,8 @@
 package ai.brokk.analyzer;
 
 import static ai.brokk.testutil.AssertionHelperUtil.assertCodeEquals;
-import static ai.brokk.testutil.FuzzyUsageFinderTestUtil.fileNamesFromHits;
-import static ai.brokk.testutil.FuzzyUsageFinderTestUtil.newFinder;
+import static ai.brokk.testutil.UsageFinderTestUtil.fileNamesFromHits;
+import static ai.brokk.testutil.UsageFinderTestUtil.newFinder;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.junit.jupiter.api.Assumptions.assumeFalse;
 
@@ -1495,6 +1495,102 @@ public final class PythonAnalyzerTest {
 
         assertTrue(analyzer.isConstructor(initCU, classCU, ""), "__init__ should be a constructor");
         assertFalse(analyzer.isConstructor(otherMethodCU, classCU, ""), "get_value should not be a constructor");
+    }
+
+    @Test
+    void testRootRelativeWildcardImportDoesNotCrash() throws Exception {
+        // Reproducer for the "RelPath must be relative, got /__init__.py" bug.
+        // Occurs when a relative import at the project root resolves to an empty module path.
+        var builder = InlineTestProjectCreator.code("""
+                from . import *
+                """, "main.py")
+                .addFileContents(
+                        """
+                        def root_func():
+                            pass
+                        """,
+                        "__init__.py");
+
+        try (var testProject = builder.build()) {
+            var testAnalyzer = new PythonAnalyzer(testProject);
+            ProjectFile mainFile = new ProjectFile(testProject.getRoot(), "main.py");
+
+            // This call triggers resolveImports -> resolveRelativeImport -> resolveModuleFile("")
+            // Before the fix, resolveModuleFile would return "/__init__.py" and ProjectFile would throw.
+            assertDoesNotThrow(() -> {
+                Set<CodeUnit> imports = testAnalyzer.importedCodeUnitsOf(mainFile);
+                assertNotNull(imports);
+            });
+        }
+    }
+
+    @Test
+    void testSummarizeSymbolsGrouping() {
+        assertNotNull(analyzer, "Analyzer should be initialized.");
+
+        // We'll use the 'documented.py' and 'a/A.py' fixtures which should be in the test project
+        ProjectFile fileA = new ProjectFile(project.getRoot(), "a/A.py");
+        ProjectFile documentedFile = new ProjectFile(project.getRoot(), "documented.py");
+
+        // Get symbols for multiple files to test grouping across the project
+        var units = new java.util.ArrayList<CodeUnit>();
+        units.addAll(analyzer.getTopLevelDeclarations(fileA));
+        units.addAll(analyzer.getTopLevelDeclarations(documentedFile));
+
+        String summary = analyzer.summarizeSymbols(units, CodeUnitType.ALL, 0);
+
+        // Verify grouping headers exist
+        assertTrue(summary.contains("# a.A"), "Summary should contain group header for 'a.A'");
+        assertTrue(summary.contains("# documented"), "Summary should contain group header for 'documented'");
+
+        // Verify indentation and nesting for a.A
+        // a.A has class A and function funcA. IAnalyzer uses 2 spaces per indent level.
+        assertTrue(summary.contains("- A\n  - __init__"), "Summary should show nested members of class A");
+        assertTrue(summary.contains("- funcA"), "Summary should show top-level function in a.A");
+
+        // Verify 'documented' group contents
+        assertTrue(summary.contains("- DocumentedClass"), "Summary should contain DocumentedClass");
+        assertTrue(summary.contains("- standalone_function"), "Summary should contain standalone_function");
+
+        // Verify that FQNs are NOT repeated in the list items (they should use identifier/shortName)
+        assertFalse(summary.contains("- a.A.A"), "Summary should not use FQN in list items when grouped");
+        assertFalse(
+                summary.contains("- documented.DocumentedClass"),
+                "Summary should not use FQN in list items when grouped");
+    }
+
+    @Test
+    void testResolveTestModules() throws Exception {
+        var builder = InlineTestProjectCreator.code("", "pkg/__init__.py")
+                .addFileContents("def test_a(): pass", "pkg/test_a.py")
+                .addFileContents("", "pkg/sub/__init__.py")
+                .addFileContents("def test_b(): pass", "pkg/sub/test_b.py")
+                .addFileContents("def test_root(): pass", "test_root.py")
+                .addFileContents("def test_c(): pass", "scripts/test_c.py");
+
+        try (var testProject = builder.build()) {
+            var testAnalyzer = new PythonAnalyzer(testProject);
+
+            // 1. Standard Package: pkg/test_a.py -> pkg.test_a
+            ProjectFile fileA = new ProjectFile(testProject.getRoot(), "pkg/test_a.py");
+            assertEquals(List.of("pkg.test_a"), testAnalyzer.getTestModules(List.of(fileA)));
+
+            // 2. Nested Package: pkg/sub/test_b.py -> pkg.sub.test_b
+            ProjectFile fileB = new ProjectFile(testProject.getRoot(), "pkg/sub/test_b.py");
+            assertEquals(List.of("pkg.sub.test_b"), testAnalyzer.getTestModules(List.of(fileB)));
+
+            // 3. Root Script: test_root.py -> test_root
+            ProjectFile fileRoot = new ProjectFile(testProject.getRoot(), "test_root.py");
+            assertEquals(List.of("test_root"), testAnalyzer.getTestModules(List.of(fileRoot)));
+
+            // 4. Namespace/No-Init Dir: scripts/test_c.py -> scripts.test_c
+            // getPackageNameForFile falls back to path replacement if no __init__.py is found upstream.
+            ProjectFile fileC = new ProjectFile(testProject.getRoot(), "scripts/test_c.py");
+            assertEquals(List.of("scripts.test_c"), testAnalyzer.getTestModules(List.of(fileC)));
+
+            // Multiple files sorted
+            assertEquals(List.of("pkg.test_a", "test_root"), testAnalyzer.getTestModules(List.of(fileA, fileRoot)));
+        }
     }
 
     @Test

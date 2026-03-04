@@ -31,6 +31,12 @@ curl -sS "${BASE}/health/live"
 curl -sS "${BASE}/health/ready"
 ```
 
+## Executor Info
+
+```bash
+curl -sS "${BASE}/v1/executor"
+```
+
 ## Create Session
 
 ```bash
@@ -59,6 +65,59 @@ curl -sS -X PUT "${BASE}/v1/sessions" \
 curl -sS -X GET "${BASE}/v1/sessions/<session-id>" \
   -H "Authorization: Bearer ${AUTH_TOKEN}" \
   -o "<session-id>.zip"
+```
+
+## List Sessions
+
+```bash
+curl -sS -X GET "${BASE}/v1/sessions" \
+  -H "Authorization: Bearer ${AUTH_TOKEN}"
+```
+
+## Get Current Session
+
+```bash
+curl -sS -X GET "${BASE}/v1/sessions/current" \
+  -H "Authorization: Bearer ${AUTH_TOKEN}"
+```
+
+## Switch Active Session
+
+```bash
+curl -sS -X POST "${BASE}/v1/sessions/switch" \
+  -H "Authorization: Bearer ${AUTH_TOKEN}" \
+  -H "Content-Type: application/json" \
+  --data @- <<'JSON'
+{
+  "sessionId": "<session-id>"
+}
+JSON
+```
+
+## Context Overview
+
+```bash
+# Basic context snapshot
+curl -sS -X GET "${BASE}/v1/context" \
+  -H "Authorization: Bearer ${AUTH_TOKEN}"
+
+# Include token estimates
+curl -sS -X GET "${BASE}/v1/context?tokens=true" \
+  -H "Authorization: Bearer ${AUTH_TOKEN}"
+```
+
+## Get One Context Fragment
+
+```bash
+curl -sS -X GET "${BASE}/v1/context/fragments/<url-encoded-fragment-id>" \
+  -H "Authorization: Bearer ${AUTH_TOKEN}"
+```
+
+## Context Conversation View
+
+```bash
+curl -sS -X GET "${BASE}/v1/context/conversation" \
+  -H "Authorization: Bearer ${AUTH_TOKEN}"
 ```
 
 ## Context Injection (Optional)
@@ -218,6 +277,111 @@ Behavior notes:
 - **Polling**: Clients should poll this endpoint periodically (e.g., approximately every 15 seconds) to reflect updates from autonomous agents (like LUTZ or ISSUE modes). This is a suggestion for UI responsiveness, not a protocol requirement.
 - **IDs are opaque**: Treat `tasks[].id` as an opaque string identifier. In practice it is typically UUID-like, but clients should not assume a specific format.
 - **Auth and errors**: Missing/invalid bearer token returns `401 Unauthorized`; unexpected server failures return `500` with a structured error payload.
+
+### Replace Task List
+
+```bash
+curl -sS -X POST "${BASE}/v1/tasklist" \
+  -H "Authorization: Bearer ${AUTH_TOKEN}" \
+  -H "Content-Type: application/json" \
+  --data @- <<'JSON'
+{
+  "bigPicture": "Refactor parser and add tests",
+  "tasks": [
+    { "id": "1", "title": "Refactor parser", "text": "Split monolithic logic", "done": false },
+    { "id": "2", "title": "Add tests", "text": "Cover edge cases", "done": false }
+  ]
+}
+JSON
+```
+
+### Context Management Operations
+
+```bash
+# Drop selected fragments
+curl -sS -X POST "${BASE}/v1/context/drop" \
+  -H "Authorization: Bearer ${AUTH_TOKEN}" \
+  -H "Content-Type: application/json" \
+  --data '{"fragmentIds":["<fragment-id-1>","<fragment-id-2>"]}'
+
+# Toggle pin
+curl -sS -X POST "${BASE}/v1/context/pin" \
+  -H "Authorization: Bearer ${AUTH_TOKEN}" \
+  -H "Content-Type: application/json" \
+  --data '{"fragmentId":"<fragment-id>","pinned":true}'
+
+# Toggle readonly (editable fragments only)
+curl -sS -X POST "${BASE}/v1/context/readonly" \
+  -H "Authorization: Bearer ${AUTH_TOKEN}" \
+  -H "Content-Type: application/json" \
+  --data '{"fragmentId":"<fragment-id>","readonly":true}'
+
+# Compress history (async)
+curl -sS -X POST "${BASE}/v1/context/compress-history" \
+  -H "Authorization: Bearer ${AUTH_TOKEN}"
+
+# Clear history
+curl -sS -X POST "${BASE}/v1/context/clear-history" \
+  -H "Authorization: Bearer ${AUTH_TOKEN}"
+
+# Drop all context
+curl -sS -X POST "${BASE}/v1/context/drop-all" \
+  -H "Authorization: Bearer ${AUTH_TOKEN}"
+```
+
+### Activity APIs
+
+```bash
+# Activity feed
+curl -sS -X GET "${BASE}/v1/activity" \
+  -H "Authorization: Bearer ${AUTH_TOKEN}"
+
+# Diff for a specific context snapshot
+curl -sS -X GET "${BASE}/v1/activity/diff?contextId=<context-uuid>" \
+  -H "Authorization: Bearer ${AUTH_TOKEN}"
+
+# Undo to a specific context
+curl -sS -X POST "${BASE}/v1/activity/undo" \
+  -H "Authorization: Bearer ${AUTH_TOKEN}" \
+  -H "Content-Type: application/json" \
+  --data '{"contextId":"<context-uuid>"}'
+
+# Undo step / redo step
+curl -sS -X POST "${BASE}/v1/activity/undo-step" -H "Authorization: Bearer ${AUTH_TOKEN}"
+curl -sS -X POST "${BASE}/v1/activity/redo" -H "Authorization: Bearer ${AUTH_TOKEN}"
+
+# Copy context with or without history
+curl -sS -X POST "${BASE}/v1/activity/copy-context" \
+  -H "Authorization: Bearer ${AUTH_TOKEN}" \
+  -H "Content-Type: application/json" \
+  --data '{"contextId":"<context-uuid>"}'
+curl -sS -X POST "${BASE}/v1/activity/copy-context-history" \
+  -H "Authorization: Bearer ${AUTH_TOKEN}" \
+  -H "Content-Type: application/json" \
+  --data '{"contextId":"<context-uuid>"}'
+
+# Create new session from context
+curl -sS -X POST "${BASE}/v1/activity/new-session" \
+  -H "Authorization: Bearer ${AUTH_TOKEN}" \
+  -H "Content-Type: application/json" \
+  --data '{"contextId":"<context-uuid>","name":"Session from activity"}'
+```
+
+### Models, Completions, Favorites
+
+```bash
+# Models
+curl -sS -X GET "${BASE}/v1/models" \
+  -H "Authorization: Bearer ${AUTH_TOKEN}"
+
+# Completions
+curl -sS -X GET "${BASE}/v1/completions?query=Context&limit=20" \
+  -H "Authorization: Bearer ${AUTH_TOKEN}"
+
+# Favorites
+curl -sS -X GET "${BASE}/v1/favorites" \
+  -H "Authorization: Bearer ${AUTH_TOKEN}"
+```
 
 ### Workflow: Pre-seed Context, Then Ask
 
@@ -956,9 +1120,11 @@ curl -sS "${BASE}/v1/jobs/<job-id>/events?after=0" \
 ## Cancel Job
 
 ```bash
-curl -sS -X POST "${BASE}/v1/jobs/<job-id>/cancel" \
+curl -i -sS -X POST "${BASE}/v1/jobs/<job-id>/cancel" \
   -H "Authorization: Bearer ${AUTH_TOKEN}"
 ```
+
+Expected: `HTTP/1.1 202 Accepted` with an empty body.
 
 ## Job-level model overrides (optional): reasoningLevel and temperature
 

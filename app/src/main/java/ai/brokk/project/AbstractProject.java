@@ -1,6 +1,7 @@
 package ai.brokk.project;
 
 import ai.brokk.IAnalyzerWrapper;
+import ai.brokk.agents.BuildAgent;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
@@ -13,6 +14,7 @@ import ai.brokk.git.LocalFileRepo;
 import ai.brokk.util.EnvironmentJava;
 import ai.brokk.util.PathNormalizer;
 import ai.brokk.util.ShellConfig;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.awt.Rectangle;
@@ -21,6 +23,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -57,9 +61,14 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     protected final Path workspacePropertiesFile;
     protected final Properties workspaceProps;
     protected final Path masterRootPathForConfig;
+    protected final Path propertiesFile;
+    protected final Properties projectProps;
 
     // File filtering service that encapsulates baseline exclusions + gitignore handling.
     protected final FileFilteringService fileFilteringService;
+    private static final String BUILD_DETAILS_KEY = "buildDetailsJson";
+
+    private volatile CompletableFuture<BuildAgent.BuildDetails> detailsFuture = new CompletableFuture<>();
 
     // Cached pattern matcher for file exclusions (invalidated when patterns change)
     // Using volatile for thread-safe reads without synchronization
@@ -100,9 +109,35 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
 
         this.workspacePropertiesFile = this.root.resolve(BROKK_DIR).resolve(WORKSPACE_PROPERTIES_FILE);
         this.workspaceProps = new Properties();
+        this.propertiesFile = this.root.resolve(BROKK_DIR).resolve(PROJECT_PROPERTIES_FILE);
+        this.projectProps = new Properties();
         this.fileFilteringService = new FileFilteringService(this.root, this.repo);
 
         initializeProject();
+        initializeProjectProperties();
+        initializeBuildDetails();
+    }
+
+    private void initializeProjectProperties() {
+        try {
+            if (Files.exists(propertiesFile)) {
+                try (var reader = Files.newBufferedReader(propertiesFile)) {
+                    projectProps.load(reader);
+                }
+            }
+        } catch (IOException e) {
+            logger.error("Error loading project properties from {}: {}", propertiesFile, e.getMessage());
+            projectProps.clear();
+        }
+    }
+
+    private void initializeBuildDetails() {
+        var bdOpt = loadBuildDetails();
+        if (bdOpt.isPresent()) {
+            this.detailsFuture.complete(bdOpt.get());
+        } else {
+            this.detailsFuture.complete(BuildAgent.BuildDetails.EMPTY);
+        }
     }
 
     private static Path computeMasterRootForConfig(Path normalizedRoot, IGitRepo repo) {
@@ -886,5 +921,172 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
             cachedPatternSet = patterns;
         }
         return currentMatcher.isPathExcluded(relativePath, isDirectory);
+    }
+
+    @Override
+    public boolean hasBuildDetails() {
+        return detailsFuture.isDone();
+    }
+
+    @Override
+    public Optional<BuildAgent.BuildDetails> loadBuildDetails() {
+        String json = projectProps.getProperty(BUILD_DETAILS_KEY);
+        if (json == null || json.isBlank()) {
+            return Optional.empty();
+        }
+
+        try {
+            var details = objectMapper.readValue(json, BuildAgent.BuildDetails.class);
+
+            // Canonicalize exclusion patterns that look like paths
+            var canonicalExclusions = new LinkedHashSet<String>();
+            for (String pattern : details.exclusionPatterns()) {
+                // Only canonicalize patterns that look like directory paths (contain / or \\)
+                if (pattern.contains("/") || pattern.contains("\\")) {
+                    String c = PathNormalizer.canonicalizeForProject(pattern, getMasterRootPathForConfig());
+                    if (!c.isBlank()) {
+                        canonicalExclusions.add(c);
+                    }
+                } else {
+                    canonicalExclusions.add(pattern);
+                }
+            }
+
+            // Normalize environment variables and migrate JAVA_HOME to workspace properties
+            Map<String, String> envIn = details.environmentVariables();
+            Map<String, String> canonicalEnv = new LinkedHashMap<>(envIn.size());
+
+            for (Map.Entry<String, String> e : envIn.entrySet()) {
+                String k = e.getKey();
+                String v = e.getValue();
+                if (v == null) {
+                    continue;
+                }
+                if ("JAVA_HOME".equalsIgnoreCase(k)) {
+                    // Migration: Move JAVA_HOME from project build details to workspace properties
+                    String canonicalPath = PathNormalizer.canonicalizeEnvPathValue(v);
+                    if (!canonicalPath.isBlank()) {
+                        setJdk(canonicalPath);
+                        logger.info("Migrated JAVA_HOME from project build details to workspace JDK settings.");
+                    }
+                } else {
+                    canonicalEnv.put(k, v);
+                }
+            }
+
+            // Return a re-wrapped BuildDetails with canonicalized content
+            return Optional.of(new BuildAgent.BuildDetails(
+                    details.buildLintCommand(),
+                    details.testAllCommand(),
+                    details.testSomeCommand(),
+                    canonicalExclusions,
+                    canonicalEnv,
+                    details.maxBuildAttempts(),
+                    details.afterTaskListCommand()));
+        } catch (JsonProcessingException e) {
+            logger.error("Failed to deserialize BuildDetails from JSON: {}", json, e);
+        }
+        return Optional.empty();
+    }
+
+    @Override
+    public void saveBuildDetails(BuildAgent.BuildDetails details) {
+        // Build canonical details for stable on-disk representation
+        // 1) Canonicalize exclusion patterns that look like paths
+        var canonicalExclusions = new LinkedHashSet<String>();
+        for (String pattern : details.exclusionPatterns()) {
+            // Only canonicalize patterns that look like directory paths (contain / or \\)
+            if (pattern.contains("/") || pattern.contains("\\")) {
+                String c = PathNormalizer.canonicalizeForProject(pattern, getMasterRootPathForConfig());
+                if (!c.isBlank()) {
+                    canonicalExclusions.add(c);
+                }
+            } else {
+                canonicalExclusions.add(pattern);
+            }
+        }
+
+        // 2) Normalize environment variables.
+        // Omit JAVA_HOME from project-scoped storage as it is persisted in workspace properties.
+        Map<String, String> envIn = details.environmentVariables();
+        Map<String, String> canonicalEnv = new LinkedHashMap<>(envIn.size());
+        for (Map.Entry<String, String> e : envIn.entrySet()) {
+            String k = e.getKey();
+            String v = e.getValue();
+            if (v == null || "JAVA_HOME".equalsIgnoreCase(k)) {
+                continue;
+            }
+            canonicalEnv.put(k, v);
+        }
+
+        var canonicalDetails = new BuildAgent.BuildDetails(
+                details.buildLintCommand(),
+                details.testAllCommand(),
+                details.testSomeCommand(),
+                canonicalExclusions,
+                canonicalEnv,
+                details.maxBuildAttempts(),
+                details.afterTaskListCommand());
+
+        try {
+            String json = objectMapper.writeValueAsString(canonicalDetails);
+            projectProps.setProperty(BUILD_DETAILS_KEY, json);
+            logger.debug("Saving build details to project properties.");
+        } catch (JsonProcessingException e) {
+            throw new RuntimeException(e);
+        }
+        saveProjectProperties();
+        setBuildDetails(canonicalDetails);
+        invalidateAllFiles();
+    }
+
+    /**
+     * Used by BrokkCli to override build details; deliberately does not save
+     */
+    @Override
+    public void setBuildDetails(BuildAgent.BuildDetails details) {
+        // not threadsafe, that's okay;
+        // the only caller (outside of tests) does so during construction before anyone else can see it
+        if (detailsFuture.isDone()) {
+            // existing Future completed with an unknown value; overwrite it with ours
+            // (again: we don't care about potential references to the old Future; there aren't any)
+            logger.warn("Project build details are already saved; overwriting them with " + details);
+            detailsFuture = CompletableFuture.completedFuture(details);
+        } else {
+            detailsFuture.complete(details);
+        }
+    }
+
+    @Override
+    public CompletableFuture<BuildAgent.BuildDetails> getBuildDetailsFuture() {
+        return detailsFuture;
+    }
+
+    /**
+     * Blocking call that waits for build details to be available.
+     *
+     * <p>Important: this must NOT be invoked on the Swing Event Dispatch Thread (EDT) as it will
+     * block the UI and can deadlock. From the EDT, prefer {@link #getBuildDetailsFuture()} and
+     * update the UI when the future completes.
+     *
+     * @return the resolved build details
+     * @throws IllegalStateException if called on the Swing EDT
+     */
+    @Override
+    @Blocking
+    public BuildAgent.BuildDetails awaitBuildDetails() {
+        try {
+            return detailsFuture.get();
+        } catch (java.util.concurrent.ExecutionException e) {
+            logger.error("ExecutionException while awaiting build details completion", e);
+            return BuildAgent.BuildDetails.EMPTY;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException(e);
+        }
+    }
+
+    private void saveProjectProperties() {
+        saveProperties(propertiesFile, projectProps, "Brokk project configuration");
     }
 }

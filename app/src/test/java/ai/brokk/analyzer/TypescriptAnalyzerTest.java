@@ -1,11 +1,12 @@
 package ai.brokk.analyzer;
 
-import static ai.brokk.testutil.FuzzyUsageFinderTestUtil.fileNamesFromHits;
-import static ai.brokk.testutil.FuzzyUsageFinderTestUtil.newFinder;
 import static ai.brokk.testutil.TestProject.*;
+import static ai.brokk.testutil.UsageFinderTestUtil.fileNamesFromHits;
+import static ai.brokk.testutil.UsageFinderTestUtil.newFinder;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.AnalyzerUtil;
+import ai.brokk.testutil.InlineTestProjectCreator;
 import ai.brokk.testutil.TestProject;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -3324,5 +3325,72 @@ public class TypescriptAnalyzerTest {
         assertTrue(
                 classUsageHits.size() >= 5,
                 "Expected at least 5 different usage patterns, found: " + classUsageHits.size());
+    }
+
+    @Test
+    void testIdenticalOverloadsMergedByLookupKey() throws IOException {
+        // This test validates cuLookupKey behavior in TreeSitterAnalyzer.analyzeFileContent.
+        // It uses an inline project with a TypeScript interface that has two identical signatures.
+        String code =
+                """
+                interface Logger {
+                    log(message: string): void;
+                    log(message: string): void;
+                }
+                """;
+
+        try (var testProject =
+                InlineTestProjectCreator.code(code, "IdenticalOverloads.ts").build()) {
+            var tsAnalyzer = new TypescriptAnalyzer(testProject);
+            ProjectFile file = new ProjectFile(testProject.getRoot(), "IdenticalOverloads.ts");
+            Set<CodeUnit> declarations = tsAnalyzer.getDeclarations(file);
+
+            // Find the 'log' method CodeUnit
+            List<CodeUnit> logMethods = declarations.stream()
+                    .filter(cu -> cu.shortName().equals("Logger.log") && cu.isFunction())
+                    .toList();
+
+            // Assert that only one CodeUnit was registered despite two identical signature nodes in the AST
+            assertEquals(
+                    1,
+                    logMethods.size(),
+                    "Should have exactly one CodeUnit for Logger.log despite identical overloads");
+
+            CodeUnit logMethod = logMethods.get(0);
+            List<String> signatures = tsAnalyzer.signaturesOf(logMethod);
+
+            // Assert that signatures were merged (deduplicated) for that single CodeUnit
+            // TreeSitterAnalyzer.withSignature deduplicates identical signature strings.
+            assertEquals(1, signatures.size(), "Signatures should be merged into a single unique entry");
+            assertTrue(signatures.get(0).contains("log(message: string): void"), "Signature text should be correct");
+        }
+    }
+
+    @Test
+    void testAliasSignatureFormatting() throws IOException {
+        // Verifies that renderAliasSignature includes semicolons for type aliases.
+        String code = "export type Foo = string | number;";
+
+        try (var testProject =
+                InlineTestProjectCreator.code(code, "AliasTest.ts").build()) {
+            var tsAnalyzer = new TypescriptAnalyzer(testProject);
+            ProjectFile file = new ProjectFile(testProject.getRoot(), "AliasTest.ts");
+
+            // Find the 'Foo' type alias CodeUnit
+            CodeUnit fooAlias = tsAnalyzer.getDeclarations(file).stream()
+                    .filter(cu -> cu.shortName().contains("Foo"))
+                    .findFirst()
+                    .orElseThrow();
+
+            List<String> signatures = tsAnalyzer.signaturesOf(fooAlias);
+
+            assertFalse(signatures.isEmpty(), "Signatures should not be empty for type alias");
+            String signature = signatures.get(0);
+
+            // Assert formatting: should start with export, include the name and assignment, and end with semicolon.
+            assertTrue(signature.startsWith("export type Foo ="), "Signature should start with 'export type Foo ='");
+            assertTrue(signature.endsWith(";"), "Signature should end with a semicolon");
+            assertEquals("export type Foo = string | number;", signature);
+        }
     }
 }

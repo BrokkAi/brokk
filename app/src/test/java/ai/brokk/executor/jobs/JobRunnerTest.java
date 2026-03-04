@@ -1,19 +1,19 @@
 package ai.brokk.executor.jobs;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.agents.IssueRewriterAgent;
-import dev.langchain4j.data.message.AiMessage;
-import dev.langchain4j.data.message.ChatMessage;
-import dev.langchain4j.data.message.SystemMessage;
-import dev.langchain4j.data.message.UserMessage;
+import ai.brokk.prompts.SearchPrompts;
+import ai.brokk.tasks.TaskList;
+import dev.langchain4j.model.chat.StreamingChatModel;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
+import org.jetbrains.annotations.Blocking;
 import org.junit.jupiter.api.Test;
 
 class JobRunnerTest {
@@ -221,57 +221,140 @@ class JobRunnerTest {
     }
 
     @Test
-    void testExtractAiTranscriptFallbackRecoversAiText() {
-        // Simulate the scenario: responseText is empty, but messages contain AI text
-        // This tests that PrReviewService.extractAiTranscript can recover text
-        // from a message list that combines input messages + AI response messages
-        List<ChatMessage> messages = new ArrayList<>();
-        messages.add(new SystemMessage("You are a code reviewer."));
-        messages.add(new UserMessage("Review this diff"));
-        messages.add(new AiMessage("{\"summaryMarkdown\": \"## Brokk PR Review\\nLooks good.\", \"comments\": []}"));
-
-        String transcript = PrReviewService.extractAiTranscript(messages);
-
-        // extractAiTranscript should recover the AI message text
-        assertFalse(transcript.isBlank(), "extractAiTranscript should recover AI text from messages");
-        assertTrue(transcript.contains("summaryMarkdown"), "Recovered text should contain the JSON response");
-
-        // And the recovered text should be parseable
-        var parsed = PrReviewService.parsePrReviewResponse(transcript);
-        assertNotNull(parsed, "Recovered transcript should be parseable as a review response");
-        assertEquals("## Brokk PR Review\nLooks good.", parsed.summaryMarkdown());
+    void testParsePrReviewResponse_ReturnsNullForEmptyAndMalformedInput() {
+        assertNull(PrReviewService.parsePrReviewResponse(""), "Empty text should not parse");
+        assertNull(PrReviewService.parsePrReviewResponse("   "), "Whitespace-only text should not parse");
+        assertNull(PrReviewService.parsePrReviewResponse("This is not JSON at all"), "Plain text should not parse");
+        assertNull(
+                PrReviewService.parsePrReviewResponse("{\"unrelated\": true}"),
+                "JSON without summaryMarkdown should not parse");
     }
 
     @Test
-    void testReviewErrorMessageDistinguishesEmptyVsMalformed() {
-        // Empty response case
-        String emptyText = "";
-        var emptyParsed = PrReviewService.parsePrReviewResponse(emptyText);
-        assertNull(emptyParsed, "Empty text should not parse");
+    void testParsePrReviewResponse_ParsesValidReviewJson() {
+        String json = "{\"summaryMarkdown\": \"## Review\\nLooks good.\", \"comments\": []}";
+        var parsed = PrReviewService.parsePrReviewResponse(json);
+        assertNotNull(parsed, "Valid review JSON should parse");
+        assertEquals("## Review\nLooks good.", parsed.summaryMarkdown());
+    }
 
-        // For empty responses after retries, the error message should mention "empty response"
-        int maxAttempts = 3;
-        String emptyErrorMessage = "LLM returned empty response after " + maxAttempts + " attempts";
-        assertTrue(emptyErrorMessage.contains("empty response"), "Empty error should mention 'empty response'");
-        assertTrue(emptyErrorMessage.contains("3 attempts"), "Empty error should mention attempt count");
+    @Test
+    void testLutz_noTasks_doesNotExecuteTasks() throws InterruptedException {
+        JobRunner runner = new JobRunner(null, null);
+        List<TaskList.TaskItem> executedTasks = new ArrayList<>();
 
-        // Malformed (non-empty but unparseable) response case
-        String malformedText = "This is not JSON at all";
-        var malformedParsed = PrReviewService.parsePrReviewResponse(malformedText);
-        assertNull(malformedParsed, "Malformed text should not parse");
+        JobRunner.LutzContext fakeContext = new JobRunner.LutzContext() {
+            @Override
+            public List<TaskList.TaskItem> getTasks() {
+                return List.of();
+            }
 
-        // For malformed responses, the error message should mention "not valid JSON"
-        String preview = malformedText.length() > 500 ? malformedText.substring(0, 500) + "..." : malformedText;
-        String malformedErrorMessage =
-                "PR review response was not valid JSON. Expected JSON object with 'summaryMarkdown' field. Response preview: "
-                        + preview;
-        assertTrue(malformedErrorMessage.contains("not valid JSON"), "Malformed error should mention 'not valid JSON'");
-        assertTrue(malformedErrorMessage.contains(malformedText), "Malformed error should contain response preview");
+            @Override
+            @Blocking
+            public void executeTask(TaskList.TaskItem task, StreamingChatModel planner, StreamingChatModel code)
+                    throws InterruptedException {
+                executedTasks.add(task);
+            }
+        };
 
-        // The two error messages should be distinguishable
-        assertFalse(emptyErrorMessage.contains("not valid JSON"), "Empty error should NOT mention 'not valid JSON'");
-        assertFalse(
-                malformedErrorMessage.contains("empty response"),
-                "Malformed error should NOT mention 'empty response'");
+        runner.runLutzFromSearchResult(fakeContext, null, null, () -> false);
+
+        assertTrue(executedTasks.isEmpty(), "No tasks should be executed when task list is empty");
+    }
+
+    @Test
+    void testObjectiveForModeLutzEqualsLutzObjective() {
+        assertEquals(SearchPrompts.Objective.LUTZ, JobRunner.objectiveForMode(JobRunner.Mode.LUTZ));
+    }
+
+    @Test
+    void testObjectiveForLutzSearchPhaseIsLutzObjective() {
+        assertEquals(SearchPrompts.Objective.LUTZ, JobRunner.objectiveForLutzSearchPhase());
+    }
+
+    @Test
+    void testObjectiveForModePlanIsTasksOnly() {
+        assertEquals(SearchPrompts.Objective.TASKS_ONLY, JobRunner.objectiveForMode(JobRunner.Mode.PLAN));
+    }
+
+    @Test
+    void testLutz_tasksExist_executesEachIncompleteTask() throws InterruptedException {
+        JobRunner runner = new JobRunner(null, null);
+        List<TaskList.TaskItem> executedTasks = new ArrayList<>();
+
+        TaskList.TaskItem task1 = new TaskList.TaskItem("1", "title1", "text1", true); // already done
+        TaskList.TaskItem task2 = new TaskList.TaskItem("2", "title2", "text2", false); // incomplete
+        TaskList.TaskItem task3 = new TaskList.TaskItem("3", "title3", "text3", false); // incomplete
+
+        JobRunner.LutzContext fakeContext = new JobRunner.LutzContext() {
+            @Override
+            public List<TaskList.TaskItem> getTasks() {
+                return List.of(task1, task2, task3);
+            }
+
+            @Override
+            @Blocking
+            public void executeTask(TaskList.TaskItem task, StreamingChatModel planner, StreamingChatModel code)
+                    throws InterruptedException {
+                executedTasks.add(task);
+            }
+        };
+
+        // We provide a dummy model because tasks exist and require execution
+        StreamingChatModel mockModel = new StreamingChatModel() {};
+
+        runner.runLutzFromSearchResult(fakeContext, null, mockModel, () -> false);
+
+        assertEquals(2, executedTasks.size(), "Two tasks should have been executed");
+        assertEquals("2", executedTasks.get(0).id());
+        assertEquals("3", executedTasks.get(1).id());
+    }
+
+    @Test
+    void testLutz_cancellationPropagates() {
+        JobRunner runner = new JobRunner(null, null);
+
+        TaskList.TaskItem task1 = new TaskList.TaskItem("1", "title1", "text1", false);
+
+        JobRunner.LutzContext fakeContext = new JobRunner.LutzContext() {
+            @Override
+            public List<TaskList.TaskItem> getTasks() {
+                return List.of(task1);
+            }
+
+            @Override
+            public void executeTask(TaskList.TaskItem task, StreamingChatModel planner, StreamingChatModel code) {}
+        };
+
+        org.junit.jupiter.api.Assertions.assertThrows(JobRunner.IssueCancelledException.class, () -> {
+            runner.runLutzFromSearchResult(fakeContext, null, null, () -> true);
+        });
+    }
+
+    @Test
+    void testLutz_cancellationDuringTaskExecutionPropagates() {
+        JobRunner runner = new JobRunner(null, null);
+        AtomicBoolean cancelled = new AtomicBoolean(false);
+
+        TaskList.TaskItem task1 = new TaskList.TaskItem("1", "title1", "text1", false);
+
+        JobRunner.LutzContext fakeContext = new JobRunner.LutzContext() {
+            @Override
+            public List<TaskList.TaskItem> getTasks() {
+                return List.of(task1);
+            }
+
+            @Override
+            public void executeTask(TaskList.TaskItem task, StreamingChatModel planner, StreamingChatModel code) {
+                // Simulate cancellation occurring during the execution of this task
+                cancelled.set(true);
+            }
+        };
+
+        StreamingChatModel mockModel = new StreamingChatModel() {};
+
+        org.junit.jupiter.api.Assertions.assertThrows(JobRunner.IssueCancelledException.class, () -> {
+            runner.runLutzFromSearchResult(fakeContext, null, mockModel, cancelled::get);
+        });
     }
 }

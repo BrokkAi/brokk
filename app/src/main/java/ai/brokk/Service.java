@@ -381,7 +381,7 @@ public class Service extends AbstractService implements ExceptionReporter.Report
                     var immutableModelInfo = Map.copyOf(modelInfo);
                     infoTarget.put(modelName, immutableModelInfo);
                     LogManager.getLogger(Service.class)
-                            .debug(
+                            .trace(
                                     "Discovered model: {} -> {} with info {})",
                                     modelName,
                                     modelLocation,

@@ -267,14 +267,6 @@ public class LlmTest {
                 "Should include the RedundantNullCheck warning - related to the NullAway error");
     }
 
-    /**
-     * Helper to create a StreamingResult with text content for testing parseJsonToToolRequests
-     */
-    private Llm.StreamingResult createStreamingResult(String text) {
-        var nsr = new Llm.NullSafeResponse(text, null, List.of(), null);
-        return new Llm.StreamingResult(nsr, null);
-    }
-
     @Test
     void testNativeToolContractRetryOnInvalidToolCallThenSuccess() throws InterruptedException {
         var weatherTool = new WeatherTool();

@@ -28,7 +28,6 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jspecify.annotations.NullMarked;
@@ -61,6 +60,9 @@ public final class ContextRouter implements SimpleHttpServer.CheckedHttpHandler 
                 return;
             } else if (normalizedPath.equals("/v1/tasklist")) {
                 handleGetTaskList(exchange);
+                return;
+            } else if (normalizedPath.equals("/v1/context/conversation")) {
+                handleGetConversation(exchange);
                 return;
             }
         }
@@ -136,12 +138,37 @@ public final class ContextRouter implements SimpleHttpServer.CheckedHttpHandler 
                 fragmentList.add(map);
             }
 
+            var project = contextManager.getProject();
+            String branch;
+            if (project.hasGit()) {
+                try {
+                    branch = project.getRepo().getCurrentBranch();
+                } catch (Exception e) {
+                    logger.debug("Failed to get current branch", e);
+                    branch = "unknown";
+                }
+            } else {
+                branch = "(no git)";
+            }
+
+            double totalCost = 0.0;
+            var sessionId = contextManager.getCurrentSessionId();
+            var sessionManager = contextManager.getProject().getSessionManager();
+            var maybeSessionInfo = sessionManager.listSessions().stream()
+                    .filter(s -> s.id().equals(sessionId))
+                    .findFirst();
+            if (maybeSessionInfo.isPresent() && maybeSessionInfo.get().totalCost() != null) {
+                totalCost = maybeSessionInfo.get().totalCost();
+            }
+
             int maxTokens = 200_000;
             var response = Map.of(
                     "fragments", fragmentList,
                     "usedTokens", totalUsedTokens,
                     "maxTokens", maxTokens,
-                    "tokensEstimated", includeTokens);
+                    "tokensEstimated", includeTokens,
+                    "branch", branch,
+                    "totalCost", totalCost);
 
             SimpleHttpServer.sendJsonResponse(exchange, response);
         } catch (Exception e) {
@@ -446,22 +473,11 @@ public final class ContextRouter implements SimpleHttpServer.CheckedHttpHandler 
             return;
         }
 
-        contextManager.addSummaries(
-                Set.of(),
-                validClassNames.stream()
-                        .flatMap(name -> analyzer.getDefinitions(name).stream().filter(CodeUnit::isClass))
-                        .collect(Collectors.toSet()));
-
         var addedClasses = new ArrayList<AddedContextClass>();
-        var live = contextManager.liveContext();
         for (var className : validClassNames) {
-            var fragId = live.allFragments()
-                    .filter(f -> f instanceof ContextFragments.SummaryFragment sf
-                            && sf.getTargetIdentifier().contains(className))
-                    .map(ContextFragment::id)
-                    .findFirst()
-                    .orElse("");
-            addedClasses.add(new AddedContextClass(fragId, className));
+            var fragment = new ContextFragments.CodeFragment(contextManager, className);
+            contextManager.addFragments(fragment);
+            addedClasses.add(new AddedContextClass(fragment.id(), className));
         }
 
         SimpleHttpServer.sendJsonResponse(exchange, new AddContextClassesResponse(addedClasses));
@@ -607,4 +623,57 @@ public final class ContextRouter implements SimpleHttpServer.CheckedHttpHandler 
     private record ReplaceTaskListRequest(
             @org.jetbrains.annotations.Nullable String bigPicture,
             @org.jetbrains.annotations.Nullable List<TaskList.TaskItem> tasks) {}
+
+    // ── GET /v1/context/conversation ──────────────────────
+
+    /**
+     * Returns the current live context's task history as displayable conversation messages.
+     */
+    private void handleGetConversation(HttpExchange exchange) throws IOException {
+        if (!RouterUtil.ensureMethod(exchange, "GET")) return;
+
+        try {
+            var taskHistory = contextManager.liveContext().getTaskHistory();
+            var entries = new ArrayList<Map<String, Object>>();
+
+            for (var task : taskHistory) {
+                var entryMap = new HashMap<String, Object>();
+                entryMap.put("sequence", task.sequence());
+                entryMap.put("isCompressed", task.isCompressed());
+
+                if (task.meta() != null) {
+                    entryMap.put("taskType", task.meta().type().displayName());
+                }
+
+                var log = task.mopLog();
+                if (log != null) {
+                    var msgList = new ArrayList<Map<String, Object>>();
+                    for (var msg : log.messages()) {
+                        var msgMap = new HashMap<String, Object>();
+                        msgMap.put("role", msg.type().name().toLowerCase(java.util.Locale.ROOT));
+                        msgMap.put("text", Messages.getText(msg));
+
+                        if (msg instanceof dev.langchain4j.data.message.AiMessage ai
+                                && ai.reasoningContent() != null
+                                && !ai.reasoningContent().isBlank()) {
+                            msgMap.put("reasoning", ai.reasoningContent());
+                        }
+
+                        msgList.add(msgMap);
+                    }
+                    entryMap.put("messages", msgList);
+                } else if (task.summary() != null) {
+                    entryMap.put("summary", task.summary());
+                }
+
+                entries.add(entryMap);
+            }
+
+            SimpleHttpServer.sendJsonResponse(exchange, Map.of("entries", entries));
+        } catch (Exception e) {
+            logger.error("Error handling GET /v1/context/conversation", e);
+            var error = ErrorPayload.internalError("Failed to retrieve conversation", e);
+            SimpleHttpServer.sendJsonResponse(exchange, 500, error);
+        }
+    }
 }

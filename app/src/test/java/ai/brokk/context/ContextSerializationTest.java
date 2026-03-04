@@ -1032,6 +1032,41 @@ public class ContextSerializationTest {
     }
 
     @Test
+    void testRoundTripLineRangeFragment() throws Exception {
+        var projectFile = new ProjectFile(tempDir, "src/LineRangeTarget.java");
+        Files.createDirectories(projectFile.absPath().getParent());
+        Files.writeString(projectFile.absPath(), "line1\nline2\nline3\nline4\nline5\n");
+        String filePath = projectFile.toString();
+
+        var fragment = new ContextFragments.LineRangeFragment(mockContextManager, projectFile, 2, 4);
+
+        var context = new Context(mockContextManager).addFragments(fragment);
+        ContextHistory originalHistory = new ContextHistory(context);
+
+        Path zipFile = tempDir.resolve("test_linerange_history.zip");
+        HistoryIo.writeZip(originalHistory, zipFile);
+        ContextHistory loadedHistory = HistoryIo.readZip(zipFile, mockContextManager);
+
+        Context loadedCtx = loadedHistory.getHistory().getFirst();
+        var loadedRawFragment = loadedCtx
+                .allFragments()
+                .filter(f -> f.getType() == ContextFragment.FragmentType.LINE_RANGE)
+                .findFirst()
+                .orElseThrow();
+
+        if (loadedRawFragment instanceof ContextFragments.LineRangeFragment loadedFragment) {
+            assertEquals(projectFile.toString(), loadedFragment.file().toString());
+            assertEquals(2, loadedFragment.startLine());
+            assertEquals(4, loadedFragment.endLine());
+            assertTrue(loadedFragment.text().join().contains("File: %s (lines 2-4)".formatted(filePath)));
+            assertTrue(loadedFragment.text().join().contains("2: line2"));
+            assertTrue(loadedFragment.text().join().contains("4: line4"));
+        } else {
+            fail("Expected LineRangeFragment, got: " + loadedRawFragment.getClass());
+        }
+    }
+
+    @Test
     void testRoundTripSummaryFragment() throws Exception {
         // Test CODEUNIT_SKELETON summary type
         var fragment1 = new ContextFragments.SummaryFragment(

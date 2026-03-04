@@ -21,6 +21,7 @@ import ai.brokk.git.GitDistance;
 import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.prompts.WorkspacePrompts;
+import ai.brokk.util.Lines;
 import ai.brokk.util.Messages;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
@@ -73,6 +74,10 @@ public class ContextAgent {
     private static final Logger logger = LogManager.getLogger(ContextAgent.class);
 
     private static final int DESIRED_CANDIDATES = 100;
+
+    private static final int UNANALYZED_MAX_LINES = 50;
+    private static final int UNANALYZED_TOP_SHOWN = 25;
+    private static final int UNANALYZED_BOTTOM_SHOWN = 25;
 
     private enum GroupType {
         ANALYZED,
@@ -230,8 +235,8 @@ public class ContextAgent {
                     UserMessage.from("<workspace_summary>\n" + context.overview() + "\n</workspace_summary>"),
                     new AiMessage("Thank you for the workspace summary."));
         } else {
-            workspaceRepresentation =
-                    WorkspacePrompts.getMessagesInAddedOrder(context, EnumSet.of(SpecialTextType.TASK_LIST));
+            workspaceRepresentation = WorkspacePrompts.getMessagesInAddedOrder(
+                    context, EnumSet.of(SpecialTextType.TASK_LIST, SpecialTextType.CODE_AGENT_CHANGES));
         }
 
         // Subtract workspace tokens from both budgets.
@@ -421,8 +426,10 @@ public class ContextAgent {
         if (type == GroupType.ANALYZED) {
             initialTokens = estimateAnalyzedTokens(groupFiles);
         } else {
-            var contentsMap = readFileContents(groupFiles);
-            initialTokens = Messages.getApproximateTokens(contentsMap.values());
+            var contentsMap = readFileContentsCappedForPrompt(groupFiles);
+            initialTokens = Messages.getApproximateTokens(contentsMap.values().stream()
+                    .map(Lines.HeadTail::promptText)
+                    .toList());
         }
 
         logger.debug("{} group initial token estimate: ~{}", type, initialTokens);
@@ -459,8 +466,10 @@ public class ContextAgent {
             if (type == GroupType.ANALYZED) {
                 postExpansionTokens = estimateAnalyzedTokens(workingFiles);
             } else {
-                var contentsMap = readFileContents(workingFiles);
-                postExpansionTokens = Messages.getApproximateTokens(contentsMap.values());
+                var contentsMap = readFileContentsCappedForPrompt(workingFiles);
+                postExpansionTokens = Messages.getApproximateTokens(contentsMap.values().stream()
+                        .map(Lines.HeadTail::promptText)
+                        .toList());
             }
             logger.debug("{} group post-expansion token estimate: ~{}", type, postExpansionTokens);
         }
@@ -501,8 +510,11 @@ public class ContextAgent {
 
         List<ProjectFile> current = new ArrayList<>(files);
         while (true) {
-            Map<ProjectFile, String> fileText;
-            fileText = type == GroupType.ANALYZED ? getCachedIdentifiers(current) : readFileContents(current);
+            Map<ProjectFile, Lines.HeadTail> fileText = type == GroupType.ANALYZED
+                    ? getCachedIdentifiers(current).entrySet().stream()
+                            .collect(Collectors.toMap(
+                                    Map.Entry::getKey, e -> Lines.HeadTail.full(e.getValue()), (v1, v2) -> v1))
+                    : readFileContentsCappedForPrompt(current);
 
             try {
                 return askLlmDeepRecommendContext(fileText, workspaceRepresentation, llm);
@@ -855,7 +867,7 @@ public class ContextAgent {
     // --- Evaluate-for-relevance (single-group context window) ---
 
     private LlmRecommendation askLlmDeepRecommendContext(
-            Map<ProjectFile, String> filesMap, Collection<ChatMessage> workspaceRepresentation, Llm llm)
+            Map<ProjectFile, Lines.HeadTail> filesMap, Collection<ChatMessage> workspaceRepresentation, Llm llm)
             throws InterruptedException, ContextTooLargeException {
 
         var contextTool = new ContextRecommendationTool();
@@ -866,9 +878,22 @@ public class ContextAgent {
         var deepPromptTemplate =
                 """
                 You are an assistant that identifies relevant code context based on a goal and the existing relevant information.
-                You are given a goal, the current workspace contents (if any), and a list of files, each with either a summary of its classes or its full content.
+                You are given a goal, the current workspace contents (if any), and an <available_files> list.
 
-                Analyze the provided information and determine which items are most relevant to achieving the goal.
+                Interpreting <available_files>:
+                - Analyzed source files are represented as symbol/class summaries (APIs/skeletons), not full file text.
+                - Unanalyzed files may be represented as:
+                  - Full text (for small files), or
+                  - Truncated/excerpted text (for large files).
+
+                Truncated file entries:
+                - A truncated file is indicated by: <file ... truncated="true" total_lines="..." top_shown="..." bottom_shown="...">.
+                  - total_lines: the total number of lines in the original file.
+                  - top_shown/bottom_shown: how many lines from the beginning/end of the file are included in the excerpt.
+                  - Truncated file text includes an omission marker line like:
+                  ----- OMITTED N LINES -----
+
+                Use the available information to determine which items are most relevant to achieving the goal.
                 """;
 
         var finalSystemMessage = new SystemMessage(deepPromptTemplate);
@@ -876,8 +901,7 @@ public class ContextAgent {
 
         if (!filesMap.isEmpty()) {
             var filesText = filesMap.entrySet().stream()
-                    .map(entry -> "<file path='%s'>\n%s\n</file>"
-                            .formatted(entry.getKey().toString(), entry.getValue()))
+                    .map(entry -> renderFileForPrompt(entry.getKey(), entry.getValue()))
                     .collect(Collectors.joining("\n\n"));
             userMessageText.append("<available_files>\n").append(filesText).append("\n</available_files>\n\n");
         }
@@ -909,7 +933,8 @@ public class ContextAgent {
                 Selection rubric (important):
                 - Prefer `classesToSummarize` when you need navigational context (APIs, types, call sites) and are not confident the file will be edited.
                 - Prefer `testsToAdd` for tests/specs that clarify intended behavior or will likely need updating to verify the goal.
-                - Use `filesToAdd` only for files you expect to edit or where exact implementation details are required.
+                - Use `filesToAdd` for files you expect to edit or where exact implementation details are required.
+                - If a file entry is truncated/excerpted (truncated="true") and you need details that might be in the omitted portion to decide or to implement the goal correctly, you SHOULD still recommend that file in `filesToAdd`.
 
                 Then call the `recommendContext` tool with the appropriate entries:
 
@@ -1005,5 +1030,38 @@ public class ContextAgent {
                 })
                 .filter(entry -> !entry.getValue().isEmpty())
                 .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (v1, v2) -> v1));
+    }
+
+    private Map<ProjectFile, Lines.HeadTail> readFileContentsCappedForPrompt(Collection<ProjectFile> files) {
+        return files.stream()
+                .distinct()
+                .parallel()
+                .map(file -> {
+                    var content = file.read().orElse("");
+                    return Map.entry(file, capUnanalyzedTextForPrompt(content));
+                })
+                .filter(entry -> !entry.getValue().promptText().isEmpty())
+                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (v1, v2) -> v1));
+    }
+
+    static Lines.HeadTail capUnanalyzedTextForPrompt(String content) {
+        return Lines.cap(content, UNANALYZED_MAX_LINES, UNANALYZED_TOP_SHOWN, UNANALYZED_BOTTOM_SHOWN);
+    }
+
+    static String renderFileForPrompt(ProjectFile file, Lines.HeadTail content) {
+        // Normalize to forward slashes for consistent LLM prompts across platforms.
+        // Safe on Windows: Java's Path.of() accepts '/' on all OSes, so paths returned
+        // by the LLM can be parsed back to ProjectFile via IContextManager.toFile().
+        String unixPath = file.toString().replace('\\', '/');
+        if (!content.truncated()) {
+            return "<file path='%s'>\n%s\n</file>".formatted(unixPath, content.promptText());
+        }
+        return "<file path='%s' truncated=\"true\" total_lines=\"%d\" top_shown=\"%d\" bottom_shown=\"%d\">\n%s\n</file>"
+                .formatted(
+                        unixPath,
+                        content.totalLines(),
+                        content.topShown(),
+                        content.bottomShown(),
+                        content.promptText());
     }
 }

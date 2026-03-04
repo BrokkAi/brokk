@@ -1,7 +1,5 @@
 package ai.brokk.prompts;
 
-import static ai.brokk.tools.WorkspaceTools.DROP_EXPLANATION_GUIDANCE;
-
 import ai.brokk.TaskResult;
 import ai.brokk.agents.BuildAgent;
 import ai.brokk.analyzer.Language;
@@ -26,6 +24,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Generates prompts for the Search Agent and Ask requests.
@@ -222,7 +221,6 @@ public class SearchPrompts {
                 String deliverable,
                 String mission,
                 boolean includeHandoff,
-                String dropExplanationGuidance,
                 String supportedTypes) {}
 
         var data = new SearchSystemData(
@@ -231,7 +229,6 @@ public class SearchPrompts {
                 objective.deliverable(),
                 objective.mission(),
                 objective.includeHandoff(),
-                DROP_EXPLANATION_GUIDANCE.indent(12).stripTrailing(),
                 supportedTypes);
 
         try {
@@ -241,44 +238,7 @@ public class SearchPrompts {
         }
     }
 
-    private static final Template PRUNING_TEMPLATE;
-
-    /**
-     * Builds the pruning prompt for the Janitor (Workspace Reviewer) logic.
-     */
-    public List<ChatMessage> buildPruningPrompt(Context context, String goal) {
-        var messages = new ArrayList<ChatMessage>();
-
-        record PruningData(String dropExplanationGuidance, String goal) {}
-        var data = new PruningData(DROP_EXPLANATION_GUIDANCE.indent(4).stripTrailing(), goal);
-        String prompt;
-        try {
-            prompt = PRUNING_TEMPLATE.apply(data);
-        } catch (IOException e) {
-            throw new UncheckedIOException(e);
-        }
-
-        messages.add(new SystemMessage(prompt));
-
-        // Current Workspace contents (use default viewing policy)
-        var suppressed = EnumSet.of(SpecialTextType.TASK_LIST);
-        messages.addAll(WorkspacePrompts.getMessagesInAddedOrder(context, suppressed));
-
-        // Goal and project context
-        var userText =
-                """
-                <goal>
-                %s
-                </goal>
-
-                Review the Workspace above. Use the dropWorkspaceFragments tool to remove ALL fragments that are not directly useful for accomplishing the goal.
-                If the workspace is already well-curated, you're done!
-                """
-                        .formatted(goal);
-        messages.add(new UserMessage(userText));
-
-        return messages;
-    }
+    public record SpecialTurnTooling(String turnType, List<String> allowedTools) {}
 
     private record DirectiveData(
             String goal,
@@ -295,7 +255,9 @@ public class SearchPrompts {
             boolean terminalTasks,
             boolean terminalWorkspace,
             boolean terminalCode,
-            boolean terminalIssue) {}
+            boolean terminalIssue,
+            boolean finalTurnOnly,
+            @Nullable SpecialTurnTooling specialTooling) {}
 
     private static final Template SEARCH_SYSTEM_TEMPLATE;
     private static final Template DIRECTIVE_TEMPLATE;
@@ -304,39 +266,6 @@ public class SearchPrompts {
         Handlebars handlebars = new Handlebars().with(EscapingStrategy.NOOP);
         handlebars.registerHelpers(ConditionalHelpers.class);
         handlebars.registerHelpers(com.github.jknack.handlebars.helper.StringHelpers.class);
-
-        String pruningTemplateText =
-                """
-                <instructions>
-                You are the Janitor Agent (Workspace Reviewer). Single-shot cleanup: one response, then done.
-
-                Scope:
-                - Workspace curation ONLY. No code, no answers, no plans.
-
-                Curation guidelines:
-                - KEEP any fragment that contains logic, UI components, or utility methods
-                  related to the search goal.
-                - DROP if the fragment is irrelevant OR if a concise summary provides
-                  100% of the value with 0% information loss.
-
-                Tools (call exactly one):
-                - performedInitialReview(): Signals that ALL unpinned fragments are relevant to the search goal.
-                - dropWorkspaceFragments(fragments: {fragmentId, keyFacts, dropReason}[]): batch ALL drops in a single call.
-                  Include ONLY the irrelevant fragments to drop in this call.
-
-                drop explanation format:
-                {{dropExplanationGuidance}}
-
-                Response rules:
-                - Tool call only; return exactly ONE tool call (performedInitialReview OR a single batched dropWorkspaceFragments).
-                - Don't give up: if the number of irrelevant fragments is overwhelming, do your best. It's okay to not get everything, but it's not okay to call performedInitialReview without trying to clean up.
-                </instructions>
-                """;
-        try {
-            PRUNING_TEMPLATE = handlebars.compileInline(pruningTemplateText);
-        } catch (IOException e) {
-            throw new UncheckedIOException(e);
-        }
 
         String searchSystemTemplateText =
                 """
@@ -350,7 +279,7 @@ public class SearchPrompts {
 
                 Your responsibilities are:
                   1.  **Find & Discover:** Use search and inspection tools to locate relevant code (files, classes, methods).
-                  2.  **Curate & Prune:** Aggressively prune the Workspace to leave *only* essential context.
+                  2.  **Curate & Prune:** Prune the Workspace of irrelevant content.
                 {{#if includeHandoff~}}
                   3.  **Handoff:** Your final output is a clean workspace ready for the Code Agent.
                 {{~/if}}
@@ -359,7 +288,8 @@ public class SearchPrompts {
 
                 Memory model (reliability):
                   - Durable memory is ONLY the Workspace (fragments + SpecialText such as Discarded Context).
-                  - Chat history (including tool outputs) may be summarized or truncated; do NOT rely on it to retain details.
+                  - Chat history (including tool outputs) will not be visible to other agents; make sure you capture
+                    important details in the Workspace.
                   - If you might need something later, persist it into the Workspace:
                       - For structure/types/navigation: add class/file summaries.
                       - For behavior: add method sources; escalate to class source or full files only when needed.
@@ -367,16 +297,7 @@ public class SearchPrompts {
                   - Summaries can serve as an index: add a summary to see the API/structure, then selectively add method sources or full files only if implementation details are needed.
 
                 Critical rules:
-                  1) PRUNE the Workspace continuously.
-                     - You may drop a fragment only when it is:
-                         (a) unrelated to the goal, OR
-                         (b) adequately replaced by smaller Workspace artifacts (method sources and/or class/file summaries).
-                     - When using dropWorkspaceFragments, provide:
-                {{dropExplanationGuidance}}
-                     - Workspace granularity (Prefer the smallest sufficient unit of context):
-                         - Structure/types/navigation: class or file summary is usually sufficient.
-                         - Behavior/implementation: method source > class source > full file.
-                  2) Use search and inspection tools to discover relevant code, including classes/methods/usages/call graphs.
+                  1) Use search and inspection tools to discover relevant code, including classes/methods/usages/call graphs.
                      - Search tool selection:
                           Definitions / declarations only?
                           -> searchSymbols
@@ -388,17 +309,17 @@ public class SearchPrompts {
                        They do NOT surface local variables or hardcoded strings like environment variable names,
                        system properties, or comments. If findFilesContaining finds a hit in a file but the summary
                        doesn't reveal the match, you MUST load the full file or method source to see the actual content.
-                  3) The symbol-based tools only have visibility into the following file types: {{supportedTypes}}
+                  2) The symbol-based tools only have visibility into the following file types: {{supportedTypes}}
                      Use text-based tools if you need to search other file types.
-                  4) Group related lookups into a single tool call when possible.
-                  5) Your responsibility is to gather and curate the minimum sufficient context, then take the appropriate next step.
+                  3) Group related lookups into a single tool call when possible.
+                  4) Your responsibility is to gather and curate the minimum sufficient context, then take the appropriate next step.
                      Do not write code, and do not attempt to write the solution or pseudocode for the solution.
                      Your job is to *gather* the materials; the Code Agent's job is to *use* them.
                      Where code changes are needed, add the *target files* to the workspace using `addFilesToWorkspace`
                      and let the Code Agent write the code. (For more localized changes, you can use `addMethodsToWorkspace`
                      or `addClassesToWorkspace`, instead of adding entire files.)
                      Note: Code Agent will also take care of creating new files; you only need to add existing files to the Workspace.
-                  6) When you have enough information to take a final action, do so.
+                  5) When you have enough information to take a final action, do so.
                      There are no bonus points for grooming the perfect Workspace.
 
                 Working efficiently:
@@ -436,12 +357,9 @@ public class SearchPrompts {
                 {{taskInstructions}}
                 {{~/if}}
 
-                {{#if terminalTasks~}}
-                Invariant: Before any final action:
-                  1. Prune fragments that are no longer needed (superseded by summaries or irrelevant to the goal).
-                     Do not finalize while the Workspace still contains obvious noise or superseded large fragments.
-                  2. Add the minimum sufficient, decision-relevant context to remove guesswork.
-                An unchanged or empty Workspace is a failure unless the question is explicitly independent of this codebase.
+                {{#unless specialTooling~}}
+                Invariant: Before any final action, make reasonable efforts to first add the minimum sufficient, decision-relevant context
+                to the Workspace. If you cannot find relevant context, say so instead of guessing.
 
                 Workspace context guidance:
                   - If you know where to find what you're looking for, just add it, you don't need to keep searching "just in case".
@@ -452,7 +370,7 @@ public class SearchPrompts {
                   - Summaries: when you only need API signatures/types/constants.
                   - Method sources: when you need implementation details for specific methods.
                   - Full sources: when you need complete implementation details.
-                {{~/if}}
+                {{/unless~}}
                 </search-objective>
 
                 {{#if isEmptyProject~}}
@@ -473,11 +391,12 @@ public class SearchPrompts {
                 {{~/if}}
 
                 <tool-instructions>
+                {{#unless specialTooling~}}
                 Decide the next tool action(s) to make progress toward the objective in service of the goal.
 
                 {{#if (eq turnsLeftAfterThisTurn 1)~}}
                 [HARNESS NOTE This is the penultimate turn. If you need any final information from non-terminal tools, request it now because you will only have one more turn after this.]
-                {{~/if}}
+                {{~/if }}
 
                 Pruning mandate (do this now):
                   - Prune in parallel with exploration.
@@ -493,44 +412,60 @@ public class SearchPrompts {
                     convert tests whose full source you don't need to summaries by dropping the file and
                     adding the summary. In general, you should avoid dropping test summaries.
                 {{~/if}}
+                {{/unless}}
 
+                {{#if finalTurnOnly~}}
+                This is the final turn. You must call one of the following tools:
+                {{else~}}
                 Finalization options:
+                {{/if}}
                 {{#if isIssueDiagnosis}}
-                - Use describeIssue(String title, String body) to finalize. abortSearch(explanation) is the only other allowed final tool.
-                {{else}}
+                - describeIssue(String title, String body): finalize with this tool. abortSearch is the only other allowed final tool.
+                {{/if}}
                 {{#if terminalAnswer}}
-                - Use answer(String) ONLY when the Workspace already contains sufficient context to justify the answer, OR when the question is explicitly codebase-independent. The answer needs to be Markdown-formatted (see <markdown-reminder>).
-                - Use askForClarification(String queryForUser) when the goal is unclear or you cannot find the necessary information; this will ask the user directly and stop.
+                - answer(String): call this once the Workspace contains sufficient context to justify the answer, OR when the question is explicitly codebase-independent. Must be Markdown-formatted (see <markdown-reminder>).
+                - askForClarification(String queryForUser): when the goal is unclear or you cannot find the necessary information; asks the user directly and stops.
                 {{/if}}
                 {{#if terminalTasks}}
-                - Use createOrReplaceTaskList(String explanation, List<TaskListEntry> tasks) to replace the entire task list when the request involves code changes. Titles are summarized automatically from task text; pass task texts only. Completed tasks from the previous list are implicitly dropped. Produce a clear, minimal, incremental, and testable sequence of tasks that a Code Agent can execute, once you understand where all the necessary pieces live.
+                - createOrReplaceTaskList(String explanation, List<TaskListEntry> tasks): replace the entire task list when the request involves code changes. Titles are summarized automatically from task text; pass task texts only. Completed tasks from the previous list are implicitly dropped. Produce a clear, minimal, incremental, and testable sequence of tasks that a Code Agent can execute, once you understand where all the necessary pieces live.
                   Guidance:
                     - Each task must be self-contained; the Code Agent will not have access to your instructions or conversation history.
                     - It is CRITICAL to keep the project buildable and testable after each task; in the VERY RARE case where breaking the build
                       temporarily is necessary, YOU MUST BE EXPLICIT about this to avoid confusing the Code Agent.
                 {{/if}}
                 {{#if terminalWorkspace}}
-                - Use workspaceComplete() when the Workspace contains all the information necessary to accomplish the goal.
+                - workspaceComplete(): when the Workspace contains all the information necessary to accomplish the goal.
                 {{/if}}
                 {{#if terminalCode}}
-                - Use callCodeAgent(String instructions, boolean deferBuild) to attempt implementation now in a single shot. If it succeeds, we finish; otherwise, continue with search/planning. Only use this when the goal is small enough to not need decomposition into a task list, and after you have added all the necessary context to the Workspace.
+                - callCodeAgent(String instructions, boolean deferBuild): the task is simple enough to attempt implementation now in a single shot without creating a formal task list.
                 {{/if}}
-                - If we cannot find the answer or the request is out of scope for this codebase, use abortSearch with a clear explanation.
-                {{/if}}
+                - abortSearch(String explanation): the answer cannot be found or the request is out of scope for this codebase. Provide a clear explanation of your decision.
 
+                {{#unless finalTurnOnly~}}
                 You CAN call multiple non-terminal tools in a single turn, and you SHOULD whenever you can
                 usefully do so.
 
                 Terminal actions ({{#if terminalAnswer}}answer, {{/if}}{{#if terminalTasks}}createOrReplaceTaskList, {{/if}}{{#if terminalWorkspace}}workspaceComplete, {{/if}}{{#if terminalCode}}callCodeAgent, {{/if}}{{#if terminalIssue}}describeIssue, {{/if}}abortSearch)
-                must be the ONLY tool in a turn. If final cleanup is needed (for example, dropWorkspaceFragments), do it first,
-                then finalize on the next turn. If you include a terminal together with other tools, the terminal will be ignored for this turn.
+                must be the ONLY tool in a turn, other than final cleanup via dropWorkspaceFragments.
+                If you include a terminal together with other tools, the terminal will be ignored for this turn.
+                {{~/unless}}
 
                 Remember: it is NOT your objective to write code.
 
+                {{#unless specialTooling~}}
                 {{#if warning~}}
                 {{warning}}
                 {{~/if}}
+                {{~/unless}}
                 </tool-instructions>
+
+                {{#if specialTooling~}}
+                When a special-turn tool whitelist is provided, it is strict and overrides everything else.
+                You must only select from the specified tools.
+                <special-turn-tools turn_type="{{specialTooling.turnType}}">
+                  {{join specialTooling.allowedTools ", "}}
+                </special-turn-tools>
+                {{~/if}}
 
                 {{#unless isIssueDiagnosis~}}
                 <markdown-reminder>
@@ -573,7 +508,8 @@ public class SearchPrompts {
             List<ChatMessage> sessionMessages,
             Map<ProjectFile, String> relatedSymbols,
             ai.brokk.agents.SearchAgent.DropMode dropMode,
-            int turnsLeftAfterThisTurn) {
+            int turnsLeftAfterThisTurn,
+            @Nullable SpecialTurnTooling specialTooling) {
 
         var cm = context.getContextManager();
 
@@ -665,7 +601,70 @@ public class SearchPrompts {
                 terminals.contains(Terminal.TASK_LIST),
                 terminals.contains(Terminal.WORKSPACE),
                 terminals.contains(Terminal.CODE),
-                terminals.contains(Terminal.DESCRIBE_ISSUE));
+                terminals.contains(Terminal.DESCRIBE_ISSUE),
+                turnsLeftAfterThisTurn == 0,
+                specialTooling);
+
+        String directive;
+        try {
+            directive = DIRECTIVE_TEMPLATE.apply(data);
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+
+        messages.add(new UserMessage(directive));
+        return messages;
+    }
+
+    public List<ChatMessage> buildPromptWorkspaceOnly(
+            Context context,
+            StreamingChatModel model,
+            String goal,
+            SearchPrompts.Objective objective,
+            List<McpPrompts.McpTool> mcpTools,
+            ai.brokk.agents.SearchAgent.DropMode dropMode,
+            int turnsLeftAfterThisTurn,
+            SpecialTurnTooling specialTooling) {
+
+        var cm = context.getContextManager();
+
+        boolean useTaskList = objective == Objective.LUTZ || objective == Objective.TASKS_ONLY;
+        var suppressed = useTaskList ? EnumSet.noneOf(SpecialTextType.class) : EnumSet.of(SpecialTextType.TASK_LIST);
+
+        var workspaceMessages = WorkspacePrompts.getMessagesInAddedOrder(context, suppressed);
+
+        var messages = new ArrayList<ChatMessage>();
+        messages.add(searchSystemPrompt(context, objective));
+
+        var mcpToolPrompt = McpPrompts.mcpToolPrompt(mcpTools);
+        if (mcpToolPrompt != null) {
+            messages.add(new SystemMessage(mcpToolPrompt));
+        }
+
+        messages.addAll(workspaceMessages);
+
+        boolean needsBuildSetup = (objective == Objective.LUTZ || objective == Objective.TASKS_ONLY)
+                && cm.getProject().awaitBuildDetails().equals(BuildAgent.BuildDetails.EMPTY);
+
+        var terminals = objective.terminals();
+        var data = new DirectiveData(
+                goal,
+                objective.tag(),
+                objective.taskInstructions().strip(),
+                cm.getProject().isEmptyProject(),
+                needsBuildSetup,
+                "",
+                turnsLeftAfterThisTurn,
+                WorkspacePrompts.formatToc(context, suppressed),
+                objective == Objective.WORKSPACE_ONLY,
+                objective == Objective.ISSUE_DESCRIPTION,
+                terminals.contains(Terminal.ANSWER),
+                terminals.contains(Terminal.TASK_LIST),
+                terminals.contains(Terminal.WORKSPACE),
+                terminals.contains(Terminal.CODE),
+                terminals.contains(Terminal.DESCRIBE_ISSUE),
+                turnsLeftAfterThisTurn == 0,
+                specialTooling);
 
         String directive;
         try {

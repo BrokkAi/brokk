@@ -12,6 +12,7 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.git.GitRepo;
 import ai.brokk.gui.dialogs.BlitzForgeProgressDialog;
+import ai.brokk.tools.SearchTools;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
 import ai.brokk.tools.WorkspaceTools;
@@ -153,6 +154,7 @@ public final class MergeOneFile {
         // Register tools
         var tr = cm.getToolRegistry()
                 .builder()
+                .register(new SearchTools(cm))
                 .register(new WorkspaceTools(((ContextManager) cm).liveContext()))
                 .register(this)
                 .build();

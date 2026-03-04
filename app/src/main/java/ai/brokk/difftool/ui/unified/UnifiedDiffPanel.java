@@ -30,6 +30,7 @@ import java.nio.file.Paths;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import javax.swing.JViewport;
 import javax.swing.SwingUtilities;
 import javax.swing.text.AttributeSet;
 import javax.swing.text.BadLocationException;
@@ -877,29 +878,33 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
                 int offset = textArea.getLineStartOffset(Math.max(0, lineNumber - 1));
                 textArea.setCaretPosition(offset);
 
-                // Scroll the line to the top with a 3-line buffer
+                // Compute the target line's Y coordinate
                 var rect = textArea.modelToView2D(offset);
                 if (rect != null) {
-                    var viewport = scrollPane.getViewport();
-                    int viewportHeight = viewport.getHeight();
-
-                    // If viewport height isn't ready yet, it's hard to position correctly.
-                    // But we can at least scroll to a position relative to the text area.
-                    int lineHeight = textArea.getLineHeight();
-                    int buffer = 3 * lineHeight;
-                    int y = (int) rect.getY() - buffer;
-
-                    // Ensure we don't scroll past the bottom if viewport size is known
-                    if (viewportHeight > 0) {
-                        int maxY = Math.max(0, textArea.getHeight() - viewportHeight);
-                        y = Math.min(y, maxY);
-                    }
-
-                    viewport.setViewPosition(new Point(0, Math.max(0, y)));
+                    int targetStartY = (int) rect.getY();
+                    int targetEndY = targetStartY + textArea.getLineHeight();
+                    centerViewportY(scrollPane.getViewport(), targetStartY, targetEndY, textArea.getHeight());
                 }
             } catch (BadLocationException e) {
                 logger.warn("Could not scroll to line {}", lineNumber, e);
             }
         });
+    }
+
+    /**
+     * Centers the viewport vertically on a target region while preserving horizontal scroll.
+     *
+     * @param viewport The viewport to scroll
+     * @param targetStartY The Y coordinate of the start of the target region
+     * @param targetEndY The Y coordinate of the end of the target region
+     * @param contentHeight The total height of the scrollable content
+     */
+    static void centerViewportY(JViewport viewport, int targetStartY, int targetEndY, int contentHeight) {
+        int viewportHeight = viewport.getHeight();
+        int maxY = Math.max(0, contentHeight - viewportHeight);
+        int centeredY =
+                ScrollCoordinateCalculator.calculateCenteredViewportY(targetStartY, targetEndY, viewportHeight, maxY);
+        int currentX = viewport.getViewPosition().x;
+        viewport.setViewPosition(new Point(currentX, centeredY));
     }
 }

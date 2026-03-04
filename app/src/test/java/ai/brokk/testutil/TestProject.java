@@ -6,8 +6,9 @@ import ai.brokk.agents.BuildAgent;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.mcp.McpConfig;
+import ai.brokk.mcpclient.McpConfig;
 import ai.brokk.project.IProject;
+import ai.brokk.util.Environment;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
@@ -24,9 +25,10 @@ import org.jetbrains.annotations.Nullable;
 /** Lightweight IProject implementation for unit-testing Tree-sitter analyzers. */
 public class TestProject implements IProject {
     private final Path root;
-    private final Language language;
+    private Language language = Languages.NONE;
 
-    private long runCommandTimeoutSeconds = 0L;
+    private long runCommandTimeoutSeconds = Environment.DEFAULT_TIMEOUT.toSeconds();
+    private long testCommandTimeoutSeconds = Environment.DEFAULT_TIMEOUT.toSeconds();
 
     private volatile CompletableFuture<BuildAgent.BuildDetails> detailsFuture =
             CompletableFuture.completedFuture(BuildAgent.BuildDetails.EMPTY);
@@ -37,6 +39,7 @@ public class TestProject implements IProject {
     private String styleGuide = "";
     private Set<String> exclusionPatterns = Set.of();
     private boolean hasGit = false;
+    private boolean gitConfigDeclined = false;
     private @Nullable String jdk;
 
     public TestProject(Path root) {
@@ -121,6 +124,16 @@ public class TestProject implements IProject {
     }
 
     @Override
+    public boolean isGitConfigDeclined() {
+        return gitConfigDeclined;
+    }
+
+    @Override
+    public void setGitConfigDeclined(boolean declined) {
+        this.gitConfigDeclined = declined;
+    }
+
+    @Override
     public @Nullable String getJdk() {
         return jdk;
     }
@@ -156,14 +169,46 @@ public class TestProject implements IProject {
         return new TestProject(testDir.toAbsolutePath(), lang);
     }
 
+    private Set<Language> analyzerLanguages = Set.of();
+
     @Override
     public Set<Language> getAnalyzerLanguages() {
-        return Set.of(language);
+        return analyzerLanguages.isEmpty() ? Set.of(language) : analyzerLanguages;
     }
 
     @Override
+    public void setAnalyzerLanguages(Set<Language> languages) {
+        this.analyzerLanguages = Set.copyOf(languages);
+    }
+
+    private Language buildLanguage = Languages.NONE;
+
+    @Override
     public Language getBuildLanguage() {
-        return language;
+        return buildLanguage;
+    }
+
+    @Override
+    public void setBuildLanguage(@Nullable Language language) {
+        this.buildLanguage = language != null ? language : Languages.NONE;
+    }
+
+    @Override
+    public long getRunCommandTimeoutSeconds() {
+        return runCommandTimeoutSeconds;
+    }
+
+    public void setRunCommandTimeoutSeconds(long seconds) {
+        this.runCommandTimeoutSeconds = seconds;
+    }
+
+    @Override
+    public long getTestCommandTimeoutSeconds() {
+        return testCommandTimeoutSeconds;
+    }
+
+    public void setTestCommandTimeoutSeconds(long seconds) {
+        this.testCommandTimeoutSeconds = seconds;
     }
 
     @Override

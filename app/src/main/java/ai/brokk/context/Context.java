@@ -161,6 +161,37 @@ public class Context {
     }
 
     /**
+     * Removes unpinned {@link ContextFragments.SummaryFragment}s that are superseded by full
+     * file or class fragments already present in this context.
+     *
+     * <p>A summary is superseded when a {@link ContextFragments.ProjectPathFragment} or
+     * {@link ContextFragments.CodeFragment} covering the same underlying source exists in the
+     * context. Pinned summaries are never removed.</p>
+     *
+     * @return a new Context with superseded summaries removed, or {@code this} if nothing changed
+     */
+    @Blocking
+    public Context removeSupersededSummaries() {
+        var nonSummaryFragments = fragments.stream()
+                .filter(f -> !(f instanceof ContextFragments.SummaryFragment))
+                .toList();
+
+        var superseded = fragments.stream()
+                .filter(f -> f instanceof ContextFragments.SummaryFragment)
+                .map(f -> (ContextFragments.SummaryFragment) f)
+                .filter(sf -> !pinnedFragments.contains(sf))
+                .filter(sf -> sf.isSupersededBy(nonSummaryFragments))
+                .toList();
+
+        if (superseded.isEmpty()) {
+            return this;
+        }
+
+        logger.debug("removeSupersededSummaries: removing {} superseded summaries: {}", superseded.size(), superseded);
+        return removeFragments(superseded);
+    }
+
+    /**
      * Adds fragments to the context.
      * <p>
      * Fragments are deduplicated by semantic equivalence ({@code hasSameSource}) within the input and against the current context.
@@ -191,24 +222,13 @@ public class Context {
             }
         }
 
-        // 2. Identify files that are being added as full PATH fragments.
-        // These will "kill" any existing SKELETON fragments for the same files.
-        var incomingPathFiles = expanded.stream()
-                .filter(f -> f instanceof ContextFragments.PathFragment)
-                .map(f -> (ContextFragments.PathFragment) f)
-                .flatMap(pf -> pf.sourceFiles().join().stream())
-                .collect(Collectors.toSet());
-
-        // 3. Process the CURRENT fragments:
+        // Process the CURRENT fragments:
         //    a) Identify SUMMARY fragments superseded by incoming PATHS.
         //    b) Keep everything else (we will deduplicate against new inputs in the next step).
         var partitioned = this.fragments.stream().collect(Collectors.partitioningBy(f -> {
-            if (f instanceof ContextFragments.SummaryFragment) {
-                var skeletonFiles = f.sourceFiles().join();
-                // If the skeleton's files overlap with incoming full paths, drop the skeleton.
-                return !Collections.disjoint(skeletonFiles, incomingPathFiles);
-            }
-            return false;
+            return f instanceof ContextFragments.SummaryFragment sf
+                    && !pinnedFragments.contains(f)
+                    && sf.isSupersededBy(toAdd);
         }));
 
         var supersededFragments = castNonNull(partitioned.get(true));
@@ -923,5 +943,58 @@ public class Context {
 
     public Context addHistoryEntry(ContextFragments.TaskFragment log, @Nullable TaskResult.TaskMeta meta) {
         return addHistoryEntryInternal(new TaskEntry(getTaskHistory().size(), log, log, null, meta));
+    }
+
+    @Blocking
+    public Context addAsSummaries(List<ContextFragment> fragments) {
+        List<ContextFragment> toAdd = fragments.stream()
+                .map(cf -> (ContextFragment)
+                        (switch (cf) {
+                            case ContextFragments.ProjectPathFragment ppf -> {
+                                var analyzer = contextManager.getAnalyzerUninterrupted();
+                                if (analyzer.getDeclarations(ppf.file()).isEmpty()) {
+                                    yield ppf;
+                                }
+                                yield new ContextFragments.SummaryFragment(
+                                        contextManager,
+                                        ppf.file().toString(),
+                                        ContextFragment.SummaryType.FILE_SKELETONS);
+                            }
+                            case ContextFragments.CodeFragment ccf -> {
+                                var analyzer = contextManager.getAnalyzerUninterrupted();
+                                var defs = analyzer.getDefinitions(ccf.getFullyQualifiedName());
+                                var cuOpt = defs.isEmpty()
+                                        ? Optional.<CodeUnit>empty()
+                                        : analyzer.parentOf(defs.getFirst());
+                                if (cuOpt.isEmpty()) {
+                                    logger.warn("Missing parent for " + ccf.getFullyQualifiedName());
+                                    yield null;
+                                }
+                                yield new ContextFragments.SummaryFragment(
+                                        contextManager,
+                                        cuOpt.get().fqName(),
+                                        ContextFragment.SummaryType.CODEUNIT_SKELETON);
+                            }
+                            case ContextFragments.SummaryFragment ssf -> ssf;
+                            default -> {
+                                logger.warn("Unexpected fragment type added by Architect {}", cf.getClass());
+                                yield null;
+                            }
+                        }))
+                .filter(Objects::nonNull)
+                .toList();
+
+        Context next = addFragments(toAdd);
+
+        // Mark any resulting ProjectPathFragments (the fallback for unanalyzed files) as readonly
+        for (var f : toAdd) {
+            if (f instanceof ContextFragments.ProjectPathFragment) {
+                final Context current = next;
+                next = next.findWithSameSource(f)
+                        .map(found -> current.setReadonly(found, true))
+                        .orElse(next);
+            }
+        }
+        return next;
     }
 }

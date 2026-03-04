@@ -2,22 +2,132 @@ import asyncio
 import json
 import logging
 import sys
-import uuid
+from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Optional
+from urllib.parse import unquote, urlparse
 
+from brokk_code import __version__
 from brokk_code.executor import ExecutorError, ExecutorManager
+from brokk_code.settings import Settings
 
 logger = logging.getLogger(__name__)
 
-VALID_MODES = {"LUTZ", "ASK", "CODE"}
-MODE_OPTIONS = ("LUTZ", "CODE", "ASK")
+VALID_MODES = {"LUTZ", "ASK", "CODE", "PLAN"}
+MODE_OPTIONS = ("LUTZ", "CODE", "ASK", "PLAN")
 BASE_MODEL_IDS = ("gpt-5.2", "gemini-3-flash-preview")
 REASONING_LEVEL_IDS = ("low", "medium", "high", "disable", "default")
 DEFAULT_MODEL_SELECTION = "gpt-5.2"
-DEFAULT_REASONING_LEVEL = "low"
+DEFAULT_REASONING_LEVEL = "medium"
 THOUGHT_LEVEL_CONFIG_ID = "thought_level"
 DEFAULT_VARIANT_VALUE = "default"
+MODEL_DISCOVERY_INITIAL_ATTEMPTS = 4
+MODEL_DISCOVERY_RECOVERY_ATTEMPTS = 2
+MODEL_DISCOVERY_INITIAL_BACKOFF_SECONDS = 0.2
+
+
+@dataclass(frozen=True)
+class ClientProfile:
+    """Runtime configuration derived from ACP client capabilities and info."""
+
+    is_zed: bool = False
+    supports_terminal: bool = False
+
+
+def resolve_client_profile(client_capabilities: Any, client_info: Any) -> ClientProfile:
+    """Derives a ClientProfile from ACP initialize inputs."""
+    client_name = ""
+    if hasattr(client_info, "name"):
+        client_name = str(client_info.name).lower()
+    elif isinstance(client_info, dict):
+        client_name = str(client_info.get("name", "")).lower()
+
+    # Identify Zed specifically for its unique Markdown/Rich rendering capabilities.
+    is_zed = "zed" in client_name
+
+    # Determine terminal support from capabilities.
+    supports_terminal = False
+    if hasattr(client_capabilities, "terminal"):
+        supports_terminal = bool(client_capabilities.terminal)
+    elif isinstance(client_capabilities, dict):
+        supports_terminal = bool(client_capabilities.get("terminal"))
+
+    if is_zed:
+        return ClientProfile(
+            is_zed=True,
+            supports_terminal=supports_terminal,
+        )
+
+    # Default/IntelliJ-like behavior: conservative rendering.
+    return ClientProfile(
+        is_zed=False,
+        supports_terminal=supports_terminal,
+    )
+
+
+# ACP persistence dataclass and helpers. Persisted in ~/.brokk/acp_settings.json
+@dataclass
+class AcpDefaults:
+    default_model: str = DEFAULT_MODEL_SELECTION
+    default_reasoning: str = DEFAULT_REASONING_LEVEL
+
+    def to_dict(self) -> dict[str, str]:
+        return {"default_model": self.default_model, "default_reasoning": self.default_reasoning}
+
+
+def _acp_settings_dir() -> Path:
+    return Path.home() / ".brokk"
+
+
+def _acp_settings_file() -> Path:
+    return _acp_settings_dir() / "acp_settings.json"
+
+
+def load_acp_defaults() -> AcpDefaults:
+    """Load ACP defaults from disk, falling back safely on any error.
+
+    This function is tolerant of older or corrupted acp_settings.json files:
+    - If the file is missing or unreadable the defaults are returned.
+    - If persisted values are invalid (e.g., unknown reasoning id) we log and
+      fall back to safe defaults. This ensures ACP startup does not raise.
+    """
+    path = _acp_settings_file()
+    if not path.exists():
+        return AcpDefaults()
+    try:
+        with path.open("r", encoding="utf-8") as f:
+            data = json.load(f) or {}
+            model = str(data.get("default_model") or DEFAULT_MODEL_SELECTION).strip()
+            reasoning = str(data.get("default_reasoning") or DEFAULT_REASONING_LEVEL).strip()
+            if not model:
+                model = DEFAULT_MODEL_SELECTION
+            if not reasoning:
+                reasoning = DEFAULT_REASONING_LEVEL
+            # Ensure reasoning is a recognized id; else fallback to default
+            if reasoning not in REASONING_LEVEL_IDS:
+                logger.info(
+                    "Persisted ACP reasoning %s invalid; falling back to %s",
+                    reasoning,
+                    DEFAULT_REASONING_LEVEL,
+                )
+                reasoning = DEFAULT_REASONING_LEVEL
+            return AcpDefaults(default_model=model, default_reasoning=reasoning)
+    except Exception as e:
+        logger.warning("Failed to load ACP defaults from %s: %s", path, e)
+        return AcpDefaults()
+
+
+def save_acp_defaults(defaults: AcpDefaults) -> None:
+    try:
+        path = _acp_settings_file()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temp = path.with_suffix(".tmp")
+        with temp.open("w", encoding="utf-8") as f:
+            json.dump(defaults.to_dict(), f, indent=2)
+        temp.replace(path)
+    except Exception as e:
+        logger.error("Failed to save ACP defaults to %s: %s", _acp_settings_file(), e)
 
 
 def normalize_mode(mode: Optional[str]) -> str:
@@ -52,6 +162,34 @@ def _fallback_model_catalog() -> list[dict[str, Any]]:
         }
         for model_id in BASE_MODEL_IDS
     ]
+
+
+async def _fetch_normalized_catalog_with_retries(
+    fetch_models_payload: Callable[[], Awaitable[dict[str, Any]]],
+    attempts: int = MODEL_DISCOVERY_INITIAL_ATTEMPTS,
+    initial_backoff_seconds: float = MODEL_DISCOVERY_INITIAL_BACKOFF_SECONDS,
+) -> Optional[list[dict[str, Any]]]:
+    for attempt in range(1, attempts + 1):
+        try:
+            payload = await fetch_models_payload()
+            normalized = _normalize_model_catalog(payload)
+            if normalized:
+                return normalized
+            logger.info(
+                "Model discovery returned no valid models on attempt %s/%s",
+                attempt,
+                attempts,
+            )
+        except Exception:
+            logger.info(
+                "Model discovery attempt %s/%s failed",
+                attempt,
+                attempts,
+                exc_info=True,
+            )
+        if attempt < attempts:
+            await asyncio.sleep(initial_backoff_seconds * (2 ** (attempt - 1)))
+    return None
 
 
 def _normalize_model_catalog(payload: dict[str, Any]) -> list[dict[str, Any]]:
@@ -114,11 +252,18 @@ def _model_options(
     for model in catalog:
         if not isinstance(model, dict):
             continue
-        model_name = str(model.get("name", "")).strip()
+        raw_name = model.get("name")
+        if not isinstance(raw_name, str):
+            continue
+        model_name = raw_name.strip()
         if not model_name:
             continue
         options.append((model_name, model_name))
     return options
+
+
+def _available_model_names(catalog: list[dict[str, Any]]) -> list[str]:
+    return [model_name for model_name, _ in _model_options(catalog)]
 
 
 def _model_variants_for_model(model_name: str, catalog: list[dict[str, Any]]) -> list[str]:
@@ -168,7 +313,7 @@ def _parse_model_selection(
         level = raw[len("reasoning/") :].strip().lower()
         return (None, level if level in REASONING_LEVEL_IDS else None)
 
-    available_models = {model_id for model_id, _ in _model_options(catalog)}
+    available_models = set(_available_model_names(catalog))
     if raw in available_models:
         return (raw, None)
 
@@ -202,10 +347,93 @@ def extract_prompt_text(prompt: Any) -> str:
     return "\n".join(parts).strip()
 
 
+def extract_resource_file_paths(prompt: Any, cwd: str) -> list[str]:
+    """Extract workspace-relative file paths from EmbeddedResource and ResourceLink blocks."""
+    if not prompt or isinstance(prompt, str):
+        return []
+    cwd_path = Path(cwd) if cwd else None
+    paths: list[str] = []
+
+    def _get_attr_or_key(obj: Any, key: str) -> Any:
+        if isinstance(obj, dict):
+            return obj.get(key)
+        return getattr(obj, key, None)
+
+    def _resource_uri(resource: Any) -> Optional[str]:
+        uri = _get_attr_or_key(resource, "uri")
+        if isinstance(uri, str):
+            return uri
+        nested = _get_attr_or_key(resource, "resource")
+        if nested is None:
+            return None
+        nested_uri = _get_attr_or_key(nested, "uri")
+        if isinstance(nested_uri, str):
+            return nested_uri
+        return None
+
+    for block in prompt:
+        block_type = _get_attr_or_key(block, "type")
+        uri: Optional[str] = None
+        if block_type in {"embedded_resource", "resource"}:
+            resource = _get_attr_or_key(block, "resource")
+            if resource is not None:
+                uri = _resource_uri(resource)
+        elif block_type == "resource_link":
+            uri = _get_attr_or_key(block, "uri")
+        if not isinstance(uri, str):
+            continue
+        uri = uri.strip()
+        if not uri:
+            continue
+
+        parsed = urlparse(uri)
+        file_path: Optional[Path] = None
+        if parsed.scheme == "file":
+            file_path = Path(unquote(parsed.path))
+        elif parsed.scheme == "":
+            rel_path = Path(unquote(uri))
+            if rel_path.is_absolute():
+                file_path = rel_path
+            elif cwd_path is not None:
+                file_path = cwd_path / rel_path
+        if file_path is None:
+            continue
+        try:
+            if cwd_path:
+                paths.append(file_path.relative_to(cwd_path).as_posix())
+            else:
+                paths.append(file_path.as_posix())
+        except (ValueError, TypeError):
+            logger.debug("Could not make %s relative to %s", uri, cwd)
+    return list(dict.fromkeys(paths))
+
+
+def _extract_fragment_ids(resp: Any) -> list[str]:
+    if not isinstance(resp, dict):
+        return []
+    added = resp.get("added")
+    if not isinstance(added, list):
+        return []
+    ids: list[str] = []
+    for item in added:
+        if not isinstance(item, dict):
+            continue
+        raw_id = item.get("id", item.get("fragmentId"))
+        if raw_id is not None:
+            frag_id = str(raw_id).strip()
+            if frag_id:
+                ids.append(frag_id)
+    return list(dict.fromkeys(ids))
+
+
 def map_executor_event_to_session_update(
     event: dict[str, Any],
     update_agent_message_text: Callable[[str], Any],
     update_agent_thought_text: Optional[Callable[[str], Any]] = None,
+    start_tool_call: Optional[Callable[..., Any]] = None,
+    update_tool_call: Optional[Callable[..., Any]] = None,
+    tool_content: Optional[Callable[[Any], Any]] = None,
+    text_block: Optional[Callable[[str], Any]] = None,
 ) -> Optional[Any]:
     event_type = event.get("type")
     data = event.get("data", {})
@@ -214,6 +442,15 @@ def map_executor_event_to_session_update(
         token = data.get("token", "")
         if not token:
             return None
+        token = _normalize_status_token(token)
+        is_reasoning_raw = data.get("isReasoning", False)
+        if isinstance(is_reasoning_raw, str):
+            is_reasoning = is_reasoning_raw.strip().lower() in ("true", "1", "yes")
+        else:
+            is_reasoning = bool(is_reasoning_raw)
+
+        if is_reasoning and update_agent_thought_text:
+            return update_agent_thought_text(token)
         return update_agent_message_text(token)
 
     if event_type == "ERROR":
@@ -225,19 +462,127 @@ def map_executor_event_to_session_update(
         msg = data.get("message", "")
         if not msg:
             return None
-        if update_agent_thought_text:
-            return update_agent_thought_text(f"[{level}] {msg}")
-        return update_agent_message_text(f"\n[{level}] {msg}\n")
+        normalized_level = str(level).strip().upper()
+        # INFO/COST/CONFIRM are internal or high-volume and should not be
+        # appended to persistent chat output.
+        if normalized_level in {"COST", "CONFIRM", "INFO"}:
+            return None
+        return update_agent_message_text(_format_notification_line(level, msg))
 
     if event_type == "STATE_HINT":
-        message = data.get("message")
-        if isinstance(message, str) and message.strip():
-            if update_agent_thought_text:
-                return update_agent_thought_text(message.strip())
-            return update_agent_message_text(f"\n[STATE] {message.strip()}\n")
+        # These are transient UI state updates and should not be appended to
+        # persistent chat output.
+        return None
+
+    if event_type == "TOOL_CALL":
+        name = data.get("name", "tool")
+        args = data.get("arguments", "")
+        tool_call_id = (
+            data.get("toolCallId")
+            or data.get("tool_call_id")
+            or data.get("id")
+            or data.get("callId")
+        )
+
+        if start_tool_call and tool_call_id:
+            content = None
+            if args and text_block and tool_content:
+                content = [tool_content(text_block(str(args)))]
+            return start_tool_call(
+                tool_call_id=str(tool_call_id),
+                title=name,
+                status="in_progress",
+                content=content,
+            )
+
+        return None
+
+    if event_type == "TOOL_OUTPUT":
+        status_raw = str(data.get("status", "SUCCESS")).upper()
+        # Map executor status to ACP ToolCallStatus: "pending", "in_progress", "completed", "failed"
+        acp_status = "completed" if status_raw == "SUCCESS" else "failed"
+
+        tool_call_id = (
+            data.get("toolCallId")
+            or data.get("tool_call_id")
+            or data.get("id")
+            or data.get("callId")
+        )
+
+        if update_tool_call and tool_call_id:
+            content = None
+            output_payload = data.get("output") or data.get("result") or data.get("message")
+            if output_payload and text_block and tool_content:
+                content = [tool_content(text_block(str(output_payload)))]
+
+            return update_tool_call(
+                tool_call_id=str(tool_call_id),
+                status=acp_status,
+                content=content,
+            )
+
         return None
 
     return None
+
+
+def conversation_payload_to_session_updates(
+    conversation_data: dict[str, Any],
+    update_user_message_text: Callable[[str], Any],
+    update_agent_message_text: Callable[[str], Any],
+    update_agent_thought_text: Optional[Callable[[str], Any]] = None,
+) -> list[Any]:
+    """Map executor conversation payload into ACP session updates for replay."""
+    entries = conversation_data.get("entries")
+    if not isinstance(entries, list):
+        return []
+
+    updates: list[Any] = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+
+        messages = entry.get("messages")
+        if isinstance(messages, list):
+            for msg in messages:
+                if not isinstance(msg, dict):
+                    continue
+
+                role = str(msg.get("role", "")).strip().lower()
+                text = msg.get("text")
+                if not isinstance(text, str):
+                    text = ""
+
+                reasoning = msg.get("reasoning")
+                if update_agent_thought_text and isinstance(reasoning, str) and reasoning.strip():
+                    updates.append(update_agent_thought_text(reasoning.strip()))
+
+                stripped_text = text.strip()
+                if not stripped_text:
+                    continue
+
+                if role == "user":
+                    updates.append(update_user_message_text(text))
+                else:
+                    updates.append(update_agent_message_text(text))
+            continue
+
+        summary = entry.get("summary")
+        if isinstance(summary, str) and summary.strip():
+            updates.append(update_agent_message_text(summary))
+
+    return updates
+
+
+def _normalize_status_token(token: str) -> str:
+    # Pass tokens through as-is, with only minimal normalization for known mojibake.
+    return token.replace("â€¦", "...")
+
+
+def _format_notification_line(level: Any, msg: Any) -> str:
+    level_text = str(level)
+    msg_text = str(msg)
+    return f"\n\n[{level_text}] {msg_text}\n"
 
 
 def _extract_session_id_for_cancel(args: tuple[Any, ...], kwargs: dict[str, Any]) -> Optional[str]:
@@ -263,115 +608,42 @@ def _extract_session_id_for_cancel(args: tuple[Any, ...], kwargs: dict[str, Any]
     return None
 
 
-def _format_chip(fragment: dict[str, Any]) -> str:
-    chip_kind = str(fragment.get("chip_kind", fragment.get("chipKind", "OTHER")))
-    description = str(fragment.get("shortDescription", "Unknown"))
-    text = f"{chip_kind} {description}"
-
-    tokens = fragment.get("tokens", 0)
-    if isinstance(tokens, int) and tokens > 0:
-        text += f" {tokens:,}t"
-    if fragment.get("pinned"):
-        text += " [PIN]"
-    return text
-
-
-def _estimate_chip_width(fragment: dict[str, Any]) -> int:
-    # Matches the simple width estimation behavior used by the TUI context panel.
-    return len(_format_chip(fragment)) + 4
+def _to_iso8601_utc(value: Any) -> Optional[str]:
+    if isinstance(value, str):
+        stripped = value.strip()
+        return stripped or None
+    if isinstance(value, (int, float)):
+        seconds = float(value)
+        # Headless API timestamps are epoch-millis; fall back to seconds for small values.
+        if seconds > 10_000_000_000:
+            seconds = seconds / 1000.0
+        return datetime.fromtimestamp(seconds, tz=UTC).isoformat().replace("+00:00", "Z")
+    return None
 
 
-def _chip_kind(fragment: dict[str, Any]) -> str:
-    return str(fragment.get("chip_kind", fragment.get("chipKind", "OTHER"))).upper()
+def _session_id_from_entry(entry: Any) -> Optional[str]:
+    if not isinstance(entry, dict):
+        return None
+    raw = entry.get("id")
+    if raw is None:
+        raw = entry.get("sessionId")
+    if raw is None:
+        raw = entry.get("session_id")
+    if raw is None:
+        return None
+    sid = str(raw).strip()
+    return sid or None
 
 
-def _chip_kind_rank(kind: str) -> int:
-    ranks = {
-        "EDIT": 0,
-        "SUMMARY": 1,
-        "HISTORY": 2,
-        "TASK_LIST": 3,
-        "OTHER": 4,
-        "INVALID": 5,
-    }
-    return ranks.get(kind, 99)
-
-
-def _chip_kind_label(kind: str) -> str:
-    labels = {
-        "EDIT": "Editable Context",
-        "SUMMARY": "Summaries",
-        "HISTORY": "History",
-        "TASK_LIST": "Task List",
-        "OTHER": "Other Context",
-        "INVALID": "Invalid Context",
-    }
-    return labels.get(kind, kind.title())
-
-
-def _chip_kind_purpose(kind: str) -> str:
-    purposes = {
-        "EDIT": "Directly editable source/context",
-        "SUMMARY": "Read-only summaries for reference",
-        "HISTORY": "Prior conversation and run history",
-        "TASK_LIST": "Structured plan/checklist context",
-        "OTHER": "Additional supporting context",
-        "INVALID": "Stale or invalid fragments",
-    }
-    return purposes.get(kind, "Context fragments")
-
-
-def _is_discarded_context(block: dict[str, Any]) -> bool:
-    description = str(block.get("short_description", "")).strip().lower()
-    return description == "discarded context"
-
-
-def _discarded_context_markdown(block: dict[str, Any]) -> str:
-    payload = {
-        "title": block.get("short_description", "Discarded Context"),
-        "chipKind": block.get("chip_kind", "OTHER"),
-        "content": block.get("text", ""),
-    }
-    return "```json\n" + json.dumps(payload, indent=2) + "\n```\n"
-
-
-def build_context_chip_blocks(
-    context_data: dict[str, Any], fragment_resources: dict[str, dict[str, Any]]
-) -> list[dict[str, Any]]:
-    fragments = context_data.get("fragments", [])
-    blocks_with_rank: list[tuple[int, int, dict[str, Any]]] = []
-    if not isinstance(fragments, list) or not fragments:
-        return []
-
-    for i, fragment in enumerate(fragments):
-        fragment_id = fragment.get("id")
-        kind = _chip_kind(fragment)
-        if isinstance(fragment_id, str) and fragment_id:
-            payload = fragment_resources.get(fragment_id)
-            if isinstance(payload, dict):
-                uri = payload.get("uri")
-                mime_type = payload.get("mimeType")
-                text = payload.get("text")
-                if isinstance(uri, str) and isinstance(mime_type, str) and isinstance(text, str):
-                    blocks_with_rank.append(
-                        (
-                            _chip_kind_rank(kind),
-                            i,
-                            {
-                                "uri": uri,
-                                "mime_type": mime_type,
-                                "text": text,
-                                "chip_kind": kind,
-                                "short_description": str(
-                                    fragment.get("shortDescription", "Unknown")
-                                ),
-                                "tokens": int(fragment.get("tokens", 0) or 0),
-                            },
-                        )
-                    )
-
-    blocks_with_rank.sort(key=lambda item: (item[0], item[1]))
-    return [item[2] for item in blocks_with_rank]
+def _known_session_ids(entries: Any) -> set[str]:
+    if not isinstance(entries, list):
+        return set()
+    ids: set[str] = set()
+    for entry in entries:
+        sid = _session_id_from_entry(entry)
+        if sid:
+            ids.add(sid)
+    return ids
 
 
 class BrokkAcpBridge:
@@ -395,10 +667,25 @@ class BrokkAcpBridge:
     async def _ensure_session(self, acp_session_id: str) -> str:
         existing = self._acp_to_brokk_session.get(acp_session_id)
         if existing:
+            await self._switch_executor_session(existing)
             return existing
+        if await self._switch_executor_session(acp_session_id):
+            self._acp_to_brokk_session[acp_session_id] = acp_session_id
+            return acp_session_id
         session_id = await self.executor.create_session(name=f"ACP Session {acp_session_id}")
         self._acp_to_brokk_session[acp_session_id] = session_id
         return session_id
+
+    async def _switch_executor_session(self, session_id: str) -> bool:
+        switch_session = getattr(self.executor, "switch_session", None)
+        if not callable(switch_session):
+            return False
+        try:
+            await switch_session(session_id)
+            return True
+        except Exception:
+            logger.debug("Failed to switch executor session %s", session_id, exc_info=True)
+            return False
 
     async def prompt(
         self,
@@ -411,27 +698,51 @@ class BrokkAcpBridge:
         reasoning_level_code: Optional[str],
         send_update: Callable[[str, Any], Awaitable[Any]],
         update_agent_message_text: Callable[[str], Any],
-        update_agent_thought_text: Optional[Callable[[str], Any]],
-        build_context_snapshot_update: Callable[[str, str, str], Any],
-        use_short_description_context: bool = False,
+        update_agent_thought_text: Optional[Callable[[str], Any]] = None,
+        start_tool_call: Optional[Callable[..., Any]] = None,
+        update_tool_call: Optional[Callable[..., Any]] = None,
+        tool_content: Optional[Callable[[Any], Any]] = None,
+        text_block: Optional[Callable[[str], Any]] = None,
+        cwd: str = "",
         **kwargs: Any,
     ) -> None:
         await self.ensure_ready()
         executor_session_id = await self._ensure_session(session_id)
+        await self._switch_executor_session(executor_session_id)
 
         prompt_text = extract_prompt_text(prompt)
         if not prompt_text:
             raise ExecutorError("Prompt must contain at least one non-empty text block.")
 
-        job_id = await self.executor.submit_job(
-            task_input=prompt_text,
-            planner_model=planner_model,
-            code_model=code_model,
-            reasoning_level=reasoning_level,
-            reasoning_level_code=reasoning_level_code,
-            mode=mode,
-            session_id=executor_session_id,
-        )
+        # Add any @-mentioned files from ACP embedded/linked resource blocks to context.
+        attached_fragment_ids: list[str] = []
+        file_paths = extract_resource_file_paths(prompt, cwd)
+        if file_paths:
+            try:
+                resp = await self.executor.add_context_files(file_paths)
+                attached_fragment_ids.extend(_extract_fragment_ids(resp))
+            except Exception:
+                logger.exception("Failed attaching ACP resource file paths to context")
+
+        try:
+            job_id = await self.executor.submit_job(
+                task_input=prompt_text,
+                planner_model=planner_model,
+                code_model=code_model,
+                reasoning_level=reasoning_level,
+                reasoning_level_code=reasoning_level_code,
+                mode=mode,
+                session_id=executor_session_id,
+            )
+        except Exception:
+            if attached_fragment_ids:
+                try:
+                    await self.executor.drop_context_fragments(attached_fragment_ids)
+                except Exception:
+                    logger.exception(
+                        "Failed to rollback context fragments " + "after submit_job failure"
+                    )
+            raise
         self._active_job_by_session[session_id] = job_id
 
         try:
@@ -440,87 +751,13 @@ class BrokkAcpBridge:
                     event,
                     update_agent_message_text,
                     update_agent_thought_text,
+                    start_tool_call=start_tool_call,
+                    update_tool_call=update_tool_call,
+                    tool_content=tool_content,
+                    text_block=text_block,
                 )
                 if update:
                     await send_update(session_id, update)
-            try:
-                context_data = await self.executor.get_context()
-                fragment_resources: dict[str, dict[str, Any]] = {}
-                fragments = context_data.get("fragments", [])
-                if isinstance(fragments, list):
-                    fragment_ids = [
-                        fragment.get("id")
-                        for fragment in fragments
-                        if isinstance(fragment, dict) and isinstance(fragment.get("id"), str)
-                    ]
-                    if fragment_ids:
-                        results = await asyncio.gather(
-                            *[
-                                self.executor.get_context_fragment(fragment_id)
-                                for fragment_id in fragment_ids
-                            ],
-                            return_exceptions=True,
-                        )
-                        for fragment_id, result in zip(fragment_ids, results):
-                            if isinstance(result, dict):
-                                fragment_resources[fragment_id] = result
-                blocks = build_context_chip_blocks(context_data, fragment_resources)
-                if blocks:
-                    used_tokens = int(context_data.get("usedTokens", 0) or 0)
-                    max_tokens = int(context_data.get("maxTokens", 0) or 0)
-                    await send_update(
-                        session_id,
-                        update_agent_message_text(
-                            "\n\n### Context Snapshot\n"
-                            f"{len(blocks)} resources | {used_tokens:,}/{max_tokens:,} tokens\n"
-                        ),
-                    )
-                current_kind: Optional[str] = None
-                for block in blocks:
-                    kind = str(block["chip_kind"])
-                    if kind != current_kind:
-                        current_kind = kind
-                        await send_update(
-                            session_id,
-                            update_agent_message_text(f"\n#### {_chip_kind_label(kind)}\n"),
-                        )
-                    is_resource_list_kind = kind in {"EDIT", "SUMMARY"}
-                    snapshot_text = (
-                        str(block["short_description"])
-                        if use_short_description_context
-                        else str(block["text"])
-                    )
-                    if is_resource_list_kind and not _is_discarded_context(block):
-                        await send_update(session_id, update_agent_message_text("- "))
-                        await send_update(
-                            session_id,
-                            build_context_snapshot_update(
-                                str(block["uri"]),
-                                str(block["mime_type"]),
-                                snapshot_text,
-                            ),
-                        )
-                        await send_update(
-                            session_id,
-                            update_agent_message_text(f" | {int(block['tokens'])}\n"),
-                        )
-                        continue
-                    await send_update(
-                        session_id,
-                        update_agent_message_text(_discarded_context_markdown(block))
-                        if _is_discarded_context(block)
-                        else build_context_snapshot_update(
-                            str(block["uri"]),
-                            str(block["mime_type"]),
-                            snapshot_text,
-                        ),
-                    )
-                    await send_update(session_id, update_agent_message_text("\n"))
-            except Exception as e:
-                await send_update(
-                    session_id,
-                    update_agent_message_text(f"[INFO] Context snapshot unavailable: {e}"),
-                )
         finally:
             active = self._active_job_by_session.get(session_id)
             if active == job_id:
@@ -541,7 +778,7 @@ async def run_acp_server(
     jar_path: Optional[Path],
     executor_version: Optional[str],
     executor_snapshot: bool,
-    ide: str = "intellij",
+    vendor: Optional[str] = None,
 ) -> None:
     try:
         from acp import (
@@ -552,12 +789,14 @@ async def run_acp_server(
             PromptResponse,
             SetSessionModelResponse,
             SetSessionModeResponse,
-            embedded_text_resource,
-            resource_block,
             run_agent,
-            update_agent_message,
+            start_tool_call,
+            text_block,
+            tool_content,
             update_agent_message_text,
             update_agent_thought_text,
+            update_tool_call,
+            update_user_message_text,
         )
         from acp.agent import connection as acp_agent_connection
         from acp.agent import router as acp_agent_router
@@ -567,12 +806,17 @@ async def run_acp_server(
             Implementation,
             ListSessionsResponse,
             ModelInfo,
+            PromptCapabilities,
+            ResumeSessionResponse,
+            SessionCapabilities,
             SessionConfigOption,
             SessionConfigSelectOption,
             SessionInfo,
+            SessionListCapabilities,
             SessionMode,
             SessionModelState,
             SessionModeState,
+            SessionResumeCapabilities,
             SetSessionConfigOptionRequest,
             SetSessionConfigOptionResponse,
         )
@@ -584,13 +828,23 @@ async def run_acp_server(
         ) from e
 
     logging.basicConfig(stream=sys.stderr, level=logging.INFO)
-    logger.info("Starting ACP server with IDE profile: %s", ide)
+    logger.info("Starting ACP server")
 
+    # Note: The ExecutorManager launches the Java HeadlessExecutorMain with a dedicated
+    # stdin pipe. HeadlessExecutorMain monitors System.in for EOF and will initiate a
+    # controlled shutdown if the ACP Python process (the parent) exits or its stdin is
+    # closed by the IDE (for example, when IntelliJ terminates/restarts the run profile).
+    # This stdin-based parent-death signal prevents orphaned Java executor processes in
+    # cases where Python's finally blocks may not run (e.g., abrupt IDE lifecycle events).
+    settings = Settings.load()
     executor = ExecutorManager(
         workspace_dir=workspace_dir,
         jar_path=jar_path,
         executor_version=executor_version,
         executor_snapshot=executor_snapshot,
+        vendor=vendor,
+        exit_on_stdin_eof=True,
+        brokk_api_key=settings.get_brokk_api_key(),
     )
     bridge = BrokkAcpBridge(executor)
 
@@ -618,8 +872,6 @@ async def run_acp_server(
 
     _patch_acp_router_for_session_config_option()
 
-    ide_profile = ide.strip().lower() if isinstance(ide, str) else "intellij"
-
     class BrokkAcpAgent(Agent):
         def __init__(self) -> None:
             self.client: Optional[Any] = None
@@ -628,29 +880,62 @@ async def run_acp_server(
             self._reasoning_by_session: dict[str, str] = {}
             self._cwd_by_session: dict[str, str] = {}
             self._model_catalog_by_session: dict[str, list[dict[str, Any]]] = {}
-            self._is_zed = ide_profile == "zed"
+            self._catalog_is_fallback_by_session: dict[str, bool] = {}
+            self._profile = resolve_client_profile(None, None)
+            self._replay_tasks: set[asyncio.Task[Any]] = set()
 
-        async def _refresh_model_catalog(self, session_id: str) -> None:
-            try:
+            # Load ACP defaults once on agent init
+            acp_defaults = load_acp_defaults()
+            self._default_model_id: str = acp_defaults.default_model or DEFAULT_MODEL_SELECTION
+            self._default_reasoning_level: str = (
+                acp_defaults.default_reasoning or DEFAULT_REASONING_LEVEL
+            )
+
+        async def _refresh_model_catalog(
+            self,
+            session_id: str,
+            attempts: int = MODEL_DISCOVERY_INITIAL_ATTEMPTS,
+        ) -> None:
+            async def fetch_payload() -> dict[str, Any]:
                 await bridge.ensure_ready()
-                payload = await bridge.executor.get_models()
-                normalized = _normalize_model_catalog(payload)
-                self._model_catalog_by_session[session_id] = (
-                    normalized if normalized else _fallback_model_catalog()
-                )
-            except Exception:
+                return await bridge.executor.get_models()
+
+            normalized = await _fetch_normalized_catalog_with_retries(
+                fetch_payload,
+                attempts=attempts,
+            )
+            if normalized:
+                self._model_catalog_by_session[session_id] = normalized
+                self._catalog_is_fallback_by_session[session_id] = False
+                return
+
+            existing = self._model_catalog_by_session.get(session_id)
+            if existing and not self._catalog_is_fallback_by_session.get(session_id, True):
                 logger.info(
-                    "Model discovery unavailable; using fallback catalog",
-                    exc_info=True,
+                    "Model discovery unavailable; keeping previously discovered model catalog "
+                    "for session %s",
+                    session_id,
                 )
-                self._model_catalog_by_session[session_id] = _fallback_model_catalog()
+                return
+
+            logger.info("Model discovery unavailable; using fallback catalog")
+            self._model_catalog_by_session[session_id] = _fallback_model_catalog()
+            self._catalog_is_fallback_by_session[session_id] = True
+
+        async def _refresh_model_catalog_if_fallback(self, session_id: str) -> None:
+            if not self._catalog_is_fallback_by_session.get(session_id, False):
+                return
+            await self._refresh_model_catalog(
+                session_id,
+                attempts=MODEL_DISCOVERY_RECOVERY_ATTEMPTS,
+            )
 
         def _catalog_for_session(self, session_id: str) -> list[dict[str, Any]]:
             return self._model_catalog_by_session.get(session_id, _fallback_model_catalog())
 
         def _current_model_selection(self, session_id: str) -> str:
             catalog = self._catalog_for_session(session_id)
-            model_names = [str(m.get("name")) for m in catalog if isinstance(m, dict)]
+            model_names = _available_model_names(catalog)
             current_model = self._model_by_session.get(session_id, DEFAULT_MODEL_SELECTION)
             if current_model not in model_names and model_names:
                 current_model = model_names[0]
@@ -670,7 +955,7 @@ async def run_acp_server(
         def _model_state_for_session(self, session_id: str) -> SessionModelState:
             catalog = self._catalog_for_session(session_id)
             current_model = self._current_model_selection(session_id)
-            if self._is_zed:
+            if self._profile.is_zed:
                 variants = _model_options(catalog)
                 if not variants:
                     variants = [(DEFAULT_MODEL_SELECTION, DEFAULT_MODEL_SELECTION)]
@@ -712,7 +997,7 @@ async def run_acp_server(
                     }
                 ),
             ]
-            if self._is_zed:
+            if self._profile.is_zed:
                 current_model = self._model_by_session.get(session_id, DEFAULT_MODEL_SELECTION)
                 current_reasoning = self._reasoning_by_session.get(
                     session_id, DEFAULT_REASONING_LEVEL
@@ -775,6 +1060,67 @@ async def run_acp_server(
                 }
             }
 
+        async def _replay_loaded_session(self, session_id: str) -> None:
+            if not self.client:
+                return
+            try:
+                conversation_data = await bridge.executor.get_conversation()
+            except Exception:
+                logger.warning(
+                    "Failed to fetch conversation replay for session %s",
+                    session_id,
+                    exc_info=True,
+                )
+                return
+
+            updates = conversation_payload_to_session_updates(
+                conversation_data,
+                update_user_message_text=update_user_message_text,
+                update_agent_message_text=update_agent_message_text,
+                update_agent_thought_text=update_agent_thought_text,
+            )
+            logger.info("Replaying %s ACP chat updates for session %s", len(updates), session_id)
+            for update in updates:
+                await self.client.session_update(session_id, update)
+
+        def _schedule_replay_loaded_session(self, session_id: str) -> None:
+            async def _run() -> None:
+                # Yield so the load/resume response can be delivered first.
+                await asyncio.sleep(0)
+                await self._replay_loaded_session(session_id)
+
+            task = asyncio.create_task(_run())
+            self._replay_tasks.add(task)
+
+            def _done_callback(done: asyncio.Task[Any]) -> None:
+                self._replay_tasks.discard(done)
+                try:
+                    done.result()
+                except Exception:
+                    logger.warning(
+                        "Session replay task failed for session %s",
+                        session_id,
+                        exc_info=True,
+                    )
+
+            task.add_done_callback(_done_callback)
+
+        def _ensure_session_defaults(self, session_id: str, cwd: Optional[str] = None) -> None:
+            if session_id not in self._mode_by_session:
+                self._mode_by_session[session_id] = "LUTZ"
+            if session_id not in self._model_by_session:
+                self._model_by_session[session_id] = (
+                    self._default_model_id or DEFAULT_MODEL_SELECTION
+                )
+            if session_id not in self._reasoning_by_session:
+                self._reasoning_by_session[session_id] = (
+                    self._default_reasoning_level or DEFAULT_REASONING_LEVEL
+                )
+            if cwd is not None:
+                self._cwd_by_session[session_id] = cwd
+            elif session_id not in self._cwd_by_session:
+                self._cwd_by_session[session_id] = str(workspace_dir)
+
         def on_connect(self, client: Any) -> None:
             self.client = client
 
@@ -785,10 +1131,20 @@ async def run_acp_server(
             client_info: Any = None,
             **kwargs: Any,
         ) -> InitializeResponse:
+            self._profile = resolve_client_profile(client_capabilities, client_info)
+            logger.info("ACP Client Profile resolved: %s", self._profile)
+
             return InitializeResponse(
                 protocol_version=protocol_version,
-                agent_info=Implementation(name="brokk-code", version="0.1.0"),
-                agent_capabilities=AgentCapabilities(),
+                agent_info=Implementation(name="brokk", version=__version__),
+                agent_capabilities=AgentCapabilities(
+                    load_session=True,
+                    prompt_capabilities=PromptCapabilities(embedded_context=True),
+                    session_capabilities=SessionCapabilities(
+                        list=SessionListCapabilities(),
+                        resume=SessionResumeCapabilities(),
+                    ),
+                ),
             )
 
         async def new_session(
@@ -797,13 +1153,58 @@ async def run_acp_server(
             mcp_servers: Optional[list[Any]] = None,
             **kwargs: Any,
         ) -> NewSessionResponse:
-            del mcp_servers, kwargs
-            session_id = str(uuid.uuid4())
-            self._mode_by_session[session_id] = "LUTZ"
-            self._model_by_session[session_id] = DEFAULT_MODEL_SELECTION
-            self._reasoning_by_session[session_id] = DEFAULT_REASONING_LEVEL
-            self._cwd_by_session[session_id] = cwd
+            del mcp_servers
+            await bridge.ensure_ready()
+            requested_name = str(kwargs.get("title") or kwargs.get("name") or "ACP Session").strip()
+            session_name = requested_name or "ACP Session"
+            session_id = await bridge.executor.create_session(name=session_name)
+            self._ensure_session_defaults(session_id, cwd)
             await self._refresh_model_catalog(session_id)
+
+            # After refreshing catalog, ensure persisted defaults are valid for this catalog.
+            catalog = self._catalog_for_session(session_id)
+            available_models = _available_model_names(catalog)
+            available_set = set(available_models)
+            # Validate model default
+            if self._model_by_session[session_id] not in available_set and available_models:
+                # fallback to first available model and persist that choice
+                fallback = available_models[0]
+                logger.info(
+                    "Persisted ACP default model %s not available; falling back to %s",
+                    self._model_by_session[session_id],
+                    fallback,
+                )
+                self._model_by_session[session_id] = fallback
+                self._default_model_id = fallback
+                save_acp_defaults(
+                    AcpDefaults(
+                        default_model=self._default_model_id,
+                        default_reasoning=self._default_reasoning_level,
+                    )
+                )
+
+            # Validate reasoning default against model capabilities
+            sanitized = _sanitize_reasoning_level_for_model(
+                self._model_by_session[session_id],
+                self._reasoning_by_session[session_id],
+                catalog,
+            )
+            if sanitized != self._reasoning_by_session[session_id]:
+                logger.info(
+                    "Persisted ACP reasoning %s invalid for model %s; falling back to %s",
+                    self._reasoning_by_session[session_id],
+                    self._model_by_session[session_id],
+                    sanitized,
+                )
+                self._reasoning_by_session[session_id] = sanitized
+                self._default_reasoning_level = sanitized
+                save_acp_defaults(
+                    AcpDefaults(
+                        default_model=self._default_model_id,
+                        default_reasoning=self._default_reasoning_level,
+                    )
+                )
+
             model_state = self._model_state_for_session(session_id)
             return NewSessionResponse(
                 session_id=session_id,
@@ -812,6 +1213,7 @@ async def run_acp_server(
                         SessionMode(id="LUTZ", name="LUTZ"),
                         SessionMode(id="CODE", name="CODE"),
                         SessionMode(id="ASK", name="ASK"),
+                        SessionMode(id="PLAN", name="PLAN"),
                     ],
                     current_mode_id="LUTZ",
                 ),
@@ -828,23 +1230,52 @@ async def run_acp_server(
             **kwargs: Any,
         ) -> Optional[LoadSessionResponse]:
             del mcp_servers, kwargs
-            if session_id not in self._mode_by_session:
+            await bridge.ensure_ready()
+            requested_session_id = session_id
+            sessions_payload = await bridge.executor.list_sessions()
+            known_session_ids = _known_session_ids(sessions_payload.get("sessions", []))
+            if requested_session_id not in known_session_ids:
                 return None
-            self._cwd_by_session[session_id] = cwd
-            await self._refresh_model_catalog(session_id)
-            model_state = self._model_state_for_session(session_id)
+            await bridge.executor.switch_session(requested_session_id)
+            self._ensure_session_defaults(requested_session_id, cwd)
+            await self._refresh_model_catalog(requested_session_id)
+            self._schedule_replay_loaded_session(requested_session_id)
+            model_state = self._model_state_for_session(requested_session_id)
             return LoadSessionResponse(
                 modes=SessionModeState(
                     available_modes=[
                         SessionMode(id="LUTZ", name="LUTZ"),
                         SessionMode(id="CODE", name="CODE"),
                         SessionMode(id="ASK", name="ASK"),
+                        SessionMode(id="PLAN", name="PLAN"),
                     ],
-                    current_mode_id=self._mode_by_session.get(session_id, "LUTZ"),
+                    current_mode_id=self._mode_by_session.get(requested_session_id, "LUTZ"),
                 ),
                 models=model_state,
-                config_options=self._config_options_for_session(session_id),
-                _meta=self._variant_meta_for_session(session_id),
+                config_options=self._config_options_for_session(requested_session_id),
+                _meta=self._variant_meta_for_session(requested_session_id),
+            )
+
+        async def resume_session(
+            self,
+            cwd: str,
+            session_id: str,
+            mcp_servers: Optional[list[Any]] = None,
+            **kwargs: Any,
+        ) -> ResumeSessionResponse:
+            resumed = await self.load_session(
+                cwd=cwd,
+                session_id=session_id,
+                mcp_servers=mcp_servers,
+                **kwargs,
+            )
+            if resumed is None:
+                raise ExecutorError(f"Session not found: {session_id}")
+            return ResumeSessionResponse(
+                modes=resumed.modes,
+                models=resumed.models,
+                config_options=resumed.config_options,
+                _meta=resumed.field_meta,
             )
 
         async def list_sessions(
@@ -853,14 +1284,40 @@ async def run_acp_server(
             cwd: Optional[str] = None,
             **kwargs: Any,
         ) -> ListSessionsResponse:
-            del cursor, cwd, kwargs
-            sessions = [
-                SessionInfo(
-                    session_id=session_id,
-                    cwd=self._cwd_by_session.get(session_id, str(workspace_dir)),
+            del cursor, kwargs
+            await bridge.ensure_ready()
+            sessions_payload = await bridge.executor.list_sessions()
+            executor_sessions = sessions_payload.get("sessions", [])
+            sessions = []
+            for entry in executor_sessions:
+                session_id = _session_id_from_entry(entry)
+                if not session_id:
+                    continue
+                self._ensure_session_defaults(session_id)
+                title = None
+                if isinstance(entry, dict):
+                    title = entry.get("name") or entry.get("title") or entry.get("sessionName")
+                title = str(title).strip() if title is not None else None
+                updated_at = None
+                session_cwd = None
+                if isinstance(entry, dict):
+                    updated_at = _to_iso8601_utc(
+                        entry.get("modified") or entry.get("updatedAt") or entry.get("updated_at")
+                    )
+                    session_cwd = entry.get("cwd")
+                if isinstance(session_cwd, str) and session_cwd.strip():
+                    self._cwd_by_session[session_id] = session_cwd
+                effective_cwd = self._cwd_by_session.get(session_id, cwd or str(workspace_dir))
+                if cwd and effective_cwd != cwd:
+                    continue
+                sessions.append(
+                    SessionInfo(
+                        session_id=session_id,
+                        cwd=effective_cwd,
+                        title=title or None,
+                        updated_at=updated_at,
+                    )
                 )
-                for session_id in self._mode_by_session
-            ]
             return ListSessionsResponse(sessions=sessions, next_cursor=None)
 
         async def set_session_mode(
@@ -880,18 +1337,32 @@ async def run_acp_server(
             **kwargs: Any,
         ) -> SetSessionModelResponse:
             del kwargs
+            await self._refresh_model_catalog_if_fallback(session_id)
             catalog = self._catalog_for_session(session_id)
             selected_model, selected_reasoning = _parse_model_selection(model_id, catalog)
             if selected_model is None and selected_reasoning is None:
                 selected_model, selected_reasoning = resolve_model_selection(model_id)
-            available = {str(m.get("name")) for m in catalog}
-            fallback_model = next(iter(available), DEFAULT_MODEL_SELECTION)
-            self._model_by_session[session_id] = (
-                selected_model if selected_model in available else fallback_model
-            )
+            available = _available_model_names(catalog)
+            available_set = set(available)
+            fallback_model = available[0] if available else DEFAULT_MODEL_SELECTION
+            chosen_model = selected_model if selected_model in available_set else fallback_model
+            self._model_by_session[session_id] = chosen_model
+
+            # Update persisted default model to the newly selected valid model
+            try:
+                self._default_model_id = chosen_model
+                save_acp_defaults(
+                    AcpDefaults(
+                        default_model=self._default_model_id,
+                        default_reasoning=self._default_reasoning_level,
+                    )
+                )
+            except Exception:
+                logger.exception("Failed to persist ACP default model change")
+
             if selected_reasoning:
                 self._reasoning_by_session[session_id] = selected_reasoning
-            elif not self._is_zed:
+            elif not self._profile.is_zed:
                 self._reasoning_by_session[session_id] = DEFAULT_VARIANT_VALUE
             return SetSessionModelResponse(_meta=self._variant_meta_for_session(session_id))
 
@@ -906,19 +1377,53 @@ async def run_acp_server(
             if config_id == "mode" and value:
                 self._mode_by_session[session_id] = normalize_mode(value)
             elif config_id == "model" and value:
+                await self._refresh_model_catalog_if_fallback(session_id)
                 selected_model, selected_reasoning = resolve_model_selection(value)
-                self._model_by_session[session_id] = selected_model
+                # Validate against catalog
+                catalog = self._catalog_for_session(session_id)
+                available = _available_model_names(catalog)
+                available_set = set(available)
+                fallback_model = available[0] if available else DEFAULT_MODEL_SELECTION
+                chosen_model = selected_model if selected_model in available_set else fallback_model
+                self._model_by_session[session_id] = chosen_model
+                # Persist model change
+                try:
+                    self._default_model_id = chosen_model
+                    save_acp_defaults(
+                        AcpDefaults(
+                            default_model=self._default_model_id,
+                            default_reasoning=self._default_reasoning_level,
+                        )
+                    )
+                except Exception:
+                    logger.exception("Failed to persist ACP default model change")
                 if selected_reasoning:
                     self._reasoning_by_session[session_id] = selected_reasoning
             elif (
                 config_id in {THOUGHT_LEVEL_CONFIG_ID, "reasoning_effort", "reasoning"}
                 and value in REASONING_LEVEL_IDS
             ):
-                self._reasoning_by_session[session_id] = value
+                # Sanitize for model capabilities
+                catalog = self._catalog_for_session(session_id)
+                model = self._model_by_session.get(session_id, self._default_model_id)
+                sanitized = _sanitize_reasoning_level_for_model(model, value, catalog)
+                self._reasoning_by_session[session_id] = sanitized
+                # Persist reasoning change
+                try:
+                    self._default_reasoning_level = sanitized
+                    save_acp_defaults(
+                        AcpDefaults(
+                            default_model=self._default_model_id,
+                            default_reasoning=self._default_reasoning_level,
+                        )
+                    )
+                except Exception:
+                    logger.exception("Failed to persist ACP default reasoning change")
             options = self._config_options_for_session(session_id)
             return SetSessionConfigOptionResponse(config_options=options)
 
         async def prompt(self, prompt: Any, session_id: str, **kwargs: Any) -> Any:
+            await self._refresh_model_catalog_if_fallback(session_id)
             mode = normalize_mode(kwargs.get("mode") or self._mode_by_session.get(session_id))
             planner_model = (
                 kwargs.get("planner_model")
@@ -931,9 +1436,12 @@ async def run_acp_server(
             if parsed_model:
                 planner_model = parsed_model
             planner_model_id, selected_reasoning_level = resolve_model_selection(planner_model)
-            available_models = {str(m.get("name")) for m in catalog}
-            if planner_model_id not in available_models:
-                planner_model_id = next(iter(available_models), DEFAULT_MODEL_SELECTION)
+            available_models = _available_model_names(catalog)
+            available_set = set(available_models)
+            if planner_model_id not in available_set:
+                planner_model_id = (
+                    available_models[0] if available_models else DEFAULT_MODEL_SELECTION
+                )
             code_model = (
                 kwargs.get("code_model") or kwargs.get("codeModel") or "gemini-3-flash-preview"
             )
@@ -953,9 +1461,11 @@ async def run_acp_server(
             )
             if not self.client:
                 raise ExecutorError("ACP client connection not established.")
+
             await bridge.prompt(
                 prompt=prompt,
                 session_id=session_id,
+                cwd=self._cwd_by_session.get(session_id, ""),
                 mode=mode,
                 planner_model=planner_model_id,
                 code_model=code_model,
@@ -964,22 +1474,10 @@ async def run_acp_server(
                 send_update=self.client.session_update,
                 update_agent_message_text=update_agent_message_text,
                 update_agent_thought_text=update_agent_thought_text,
-                build_context_snapshot_update=(
-                    (lambda uri, mime_type, text: update_agent_message_text(text))
-                    if ide_profile == "intellij"
-                    else (
-                        lambda uri, mime_type, text: update_agent_message(
-                            resource_block(
-                                embedded_text_resource(
-                                    uri=uri,
-                                    text=text,
-                                    mime_type=mime_type,
-                                )
-                            )
-                        )
-                    )
-                ),
-                use_short_description_context=(ide_profile == "intellij"),
+                start_tool_call=start_tool_call,
+                update_tool_call=update_tool_call,
+                tool_content=tool_content,
+                text_block=text_block,
             )
             return PromptResponse(stop_reason="end_turn")
 

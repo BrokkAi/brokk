@@ -35,7 +35,17 @@ Build the shadow JAR containing the CLI:
 Run directly:
 
 ```bash
-java -cp app/build/libs/brokk-<version>.jar ai.brokk.tools.HeadlessExecCli [options] [prompt]
+java -Djava.awt.headless=true -Dapple.awt.UIElement=true \
+  -cp app/build/libs/brokk-<version>.jar \
+  ai.brokk.tools.HeadlessExecCli [options] [prompt]
+```
+
+Note: including `-Djava.awt.headless=true -Dapple.awt.UIElement=true` ensures the JVM and any in-process executor stay truly headless on macOS (the `apple.awt.UIElement` flag hides the process from the Dock/app switcher and is a no-op on other platforms). 
+
+When launching via **jbang**, these flags should be passed before the script/alias name:
+
+```bash
+jbang -Djava.awt.headless=true -Dapple.awt.UIElement=true brokk-headless [options] [prompt]
 ```
 
 Or via Gradle:
@@ -211,7 +221,7 @@ Quick/skip-verification example (faster, skips tests/lint and review-bot loops; 
 
 ### ISSUE_WRITER Mode: Create a GitHub Issue
 
-ISSUE_WRITER mode discovers evidence in the repository and creates a new GitHub issue with a high-quality title and body.
+ISSUE_WRITER mode discovers evidence in the repository and creates a new GitHub issue with a high-quality title and body. This mode is also available via the Python CLI using `brokk issue create`.
 
 Characteristics:
 - Read-only to the local repo (no edits/commits)

@@ -9,8 +9,12 @@ import ai.brokk.project.IProject;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.FileSystems;
+import java.nio.file.FileVisitOption;
+import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.SimpleFileVisitor;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.*;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -300,11 +304,27 @@ public class Completions {
         String relGlob = remainder.replace('/', sepChar).replace('\\', sepChar);
         var matcher = FileSystems.getDefault().getPathMatcher("glob:" + relGlob);
 
-        try (var stream = Files.walk(baseDir, maxDepth)) {
-            return stream.filter(Files::isRegularFile)
-                    .filter(p -> matcher.matches(baseDir.relativize(p)))
-                    .map(Path::toAbsolutePath)
-                    .toList();
+        var matches = new ArrayList<Path>();
+        try {
+            Files.walkFileTree(baseDir, EnumSet.noneOf(FileVisitOption.class), maxDepth, new SimpleFileVisitor<>() {
+                @Override
+                public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
+                    if (attrs.isRegularFile() && matcher.matches(baseDir.relativize(file))) {
+                        matches.add(file.toAbsolutePath().normalize());
+                    }
+                    return FileVisitResult.CONTINUE;
+                }
+
+                @Override
+                public FileVisitResult visitFileFailed(Path file, IOException exc) {
+                    logger.debug(
+                            "Skipping path during wildcard expansion due to access issue: {} ({})",
+                            file,
+                            exc.getClass().getSimpleName());
+                    return FileVisitResult.CONTINUE;
+                }
+            });
+            return matches;
         } catch (IOException e) {
             return List.of();
         }

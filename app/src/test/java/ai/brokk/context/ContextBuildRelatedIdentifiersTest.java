@@ -44,7 +44,8 @@ public class ContextBuildRelatedIdentifiersTest {
 
         String out = analyzer.summarizeSymbols(file);
 
-        assertTrue(out.contains("- com.acme.Foo"), "should include top-level Foo");
+        assertTrue(out.contains("# com.acme"), "should include package header");
+        assertTrue(out.contains("- Foo"), "should include top-level Foo");
         assertTrue(out.contains("  - bar"), "should include child bar");
         assertTrue(out.contains("    - baz"), "should include grandchild baz");
         assertFalse(out.contains("$anon$"), "must not contain any $anon$ entries");

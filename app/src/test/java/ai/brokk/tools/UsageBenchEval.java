@@ -6,7 +6,9 @@ import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.analyzer.usages.FuzzyUsageFinder;
+import ai.brokk.analyzer.usages.LlmUsageAnalyzer;
+import ai.brokk.analyzer.usages.UsageAnalyzer;
+import ai.brokk.analyzer.usages.UsageFinder;
 import ai.brokk.analyzer.usages.UsageHit;
 import ai.brokk.concurrent.ExecutorsUtil;
 import ai.brokk.concurrent.LoggingExecutorService;
@@ -36,7 +38,7 @@ import picocli.CommandLine;
 @CommandLine.Command(
         name = "UsageBenchEval",
         mixinStandardHelpOptions = true,
-        description = "Evaluates FuzzyUsageFinder against a labeled dataset")
+        description = "Evaluates UsageFinder against a labeled dataset")
 public class UsageBenchEval implements Callable<Integer> {
 
     @CommandLine.Option(
@@ -167,7 +169,7 @@ public class UsageBenchEval implements Callable<Integer> {
 
     private void printStartupBanner(int projectCount) {
         System.out.println("================================================================================");
-        System.out.println(" UsageBenchEval - FuzzyUsageFinder Benchmark");
+        System.out.println(" UsageBenchEval - UsageFinder Benchmark");
         System.out.println("================================================================================");
         System.out.printf(" Input Directory: %s%n", inputDir.toAbsolutePath());
         System.out.printf(" Language Filter: %s%n", language);
@@ -283,7 +285,7 @@ public class UsageBenchEval implements Callable<Integer> {
         var llm = online
                 ? new Llm(
                         model,
-                        "Disambiguate Code Unit Usages",
+                        "Disambiguate UsageFinder Results",
                         TaskResult.Type.CLASSIFY,
                         cm,
                         false,
@@ -291,7 +293,8 @@ public class UsageBenchEval implements Callable<Integer> {
                         false,
                         false)
                 : null;
-        FuzzyUsageFinder finder = new FuzzyUsageFinder(project, analyzer, service, llm);
+        UsageAnalyzer llmAnalyzer = new LlmUsageAnalyzer(project, analyzer, service, llm);
+        UsageFinder finder = new UsageFinder(project, analyzer, UsageFinder.createDefaultProvider(), llmAnalyzer, null);
 
         String projectName = project.getRoot().getFileName().toString();
         String projectPath = project.getRoot().toAbsolutePath().toString();

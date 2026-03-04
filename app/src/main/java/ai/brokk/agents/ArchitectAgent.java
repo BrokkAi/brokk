@@ -16,7 +16,6 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextDelta;
 import ai.brokk.context.ContextFragment;
-import ai.brokk.context.DiffService;
 import ai.brokk.context.SpecialTextType;
 import ai.brokk.prompts.ArchitectPrompts;
 import ai.brokk.prompts.SearchPrompts;
@@ -25,6 +24,7 @@ import ai.brokk.tools.DependencyTools;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
 import ai.brokk.tools.WorkspaceTools;
+import ai.brokk.util.BuildTools;
 import ai.brokk.util.BuildVerifier;
 import ai.brokk.util.LogDescription;
 import ai.brokk.util.Messages;
@@ -44,6 +44,7 @@ import dev.langchain4j.model.chat.request.ToolChoice;
 import dev.langchain4j.model.output.TokenUsage;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -66,6 +67,19 @@ import org.jetbrains.annotations.Nullable;
 public class ArchitectAgent {
     private static final Logger logger = LogManager.getLogger(ArchitectAgent.class);
     private static final int MAX_TURNS = 10;
+
+    /**
+     * Listener for ArchitectAgent events.
+     */
+    @FunctionalInterface
+    public interface ArchitectListener {
+        /**
+         * Invoked when a CodeAgent call completes.
+         *
+         * @param context the resulting context from the CodeAgent run
+         */
+        void onCodeAgentResult(Context context);
+    }
 
     private final IConsoleIO io;
 
@@ -111,6 +125,9 @@ public class ArchitectAgent {
     // Tracks if we have ever entered emergency mode (restricted tools due to context size)
     private boolean hasEnteredEmergencyMode = false;
 
+    @Nullable
+    private ArchitectListener listener;
+
     private final Set<ProjectFile> presentedRelatedFiles = new HashSet<>();
 
     private TokenUsage totalUsage = new TokenUsage(0, 0);
@@ -123,6 +140,11 @@ public class ArchitectAgent {
 
     // When CodeAgent succeeds, we immediately declare victory without another LLM round.
     private boolean codeAgentJustSucceeded = false;
+
+    private boolean deferBuildForInitialCodeAgentCall = false;
+
+    @Nullable
+    private String verifyCommand;
 
     private static final ThreadLocal<SearchAgentOutput> threadlocalSearchResult = new ThreadLocal<>();
 
@@ -180,6 +202,19 @@ public class ArchitectAgent {
         this.io = io;
         this.scope = scope;
         this.context = initialContext;
+        this.verifyCommand = null;
+    }
+
+    public void setVerifyCommand(@Nullable String verifyCommand) {
+        this.verifyCommand = verifyCommand;
+    }
+
+    public void setDeferBuildForInitialCodeAgentCall(boolean deferBuildForInitialCodeAgentCall) {
+        this.deferBuildForInitialCodeAgentCall = deferBuildForInitialCodeAgentCall;
+    }
+
+    public void setListener(@Nullable ArchitectListener listener) {
+        this.listener = listener;
     }
 
     /**
@@ -244,20 +279,46 @@ public class ArchitectAgent {
         var reason = stopDetails.reason();
 
         // Update architect context with the CodeAgent's fragments, preserving the Architect history
-        context = result.context().withHistory(context.getTaskHistory());
-        scope.append(context);
+        var codeContext = result.context();
+        context = codeContext
+                .withHistory(context.getTaskHistory())
+                .addHistoryEntry(codeContext.getTaskHistory().getLast());
+        scope.append(codeContext);
         var changedFragments =
                 ContextDelta.between(initialContext, context).join().getChangedFragments();
+        // we're done with the original result now, make sure we don't reuse it by accident instead of the
+        // post-verifyCommand results
+        result = null;
 
-        if (result.stopDetails().reason() == StopReason.SUCCESS) {
-            var fileList = changedFragments.stream()
-                    .map(cf -> cf.shortDescription().join())
-                    .sorted()
-                    .collect(Collectors.joining(", "));
-
+        if (reason == StopReason.SUCCESS) {
             logger.debug("callCodeAgent finished successfully");
-            codeAgentJustSucceeded = !deferBuild && !changedFragments.isEmpty();
-            return """
+            if (!deferBuild && !changedFragments.isEmpty()) {
+                codeAgentJustSucceeded = true;
+
+                if (verifyCommand != null) {
+                    BuildAgent.@Nullable BuildDetails override = cm.getProject().awaitBuildDetails();
+                    context = BuildTools.runExplicitCommand(context, verifyCommand, override);
+                    if (!context.getBuildError().isBlank()) {
+                        codeAgentJustSucceeded = false;
+                        reason = StopReason.BUILD_ERROR;
+                        stopDetails = new TaskResult.StopDetails(reason, "Broader verification step failed");
+                        // let the planning loop continue to fix it
+                    }
+                }
+            }
+
+            // re-check in case verifyCommand failed
+            if (reason == StopReason.SUCCESS) {
+                if (listener != null) {
+                    listener.onCodeAgentResult(context);
+                }
+
+                var fileList = changedFragments.stream()
+                        .map(cf -> cf.shortDescription().join())
+                        .sorted()
+                        .collect(Collectors.joining(", "));
+
+                return """
             # Status
             %s
 
@@ -265,12 +326,13 @@ public class ArchitectAgent {
             %s
             %s
             """
-                    .formatted(
-                            deferBuild
-                                    ? "CodeAgent finished with build deferred as requested."
-                                    : "CodeAgent finished with a successful build.",
-                            fileList.isEmpty() ? "None" : fileList,
-                            fileList.isEmpty() ? "" : "\nThe changes made are reflected in the Workspace.");
+                        .formatted(
+                                deferBuild
+                                        ? "CodeAgent finished with build deferred as requested."
+                                        : "CodeAgent finished with a successful build.",
+                                fileList.isEmpty() ? "None" : fileList,
+                                fileList.isEmpty() ? "" : "\nThe changes made are reflected in the Workspace.");
+            }
         }
 
         // For non-SUCCESS outcomes, format error feedback appropriately
@@ -285,108 +347,40 @@ public class ArchitectAgent {
             throw new ToolRegistry.FatalLlmException(stopDetails.explanation());
         }
 
+        if (listener != null) {
+            listener.onCodeAgentResult(context);
+        }
+
         // Extract and compress reasoning
-        var lastEntry = result.context().getTaskHistory().getLast();
+        var lastEntry = codeContext.getTaskHistory().getLast();
         var messages = new ArrayList<>(lastEntry.mopMessages());
         var summary = cm.compressHistory(CodeAgent.ConversationState.extractReasoning(messages));
         var reasoningSummarySuffix = "\n\n# CodeAgent reasoning summary\n\n" + summary;
 
-        // Format recoverable errors with clear guidance for the LLM
-        String resultString = formatCodeAgentFailure(reason, stopDetails.explanation()) + reasoningSummarySuffix;
-        logger.debug("CodeAgent failed with reason {}: {}", reason, stopDetails.explanation());
-
         // Offer undo and attach diff if the CodeAgent failed and left changes behind
         if (!changedFragments.isEmpty()) {
-            this.offerUndoToolNext = true;
-            String combinedDiffText = DiffService.cumulativeDiff(cm.getRepo(), initialContext, context);
-            context = context.withSpecial(SpecialTextType.CODE_AGENT_CHANGES, combinedDiffText);
+            String combinedDiffText = CodeAgent.cumulativeDiffForChanges(initialContext, context);
+            // FIXME the if here is working around a bug, ContextDelta should not return
+            // changed fragments with an empty diff
+            if (!combinedDiffText.isBlank()) {
+                this.offerUndoToolNext = true;
+                context = context.withSpecial(SpecialTextType.CODE_AGENT_CHANGES, combinedDiffText);
+            } else {
+                context = context.withSpecial(SpecialTextType.CODE_AGENT_CHANGES, "Code Agent made no changes");
+            }
         }
 
+        // Format recoverable errors with clear guidance for the LLM
+        var diffPresentation =
+                context.getSpecial(SpecialTextType.CODE_AGENT_CHANGES).isPresent()
+                        ? CodeAgent.DiffPresentation.WORKSPACE_FRAGMENT
+                        : CodeAgent.DiffPresentation.NONE;
+        String resultString =
+                CodeAgent.formatPostFailureResponse(reason, stopDetails.explanation(), diffPresentation, null)
+                        + reasoningSummarySuffix;
+        logger.debug("CodeAgent failed with reason {}: {}", reason, stopDetails.explanation());
+
         return resultString;
-    }
-
-    /**
-     * Formats CodeAgent failure messages with clear, structured guidance for the LLM.
-     * Each failure type includes actionable next steps.
-     */
-    private String formatCodeAgentFailure(StopReason reason, String explanation) {
-        return switch (reason) {
-            case READ_ONLY_EDIT ->
-                """
-                    **Constraint Violation: Read-Only File**
-
-                    Your instructions asked to modify a file marked read-only in the Workspace:
-                    %s
-
-                    To proceed, do one of the following:
-                    1. Add the file for editing with addFilesToWorkspace([...]), then retry callCodeAgent.
-                    2. If it should remain read-only, adjust instructions to edit a different file or create a new one.
-
-                    No changes were applied.
-                    """
-                        .formatted(explanation);
-            case PARSE_ERROR ->
-                """
-                    **Parse Error: Invalid Response Format**
-
-                    The Code Agent couldn't parse the response after multiple attempts:
-                    %s
-
-                    Next steps:
-                    - Retry callCodeAgent with instructions that produce only valid SEARCH/REPLACE blocks (no commentary).
-                    - Keep edits small and focused; prefer one file or a single function per turn.
-                    """
-                        .formatted(explanation);
-            case APPLY_ERROR ->
-                """
-                    **Apply Error: Edit Blocks Failed**
-
-                    The Code Agent couldn't apply edits after multiple attempts:
-                    %s
-
-                    Likely cause: search patterns were too generic to match uniquely.
-
-                    Try one of:
-                    - Include more unique context in each SEARCH/REPLACE block (surrounding lines that appear only once).
-                    - Target a specific function or class and include that identifier in your instructions.
-                    - Add the exact files first (addFilesToWorkspace or addFileSummariesToWorkspace), then retry callCodeAgent.
-                    - Or undo with 'undoLastChanges'.
-                    """
-                        .formatted(explanation);
-            case BUILD_ERROR ->
-                """
-                    **Build Error: Failed to Compile/Test**
-
-                    Build/test verification failed after multiple attempts:
-                    %s
-
-                    Details are in the Workspace. The Code Agent applied changes but couldn't verify them.
-                    If this is a multi-step change that will temporarily break the build, retry callCodeAgent with deferBuild=true and complete the follow-up fixes next.
-                    You can also retry with different instructions, or undo with 'undoLastChanges'.
-                    """
-                        .formatted(explanation);
-            case IO_ERROR ->
-                """
-                    **IO Error: File System Issue**
-
-                    An error occurred while reading or writing files:
-                    %s
-
-                    This may be a transient issue. You can retry.
-                    """
-                        .formatted(explanation);
-            default ->
-                """
-                    **Code Agent Failed**
-
-                    Reason: %s
-                    Details: %s
-
-                    Changes may have been made but may not be complete.
-                    You can undo with 'undoLastChanges' or retry with different instructions.
-                    """
-                        .formatted(reason, explanation);
-        };
     }
 
     private void addPlanningToHistory() throws InterruptedException {
@@ -538,7 +532,7 @@ public class ArchitectAgent {
                 stringResult =
                         """
                         # Search results
-                        Search Agent successfully completed.
+                        Search Agent successfully completed; the workspace has been updated as requested.
 
                         ## Reasoning summary
                         %s
@@ -551,7 +545,6 @@ public class ArchitectAgent {
             } else {
                 stringResult =
                         """
-                        # Search Answer
                         %s
 
                         ## Reasoning summary
@@ -646,8 +639,23 @@ public class ArchitectAgent {
     private TaskResult executeInternal() throws InterruptedException {
         // run code agent first
         try {
-            var initialSummary = callCodeAgent(goal, false);
-            architectMessages.add(new AiMessage("Initial CodeAgent attempt:\n" + initialSummary));
+            // Note: callCodeAgent(String, boolean) is a @Tool method on ArchitectAgent.
+            // When ArchitectAgent calls it directly here, it bypasses ToolRegistry.executeTool
+            // and thus bypasses the console hooks. However, since this is a direct method call
+            // and we want these events in the headless log, we should manually emit them or
+            // use the registry. Given the current structure, we manually instrument this call.
+
+            var req = ToolExecutionRequest.builder()
+                    .name("callCodeAgent")
+                    .arguments("{\"instructions\": \"%s\", \"deferBuild\": false}".formatted(goal))
+                    .build();
+
+            io.beforeToolCall(req);
+            var initialSummary = callCodeAgent(goal, deferBuildForInitialCodeAgentCall);
+            io.afterToolOutput(ToolExecutionResult.success(req, initialSummary));
+            architectMessages.add(new UserMessage(
+                    "[HARNESS NOTE: Before you started, CodeAgent tried and failed to solve this task. Here's the result.]\n\n"
+                            + initialSummary));
         } catch (ToolRegistry.FatalLlmException e) {
             var fatalReason = this.lastFatalReason != null ? this.lastFatalReason : StopReason.LLM_ERROR;
             this.lastFatalReason = null;
@@ -656,7 +664,6 @@ public class ArchitectAgent {
             return resultWithMessages(fatalReason);
         }
 
-        // If CodeAgent succeeded, immediately finish without entering planning loop
         if (codeAgentJustSucceeded) {
             return codeAgentSuccessResult();
         }
@@ -692,14 +699,14 @@ public class ArchitectAgent {
 
             var tr = turn.toolRegistry();
             var wst = turn.workspaceTools();
-            var messages = turn.messages();
             var result = turn.result();
 
             totalUsage = TokenUsage.sum(
                     totalUsage, castNonNull(result.originalResponse()).tokenUsage());
-            // Add the request and response to message history
+            // Add the request and response to message history.
+            // We append a stub for the user message instead of the full instructions to keep history lean.
             var aiMessage = ToolRegistry.removeDuplicateToolRequests(result.aiMessage());
-            architectMessages.add(messages.getLast());
+            architectMessages.add(new UserMessage(ArchitectPrompts.instructionsMarker()));
             architectMessages.add(aiMessage);
 
             var deduplicatedRequests = new LinkedHashSet<>(result.toolRequests());
@@ -747,7 +754,11 @@ public class ArchitectAgent {
                     logger.info("projectFinished ignored due to other tool calls present: {}", ignoredMsg);
                 } else {
                     logger.debug("LLM decided to projectFinished. We'll finalize and stop");
+
+                    io.beforeToolCall(answerReq);
                     var toolResult = tr.executeTool(answerReq);
+                    io.afterToolOutput(toolResult);
+
                     io.llmOutput(
                             "Project final answer: " + toolResult.resultText(),
                             ChatMessageType.AI,
@@ -764,7 +775,11 @@ public class ArchitectAgent {
                     logger.info("abortProject ignored due to other tool calls present: {}", ignoredMsg);
                 } else {
                     logger.debug("LLM decided to abortProject. We'll finalize and stop");
+
+                    io.beforeToolCall(abortReq);
                     var toolResult = tr.executeTool(abortReq);
+                    io.afterToolOutput(toolResult);
+
                     io.llmOutput(
                             "Project aborted: " + toolResult.resultText(), ChatMessageType.AI, LlmOutputMeta.DEFAULT);
                     return resultWithMessages(StopReason.LLM_ABORTED);
@@ -775,7 +790,11 @@ public class ArchitectAgent {
             otherReqs.sort(Comparator.comparingInt(req -> getPriorityRank(req.name())));
             for (var req : otherReqs) {
                 wst.setContext(context);
+
+                io.beforeToolCall(req);
                 ToolExecutionResult toolResult = tr.executeTool(req);
+                io.afterToolOutput(toolResult);
+
                 context = wst.getContext();
                 architectMessages.add(toolResult.toExecutionResultMessage());
                 logger.debug("Executed tool '{}' => result: {}", req.name(), toolResult.resultText());
@@ -804,7 +823,9 @@ public class ArchitectAgent {
                     Callable<SearchTaskResult> task = () -> {
                         // Ensure a clean slate for this thread before invoking the tool
                         threadlocalSearchResult.remove();
+                        io.beforeToolCall(req);
                         var toolResult = trForSearchBatch.executeTool(req);
+                        io.afterToolOutput(toolResult);
                         var saOutput = requireNonNull(threadlocalSearchResult.get());
                         logger.debug("Finished SearchAgent task for request: {}", req.name());
                         return new SearchTaskResult(toolResult, saOutput.taskResult(), saOutput.objective());
@@ -886,7 +907,7 @@ public class ArchitectAgent {
 
                 // Post-batch message with workspace merge summary
                 outputSearchBatchSummary(context, combinedContext, currentBatchSize, failedCount);
-                context = context.addHistoryEntry(
+                context = combinedContext.addHistoryEntry(
                         io.getLlmRawMessages(), TaskResult.Type.SEARCH, planningModel, "Multiple concurrent searches");
                 scope.append(context);
 
@@ -897,7 +918,10 @@ public class ArchitectAgent {
             // code agent calls are done serially
             var initialContext = context;
             for (var req : codeAgentReqs) {
+                io.beforeToolCall(req);
                 ToolExecutionResult toolResult = tr.executeTool(req);
+                io.afterToolOutput(toolResult);
+
                 if (toolResult.status() == ToolExecutionResult.Status.FATAL) {
                     var fatalReason = this.lastFatalReason != null ? this.lastFatalReason : StopReason.LLM_ERROR;
                     this.lastFatalReason = null;
@@ -996,7 +1020,8 @@ public class ArchitectAgent {
 
                 allowed.add("callCodeAgent");
 
-                if (cm.getProject().awaitBuildDetails().buildLintCommand().isBlank()) {
+                if (cm.getProject().awaitBuildDetails().buildLintCommand().isBlank()
+                        && !Objects.equals(System.getenv("BRK_ALLOW_SET_BUILD_DETAILS"), "false")) {
                     allowed.add("setBuildDetails");
                     allowed.add("verifyBuildCommand");
                 }
@@ -1211,23 +1236,12 @@ public class ArchitectAgent {
         // Workspace contents are added directly
         messages.addAll(precomputedWorkspaceMessages);
 
-        // History from previous tasks/sessions
-        messages.addAll(WorkspacePrompts.getHistoryMessages(context, taskMeta()));
+        // History from previous tasks/sessions; we primarily want to avoid CODE and SEARCH sub-agents
+        var safeTypes = EnumSet.of(TaskResult.Type.ASK, TaskResult.Type.REVIEW, TaskResult.Type.ARCHITECT);
+        messages.addAll(WorkspacePrompts.getHistoryMessages(context, taskMeta(), safeTypes));
 
-        // This agent's own conversational history for the current goal, with the instructionsMarker
-        // simplified away to avoid sending confusing instruction text (would contain obsolete workspace_toc)
-        var marker = ArchitectPrompts.instructionsMarker();
-        messages.addAll(architectMessages.stream()
-                .map(msg -> {
-                    if (msg instanceof UserMessage um) {
-                        var text = um.singleText();
-                        if (text.contains(marker)) {
-                            return new UserMessage(marker);
-                        }
-                    }
-                    return msg;
-                })
-                .toList());
+        // This agent's own conversational history for the current goal.
+        messages.addAll(architectMessages);
 
         // Add related identifiers as a separate message/ack pair, unless we are/were in emergency mode
         var related = hasEnteredEmergencyMode

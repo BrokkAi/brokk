@@ -156,10 +156,10 @@ public class ContextMenuBuilder {
         parent.add(new JPopupMenu.Separator());
 
         // Attach File
-        var editFileItem = new JMenuItem("Attach File");
-        editFileItem.setEnabled(analyzerReady);
-        editFileItem.addActionListener(e -> editFiles(context));
-        parent.add(editFileItem);
+        var attachFileItem = new JMenuItem("Attach File");
+        attachFileItem.setEnabled(analyzerReady);
+        attachFileItem.addActionListener(e -> attachFiles(context));
+        parent.add(attachFileItem);
 
         // Summarize File
         var summarizeFileItem = new JMenuItem("Summarize File");
@@ -208,11 +208,11 @@ public class ContextMenuBuilder {
                 .getTrackedFiles()
                 .containsAll(files);
 
-        // Edit
-        var editItem = new JMenuItem(files.size() == 1 ? "Edit" : "Edit All");
-        editItem.addActionListener(e -> editFiles(fileContext));
-        editItem.setEnabled(allFilesTracked);
-        menu.add(editItem);
+        // Attach
+        var attachItem = new JMenuItem(files.size() == 1 ? "Attach" : "Attach All");
+        attachItem.addActionListener(e -> attachFiles(fileContext));
+        attachItem.setEnabled(allFilesTracked);
+        menu.add(attachItem);
 
         // Summarize
         var summarizeItem = new JMenuItem(files.size() == 1 ? "Summarize" : "Summarize All");
@@ -330,14 +330,14 @@ public class ContextMenuBuilder {
 
         parent.add(new JPopupMenu.Separator());
 
-        // Edit
-        var editItem = new JMenuItem("Edit");
-        editItem.addActionListener(e -> editFiles(singleFileContext));
-        editItem.setEnabled(isTracked);
+        // Attach
+        var attachItem = new JMenuItem("Attach");
+        attachItem.addActionListener(e -> attachFiles(singleFileContext));
+        attachItem.setEnabled(isTracked);
         if (!isTracked) {
-            editItem.setToolTipText("File not tracked by git");
+            attachItem.setToolTipText("File not tracked by git");
         }
-        parent.add(editItem);
+        parent.add(attachItem);
 
         // Summarize
         var summarizeItem = new JMenuItem("Summarize");
@@ -442,7 +442,7 @@ public class ContextMenuBuilder {
 
     // File actions
 
-    private void editFiles(FileMenuContext context) {
+    private void attachFiles(FileMenuContext context) {
         context.contextManager().submitContextTask(() -> {
             context.contextManager().addFiles(context.files());
         });
@@ -530,7 +530,7 @@ public class ContextMenuBuilder {
     }
 
     // Symbol-based file operations (overloaded versions)
-    private void editFiles(SymbolMenuContext context) {
+    private void attachFiles(SymbolMenuContext context) {
         context.contextManager().submitContextTask(() -> {
             var definition = findSymbolDefinition(context);
             if (definition.isPresent()) {

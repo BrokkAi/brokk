@@ -60,6 +60,7 @@ public interface ContextFragment {
         SKELETON,
         USAGE,
         CODE,
+        LINE_RANGE,
         HISTORY,
         TASK,
         PASTE_TEXT,
@@ -71,7 +72,7 @@ public interface ContextFragment {
 
         private static final EnumSet<FragmentType> OUTPUT_TYPES = EnumSet.of(HISTORY, TASK);
 
-        private static final EnumSet<FragmentType> EDITABLE_TYPES = EnumSet.of(PROJECT_PATH, USAGE, CODE);
+        private static final EnumSet<FragmentType> EDITABLE_TYPES = EnumSet.of(PROJECT_PATH, USAGE, CODE, LINE_RANGE);
 
         private static final EnumSet<FragmentType> PROJECT_GUIDE_TYPES = EnumSet.of(PROJECT_PATH, CODE, SKELETON);
 

@@ -224,6 +224,34 @@ async def test_submit_job_omits_x_session_id_when_none_available():
 
 
 @pytest.mark.asyncio
+async def test_submit_job_respects_auto_commit_flag():
+    manager = ExecutorManager()
+    mock_client = AsyncMock(spec=httpx.AsyncClient)
+    manager._http_client = mock_client
+
+    post_resp = MagicMock(spec=httpx.Response)
+    post_resp.status_code = 201
+    post_resp.json.return_value = {"jobId": "job-1"}
+    post_resp.raise_for_status.return_value = None
+
+    captured: list[dict[str, object]] = []
+
+    async def post_side_effect(url, **kwargs):
+        captured.append({"url": url, "json": kwargs.get("json")})
+        return post_resp
+
+    mock_client.post.side_effect = post_side_effect
+
+    await manager.submit_job("abc", "gpt-5.2", auto_commit=False)
+    await manager.submit_job("abc", "gpt-5.2")
+
+    assert captured[0]["url"] == "/v1/jobs"
+    assert captured[1]["url"] == "/v1/jobs"
+    assert captured[0]["json"]["autoCommit"] is False
+    assert captured[1]["json"]["autoCommit"] is True
+
+
+@pytest.mark.asyncio
 async def test_get_tasklist_generic_http_error():
     """Test that get_tasklist handles non-404 HTTP errors consistently."""
     manager = ExecutorManager()

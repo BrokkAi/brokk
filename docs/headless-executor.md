@@ -2,6 +2,8 @@
 
 The Headless Executor runs Brokk sessions in a server mode, controllable via HTTP+JSON API. It's designed for remote execution, CI/CD pipelines, and programmatic task automation.
 
+The `brokk-code` client currently bundles or targets headless executor version **0.23.0.beta9** by default when launched via JBang.
+
 For end-to-end request examples (sessions, jobs, events, and mode-specific payloads), see [headless-executor-testing-with-curl.md](headless-executor-testing-with-curl.md).
 
 ## Configuration
@@ -16,6 +18,7 @@ The executor requires the following configuration, provided via **environment va
 | Workspace Dir | `WORKSPACE_DIR` | `--workspace-dir` | Yes | Path to the project workspace |
 | Brokk API Key | `BROKK_API_KEY` | `--brokk-api-key` | No | Per-executor Brokk API key; overrides global config. If not provided, falls back to the globally configured key |
 | LLM Proxy Setting | `PROXY_SETTING` | `--proxy-setting` | No | LLM proxy target: `BROKK` (https://proxy.brokk.ai), `LOCALHOST` (http://localhost:4000), or `STAGING` (https://staging.brokk.ai). If not provided, uses global config |
+| Other-models Vendor | (n/a) | `--vendor` | No | Sets the "Other Models" vendor preference used for internal roles (scan/summarize/commit, etc.). Use `Default` to clear overrides. Applies to non-code roles; does not change `CODE`/`ARCHITECT` role selection |
 
 Notes:
 - Sessions are stored under `<workspace>/.brokk/sessions` and jobs under `<workspace>/.brokk/jobs`.
@@ -28,6 +31,8 @@ Run the headless executor with Gradle:
 ```bash
 ./gradlew :app:runHeadlessExecutor
 ```
+
+This task is primarily configured via environment variables. For optional CLI-only flags (like `--vendor`), see the Production Deployment example below.
 
 ### Examples
 
@@ -328,11 +333,63 @@ Once running, the executor exposes the following endpoints:
 
 - **`POST /v1/sessions`** - Create a new session
   - Body: `{ "name": "<session name>" }`
-  - Returns: `{ "sessionId": "<uuid>", "name": "<session name>" }`
+  - Returns `201`: `{ "sessionId": "<uuid>", "name": "<session name>" }`
+
+- **`POST /v1/sessions/switch`** - Switch the active session
+  - Body: `{ "sessionId": "<uuid>" }`
+  - Returns: `{ "status": "ok", "sessionId": "<uuid>" }`
 
 - **`PUT /v1/sessions`** - Upload an existing session zip file
   - Content-Type: `application/zip`
-  - Returns: `{ "sessionId": "<uuid>" }`
+  - Optional header: `X-Session-Id: <uuid>` (if omitted, server generates one)
+  - Returns `201`: `{ "sessionId": "<uuid>" }`
+
+- **`GET /v1/sessions`** - List sessions
+  - Returns: `{ "sessions": [...], "currentSessionId": "<uuid>" }`
+
+- **`GET /v1/sessions/current`** - Get current session metadata
+  - Returns: `{ "id": "<uuid>", "name": "...", "created": <epochMs>, "modified": <epochMs> }`
+
+- **`GET /v1/sessions/{sessionId}`** - Download a session zip
+  - Returns: `application/zip`
+
+### Context & Task List (Authenticated)
+
+- **`GET /v1/context`** - Get live context summary
+  - Optional query: `tokens=true|1` to include token estimates
+  - Response includes:
+    - `totalCost` (number): cumulative cost in USD for the current session, based on the sum of COST notifications for that session.
+
+- **`GET /v1/context/fragments/{fragmentId}`** - Get one context fragment's content
+
+- **`GET /v1/context/conversation`** - Get conversation/task-history entries
+
+- **`POST /v1/context/drop`** - Drop fragments by ID
+  - Body: `{ "fragmentIds": ["..."] }`
+
+- **`POST /v1/context/pin`** - Set pin state on a fragment
+  - Body: `{ "fragmentId": "...", "pinned": true|false }`
+
+- **`POST /v1/context/readonly`** - Set readonly state on an editable fragment
+  - Body: `{ "fragmentId": "...", "readonly": true|false }`
+
+- **`POST /v1/context/compress-history`** - Trigger async history compression
+
+- **`POST /v1/context/clear-history`** - Clear context history
+
+- **`POST /v1/context/drop-all`** - Drop all context fragments
+
+- **`POST /v1/context/files`** - Add files to context
+  - Body: `{ "relativePaths": ["path/from/workspace/root"] }`
+
+- **`POST /v1/context/classes`** - Add class summaries to context
+  - Body: `{ "classNames": ["com.example.MyClass"] }`
+
+- **`POST /v1/context/methods`** - Add method sources to context
+  - Body: `{ "methodNames": ["com.example.MyClass.myMethod"] }`
+
+- **`POST /v1/context/text`** - Add free-form text to context
+  - Body: `{ "text": "..." }` (max 1 MiB UTF-8)
 
 - **`GET /v1/tasklist`** (Authenticated) - Get current task list content
   - Returns the structured content of the current active task list.
@@ -353,6 +410,42 @@ Once running, the executor exposes the following endpoints:
     }
     ```
 
+- **`POST /v1/tasklist`** - Replace current task list content
+  - Body: `{ "bigPicture": "<optional>", "tasks": [ ... ] }`
+
+### Activity (Authenticated)
+
+- **`GET /v1/activity`** - Get grouped activity/history timeline
+
+- **`GET /v1/activity/diff?contextId=<uuid>`** - Get per-fragment diff for a context snapshot
+
+- **`POST /v1/activity/undo`** - Undo to a specific context
+  - Body: `{ "contextId": "<uuid>" }`
+
+- **`POST /v1/activity/undo-step`** - Undo one step
+
+- **`POST /v1/activity/redo`** - Redo one step
+
+- **`POST /v1/activity/copy-context`** - Reset current context to a snapshot (without history)
+  - Body: `{ "contextId": "<uuid>" }`
+
+- **`POST /v1/activity/copy-context-history`** - Reset current context to a snapshot including history
+  - Body: `{ "contextId": "<uuid>" }`
+
+- **`POST /v1/activity/new-session`** - Create a new session from a context snapshot
+  - Body: `{ "contextId": "<uuid>", "name": "<optional>" }`
+
+### Models & Completions (Authenticated)
+
+- **`GET /v1/models`** - List available models and capabilities
+
+- **`GET /v1/completions`** - File/symbol completions for mention UX
+  - Query params:
+    - `query` (required for non-empty results)
+    - `limit` (optional, clamped to 1..50; default 20)
+
+- **`GET /v1/favorites`** - List favorite model configs
+
 ### Job Management (Authenticated)
 
 - **`POST /v1/jobs`** - Create and execute a job
@@ -369,6 +462,18 @@ Once running, the executor exposes the following endpoints:
   - **ISSUE mode**: Set `"tags": { "mode": "ISSUE" }` to resolve a GitHub Issue. Requires `github_token`, `repo_owner`, `repo_name`, and `issue_number` in tags. ISSUE-mode jobs may include an optional top-level boolean field `skipVerification` in the job JSON; when present and `true` the executor will run the ISSUE quick (skip-verification) flow (see ISSUE Mode section for details). This field is only honored for jobs whose `tags.mode == "ISSUE"`; other modes ignore it.
   - **ISSUE_WRITER mode**: Set `"tags": { "mode": "ISSUE_WRITER" }` to discover evidence in the repo and create a GitHub issue (requires github_token, repo_owner, repo_name in tags).
   - **ARCHITECT mode** (default): Orchestrates multi-step planning and implementation
+
+### Observability and Model Controls (0.23.0.beta9)
+
+Version 0.23.0.beta9 introduces refined controls for LLM reasoning and structured cost reporting.
+
+#### Cost Reporting
+The executor emits structured `NOTIFICATION` events with a `level: "COST"` and a numeric `cost` field representing USD. These notifications include per-turn cost deltas.
+
+The executor also maintains a per-session cumulative `totalCost` and exposes it from `/v1/context` so clients can display lifetime session costs across restarts.
+
+#### Reasoning Levels
+Models supporting "Reasoning Effort" (like OpenAI o1/o3) can be controlled via `reasoningLevel`.
 
 #### Job-level model overrides (optional)
 
@@ -435,13 +540,14 @@ These fields are accepted in the top-level job payload alongside `plannerModel` 
 
 - **`GET /v1/jobs/{jobId}/events`** - Get job events (supports polling)
   - Query params: `?after={seq}&limit={n}`
-  - Returns: Array of `JobEvent` objects
+  - Returns: `{ "events": [ ... ], "nextAfter": <seq> }`
 
 - **`POST /v1/jobs/{jobId}/cancel`** - Cancel a running job
-  - Returns: Updated `JobStatus`
+  - Returns: `202 Accepted` with empty body
 
 - **`GET /v1/jobs/{jobId}/diff`** - Get git diff of job changes
-  - Returns: Plain text diff
+  - Returns: Plain text diff (`text/plain; charset=UTF-8`)
+  - If git is unavailable, returns `409` with `NO_GIT`
 
 ### Authentication
 
@@ -464,12 +570,28 @@ Build the shadow JAR:
 Run the JAR:
 
 ```bash
-java -cp app/build/libs/brokk-<version>.jar \
+java -Djava.awt.headless=true -Dapple.awt.UIElement=true \
+  -cp app/build/libs/brokk-0.23.0.beta9.jar \
   ai.brokk.executor.HeadlessExecutorMain \
   --exec-id 550e8400-e29b-41d4-a716-446655440000 \
   --listen-addr 0.0.0.0:8080 \
   --auth-token my-secret-token \
-  --workspace-dir /path/to/workspace
+  --workspace-dir /path/to/workspace \
+  --vendor Anthropic
 ```
 
-**Note:** The JAR requires the fully-qualified main class (`ai.brokk.executor.HeadlessExecutorMain`) as the first argument.
+Headless JVM flags:
+
+- `-Djava.awt.headless=true` — Recommended and safe on all platforms; forces the JVM into headless mode so no AWT native UI is initialized.
+- `-Dapple.awt.UIElement=true` — Hides the Java process from the Dock and app switcher on macOS. This flag is effectively ignored on non-macOS platforms, so it is safe to include cross-platform.
+
+When launching via **jbang**, pass these flags via `-R` to ensure they are passed to the JVM:
+
+```bash
+jbang -Djava.awt.headless=true -Dapple.awt.UIElement=true \
+  --java 21 \
+  -R "-Djava.awt.headless=true -Dapple.awt.UIElement=true --enable-native-access=ALL-UNNAMED" \
+  brokk-headless@brokkai/brokk-releases [args]
+```
+
+**Note:** The JAR requires the fully-qualified main class (`ai.brokk.executor.HeadlessExecutorMain`) as the first argument. Brokk clients (such as the Python TUI and VS Code extension) automatically include these JVM flags when managing the executor lifecycle.

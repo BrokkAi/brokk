@@ -219,7 +219,7 @@ class SearchModeSearchAgentTest {
                 "autoCompress",
                 false,
                 "plannerModel",
-                "gemini-2.0-flash",
+                "gpt-5.2",
                 "reasoningLevel",
                 "medium",
                 "reasoningLevelCode",
@@ -237,7 +237,7 @@ class SearchModeSearchAgentTest {
         assertNotNull(jobId);
         assertFalse(jobId.isBlank());
 
-        var store = new JobStore(workspaceDir.resolve(".brokk").resolve("jobs"));
+        var store = new JobStore(workspaceDir.resolve(".brokk"));
         var persisted = store.loadSpec(jobId);
         assertNotNull(persisted);
 
@@ -260,7 +260,7 @@ class SearchModeSearchAgentTest {
                 "autoCompress",
                 false,
                 "plannerModel",
-                "gemini-2.0-flash",
+                "gpt-5.2",
                 "reasoningLevel",
                 "BANANAS",
                 "tags",
@@ -289,7 +289,7 @@ class SearchModeSearchAgentTest {
                 "autoCompress",
                 false,
                 "plannerModel",
-                "gemini-2.0-flash",
+                "gpt-5.2",
                 "temperature",
                 2.5,
                 "tags",
@@ -313,7 +313,7 @@ class SearchModeSearchAgentTest {
         jobSpec.put("taskInput", "Null overrides should not change model config");
         jobSpec.put("autoCommit", false);
         jobSpec.put("autoCompress", false);
-        jobSpec.put("plannerModel", "gemini-2.0-flash");
+        jobSpec.put("plannerModel", "gpt-5.2");
         jobSpec.put("reasoningLevel", null);
         jobSpec.put("temperature", null);
         jobSpec.put("tags", Map.of("mode", "SEARCH"));
@@ -370,7 +370,7 @@ class SearchModeSearchAgentTest {
                 "autoCompress",
                 false,
                 "plannerModel",
-                "gemini-2.0-flash",
+                "gpt-5.2",
                 "tags",
                 Map.of("mode", "SEARCH"));
 
@@ -453,7 +453,7 @@ class SearchModeSearchAgentTest {
                 "autoCompress",
                 false,
                 "plannerModel",
-                "gemini-2.0-flash",
+                "gpt-5.2",
                 "scanModel",
                 explicitScanModel,
                 "tags",
@@ -502,7 +502,7 @@ class SearchModeSearchAgentTest {
                 "autoCompress",
                 false,
                 "plannerModel",
-                "gemini-2.0-flash",
+                "gpt-5.2",
                 "codeModel",
                 explicitCodeModel,
                 "tags",

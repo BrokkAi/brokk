@@ -330,6 +330,17 @@ public class DtoMapper {
                 String snapshot = codeDto.snapshotText() != null ? reader.readContent(codeDto.snapshotText()) : null;
                 yield new ContextFragments.CodeFragment(codeDto.id(), mgr, codeDto.fullyQualifiedName(), snapshot);
             }
+            case LineRangeFragmentDto lineRangeDto -> {
+                String snapshot =
+                        lineRangeDto.snapshotText() != null ? reader.readContent(lineRangeDto.snapshotText()) : null;
+                yield new ContextFragments.LineRangeFragment(
+                        lineRangeDto.id(),
+                        mgr,
+                        mgr.toFile(lineRangeDto.relPath()),
+                        lineRangeDto.startLine(),
+                        lineRangeDto.endLine(),
+                        snapshot);
+            }
             case BuildFragmentDto bfDto -> {
                 // Backward compatibility: convert legacy BuildFragment to StringFragment with BUILD_RESULTS
                 var text = reader.readContent(bfDto.contentId());
@@ -457,6 +468,15 @@ public class DtoMapper {
                     snapshotId = writer.writeContent(snapshot, null);
                 }
                 yield new CodeFragmentDto(cf.id(), cf.getFullyQualifiedName(), snapshotId);
+            }
+            case ContextFragments.LineRangeFragment lrf -> {
+                String snapshotId = null;
+                String snapshot = lrf.text().tryGet().orElse(null);
+                if (snapshot != null) {
+                    snapshotId = writer.writeContent(snapshot, null);
+                }
+                yield new LineRangeFragmentDto(
+                        lrf.id(), lrf.file().toString(), lrf.startLine(), lrf.endLine(), snapshotId);
             }
             default -> {
                 logger.warn(

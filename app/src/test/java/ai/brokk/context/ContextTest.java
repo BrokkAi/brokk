@@ -213,6 +213,7 @@ class ContextTest {
         var sf = new ContextFragments.StringFragment(contextManager, "text", "desc", SyntaxConstants.SYNTAX_STYLE_NONE);
 
         var ctx = new Context(contextManager).addFragments(List.of(ppf)).addFragments(sf);
+        assertEquals("class Refresh {}", ppf.text().join());
 
         pf.write("class RefreshR0 { public static void main() {} }");
         var refreshed = ctx.copyAndRefresh(Set.of(pf));
@@ -246,6 +247,8 @@ class ContextTest {
         // Mark the fragment read-only
         ctx = ctx.setReadonly(ppf, true);
         assertTrue(ctx.isMarkedReadonly(ppf), "Precondition: fragment should be read-only");
+
+        ppf.text().join(); // Ensure original content is read before modification
 
         // Update and trigger refresh
         pf.write("class RefreshR0 { public static void main() {} }");

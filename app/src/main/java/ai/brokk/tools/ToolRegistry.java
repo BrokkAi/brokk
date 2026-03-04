@@ -15,6 +15,7 @@ import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.agent.tool.ToolSpecifications;
 import dev.langchain4j.data.message.AiMessage;
+import java.lang.annotation.Annotation;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Parameter;
@@ -90,6 +91,7 @@ public class ToolRegistry {
             Map.entry("searchGitCommitMessages", "Searching git commits"),
             Map.entry("listFiles", "Listing files"),
             Map.entry("addFilesToWorkspace", "Adding files to workspace"),
+            Map.entry("addLineRangeToWorkspace", "Adding line range to workspace"),
             Map.entry("addClassesToWorkspace", "Adding classes to workspace"),
             Map.entry("addUrlContentsToWorkspace", "Adding URL contents to workspace"),
             Map.entry("addClassSummariesToWorkspace", "Adding class summaries to workspace"),
@@ -200,6 +202,12 @@ public class ToolRegistry {
         return Optional.of(ToolSpecifications.toolSpecificationFrom(target.method()));
     }
 
+    /** Returns true if the registered tool method is annotated with the given annotation type. */
+    public boolean isToolAnnotated(String toolName, Class<? extends Annotation> annotationType) {
+        var target = toolMap.get(toolName);
+        return target != null && target.method().isAnnotationPresent(annotationType);
+    }
+
     /** Returns true if a global tool with the given name is registered. */
     public boolean isRegistered(String toolName) {
         return toolMap.containsKey(toolName);
@@ -226,8 +234,8 @@ public class ToolRegistry {
             throw ie;
         } catch (Exception e) {
             GlobalExceptionHandler.handle(e);
-            return ToolExecutionResult.internalError(
-                    request, e.getMessage() == null ? e.getClass().getName() : e.getMessage());
+            String msg = e.getMessage() == null ? e.getClass().getName() : e.getMessage();
+            return ToolExecutionResult.internalError(request, msg);
         }
     }
 
