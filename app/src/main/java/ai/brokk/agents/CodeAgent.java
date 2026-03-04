@@ -644,7 +644,7 @@ public class CodeAgent {
 
     void report(String message) {
         logger.debug(message);
-        io.llmOutput("\n" + message, ChatMessageType.CUSTOM, LlmOutputMeta.DEFAULT);
+        io.llmOutput("\n" + message, ChatMessageType.CUSTOM, LlmOutputMeta.newMessage());
     }
 
     void reportComplete(TaskResult.StopReason reason, String message) {
@@ -653,7 +653,7 @@ public class CodeAgent {
         io.llmOutput(
                 "\n## Code Agent Finished\n" + badge + "\n\n**Reason:** " + message,
                 ChatMessageType.CUSTOM,
-                LlmOutputMeta.DEFAULT);
+                LlmOutputMeta.terminal().withNewMessage(true));
     }
 
     Step parsePhase(
