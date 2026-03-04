@@ -286,3 +286,84 @@ async def test_switch_to_worktree_clears_ui_before_replay():
         assert len(chat._message_history) == 2
         assert chat._message_history[0]["content"] == "new content"
         assert "Switched to worktree" in chat._message_history[1]["content"]
+
+
+@pytest.mark.asyncio
+async def test_switch_to_worktree_cancels_and_resets_job_state():
+    app = BrokkApp(workspace_dir=Path("/repo/main"))
+    app.job_in_progress = True
+    app.current_job_id = "job-abc"
+    app.current_job_cost = 1.23
+    app._pending_prompt = "some pending"
+    app.session_total_cost = 5.0
+
+    # Mock the OLD executor's cancel_job
+    old_executor = app.executor
+    old_executor.cancel_job = AsyncMock()
+
+    # Setup target worktree and new mock executor
+    target = Path("/repo/target")
+    resolved_target = Path("/repo/target")
+    resolved_main = Path("/repo/main")
+
+    mock_new_exec = MagicMock(spec=ExecutorManager)
+    mock_new_exec.workspace_dir = target
+    mock_new_exec.start = AsyncMock()
+    mock_new_exec.create_session = AsyncMock()
+    mock_new_exec.wait_ready = AsyncMock(return_value=True)
+    mock_new_exec.get_conversation = AsyncMock(return_value={"entries": []})
+
+    # Mocks to avoid side effects
+    app._refresh_context_panel = AsyncMock()
+    app._refresh_worktree_name = MagicMock()
+    app._maybe_chat = MagicMock()
+
+    with patch.object(
+        Path, "resolve", side_effect=[resolved_target, resolved_main, resolved_target]
+    ):
+        with patch.object(app, "_make_executor", return_value=mock_new_exec):
+            await app._switch_to_worktree(target)
+
+    # Assert old executor cancellation
+    old_executor.cancel_job.assert_called_with("job-abc")
+
+    # Assert state reset
+    assert app.job_in_progress is False
+    assert app.current_job_id is None
+    assert app.current_job_cost == 0.0
+    assert app._pending_prompt is None
+    assert app.session_total_cost == 0.0
+
+
+@pytest.mark.asyncio
+async def test_run_job_bails_early_on_executor_switch():
+    app = BrokkApp(workspace_dir=Path("/repo/main"))
+    app._executor_ready = True
+    app.job_in_progress = False
+
+    mock_executor = MagicMock(spec=ExecutorManager)
+    mock_executor.session_id = "sess-1"
+    app.executor = mock_executor
+    mock_executor.submit_job = AsyncMock(return_value="job-1")
+
+    different_executor = MagicMock(spec=ExecutorManager)
+    different_executor.session_id = "sess-2"
+
+    async def fake_stream(job_id):
+        # First event
+        yield {"type": "NOTIFICATION", "data": {"level": "INFO", "message": "before-switch"}}
+        # Simulate switch mid-stream
+        app.executor = different_executor
+        # Second event (should be ignored)
+        yield {"type": "NOTIFICATION", "data": {"level": "INFO", "message": "after-switch"}}
+
+    mock_executor.stream_events = fake_stream
+
+    with patch.object(app, "_handle_event", MagicMock()) as mock_handle:
+        with patch.object(app, "_maybe_chat", return_value=MagicMock()):
+            await app._run_job("hello")
+
+            # Should only handle the first event before the executor was swapped
+            assert mock_handle.call_count == 1
+            args, _ = mock_handle.call_args
+            assert args[0]["data"]["message"] == "before-switch"
