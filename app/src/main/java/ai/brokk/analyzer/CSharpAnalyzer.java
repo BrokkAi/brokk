@@ -43,7 +43,11 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
             "type_parameter_list", // typeParametersFieldName (C# generics)
             Map.of(
                     CaptureNames.CLASS_DEFINITION, SkeletonType.CLASS_LIKE,
+                    CaptureNames.INTERFACE_DEFINITION, SkeletonType.CLASS_LIKE,
+                    CaptureNames.STRUCT_DEFINITION, SkeletonType.CLASS_LIKE,
+                    CaptureNames.RECORD_DEFINITION, SkeletonType.CLASS_LIKE,
                     CaptureNames.FUNCTION_DEFINITION, SkeletonType.FUNCTION_LIKE,
+                    CaptureNames.METHOD_DEFINITION, SkeletonType.FUNCTION_LIKE,
                     CaptureNames.CONSTRUCTOR_DEFINITION, SkeletonType.FUNCTION_LIKE,
                     CaptureNames.FIELD_DEFINITION, SkeletonType.FIELD_LIKE),
             "",
@@ -79,10 +83,12 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected String getQueryResource() {
-        var resource = "treesitter/c_sharp.scm";
-        log.trace("CSharpAnalyzer: getQueryResource() returning: {}", resource);
-        return resource;
+    protected Optional<String> getQueryResource(QueryType type) {
+        return switch (type) {
+            case DEFINITIONS -> Optional.of("treesitter/c_sharp/definitions.scm");
+            case IMPORTS -> Optional.of("treesitter/c_sharp/imports.scm");
+            case IDENTIFIERS -> Optional.empty();
+        };
     }
 
     @Override
@@ -97,20 +103,21 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
             SkeletonType skeletonType) {
         CodeUnit result =
                 switch (captureName) {
-                    case CaptureNames.CLASS_DEFINITION -> {
+                    case CaptureNames.CLASS_DEFINITION,
+                            CaptureNames.INTERFACE_DEFINITION,
+                            CaptureNames.STRUCT_DEFINITION,
+                            CaptureNames.RECORD_DEFINITION -> {
                         String finalShortName = classChain.isEmpty() ? simpleName : classChain + "$" + simpleName;
                         yield CodeUnit.cls(file, packageName, finalShortName);
                     }
-                    case CaptureNames.FUNCTION_DEFINITION -> {
-                        String finalShortName = classChain + "." + simpleName;
-                        yield CodeUnit.fn(file, packageName, finalShortName);
-                    }
-                    case CaptureNames.CONSTRUCTOR_DEFINITION -> {
-                        String finalShortName = classChain + "." + simpleName;
+                    case CaptureNames.FUNCTION_DEFINITION,
+                            CaptureNames.METHOD_DEFINITION,
+                            CaptureNames.CONSTRUCTOR_DEFINITION -> {
+                        String finalShortName = classChain.isEmpty() ? simpleName : classChain + "." + simpleName;
                         yield CodeUnit.fn(file, packageName, finalShortName);
                     }
                     case CaptureNames.FIELD_DEFINITION -> {
-                        String finalShortName = classChain + "." + simpleName;
+                        String finalShortName = classChain.isEmpty() ? simpleName : classChain + "." + simpleName;
                         yield CodeUnit.field(file, packageName, finalShortName);
                     }
                     default -> {
@@ -131,7 +138,7 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
     @Override
     protected Set<String> getIgnoredCaptures() {
         // C# query explicitly captures attributes/annotations to ignore them
-        var ignored = Set.of("annotation");
+        var ignored = Set.of("annotation.definition");
         log.trace("CSharpAnalyzer: getIgnoredCaptures() returning: {}", ignored);
         return ignored;
     }
@@ -210,10 +217,15 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
 
         while (current != null && !current.isNull() && !current.equals(rootNode)) {
             if (NAMESPACE_DECLARATION.equals(current.getType())) {
-                TSNode nameNode = current.getChildByFieldName("name");
-                if (nameNode != null && !nameNode.isNull()) {
-                    String nsPart = sourceContent.substringFrom(nameNode);
-                    namespaceParts.add(nsPart);
+                // Find the identifier or qualified_name child as the name
+                for (int i = 0; i < current.getChildCount(); i++) {
+                    TSNode child = current.getChild(i);
+                    String type = child.getType();
+                    if ("identifier".equals(type) || "qualified_name".equals(type)) {
+                        String nsPart = sourceContent.substringFrom(child);
+                        namespaceParts.add(nsPart);
+                        break;
+                    }
                 }
             }
             current = current.getParent();
@@ -264,38 +276,44 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected boolean containsTestMarkers(TSTree tree, SourceContent sourceContent) {
-        TSQuery query = getThreadLocalQuery();
-        TSQueryCursor cursor = new TSQueryCursor();
-        cursor.exec(query, tree.getRootNode());
-        TSQueryMatch match = new TSQueryMatch();
+        try (TSQuery query = createQuery(QueryType.DEFINITIONS)) {
+            if (query != null) {
+                try (TSQueryCursor cursor = new TSQueryCursor()) {
+                    cursor.exec(query, tree.getRootNode());
+                    TSQueryMatch match = new TSQueryMatch();
 
-        Set<String> testAttributes =
-                Set.of("Test", "Fact", "Theory", "TestCase", "TestMethod", "DataTestMethod", "SetUp", "TearDown");
+                    Set<String> testAttributes = Set.of(
+                            "Test", "Fact", "Theory", "TestCase", "TestMethod", "DataTestMethod", "SetUp", "TearDown");
 
-        while (cursor.nextMatch(match)) {
-            boolean hasTestMarker = false;
-            String capturedAttrName = null;
+                    while (cursor.nextMatch(match)) {
+                        boolean hasTestMarker = false;
+                        String capturedAttrName = null;
 
-            for (var capture : match.getCaptures()) {
-                String captureName = query.getCaptureNameForId(capture.getIndex());
-                if (TEST_MARKER.equals(captureName)) {
-                    hasTestMarker = true;
-                } else if ("test_attr".equals(captureName)) {
-                    // Attribute names in C# often include the "Attribute" suffix or dots.
-                    // We extract the full text and check if it ends with or matches our known markers.
-                    capturedAttrName = sourceContent.substringFrom(capture.getNode());
-                }
-            }
+                        for (var capture : match.getCaptures()) {
+                            String captureName = query.getCaptureNameForId(capture.getIndex());
+                            TSNode node = capture.getNode();
+                            if (node == null || node.isNull()) continue;
 
-            if (hasTestMarker && capturedAttrName != null) {
-                String normalizedName = capturedAttrName;
-                if (normalizedName.endsWith("Attribute")) {
-                    normalizedName = normalizedName.substring(0, normalizedName.length() - "Attribute".length());
-                }
-                final String finalName = normalizedName;
-                if (testAttributes.stream()
-                        .anyMatch(attr -> finalName.equals(attr) || finalName.endsWith("." + attr))) {
-                    return true;
+                            if (TEST_MARKER.equals(captureName)) {
+                                hasTestMarker = true;
+                            } else if ("test_attr".equals(captureName)) {
+                                capturedAttrName = sourceContent.substringFrom(node);
+                            }
+                        }
+
+                        if (hasTestMarker && capturedAttrName != null) {
+                            String normalizedName = capturedAttrName;
+                            if (normalizedName.endsWith("Attribute")) {
+                                normalizedName =
+                                        normalizedName.substring(0, normalizedName.length() - "Attribute".length());
+                            }
+                            final String finalName = normalizedName;
+                            if (testAttributes.stream()
+                                    .anyMatch(attr -> finalName.equals(attr) || finalName.endsWith("." + attr))) {
+                                return true;
+                            }
+                        }
+                    }
                 }
             }
         }

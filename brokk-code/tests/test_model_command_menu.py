@@ -268,7 +268,7 @@ async def test_mode_command_no_arg_opens_menu():
                 # Simulate typing /mode with no args
                 app._handle_command("/mode")
                 await pilot.pause()
-                mock_open.assert_called_once_with(["CODE", "ASK", "LUTZ"], "LUTZ")
+                mock_open.assert_called_once_with(["CODE", "ASK", "LUTZ", "PLAN"], "LUTZ")
 
 
 @pytest.mark.asyncio

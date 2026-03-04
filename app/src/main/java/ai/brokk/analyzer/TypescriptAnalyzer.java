@@ -15,14 +15,9 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
 import org.jetbrains.annotations.Nullable;
-import org.treesitter.TSLanguage;
-import org.treesitter.TSNode;
-import org.treesitter.TSParser;
-import org.treesitter.TreeSitterTypescript;
+import org.treesitter.*;
 
 public final class TypescriptAnalyzer extends JsTsAnalyzer {
-    private static final TSLanguage TS_LANGUAGE = new TreeSitterTypescript();
-
     // Compiled regex patterns for memory efficiency
     private static final Pattern TRAILING_SEMICOLON = Pattern.compile(";\\s*$");
     private static final Pattern ENUM_COMMA_CLEANUP = Pattern.compile(",\\s*\\r?\\n(\\s*})");
@@ -72,7 +67,7 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
             // decoratorNodeTypes
             Set.of(DECORATOR),
             // imports
-            IMPORT_DECLARATION,
+            CaptureNames.IMPORT_DECLARATION,
             // identifierFieldName
             "name",
             // bodyFieldName
@@ -144,13 +139,12 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
     }
 
     @Override
-    protected TSLanguage getTSLanguage() {
-        return TS_LANGUAGE;
-    }
-
-    @Override
-    protected String getQueryResource() {
-        return "treesitter/typescript.scm";
+    protected Optional<String> getQueryResource(QueryType type) {
+        return switch (type) {
+            case DEFINITIONS -> Optional.of("treesitter/typescript/definitions.scm");
+            case IMPORTS -> Optional.of("treesitter/typescript/imports.scm");
+            case IDENTIFIERS -> Optional.of("treesitter/typescript/identifiers.scm");
+        };
     }
 
     @Override
@@ -1090,9 +1084,11 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
     public Set<String> extractIdentifiersFromImport(String importStatement) {
         Set<String> identifiers = new HashSet<>();
         TSParser parser = getTSParser();
-        try {
+        try (TSTree tree = parser.parseString(null, importStatement)) {
+            if (tree == null || tree.getRootNode().isNull()) {
+                return identifiers;
+            }
             SourceContent sourceContent = SourceContent.of(importStatement);
-            org.treesitter.TSTree tree = parser.parseString(null, importStatement);
             TSNode rootNode = tree.getRootNode();
 
             String queryStr =
@@ -1101,19 +1097,40 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
                 (import_specifier name: (identifier) @import.id)
                 (import_specifier alias: (identifier) @import.alias)
                 (namespace_import (identifier) @import.alias)
-                (variable_declarator name: (identifier) @import.id value: (call_expression function: (identifier) @func (#eq? @func "require")))
-                (variable_declarator name: (object_pattern (shorthand_property_identifier_pattern) @import.id) value: (call_expression function: (identifier) @func (#eq? @func "require")))
+                (variable_declarator
+                  name: [
+                    (identifier) @import.id
+                    (object_pattern (shorthand_property_identifier_pattern) @import.id)
+                  ]
+                  value: (call_expression function: (identifier) @import.require_func))
                 """;
 
-            org.treesitter.TSQuery query = new org.treesitter.TSQuery(getTSLanguage(), queryStr);
-            org.treesitter.TSQueryCursor cursor = new org.treesitter.TSQueryCursor();
-            cursor.exec(query, rootNode);
-            org.treesitter.TSQueryMatch match = new org.treesitter.TSQueryMatch();
+            try (TSQuery query = new TSQuery(getTSLanguage(), queryStr);
+                    TSQueryCursor cursor = new TSQueryCursor()) {
+                cursor.exec(query, rootNode);
+                TSQueryMatch match = new TSQueryMatch();
 
-            while (cursor.nextMatch(match)) {
-                for (org.treesitter.TSQueryCapture capture : match.getCaptures()) {
-                    TSNode node = capture.getNode();
-                    identifiers.add(sourceContent.substringFrom(node));
+                while (cursor.nextMatch(match)) {
+                    TSNode requireFunc = null;
+                    TSNode importId = null;
+
+                    for (TSQueryCapture capture : match.getCaptures()) {
+                        String captureName = query.getCaptureNameForId(capture.getIndex());
+                        if (captureName.equals("import.id")) {
+                            importId = capture.getNode();
+                        } else if (captureName.equals("import.require_func")) {
+                            requireFunc = capture.getNode();
+                        }
+                    }
+
+                    if (requireFunc != null
+                            && !sourceContent.substringFrom(requireFunc).equals("require")) {
+                        continue;
+                    }
+
+                    if (importId != null) {
+                        identifiers.add(sourceContent.substringFrom(importId).strip());
+                    }
                 }
             }
         } catch (Exception e) {
@@ -1131,33 +1148,28 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
     @Override
     public Set<String> extractTypeIdentifiers(String source) {
         Set<String> identifiers = new HashSet<>();
-        TSParser parser = getTSParser();
-        try {
+        try (TSTree tree = getTSParser().parseString(null, source)) {
+            if (tree == null || tree.getRootNode().isNull()) {
+                return identifiers;
+            }
             SourceContent sourceContent = SourceContent.of(source);
-            org.treesitter.TSTree tree = parser.parseString(null, source);
             TSNode rootNode = tree.getRootNode();
-            TSLanguage tsLanguage = getTSLanguage();
 
-            // Query for standard identifiers and type identifiers
-            String queryStr =
-                    """
-                (identifier) @id
-                (type_identifier) @type
-                (jsx_opening_element name: (identifier) @id)
-                (jsx_opening_element name: (member_expression property: (property_identifier) @id))
-                (jsx_self_closing_element name: (identifier) @id)
-                (jsx_self_closing_element name: (member_expression property: (property_identifier) @id))
-                """;
+            try (TSQuery query = createQuery(QueryType.IDENTIFIERS)) {
+                if (query != null) {
+                    try (TSQueryCursor cursor = new TSQueryCursor()) {
+                        cursor.exec(query, rootNode);
+                        TSQueryMatch match = new TSQueryMatch();
 
-            org.treesitter.TSQuery query = new org.treesitter.TSQuery(tsLanguage, queryStr);
-            org.treesitter.TSQueryCursor cursor = new org.treesitter.TSQueryCursor();
-            cursor.exec(query, rootNode);
-            org.treesitter.TSQueryMatch match = new org.treesitter.TSQueryMatch();
-
-            while (cursor.nextMatch(match)) {
-                for (org.treesitter.TSQueryCapture capture : match.getCaptures()) {
-                    TSNode node = capture.getNode();
-                    identifiers.add(sourceContent.substringFrom(node));
+                        while (cursor.nextMatch(match)) {
+                            for (TSQueryCapture capture : match.getCaptures()) {
+                                TSNode node = capture.getNode();
+                                if (node != null && !node.isNull()) {
+                                    identifiers.add(sourceContent.substringFrom(node));
+                                }
+                            }
+                        }
+                    }
                 }
             }
         } catch (Exception e) {

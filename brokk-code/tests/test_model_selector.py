@@ -39,7 +39,7 @@ async def test_action_select_mode_opens_menu():
     app.action_select_mode()
 
     # Verify it opens the inline menu on ChatPanel instead of pushing a modal screen
-    mock_chat.open_mode_menu.assert_called_once_with(["CODE", "ASK", "LUTZ"], "LUTZ")
+    mock_chat.open_mode_menu.assert_called_once_with(["CODE", "ASK", "LUTZ", "PLAN"], "LUTZ")
 
 
 @pytest.mark.asyncio

@@ -191,8 +191,12 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
     }
 
     @Override
-    protected String getQueryResource() {
-        return "treesitter/cpp.scm";
+    protected Optional<String> getQueryResource(QueryType type) {
+        return switch (type) {
+            case DEFINITIONS -> Optional.of("treesitter/cpp/definitions.scm");
+            case IMPORTS -> Optional.of("treesitter/cpp/imports.scm");
+            case IDENTIFIERS -> Optional.of("treesitter/cpp/identifiers.scm");
+        };
     }
 
     @Override
@@ -1427,33 +1431,59 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
     public Set<String> extractTypeIdentifiers(String source) {
         Set<String> identifiers = new HashSet<>();
         TSParser parser = getTSParser();
-        TSTree tree = parser.parseString(null, source);
-        if (tree == null || tree.getRootNode().isNull()) {
-            return identifiers;
-        }
+        try (TSTree tree = parser.parseString(null, source)) {
+            if (tree == null || tree.getRootNode().isNull()) {
+                return identifiers;
+            }
 
-        TSQuery query = new TSQuery(
-                getTSLanguage(), "[(type_identifier) @type (identifier) @id (qualified_identifier) @qualified]");
-        TSQueryCursor cursor = new TSQueryCursor();
-        cursor.exec(query, tree.getRootNode());
+            try (TSQuery query = createQuery(QueryType.IDENTIFIERS)) {
+                if (query != null) {
+                    try (TSQueryCursor cursor = new TSQueryCursor()) {
+                        cursor.exec(query, tree.getRootNode());
 
-        SourceContent sourceContent = SourceContent.of(source);
-        TSQueryMatch match = new TSQueryMatch();
-        while (cursor.nextMatch(match)) {
-            for (TSQueryCapture capture : match.getCaptures()) {
-                String text = sourceContent.substringFrom(capture.getNode()).strip();
-                if (text.isEmpty()) continue;
+                        SourceContent sourceContent = SourceContent.of(source);
+                        TSQueryMatch match = new TSQueryMatch();
+                        while (cursor.nextMatch(match)) {
+                            for (TSQueryCapture capture : match.getCaptures()) {
+                                TSNode node = capture.getNode();
+                                if (node != null && !node.isNull()) {
+                                    String text =
+                                            sourceContent.substringFrom(node).strip();
+                                    if (text.isEmpty()) continue;
 
-                // For qualified identifiers (e.g., std::string), split into parts
-                List<String> parts = Splitter.on("::").splitToList(text);
-                for (String part : parts) {
-                    if (!part.isEmpty() && !CPP_KEYWORDS.contains(part)) {
-                        identifiers.add(part);
+                                    // For qualified identifiers (e.g., std::string), split into parts
+                                    List<String> parts = Splitter.on("::").splitToList(text);
+                                    for (String part : parts) {
+                                        if (!part.isEmpty() && !CPP_KEYWORDS.contains(part)) {
+                                            identifiers.add(part);
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
         }
-
         return identifiers;
+    }
+
+    @Override
+    protected boolean containsTestMarkers(TSTree tree, SourceContent sourceContent) {
+        try (TSQuery query = createQuery(QueryType.DEFINITIONS);
+                TSQueryCursor cursor = new TSQueryCursor()) {
+            if (query == null) return false;
+            cursor.exec(query, tree.getRootNode());
+            TSQueryMatch match = new TSQueryMatch();
+            while (cursor.nextMatch(match)) {
+                for (TSQueryCapture capture : match.getCaptures()) {
+                    // Use literal name or ensure TEST_MARKER is available in CppTreeSitterNodeTypes
+                    if ("test.marker".equals(query.getCaptureNameForId(capture.getIndex()))) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
     }
 }

@@ -1,11 +1,15 @@
 import asyncio
+import contextlib
+import json
 import logging
+import os
 import shutil
 import subprocess
 import sys
+import time
 import uuid
 from pathlib import Path
-from typing import Any, AsyncIterator, Dict, List, Optional
+from typing import Any, AsyncIterator, Dict, Iterator, List, Optional
 from urllib.parse import quote
 
 import httpx
@@ -19,6 +23,13 @@ _EXECUTOR_JAR_BASE_URL = "https://github.com/BrokkAi/brokk-releases/releases/dow
 _EXECUTOR_MAIN_CLASS = "ai.brokk.executor.HeadlessExecutorMain"
 _READY_SENTINEL = "Executor listening on http://"
 _STARTUP_LINE_TIMEOUT = 120.0
+
+_BROKK_TRUST_URLS = [
+    "https://github.com/BrokkAi/brokk-releases",
+    "https://github.com/BrokkAi/brokk-releases/releases/download/",
+]
+_JBANG_SETUP_LOCK_PATH = Path.home() / ".jbang" / "brokk-setup.lock"
+_JBANG_SETUP_LOCK_TIMEOUT_SECONDS = 120.0
 
 
 class ExecutorError(Exception):
@@ -56,71 +67,131 @@ def resolve_jbang_binary() -> Optional[str]:
     return None
 
 
-def install_jbang() -> str:
-    """Installs jbang via the official script and trusts the brokk catalog."""
-    is_windows = sys.platform == "win32"
-    timeout_s = 120.0
-
-    logger.info("Installing jbang...")
+def _is_jbang_trusted() -> bool:
+    """Returns True if both brokk URLs appear in ~/.jbang/trusted-sources.json."""
+    trusted_sources_path = Path.home() / ".jbang" / "trusted-sources.json"
     try:
-        if is_windows:
-            cmd = [
-                "powershell",
-                "-Command",
-                'iex "& { $(iwr -useb https://ps.jbang.dev) } app setup"',
-            ]
-        else:
-            cmd = ["bash", "-c", "curl -Ls https://sh.jbang.dev | bash -s - app setup"]
+        content = trusted_sources_path.read_text(encoding="utf-8")
+        data = json.loads(content)
+        sources = data.get("trustedSources", [])
+        return all(url in sources for url in _BROKK_TRUST_URLS)
+    except Exception:
+        return False
 
-        # Use capture_output=True (which sets both stdout and stderr to PIPE)
-        # subprocess.run handles draining the pipes to avoid deadlocks.
-        proc = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=timeout_s,
-        )
-        if proc.returncode != 0:
-            stderr_hint = f": {proc.stderr.strip()}" if proc.stderr else ""
-            raise ExecutorError(f"jbang installer exited with code {proc.returncode}{stderr_hint}")
 
-    except subprocess.TimeoutExpired:
-        raise ExecutorError("jbang installation timed out after 2 minutes")
-    except ExecutorError:
-        raise
-    except Exception as e:
-        raise ExecutorError(f"Failed to run jbang installer: {e}")
+@contextlib.contextmanager
+def _jbang_setup_lock() -> Iterator[None]:
+    """File-based lock with PID stale detection."""
+    lock_path = _JBANG_SETUP_LOCK_PATH
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
 
-    jbang_path = resolve_jbang_binary()
-    if not jbang_path:
-        raise ExecutorError(
-            "jbang was installed but could not be found. You may need to restart your terminal."
-        )
+    deadline = time.monotonic() + _JBANG_SETUP_LOCK_TIMEOUT_SECONDS
+    acquired = False
 
-    # Trust the brokk catalog and release download URL
-    trust_urls = [
-        "https://github.com/BrokkAi/brokk-releases",
-        "https://github.com/BrokkAi/brokk-releases/releases/download/",
-    ]
-    for url in trust_urls:
+    while not acquired:
         try:
-            trust_proc = subprocess.run(
-                [jbang_path, "trust", "add", url],
-                capture_output=True,
-                text=True,
-            )
-            if trust_proc.returncode != 0:
-                logger.warning(
-                    "Failed to trust %s: %s",
-                    url,
-                    trust_proc.stderr.strip()
-                    if trust_proc.stderr
-                    else f"exit code {trust_proc.returncode}",
-                )
-        except Exception as e:
-            logger.warning("Failed to run trust command for %s: %s", url, e)
+            fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            try:
+                os.write(fd, str(os.getpid()).encode())
+            finally:
+                os.close(fd)
+            acquired = True
+        except FileExistsError:
+            if time.monotonic() >= deadline:
+                raise ExecutorError("Could not acquire jbang setup lock")
+            try:
+                pid_text = lock_path.read_text(encoding="utf-8").strip()
+                pid = int(pid_text)
+                try:
+                    os.kill(pid, 0)
+                    # Process is alive, wait and retry
+                    time.sleep(0.5)
+                except OSError:
+                    # Process is dead, remove stale lock and retry
+                    lock_path.unlink(missing_ok=True)
+            except Exception:
+                time.sleep(0.5)
 
-    return jbang_path
+    try:
+        yield
+    finally:
+        lock_path.unlink(missing_ok=True)
+
+
+def ensure_jbang_ready() -> str:
+    """Single entry point: ensures jbang is installed and brokk URLs are trusted.
+    Idempotent, concurrency-safe. Returns the jbang binary path."""
+    # Fast path: check without locking
+    jbang_path = resolve_jbang_binary()
+    if jbang_path and _is_jbang_trusted():
+        return jbang_path
+
+    # Slow path: acquire lock and do the work
+    with _jbang_setup_lock():
+        # Double-check after acquiring lock
+        jbang_path = resolve_jbang_binary()
+        if jbang_path and _is_jbang_trusted():
+            return jbang_path
+
+        # Install jbang if needed
+        if not jbang_path:
+            logger.info("Installing jbang...")
+            is_windows = sys.platform == "win32"
+            try:
+                if is_windows:
+                    cmd = [
+                        "powershell",
+                        "-Command",
+                        'iex "& { $(iwr -useb https://ps.jbang.dev) } app setup"',
+                    ]
+                else:
+                    cmd = ["bash", "-c", "curl -Ls https://sh.jbang.dev | bash -s - app setup"]
+
+                proc = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=120.0,
+                )
+                if proc.returncode != 0:
+                    stderr_hint = f": {proc.stderr.strip()}" if proc.stderr else ""
+                    raise ExecutorError(
+                        f"jbang installer exited with code {proc.returncode}{stderr_hint}"
+                    )
+            except subprocess.TimeoutExpired:
+                raise ExecutorError("jbang installation timed out after 2 minutes")
+            except ExecutorError:
+                raise
+            except Exception as e:
+                raise ExecutorError(f"Failed to run jbang installer: {e}")
+
+            jbang_path = resolve_jbang_binary()
+            if not jbang_path:
+                raise ExecutorError(
+                    "jbang was installed but could not be found. "
+                    "You may need to restart your terminal."
+                )
+
+        # Add trust for brokk URLs
+        for url in _BROKK_TRUST_URLS:
+            try:
+                trust_proc = subprocess.run(
+                    [jbang_path, "trust", "add", url],
+                    capture_output=True,
+                    text=True,
+                )
+                if trust_proc.returncode != 0:
+                    logger.warning(
+                        "Failed to trust %s: %s",
+                        url,
+                        trust_proc.stderr.strip()
+                        if trust_proc.stderr
+                        else f"exit code {trust_proc.returncode}",
+                    )
+            except Exception as e:
+                logger.warning("Failed to run trust command for %s: %s", url, e)
+
+        return jbang_path
 
 
 class ExecutorManager:
@@ -229,9 +300,7 @@ class ExecutorManager:
 
     async def _get_jbang_command(self, exec_id: str) -> List[str]:
         """Returns the command for launching via jbang, installing if necessary."""
-        jbang_bin = resolve_jbang_binary()
-        if not jbang_bin:
-            jbang_bin = await asyncio.to_thread(install_jbang)
+        jbang_bin = await asyncio.to_thread(ensure_jbang_ready)
 
         version = self.executor_version or BUNDLED_EXECUTOR_VERSION
         jar_url = f"{_EXECUTOR_JAR_BASE_URL}/{version}/brokk-{version}.jar"
