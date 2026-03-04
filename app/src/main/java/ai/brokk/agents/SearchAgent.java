@@ -105,6 +105,7 @@ public class SearchAgent {
     private final StreamingChatModel model;
     private final ContextManager.TaskScope scope;
     private final Llm llm;
+    private final Llm scanLlm;
     private final IConsoleIO io;
     private final String goal;
     private final List<McpPrompts.McpTool> mcpTools;
@@ -129,6 +130,10 @@ public class SearchAgent {
 
     private static final double RESEARCH_TOKENS_EMA_ALPHA = 0.5;
     private static final int STAGNATION_TURNS_THRESHOLD = 5;
+    private static final String READY_FOR_FINAL_TURN_FILTER =
+            """
+            The agent is expressing confidence that it has enough information to answer the question or resolve the problem.
+            """;
 
     private final SearchTools searchTools;
     private final Set<ContextFragment> originalPinnedFragments;
@@ -191,9 +196,14 @@ public class SearchAgent {
         this.scope = scope;
 
         this.io = io;
+        this.scanConfig = scanConfig;
+
         var llmOptions = new Llm.Options(model, goal, TaskResult.Type.SEARCH).withEcho();
         this.llm = cm.getLlm(llmOptions);
         this.llm.setOutput(this.io);
+
+        var scanLlmOptions = new Llm.Options(getScanModel(), goal, TaskResult.Type.CLASSIFY);
+        this.scanLlm = cm.getLlm(scanLlmOptions);
 
         this.metrics = "true".equalsIgnoreCase(System.getenv("BRK_COLLECT_METRICS"))
                 ? SearchMetrics.tracking()
@@ -203,7 +213,6 @@ public class SearchAgent {
         this.currentState = SearchState.initial(initialContext);
         this.checkpointState = currentState;
         this.originalPinnedFragments = initialContext.getPinnedFragments().collect(Collectors.toSet());
-        this.scanConfig = scanConfig;
         this.staticTools = initStaticTools(cm.getProject(), mcpTools);
         this.objective = objective;
         this.searchTools = new SearchTools(cm);
@@ -908,6 +917,14 @@ public class SearchAgent {
                     return new TurnOutcome.PendingTerminal(context, List.copyOf(sessionMessages), pending);
                 }
                 return new TurnOutcome.Final(agent.finalizePendingTerminal(pending, context));
+            }
+
+            String modelResponse = result.aiMessage().reasoningContent() + "\n\n"
+                    + result.aiMessage().text();
+            if (!isFinalTurn()
+                    && terminalRequest == null
+                    && RelevanceClassifier.isRelevant(agent.scanLlm, READY_FOR_FINAL_TURN_FILTER, modelResponse)) {
+                return new TurnOutcome.ForceFinalTurn(context, List.copyOf(sessionMessages));
             }
 
             Set<ProjectFile> filesAfterSet = agent.workspaceFiles(context);
