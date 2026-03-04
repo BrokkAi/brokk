@@ -616,6 +616,67 @@ public class SearchPrompts {
         return messages;
     }
 
+    public List<ChatMessage> buildPromptWorkspaceOnly(
+            Context context,
+            StreamingChatModel model,
+            String goal,
+            SearchPrompts.Objective objective,
+            List<McpPrompts.McpTool> mcpTools,
+            ai.brokk.agents.SearchAgent.DropMode dropMode,
+            int turnsLeftAfterThisTurn,
+            SpecialTurnTooling specialTooling) {
+
+        var cm = context.getContextManager();
+
+        boolean useTaskList = objective == Objective.LUTZ || objective == Objective.TASKS_ONLY;
+        var suppressed = useTaskList ? EnumSet.noneOf(SpecialTextType.class) : EnumSet.of(SpecialTextType.TASK_LIST);
+
+        var workspaceMessages = WorkspacePrompts.getMessagesInAddedOrder(context, suppressed);
+
+        var messages = new ArrayList<ChatMessage>();
+        messages.add(searchSystemPrompt(context, objective));
+
+        var mcpToolPrompt = McpPrompts.mcpToolPrompt(mcpTools);
+        if (mcpToolPrompt != null) {
+            messages.add(new SystemMessage(mcpToolPrompt));
+        }
+
+        messages.addAll(workspaceMessages);
+
+        boolean needsBuildSetup = (objective == Objective.LUTZ || objective == Objective.TASKS_ONLY)
+                && cm.getProject().awaitBuildDetails().equals(BuildAgent.BuildDetails.EMPTY);
+
+        var terminals = objective.terminals();
+        var data = new DirectiveData(
+                goal,
+                objective.tag(),
+                objective.taskInstructions().strip(),
+                cm.getProject().isEmptyProject(),
+                needsBuildSetup,
+                "",
+                turnsLeftAfterThisTurn,
+                WorkspacePrompts.formatToc(context, suppressed),
+                objective == Objective.WORKSPACE_ONLY,
+                objective == Objective.ISSUE_DESCRIPTION,
+                terminals.contains(Terminal.ANSWER),
+                terminals.contains(Terminal.TASK_LIST),
+                terminals.contains(Terminal.WORKSPACE),
+                terminals.contains(Terminal.CODE),
+                terminals.contains(Terminal.DESCRIBE_ISSUE),
+                turnsLeftAfterThisTurn == 0,
+                specialTooling);
+
+        String directive;
+        try {
+            directive = DIRECTIVE_TEMPLATE.apply(data);
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+
+        messages.add(new UserMessage(directive));
+        return messages;
+    }
+
     public enum Terminal {
         TASK_LIST,
         ANSWER,
