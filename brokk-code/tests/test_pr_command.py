@@ -42,3 +42,9 @@ async def test_handle_command_pr_not_ready():
     mock_chat.add_system_message.assert_called_once()
     args, kwargs = mock_chat.add_system_message.call_args
     assert "not yet ready" in args[0]
+
+@pytest.mark.asyncio
+async def test_slash_command_catalog_contains_pr():
+    app = BrokkApp()
+    cmds = [c["command"] for c in app.get_slash_commands()]
+    assert "/pr" in cmds

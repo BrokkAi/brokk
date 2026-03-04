@@ -617,6 +617,29 @@ def test_main_pr_create_routes_correctly(monkeypatch, tmp_path) -> None:
     assert captured["kwargs"]["tags"]["pr_body"] == "Details"
 
 
+def test_main_pr_create_validation_invalid_params(monkeypatch, capsys) -> None:
+    # Test missing mandatory parameter (repo-name)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "brokk",
+            "pr",
+            "create",
+            "--github-token",
+            "token",
+            "--repo-owner",
+            "owner",
+        ],
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        main_module.main()
+
+    assert exc.value.code == 1
+    assert "Error: --repo-name is required for pr create" in capsys.readouterr().err
+
+
 def test_main_pr_create_validation_missing_token(monkeypatch, capsys) -> None:
     monkeypatch.setattr(
         sys,

@@ -83,6 +83,26 @@ class JobRunnerIssueModeTest {
     }
 
     @Test
+    void testPrCreateModeParseMode() {
+        JobSpec spec = JobSpec.of(
+                "task",
+                false,
+                false,
+                "gpt-4",
+                null,
+                null,
+                false,
+                Map.of(
+                        "mode", "PR_CREATE",
+                        "github_token", "fake-token",
+                        "repo_owner", "owner",
+                        "repo_name", "repo"),
+                (String) null);
+
+        assertEquals(JobRunner.Mode.PR_CREATE, JobRunner.parseMode(spec));
+    }
+
+    @Test
     void testIssueWriterModeParseMode_isCaseInsensitive() {
         JobSpec specUpper = JobSpec.of(
                 "task", false, false, "gpt-4", null, null, false, Map.of("mode", "ISSUE_WRITER"), (String) null);
