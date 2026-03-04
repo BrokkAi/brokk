@@ -844,6 +844,7 @@ public class Environment {
             return "headless exec";
         }
         return "desktop";
+    }
 
     private static void showBrowserOpenFailureDialog(
             @Nullable Window ancestor, boolean headless, String url, String message, String title, int messageType) {

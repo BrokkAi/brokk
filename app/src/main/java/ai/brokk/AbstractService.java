@@ -7,7 +7,6 @@ import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
 import ai.brokk.project.ModelProperties;
 import ai.brokk.project.ModelProperties.ModelType;
-import ai.brokk.util.Environment;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Splitter;
@@ -528,8 +527,8 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
                 .strictJsonSchema(true)
                 .baseUrl(baseUrl)
                 .apiKey(kp.token())
-                .customHeaders(Map.of(
-                        "Authorization", "Bearer " + kp.token(), "X-Brokk-Client-Type", Environment.getClientType()))
+                // this is the only custom header we can set from the client, brokk-llm discards others;
+                // in particular, anthropic-beta should be set by proxy.
                 .customHeaders(Map.of("Authorization", "Bearer " + kp.token()))
                 .promptCacheKey(shortName + kp.userId())
                 .timeout(Duration.ofSeconds(
