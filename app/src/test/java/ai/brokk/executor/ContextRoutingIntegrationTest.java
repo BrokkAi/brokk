@@ -131,9 +131,17 @@ class ContextRoutingIntegrationTest {
 
         var createdPayload =
                 OBJECT_MAPPER.readValue(createResponse.body(), new TypeReference<Map<String, Object>>() {});
-        var sessionId = UUID.fromString((String) createdPayload.get("sessionId"));
+        var sessionId = (String) createdPayload.get("sessionId");
 
-        contextManager.getProject().getSessionManager().renameSession(sessionId, "Renamed In ContextManager");
+        var renameUri = URI.create("http://127.0.0.1:" + executor.getPort() + "/v1/sessions/rename");
+        var renameBody = Map.of("sessionId", sessionId, "name", "Renamed In ContextManager");
+        var renameRequest = HttpRequest.newBuilder(renameUri)
+                .header("Authorization", "Bearer " + authToken)
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(OBJECT_MAPPER.writeValueAsString(renameBody)))
+                .build();
+        var renameResponse = client.send(renameRequest, HttpResponse.BodyHandlers.discarding());
+        assertEquals(HttpURLConnection.HTTP_OK, renameResponse.statusCode());
 
         var listRequest = HttpRequest.newBuilder(createUri)
                 .header("Authorization", "Bearer " + authToken)
@@ -145,9 +153,8 @@ class ContextRoutingIntegrationTest {
         var listPayload = OBJECT_MAPPER.readValue(listResponse.body(), new TypeReference<Map<String, Object>>() {});
         @SuppressWarnings("unchecked")
         var sessions = (List<Map<String, Object>>) listPayload.get("sessions");
-        var renamedSession = sessions.stream()
-                .filter(s -> sessionId.toString().equals(s.get("id")))
-                .findFirst();
+        var renamedSession =
+                sessions.stream().filter(s -> sessionId.equals(s.get("id"))).findFirst();
 
         assertTrue(renamedSession.isPresent(), "Expected session in /v1/sessions response");
         assertEquals("Renamed In ContextManager", renamedSession.get().get("name"));
