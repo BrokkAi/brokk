@@ -285,25 +285,30 @@ class ContextRouterTest {
         assertEquals(ErrorPayload.Code.NOT_FOUND, payload.code());
     }
 
-    @Test
-    void handlePostContextCommit_noChanges_returnsNoChangesStatus() throws Exception {
-        // Initialize a git repo FIRST, then create a fresh project/contextManager
+    private void initGitRepoAndRecreateContext(boolean modifyAfterCommit) throws Exception {
         try (var git = Git.init().setDirectory(projectRoot.toFile()).call()) {
             var testFile = projectRoot.resolve("initial.txt");
             Files.writeString(testFile, "initial content");
             git.add().addFilepattern("initial.txt").call();
             git.commit().setMessage("Initial commit").call();
+
+            if (modifyAfterCommit) {
+                Files.writeString(testFile, "modified content");
+            }
         }
 
-        // Recreate project and contextManager after git init so hasGit() returns true
         if (contextManager != null) {
             contextManager.close();
         }
         var project = new MainProject(projectRoot);
         contextManager = new ContextManager(project);
         contextRouter = new ContextRouter(contextManager);
+    }
 
-        // No modifications since last commit
+    @Test
+    void handlePostContextCommit_noChanges_returnsNoChangesStatus() throws Exception {
+        initGitRepoAndRecreateContext(false);
+
         var exchange = TestHttpExchange.jsonRequest("POST", "/v1/context/commit", Map.of());
         contextRouter.handle(exchange);
 
@@ -314,24 +319,7 @@ class ContextRouterTest {
 
     @Test
     void handlePostContextCommit_withChanges_returnsCommitMetadata() throws Exception {
-        // Initialize a git repo FIRST
-        try (var git = Git.init().setDirectory(projectRoot.toFile()).call()) {
-            var testFile = projectRoot.resolve("initial.txt");
-            Files.writeString(testFile, "initial content");
-            git.add().addFilepattern("initial.txt").call();
-            git.commit().setMessage("Initial commit").call();
-
-            // Modify the file to create uncommitted changes
-            Files.writeString(testFile, "modified content");
-        }
-
-        // Recreate project and contextManager after git init so hasGit() returns true
-        if (contextManager != null) {
-            contextManager.close();
-        }
-        var project = new MainProject(projectRoot);
-        contextManager = new ContextManager(project);
-        contextRouter = new ContextRouter(contextManager);
+        initGitRepoAndRecreateContext(true);
 
         var exchange =
                 TestHttpExchange.jsonRequest("POST", "/v1/context/commit", Map.of("message", "Test commit message"));
@@ -347,26 +335,8 @@ class ContextRouterTest {
 
     @Test
     void handlePostContextCommit_blankMessage_usesDefaultMessage() throws Exception {
-        // Initialize a git repo FIRST
-        try (var git = Git.init().setDirectory(projectRoot.toFile()).call()) {
-            var testFile = projectRoot.resolve("initial.txt");
-            Files.writeString(testFile, "initial content");
-            git.add().addFilepattern("initial.txt").call();
-            git.commit().setMessage("Initial commit").call();
+        initGitRepoAndRecreateContext(true);
 
-            // Modify the file to create uncommitted changes
-            Files.writeString(testFile, "modified content");
-        }
-
-        // Recreate project and contextManager after git init so hasGit() returns true
-        if (contextManager != null) {
-            contextManager.close();
-        }
-        var project = new MainProject(projectRoot);
-        contextManager = new ContextManager(project);
-        contextRouter = new ContextRouter(contextManager);
-
-        // Send empty message - should fall back to "Manual commit" since LLM won't be available in tests
         var exchange = TestHttpExchange.jsonRequest("POST", "/v1/context/commit", Map.of("message", ""));
         contextRouter.handle(exchange);
 
@@ -375,32 +345,13 @@ class ContextRouterTest {
 
         assertNotNull(body.get("commitId"));
         assertFalse(((String) body.get("commitId")).isBlank());
-        // Should fall back to "Manual commit" since suggestCommitMessage will return empty in tests
         assertEquals("Manual commit", body.get("firstLine"));
     }
 
     @Test
     void handlePostContextCommit_omittedMessage_usesDefaultMessage() throws Exception {
-        // Initialize a git repo FIRST
-        try (var git = Git.init().setDirectory(projectRoot.toFile()).call()) {
-            var testFile = projectRoot.resolve("initial.txt");
-            Files.writeString(testFile, "initial content");
-            git.add().addFilepattern("initial.txt").call();
-            git.commit().setMessage("Initial commit").call();
+        initGitRepoAndRecreateContext(true);
 
-            // Modify the file to create uncommitted changes
-            Files.writeString(testFile, "modified content");
-        }
-
-        // Recreate project and contextManager after git init so hasGit() returns true
-        if (contextManager != null) {
-            contextManager.close();
-        }
-        var project = new MainProject(projectRoot);
-        contextManager = new ContextManager(project);
-        contextRouter = new ContextRouter(contextManager);
-
-        // Send no message field at all
         var exchange = TestHttpExchange.jsonRequest("POST", "/v1/context/commit", Map.of());
         contextRouter.handle(exchange);
 

@@ -671,7 +671,8 @@ public final class ContextRouter implements SimpleHttpServer.CheckedHttpHandler 
                             "firstLine", commitResult.firstLine()));
         } catch (Exception e) {
             logger.error("Error handling POST /v1/context/commit", e);
-            SimpleHttpServer.sendJsonResponse(exchange, 500, ErrorPayload.internalError("Failed to commit changes", e));
+            SimpleHttpServer.sendJsonResponse(exchange, 500,
+                                                ErrorPayload.internalError("Failed to commit changes", e));
         }
     }
 
