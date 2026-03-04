@@ -1667,6 +1667,44 @@ class BrokkApp(App):
             except Exception as e:
                 logger.warning("Failed to auto-rename session: %s", e)
 
+    async def _run_pr_create_job(self) -> None:
+        """Runs a PR creation job using current branch state."""
+        chat = self._maybe_chat()
+        if chat:
+            chat.add_system_message("Initiating GitHub Pull Request creation...")
+
+        # Reset per-job cost accumulator
+        self.current_job_cost = 0.0
+        self.job_in_progress = True
+        if chat:
+            chat.set_job_running(True)
+            chat.set_response_pending()
+
+        try:
+            task_input = f"Create Pull Request for branch {self.current_branch}"
+            self.current_job_id = await self.executor.submit_job(
+                task_input=task_input,
+                planner_model=self.current_model,
+                code_model=self.code_model,
+                reasoning_level=self.reasoning_level,
+                reasoning_level_code=self.reasoning_level_code,
+                mode="PR_CREATE",
+                auto_commit=self.auto_commit,
+            )
+            async for event in self.executor.stream_events(self.current_job_id):
+                self._handle_event(event)
+        except Exception as e:
+            if chat:
+                chat.add_system_message(f"PR creation failed: {e}", level="ERROR")
+            else:
+                logger.error("PR creation job failed: %s", e)
+        finally:
+            if chat:
+                chat.set_response_finished()
+                chat.set_job_running(False)
+            self.job_in_progress = False
+            self.current_job_id = None
+
     async def _run_job(self, task_input: str) -> None:
         # Attempt auto-rename on first prompt if session is default
         if self._executor_ready and self.executor.session_id:
@@ -1818,6 +1856,10 @@ class BrokkApp(App):
                     parts.append(f"**Error**: {exception}")
 
                 chat.add_tool_result("\n\n".join(parts))
+        elif event_type == "PR_CREATED":
+            pr_url = data.get("pr_url") or data.get("prUrl")
+            if pr_url and chat:
+                chat.add_system_message(f"Pull Request created: {pr_url}")
         elif event_type == "STATE_HINT":
             hint_name = data.get("name")
             if hint_name in ("contextHistoryUpdated", "workspaceUpdated"):
@@ -1944,6 +1986,7 @@ class BrokkApp(App):
             {"command": "/history-clear", "description": "Clear prompt history"},
             {"command": "/task", "description": "Open/close the task list"},
             {"command": "/sessions", "description": "List and switch between sessions"},
+            {"command": "/pr", "description": "Create a GitHub Pull Request for the current branch"},
             {"command": "/info", "description": "Show current configuration and status"},
             {"command": "/help", "description": "Show help message"},
             {"command": "/quit", "description": "Exit the application"},
@@ -2079,6 +2122,14 @@ class BrokkApp(App):
             )
         elif base == "/context":
             self.action_toggle_context()
+        elif base == "/pr":
+            if not self._executor_ready:
+                chat.add_system_message(
+                    "Brokk executor is not yet ready. Cannot create Pull Request.",
+                    level="WARNING",
+                )
+                return
+            self.run_worker(self._run_pr_create_job())
         elif base == "/task":
             if len(parts) != 1:
                 chat.add_system_message(
