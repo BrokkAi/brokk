@@ -696,6 +696,38 @@ async def test_run_headless_job_prints_pr_created_link_from_structured_event(
     assert "Pull Request created: https://github.com/brokkai/brokk/pull/42" in captured.out
 
 
+@pytest.mark.asyncio
+@patch("brokk_code.executor.ExecutorManager")
+async def test_run_headless_job_prints_pr_created_link_from_heuristics(
+    mock_executor_class, tmp_path, capsys
+) -> None:
+    from unittest.mock import AsyncMock
+
+    mock_manager = mock_executor_class.return_value
+    mock_manager.start = AsyncMock()
+    mock_manager.create_session = AsyncMock(return_value="session-123")
+    mock_manager.wait_ready = AsyncMock(return_value=True)
+    mock_manager.submit_job = AsyncMock(return_value="job-456")
+
+    async def mock_stream_events(job_id: str):
+        yield {"type": "TOKEN", "data": {"token": "PR is at https://github.com/o/r/pull/99"}}
+        yield {"type": "STATE_CHANGE", "data": {"state": "COMPLETED"}}
+
+    mock_manager.stream_events = mock_stream_events
+    mock_manager.stop = AsyncMock()
+
+    await main_module.run_headless_job(
+        workspace_dir=tmp_path,
+        task_input="Create PR",
+        planner_model="test-model",
+        mode="PR_CREATE",
+        tags={},
+    )
+
+    captured = capsys.readouterr()
+    assert "Pull Request created: https://github.com/o/r/pull/99" in captured.out
+
+
 def test_main_issue_create_verbose_routes_correctly(monkeypatch, tmp_path) -> None:
     captured: dict[str, Any] = {"ran": False}
     temp_workspace = tmp_path / "temp-create-verbose"

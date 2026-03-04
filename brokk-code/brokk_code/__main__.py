@@ -551,13 +551,6 @@ async def run_headless_job(
     token_url_scan_buffer = ""
     spinner_index = 0
     spinner_active = False
-    spinner_label = (
-        "Creating issue"
-        if mode == "ISSUE_WRITER"
-        else "Creating pull request"
-        if mode == "PR_CREATE"
-        else "Running job"
-    )
     spinner_frames = "|/-\\"
     spinner_enabled = sys.stdout.isatty() and not verbose
 
@@ -577,64 +570,64 @@ async def run_headless_job(
                 return value.strip()
         return ""
 
-    def _record_resource_url(text: str) -> None:
+    def _record_resource_urls(text: str) -> None:
         nonlocal created_issue_url, created_pr_url, token_url_scan_buffer
-        if (created_issue_url and created_pr_url) or not text:
+        if not text:
             return
         token_url_scan_buffer = (token_url_scan_buffer + text)[-8192:]
-        issue_match = re.search(
-            r"https://github\.com/[^\s)\]>\"]+/issues/\d+", token_url_scan_buffer
-        )
-        pr_match = re.search(r"https://github\.com/[^\s)\]>\"]+/pull/\d+", token_url_scan_buffer)
-        if issue_match and not created_issue_url:
-            created_issue_url = issue_match.group(0)
-        if pr_match and not created_pr_url:
-            created_pr_url = pr_match.group(0)
+        if not created_issue_url:
+            issue_match = re.search(
+                r"https://github\.com/[^\s)\]>\"]+/issues/\d+", token_url_scan_buffer
+            )
+            if issue_match:
+                created_issue_url = issue_match.group(0)
+        if not created_pr_url:
+            pr_match = re.search(r"https://github\.com/[^\s)\]>\"]+/pull/\d+", token_url_scan_buffer)
+            if pr_match:
+                created_pr_url = pr_match.group(0)
 
-    def _record_issue_url(text: str) -> None:
-        _record_resource_url(text)
-
-    def _record_pr_url(text: str) -> None:
-        _record_resource_url(text)
-
-    def _record_issue_url_from_issue_writer_notification(message: str) -> None:
+    def _record_issue_url_from_notification(message: str) -> None:
         # Java executor success path emits:
         # "ISSUE_WRITER: issue created <id> <htmlUrl>"
         if created_issue_url or not message:
             return
         normalized = message.strip()
-        if not normalized.startswith("ISSUE_WRITER: issue created"):
-            return
-        _record_issue_url(normalized)
+        if normalized.startswith("ISSUE_WRITER: issue created"):
+            _record_resource_urls(normalized)
 
-    def _record_issue_url_from_structured_issue_created(event: dict[str, Any]) -> None:
+    def _record_issue_url_from_structured_event(event: dict[str, Any]) -> None:
+        nonlocal created_issue_url
         if created_issue_url:
             return
         data = _event_data(event)
         issue_url = data.get("issueUrl")
         if isinstance(issue_url, str) and issue_url.strip():
-            _record_issue_url(issue_url.strip())
+            created_issue_url = issue_url.strip()
 
-    def _record_pr_url_from_structured_pr_created(event: dict[str, Any]) -> None:
+    def _record_pr_url_from_structured_event(event: dict[str, Any]) -> None:
+        nonlocal created_pr_url
         if created_pr_url:
             return
         data = _event_data(event)
-        pr_url = data.get("prUrl")
+        pr_url = data.get("prUrl") or data.get("pr_url")
         if isinstance(pr_url, str) and pr_url.strip():
-            _record_pr_url(pr_url.strip())
+            created_pr_url = pr_url.strip()
 
     def _render_spinner() -> None:
         nonlocal spinner_index, spinner_active
-        if mode not in {"ISSUE_WRITER", "ISSUE", "PR_CREATE"} or not spinner_enabled:
+        if not spinner_enabled:
             return
         frame = spinner_frames[spinner_index % len(spinner_frames)]
         spinner_index += 1
         if mode == "ISSUE":
             label = "Solving issue"
+        elif mode == "ISSUE_WRITER":
+            label = "Creating issue"
         elif mode == "PR_CREATE":
             label = "Creating pull request"
         else:
-            label = spinner_label
+            label = "Running job"
+
         sys.stdout.write(f"\r{label}... {frame}")
         sys.stdout.flush()
         spinner_active = True
@@ -644,7 +637,7 @@ async def run_headless_job(
         if not spinner_enabled or not spinner_active:
             return
         # Calculate max possible width to clear (Issue # + long labels)
-        width = len(spinner_label) + 20
+        width = 40
         sys.stdout.write("\r" + (" " * width) + "\r")
         sys.stdout.flush()
         spinner_active = False
@@ -704,8 +697,8 @@ async def run_headless_job(
                 message = _extract_message(event)
                 if not message:
                     continue
-                _record_issue_url_from_issue_writer_notification(message)
-                _record_issue_url(message)
+                _record_issue_url_from_notification(message)
+                _record_resource_urls(message)
                 level = str(data.get("level", event.get("level", "INFO"))).strip().upper()
                 # Keep headless issue mode quiet by default: warnings/errors matter,
                 # routine INFO/COST/CONFIRM notifications do not.
@@ -721,25 +714,25 @@ async def run_headless_job(
                     print(f"Job state: {last_state}")
             elif event_type in {"TOKEN", "LLM_TOKEN"}:
                 text = str(data.get("token", event.get("text", "")))
-                _record_issue_url(text)
+                _record_resource_urls(text)
                 if verbose and text:
                     sys.stdout.write(text)
                     sys.stdout.flush()
                 continue
             elif event_type == "ERROR":
                 message = _extract_message(event) or "Unknown error event"
-                _record_issue_url(message)
+                _record_resource_urls(message)
                 error_messages.append(message)
                 _update_shutdown_context()
                 _clear_spinner()
                 print(f"\nError event: {message}", file=sys.stderr)
             elif event_type == "ISSUE_CREATED":
-                _record_issue_url_from_structured_issue_created(event)
+                _record_issue_url_from_structured_event(event)
                 if verbose:
                     _clear_spinner()
                     print(f"[ISSUE_CREATED] {data}")
             elif event_type == "PR_CREATED":
-                _record_pr_url_from_structured_pr_created(event)
+                _record_pr_url_from_structured_event(event)
                 if verbose:
                     _clear_spinner()
                     print(f"[PR_CREATED] {data}")
@@ -747,17 +740,17 @@ async def run_headless_job(
                 if verbose:
                     _clear_spinner()
                     print(f"[COMMAND_RESULT] {data}")
-                _record_issue_url(str(data.get("output", "")))
-                _record_issue_url(str(data.get("resultText", "")))
-                _record_issue_url(str(data.get("command", "")))
-                _record_issue_url(str(data.get("exception", "")))
+                _record_resource_urls(str(data.get("output", "")))
+                _record_resource_urls(str(data.get("resultText", "")))
+                _record_resource_urls(str(data.get("command", "")))
+                _record_resource_urls(str(data.get("exception", "")))
             elif event_type == "TOOL_OUTPUT":
                 if verbose:
                     _clear_spinner()
                     print(f"[TOOL_OUTPUT] {data}")
-                _record_issue_url(str(data.get("output", "")))
-                _record_issue_url(str(data.get("text", "")))
-                _record_issue_url(str(data.get("resultText", "")))
+                _record_resource_urls(str(data.get("output", "")))
+                _record_resource_urls(str(data.get("text", "")))
+                _record_resource_urls(str(data.get("resultText", "")))
 
         if last_state in {"FAILED", "CANCELLED"}:
             _clear_spinner()
