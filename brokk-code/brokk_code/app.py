@@ -700,6 +700,7 @@ class BrokkApp(App):
         self.current_branch = "unknown"
         self.job_in_progress = False
         self.session_switch_in_progress = False
+        self._current_switch_target_session_id: Optional[str] = None
         self.current_job_id: Optional[str] = None
         self._pending_prompt: Optional[str] = None
         self._pending_switch_prompt: Optional[tuple[str, str]] = None

@@ -438,6 +438,7 @@ def test_main_sessions_routes_correctly(monkeypatch, tmp_path) -> None:
     assert captured["kwargs"]["session_id"] is None
     assert captured["kwargs"]["resume_session"] is False
 
+
 def test_main_sessions_rejects_positional_args(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(
         sys,
