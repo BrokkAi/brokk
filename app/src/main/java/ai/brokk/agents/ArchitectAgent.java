@@ -13,6 +13,7 @@ import ai.brokk.MutedConsoleIO;
 import ai.brokk.TaskResult;
 import ai.brokk.TaskResult.StopReason;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextDelta;
 import ai.brokk.context.ContextFragment;
@@ -264,8 +265,15 @@ public class ArchitectAgent {
         }
 
         // Record planning history before invoking CodeAgent
-        context = cm.compressHistory(context);
-        addPlanningToHistory();
+        var initialContext = context;
+        var contextFuture = LoggingFuture.runVirtual(() -> {
+            try {
+                context = cm.compressHistory(context);
+                addPlanningToHistory();
+            } catch (InterruptedException e) {
+                throw new AssertionError();
+            }
+        });
 
         io.llmOutput("**Code Agent** engaged:\n" + instructions, ChatMessageType.CUSTOM, LlmOutputMeta.newMessage());
         var agent = new CodeAgent(cm, codeModel);
@@ -273,11 +281,12 @@ public class ArchitectAgent {
         if (deferBuild) {
             opts.add(CodeAgent.Option.DEFER_BUILD);
         }
-        var initialContext = context;
         var result = agent.executeWithoutHistory(context, instructions, opts);
         var stopDetails = result.stopDetails();
         var reason = stopDetails.reason();
 
+        // wait for the history compression that we kicked off earlier since it updates this.context
+        contextFuture.join();
         // Update architect context with the CodeAgent's fragments, preserving the Architect history
         var codeContext = result.context();
         context = codeContext
