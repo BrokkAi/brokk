@@ -314,12 +314,49 @@ public class SessionManager implements AutoCloseable {
         });
     }
 
+    /**
+     * Calculates the total cost for a session by summing all events in the cost ledger.
+     * The ledger is the canonical source of truth.
+     *
+     * @return Sum of costs from the ledger, or 0.0 if the ledger is missing.
+     */
+    @Blocking
+    public double totalCostFromLedger(UUID sessionId) {
+        return readCostEvents(sessionId).stream()
+                .mapToDouble(CostEvent::costUsd)
+                .sum();
+    }
+
+    /**
+     * Returns the total session cost.
+     * For sessions with a cost ledger, returns the sum of ledger events.
+     * For legacy sessions without a ledger, falls back to the cached 'totalCost' from SessionInfo.
+     */
+    /**
+     * Returns the total session cost.
+     * The cost ledger is the canonical source of truth for sessions that have one.
+     * For legacy sessions without a ledger, falls back to the 'totalCost' field in the manifest.
+     */
+    @Blocking
+    public double getTotalSessionCost(UUID sessionId) {
+        // First check ledger (canonical)
+        List<CostEvent> events = readCostEvents(sessionId);
+        if (!events.isEmpty()) {
+            return events.stream().mapToDouble(CostEvent::costUsd).sum();
+        }
+
+        // Fallback for legacy sessions or sessions where ledger hasn't been created yet
+        SessionInfo info = sessionsCache.get(sessionId);
+        return (info != null && info.totalCost() != null) ? info.totalCost() : 0.0;
+    }
+
     public void recordCostEvent(UUID sessionId, CostEvent event) {
         costLedgerCache.computeIfAbsent(sessionId, k -> new ArrayList<>()).add(event);
 
         sessionExecutorByKey.submit(sessionId.toString(), () -> {
             try {
                 Path sessionHistoryPath = getSessionHistoryPath(sessionId);
+                // Ensure zip exists before trying to open it as a filesystem
                 if (!Files.exists(sessionHistoryPath)) {
                     return null;
                 }
@@ -338,7 +375,7 @@ public class SessionManager implements AutoCloseable {
     @Blocking
     public List<CostEvent> readCostEvents(UUID sessionId) {
         // Fast path: if we have in-memory events for this session in the current JVM, return them.
-        // This covers newly recorded events that may not yet be flushed to disk.
+        // This avoids races between async writes and reads in the same JVM.
         var cached = costLedgerCache.get(sessionId);
         if (cached != null && !cached.isEmpty()) {
             return List.copyOf(cached);
@@ -346,10 +383,6 @@ public class SessionManager implements AutoCloseable {
 
         try {
             Path zipPath = resolveSessionHistoryZipPath(sessionId);
-            if (!Files.exists(zipPath)) {
-                return List.of();
-            }
-
             return sessionExecutorByKey
                     .submit(sessionId.toString(), () -> {
                         List<CostEvent> events = new ArrayList<>();
@@ -636,13 +669,16 @@ public class SessionManager implements AutoCloseable {
         SessionInfo currentInfo = sessionsCache.get(sessionId);
         if (currentInfo != null) {
             if (!isSessionEmpty(currentInfo, contextHistory)) {
+                // totalCost in manifest is a cached convenience; the ledger is truth.
+                // We update the cache here to keep it consistent.
+                double cost = totalCostFromLedger(sessionId);
                 infoToSave = new SessionInfo(
                         currentInfo.id(),
                         currentInfo.name(),
                         currentInfo.created(),
                         System.currentTimeMillis(),
                         currentInfo.version(),
-                        currentInfo.totalCost());
+                        cost);
                 sessionsCache.put(sessionId, infoToSave); // Update cache before async task
             } // else, session info is not modified, we are just adding an empty initial context (e.g. welcome message)
             // to the session
@@ -759,7 +795,7 @@ public class SessionManager implements AutoCloseable {
             return HistoryIo.countSessionStats(zipPath);
         } catch (IOException e) {
             logger.warn("Failed to count session stats for session {}", sessionId, e);
-            return new HistoryIo.SessionCounts(0, new HistoryIo.TaskCounts(0, 0));
+            return new HistoryIo.SessionCounts(0, new HistoryIo.TaskCounts(0, 0), 0.0);
         }
     }
 
