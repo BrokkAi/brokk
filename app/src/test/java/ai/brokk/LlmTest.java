@@ -336,7 +336,7 @@ public class LlmTest {
 
     @Test
     void sumReturnsSecondWhenFirstNull() {
-        var metaB = new ResponseMetadata(5, 2, 3, 7, 150L, "mB", "DONE", "cB", "tierB", "noerror");
+        var metaB = new ResponseMetadata(5, 2, 3, 7, 150L, null, "mB", "DONE", "cB", "tierB", "noerror");
         var res = ResponseMetadata.sum(null, metaB);
         assertNotNull(res);
         assertEquals(metaB.inputTokens(), res.inputTokens());
@@ -353,7 +353,7 @@ public class LlmTest {
 
     @Test
     void sumReturnsFirstWhenSecondNull() {
-        var metaA = new ResponseMetadata(8, 1, 0, 2, 50L, "mA", "STOP", "cA", "tierA", "errA");
+        var metaA = new ResponseMetadata(8, 1, 0, 2, 50L, null, "mA", "STOP", "cA", "tierA", "errA");
         var res = ResponseMetadata.sum(metaA, null);
         assertNotNull(res);
         assertEquals(metaA.inputTokens(), res.inputTokens());
@@ -370,8 +370,8 @@ public class LlmTest {
 
     @Test
     void sumCombinesNumericAndPrefersSecondCategoricals() {
-        var metaA = new ResponseMetadata(10, 1, 2, 3, 100L, "modelA", "STOP", "t1", "tierA", "errA");
-        var metaB = new ResponseMetadata(5, 2, 4, 6, 200L, "modelB", null, "t2", null, null);
+        var metaA = new ResponseMetadata(10, 1, 2, 3, 100L, null, "modelA", "STOP", "t1", "tierA", "errA");
+        var metaB = new ResponseMetadata(5, 2, 4, 6, 200L, null, "modelB", null, "t2", null, null);
 
         var combined = ResponseMetadata.sum(metaA, metaB);
         assertNotNull(combined);
@@ -389,8 +389,8 @@ public class LlmTest {
 
     @Test
     void sumAllowsAllCategoricalsNull() {
-        var metaA = new ResponseMetadata(3, 0, 1, 1, 10L, null, null, null, null, null);
-        var metaB = new ResponseMetadata(4, 0, 2, 2, 20L, null, null, null, null, null);
+        var metaA = new ResponseMetadata(3, 0, 1, 1, 10L, null, null, null, null, null, null);
+        var metaB = new ResponseMetadata(4, 0, 2, 2, 20L, null, null, null, null, null, null);
 
         var combined = ResponseMetadata.sum(metaA, metaB);
         assertNotNull(combined);
@@ -419,6 +419,7 @@ public class LlmTest {
                 largeNearMax, // thinkingTokens
                 largeNearMax, // outputTokens
                 100L,
+                null,
                 "modelA",
                 "A_REASON",
                 "createdA",
@@ -431,6 +432,7 @@ public class LlmTest {
                 smallPositive,
                 smallPositive,
                 200L,
+                null,
                 "modelB", // should override modelA
                 null, // finishReason null -> should fall back to A
                 "createdB", // should override createdA
@@ -465,8 +467,8 @@ public class LlmTest {
         long almostMax = Long.MAX_VALUE - 5;
         long small = 10L;
 
-        var metaA = new ResponseMetadata(1, 0, 0, 0, almostMax, "mA", null, null, null, null);
-        var metaB = new ResponseMetadata(2, 0, 0, 0, small, "mB", "DONE", null, null, null);
+        var metaA = new ResponseMetadata(1, 0, 0, 0, almostMax, null, "mA", null, null, null, null);
+        var metaB = new ResponseMetadata(2, 0, 0, 0, small, null, "mB", "DONE", null, null, null);
 
         var combined = ResponseMetadata.sum(metaA, metaB);
         assertNotNull(combined);

@@ -859,6 +859,24 @@ public class Llm {
         return builder;
     }
 
+    private synchronized @Nullable Double calculateCost(StreamingChatModel model, @Nullable ResponseMetadata usage) {
+        if (usage == null) return null;
+
+        var service = contextManager.getService();
+        var modelName = service.nameOf(model);
+        var tier = Service.getProcessingTier(model);
+        var pricing = service.getModelPricing(modelName, tier);
+
+        if (pricing.bands().isEmpty()) return null;
+
+        int input = usage.inputTokens();
+        int cached = usage.cachedInputTokens();
+        int uncached = Math.max(0, input - cached);
+        int output = usage.outputTokens();
+
+        return pricing.getCostFor(uncached, cached, output);
+    }
+
     /**
      * Writes response history (.log) to task-specific files, pairing with pre-sent request JSON via a shared base path.
      */
@@ -894,7 +912,7 @@ public class Llm {
 
         // Compute and show cost notification if usage/pricing are available
         if (result != null) {
-            var usage = result.metadata();
+            var usage = result.metadata(this);
             if (usage != null) {
                 var service = contextManager.getService();
                 var modelName = service.nameOf(model);
@@ -910,24 +928,21 @@ public class Llm {
                     logger.debug("Cost notifications disabled by user settings");
                     return;
                 }
-                var tier = Service.getProcessingTier(model);
-                var pricing = service.getModelPricing(modelName, tier);
 
                 int input = usage.inputTokens();
                 int cached = usage.cachedInputTokens();
-                int uncached = Math.max(0, input - cached);
                 int output = usage.outputTokens();
 
                 int totalTokens = Math.max(0, input) + Math.max(0, output);
                 int cachedPct = input > 0 ? (int) Math.round((cached * 100.0) / input) : 0;
                 String tokenSummary = "%,d tokens / %d%% cached".formatted(totalTokens, cachedPct);
 
-                if (pricing.bands().isEmpty()) {
+                Double cost = usage.costUsd();
+                if (cost == null) {
                     String message = "Cost unknown for %s (%s)".formatted(modelName, tokenSummary);
                     io.showNotification(IConsoleIO.NotificationRole.COST, message);
                     logger.debug("LLM cost: {}", message);
                 } else {
-                    double cost = pricing.getCostFor(uncached, cached, output);
                     DecimalFormat df = (DecimalFormat) NumberFormat.getNumberInstance(Locale.US);
                     df.applyPattern("#,##0.0000");
                     String costStr = df.format(cost);
@@ -978,6 +993,7 @@ public class Llm {
             int thinkingTokens,
             int outputTokens,
             long elapsedMs,
+            @Nullable Double costUsd,
             @Nullable String modelName,
             @Nullable String finishReason,
             @Nullable String created,
@@ -1035,6 +1051,17 @@ public class Llm {
                 overflowedFields.add("elapsedMs");
             }
 
+            @Nullable Double costUsd = null;
+            if (a.costUsd() != null || b.costUsd() != null) {
+                double aVal = a.costUsd() != null ? a.costUsd() : 0.0;
+                double bVal = b.costUsd() != null ? b.costUsd() : 0.0;
+                costUsd = aVal + bVal;
+                if (Double.isInfinite(costUsd)) {
+                    costUsd = Double.MAX_VALUE;
+                    overflowedFields.add("costUsd");
+                }
+            }
+
             if (!overflowedFields.isEmpty()) {
                 // Summarize the overflow event in a single log entry to avoid per-field log spam.
                 // Include the two source ResponseMetadata instances for context (their toString shows fields).
@@ -1052,6 +1079,7 @@ public class Llm {
                     thinkingTokens,
                     outputTokens,
                     elapsedMs,
+                    costUsd,
                     b.modelName() != null ? b.modelName() : a.modelName(),
                     b.finishReason() != null ? b.finishReason() : a.finishReason(),
                     b.created() != null ? b.created() : a.created(),
@@ -1103,11 +1131,15 @@ public class Llm {
         }
 
         public @Nullable ResponseMetadata metadata() {
+            return metadata(null);
+        }
+
+        public @Nullable ResponseMetadata metadata(@Nullable Llm llm) {
             var response = originalResponse();
             if (response == null) {
                 return error == null
                         ? null
-                        : new ResponseMetadata(0, 0, 0, 0, elapsedMs, null, null, null, null, error.getMessage());
+                        : new ResponseMetadata(0, 0, 0, 0, elapsedMs, null, null, null, null, null, error.getMessage());
             }
             var usage = (OpenAiTokenUsage) response.tokenUsage();
             if (usage == null) {
@@ -1148,12 +1180,30 @@ public class Llm {
                         meta.serviceTier() == null ? null : meta.serviceTier().name();
             }
 
+            Double cost = llm == null
+                    ? null
+                    : llm.calculateCost(
+                            llm.model,
+                            new ResponseMetadata(
+                                    inputTokens,
+                                    cachedInputTokens,
+                                    thinkingTokens,
+                                    outputTokens,
+                                    elapsedMs,
+                                    null,
+                                    modelName,
+                                    finishReason,
+                                    created,
+                                    serviceTier,
+                                    error == null ? null : error.getMessage()));
+
             return new ResponseMetadata(
                     inputTokens,
                     cachedInputTokens,
                     thinkingTokens,
                     outputTokens,
                     elapsedMs,
+                    cost,
                     modelName,
                     finishReason,
                     created,
@@ -1224,12 +1274,13 @@ public class Llm {
                 toolRequestsJson =
                         objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(ai.toolExecutionRequests());
                 Map<String, Object> metadata = new HashMap<>();
-                var meta = metadata();
+                var meta = metadata(); // In formatted(), we don't have Llm instance context easily, use default
                 if (meta != null) {
                     metadata.put("inputTokens", meta.inputTokens());
                     metadata.put("cachedInputTokens", meta.cachedInputTokens());
                     metadata.put("thinkingTokens", meta.thinkingTokens());
                     metadata.put("outputTokens", meta.outputTokens());
+                    if (meta.costUsd() != null) metadata.put("costUsd", meta.costUsd());
                     if (meta.modelName() != null) metadata.put("modelName", meta.modelName());
                     if (meta.finishReason() != null) metadata.put("finishReason", meta.finishReason());
                     if (meta.created() != null) metadata.put("created", meta.created());
