@@ -262,3 +262,25 @@ async def test_brokk_app_session_cost_resets_on_session_switch_to_lower_total_co
     assert fake_chat.last_session_cost == pytest.approx(1.0)
     assert fake_chat.status_line.last_kwargs["session_cost"] == pytest.approx(1.0)
     assert app.current_job_cost == 0.0
+
+
+@pytest.mark.asyncio
+async def test_brokk_app_session_cost_preserved_on_switch_failure(mock_executor):
+    """Verify that cost state is restored if switch_session raises an exception."""
+    mock_executor.session_id = "sess-original"
+    mock_executor.switch_session = AsyncMock(side_effect=Exception("Network error"))
+
+    app = BrokkApp(executor=mock_executor)
+    app.session_total_cost = 5.0
+    app.current_job_cost = 0.5
+    app._executor_ready = True
+
+    fake_chat = FakeChat()
+    app._maybe_chat = MagicMock(return_value=fake_chat)
+
+    # Attempt switch that fails
+    await app._switch_to_session("sess-other")
+
+    # Assert costs are preserved/restored
+    assert app.session_total_cost == 5.0
+    assert app.current_job_cost == 0.5

@@ -2625,6 +2625,10 @@ class BrokkApp(App):
             self.session_switch_in_progress = True
             self._current_switch_target_session_id = session_id
 
+        # Save previous cost accumulators so we can restore them if the switch fails.
+        _prev_job_cost = self.current_job_cost
+        _prev_session_cost = self.session_total_cost
+
         try:
             chat.add_system_message(f"Switching to session {session_id}...")
             # Set job running to block input UI during switch
@@ -2674,6 +2678,9 @@ class BrokkApp(App):
 
         except Exception as e:
             logger.exception("Failed to switch session")
+            # Restore cost accumulators so the UI reflects the original session's costs.
+            self.current_job_cost = _prev_job_cost
+            self.session_total_cost = _prev_session_cost
             chat.add_system_message(f"Failed to switch session: {e}", level="ERROR")
             if self._pending_switch_prompt:
                 self._pending_switch_prompt = None
