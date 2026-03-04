@@ -348,4 +348,9 @@ public class SqlAnalyzer implements IAnalyzer {
         }
         return IAnalyzer.super.as(capability);
     }
+
+    @Override
+    public List<Range> rangesOf(CodeUnit codeUnit) {
+        return List.of();
+    }
 }

@@ -293,6 +293,8 @@ public interface IAnalyzer {
         }
     }
 
+    List<Range> rangesOf(CodeUnit codeUnit);
+
     // Things most implementations won't have to override
 
     default boolean isEmpty() {

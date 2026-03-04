@@ -1,8 +1,7 @@
 package ai.brokk.difftool.ui.unified;
 
-import ai.brokk.gui.SwingUtil;
-import java.awt.Rectangle;
 import java.util.List;
+import javax.swing.JViewport;
 import javax.swing.SwingUtilities;
 import javax.swing.text.BadLocationException;
 import org.apache.logging.log4j.LogManager;
@@ -182,7 +181,7 @@ public class UnifiedDiffNavigator {
         }
     }
 
-    /** Navigate to the current hunk by positioning the caret and scrolling. */
+    /** Navigate to the current hunk by positioning the caret and centering in viewport. */
     private void navigateToCurrentHunk() {
         if (currentHunkIndex < 0 || currentHunkIndex >= hunkStartLines.size()) {
             return;
@@ -197,14 +196,34 @@ public class UnifiedDiffNavigator {
                 textArea.setCaretPosition(offset);
                 textArea.requestFocusInWindow();
 
-                // Scroll to make the line visible
-                var rectBounds = SwingUtil.modelToView(textArea, offset);
-                if (rectBounds != null) {
-                    // Expand rectangle to ensure some context is visible
-                    var expandedRect = new Rectangle(
-                            rectBounds.x, Math.max(0, rectBounds.y - 50), rectBounds.width, rectBounds.height + 100);
-                    textArea.scrollRectToVisible(expandedRect);
+                // Find the viewport ancestor
+                var viewport = (JViewport) SwingUtilities.getAncestorOfClass(JViewport.class, textArea);
+                if (viewport == null) {
+                    return;
                 }
+
+                // Calculate target Y range for the hunk
+                int lineHeight = textArea.getLineHeight();
+                var headerRect = textArea.modelToView2D(offset);
+                if (headerRect == null) {
+                    return;
+                }
+
+                int targetStartY = (int) headerRect.getY();
+                int targetEndY;
+
+                // Find the end of this hunk (line before next hunk header, or end of document)
+                int endLine;
+                if (currentHunkIndex + 1 < hunkStartLines.size()) {
+                    endLine = Math.max(0, hunkStartLines.get(currentHunkIndex + 1) - 1);
+                } else {
+                    endLine = Math.max(0, textArea.getLineCount() - 1);
+                }
+                int endOffset = textArea.getLineStartOffset(endLine);
+                var endRect = textArea.modelToView2D(endOffset);
+                targetEndY = endRect != null ? (int) endRect.getY() + lineHeight : targetStartY + lineHeight;
+
+                UnifiedDiffPanel.centerViewportY(viewport, targetStartY, targetEndY, textArea.getHeight());
 
             } catch (BadLocationException e) {
                 logger.error(
