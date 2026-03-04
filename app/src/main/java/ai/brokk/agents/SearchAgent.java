@@ -344,9 +344,9 @@ public class SearchAgent {
 
         for (int turn = 0; turn < MAX_TOTAL_TURNS || (pendingTerminal != null && turn < MAX_TOTAL_TURNS + 1); ) {
             if (pendingTerminal == null
-                && dropMode != DropMode.DROP_ONLY
-                && turn < MAX_TOTAL_TURNS - 1
-                && finalTurnRequestedByClassifier.get()) {
+                    && dropMode != DropMode.DROP_ONLY
+                    && turn < MAX_TOTAL_TURNS - 1
+                    && finalTurnRequestedByClassifier.get()) {
                 turn = MAX_TOTAL_TURNS - 1;
             }
 
