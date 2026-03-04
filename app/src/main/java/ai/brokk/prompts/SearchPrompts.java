@@ -420,26 +420,26 @@ public class SearchPrompts {
                 Finalization options:
                 {{/if}}
                 {{#if isIssueDiagnosis}}
-                - Use describeIssue(String title, String body) to finalize. abortSearch(explanation) is the only other allowed final tool.
+                - describeIssue(String title, String body): finalize with this tool. abortSearch is the only other allowed final tool.
                 {{/if}}
                 {{#if terminalAnswer}}
-                - Use answer(String) ONLY when the Workspace already contains sufficient context to justify the answer, OR when the question is explicitly codebase-independent. The answer needs to be Markdown-formatted (see <markdown-reminder>).
-                - Use askForClarification(String queryForUser) when the goal is unclear or you cannot find the necessary information; this will ask the user directly and stop.
+                - answer(String): call this once the Workspace contains sufficient context to justify the answer, OR when the question is explicitly codebase-independent. Must be Markdown-formatted (see <markdown-reminder>).
+                - askForClarification(String queryForUser): when the goal is unclear or you cannot find the necessary information; asks the user directly and stops.
                 {{/if}}
                 {{#if terminalTasks}}
-                - Use createOrReplaceTaskList(String explanation, List<TaskListEntry> tasks) to replace the entire task list when the request involves code changes. Titles are summarized automatically from task text; pass task texts only. Completed tasks from the previous list are implicitly dropped. Produce a clear, minimal, incremental, and testable sequence of tasks that a Code Agent can execute, once you understand where all the necessary pieces live.
+                - createOrReplaceTaskList(String explanation, List<TaskListEntry> tasks): replace the entire task list when the request involves code changes. Titles are summarized automatically from task text; pass task texts only. Completed tasks from the previous list are implicitly dropped. Produce a clear, minimal, incremental, and testable sequence of tasks that a Code Agent can execute, once you understand where all the necessary pieces live.
                   Guidance:
                     - Each task must be self-contained; the Code Agent will not have access to your instructions or conversation history.
                     - It is CRITICAL to keep the project buildable and testable after each task; in the VERY RARE case where breaking the build
                       temporarily is necessary, YOU MUST BE EXPLICIT about this to avoid confusing the Code Agent.
                 {{/if}}
                 {{#if terminalWorkspace}}
-                - Use workspaceComplete() when the Workspace contains all the information necessary to accomplish the goal.
+                - workspaceComplete(): when the Workspace contains all the information necessary to accomplish the goal.
                 {{/if}}
                 {{#if terminalCode}}
-                - Use callCodeAgent(String instructions, boolean deferBuild) to attempt implementation now in a single shot. If it succeeds, we finish; otherwise, continue with search/planning. Only use this when the goal is small enough to not need decomposition into a task list, and after you have added all the necessary context to the Workspace.
+                - callCodeAgent(String instructions, boolean deferBuild): the task is simple enough to attempt implementation now in a single shot without creating a formal task list.
                 {{/if}}
-                - If we cannot find the answer or the request is out of scope for this codebase, use abortSearch with a clear explanation.
+                - abortSearch(String explanation): the answer cannot be found or the request is out of scope for this codebase. Provide a clear explanation of your decision.
 
                 {{#unless finalTurnOnly~}}
                 You CAN call multiple non-terminal tools in a single turn, and you SHOULD whenever you can
