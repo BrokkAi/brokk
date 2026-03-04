@@ -11,10 +11,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
-from collections import defaultdict
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from collections import defaultdict
+from urllib.error import HTTPError, URLError
+from urllib.parse import quote_plus
+from urllib.request import Request, urlopen
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
@@ -26,6 +30,22 @@ DIR_RE = re.compile(
 FILE_RE = re.compile(
     r"^(?P<hour>\d{2})-(?P<minute>\d{2})\.(?P<second>\d{2}) (?P<index>\d+)-(?P<suffix>.+)$"
 )
+
+
+BROKK_PROXY_URL = "https://proxy.brokk.ai"
+@dataclass(frozen=True)
+class PriceBand:
+    min_tokens_inclusive: int
+    max_tokens_inclusive: int
+    input_cost_per_token: float
+    cached_input_cost_per_token: float
+    output_cost_per_token: float
+
+    def contains(self, token_count: int) -> bool:
+        return self.min_tokens_inclusive <= token_count <= self.max_tokens_inclusive
+
+
+MAX_TIER_TOKENS = 10**18
 
 
 @dataclass(frozen=True)
@@ -44,8 +64,13 @@ class Turn:
     request_index: str
     request_ts: datetime
     response_ts: datetime
+    model: Optional[str]
     log_path: Optional[Path]
     log_ts: Optional[datetime]
+    service_tier: Optional[str]
+    input_tokens: int
+    cached_input_tokens: int
+    output_tokens: int
     tools: List[str]
 
 
@@ -84,6 +109,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Print turn and gap data as jsonl and do not launch gui",
     )
+    parser.add_argument(
+        "--show-costs",
+        action="store_true",
+        help="Fetch model pricing from proxy and report estimated costs",
+    )
     return parser.parse_args()
 
 
@@ -101,6 +131,473 @@ def parse_time(raw: str) -> datetime.time:
         return datetime.strptime(raw, "%H:%M:%S").time()
     except ValueError as exc:
         raise ValueError("start/end must be HH:MM:SS") from exc
+
+
+def decode_properties_value(value: str) -> str:
+    return value.replace("\\:", ":").replace("\\=", "=").replace("\\\\", "\\")
+
+
+def read_properties_file(path: Path) -> Dict[str, str]:
+    properties: Dict[str, str] = {}
+    if not path.is_file():
+        return properties
+
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except Exception:
+        return properties
+
+    for raw_line in lines:
+        line = raw_line.strip()
+        if not line or line.startswith("#") or line.startswith("!"):
+            continue
+
+        delimiter = None
+        for index, char in enumerate(line):
+            if char not in ":=":
+                continue
+            if index > 0 and line[index - 1] == "\\":
+                continue
+            delimiter = index
+            break
+        if delimiter is None:
+            continue
+
+        key = line[:delimiter].strip()
+        value = line[delimiter + 1 :].strip()
+        if not key:
+            continue
+        properties[key] = decode_properties_value(value)
+
+    return properties
+
+
+def parse_brokk_config() -> Dict[str, str]:
+    candidates = [
+        Path.home() / "Library" / "Application Support" / "Brokk" / "brokk.properties",
+        Path.home() / ".config" / "Brokk" / "brokk.properties",
+        Path.home() / ".config" / "brokk" / "brokk.properties",
+    ]
+
+    properties: Dict[str, str] = {}
+    for candidate in candidates:
+        candidate = candidate.expanduser()
+        if candidate.is_file():
+            properties.update(read_properties_file(candidate))
+
+    return properties
+
+
+def parse_brokk_api_key(raw_key: str) -> Optional[str]:
+    key = raw_key.strip()
+    if not key:
+        return None
+
+    if key.startswith("Bearer "):
+        key = key[len("Bearer ") :].strip()
+
+    if key.startswith("sk-"):
+        return key
+
+    parts = key.split("+")
+    if len(parts) != 3:
+        return None
+    if parts[0] != "brk" or not parts[2]:
+        return None
+
+    token = parts[2].strip()
+    if not token:
+        return None
+    if token.startswith("sk-"):
+        return token
+    return f"sk-{token}"
+
+
+def parse_brokk_user_id(api_key: str) -> Optional[str]:
+    key = api_key.strip()
+    if key.startswith("Bearer "):
+        key = key[len("Bearer ") :].strip()
+    parts = key.split("+")
+    if len(parts) != 3:
+        return None
+    if parts[0] != "brk":
+        return None
+    if not parts[1]:
+        return None
+    return parts[1]
+
+
+def proxy_brokk_api_key() -> Optional[str]:
+    return parse_brokk_config().get("brokkApiKey") or os.getenv("BROKK_API_KEY")
+
+
+def parse_float_value(raw: Any, default: float = 0.0) -> float:
+    if isinstance(raw, bool):
+        return 1.0 if raw else 0.0
+    if isinstance(raw, int | float):
+        return float(raw)
+    if isinstance(raw, str):
+        try:
+            return float(raw.strip())
+        except ValueError:
+            return default
+    return default
+
+
+def parse_int_value(raw: Any) -> int:
+    if isinstance(raw, bool):
+        return 1 if raw else 0
+    if isinstance(raw, int):
+        return max(0, raw)
+    if isinstance(raw, float):
+        return max(0, int(raw))
+    if isinstance(raw, str):
+        try:
+            return max(0, int(float(raw.strip())))
+        except ValueError:
+            return 0
+    return 0
+
+
+def get_cost_from_sources(
+    primary: Dict[str, Any],
+    fallback: Optional[Dict[str, Any]],
+    key: str,
+    default: float,
+) -> float:
+    if key in primary and primary.get(key) is not None:
+        return parse_float_value(primary[key], default)
+    if fallback is not None and key in fallback and fallback.get(key) is not None:
+        return parse_float_value(fallback[key], default)
+    return default
+
+
+def pricing_bands_from_source(
+    primary: Dict[str, Any],
+    fallback: Optional[Dict[str, Any]] = None,
+) -> List[PriceBand]:
+    input_cost = get_cost_from_sources(
+        primary,
+        fallback,
+        "input_cost_per_token",
+        0.0,
+    )
+    cached_cost = get_cost_from_sources(
+        primary,
+        fallback,
+        "cache_read_input_token_cost",
+        0.0,
+    )
+    output_cost = get_cost_from_sources(
+        primary,
+        fallback,
+        "output_cost_per_token",
+        0.0,
+    )
+
+    has_above = (
+        (primary.get("input_cost_per_token_above_200k_tokens") is not None)
+        or (primary.get("cache_read_input_token_cost_above_200k_tokens") is not None)
+        or (primary.get("output_cost_per_token_above_200k_tokens") is not None)
+        or (fallback is not None and fallback.get("input_cost_per_token_above_200k_tokens") is not None)
+        or (fallback is not None and fallback.get("cache_read_input_token_cost_above_200k_tokens") is not None)
+        or (fallback is not None and fallback.get("output_cost_per_token_above_200k_tokens") is not None)
+    )
+
+    if not has_above:
+        return [
+            PriceBand(
+                0,
+                MAX_TIER_TOKENS,
+                input_cost,
+                cached_cost,
+                output_cost,
+            )
+        ]
+
+    above_input = get_cost_from_sources(
+        primary,
+        fallback,
+        "input_cost_per_token_above_200k_tokens",
+        input_cost,
+    )
+    above_cached = get_cost_from_sources(
+        primary,
+        fallback,
+        "cache_read_input_token_cost_above_200k_tokens",
+        cached_cost,
+    )
+    above_output = get_cost_from_sources(
+        primary,
+        fallback,
+        "output_cost_per_token_above_200k_tokens",
+        output_cost,
+    )
+
+    return [
+        PriceBand(0, 199_999, input_cost, cached_cost, output_cost),
+        PriceBand(200_000, MAX_TIER_TOKENS, above_input, above_cached, above_output),
+    ]
+
+
+def service_tier_normalized(raw: Optional[str]) -> str:
+    if not raw:
+        return "standard"
+    normalized = raw.strip().lower()
+    return {
+        "default": "standard",
+        "priority": "priority",
+        "flex": "flex",
+        "batch": "batch",
+    }.get(normalized, "standard")
+
+
+def pricing_bands_for_model(info: Dict[str, Any], service_tier: Optional[str] = None) -> List[PriceBand]:
+    if not isinstance(info, dict):
+        return []
+
+    pricing_tiers = info.get("pricing_tiers")
+    if isinstance(pricing_tiers, dict):
+        normalized_tier = service_tier_normalized(service_tier)
+        selected_tier = pricing_tiers.get(normalized_tier)
+        if normalized_tier != "standard":
+            # fallback to standard if the specific tier is not configured
+            selected_tier = pricing_tiers.get(normalized_tier, pricing_tiers.get("standard"))
+        if isinstance(selected_tier, dict):
+            bands = pricing_bands_from_source(selected_tier, fallback=info)
+            if bands:
+                return bands
+
+    return pricing_bands_from_source(info)
+
+
+def cost_for_turn(
+    turn: Turn,
+    model_info_map: Dict[str, Dict[str, Any]],
+    cached_bands: Dict[Tuple[str, str], List[PriceBand]],
+) -> Optional[float]:
+    model_name = turn.model
+    if not model_name:
+        return None
+
+    cache_key = (model_name, turn.service_tier or "standard")
+    if cache_key not in cached_bands:
+        info = model_info_map.get(model_name)
+        if not isinstance(info, dict):
+            cached_bands[cache_key] = []
+        else:
+            cached_bands[cache_key] = pricing_bands_for_model(info, turn.service_tier)
+
+    bands = cached_bands[cache_key]
+    if not bands:
+        return None
+
+    prompt_tokens = turn.input_tokens + turn.cached_input_tokens
+    band_for_prompt = next(
+        (band for band in bands if band.contains(prompt_tokens)),
+        bands[-1],
+    )
+    return (
+        (turn.input_tokens * band_for_prompt.input_cost_per_token)
+        + (turn.cached_input_tokens * band_for_prompt.cached_input_cost_per_token)
+        + (turn.output_tokens * band_for_prompt.output_cost_per_token)
+    )
+
+
+def fetch_model_info(proxy_url: str, proxy_setting: str, api_key: Optional[str]) -> Dict[str, Any]:
+    request_url = f"{proxy_url}/model/info"
+    request_urls: List[str] = [request_url]
+    headers: Dict[str, str] = {}
+
+    if proxy_setting == "BROKK":
+        bearer_token = parse_brokk_api_key(api_key) if api_key else None
+        if bearer_token:
+            headers["Authorization"] = f"Bearer {bearer_token}"
+
+        user_id = parse_brokk_user_id(api_key) if api_key else None
+        if user_id:
+            request_urls = [f"{request_url}?user_id={quote_plus(user_id)}", request_url]
+        elif not bearer_token:
+            print("Cannot fetch model pricing: BROKK proxy selected but brokkApiKey is missing.")
+
+    auth_attempts: List[Dict[str, str]] = [headers] if headers else [dict()]
+    if headers and api_key and f"Bearer {api_key}" != headers.get("Authorization"):
+        auth_attempts.append({"Authorization": f"Bearer {api_key}"})
+
+    payload = None
+    last_code = None
+    for url in request_urls:
+        for attempt_headers in auth_attempts:
+            request = Request(url, headers=attempt_headers)
+            try:
+                with urlopen(request, timeout=20) as response:
+                    raw_payload = response.read().decode("utf-8", errors="replace")
+                    payload = json.loads(raw_payload)
+            except HTTPError as exc:
+                last_code = exc.code
+                if exc.code == 401 and (
+                    attempt_headers != auth_attempts[-1]
+                    or url != request_urls[-1]
+                ):
+                    continue
+                print(f"Failed to fetch model info from {url}: HTTP {exc.code}")
+                return {}
+            except URLError as exc:
+                print(f"Failed to fetch model info from {url}: {exc}")
+                return {}
+            except json.JSONDecodeError:
+                return {}
+
+            if payload is not None and isinstance(payload, dict):
+                break
+        if payload is not None and isinstance(payload, dict):
+            request_url = url
+            break
+
+    if payload is None:
+        if last_code == 401:
+            print(f"Failed to fetch model info from {request_urls[-1]}: HTTP 401")
+        return {}
+
+    data = payload.get("data") if isinstance(payload, dict) else None
+    if not isinstance(data, list):
+        print("/model/info response did not include a data array")
+        return {}
+
+    model_info_map: Dict[str, Dict[str, Any]] = {}
+    for entry in data:
+        if not isinstance(entry, dict):
+            continue
+        model_name = str(entry.get("model_name", "")).strip()
+        if not model_name:
+            continue
+        raw_info = entry.get("model_info")
+        if isinstance(raw_info, dict):
+            model_info_map[model_name] = raw_info
+
+    return model_info_map
+
+
+def parse_metadata_from_log(log_path: Path) -> Tuple[Optional[str], int, int, int, Optional[str]]:
+    try:
+        lines = log_path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except Exception:
+        return None, 0, 0, 0, None
+
+    for index, line in enumerate(lines):
+        if line.strip() == "## metadata":
+            metadata_blob = "\n".join(lines[index + 1 :])
+            start = metadata_blob.find("{")
+            if start < 0:
+                break
+            end = metadata_blob.rfind("}")
+            if end <= start:
+                break
+            try:
+                metadata = json.loads(metadata_blob[start : end + 1])
+            except (ValueError, json.JSONDecodeError):
+                break
+            if not isinstance(metadata, dict):
+                break
+
+            model_name = metadata.get("modelName")
+            if not isinstance(model_name, str) or not model_name:
+                model_name = None
+
+            service_tier = metadata.get("serviceTier")
+            if not isinstance(service_tier, str):
+                service_tier = metadata.get("service_tier")
+
+            return (
+                model_name,
+                parse_int_value(metadata.get("inputTokens")),
+                parse_int_value(metadata.get("cachedInputTokens")),
+                parse_int_value(metadata.get("outputTokens")),
+                service_tier if isinstance(service_tier, str) else None,
+            )
+
+    return None, 0, 0, 0, None
+
+
+def compute_model_usage(
+    turns: Sequence[Turn],
+    model_info_map: Optional[Dict[str, Dict[str, Any]]] = None,
+    show_costs: bool = False,
+) -> Tuple[Dict[str, Dict[str, int]], Dict[str, float], Dict[str, bool]]:
+    by_model: Dict[str, Dict[str, int]] = defaultdict(lambda: {"input": 0, "cached": 0, "output": 0})
+    by_model_cost: Dict[str, float] = defaultdict(float)
+    cost_cache: Dict[Tuple[str, str], List[PriceBand]] = {}
+    cost_missing: Dict[str, bool] = {}
+
+    for turn in turns:
+        model_name = turn.model or "<missing>"
+        by_model[model_name]["input"] += turn.input_tokens
+        by_model[model_name]["cached"] += turn.cached_input_tokens
+        by_model[model_name]["output"] += turn.output_tokens
+
+        if show_costs and model_info_map is not None:
+            cost = cost_for_turn(turn, model_info_map, cost_cache)
+            if cost is None and turn.model not in {None, ""}:
+                cost_missing[model_name] = True
+            elif cost is not None:
+                by_model_cost[model_name] += cost
+
+    if show_costs and model_info_map is not None:
+        return by_model, by_model_cost, cost_missing
+    return by_model, {}, {}
+
+
+def print_model_usage_summary(
+    turns: Sequence[Turn],
+    model_info_map: Optional[Dict[str, Dict[str, Any]]] = None,
+    show_costs: bool = False,
+) -> None:
+    by_model, by_model_cost, by_model_cost_missing = compute_model_usage(
+        turns,
+        model_info_map=model_info_map,
+        show_costs=show_costs,
+    )
+
+    print("Model token usage:")
+    if not by_model:
+        print("  no model metadata found")
+        return
+
+    total_input = 0
+    total_cached = 0
+    total_output = 0
+    total_cost = 0.0
+
+    for model_name in sorted(by_model):
+        usage = by_model[model_name]
+        input_tokens = usage["input"]
+        cached_tokens = usage["cached"]
+        output_tokens = usage["output"]
+        total_tokens = input_tokens + cached_tokens + output_tokens
+
+        total_input += input_tokens
+        total_cached += cached_tokens
+        total_output += output_tokens
+
+        line = f"  {model_name}: input={input_tokens} cached={cached_tokens} output={output_tokens} total={total_tokens}"
+        if show_costs and model_info_map is not None:
+            if by_model_cost_missing.get(model_name, False):
+                line += " cost=unavailable"
+            else:
+                cost = by_model_cost.get(model_name, 0.0)
+                line += f" cost=${cost:.6f}"
+                total_cost += cost
+
+        print(line)
+
+    if show_costs and model_info_map is not None:
+        print(
+            f"  TOTAL: input={total_input} cached={total_cached} output={total_output} total={total_input + total_cached + total_output} cost=${total_cost:.6f}"
+        )
+    else:
+        print(
+            f"  TOTAL: input={total_input} cached={total_cached} output={total_output} total={total_input + total_cached + total_output}"
+        )
 
 
 def parse_file_entry(base_day: date, filename: str, path: Path) -> Optional[ParsedEntry]:
@@ -242,6 +739,14 @@ def load_turns(directory: Path, _day_start: datetime, _day_end: datetime) -> Lis
                 log_ts = entry.ts
                 break
 
+        model = None
+        service_tier = None
+        input_tokens = 0
+        cached_input_tokens = 0
+        output_tokens = 0
+        if log_path is not None:
+            model, input_tokens, cached_input_tokens, output_tokens, service_tier = parse_metadata_from_log(log_path)
+
         turns.append(
             Turn(
                 directory_name=directory.name,
@@ -252,6 +757,11 @@ def load_turns(directory: Path, _day_start: datetime, _day_end: datetime) -> Lis
                 response_ts=response_ts,
                 log_path=log_path,
                 log_ts=log_ts,
+                model=model,
+                service_tier=service_tier,
+                input_tokens=input_tokens,
+                cached_input_tokens=cached_input_tokens,
+                output_tokens=output_tokens,
                 tools=parse_tool_names(request.path),
             )
         )
@@ -896,7 +1406,12 @@ def launch_gui(turns: Sequence[Turn], gaps: Sequence[GapAnnotation], day_start: 
     return app.exec()
 
 
-def print_debug(turns: Sequence[Turn], gaps: Sequence[GapAnnotation]) -> None:
+def print_debug(
+    turns: Sequence[Turn],
+    gaps: Sequence[GapAnnotation],
+    model_info_map: Optional[Dict[str, Dict[str, Any]]] = None,
+    show_costs: bool = False,
+) -> None:
     by_directory: Dict[str, List[Turn]] = defaultdict(list)
     by_optype: Dict[str, int] = defaultdict(int)
     for turn in turns:
@@ -913,10 +1428,33 @@ def print_debug(turns: Sequence[Turn], gaps: Sequence[GapAnnotation]) -> None:
                 "turns_by_optype": dict(sorted(by_optype.items())),
                 "inference_ms": calculate_inference_ms(turns),
                 "wall_ms": calculate_wall_ms(turns),
+                "show_costs": show_costs,
             },
             sort_keys=True,
         )
     )
+
+    cost_bands_cache: Dict[Tuple[str, str], List[PriceBand]] = {}
+    model_totals, model_costs, model_cost_missing = compute_model_usage(
+        turns,
+        model_info_map=model_info_map,
+        show_costs=show_costs,
+    )
+    for model_name in sorted(model_totals):
+        model_usage = model_totals[model_name]
+        payload = {
+            "type": "model_usage",
+            "model": model_name,
+            "input_tokens": model_usage["input"],
+            "cached_input_tokens": model_usage["cached"],
+            "output_tokens": model_usage["output"],
+        }
+        if show_costs and model_info_map is not None:
+            if model_cost_missing.get(model_name, False):
+                payload["estimated_cost"] = None
+            else:
+                payload["estimated_cost"] = model_costs.get(model_name, 0.0)
+        print(json.dumps(payload, sort_keys=True))
 
     for directory_name, directory_turns in sorted(by_directory.items(), key=lambda item: item[0]):
         directory_turns = sorted(directory_turns, key=lambda item: item.request_ts)
@@ -953,8 +1491,15 @@ def print_debug(turns: Sequence[Turn], gaps: Sequence[GapAnnotation]) -> None:
             "request_index": turn.request_index,
             "request_ts": turn.request_ts.isoformat(),
             "response_ts": turn.response_ts.isoformat(),
+            "model": turn.model,
+            "service_tier": turn.service_tier,
+            "input_tokens": turn.input_tokens,
+            "cached_input_tokens": turn.cached_input_tokens,
+            "output_tokens": turn.output_tokens,
             "tools": turn.tools,
         }
+        if show_costs and model_info_map is not None:
+            payload["estimated_cost"] = cost_for_turn(turn, model_info_map, cost_bands_cache)
         print(json.dumps(payload, sort_keys=True))
     for i, gap in enumerate(sorted(gaps, key=lambda item: (item.start, item.directory_name, item.from_request)), start=1):
         payload = {
@@ -979,6 +1524,10 @@ def main() -> int:
     target_day = parse_day(args.day)
     day_start = datetime.combine(target_day, parse_time(args.start))
 
+    model_info_map: Optional[Dict[str, Dict[str, Any]]] = None
+    if args.show_costs:
+        model_info_map = fetch_model_info(BROKK_PROXY_URL, "BROKK", proxy_brokk_api_key())
+
     history_root = Path(args.history).expanduser()
     if not history_root.exists():
         raise SystemExit(f"History path not found: {history_root}")
@@ -995,16 +1544,31 @@ def main() -> int:
     turns, gaps = load_data(history_root, day_start, day_end)
 
     if args.debug:
-        print_debug(turns, gaps)
+        print_debug(turns, gaps, model_info_map=model_info_map, show_costs=args.show_costs)
         print_timing_summary(turns)
+        print_model_usage_summary(
+            turns,
+            model_info_map=model_info_map,
+            show_costs=args.show_costs,
+        )
         return 0
 
     if not turns:
         print_timing_summary(turns)
+        print_model_usage_summary(
+            turns,
+            model_info_map=model_info_map,
+            show_costs=args.show_costs,
+        )
         print("No matching turns in selected window.")
         return 0
 
     print_timing_summary(turns)
+    print_model_usage_summary(
+        turns,
+        model_info_map=model_info_map,
+        show_costs=args.show_costs,
+    )
     return launch_gui(turns, gaps, day_start, day_end)
 
 
