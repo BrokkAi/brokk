@@ -244,14 +244,16 @@ public final class JobRunner {
         PLAN,
         ISSUE,
         ISSUE_DIAGNOSE,
-        ISSUE_WRITER
+        ISSUE_WRITER,
+        PR_CREATE
     }
 
     static SearchPrompts.Objective objectiveForMode(Mode mode) {
         return switch (mode) {
             case ASK, SEARCH, REVIEW -> SearchPrompts.Objective.ANSWER_ONLY;
             case LUTZ -> SearchPrompts.Objective.LUTZ;
-            case PLAN, ARCHITECT, CODE, ISSUE, ISSUE_DIAGNOSE, ISSUE_WRITER -> SearchPrompts.Objective.TASKS_ONLY;
+            case PLAN, ARCHITECT, CODE, ISSUE, ISSUE_DIAGNOSE, ISSUE_WRITER, PR_CREATE ->
+                SearchPrompts.Objective.TASKS_ONLY;
         };
     }
 
@@ -423,7 +425,7 @@ public final class JobRunner {
                                 yield plannerName.isBlank() ? "(unused)" : plannerName.trim();
                             }
                             case REVIEW -> service.nameOf(requireNonNull(reviewPlannerModel));
-                            case ISSUE_DIAGNOSE, ISSUE_WRITER -> "(unused)";
+                            case ISSUE_DIAGNOSE, ISSUE_WRITER, PR_CREATE -> "(unused)";
                         };
                 String codeModelNameForLog =
                         switch (mode) {
@@ -433,14 +435,14 @@ public final class JobRunner {
                             case PLAN -> "(default, ignored for PLAN)";
                             case CODE -> service.nameOf(requireNonNull(codeModeModel));
                             case REVIEW -> "(default, ignored for REVIEW)";
-                            case ISSUE_DIAGNOSE, ISSUE_WRITER -> "(unused)";
+                            case ISSUE_DIAGNOSE, ISSUE_WRITER, PR_CREATE -> "(unused)";
                         };
                 boolean usesDefaultCodeModel =
                         switch (mode) {
                             case ARCHITECT, LUTZ, ISSUE -> !hasCodeModelOverride;
                             case ASK, SEARCH, PLAN, REVIEW -> true;
                             case CODE -> !hasCodeModelOverride;
-                            case ISSUE_DIAGNOSE, ISSUE_WRITER -> true;
+                            case ISSUE_DIAGNOSE, ISSUE_WRITER, PR_CREATE -> true;
                         };
                 if (plannerModelNameForLog == null || plannerModelNameForLog.isBlank()) {
                     plannerModelNameForLog = (mode == Mode.CODE) ? "(unused)" : "(unknown)";
@@ -1099,6 +1101,91 @@ public final class JobRunner {
                                         } catch (IOException ioe) {
                                             logger.warn(
                                                     "Failed to append ISSUE_WRITER issue-created notification for job {}: {}",
+                                                    jobId,
+                                                    ioe.getMessage(),
+                                                    ioe);
+                                        }
+                                    }
+                                    case PR_CREATE -> {
+                                        String githubToken = spec.getGithubToken();
+                                        String repoOwner = spec.getRepoOwner();
+                                        String repoName = spec.getRepoName();
+
+                                        if (githubToken == null || githubToken.isBlank()) {
+                                            throw new IllegalArgumentException(
+                                                    "PR_CREATE requires github_token in tags");
+                                        }
+                                        if (repoOwner == null || repoOwner.isBlank()) {
+                                            throw new IllegalArgumentException("PR_CREATE requires repo_owner in tags");
+                                        }
+                                        if (repoName == null || repoName.isBlank()) {
+                                            throw new IllegalArgumentException("PR_CREATE requires repo_name in tags");
+                                        }
+
+                                        var gitRepo = (GitRepo) cm.getProject().getRepo();
+                                        String sourceBranch = spec.sourceBranch();
+                                        if (sourceBranch == null || sourceBranch.isBlank()) {
+                                            try {
+                                                sourceBranch = gitRepo.getCurrentBranch();
+                                            } catch (GitAPIException e) {
+                                                throw new IllegalStateException(
+                                                        "Failed to determine current branch: " + e.getMessage(), e);
+                                            }
+                                        }
+
+                                        String targetBranch = spec.targetBranch();
+                                        if (targetBranch == null || targetBranch.isBlank()) {
+                                            var auth = new GitHubAuth(repoOwner, repoName, null, githubToken);
+                                            targetBranch = auth.getDefaultBranch();
+                                        }
+
+                                        var wf = new ai.brokk.git.GitWorkflow(cm);
+                                        var pushState = wf.evaluatePushPull(sourceBranch);
+                                        if (pushState.canPush()
+                                                && !pushState
+                                                        .unpushedCommitIds()
+                                                        .isEmpty()) {
+                                            wf.push(sourceBranch, githubToken);
+                                        }
+
+                                        String title = spec.tags().get("pr_title");
+                                        String body = spec.tags().get("pr_body");
+
+                                        if (title == null || title.isBlank() || body == null || body.isBlank()) {
+                                            var io = console != null ? console : cm.getIo();
+                                            var suggestion =
+                                                    wf.suggestPullRequestDetails(sourceBranch, targetBranch, io);
+                                            if (title == null || title.isBlank()) title = suggestion.title();
+                                            if (body == null || body.isBlank()) body = suggestion.description();
+                                        }
+
+                                        if (title == null || title.isBlank()) {
+                                            throw new IllegalStateException("Failed to determine Pull Request title");
+                                        }
+
+                                        var prUri = wf.createPullRequest(
+                                                sourceBranch, targetBranch, title, body, githubToken);
+                                        String prUrl = prUri.toString();
+
+                                        try {
+                                            var prCreatedData = new LinkedHashMap<String, Object>();
+                                            prCreatedData.put("prUrl", prUrl);
+                                            prCreatedData.put("title", title);
+                                            prCreatedData.put("body", body);
+                                            prCreatedData.put("repoOwner", repoOwner);
+                                            prCreatedData.put("repoName", repoName);
+                                            prCreatedData.put("sourceBranch", sourceBranch);
+                                            prCreatedData.put("targetBranch", targetBranch);
+
+                                            store.appendEvent(jobId, JobEvent.of("PR_CREATED", prCreatedData));
+                                            store.appendEvent(
+                                                    jobId,
+                                                    JobEvent.of(
+                                                            "NOTIFICATION",
+                                                            "PR_CREATE: pull request created " + prUrl));
+                                        } catch (IOException ioe) {
+                                            logger.warn(
+                                                    "Failed to append PR_CREATE events for job {}: {}",
                                                     jobId,
                                                     ioe.getMessage(),
                                                     ioe);
