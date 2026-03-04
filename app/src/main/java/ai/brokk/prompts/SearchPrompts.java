@@ -252,7 +252,8 @@ public class SearchPrompts {
             boolean terminalTasks,
             boolean terminalWorkspace,
             boolean terminalCode,
-            boolean terminalIssue) {}
+            boolean terminalIssue,
+            boolean finalTurnOnly) {}
 
     private static final Template SEARCH_SYSTEM_TEMPLATE;
     private static final Template DIRECTIVE_TEMPLATE;
@@ -352,7 +353,7 @@ public class SearchPrompts {
                 {{taskInstructions}}
                 {{~/if}}
 
-                {{#if terminalTasks~}}
+                {{#unless finalTurnOnly~}}
                 Invariant: Before any final action, make reasonable efforts to first add the minimum sufficient, decision-relevant context
                 to the Workspace. If you cannot find relevant context, say so instead of guessing.
 
@@ -365,7 +366,7 @@ public class SearchPrompts {
                   - Summaries: when you only need API signatures/types/constants.
                   - Method sources: when you need implementation details for specific methods.
                   - Full sources: when you need complete implementation details.
-                {{~/if}}
+                {{/unless~}}
                 </search-objective>
 
                 {{#if isEmptyProject~}}
@@ -386,6 +387,7 @@ public class SearchPrompts {
                 {{~/if}}
 
                 <tool-instructions>
+                {{#unless finalTurnOnly~}}
                 Decide the next tool action(s) to make progress toward the objective in service of the goal.
 
                 {{#if (eq turnsLeftAfterThisTurn 1)~}}
@@ -406,8 +408,13 @@ public class SearchPrompts {
                     convert tests whose full source you don't need to summaries by dropping the file and
                     adding the summary. In general, you should avoid dropping test summaries.
                 {{~/if}}
+                {{/unless}}
 
+                {{#if finalTurnOnly~}}
+                This is the final turn. You must call one of the following tools:
+                {{else~}}
                 Finalization options:
+                {{/if}}
                 {{#if isIssueDiagnosis}}
                 - Use describeIssue(String title, String body) to finalize. abortSearch(explanation) is the only other allowed final tool.
                 {{else}}
@@ -431,18 +438,22 @@ public class SearchPrompts {
                 - If we cannot find the answer or the request is out of scope for this codebase, use abortSearch with a clear explanation.
                 {{/if}}
 
+                {{#unless finalTurnOnly~}}
                 You CAN call multiple non-terminal tools in a single turn, and you SHOULD whenever you can
                 usefully do so.
 
                 Terminal actions ({{#if terminalAnswer}}answer, {{/if}}{{#if terminalTasks}}createOrReplaceTaskList, {{/if}}{{#if terminalWorkspace}}workspaceComplete, {{/if}}{{#if terminalCode}}callCodeAgent, {{/if}}{{#if terminalIssue}}describeIssue, {{/if}}abortSearch)
                 must be the ONLY tool in a turn, other than final cleanup via dropWorkspaceFragments.
                 If you include a terminal together with other tools, the terminal will be ignored for this turn.
+                {{~/unless}}
 
                 Remember: it is NOT your objective to write code.
 
+                {{#unless finalTurnOnly~}}
                 {{#if warning~}}
                 {{warning}}
                 {{~/if}}
+                {{~/unless}}
                 </tool-instructions>
 
                 {{#unless isIssueDiagnosis~}}
@@ -578,7 +589,8 @@ public class SearchPrompts {
                 terminals.contains(Terminal.TASK_LIST),
                 terminals.contains(Terminal.WORKSPACE),
                 terminals.contains(Terminal.CODE),
-                terminals.contains(Terminal.DESCRIBE_ISSUE));
+                terminals.contains(Terminal.DESCRIBE_ISSUE),
+                turnsLeftAfterThisTurn == 0);
 
         String directive;
         try {
