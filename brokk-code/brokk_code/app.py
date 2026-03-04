@@ -1928,8 +1928,6 @@ class BrokkApp(App):
             {"command": "/mode", "description": "Open mode selection menu"},
             {"command": "/model", "description": "Change the planner LLM model"},
             {"command": "/model-code", "description": "Change the code LLM model"},
-            {"command": "/reasoning", "description": "Set reasoning level for planner"},
-            {"command": "/reasoning-code", "description": "Set reasoning level for code model"},
             {"command": "/autocommit", "description": "Toggle auto-commit for submitted jobs"},
             {"command": "/settings", "description": "Open settings"},
             {"command": "/history", "description": "Show recent prompt history"},
@@ -1973,36 +1971,6 @@ class BrokkApp(App):
                 self._update_statusline()
             else:
                 self.run_worker(self.action_select_code_model_and_reasoning())
-        elif base == "/reasoning":
-            if len(parts) > 1:
-                self.reasoning_level = parts[1]
-                # Persist planner reasoning preference
-                try:
-                    self.settings.last_reasoning_level = self.reasoning_level
-                    self.settings.save()
-                except Exception:
-                    logger.exception("Failed to persist last_reasoning_level setting")
-                chat.add_system_message_markup(
-                    f"Reasoning level changed to: [bold]{self.reasoning_level}[/]"
-                )
-                self._update_statusline()
-            else:
-                self.action_select_reasoning(target="planner")
-        elif base == "/reasoning-code":
-            if len(parts) > 1:
-                self.reasoning_level_code = parts[1]
-                # Persist code reasoning preference
-                try:
-                    self.settings.last_code_reasoning_level = self.reasoning_level_code
-                    self.settings.save()
-                except Exception:
-                    logger.exception("Failed to persist last_code_reasoning_level setting")
-                chat.add_system_message_markup(
-                    f"Code reasoning level changed to: [bold]{self.reasoning_level_code}[/]"
-                )
-                self._update_statusline()
-            else:
-                self.action_select_reasoning(target="code")
         elif base == "/autocommit":
             if len(parts) == 1:
                 state = "ON" if self.auto_commit else "OFF"
@@ -2256,17 +2224,6 @@ class BrokkApp(App):
         except Exception as e:
             if chat:
                 chat.add_system_message(f"Failed to fetch models: {e}", level="ERROR")
-
-    def action_select_reasoning(self, target: str = "planner") -> None:
-        chat = self._maybe_chat()
-        if chat:
-            self._reasoning_target = target
-            levels = ["disable", "low", "medium", "high"]
-            current_val = self.reasoning_level_code if target == "code" else self.reasoning_level
-            current = str(current_val or "low").strip() or "low"
-            if current not in levels:
-                current = "low"
-            chat.open_reasoning_menu(levels, current)
 
     def action_select_mode(self) -> None:
         chat = self._maybe_chat()

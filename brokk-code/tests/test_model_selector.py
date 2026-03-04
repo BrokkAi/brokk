@@ -89,7 +89,6 @@ def test_help_command_no_shortcuts_for_model_reasoning():
     assert "Shortcut:" not in help_text
     # Verify the commands themselves are still documented
     assert "/model" in help_text
-    assert "/reasoning" in help_text
 
 
 def test_help_output_matches_command_catalog():
