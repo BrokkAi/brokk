@@ -55,8 +55,6 @@ public final class ModelProperties {
     private static final ModelConfig flash3 = new ModelConfig(FLASH_3, ReasoningLevel.DISABLE);
     private static final ModelConfig g31p = new ModelConfig(GEMINI_3_1_PRO, ReasoningLevel.DISABLE);
     private static final ModelConfig flash31liteHigh = new ModelConfig(GEMINI_3_1_FLASH_LITE, ReasoningLevel.HIGH);
-    private static final ModelConfig flash31liteMinimal =
-            new ModelConfig(GEMINI_3_1_FLASH_LITE, ReasoningLevel.DISABLE);
 
     private static final ModelConfig gcf1 = new ModelConfig(GCF_1);
 
