@@ -1681,6 +1681,14 @@ class BrokkApp(App):
             chat.set_response_pending()
 
         try:
+            # PR_CREATE requires github configuration tags in the executor.
+            # We attempt to retrieve these from the environment if not explicitly stored in settings.
+            tags = {
+                "github_token": os.environ.get("GITHUB_TOKEN", ""),
+                "repo_owner": os.environ.get("BROKK_REPO_OWNER", ""),
+                "repo_name": os.environ.get("BROKK_REPO_NAME", ""),
+            }
+
             task_input = f"Create Pull Request for branch {self.current_branch}"
             self.current_job_id = await self.executor.submit_job(
                 task_input=task_input,
@@ -1690,6 +1698,7 @@ class BrokkApp(App):
                 reasoning_level_code=self.reasoning_level_code,
                 mode="PR_CREATE",
                 auto_commit=self.auto_commit,
+                tags=tags,
             )
             async for event in self.executor.stream_events(self.current_job_id):
                 self._handle_event(event)
