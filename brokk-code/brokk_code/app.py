@@ -2639,7 +2639,12 @@ class BrokkApp(App):
             # detect the mismatch between the new executor.session_id and the old ID.
 
             await self.executor.switch_session(session_id)
-            save_last_session_id(self.executor.workspace_dir, session_id)
+            try:
+                save_last_session_id(self.executor.workspace_dir, session_id)
+            except Exception:
+                logger.warning(
+                    "Failed to persist last session ID for session %s", session_id, exc_info=True
+                )
 
             # Clear UI and history
             chat._message_history.clear()
