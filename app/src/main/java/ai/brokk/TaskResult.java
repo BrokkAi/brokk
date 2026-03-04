@@ -6,7 +6,6 @@ import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragments;
 import dev.langchain4j.exception.ContextTooLargeException;
 import dev.langchain4j.exception.OverthinkingException;
-import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import org.jetbrains.annotations.Nullable;
@@ -18,16 +17,12 @@ import org.jetbrains.annotations.Nullable;
  */
 public record TaskResult(Context context, StopDetails stopDetails) {
 
-    public static TaskResult humanResult(String actionDescription, Context resultingContext, StopReason simpleReason) {
+    public static TaskResult from(Context resultingContext, StopReason simpleReason) {
         return new TaskResult(resultingContext, new StopDetails(simpleReason));
     }
 
     public TaskResult withContext(Context ctx) {
         return new TaskResult(ctx, stopDetails);
-    }
-
-    public TaskResult withHistory(List<TaskEntry> taskHistory) {
-        return new TaskResult(context.withHistory(taskHistory), stopDetails);
     }
 
     public @Nullable TaskMeta meta() {
