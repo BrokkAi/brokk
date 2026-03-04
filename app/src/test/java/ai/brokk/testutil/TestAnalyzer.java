@@ -53,6 +53,11 @@ public class TestAnalyzer implements IAnalyzer, TypeHierarchyProvider, ImportAna
     }
 
     @Override
+    public List<Range> rangesOf(CodeUnit codeUnit) {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
     public Set<Language> languages() {
         throw new UnsupportedOperationException();
     }
