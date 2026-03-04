@@ -10,10 +10,10 @@ import ai.brokk.IContextManager;
 import ai.brokk.Llm;
 import ai.brokk.LlmOutputMeta;
 import ai.brokk.MutedConsoleIO;
+import ai.brokk.TaskEntry;
 import ai.brokk.TaskResult;
 import ai.brokk.TaskResult.StopReason;
 import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextDelta;
 import ai.brokk.context.ContextFragment;
@@ -56,6 +56,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -145,6 +146,9 @@ public class ArchitectAgent {
     private boolean deferBuildForInitialCodeAgentCall = false;
 
     @Nullable
+    private CompletableFuture<List<TaskEntry>> compressedHistoryFuture;
+
+    @Nullable
     private String verifyCommand;
 
     private static final ThreadLocal<SearchAgentOutput> threadlocalSearchResult = new ThreadLocal<>();
@@ -168,7 +172,9 @@ public class ArchitectAgent {
             StreamingChatModel codeModel,
             String goal,
             ContextManager.TaskScope scope) {
-        this(contextManager, planningModel, codeModel, goal, scope, contextManager.liveContext());
+        this(contextManager, planningModel, codeModel, goal, scope, contextManager.liveContext(), (CompletableFuture<
+                        List<TaskEntry>>)
+                null);
     }
 
     /**
@@ -182,7 +188,26 @@ public class ArchitectAgent {
             String goal,
             ContextManager.TaskScope scope,
             Context initialContext) {
-        this(contextManager, planningModel, codeModel, goal, scope, initialContext, contextManager.getIo());
+        this(contextManager, planningModel, codeModel, goal, scope, initialContext, null, contextManager.getIo());
+    }
+
+    public ArchitectAgent(
+            IContextManager contextManager,
+            StreamingChatModel planningModel,
+            StreamingChatModel codeModel,
+            String goal,
+            ContextManager.TaskScope scope,
+            Context initialContext,
+            @Nullable CompletableFuture<List<TaskEntry>> compressedHistoryFuture) {
+        this(
+                contextManager,
+                planningModel,
+                codeModel,
+                goal,
+                scope,
+                initialContext,
+                compressedHistoryFuture,
+                contextManager.getIo());
     }
 
     /**
@@ -196,6 +221,18 @@ public class ArchitectAgent {
             ContextManager.TaskScope scope,
             Context initialContext,
             IConsoleIO io) {
+        this(contextManager, planningModel, codeModel, goal, scope, initialContext, null, io);
+    }
+
+    public ArchitectAgent(
+            IContextManager contextManager,
+            StreamingChatModel planningModel,
+            StreamingChatModel codeModel,
+            String goal,
+            ContextManager.TaskScope scope,
+            Context initialContext,
+            @Nullable CompletableFuture<List<TaskEntry>> compressedHistoryFuture,
+            IConsoleIO io) {
         this.cm = contextManager;
         this.planningModel = planningModel;
         this.codeModel = codeModel;
@@ -203,6 +240,7 @@ public class ArchitectAgent {
         this.io = io;
         this.scope = scope;
         this.context = initialContext;
+        this.compressedHistoryFuture = compressedHistoryFuture;
         this.verifyCommand = null;
     }
 
@@ -266,14 +304,12 @@ public class ArchitectAgent {
 
         // Record planning history before invoking CodeAgent
         var initialContext = context;
-        var contextFuture = LoggingFuture.runVirtual(() -> {
-            try {
-                context = cm.compressHistory(context);
-                addPlanningToHistory();
-            } catch (InterruptedException e) {
-                throw new AssertionError();
-            }
-        });
+        // no-op if we haven't consumed compressedHistoryFuture yet -- there is nothing to compress
+        // except what it's already compressing
+        var historyFuture = compressedHistoryFuture == null
+                ? cm.compressHistoryAsync(context)
+                : CompletableFuture.completedFuture(context.getTaskHistory());
+        addPlanningToHistory();
 
         io.llmOutput("**Code Agent** engaged:\n" + instructions, ChatMessageType.CUSTOM, LlmOutputMeta.newMessage());
         var agent = new CodeAgent(cm, codeModel);
@@ -285,12 +321,10 @@ public class ArchitectAgent {
         var stopDetails = result.stopDetails();
         var reason = stopDetails.reason();
 
-        // wait for the history compression that we kicked off earlier since it updates this.context
-        contextFuture.join();
         // Update architect context with the CodeAgent's fragments, preserving the Architect history
         var codeContext = result.context();
         context = codeContext
-                .withHistory(context.getTaskHistory())
+                .withTaskHistory(historyFuture.join())
                 .addHistoryEntry(codeContext.getTaskHistory().getLast());
         scope.append(codeContext);
         var changedFragments =
@@ -671,6 +705,11 @@ public class ArchitectAgent {
             var errorMessage = "Fatal error executing initial Code Agent: %s".formatted(e.getMessage());
             io.showNotification(IConsoleIO.NotificationRole.INFO, errorMessage);
             return resultWithMessages(fatalReason);
+        }
+
+        if (compressedHistoryFuture != null) {
+            context = IContextManager.mergeCompressedHistory(context, compressedHistoryFuture.join());
+            compressedHistoryFuture = null;
         }
 
         if (codeAgentJustSucceeded) {
