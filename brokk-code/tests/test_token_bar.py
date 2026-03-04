@@ -136,8 +136,11 @@ def test_render_percentage_remaining():
     bar._test_size = Size(80, 1)
 
     # 6400 / 200,000 used = 3.2% used = 96.8% remaining
-    bar.update_tokens(used_tokens=6400, max_tokens=200_000)
+    # Verify that session_cost does not appear in the rendered text
+    bar.update_tokens(used_tokens=6400, max_tokens=200_000, session_cost=0.50)
     assert "96.8% context remaining" in bar._rendered_text.plain
+    assert "$" not in bar._rendered_text.plain
+    assert "0.50" not in bar._rendered_text.plain
 
     # Test clamping: used > max
     bar.update_tokens(used_tokens=250_000, max_tokens=200_000)
@@ -153,8 +156,11 @@ def test_render_absolute_fallback():
     bar._test_size = Size(80, 1)
 
     # max_tokens <= 0 should show absolute count
-    bar.update_tokens(used_tokens=5000, max_tokens=0)
+    # Verify that session_cost does not appear in the rendered text
+    bar.update_tokens(used_tokens=5000, max_tokens=0, session_cost=1.23)
     assert "5k tokens" in bar._rendered_text.plain
+    assert "$" not in bar._rendered_text.plain
+    assert "1.23" not in bar._rendered_text.plain
 
 
 def test_get_token_bar_svg_contains_svg_tag():

@@ -159,6 +159,11 @@ export class BrokkPanelProvider implements vscode.WebviewViewProvider {
     }, delayMs);
   }
 
+  /** Cheap fingerprint — avoids serialising large objects just for equality. */
+  private fingerprint(...parts: unknown[]): string {
+    return parts.map(p => JSON.stringify(p)).join('|');
+  }
+
   private async doRefreshContext() {
     if (!this.client) return;
     if (this.contextRefreshInFlight) {
@@ -168,10 +173,10 @@ export class BrokkPanelProvider implements vscode.WebviewViewProvider {
     this.contextRefreshInFlight = true;
     try {
       const ctx = await this.client.getContext();
-      const json = JSON.stringify(ctx);
-      if (json !== this.lastContextJson) {
+      const fp = this.fingerprint(ctx.usedTokens, ctx.fragments.length, ctx.fragments.map(f => `${f.id}:${f.tokens}`));
+      if (fp !== this.lastContextJson) {
         this.log?.(`[Context] refresh: ${ctx.fragments.length} fragments, ${ctx.usedTokens} tokens`);
-        this.lastContextJson = json;
+        this.lastContextJson = fp;
         this.view?.webview.postMessage({ type: "contextUpdate", data: ctx });
       }
     } catch (err: unknown) {
@@ -243,10 +248,10 @@ export class BrokkPanelProvider implements vscode.WebviewViewProvider {
         this.client.getCurrentSession(),
         this.client.getActivity(),
       ]);
-      const json = JSON.stringify({ session, activity });
-      if (json !== this.lastActivityJson) {
+      const fp = this.fingerprint(session?.id, activity.groups.length, activity.groups.map(g => `${g.key}:${g.entries.length}`));
+      if (fp !== this.lastActivityJson) {
         this.log?.(`[Activity] refresh: ${activity.groups.length} groups`);
-        this.lastActivityJson = json;
+        this.lastActivityJson = fp;
         this.view?.webview.postMessage({ type: "activityUpdate", session, activity });
       }
     } catch (err: unknown) {

@@ -49,9 +49,11 @@ public class WorkspaceToolsTest {
         Files.createDirectories(tempDir.resolve("src"));
         Files.writeString(tempDir.resolve("src/range.txt"), "L1\nL2\nL3\nL4\nL5\n");
 
+        String filePath = Path.of("src", "range.txt").toString();
+
         var wst = new WorkspaceTools(new Context(cm));
-        String result = wst.addLineRangeToWorkspace("src/range.txt", 2, 4);
-        assertTrue(result.contains("Added: src/range.txt (lines 2-4)"));
+        String result = wst.addLineRangeToWorkspace(filePath, 2, 4);
+        assertTrue(result.contains("Added: %s (lines 2-4)".formatted(filePath)));
 
         var ctx = wst.getContext();
         var fragment = ctx.allFragments()
@@ -61,7 +63,7 @@ public class WorkspaceToolsTest {
 
         assertTrue(fragment instanceof ContextFragments.LineRangeFragment);
         assertTrue(ctx.getEditableFragments().anyMatch(f -> f.id().equals(fragment.id())));
-        assertTrue(fragment.text().join().contains("File: src/range.txt (lines 2-4)"));
+        assertTrue(fragment.text().join().contains("File: %s (lines 2-4)".formatted(filePath)));
         assertTrue(fragment.text().join().contains("2: L2"));
         assertTrue(fragment.text().join().contains("4: L4"));
     }
@@ -69,10 +71,11 @@ public class WorkspaceToolsTest {
     @Test
     void addLineRangeToWorkspace_clampsToActualFileEnd() throws Exception {
         var cm = new TestContextManager(tempDir, new TestConsoleIO());
-        Files.writeString(tempDir.resolve("clamp.txt"), "1\n2\n3\n");
+        String filePath = Path.of("clamp.txt").toString();
+        Files.writeString(tempDir.resolve(filePath), "1\n2\n3\n");
 
         var wst = new WorkspaceTools(new Context(cm));
-        wst.addLineRangeToWorkspace("clamp.txt", 1, 200);
+        wst.addLineRangeToWorkspace(filePath, 1, 200);
 
         var fragment = wst.getContext()
                 .allFragments()
@@ -81,20 +84,21 @@ public class WorkspaceToolsTest {
                 .orElseThrow();
 
         String text = fragment.text().join();
-        assertTrue(text.contains("File: clamp.txt (lines 1-3)"));
+        assertTrue(text.contains("File: %s (lines 1-3)".formatted(filePath)));
         assertTrue(text.contains("3: 3"));
     }
 
     @Test
     void addLineRangeToWorkspace_capsRangeAt200Lines() throws Exception {
         var cm = new TestContextManager(tempDir, new TestConsoleIO());
+        String filePath = Path.of("cap.txt").toString();
         String content = java.util.stream.IntStream.rangeClosed(1, 250)
                 .mapToObj(i -> "L" + i)
                 .collect(java.util.stream.Collectors.joining("\n"));
-        Files.writeString(tempDir.resolve("cap.txt"), content);
+        Files.writeString(tempDir.resolve(filePath), content);
 
         var wst = new WorkspaceTools(new Context(cm));
-        wst.addLineRangeToWorkspace("cap.txt", 1, 500);
+        wst.addLineRangeToWorkspace(filePath, 1, 500);
 
         var fragment = wst.getContext()
                 .allFragments()
@@ -103,7 +107,7 @@ public class WorkspaceToolsTest {
                 .orElseThrow();
 
         String text = fragment.text().join();
-        assertTrue(text.contains("File: cap.txt (lines 1-200)"));
+        assertTrue(text.contains("File: %s (lines 1-200)".formatted(filePath)));
         assertTrue(text.contains("200: L200"));
         assertTrue(!text.contains("201: L201"));
     }
@@ -111,13 +115,14 @@ public class WorkspaceToolsTest {
     @Test
     void addLineRangeToWorkspace_returnsAlreadyPresentForDuplicateRange() throws Exception {
         var cm = new TestContextManager(tempDir, new TestConsoleIO());
+        String filePath = Path.of("dup.txt").toString();
         Files.writeString(tempDir.resolve("dup.txt"), "A\nB\nC\n");
 
         var wst = new WorkspaceTools(new Context(cm));
-        wst.addLineRangeToWorkspace("dup.txt", 1, 2);
-        String second = wst.addLineRangeToWorkspace("dup.txt", 1, 2);
+        wst.addLineRangeToWorkspace(filePath, 1, 2);
+        String second = wst.addLineRangeToWorkspace(filePath, 1, 2);
 
-        assertTrue(second.contains("Already present (no-op): dup.txt:1-2"));
+        assertTrue(second.contains("Already present (no-op): %s:1-2".formatted(filePath)));
         long lineRangeCount = wst.getContext()
                 .allFragments()
                 .filter(f -> f.getType() == ContextFragment.FragmentType.LINE_RANGE)

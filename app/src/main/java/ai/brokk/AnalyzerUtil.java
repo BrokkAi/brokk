@@ -69,12 +69,12 @@ public class AnalyzerUtil {
     }
 
     public static Set<CodeUnit> testFilesToCodeUnits(IAnalyzer analyzer, Collection<ProjectFile> files) {
-        var classUnitsInTestFiles = files.stream()
-                .flatMap(testFile -> analyzer.getTopLevelDeclarations(testFile).stream())
-                .filter(CodeUnit::isClass)
+        var unitsInTestFiles = files.stream()
+                .flatMap(testFile -> analyzer.getDeclarations(testFile).stream())
+                .filter(cu -> cu.isClass() || cu.isFunction())
                 .collect(Collectors.toSet());
 
-        return AnalyzerUtil.coalesceInnerClasses(classUnitsInTestFiles);
+        return AnalyzerUtil.coalesceInnerClasses(unitsInTestFiles);
     }
 
     private record StackEntry(String method, int depth) {}

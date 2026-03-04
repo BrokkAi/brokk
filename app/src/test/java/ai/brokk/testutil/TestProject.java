@@ -25,7 +25,7 @@ import org.jetbrains.annotations.Nullable;
 /** Lightweight IProject implementation for unit-testing Tree-sitter analyzers. */
 public class TestProject implements IProject {
     private final Path root;
-    private final Language language;
+    private Language language = Languages.NONE;
 
     private long runCommandTimeoutSeconds = Environment.DEFAULT_TIMEOUT.toSeconds();
     private long testCommandTimeoutSeconds = Environment.DEFAULT_TIMEOUT.toSeconds();
@@ -169,14 +169,28 @@ public class TestProject implements IProject {
         return new TestProject(testDir.toAbsolutePath(), lang);
     }
 
+    private Set<Language> analyzerLanguages = Set.of();
+
     @Override
     public Set<Language> getAnalyzerLanguages() {
-        return Set.of(language);
+        return analyzerLanguages.isEmpty() ? Set.of(language) : analyzerLanguages;
     }
 
     @Override
+    public void setAnalyzerLanguages(Set<Language> languages) {
+        this.analyzerLanguages = Set.copyOf(languages);
+    }
+
+    private Language buildLanguage = Languages.NONE;
+
+    @Override
     public Language getBuildLanguage() {
-        return language;
+        return buildLanguage;
+    }
+
+    @Override
+    public void setBuildLanguage(@Nullable Language language) {
+        this.buildLanguage = language != null ? language : Languages.NONE;
     }
 
     @Override

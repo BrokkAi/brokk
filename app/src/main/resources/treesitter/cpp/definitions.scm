@@ -29,8 +29,6 @@
   name: (identifier) @enumerator.name) @field.definition
 
 ; Global function definitions (non-method functions)
-; Capture the inner declarator generically so destructors and scoped out-of-class definitions
-; (which may use field_identifier or more complex declarator shapes) are captured as well.
 (function_definition
   declarator: (function_declarator
     declarator: (_) @function.name) @function.declarator) @function.definition
@@ -88,6 +86,3 @@
 
 ; Access specifiers
 (access_specifier) @access.specifier
-
-; Include directives (imports)
-(preproc_include) @import.declaration

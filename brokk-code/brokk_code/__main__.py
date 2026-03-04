@@ -15,7 +15,7 @@ from typing import Any, Iterator
 from brokk_code.executor import (
     BUNDLED_EXECUTOR_VERSION,
     ExecutorError,
-    install_jbang,
+    ensure_jbang_ready,
     resolve_jbang_binary,
 )
 from brokk_code.intellij_config import configure_intellij_acp_settings
@@ -64,14 +64,6 @@ def _validate_github_params(
             file=sys.stderr,
         )
         sys.exit(1)
-
-
-def _resolve_jbang_for_install() -> str:
-    """Ensure JBang is installed for install-time prefetching."""
-    jbang_path = resolve_jbang_binary()
-    if jbang_path:
-        return jbang_path
-    return install_jbang()
 
 
 def _build_executor_prefetch_command(
@@ -733,7 +725,7 @@ def main():
         messages: list[str] = []
         prefetch_commands: list[tuple[str, list[str]]] = []
         try:
-            jbang_binary = resolve_jbang_binary() if args.verbose else _resolve_jbang_for_install()
+            jbang_binary = resolve_jbang_binary() if args.verbose else ensure_jbang_ready()
             if args.verbose and not jbang_binary:
                 jbang_binary = "jbang"
             if args.target == "zed":

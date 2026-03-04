@@ -22,10 +22,10 @@
 ; The TreeSitterAnalyzer will determine the parent class/interface/trait.
 (method_declaration
   name: (name) @function.name
-) @function.definition
+  ) @function.definition
 
 ; Test markers (non-definition captures)
-; Filtering (e.g., regex matching for "test" prefix or "@test" tag) 
+; Filtering (e.g., regex matching for "test" prefix or "@test" tag)
 ; is performed in PhpAnalyzer.containsTestMarkers().
 (function_definition
   name: (name) @test_marker)
@@ -42,30 +42,30 @@
 ; @field.name is the 'name' node inside 'variable_name' which is a field of 'property_element'.
 (class_declaration
   body: (declaration_list
-    (property_declaration
-      (property_element
-        name: (variable_name (name) @field.name)) ; Capture the innermost 'name' for the simple name
-    ) @field.definition
+          (property_declaration
+            (property_element
+              name: (variable_name (name) @field.name)) ; Capture the innermost 'name' for the simple name
+            ) @field.definition
+          )
   )
-)
 
 ; Class constant
 ; @field.definition is the const_declaration node within a class.
 ; @field.name is the 'name' node inside 'const_element'.
 (class_declaration
   body: (declaration_list
-    (const_declaration
-      (const_element (name) @field.name) ; Capture the 'name' child of const_element
-    ) @field.definition
+          (const_declaration
+            (const_element (name) @field.name) ; Capture the 'name' child of const_element
+            ) @field.definition
+          )
   )
-)
 
 ; Top-level constant
 ; @field.definition is the const_declaration node.
 ; @field.name is the 'name' node inside 'const_element'.
 (const_declaration
   (const_element (name) @field.name)
-) @field.definition ; Correctly associate @field.definition with const_declaration
+  ) @field.definition ; Correctly associate @field.definition with const_declaration
 
 ; Attributes (PHP 8+)
 ; Captures attribute_group that might precede class, method, or property.
@@ -75,6 +75,3 @@
 ; correct subsequent declaration. For now, this just captures them.
 ; The TreeSitterAnalyzer's decorator handling might pick these up if they
 ; are siblings before the actual definition node.
-
-; TODO: Add captures for use statements if needed for import analysis.
-; (use_declaration (use_clause (name_identifier) @import.name))

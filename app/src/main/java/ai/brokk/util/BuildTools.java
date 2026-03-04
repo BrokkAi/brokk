@@ -1,7 +1,5 @@
 package ai.brokk.util;
 
-import static ai.brokk.project.FileFilteringService.toUnixPath;
-
 import ai.brokk.AnalyzerUtil;
 import ai.brokk.ContextManager;
 import ai.brokk.IContextManager;
@@ -16,8 +14,6 @@ import ai.brokk.project.IProject;
 import com.github.mustachejava.DefaultMustacheFactory;
 import com.github.mustachejava.Mustache;
 import com.github.mustachejava.MustacheFactory;
-import com.github.mustachejava.util.DecoratedCollection;
-import com.google.common.base.Splitter;
 import dev.langchain4j.data.message.ChatMessageType;
 import java.io.IOException;
 import java.io.StringReader;
@@ -34,10 +30,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
@@ -141,107 +135,51 @@ public class BuildTools {
             return details.buildLintCommand();
         }
 
-        boolean isFilesBased = testSomeTemplate.contains("{{#files}}");
-        boolean isFqBased = testSomeTemplate.contains("{{#fqclasses}}");
-        boolean isClassesBased = testSomeTemplate.contains("{{#classes}}") || isFqBased;
-        boolean isModulesBased = testSomeTemplate.contains("{{#modules}}");
-        boolean isPackagesBased = testSomeTemplate.contains("{{#packages}}");
-
-        if (!isFilesBased && !isClassesBased && !isModulesBased && !isPackagesBased) {
-            return testSomeTemplate;
-        }
-
         final Path projectRoot = cm.getProject().getRoot();
         String pythonVersion =
                 pythonVersionOverride != null ? pythonVersionOverride : getPythonVersionForProject(projectRoot);
 
-        List<String> targetItems;
-
         IAnalyzer analyzer = cm.getAnalyzer();
+        Map<String, Object> context = new HashMap<>();
+        context.put("pyver", pythonVersion == null ? "" : pythonVersion);
 
-        if (isModulesBased) {
-            Path anchor = detectModuleAnchor(projectRoot, details).orElse(null);
-            targetItems = workspaceTestFiles.stream()
-                    .map(pf -> toPythonModuleLabel(projectRoot, anchor, Path.of(pf.toString())))
-                    .filter(s -> !s.isBlank())
-                    .distinct()
-                    .sorted()
-                    .toList();
+        // Always calculate all potential lists to support mixed templates
+        // 1. Packages
+        List<String> packages = analyzer.getTestModules(workspaceTestFiles);
+        context.put("packages", MustacheTemplates.toStringElementList(packages));
 
-            // Fallback to analyzer modules if anchor-based detection yields nothing
-            if (targetItems.isEmpty() && !analyzer.isEmpty()) {
-                targetItems = analyzer.getTestModules(workspaceTestFiles);
-            }
+        // 2. Files
+        context.put(
+                "files",
+                MustacheTemplates.toStringElementList(
+                        workspaceTestFiles.stream().map(ProjectFile::toString).toList()));
 
-            if (!targetItems.isEmpty()) {
-                return interpolateMustacheTemplate(testSomeTemplate, targetItems, "modules", pythonVersion);
-            }
+        // 3. Classes
+        List<String> fqClasses = List.of();
+        List<String> classes = List.of();
+        if (!analyzer.isEmpty()) {
+            var codeUnits = AnalyzerUtil.testFilesToCodeUnits(analyzer, workspaceTestFiles);
+            fqClasses = codeUnits.stream().map(CodeUnit::fqName).sorted().toList();
+            classes = codeUnits.stream().map(CodeUnit::identifier).sorted().toList();
         }
+        context.put("fqclasses", MustacheTemplates.toStringElementList(fqClasses));
+        context.put("classes", MustacheTemplates.toStringElementList(classes));
 
-        if (isPackagesBased) {
-            targetItems = analyzer.getTestModules(workspaceTestFiles);
-            if (!targetItems.isEmpty()) {
-                return interpolateMustacheTemplate(testSomeTemplate, targetItems, "packages", pythonVersion);
-            }
-        }
+        // Perform multi-variable interpolation
+        MustacheFactory mf = new DefaultMustacheFactory();
+        Mustache mustache = mf.compile(new StringReader(testSomeTemplate), "dynamic_template");
 
-        if (isFilesBased) {
-            targetItems = workspaceTestFiles.stream().map(ProjectFile::toString).toList();
-            return interpolateMustacheTemplate(testSomeTemplate, targetItems, "files", pythonVersion);
-        }
+        StringWriter writer = new StringWriter();
+        mustache.execute(writer, context);
+        String result = writer.toString();
 
-        if (analyzer.isEmpty()) {
+        // If the result is blank, or it is identical to a template that contains mustache tags,
+        // it means no sections matched or no targets were found; fall back to build/lint command.
+        if (result.isBlank() || (testSomeTemplate.contains("{{") && result.equals(testSomeTemplate))) {
             return details.buildLintCommand();
         }
 
-        var codeUnits = AnalyzerUtil.testFilesToCodeUnits(analyzer, workspaceTestFiles);
-        if (isFqBased) {
-            targetItems = codeUnits.stream().map(CodeUnit::fqName).sorted().toList();
-            if (!targetItems.isEmpty()) {
-                return interpolateMustacheTemplate(testSomeTemplate, targetItems, "fqclasses", pythonVersion);
-            }
-        } else if (isClassesBased) {
-            targetItems = codeUnits.stream().map(CodeUnit::identifier).sorted().toList();
-            if (!targetItems.isEmpty()) {
-                return interpolateMustacheTemplate(testSomeTemplate, targetItems, "classes", pythonVersion);
-            }
-        }
-
-        return details.buildLintCommand();
-    }
-
-    private static Optional<Path> detectModuleAnchor(Path projectRoot, BuildDetails details) {
-        String testAll = details.testAllCommand();
-        String testSome = details.testSomeCommand();
-
-        Optional<Path> fromRunner = extractRunnerAnchorFromCommands(projectRoot, List.of(testAll, testSome));
-        if (fromRunner.isPresent()) return fromRunner;
-
-        Path tests = projectRoot.resolve("tests");
-        if (Files.isDirectory(tests)) return Optional.of(tests);
-
-        return Optional.empty();
-    }
-
-    private static Optional<Path> extractRunnerAnchorFromCommands(Path projectRoot, List<String> commands) {
-        for (String cmd : commands) {
-            if (cmd.isBlank()) continue;
-            Iterable<String> tokens = Splitter.on(Pattern.compile("\\s+")).split(cmd);
-            for (String t : tokens) {
-                if (!t.endsWith(".py")) continue;
-                String cleaned = t.replaceAll("^[\"']|[\"']$", "");
-                Path candidate = projectRoot.resolve(cleaned).normalize();
-                if (!Files.exists(candidate)) {
-                    Path p = Path.of(cleaned);
-                    if (Files.exists(p)) candidate = p.normalize();
-                }
-                if (Files.exists(candidate) && Files.isRegularFile(candidate)) {
-                    Path parent = candidate.getParent();
-                    if (parent != null && Files.isDirectory(parent)) return Optional.of(parent);
-                }
-            }
-        }
-        return Optional.empty();
+        return result;
     }
 
     private static @Nullable String getPythonVersionForProject(Path projectRoot) {
@@ -251,40 +189,6 @@ public class BuildTools {
             logger.debug("Unable to determine Python version for project", e);
             return null;
         }
-    }
-
-    private static String toPythonModuleLabel(Path projectRoot, @Nullable Path anchor, Path filePath) {
-        Path abs = projectRoot.resolve(filePath).normalize();
-        Path base = anchor;
-        if (base == null || !abs.startsWith(base)) {
-            base = inferImportRoot(abs).orElse(null);
-        }
-        if (base == null) return "";
-        Path rel;
-        try {
-            rel = base.relativize(abs);
-        } catch (IllegalArgumentException e) {
-            return "";
-        }
-        String s = toUnixPath(rel);
-        if (s.endsWith(".py")) s = s.substring(0, s.length() - 3);
-        if (s.endsWith("/__init__")) s = s.substring(0, s.length() - "/__init__".length());
-        while (s.startsWith("/")) s = s.substring(1);
-        String dotted = s.replace('/', '.');
-        while (dotted.startsWith(".")) dotted = dotted.substring(1);
-        return dotted;
-    }
-
-    private static Optional<Path> inferImportRoot(Path absFile) {
-        if (!Files.isRegularFile(absFile)) return Optional.empty();
-        Path p = absFile.getParent();
-        Path lastWithInit = null;
-        while (p != null && Files.isRegularFile(p.resolve("__init__.py"))) {
-            lastWithInit = p;
-            p = p.getParent();
-        }
-        return Optional.ofNullable(
-                Objects.requireNonNullElse(lastWithInit, absFile).getParent());
     }
 
     private static String interpolateCommandWithPythonVersion(String command, Path projectRoot) {
@@ -301,10 +205,11 @@ public class BuildTools {
     public static String interpolateMustacheTemplate(
             String template, List<String> items, String listKey, @Nullable String pythonVersion) {
         if (template.isEmpty()) return "";
+        // Use unified interpolation logic compatible with BuildAgent
         MustacheFactory mf = new DefaultMustacheFactory();
         Mustache mustache = mf.compile(new StringReader(template), "dynamic_template");
         Map<String, Object> context = new HashMap<>();
-        context.put(listKey, new DecoratedCollection<>(items));
+        context.put(listKey, MustacheTemplates.toStringElementList(items));
         context.put("pyver", pythonVersion == null ? "" : pythonVersion);
         StringWriter writer = new StringWriter();
         mustache.execute(writer, context);

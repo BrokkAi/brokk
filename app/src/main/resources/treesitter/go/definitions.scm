@@ -1,7 +1,5 @@
 (package_clause (package_identifier) @package.name)
 
-(import_declaration) @import.declaration
-
 (function_declaration
   name: (identifier) @function.name) @function.definition
 
