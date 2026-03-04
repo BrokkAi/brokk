@@ -935,6 +935,12 @@ class BrokkApp(App):
                     queued_prompt = self._startup_pending_prompt
                     self._startup_pending_prompt = None
                     self.run_worker(self._run_job(queued_prompt))
+            else:
+                msg = "Executor failed to become ready (timeout)."
+                if chat:
+                    chat.add_system_message(msg, level="ERROR")
+                else:
+                    logger.error(msg)
         except ExecutorError as e:
             msg = str(e)
             if "jbang" in msg.lower():
