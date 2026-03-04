@@ -2770,10 +2770,29 @@ class BrokkApp(App):
                 except Exception:
                     self._worktree_executors.pop(resolved_path, None)
                     raise
-                self._executor_ready = True
+
+            # Cancel any running job on the executor we are leaving
+            old_executor = self.executor
+            if self.job_in_progress and self.current_job_id:
+                self.run_worker(old_executor.cancel_job(self.current_job_id))
+
+            # Reset all job-scoped and session-scoped state so that neither
+            # the departing _run_job's finally block nor pending-prompt logic
+            # can corrupt the new worktree's state.
+            self.job_in_progress = False
+            self.current_job_id = None
+            self.current_job_cost = 0.0
+            self._pending_prompt = None
+            self._pending_updated_at = 0
+            self._pending_generation = 0
+            self._pending_min_wait_until = 0.0
+            # Reset session cost; _refresh_context_panel will re-seed from new executor
+            self.session_total_cost = 0.0
+            self.session_total_cost_id = None
 
             # Swap active executor
             self.executor = self._worktree_executors[resolved_path]
+            self._executor_ready = True  # always set after a successful swap
 
             # Clear UI and history
             if chat:
