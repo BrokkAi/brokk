@@ -718,10 +718,12 @@ class BrokkApp(App):
         self._reasoning_target: str = "planner"
 
         # Accumulators for LLM usage costs (USD).
-        # current_job_cost resets at the start of each new job submission.
-        # session_total_cost accumulates for the lifetime of the App instance.
+        # current_job_cost is per-job and resets at the start of each _run_job.
         self.current_job_cost: float = 0.0
+        # session_total_cost is the cumulative cost for the active session.
         self.session_total_cost: float = 0.0
+        # The session ID for which session_total_cost was last reconciled/updated.
+        self.session_total_cost_id: Optional[str] = None
 
         self._tasklist_restore_focus_widget: Any | None = None
 
@@ -1019,10 +1021,17 @@ class BrokkApp(App):
                 # SSE, so bumping session_total_cost with max() and then processing
                 # those same events again inflates the displayed cost.
                 remote_total = context_data.get("totalCost")
+                current_sid = self.executor.session_id
                 if isinstance(remote_total, (int, float)) and not self.job_in_progress:
-                    self.session_total_cost = max(
-                        self.session_total_cost, round(float(remote_total), 6)
-                    )
+                    remote_val = round(float(remote_total), 6)
+                    if current_sid != self.session_total_cost_id:
+                        # Session switch detected: overwrite without monotonic guard
+                        # so that cost can legitimately decrease to the new session's level.
+                        self.session_total_cost = remote_val
+                        self.session_total_cost_id = current_sid
+                    else:
+                        # Same session: use max() to guard against out-of-order events.
+                        self.session_total_cost = max(self.session_total_cost, remote_val)
 
                 # UI updates are best-effort if screen is not on stack
                 try:
@@ -1663,6 +1672,7 @@ class BrokkApp(App):
         if self._executor_ready and self.executor.session_id:
             self.run_worker(self._maybe_rename_session(task_input))
 
+        # Reset per-job cost accumulator
         self.current_job_cost = 0.0
         self.job_in_progress = True
         chat = self._maybe_chat()
@@ -2572,13 +2582,30 @@ class BrokkApp(App):
             self.session_switch_in_progress = True
             self._current_switch_target_session_id = session_id
 
+        # Save previous cost accumulators so we can restore them if the switch fails.
+        _prev_job_cost = self.current_job_cost
+        _prev_session_cost = self.session_total_cost
+
         try:
             chat.add_system_message(f"Switching to session {session_id}...")
             # Set job running to block input UI during switch
             chat.set_job_running(True)
 
+            # Reset accumulators immediately so UI doesn't show previous session's
+            # stale costs during the switch transition. _refresh_context_panel
+            # will re-seed session_total_cost from executor context shortly.
+            self.current_job_cost = 0.0
+            self.session_total_cost = 0.0
+            # We don't update session_total_cost_id here; we let _refresh_context_panel
+            # detect the mismatch between the new executor.session_id and the old ID.
+
             await self.executor.switch_session(session_id)
-            save_last_session_id(self.executor.workspace_dir, session_id)
+            try:
+                save_last_session_id(self.executor.workspace_dir, session_id)
+            except Exception:
+                logger.warning(
+                    "Failed to persist last session ID for session %s", session_id, exc_info=True
+                )
 
             # Clear UI and history
             chat._message_history.clear()
@@ -2608,6 +2635,9 @@ class BrokkApp(App):
 
         except Exception as e:
             logger.exception("Failed to switch session")
+            # Restore cost accumulators so the UI reflects the original session's costs.
+            self.current_job_cost = _prev_job_cost
+            self.session_total_cost = _prev_session_cost
             chat.add_system_message(f"Failed to switch session: {e}", level="ERROR")
             if self._pending_switch_prompt:
                 self._pending_switch_prompt = None
