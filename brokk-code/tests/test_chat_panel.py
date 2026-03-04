@@ -866,7 +866,7 @@ async def test_collapsed_summary_text_bold_label():
 async def test_costs_command_opens_modal():
     """Verify that /costs command fetches data and pushes SessionCostsModalScreen."""
     from pathlib import Path
-    from textual.app import App, ComposeResult
+
     from brokk_code.app import BrokkApp, SessionCostsModalScreen
 
     executor = MagicMock()

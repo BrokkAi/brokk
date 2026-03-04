@@ -276,6 +276,7 @@ public final class HeadlessExecutorMain {
         var contextRouter = new ContextRouter(this.contextManager);
         this.server.registerAuthenticatedContext("/v1/context", contextRouter);
         this.server.registerAuthenticatedContext("/v1/tasklist", contextRouter);
+        this.server.registerAuthenticatedContext("/v1/session/costs", contextRouter);
 
         var modelsRouter = new ModelsRouter(this.contextManager);
         this.server.registerAuthenticatedContext("/v1/models", modelsRouter);

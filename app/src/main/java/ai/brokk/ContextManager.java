@@ -2372,6 +2372,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     @Override
+    @Nullable
     public UUID getCurrentSessionId() {
         return currentSessionId;
     }
