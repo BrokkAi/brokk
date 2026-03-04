@@ -4,6 +4,7 @@ import static java.lang.Math.min;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.Llm.ResponseMetadata;
+import ai.brokk.SessionManager.CostEvent;
 import ai.brokk.agents.TestScriptedLanguageModel;
 import ai.brokk.project.MainProject;
 import ai.brokk.testutil.NoOpConsoleIO;
@@ -18,6 +19,7 @@ import dev.langchain4j.agent.tool.ToolSpecifications;
 import dev.langchain4j.data.message.*;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.request.ToolChoice;
+import dev.langchain4j.model.openai.OpenAiTokenUsage;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -460,6 +462,55 @@ public class LlmTest {
         assertEquals("createdB", combined.created(), "created should come from B");
         assertEquals("tierA", combined.serviceTier(), "serviceTier should fall back to A when B is null");
         assertEquals("errorA", combined.error(), "error should fall back to A when B is null");
+    }
+
+    @Test
+    void testRecordCostEventInLedger() throws InterruptedException {
+        // Use a fresh context and session manager to avoid interference
+        Path testSessionDir = tempDir.resolve("ledger-test-" + System.currentTimeMillis());
+        SessionManager sessionManager = new SessionManager(testSessionDir);
+        TestContextManager localTcm = new TestContextManager(tempDir, new NoOpConsoleIO());
+        localTcm.setSessionId(SessionManager.newSessionId());
+        localTcm.setSessionManager(sessionManager);
+
+        var sessionInfo = sessionManager.newSession("ledger-test-session");
+        localTcm.setSessionId(sessionInfo.id());
+
+        // Build a ChatResponse with explicit token usage so ResponseMetadata is non-null
+        var aiMessage = new AiMessage("Test response");
+        var tokenUsage = OpenAiTokenUsage.builder()
+                .inputTokenCount(10)
+                .outputTokenCount(5)
+                .totalTokenCount(15)
+                .build();
+        var response = dev.langchain4j.model.chat.response.ChatResponse.builder()
+                .aiMessage(aiMessage)
+                .tokenUsage(tokenUsage)
+                .finishReason(dev.langchain4j.model.output.FinishReason.STOP)
+                .build();
+
+        // Use a scripted model that returns our pre-built response
+        var model = new ai.brokk.agents.TestScriptedLanguageModel(response);
+
+        var llm = localTcm.getLlm(model, "Test Task", TaskResult.Type.ARCHITECT);
+
+        // Execute a simple request
+        llm.sendRequest(List.of(new UserMessage("hello")));
+
+        // Verify a cost event was recorded for this session
+        var sessionId = sessionInfo.id();
+        var events = sessionManager.readCostEvents(sessionId);
+
+        assertNotNull(events, "Cost events list should not be null");
+        assertFalse(events.isEmpty(), "Expected at least one cost event in the ledger for session " + sessionId);
+        CostEvent event = events.getLast();
+
+        assertEquals(sessionId, event.sessionId());
+        assertEquals("Test Task", event.operationLabel());
+        assertEquals(TaskResult.Type.ARCHITECT.name(), event.operationType());
+        assertEquals(10, event.inputTokens());
+        assertEquals(5, event.outputTokens());
+        assertEquals(localTcm.getService().nameOf(model), event.modelName());
     }
 
     @Test

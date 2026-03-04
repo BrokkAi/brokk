@@ -337,6 +337,13 @@ public class SessionManager implements AutoCloseable {
 
     @Blocking
     public List<CostEvent> readCostEvents(UUID sessionId) {
+        // Fast path: if we have in-memory events for this session in the current JVM, return them.
+        // This covers newly recorded events that may not yet be flushed to disk.
+        var cached = costLedgerCache.get(sessionId);
+        if (cached != null && !cached.isEmpty()) {
+            return List.copyOf(cached);
+        }
+
         try {
             Path zipPath = resolveSessionHistoryZipPath(sessionId);
             if (!Files.exists(zipPath)) {

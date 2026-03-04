@@ -54,6 +54,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -133,6 +134,7 @@ public class Llm {
     private IConsoleIO io;
     private final Path historyBaseDir;
     private final Path historyTaskBaseDir;
+    private final String taskDescription;
     private final String baseTaskDirName;
     private @Nullable Path taskHistoryDir; // Directory for this specific LLM task's history files (created lazily)
     private final TaskResult.Type taskType;
@@ -161,6 +163,7 @@ public class Llm {
         this.model = model;
         this.taskType = taskType;
         this.contextManager = contextManager;
+        this.taskDescription = taskDescription;
         this.io = contextManager.getIo();
         this.allowPartialResponses = allowPartialResponses;
         this.forceReasoningEcho = forceReasoningEcho;
@@ -950,8 +953,44 @@ public class Llm {
                     io.showNotification(IConsoleIO.NotificationRole.COST, message, cost);
                     logger.debug("LLM cost: {}", message);
                 }
+
+                recordCostEventInLedger(model, usage);
             }
         }
+    }
+
+    private void recordCostEventInLedger(StreamingChatModel model, ResponseMetadata usage) {
+        UUID sessionId;
+        try {
+            sessionId = contextManager.getCurrentSessionId();
+        } catch (UnsupportedOperationException e) {
+            sessionId = null;
+        }
+        if (sessionId == null) {
+            return;
+        }
+
+        var project = contextManager.getProject();
+        var sessionManager = project.getSessionManager();
+
+        var service = contextManager.getService();
+        String modelName = service.nameOf(model);
+        String tier = Service.getProcessingTier(model).toString();
+
+        SessionManager.CostEvent event = new SessionManager.CostEvent(
+                System.currentTimeMillis(),
+                sessionId,
+                this.taskDescription,
+                this.taskType.name(),
+                modelName,
+                tier,
+                usage.inputTokens(),
+                usage.cachedInputTokens(),
+                usage.thinkingTokens(),
+                usage.outputTokens(),
+                usage.costUsd() != null ? usage.costUsd() : 0.0);
+
+        sessionManager.recordCostEvent(sessionId, event);
     }
 
     public record NullSafeResponse(
