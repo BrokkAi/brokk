@@ -1,5 +1,7 @@
 package ai.brokk.agents;
 
+import static java.util.Objects.requireNonNull;
+
 import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
@@ -37,6 +39,7 @@ import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolContext;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.agent.tool.ToolSpecification;
+import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.data.message.UserMessage;
@@ -53,6 +56,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
@@ -770,55 +774,94 @@ public class SearchAgent {
         }
 
         private TurnOutcome executeTurnInternal(Set<ProjectFile> filesBeforeSet) throws InterruptedException {
-            var prep = preparePrompt();
+            int invalidSpecialToolAttempts = 0;
 
-            agent.metrics.startTurn();
-            long turnStartTime = System.currentTimeMillis();
+            AiMessage ai;
+            List<ToolExecutionRequest> orderedRequests;
 
-            agent.io.showTransientMessage("Brokk Search is preparing the next actions…");
-            var result =
-                    agent.llm.sendRequest(prep.messages(), new ToolContext(prep.toolSpecs(), ToolChoice.REQUIRED, tr));
+            while (true) {
+                var prep = preparePrompt(invalidSpecialToolAttempts >= 2);
 
-            long llmTimeMs = System.currentTimeMillis() - turnStartTime;
-            var tokenUsage = result.metadata();
-            int inputTokens = tokenUsage != null ? tokenUsage.inputTokens() : 0;
-            int cachedTokens = tokenUsage != null ? tokenUsage.cachedInputTokens() : 0;
-            int thinkingTokens = tokenUsage != null ? tokenUsage.thinkingTokens() : 0;
-            int outputTokens = tokenUsage != null ? tokenUsage.outputTokens() : 0;
-            agent.metrics.recordLlmCall(llmTimeMs, inputTokens, cachedTokens, thinkingTokens, outputTokens);
+                agent.metrics.startTurn();
+                long turnStartTime = System.currentTimeMillis();
 
-            if (result.error() != null) {
-                var details = TaskResult.StopDetails.fromResponse(result);
-                if (details.reason() == TaskResult.StopReason.LLM_CONTEXT_SIZE) {
-                    assert pendingTerminal == null;
-                    return TurnOutcome.Overflow.INSTANCE;
+                agent.io.showTransientMessage("Brokk Search is preparing the next actions…");
+                var result = agent.llm.sendRequest(
+                        prep.messages(), new ToolContext(prep.toolSpecs(), ToolChoice.REQUIRED, tr));
+
+                long llmTimeMs = System.currentTimeMillis() - turnStartTime;
+                var tokenUsage = result.metadata();
+                int inputTokens = tokenUsage != null ? tokenUsage.inputTokens() : 0;
+                int cachedTokens = tokenUsage != null ? tokenUsage.cachedInputTokens() : 0;
+                int thinkingTokens = tokenUsage != null ? tokenUsage.thinkingTokens() : 0;
+                int outputTokens = tokenUsage != null ? tokenUsage.outputTokens() : 0;
+                agent.metrics.recordLlmCall(llmTimeMs, inputTokens, cachedTokens, thinkingTokens, outputTokens);
+
+                if (result.error() != null) {
+                    var details = TaskResult.StopDetails.fromResponse(result);
+                    if (details.reason() == TaskResult.StopReason.LLM_CONTEXT_SIZE) {
+                        assert pendingTerminal == null;
+                        return TurnOutcome.Overflow.INSTANCE;
+                    }
+                    agent.io.showNotification(
+                            IConsoleIO.NotificationRole.INFO, "LLM error planning next step: " + details.explanation());
+                    return new TurnOutcome.Final(agent.errorResult(details, context));
                 }
-                agent.io.showNotification(
-                        IConsoleIO.NotificationRole.INFO, "LLM error planning next step: " + details.explanation());
-                return new TurnOutcome.Final(agent.errorResult(details, context));
+
+                ai = ToolRegistry.removeDuplicateToolRequests(result.aiMessage());
+
+                if (agent.shouldAutomaticallyScan()
+                        && ai.toolExecutionRequests().stream().anyMatch(req -> agent.isSearchTool(req.name()))) {
+                    assert pendingTerminal == null;
+                    return TurnOutcome.AutoScan.INSTANCE;
+                }
+
+                sessionMessages.add(new UserMessage("What tools do you want to use next?"));
+                sessionMessages.add(result.aiMessage());
+
+                if (!ai.hasToolExecutionRequests()) {
+                    return new TurnOutcome.Final(agent.errorResult(
+                            new TaskResult.StopDetails(
+                                    TaskResult.StopReason.TOOL_ERROR, "No tool requests found in LLM response."),
+                            context));
+                }
+
+                if (prep.strictToolAllowList() != null) {
+                    var invalid = ai.toolExecutionRequests().stream()
+                            .filter(req -> !prep.strictToolAllowList().contains(req.name()))
+                            .toList();
+
+                    if (!invalid.isEmpty()) {
+                        invalidSpecialToolAttempts++;
+
+                        var allowed =
+                                prep.strictToolAllowList().stream().sorted().toList();
+                        for (var req : invalid) {
+                            var toolResult = ToolExecutionResult.requestError(
+                                    req,
+                                    "Tool '" + req.name() + "' is not allowed in this special turn. Allowed tools: "
+                                            + allowed);
+                            sessionMessages.add(toolResult.toExecutionResultMessage());
+                        }
+
+                        if (invalidSpecialToolAttempts <= 2) {
+                            continue;
+                        }
+
+                        return new TurnOutcome.Final(agent.errorResult(
+                                new TaskResult.StopDetails(
+                                        TaskResult.StopReason.TOOL_ERROR,
+                                        "Model repeatedly requested tools outside the special-turn allowlist: "
+                                                + allowed),
+                                context));
+                    }
+                }
+
+                orderedRequests = ai.toolExecutionRequests().stream()
+                        .sorted(Comparator.comparingInt((ToolExecutionRequest req) -> agent.priority(req)))
+                        .toList();
+                break;
             }
-
-            var ai = ToolRegistry.removeDuplicateToolRequests(result.aiMessage());
-
-            if (agent.shouldAutomaticallyScan()
-                    && ai.toolExecutionRequests().stream().anyMatch(req -> agent.isSearchTool(req.name()))) {
-                assert pendingTerminal == null;
-                return TurnOutcome.AutoScan.INSTANCE;
-            }
-
-            sessionMessages.add(new UserMessage("What tools do you want to use next?"));
-            sessionMessages.add(result.aiMessage());
-
-            if (!ai.hasToolExecutionRequests()) {
-                return new TurnOutcome.Final(agent.errorResult(
-                        new TaskResult.StopDetails(
-                                TaskResult.StopReason.TOOL_ERROR, "No tool requests found in LLM response."),
-                        context));
-            }
-
-            var orderedRequests = ai.toolExecutionRequests().stream()
-                    .sorted(Comparator.comparingInt(agent::priority))
-                    .toList();
 
             DropMode effectiveDropMode = (pendingTerminal == null && isFinalTurn()) ? DropMode.NORMAL : dropMode;
 
@@ -848,8 +891,7 @@ public class SearchAgent {
                     sessionMessages.add(toolResult.toExecutionResultMessage());
                 }
 
-                return new TurnOutcome.Final(
-                        agent.finalizePendingTerminal(Objects.requireNonNull(pendingTerminal), context));
+                return new TurnOutcome.Final(agent.finalizePendingTerminal(requireNonNull(pendingTerminal), context));
             }
 
             if (isFinalTurn()) {
@@ -986,8 +1028,7 @@ public class SearchAgent {
                 return new TurnOutcome.Final(agent.finalizePendingTerminal(pending, context));
             }
 
-            String modelResponse = result.aiMessage().reasoningContent() + "\n\n"
-                    + result.aiMessage().text();
+            String modelResponse = ai.reasoningContent() + "\n\n" + ai.text();
             if (!isFinalTurn()
                     && terminalRequest == null
                     && RelevanceClassifier.isRelevant(agent.scanLlm, READY_FOR_FINAL_TURN_FILTER, modelResponse)) {
@@ -1005,7 +1046,7 @@ public class SearchAgent {
             return new TurnOutcome.Continue(context, List.copyOf(sessionMessages));
         }
 
-        private TurnPrompt preparePrompt() throws InterruptedException {
+        private TurnPrompt preparePrompt(boolean workspaceOnlyNoHistory) throws InterruptedException {
             wst.setContext(context);
 
             DropMode effectiveDropMode = (pendingTerminal == null && isFinalTurn()) ? DropMode.NORMAL : dropMode;
@@ -1036,7 +1077,10 @@ public class SearchAgent {
                 specialToolingNotice = new SearchPrompts.SpecialTurnTooling(
                         "Workspace final cleanup", List.of("dropWorkspaceFragments"));
             } else if (isFinalTurn()) {
-                specialToolingNotice = new SearchPrompts.SpecialTurnTooling("Final turn", terminalTools);
+                var allowedFinalTurnTools = Streams.concat(Stream.of("dropWorkspaceFragments"), terminalTools.stream())
+                        .distinct()
+                        .toList();
+                specialToolingNotice = new SearchPrompts.SpecialTurnTooling("Final turn", allowedFinalTurnTools);
             } else if (effectiveDropMode == DropMode.DROP_ONLY) {
                 specialToolingNotice = new SearchPrompts.SpecialTurnTooling(
                         "Context overflow recovery",
@@ -1046,18 +1090,31 @@ public class SearchAgent {
                                 "addClassSummariesToWorkspace"));
             }
 
-            var messages = SearchPrompts.instance.buildPrompt(
-                    context,
-                    agent.model,
-                    agent.taskMeta(),
-                    agent.goal,
-                    agent.getObjective(),
-                    agent.mcpTools,
-                    sessionMessages,
-                    related,
-                    effectiveDropMode,
-                    turnsLeftAfterThisTurn,
-                    specialToolingNotice);
+            List<ChatMessage> messages;
+            if (workspaceOnlyNoHistory) {
+                messages = SearchPrompts.instance.buildPromptWorkspaceOnly(
+                        context,
+                        agent.model,
+                        agent.goal,
+                        agent.getObjective(),
+                        agent.mcpTools,
+                        effectiveDropMode,
+                        turnsLeftAfterThisTurn,
+                        requireNonNull(specialToolingNotice));
+            } else {
+                messages = SearchPrompts.instance.buildPrompt(
+                        context,
+                        agent.model,
+                        agent.taskMeta(),
+                        agent.goal,
+                        agent.getObjective(),
+                        agent.mcpTools,
+                        sessionMessages,
+                        related,
+                        effectiveDropMode,
+                        turnsLeftAfterThisTurn,
+                        specialToolingNotice);
+            }
 
             if (agent.pendingOverflowRecoveryNote != null) {
                 messages = new ArrayList<>(messages);
@@ -1065,11 +1122,18 @@ public class SearchAgent {
                 agent.pendingOverflowRecoveryNote = null;
             }
 
-            var allAllowed = Streams.concat(allowedOrdinaryTools.stream(), terminalTools.stream())
-                    .distinct()
-                    .toList();
-            var toolSpecs = tr.getTools(allAllowed);
-            return new TurnPrompt(messages, toolSpecs);
+            @Nullable
+            Set<String> strictToolAllowList =
+                    specialToolingNotice == null ? null : Set.copyOf(specialToolingNotice.allowedTools());
+
+            var toolNameAllowList = strictToolAllowList != null
+                    ? strictToolAllowList
+                    : Streams.concat(allowedOrdinaryTools.stream(), terminalTools.stream())
+                            .distinct()
+                            .collect(Collectors.toSet());
+
+            var toolSpecs = tr.getTools(toolNameAllowList);
+            return new TurnPrompt(messages, toolSpecs, strictToolAllowList);
         }
 
         private boolean isFinalTurn() {
@@ -1617,7 +1681,8 @@ public class SearchAgent {
         }
     }
 
-    private record TurnPrompt(List<ChatMessage> messages, List<ToolSpecification> toolSpecs) {}
+    private record TurnPrompt(
+            List<ChatMessage> messages, List<ToolSpecification> toolSpecs, @Nullable Set<String> strictToolAllowList) {}
 
     private TaskResult finalizePendingTerminal(PendingTerminal pendingTerminal, Context context) {
         if ("abortSearch".equals(pendingTerminal.toolName())) {
