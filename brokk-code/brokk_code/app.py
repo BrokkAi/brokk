@@ -1754,8 +1754,9 @@ class BrokkApp(App):
                 logger.warning("Failed to auto-rename session: %s", e)
 
     async def _run_job(self, task_input: str) -> None:
+        job_executor = self.executor
         # Attempt auto-rename on first prompt if session is default
-        if self._executor_ready and self.executor.session_id:
+        if self._executor_ready and job_executor.session_id:
             self.run_worker(self._maybe_rename_session(task_input))
 
         # Reset per-job cost accumulator
@@ -1768,7 +1769,7 @@ class BrokkApp(App):
         attached_fragment_ids: List[str] = []
         try:
             attached_fragment_ids = await self._attach_mentions_to_context(task_input)
-            self.current_job_id = await self.executor.submit_job(
+            self.current_job_id = await job_executor.submit_job(
                 task_input,
                 self.current_model,
                 code_model=self.code_model,
@@ -1777,16 +1778,18 @@ class BrokkApp(App):
                 mode=self.current_mode,
                 auto_commit=self.auto_commit,
             )
-            async for event in self.executor.stream_events(self.current_job_id):
+            async for event in job_executor.stream_events(self.current_job_id):
+                if self.executor is not job_executor:
+                    break
                 self._handle_event(event)
         except Exception as e:
             if (
                 self.current_job_id is None
                 and attached_fragment_ids
-                and hasattr(self.executor, "drop_context_fragments")
+                and hasattr(job_executor, "drop_context_fragments")
             ):
                 try:
-                    await self.executor.drop_context_fragments(attached_fragment_ids)
+                    await job_executor.drop_context_fragments(attached_fragment_ids)
                 except Exception:
                     logger.exception(
                         "Failed to rollback context fragments after submit_job failure: %s",
@@ -1802,51 +1805,52 @@ class BrokkApp(App):
             else:
                 logger.error("Job failed or interrupted (%s): %s", type(e).__name__, e)
         finally:
-            if chat:
-                chat.set_response_finished()
-                chat.set_job_running(False)
+            if self.executor is job_executor:
+                if chat:
+                    chat.set_response_finished()
+                    chat.set_job_running(False)
 
-            # Yield to the event loop to allow any rapid subsequent submissions
-            # triggered by the cancellation to be processed before we check _pending_prompt.
-            await asyncio.sleep(0)
+                # Yield to the event loop to allow any rapid subsequent submissions
+                # triggered by the cancellation to be processed before we check _pending_prompt.
+                await asyncio.sleep(0)
 
-            if self._pending_prompt:
-                # Wait for both the grace window (since cancellation)
-                # and the stability debounce (since last keystroke/submit).
-                debounce_window = 0.05  # 50ms
-                while True:
-                    now = time.monotonic()
-                    current_gen = self._pending_generation
-                    elapsed_since_update = now - self._pending_updated_at
+                if self._pending_prompt:
+                    # Wait for both the grace window (since cancellation)
+                    # and the stability debounce (since last keystroke/submit).
+                    debounce_window = 0.05  # 50ms
+                    while True:
+                        now = time.monotonic()
+                        current_gen = self._pending_generation
+                        elapsed_since_update = now - self._pending_updated_at
 
-                    # We must be past the absolute grace timestamp AND stable
-                    # for the debounce window
-                    if (
-                        now >= self._pending_min_wait_until
-                        and elapsed_since_update >= debounce_window
-                        and self._pending_generation == current_gen
-                    ):
-                        break
-                    await asyncio.sleep(0.01)
+                        # We must be past the absolute grace timestamp AND stable
+                        # for the debounce window
+                        if (
+                            now >= self._pending_min_wait_until
+                            and elapsed_since_update >= debounce_window
+                            and self._pending_generation == current_gen
+                        ):
+                            break
+                        await asyncio.sleep(0.01)
 
-                next_prompt = self._pending_prompt
-                self._pending_prompt = None
-                self._pending_updated_at = 0
-                self._pending_generation = 0
-                self._pending_min_wait_until = 0.0
+                    next_prompt = self._pending_prompt
+                    self._pending_prompt = None
+                    self._pending_updated_at = 0
+                    self._pending_generation = 0
+                    self._pending_min_wait_until = 0.0
 
-                # Recurse within the same worker context to prevent
-                # the app from flickering to 'idle' and allowing race-condition submits.
-                # We keep job_in_progress = True during this transition.
-                if next_prompt:
-                    await self._run_job(next_prompt)
+                    # Recurse within the same worker context to prevent
+                    # the app from flickering to 'idle' and allowing race-condition submits.
+                    # We keep job_in_progress = True during this transition.
+                    if next_prompt:
+                        await self._run_job(next_prompt)
+                    else:
+                        self.job_in_progress = False
+                        self.current_job_id = None
                 else:
+                    # Only mark idle once we are sure no more prompts are queued
                     self.job_in_progress = False
                     self.current_job_id = None
-            else:
-                # Only mark idle once we are sure no more prompts are queued
-                self.job_in_progress = False
-                self.current_job_id = None
 
     def _handle_event(self, event: Dict[str, Any]) -> None:
         event_type = event.get("type")

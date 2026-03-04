@@ -418,8 +418,8 @@ async def test_show_sessions_new_flow(tmp_path):
         arg = call[0][0]
         if "create_session_from_menu" in str(arg):
             found_new = True
-            if hasattr(coro, "close"):
-                coro.close()
+            if hasattr(arg, "close"):
+                arg.close()
             break
     assert found_new
 
