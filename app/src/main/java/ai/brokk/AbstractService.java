@@ -7,6 +7,7 @@ import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
 import ai.brokk.project.ModelProperties;
 import ai.brokk.project.ModelProperties.ModelType;
+import ai.brokk.util.Environment;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Splitter;
@@ -528,7 +529,8 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
                 .baseUrl(baseUrl)
                 .serviceTier(config.tier)
                 .apiKey(kp.token())
-                .customHeaders(Map.of("Authorization", "Bearer " + kp.token()))
+                .customHeaders(Map.of(
+                        "Authorization", "Bearer " + kp.token(), "X-Brokk-Client-Type", Environment.getClientType()))
                 .promptCacheKey(shortName + kp.userId())
                 .timeout(Duration.ofSeconds(
                         config.tier == ProcessingTier.FLEX

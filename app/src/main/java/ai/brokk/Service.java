@@ -119,7 +119,7 @@ public class Service extends AbstractService implements ExceptionReporter.Report
                 System.getProperty("os.name"),
                 System.getProperty("os.arch"),
                 System.getProperty("java.version"),
-                Map.of());
+                Map.of("client_type", Environment.getClientType()));
 
         var mapper = new ObjectMapper();
         var jsonBody = mapper.writeValueAsString(telemetryRequest);
@@ -704,7 +704,7 @@ public class Service extends AbstractService implements ExceptionReporter.Report
             String os,
             String platform,
             @JsonProperty("java_runtime") String javaRuntime,
-            Map<String, Object> additionalProp1) {}
+            Map<String, Object> properties) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     private record BalanceResponse(
