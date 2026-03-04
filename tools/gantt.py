@@ -45,6 +45,7 @@ class Turn:
     request_ts: datetime
     response_ts: datetime
     log_path: Optional[Path]
+    log_ts: Optional[datetime]
     tools: List[str]
 
 
@@ -63,7 +64,11 @@ class GapAnnotation:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Render llm history as a PyQt gantt chart")
     parser.add_argument("start", help="Start time as HH:MM:SS")
-    parser.add_argument("end", help="End time as HH:MM:SS")
+    parser.add_argument(
+        "end",
+        nargs="?",
+        help="End time as HH:MM:SS; defaults to the last history directory timestamp",
+    )
     parser.add_argument(
         "--history",
         default=str(Path.home() / "Projects" / "brokk" / ".brokk" / "llm-history"),
@@ -221,6 +226,7 @@ def load_turns(directory: Path, _day_start: datetime, _day_end: datetime) -> Lis
     turns: List[Turn] = []
     for request in sorted(request_entries, key=lambda item: item.ts):
         response_ts = request.ts
+        log_ts = None
         for entry in entries_by_index.get(request.index, []):
             if entry.path == request.path:
                 continue
@@ -233,6 +239,7 @@ def load_turns(directory: Path, _day_start: datetime, _day_end: datetime) -> Lis
         for entry in entries_by_index.get(request.index, []):
             if entry.suffix.endswith(".log") and entry.ts >= request.ts:
                 log_path = entry.path
+                log_ts = entry.ts
                 break
 
         turns.append(
@@ -244,6 +251,7 @@ def load_turns(directory: Path, _day_start: datetime, _day_end: datetime) -> Lis
                 request_ts=request.ts,
                 response_ts=response_ts,
                 log_path=log_path,
+                log_ts=log_ts,
                 tools=parse_tool_names(request.path),
             )
         )
@@ -261,6 +269,43 @@ def seconds_from_ms(ms: int) -> int:
 
 def seconds_between(start: datetime, end: datetime) -> int:
     return int((end - start).total_seconds())
+
+
+def last_history_directory_timestamp(history_root: Path) -> Optional[datetime]:
+    latest: Optional[datetime] = None
+    for directory in history_root.iterdir():
+        if not directory.is_dir():
+            continue
+        directory_timestamp = parse_directory_timestamp(directory.name)
+        if directory_timestamp is None:
+            continue
+        if latest is None or directory_timestamp > latest:
+            latest = directory_timestamp
+    return latest
+
+
+def calculate_inference_ms(turns: Sequence[Turn]) -> int:
+    return sum(ms_between(turn.request_ts, turn.response_ts) for turn in turns)
+
+
+def calculate_wall_ms(turns: Sequence[Turn]) -> Optional[int]:
+    if not turns:
+        return None
+    first_json = min(turn.request_ts for turn in turns)
+    log_timestamps = [turn.log_ts for turn in turns if turn.log_ts is not None]
+    if not log_timestamps:
+        return None
+    return ms_between(first_json, max(log_timestamps))
+
+
+def print_timing_summary(turns: Sequence[Turn]) -> None:
+    inference_ms = calculate_inference_ms(turns)
+    wall_ms = calculate_wall_ms(turns)
+    print(f"Inference time: {inference_ms}ms ({seconds_from_ms(inference_ms)}s)")
+    if wall_ms is None:
+        print("Wall time: unavailable (no .log timestamps found)")
+    else:
+        print(f"Wall time: {wall_ms}ms ({seconds_from_ms(wall_ms)}s)")
 
 
 def gather_gaps(turns: Sequence[Turn]) -> List[GapAnnotation]:
@@ -866,6 +911,8 @@ def print_debug(turns: Sequence[Turn], gaps: Sequence[GapAnnotation]) -> None:
                 "gap_count": len(gaps),
                 "directory_count": len(by_directory),
                 "turns_by_optype": dict(sorted(by_optype.items())),
+                "inference_ms": calculate_inference_ms(turns),
+                "wall_ms": calculate_wall_ms(turns),
             },
             sort_keys=True,
         )
@@ -931,24 +978,33 @@ def main() -> int:
     args = parse_args()
     target_day = parse_day(args.day)
     day_start = datetime.combine(target_day, parse_time(args.start))
-    day_end = datetime.combine(target_day, parse_time(args.end))
-    if day_end < day_start:
-        raise SystemExit("--end must be after --start")
 
     history_root = Path(args.history).expanduser()
     if not history_root.exists():
         raise SystemExit(f"History path not found: {history_root}")
 
+    if args.end is None:
+        day_end = last_history_directory_timestamp(history_root)
+        if day_end is None:
+            raise SystemExit("No parseable history directories found")
+    else:
+        day_end = datetime.combine(target_day, parse_time(args.end))
+        if day_end < day_start:
+            raise SystemExit("--end must be after --start")
+
     turns, gaps = load_data(history_root, day_start, day_end)
 
     if args.debug:
         print_debug(turns, gaps)
+        print_timing_summary(turns)
         return 0
 
     if not turns:
+        print_timing_summary(turns)
         print("No matching turns in selected window.")
         return 0
 
+    print_timing_summary(turns)
     return launch_gui(turns, gaps, day_start, day_end)
 
 
