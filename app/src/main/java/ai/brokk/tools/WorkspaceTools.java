@@ -24,6 +24,7 @@ import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.checkerframework.checker.nullness.util.NullnessUtil;
@@ -194,9 +195,22 @@ public class WorkspaceTools {
 
         int actualEnd = effectiveStart + rangeResult.lineCount() - 1;
         var fragment =
-                new ContextFragments.LineRangeFragment(context.getContextManager(), file, effectiveStart, requestedEnd);
+                new ContextFragments.LineRangeFragment(context.getContextManager(), file, effectiveStart, actualEnd);
+
+        // Check for exact duplicate already in the workspace
         if (context.contains(fragment)) {
             return "Already present (no-op): %s:%d-%d".formatted(normalized, effectiveStart, actualEnd);
+        }
+
+        // Check if the lines are already covered by workspace content
+        var ws = workspaceState();
+        if (ws.isCovered(file)) {
+            return "Skipped (covered by file in workspace): %s (lines %d-%d)"
+                    .formatted(normalized, effectiveStart, actualEnd);
+        }
+        if (ws.isCovered(fragment, getAnalyzer())) {
+            return "Skipped (covered by class source in workspace): %s (lines %d-%d)"
+                    .formatted(normalized, effectiveStart, actualEnd);
         }
 
         context = context.addFragments(fragment);
@@ -699,7 +713,7 @@ public class WorkspaceTools {
             }
 
             var units = fragment.sources().join();
-            if (units.size() == 1) {
+            if (!units.isEmpty()) {
                 var cu = units.iterator().next();
                 var coveredBy = state.isCovered(cu, analyzer);
                 if (coveredBy.isPresent()) {
@@ -754,7 +768,8 @@ public class WorkspaceTools {
     private record WorkspaceState(
             Set<ProjectFile> filesInWorkspace,
             Set<ProjectFile> fileSummariesInWorkspace,
-            Set<CodeUnit> classInWorkspace) {
+            Set<CodeUnit> classInWorkspace,
+            Set<CodeUnit> methodsInWorkspace) {
 
         boolean isCovered(ProjectFile file) {
             return filesInWorkspace.contains(file);
@@ -782,6 +797,18 @@ public class WorkspaceTools {
 
             return Optional.empty();
         }
+
+        boolean isCovered(ContextFragments.LineRangeFragment lrf, IAnalyzer analyzer) {
+            if (isCovered(lrf.file())) {
+                return true;
+            }
+
+            var file = lrf.file();
+            return Stream.concat(classInWorkspace.stream(), methodsInWorkspace.stream())
+                    .filter(cu -> cu.source().equals(file))
+                    .flatMap(cu -> analyzer.rangesOf(cu).stream())
+                    .anyMatch(r -> r.startLine() <= lrf.startLine() && r.endLine() >= lrf.endLine());
+        }
     }
 
     private WorkspaceState workspaceState() {
@@ -795,6 +822,7 @@ public class WorkspaceTools {
 
         Set<ProjectFile> fileSummariesInWorkspace = new HashSet<>();
         Set<CodeUnit> classInWorkspace = new HashSet<>();
+        Set<CodeUnit> methodsInWorkspace = new HashSet<>();
 
         for (ContextFragment fragment : fragments) {
             if (fragment instanceof ContextFragments.SummaryFragment sf) {
@@ -812,12 +840,14 @@ public class WorkspaceTools {
                 for (CodeUnit cu : cf.sources().join()) {
                     if (cu.isClass()) {
                         classInWorkspace.add(cu);
+                    } else if (cu.isFunction()) {
+                        methodsInWorkspace.add(cu);
                     }
                 }
             }
         }
 
-        return new WorkspaceState(filesInWorkspace, fileSummariesInWorkspace, classInWorkspace);
+        return new WorkspaceState(filesInWorkspace, fileSummariesInWorkspace, classInWorkspace, methodsInWorkspace);
     }
 
     /**

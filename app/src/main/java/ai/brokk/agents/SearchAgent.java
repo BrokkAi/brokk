@@ -99,7 +99,7 @@ public class SearchAgent {
         }
     }
 
-    private static final int MAX_TOTAL_TURNS = 40;
+    private static final int MAX_TOTAL_TURNS = 20;
 
     private final IContextManager cm;
     private final StreamingChatModel model;

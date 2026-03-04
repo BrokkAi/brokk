@@ -128,4 +128,9 @@ public class DisabledAnalyzer implements IAnalyzer {
     public Set<String> getSources(CodeUnit codeUnit, boolean includeComments) {
         return Set.of();
     }
+
+    @Override
+    public List<Range> rangesOf(CodeUnit codeUnit) {
+        return List.of();
+    }
 }
