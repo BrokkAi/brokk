@@ -1034,8 +1034,9 @@ public class SearchAgent {
                 // take an extra turn to drop fragments after making the terminal decision now that
                 // we are de-emphasizing constantly dropping during the search
                 if (agent.isPruningWorthwhile(context)
-                        && !"dropWorkspaceFragments"
-                                .equals(primaryCalls.getLast().name())) {
+                        && (primaryCalls.isEmpty()
+                                || !"dropWorkspaceFragments"
+                                        .equals(primaryCalls.getLast().name()))) {
                     return new TurnOutcome.PendingTerminal(context, List.copyOf(sessionMessages), pending);
                 }
                 return new TurnOutcome.Final(agent.finalizePendingTerminal(pending, context));
