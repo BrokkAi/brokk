@@ -24,6 +24,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Generates prompts for the Search Agent and Ask requests.
@@ -237,6 +238,8 @@ public class SearchPrompts {
         }
     }
 
+    public record SpecialTurnTooling(String turnType, List<String> allowedTools) {}
+
     private record DirectiveData(
             String goal,
             String objectiveTag,
@@ -252,7 +255,9 @@ public class SearchPrompts {
             boolean terminalTasks,
             boolean terminalWorkspace,
             boolean terminalCode,
-            boolean terminalIssue) {}
+            boolean terminalIssue,
+            boolean finalTurnOnly,
+            @Nullable SpecialTurnTooling specialTooling) {}
 
     private static final Template SEARCH_SYSTEM_TEMPLATE;
     private static final Template DIRECTIVE_TEMPLATE;
@@ -352,7 +357,7 @@ public class SearchPrompts {
                 {{taskInstructions}}
                 {{~/if}}
 
-                {{#if terminalTasks~}}
+                {{#unless specialTooling~}}
                 Invariant: Before any final action, make reasonable efforts to first add the minimum sufficient, decision-relevant context
                 to the Workspace. If you cannot find relevant context, say so instead of guessing.
 
@@ -365,7 +370,7 @@ public class SearchPrompts {
                   - Summaries: when you only need API signatures/types/constants.
                   - Method sources: when you need implementation details for specific methods.
                   - Full sources: when you need complete implementation details.
-                {{~/if}}
+                {{/unless~}}
                 </search-objective>
 
                 {{#if isEmptyProject~}}
@@ -386,11 +391,12 @@ public class SearchPrompts {
                 {{~/if}}
 
                 <tool-instructions>
+                {{#unless specialTooling~}}
                 Decide the next tool action(s) to make progress toward the objective in service of the goal.
 
                 {{#if (eq turnsLeftAfterThisTurn 1)~}}
                 [HARNESS NOTE This is the penultimate turn. If you need any final information from non-terminal tools, request it now because you will only have one more turn after this.]
-                {{~/if}}
+                {{~/if }}
 
                 Pruning mandate (do this now):
                   - Prune in parallel with exploration.
@@ -406,44 +412,60 @@ public class SearchPrompts {
                     convert tests whose full source you don't need to summaries by dropping the file and
                     adding the summary. In general, you should avoid dropping test summaries.
                 {{~/if}}
+                {{/unless}}
 
+                {{#if finalTurnOnly~}}
+                This is the final turn. You must call one of the following tools:
+                {{else~}}
                 Finalization options:
+                {{/if}}
                 {{#if isIssueDiagnosis}}
-                - Use describeIssue(String title, String body) to finalize. abortSearch(explanation) is the only other allowed final tool.
-                {{else}}
+                - describeIssue(String title, String body): finalize with this tool. abortSearch is the only other allowed final tool.
+                {{/if}}
                 {{#if terminalAnswer}}
-                - Use answer(String) ONLY when the Workspace already contains sufficient context to justify the answer, OR when the question is explicitly codebase-independent. The answer needs to be Markdown-formatted (see <markdown-reminder>).
-                - Use askForClarification(String queryForUser) when the goal is unclear or you cannot find the necessary information; this will ask the user directly and stop.
+                - answer(String): call this once the Workspace contains sufficient context to justify the answer, OR when the question is explicitly codebase-independent. Must be Markdown-formatted (see <markdown-reminder>).
+                - askForClarification(String queryForUser): when the goal is unclear or you cannot find the necessary information; asks the user directly and stops.
                 {{/if}}
                 {{#if terminalTasks}}
-                - Use createOrReplaceTaskList(String explanation, List<TaskListEntry> tasks) to replace the entire task list when the request involves code changes. Titles are summarized automatically from task text; pass task texts only. Completed tasks from the previous list are implicitly dropped. Produce a clear, minimal, incremental, and testable sequence of tasks that a Code Agent can execute, once you understand where all the necessary pieces live.
+                - createOrReplaceTaskList(String explanation, List<TaskListEntry> tasks): replace the entire task list when the request involves code changes. Titles are summarized automatically from task text; pass task texts only. Completed tasks from the previous list are implicitly dropped. Produce a clear, minimal, incremental, and testable sequence of tasks that a Code Agent can execute, once you understand where all the necessary pieces live.
                   Guidance:
                     - Each task must be self-contained; the Code Agent will not have access to your instructions or conversation history.
                     - It is CRITICAL to keep the project buildable and testable after each task; in the VERY RARE case where breaking the build
                       temporarily is necessary, YOU MUST BE EXPLICIT about this to avoid confusing the Code Agent.
                 {{/if}}
                 {{#if terminalWorkspace}}
-                - Use workspaceComplete() when the Workspace contains all the information necessary to accomplish the goal.
+                - workspaceComplete(): when the Workspace contains all the information necessary to accomplish the goal.
                 {{/if}}
                 {{#if terminalCode}}
-                - Use callCodeAgent(String instructions, boolean deferBuild) to attempt implementation now in a single shot. If it succeeds, we finish; otherwise, continue with search/planning. Only use this when the goal is small enough to not need decomposition into a task list, and after you have added all the necessary context to the Workspace.
+                - callCodeAgent(String instructions, boolean deferBuild): the task is simple enough to attempt implementation now in a single shot without creating a formal task list.
                 {{/if}}
-                - If we cannot find the answer or the request is out of scope for this codebase, use abortSearch with a clear explanation.
-                {{/if}}
+                - abortSearch(String explanation): the answer cannot be found or the request is out of scope for this codebase. Provide a clear explanation of your decision.
 
+                {{#unless finalTurnOnly~}}
                 You CAN call multiple non-terminal tools in a single turn, and you SHOULD whenever you can
                 usefully do so.
 
                 Terminal actions ({{#if terminalAnswer}}answer, {{/if}}{{#if terminalTasks}}createOrReplaceTaskList, {{/if}}{{#if terminalWorkspace}}workspaceComplete, {{/if}}{{#if terminalCode}}callCodeAgent, {{/if}}{{#if terminalIssue}}describeIssue, {{/if}}abortSearch)
                 must be the ONLY tool in a turn, other than final cleanup via dropWorkspaceFragments.
                 If you include a terminal together with other tools, the terminal will be ignored for this turn.
+                {{~/unless}}
 
                 Remember: it is NOT your objective to write code.
 
+                {{#unless specialTooling~}}
                 {{#if warning~}}
                 {{warning}}
                 {{~/if}}
+                {{~/unless}}
                 </tool-instructions>
+
+                {{#if specialTooling~}}
+                When a special-turn tool whitelist is provided, it is strict and overrides everything else.
+                You must only select from the specified tools.
+                <special-turn-tools turn_type="{{specialTooling.turnType}}">
+                  {{join specialTooling.allowedTools ", "}}
+                </special-turn-tools>
+                {{~/if}}
 
                 {{#unless isIssueDiagnosis~}}
                 <markdown-reminder>
@@ -486,7 +508,8 @@ public class SearchPrompts {
             List<ChatMessage> sessionMessages,
             Map<ProjectFile, String> relatedSymbols,
             ai.brokk.agents.SearchAgent.DropMode dropMode,
-            int turnsLeftAfterThisTurn) {
+            int turnsLeftAfterThisTurn,
+            @Nullable SpecialTurnTooling specialTooling) {
 
         var cm = context.getContextManager();
 
@@ -578,7 +601,70 @@ public class SearchPrompts {
                 terminals.contains(Terminal.TASK_LIST),
                 terminals.contains(Terminal.WORKSPACE),
                 terminals.contains(Terminal.CODE),
-                terminals.contains(Terminal.DESCRIBE_ISSUE));
+                terminals.contains(Terminal.DESCRIBE_ISSUE),
+                turnsLeftAfterThisTurn == 0,
+                specialTooling);
+
+        String directive;
+        try {
+            directive = DIRECTIVE_TEMPLATE.apply(data);
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+
+        messages.add(new UserMessage(directive));
+        return messages;
+    }
+
+    public List<ChatMessage> buildPromptWorkspaceOnly(
+            Context context,
+            StreamingChatModel model,
+            String goal,
+            SearchPrompts.Objective objective,
+            List<McpPrompts.McpTool> mcpTools,
+            ai.brokk.agents.SearchAgent.DropMode dropMode,
+            int turnsLeftAfterThisTurn,
+            SpecialTurnTooling specialTooling) {
+
+        var cm = context.getContextManager();
+
+        boolean useTaskList = objective == Objective.LUTZ || objective == Objective.TASKS_ONLY;
+        var suppressed = useTaskList ? EnumSet.noneOf(SpecialTextType.class) : EnumSet.of(SpecialTextType.TASK_LIST);
+
+        var workspaceMessages = WorkspacePrompts.getMessagesInAddedOrder(context, suppressed);
+
+        var messages = new ArrayList<ChatMessage>();
+        messages.add(searchSystemPrompt(context, objective));
+
+        var mcpToolPrompt = McpPrompts.mcpToolPrompt(mcpTools);
+        if (mcpToolPrompt != null) {
+            messages.add(new SystemMessage(mcpToolPrompt));
+        }
+
+        messages.addAll(workspaceMessages);
+
+        boolean needsBuildSetup = (objective == Objective.LUTZ || objective == Objective.TASKS_ONLY)
+                && cm.getProject().awaitBuildDetails().equals(BuildAgent.BuildDetails.EMPTY);
+
+        var terminals = objective.terminals();
+        var data = new DirectiveData(
+                goal,
+                objective.tag(),
+                objective.taskInstructions().strip(),
+                cm.getProject().isEmptyProject(),
+                needsBuildSetup,
+                "",
+                turnsLeftAfterThisTurn,
+                WorkspacePrompts.formatToc(context, suppressed),
+                objective == Objective.WORKSPACE_ONLY,
+                objective == Objective.ISSUE_DESCRIPTION,
+                terminals.contains(Terminal.ANSWER),
+                terminals.contains(Terminal.TASK_LIST),
+                terminals.contains(Terminal.WORKSPACE),
+                terminals.contains(Terminal.CODE),
+                terminals.contains(Terminal.DESCRIBE_ISSUE),
+                turnsLeftAfterThisTurn == 0,
+                specialTooling);
 
         String directive;
         try {
