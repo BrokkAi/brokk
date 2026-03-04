@@ -23,6 +23,7 @@ import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitRepoFactory;
+import ai.brokk.git.GitWorkflow;
 import ai.brokk.metrics.SearchMetrics;
 import ai.brokk.project.AbstractProject;
 import ai.brokk.project.MainProject;
@@ -173,6 +174,13 @@ public final class BprCli implements Callable<Integer> {
     private @Nullable String deepScanGoal;
 
     @CommandLine.Option(
+            names = "--commit",
+            arity = "0..1",
+            fallbackValue = "",
+            description = "Commit current workspace changes with optional message.")
+    private @Nullable String commitMessage;
+
+    @CommandLine.Option(
             names = "--search-workspace",
             description =
                     "Run Search agent in benchmark mode to find relevant context for the given query. Outputs JSON report to stdout.")
@@ -273,6 +281,7 @@ public final class BprCli implements Callable<Integer> {
 
         // --- Action Validation ---
         boolean deepScan = deepScanGoal != null;
+        boolean commitAction = commitMessage != null;
 
         long nonDeepScanActionCount = Stream.of(
                         architectPrompt,
@@ -285,10 +294,11 @@ public final class BprCli implements Callable<Integer> {
                 .count();
         if (merge) nonDeepScanActionCount++;
         if (build) nonDeepScanActionCount++;
+        if (commitAction) nonDeepScanActionCount++;
 
         if (nonDeepScanActionCount > 1) {
             System.err.println(
-                    "At most one action (--architect, --infer-context, --code, --search-answer, --lutz, --merge, --build, --search-workspace) can be specified.");
+                    "At most one action (--architect, --infer-context, --code, --search-answer, --lutz, --merge, --build, --search-workspace, --commit) can be specified.");
             return 1;
         }
         if (deepScan && nonDeepScanActionCount > 0) {
@@ -300,7 +310,7 @@ public final class BprCli implements Callable<Integer> {
         long actionCount = nonDeepScanActionCount + (deepScan ? 1 : 0);
         if (actionCount == 0 && worktreePath == null) {
             System.err.println(
-                    "At least one action (--architect, --infer-context, --code, --search-answer, --lutz, --merge, --build, --search-workspace, --deep-scan) or --worktree is required.");
+                    "At least one action (--architect, --infer-context, --code, --search-answer, --lutz, --merge, --build, --search-workspace, --deep-scan, --commit) or --worktree is required.");
             return 1;
         }
 
@@ -488,6 +498,36 @@ public final class BprCli implements Callable<Integer> {
             }
 
             return success ? 0 : 1;
+        }
+
+        // --- Commit Action ---
+        if (commitAction) {
+            if (!project.hasGit()) {
+                System.err.println("Error: --commit requires a git repository.");
+                return 1;
+            }
+
+            var repo = (GitRepo) project.getRepo();
+            var modified = repo.getModifiedFiles();
+
+            if (modified.isEmpty()) {
+                System.out.println("No changes to commit.");
+                return 0;
+            }
+
+            var filesToCommit =
+                    modified.stream().map(GitRepo.ModifiedFile::file).toList();
+            var gitWorkflow = new GitWorkflow(cm);
+
+            String message = commitMessage;
+            if (message == null || message.isBlank()) {
+                message = gitWorkflow.suggestCommitMessage(filesToCommit, true).orElse("Manual commit");
+            }
+
+            var commitResult = gitWorkflow.commit(filesToCommit, message);
+            System.out.println(
+                    "Committed " + repo.shortHash(commitResult.commitId()) + ": " + commitResult.firstLine());
+            return 0;
         }
 
         // --- Name Resolution and Context Building ---
