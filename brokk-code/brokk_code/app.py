@@ -1021,11 +1021,17 @@ class BrokkApp(App):
                 # SSE, so bumping session_total_cost with max() and then processing
                 # those same events again inflates the displayed cost.
                 remote_total = context_data.get("totalCost")
+                current_sid = self.executor.session_id
                 if isinstance(remote_total, (int, float)) and not self.job_in_progress:
-                    self.session_total_cost = max(
-                        self.session_total_cost, round(float(remote_total), 6)
-                    )
-                    self.session_total_cost_id = self.executor.session_id
+                    remote_val = round(float(remote_total), 6)
+                    if current_sid != self.session_total_cost_id:
+                        # Session switch detected: overwrite without monotonic guard
+                        # so that cost can legitimately decrease to the new session's level.
+                        self.session_total_cost = remote_val
+                        self.session_total_cost_id = current_sid
+                    else:
+                        # Same session: use max() to guard against out-of-order events.
+                        self.session_total_cost = max(self.session_total_cost, remote_val)
 
                 # UI updates are best-effort if screen is not on stack
                 try:
@@ -2623,6 +2629,14 @@ class BrokkApp(App):
             chat.add_system_message(f"Switching to session {session_id}...")
             # Set job running to block input UI during switch
             chat.set_job_running(True)
+
+            # Reset accumulators immediately so UI doesn't show previous session's
+            # stale costs during the switch transition. _refresh_context_panel
+            # will re-seed session_total_cost from executor context shortly.
+            self.current_job_cost = 0.0
+            self.session_total_cost = 0.0
+            # We don't update session_total_cost_id here; we let _refresh_context_panel
+            # detect the mismatch between the new executor.session_id and the old ID.
 
             await self.executor.switch_session(session_id)
             save_last_session_id(self.executor.workspace_dir, session_id)
