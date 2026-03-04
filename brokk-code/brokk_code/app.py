@@ -718,10 +718,12 @@ class BrokkApp(App):
         self._reasoning_target: str = "planner"
 
         # Accumulators for LLM usage costs (USD).
-        # current_job_cost resets at the start of each new job submission.
-        # session_total_cost accumulates for the lifetime of the App instance.
+        # current_job_cost is per-job and resets at the start of each _run_job.
         self.current_job_cost: float = 0.0
+        # session_total_cost is the cumulative cost for the active session.
         self.session_total_cost: float = 0.0
+        # The session ID for which session_total_cost was last reconciled/updated.
+        self.session_total_cost_id: Optional[str] = None
 
         self._tasklist_restore_focus_widget: Any | None = None
 
@@ -1023,6 +1025,7 @@ class BrokkApp(App):
                     self.session_total_cost = max(
                         self.session_total_cost, round(float(remote_total), 6)
                     )
+                    self.session_total_cost_id = self.executor.session_id
 
                 # UI updates are best-effort if screen is not on stack
                 try:
@@ -1663,6 +1666,7 @@ class BrokkApp(App):
         if self._executor_ready and self.executor.session_id:
             self.run_worker(self._maybe_rename_session(task_input))
 
+        # Reset per-job cost accumulator
         self.current_job_cost = 0.0
         self.job_in_progress = True
         chat = self._maybe_chat()
