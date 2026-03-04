@@ -55,6 +55,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
@@ -152,6 +154,7 @@ public class SearchAgent {
     private static final int MAX_OVERFLOW_NOTE_FRAGMENT_DETAILS = 25;
 
     private int consecutiveStagnantTurns = 0;
+    private final AtomicBoolean finalTurnRequestedByClassifier = new AtomicBoolean(false);
 
     /**
      * Tracks the fragment IDs present immediately after the most recent successful dropWorkspaceFragments call.
@@ -340,6 +343,13 @@ public class SearchAgent {
         DropMode dropMode = calculateDropMode(currentState.context());
 
         for (int turn = 0; turn < MAX_TOTAL_TURNS || (pendingTerminal != null && turn < MAX_TOTAL_TURNS + 1); ) {
+            if (pendingTerminal == null
+                && dropMode != DropMode.DROP_ONLY
+                && turn < MAX_TOTAL_TURNS - 1
+                && finalTurnRequestedByClassifier.get()) {
+                turn = MAX_TOTAL_TURNS - 1;
+            }
+
             SearchState stateAtTurnStart = currentState;
 
             if (pendingTerminal != null) {
@@ -863,6 +873,9 @@ public class SearchAgent {
                 break;
             }
 
+            String modelResponse = ai.reasoningContent() + "\n\n" + ai.text();
+            agent.startWorkspaceCompleteClassification(modelResponse);
+
             DropMode effectiveDropMode = (pendingTerminal == null && isFinalTurn()) ? DropMode.NORMAL : dropMode;
 
             if (pendingTerminal != null) {
@@ -1026,13 +1039,6 @@ public class SearchAgent {
                     return new TurnOutcome.PendingTerminal(context, List.copyOf(sessionMessages), pending);
                 }
                 return new TurnOutcome.Final(agent.finalizePendingTerminal(pending, context));
-            }
-
-            String modelResponse = ai.reasoningContent() + "\n\n" + ai.text();
-            if (!isFinalTurn()
-                    && terminalRequest == null
-                    && RelevanceClassifier.isRelevant(agent.scanLlm, READY_FOR_FINAL_TURN_FILTER, modelResponse)) {
-                return new TurnOutcome.ForceFinalTurn(context, List.copyOf(sessionMessages));
             }
 
             Set<ProjectFile> filesAfterSet = agent.workspaceFiles(context);
@@ -1646,6 +1652,18 @@ public class SearchAgent {
     private static double sqrtTokenWeight(ContextFragment fragment) {
         int tokens = Messages.getApproximateTokens(fragment.text().join());
         return Math.sqrt(Math.max(0, tokens));
+    }
+
+    private void startWorkspaceCompleteClassification(String modelResponse) {
+        CompletableFuture.runAsync(() -> {
+            try {
+                if (RelevanceClassifier.isRelevant(scanLlm, READY_FOR_FINAL_TURN_FILTER, modelResponse)) {
+                    finalTurnRequestedByClassifier.compareAndSet(false, true);
+                }
+            } catch (InterruptedException e) {
+                throw new AssertionError();
+            }
+        });
     }
 
     private record PendingTerminal(ToolExecutionResult terminalExecution) {
