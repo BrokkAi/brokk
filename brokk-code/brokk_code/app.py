@@ -1944,6 +1944,7 @@ class BrokkApp(App):
             {"command": "/history-clear", "description": "Clear prompt history"},
             {"command": "/task", "description": "Open/close the task list"},
             {"command": "/sessions", "description": "List and switch between sessions"},
+            {"command": "/commit", "description": "Commit current changes"},
             {"command": "/info", "description": "Show current configuration and status"},
             {"command": "/help", "description": "Show help message"},
             {"command": "/quit", "description": "Exit the application"},
@@ -2087,6 +2088,18 @@ class BrokkApp(App):
                 )
                 return
             self.action_toggle_tasklist()
+        elif base == "/commit":
+            if not self._executor_ready:
+                chat.add_system_message(
+                    "Executor is not ready. Cannot commit changes.",
+                    level="ERROR",
+                )
+                return
+            # Extract optional message from remaining args
+            commit_message: Optional[str] = None
+            if len(parts) > 1:
+                commit_message = " ".join(parts[1:])
+            self.run_worker(self._commit_changes(commit_message))
         elif base == "/sessions":
             self.run_worker(self._show_sessions())
         elif base == "/help":
@@ -2453,6 +2466,37 @@ class BrokkApp(App):
         except Exception:
             # exit() may raise in some test harnesses; ignore to avoid double-shutdown.
             pass
+
+    async def _commit_changes(self, message: Optional[str] = None) -> None:
+        """Async worker to commit current changes."""
+        chat = self._maybe_chat()
+        if not chat:
+            return
+
+        try:
+            result = await self.executor.commit_context(message)
+
+            if result.get("status") == "no_changes":
+                chat.add_system_message("No uncommitted changes to commit.")
+                return
+
+            commit_id = result.get("commitId", "")
+            first_line = result.get("firstLine", "")
+
+            # Show short hash (first 7 chars) if available
+            short_hash = commit_id[:7] if commit_id else ""
+            if short_hash and first_line:
+                chat.add_system_message_markup(f"Committed [bold]{short_hash}[/]: {first_line}")
+            elif short_hash:
+                chat.add_system_message_markup(f"Committed [bold]{short_hash}[/]")
+            else:
+                chat.add_system_message("Changes committed successfully.")
+
+            # Refresh context to update any UI state
+            await self._refresh_context_panel()
+        except Exception as e:
+            logger.exception("Commit failed")
+            chat.add_system_message(f"Commit failed: {e}", level="ERROR")
 
     async def _show_sessions(self) -> None:
         chat = self._maybe_chat()
