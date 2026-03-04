@@ -13,6 +13,49 @@ import org.junit.jupiter.params.provider.CsvSource;
 class ScrollCoordinateCalculatorTest {
 
     @Nested
+    @DisplayName("Text Area Coordinate Range Calculation")
+    class TextAreaCoordinateRange {
+
+        @ParameterizedTest
+        @CsvSource({
+            "0, 100, 400, 200, 0, 0, 100, 300", // Zero viewport position
+            "0, 0, 400, 200, 0, 150, 150, 350", // Normal scroll
+            "0, 50, 400, 100, 0, -20, 30, 130" // Negative viewport position
+        })
+        @DisplayName("Various coordinate range scenarios")
+        void variousCoordinateRangeScenarios(
+                int clipX, int clipY, int clipW, int clipH, int viewX, int viewY, int expectedStart, int expectedEnd) {
+            var clipBounds = new Rectangle(clipX, clipY, clipW, clipH);
+            var viewPosition = new Point(viewX, viewY);
+
+            var range = ScrollCoordinateCalculator.calculateTextAreaCoordinateRange(clipBounds, viewPosition);
+
+            assertEquals(expectedStart, range.x, "startY");
+            assertEquals(expectedEnd, range.y, "endY");
+        }
+    }
+
+    @Nested
+    @DisplayName("Coordinate Conversion")
+    class CoordinateConversion {
+
+        @ParameterizedTest
+        @CsvSource({
+            "200, 0, 200", // Zero viewport
+            "200, 100, 100", // Normal scroll
+            "50, -30, 80" // Negative viewport position
+        })
+        @DisplayName("Text area to row header coordinate conversion")
+        void textAreaToRowHeaderConversion(int textAreaY, int viewportY, int expected) {
+            var viewPosition = new Point(0, viewportY);
+
+            int result = ScrollCoordinateCalculator.convertToRowHeaderCoordinate(textAreaY, viewPosition);
+
+            assertEquals(expected, result);
+        }
+    }
+
+    @Nested
     @DisplayName("Line Visibility Checks")
     class LineVisibilityChecks {
 
@@ -185,6 +228,39 @@ class ScrollCoordinateCalculatorTest {
             int inverted = ScrollCoordinateCalculator.calculateCenteredViewportY(500, 100, 200, 800);
             assertEquals(normal, inverted, "Inverted range should produce identical result to non-inverted");
             assertEquals(200, normal);
+        }
+    }
+
+    @Nested
+    @DisplayName("Visible Line Range")
+    class VisibleLineRange {
+
+        @ParameterizedTest
+        @CsvSource({
+            "10, 20, true, 11", // Normal range
+            "-1, 20, false, 0", // Negative start
+            "20, 10, false, 0", // End before start
+            "5, 5, true, 1", // Single line
+            "0, -1, false, 0" // End negative
+        })
+        @DisplayName("Validity and line count")
+        void validityAndLineCount(int startLine, int endLine, boolean expectedValid, int expectedCount) {
+            var range = ScrollCoordinateCalculator.createVisibleLineRange(startLine, endLine);
+
+            assertEquals(expectedValid, range.isValid());
+            assertEquals(expectedCount, range.getLineCount());
+        }
+
+        @Test
+        @DisplayName("toString contains start, end, count, and validity")
+        void toStringContainsExpectedValues() {
+            var range = ScrollCoordinateCalculator.createVisibleLineRange(10, 20);
+
+            var str = range.toString();
+            assertTrue(str.contains("10"), "should contain start line");
+            assertTrue(str.contains("20"), "should contain end line");
+            assertTrue(str.contains("11"), "should contain line count");
+            assertTrue(str.contains("true"), "should contain validity");
         }
     }
 }
