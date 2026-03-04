@@ -374,6 +374,95 @@ class ModeSelectModal(ModalScreen[str]):
             self.dismiss(mode)
 
 
+class SessionCostsModalScreen(ModalScreen[None]):
+    """Modal showing per-session cost line items and aggregates."""
+
+    BINDINGS = [
+        Binding("escape", "dismiss", "Close", show=False),
+        Binding("q", "dismiss", "Close", show=False),
+        Binding("enter", "dismiss", "Close", show=False),
+    ]
+
+    def __init__(self, cost_data: Dict[str, Any]) -> None:
+        super().__init__()
+        self.cost_data = cost_data
+
+    def compose(self) -> ComposeResult:
+        events = self.cost_data.get("events", [])
+        total_cost = self.cost_data.get("totalCost", 0.0)
+
+        with Vertical(id="session-costs-container"):
+            yield Static("Session Cost Breakdown", id="session-costs-title")
+
+            if not events:
+                with VerticalScroll(id="session-costs-list-wrap"):
+                    yield Static(
+                        "No cost data available for this session.", id="session-costs-empty"
+                    )
+            else:
+                with VerticalScroll(id="session-costs-list-wrap"):
+                    items = []
+                    # Aggregates by (model, tier)
+                    aggregates: Dict[tuple[str, str], float] = {}
+
+                    for event in events:
+                        ts = event.get("timestampMillis", 0)
+                        dt = datetime.fromtimestamp(ts / 1000).strftime("%Y-%m-%d %H:%M")
+                        label = event.get("operationLabel") or "Internal"
+                        op_type = event.get("operationType") or "OTHER"
+                        model = event.get("modelName", "unknown")
+                        tier = event.get("tier", "default")
+                        cost = event.get("costUsd", 0.0)
+
+                        in_t = event.get("inputTokens", 0)
+                        cache_t = event.get("cachedInputTokens", 0)
+                        think_t = event.get("thinkingTokens", 0)
+                        out_t = event.get("outputTokens", 0)
+
+                        token_str = f"in={in_t}"
+                        if cache_t:
+                            token_str += f", cached={cache_t}"
+                        if think_t:
+                            token_str += f", think={think_t}"
+                        token_str += f", out={out_t}"
+
+                        row_text = f"{dt} | {op_type:<9} | {model} ({tier})\n"
+                        row_text += f"  {label[:60]}\n"
+                        row_text += f"  {token_str} | [bold green]${cost:.4f}[/]"
+
+                        items.append(ListItem(Static(row_text, markup=True)))
+
+                        key = (model, tier)
+                        aggregates[key] = aggregates.get(key, 0.0) + cost
+
+                    yield ListView(*items, id="session-costs-list")
+
+            # Summary Section
+            with Vertical(id="session-costs-summary"):
+                if events:
+                    summary_lines = ["[bold]Aggregates by Model:[/]\n"]
+                    for (model, tier), agg_cost in sorted(aggregates.items()):
+                        summary_lines.append(f"  {model} ({tier}): ${agg_cost:.4f}")
+                    yield Static("\n".join(summary_lines), id="session-costs-aggregates")
+
+                yield Static(
+                    f"[bold]Total Session Cost: ${total_cost:.4f}[/]", id="session-costs-total"
+                )
+
+            with Horizontal(id="session-costs-actions"):
+                yield Button("Close", id="session-costs-close", variant="primary")
+
+    def on_mount(self) -> None:
+        if self.query(ListView):
+            self.query_one(ListView).focus()
+        else:
+            self.query_one("#session-costs-close").focus()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "session-costs-close":
+            self.dismiss()
+
+
 class SessionSelectModal(ModalScreen[str]):
     """A modal for selecting and switching between sessions."""
 
@@ -1917,6 +2006,7 @@ class BrokkApp(App):
         """Returns the structured catalog of supported slash commands."""
         return [
             {"command": "/api-key", "description": "Update your Brokk API key"},
+            {"command": "/costs", "description": "Show session cost breakdown"},
             {"command": "/login-openai", "description": "Connect your OpenAI ChatGPT subscription"},
             {"command": "/context", "description": "Toggle and focus context panel"},
             {"command": "/code", "description": "Set mode to CODE (direct implementation)"},
@@ -2108,6 +2198,13 @@ class BrokkApp(App):
             self.action_toggle_tasklist()
         elif base == "/sessions":
             self.run_worker(self._show_sessions())
+        elif base == "/costs":
+            if not self._executor_ready:
+                chat.add_system_message(
+                    "Executor is not ready. Cannot fetch costs.", level="WARNING"
+                )
+                return
+            self.run_worker(self._show_costs())
         elif base == "/help":
             commands = self.get_slash_commands()
             # Calculate padding based on longest command
@@ -2483,6 +2580,16 @@ class BrokkApp(App):
         except Exception:
             # exit() may raise in some test harnesses; ignore to avoid double-shutdown.
             pass
+
+    async def _show_costs(self) -> None:
+        chat = self._maybe_chat()
+        try:
+            cost_data = await self.executor.get_session_costs()
+            self.push_screen(SessionCostsModalScreen(cost_data))
+        except Exception as e:
+            logger.exception("Failed to fetch session costs")
+            if chat:
+                chat.add_system_message(f"Failed to fetch session costs: {e}", level="ERROR")
 
     async def _show_sessions(self) -> None:
         chat = self._maybe_chat()

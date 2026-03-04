@@ -721,6 +721,19 @@ class ExecutorManager:
             f"Failed GET {endpoint} (status={status_str}): {type(e).__name__}: {e}"
         ) from e
 
+    async def get_session_costs(self) -> Dict[str, Any]:
+        """Returns the current session's cost breakdown from the ledger."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+
+        try:
+            resp = await self._http_client.get("/v1/session/costs")
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            await self._handle_http_error(e, "/v1/session/costs")
+            raise  # Should not be reached
+
     async def get_context(self) -> Dict[str, Any]:
         """Returns the current session context, including tokens and totalCost."""
         if not self._http_client:
