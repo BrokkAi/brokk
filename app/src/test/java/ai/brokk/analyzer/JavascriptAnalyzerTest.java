@@ -554,6 +554,12 @@ public final class JavascriptAnalyzerTest {
         assertTrue(
                 constNames.contains("Vars.js.TOP_CONST_JS"), "Should find 'TOP_CONST_JS' with constant regex pattern");
 
+        // Test multi-assignment
+        var multiRegex = jsAnalyzer.searchDefinitions("multi");
+        var multiNames = multiRegex.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
+        assertTrue(multiNames.contains("Vars.js.multiA"), "Should find 'multiA'");
+        assertTrue(multiNames.contains("Vars.js.multiB"), "Should find 'multiB'");
+
         // Test exact class name matching
         var exactHello = jsAnalyzer.searchDefinitions("Hello");
         var exactHelloNames = exactHello.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
@@ -709,6 +715,28 @@ public final class JavascriptAnalyzerTest {
             assertTrue(
                     definitionsByShortName.contains(moduleCu),
                     "getDefinitions(shortName) should include the module CU");
+        }
+    }
+
+    @Test
+    public void testMultiAssignmentFieldSignatures() throws Exception {
+        try (var testProject = InlineTestProjectCreator.code(
+                        "export const a = 1, b = 2;\nlet x = 'one', y = 'two';", "multi.js")
+                .build()) {
+
+            var analyzer = new JavascriptAnalyzer(testProject);
+            var file = new ProjectFile(testProject.getRoot(), "multi.js");
+            var skeletons = analyzer.getSkeletons(file);
+
+            CodeUnit cuA = CodeUnit.field(file, "", "multi.js.a");
+            CodeUnit cuB = CodeUnit.field(file, "", "multi.js.b");
+            CodeUnit cuX = CodeUnit.field(file, "", "multi.js.x");
+            CodeUnit cuY = CodeUnit.field(file, "", "multi.js.y");
+
+            assertEquals("export const a = 1", skeletons.get(cuA).trim());
+            assertEquals("export const b = 2", skeletons.get(cuB).trim());
+            assertEquals("let x = 'one'", skeletons.get(cuX).trim());
+            assertEquals("let y = 'two'", skeletons.get(cuY).trim());
         }
     }
 
