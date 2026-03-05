@@ -711,9 +711,6 @@ class BrokkApp(App):
         self._executor_ready: bool = False
         self._refresh_context_lock = asyncio.Lock()
         self._reported_refresh_errors: set[str] = set()
-        self._renamed_sessions: set[str] = set()
-        self._auto_rename_eligible_sessions: set[str] = set()
-        self._rename_session_lock = asyncio.Lock()
         self._session_switch_lock = asyncio.Lock()
         self._reasoning_target: str = "planner"
 
@@ -898,9 +895,7 @@ class BrokkApp(App):
                         logger.warning("Failed to resume session %s: %s", session_to_resume, e)
 
             if not resumed:
-                sid = await self.executor.create_session()
-                if sid:
-                    self._auto_rename_eligible_sessions.add(sid)
+                await self.executor.create_session()
 
             if self.executor.session_id:
                 save_last_session_id(self.executor.workspace_dir, self.executor.session_id)
@@ -1621,58 +1616,6 @@ class BrokkApp(App):
             logger.exception("OpenAI OAuth login failed")
             chat.add_system_message(f"Failed to start OpenAI login: {e}", level="ERROR")
 
-    def _derive_session_name(self, text: str) -> str:
-        """Derives a session name from the prompt text.
-        Mirroring SessionManager.deriveSessionName logic.
-        """
-        # Strip leading mentions and common command-like prefixes
-        cleaned = re.sub(
-            r"^(?:@\S+\s+|/ask\s+|/lutz\s+|/code\s+)+", "", text, flags=re.IGNORECASE
-        ).strip()
-
-        # Take first line
-        first_line = cleaned.split("\n")[0].strip()
-
-        if len(first_line) > 60:
-            return first_line[:57].strip() + "..."
-        return first_line
-
-    async def _maybe_rename_session(self, first_prompt: str) -> None:
-        """Asynchronously renames the session if it's new/unnamed."""
-        session_id = self.executor.session_id
-        if not session_id or session_id not in self._auto_rename_eligible_sessions:
-            return
-
-        async with self._rename_session_lock:
-            if session_id in self._renamed_sessions:
-                return
-
-            # Check if the session name is generic before renaming
-            try:
-                sessions_data = await self.executor.list_sessions()
-                current_id = sessions_data.get("currentSessionId")
-                sessions = sessions_data.get("sessions", [])
-
-                # Find current session and check if it's using the default name
-                current_session = next((s for s in sessions if s.get("id") == current_id), None)
-                if not current_session or current_session.get("name") != "TUI Session":
-                    # Already named or not found; mark as "renamed" to skip further checks
-                    self._renamed_sessions.add(session_id)
-                    return
-
-                new_name = self._derive_session_name(first_prompt)
-                if not new_name:
-                    return
-
-                await self.executor.rename_session(session_id, new_name)
-                self._renamed_sessions.add(session_id)
-
-                chat = self._maybe_chat()
-                if chat:
-                    chat.add_system_message(f"Session renamed to: {new_name}")
-            except Exception as e:
-                logger.warning("Failed to auto-rename session: %s", e)
-
     async def _run_job(self, task_input: str) -> None:
         # Reset per-job cost accumulator
         self.current_job_cost = 0.0
@@ -1767,14 +1710,6 @@ class BrokkApp(App):
 
     def _handle_event(self, event: Dict[str, Any]) -> None:
         event_type = event.get("type")
-        data = event.get("data", {})
-
-        # Check for auto-rename notifications from the server
-        if event_type == "NOTIFICATION" and data.get("level") == "INFO":
-            msg = data.get("message", "")
-            if "Session renamed to:" in msg:
-                # Synchronize internal state so we don't try to auto-rename again
-                self._renamed_sessions.add(self.executor.session_id)
         data = event.get("data", {})
         chat = self._maybe_chat()
 
@@ -2508,18 +2443,16 @@ class BrokkApp(App):
 
     async def _rename_session(self, session_id: str, new_name: str) -> bool:
         chat = self._maybe_chat()
-        async with self._rename_session_lock:
-            try:
-                await self.executor.rename_session(session_id, new_name)
-                self._renamed_sessions.add(session_id)
-                if chat:
-                    chat.add_system_message(f"Session renamed to: {new_name}")
-                await self._refresh_context_panel()
-                return True
-            except Exception as e:
-                if chat:
-                    chat.add_system_message(f"Failed to rename session: {e}", level="ERROR")
-                return False
+        try:
+            await self.executor.rename_session(session_id, new_name)
+            if chat:
+                chat.add_system_message(f"Session renamed to: {new_name}")
+            await self._refresh_context_panel()
+            return True
+        except Exception as e:
+            if chat:
+                chat.add_system_message(f"Failed to rename session: {e}", level="ERROR")
+            return False
 
     async def _create_session_from_menu(self) -> None:
         """Async worker to create a new session."""
@@ -2532,7 +2465,6 @@ class BrokkApp(App):
         try:
             chat.add_system_message("Creating new session...")
             session_id = await self.executor.create_session()
-            self._auto_rename_eligible_sessions.add(session_id)
             save_last_session_id(self.executor.workspace_dir, session_id)
 
             chat._message_history.clear()
