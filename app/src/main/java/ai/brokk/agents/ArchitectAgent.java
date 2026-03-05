@@ -18,6 +18,7 @@ import ai.brokk.context.Context;
 import ai.brokk.context.ContextDelta;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.SpecialTextType;
+import ai.brokk.exception.GlobalExceptionHandler;
 import ai.brokk.prompts.ArchitectPrompts;
 import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.prompts.WorkspacePrompts;
@@ -628,6 +629,13 @@ public class ArchitectAgent {
             tr = executeInternal();
         } catch (InterruptedException e) {
             tr = resultWithMessages(StopReason.INTERRUPTED);
+        } catch (Throwable th) {
+            // FIXME this should not be fucking necessary
+            GlobalExceptionHandler.handle(th, st -> io.showNotification(IConsoleIO.NotificationRole.ERROR, st));
+            logger.error("Unexpected exception in ArchitectAgent.execute()", th);
+            tr = resultWithMessages(
+                    StopReason.LLM_ERROR,
+                    "Architect execution failed: " + Objects.toString(th.getMessage(), "unknown error"));
         }
 
         if (!terminalCompletionReported) {
