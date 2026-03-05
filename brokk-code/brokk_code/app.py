@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, List, Optional
+from unittest.mock import Mock
 
 from textual.app import App, ComposeResult, ScreenStackError
 from textual.binding import Binding
@@ -385,6 +386,79 @@ class WorktreeSelectModal(ModalScreen[tuple[str, Optional[Path]]]):
         worktree = self._item_id_to_worktree.get(list_view.highlighted_child.id)
         if worktree:
             self.dismiss(("remove", worktree.path))
+
+
+class BranchSelectModal(ModalScreen[Optional[str]]):
+    """A modal for selecting a branch with search."""
+
+    BINDINGS = [
+        Binding("escape", "dismiss", "Cancel", show=False),
+    ]
+
+    def __init__(self, branches: List[str], default_branch: Optional[str]) -> None:
+        super().__init__()
+        self.branches = branches
+        self.default_branch = default_branch
+        self._item_id_to_branch: Dict[str, str] = {}
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="branch-select-container"):
+            yield Static("Select Base Branch", id="branch-select-title")
+            yield Input(
+                value="",
+                placeholder="Search branches...",
+                id="branch-select-search",
+            )
+            with VerticalScroll(id="branch-select-list-wrap"):
+                yield ListView(id="branch-select-list")
+            yield Static(
+                "Type to filter. Enter: Select  Esc: Cancel",
+                id="branch-select-footer",
+            )
+
+    def on_mount(self) -> None:
+        self._refresh_list("")
+        self.query_one("#branch-select-search", Input).focus()
+
+    def on_input_changed(self, event: Input.Changed) -> None:
+        if event.input.id != "branch-select-search":
+            return
+        self._refresh_list(event.value)
+
+    def on_list_view_selected(self, message: ListView.Selected) -> None:
+        if not message.item or not message.item.id:
+            return
+        branch = self._item_id_to_branch.get(message.item.id)
+        if branch:
+            self.dismiss(branch)
+
+    def _refresh_list(self, query: str) -> None:
+        q = query.strip().lower()
+        if not q:
+            filtered = self.branches
+        else:
+            filtered = [b for b in self.branches if q in b.lower()]
+
+        list_view = self.query_one("#branch-select-list", ListView)
+        list_view.clear()
+        self._item_id_to_branch.clear()
+
+        if not filtered:
+            list_view.append(
+                ListItem(Static("No matching branches", markup=False), id="branch-none")
+            )
+            return
+
+        for idx, branch in enumerate(filtered):
+            marker = "[x]" if branch == self.default_branch else "[ ]"
+            item_id = f"branch-{idx}"
+            self._item_id_to_branch[item_id] = branch
+            list_view.append(ListItem(Static(f"{marker} {branch}", markup=False), id=item_id))
+
+        if self.default_branch in filtered:
+            list_view.index = filtered.index(self.default_branch)
+        else:
+            list_view.index = 0
 
 
 class ModeSelectModal(ModalScreen[str]):
@@ -1017,10 +1091,11 @@ class BrokkApp(App):
     def _schedule(self, coroutine: Awaitable[Any], **kwargs: Any) -> Any:
         """Schedules a coroutine and handles un-awaited cleanup in tests."""
         result = self.run_worker(coroutine, **kwargs)
-        # If run_worker was mocked (common in tests), it might return the coroutine
-        # or a MagicMock instead of a Task/Worker. Close the coro to avoid RuntimeWarning.
-        if asyncio.iscoroutine(coroutine) and not isinstance(
-            result, (asyncio.Task, asyncio.Future)
+        # If run_worker is mocked in tests, it may return the coroutine itself
+        # (or None) instead of scheduling it, which can trigger RuntimeWarning.
+        # Do not close when run_worker returns Textual Worker instances.
+        if asyncio.iscoroutine(coroutine) and (
+            result is coroutine or result is None or isinstance(result, Mock)
         ):
             try:
                 coroutine.close()
@@ -2880,11 +2955,39 @@ class BrokkApp(App):
         def on_submit(name: Optional[str]) -> None:
             if not name or not name.strip():
                 return
-            self.run_worker(self._perform_worktree_add(name.strip()))
+            self.run_worker(self._select_worktree_base_branch(name.strip()))
 
         self.push_screen(TaskTitleModalScreen("Add Worktree (name or path)"), on_submit)
 
-    async def _perform_worktree_add(self, name: str) -> None:
+    async def _select_worktree_base_branch(self, name: str) -> None:
+        chat = self._maybe_chat()
+        if not self.worktree_service:
+            return
+
+        branches = await asyncio.to_thread(self.worktree_service.list_branches)
+        default_branch = await asyncio.to_thread(self.worktree_service.get_default_branch)
+
+        if default_branch and default_branch not in branches:
+            branches = [default_branch, *branches]
+        if not default_branch and branches:
+            default_branch = branches[0]
+
+        if not branches:
+            if chat:
+                chat.add_system_message(
+                    "No branches found; cannot create worktree.",
+                    level="ERROR",
+                )
+            return
+
+        def on_selected(base_branch: Optional[str]) -> None:
+            if not base_branch:
+                return
+            self.run_worker(self._perform_worktree_add(name, base_branch))
+
+        self.push_screen(BranchSelectModal(branches, default_branch), on_selected)
+
+    async def _perform_worktree_add(self, name: str, base_branch: str) -> None:
         chat = self._maybe_chat()
         if not self.worktree_service:
             return
@@ -2897,24 +3000,27 @@ class BrokkApp(App):
         repo_root = self.worktree_service.repo_root
         if is_explicit_path:
             target_path = Path(raw_input).expanduser().resolve()
-            branch = None
+            branch = target_path.name
         else:
             target_path = (repo_root.parent / raw_input).resolve()
             branch = raw_input
 
         if chat:
-            chat.add_system_message(f"Creating worktree at {target_path}...")
-
-        if branch is None:
-            success = await asyncio.to_thread(self.worktree_service.add_worktree, target_path)
-        else:
-            success = await asyncio.to_thread(
-                self.worktree_service.add_worktree, target_path, branch=branch
+            chat.add_system_message(
+                f"Creating worktree at {target_path} from {base_branch}..."
             )
+
+        success = await asyncio.to_thread(
+            self.worktree_service.add_worktree,
+            target_path,
+            branch=branch,
+            commitish=base_branch,
+        )
         if success:
             if chat:
                 chat.add_system_message(
-                    f"Worktree created: {target_path}. Use /worktree to switch when ready."
+                    f"Worktree created: {target_path} (branch {branch} from {base_branch}). "
+                    + "Use /worktree to switch when ready."
                 )
         elif chat:
             chat.add_system_message(f"Failed to create worktree at {target_path}", level="ERROR")

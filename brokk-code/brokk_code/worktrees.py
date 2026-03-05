@@ -76,6 +76,74 @@ class WorktreeService:
             logger.error("Failed to add worktree at %s: %s", path, e.stderr)
             return False
 
+    def list_branches(self) -> List[str]:
+        """Lists local and remote branch names."""
+        try:
+            result = subprocess.run(
+                ["git", "for-each-ref", "--format=%(refname:short)", "refs/heads", "refs/remotes"],
+                cwd=str(self.repo_root),
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+        except (subprocess.CalledProcessError, FileNotFoundError) as e:
+            logger.debug("Failed to list branches: %s", e)
+            return []
+
+        branches = []
+        for raw_line in result.stdout.splitlines():
+            branch = raw_line.strip()
+            if not branch:
+                continue
+            if branch.endswith("/HEAD"):
+                continue
+            branches.append(branch)
+
+        # Preserve order while de-duplicating.
+        return list(dict.fromkeys(branches))
+
+    def get_default_branch(self) -> Optional[str]:
+        """Resolves the repository default branch, if available."""
+        try:
+            result = subprocess.run(
+                ["git", "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"],
+                cwd=str(self.repo_root),
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            remote_head = result.stdout.strip()
+            if remote_head.startswith("origin/"):
+                return remote_head[len("origin/") :]
+            if remote_head:
+                return remote_head
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            pass
+
+        try:
+            result = subprocess.run(
+                ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+                cwd=str(self.repo_root),
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            current_branch = result.stdout.strip()
+            if current_branch and current_branch != "HEAD":
+                return current_branch
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            pass
+
+        branches = self.list_branches()
+        local_branches = [b for b in branches if "/" not in b]
+        if "main" in local_branches:
+            return "main"
+        if "master" in local_branches:
+            return "master"
+        if local_branches:
+            return local_branches[0]
+        return None
+
     def remove_worktree(self, path: Path, force: bool = False) -> bool:
         """Removes a worktree."""
         cmd = ["git", "worktree", "remove", str(path)]

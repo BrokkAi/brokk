@@ -1,4 +1,5 @@
 import asyncio
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -25,6 +26,8 @@ async def test_worktree_add_flow(tmp_path):
     app.worktree_service = MagicMock()
     app.worktree_service.repo_root = repo
     app.worktree_service.add_worktree = MagicMock(return_value=True)
+    app.worktree_service.list_branches = MagicMock(return_value=["main", "develop"])
+    app.worktree_service.get_default_branch = MagicMock(return_value="main")
 
     chat = MagicMock()
     app._maybe_chat = MagicMock(return_value=chat)
@@ -33,22 +36,27 @@ async def test_worktree_add_flow(tmp_path):
     # Trigger add workflow directly (selected from /worktree menu)
     app._worktree_add_workflow()
     assert app.push_screen.call_count == 1
-    callback = app.push_screen.call_args[0][1]
+    name_callback = app.push_screen.call_args[0][1]
 
-    # 2. Simulate user entering 'feature-x'
+    # 2. Simulate user entering 'feature-x' and selecting base branch 'main'
     with patch.object(app, "_switch_to_worktree", new_callable=AsyncMock) as mock_switch:
-        callback("feature-x")
+        name_callback("feature-x")
+        await asyncio.sleep(0.1)
+        branch_callback = app.push_screen.call_args_list[1][0][1]
+        branch_callback("main")
         # Give worker time to run
         await asyncio.sleep(0.1)
 
-        app.worktree_service.add_worktree.assert_called_once()
-        args = app.worktree_service.add_worktree.call_args[0]
-        assert "feature-x" in str(args[0])
+        app.worktree_service.add_worktree.assert_called_once_with(
+            Path(tmp_path / "feature-x"),
+            branch="feature-x",
+            commitish="main",
+        )
         mock_switch.assert_not_called()
 
 
 @pytest.mark.asyncio
-async def test_worktree_add_absolute_path_does_not_set_branch(tmp_path):
+async def test_worktree_add_absolute_path_uses_basename_branch(tmp_path):
     repo = tmp_path / "repo"
     repo.mkdir()
     target = (tmp_path / "custom-wt").resolve()
@@ -60,11 +68,13 @@ async def test_worktree_add_absolute_path_does_not_set_branch(tmp_path):
     app._maybe_chat = MagicMock(return_value=MagicMock())
 
     with patch.object(app, "_switch_to_worktree", new_callable=AsyncMock) as mock_switch:
-        await app._perform_worktree_add(str(target))
+        await app._perform_worktree_add(str(target), "main")
 
-        args, kwargs = app.worktree_service.add_worktree.call_args
-        assert args[0] == target
-        assert "branch" not in kwargs
+        app.worktree_service.add_worktree.assert_called_once_with(
+            target,
+            branch="custom-wt",
+            commitish="main",
+        )
         mock_switch.assert_not_called()
 
 
