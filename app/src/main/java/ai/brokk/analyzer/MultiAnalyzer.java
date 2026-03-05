@@ -370,10 +370,7 @@ public class MultiAnalyzer implements IAnalyzer, TypeAliasProvider, ImportAnalys
                         return delegate.getTestModules(groupFiles).stream();
                     }
                     // Fall back to default interface logic for files without a delegate
-                    return groupFiles.stream()
-                            .flatMap(f -> getTopLevelDeclarations(f).stream())
-                            .map(CodeUnit::packageName)
-                            .filter(s -> !s.isBlank());
+                    return IAnalyzer.super.getTestModules(groupFiles).stream();
                 })
                 .distinct()
                 .sorted()
