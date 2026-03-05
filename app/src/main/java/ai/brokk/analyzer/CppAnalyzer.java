@@ -998,7 +998,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
     }
 
     private @Nullable TSNode findFunctionDeclaratorRecursive(TSNode node) {
-        if (node == null || node.isNull()) {
+        if (node.isNull()) {
             return null;
         }
 

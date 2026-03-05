@@ -307,9 +307,6 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
                         if (!text.isEmpty()) {
                             modifiersBuilder.append(text).append(" ");
                         }
-                    } else if (CSharpTreeSitterNodeTypes.ATTRIBUTE_LIST.equals(childType)) {
-                        // Explicitly skip attribute lists by type
-                        continue;
                     }
                 }
 
