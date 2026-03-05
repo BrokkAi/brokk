@@ -38,6 +38,8 @@ public final class CSharpTreeSitterNodeTypes {
 
     public static final String IMPORT_DECLARATION = "using_directive";
 
+    public static final String ATTRIBUTE_LIST = "attribute_list";
+
     public static final String TEST_MARKER = "test_marker";
 
     private CSharpTreeSitterNodeTypes() {}

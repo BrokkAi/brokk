@@ -295,7 +295,25 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
         if (fieldDecl != null && varDecl != null && declarator != null) {
             TSNode typeNode = varDecl.getChildByFieldName("type");
             if (typeNode != null && !typeNode.isNull()) {
-                String modifiers = getPrefixText(fieldDecl, varDecl, sourceContent, Set.of("modifier"));
+                StringBuilder modifiersBuilder = new StringBuilder();
+                for (int i = 0; i < fieldDecl.getChildCount(); i++) {
+                    TSNode child = fieldDecl.getChild(i);
+                    if (child == null || child.isNull() || child.getEndByte() > varDecl.getStartByte()) {
+                        break;
+                    }
+                    String childType = child.getType();
+                    if ("modifier".equals(childType)) {
+                        String text = sourceContent.substringFrom(child).strip();
+                        if (!text.isEmpty()) {
+                            modifiersBuilder.append(text).append(" ");
+                        }
+                    } else if (CSharpTreeSitterNodeTypes.ATTRIBUTE_LIST.equals(childType)) {
+                        // Explicitly skip attribute lists by type
+                        continue;
+                    }
+                }
+
+                String modifiers = modifiersBuilder.toString();
                 String typeStr = sourceContent.substringFrom(typeNode).strip();
                 String declaratorStr = sourceContent.substringFrom(declarator).strip();
 
