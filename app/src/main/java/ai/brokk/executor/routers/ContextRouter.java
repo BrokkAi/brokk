@@ -32,8 +32,8 @@ import java.util.Objects;
 import java.util.Set;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 import org.jspecify.annotations.NullMarked;
-import org.jspecify.annotations.Nullable;
 
 /**
  * Router for /v1/context endpoints.
@@ -624,11 +624,9 @@ public final class ContextRouter implements SimpleHttpServer.CheckedHttpHandler 
 
     private record AddContextTextRequest(String text) {}
 
-    private record ReplaceTaskListRequest(
-            @org.jetbrains.annotations.Nullable String bigPicture,
-            @org.jetbrains.annotations.Nullable List<TaskList.TaskItem> tasks) {}
+    private record ReplaceTaskListRequest(@Nullable String bigPicture, @Nullable List<TaskList.TaskItem> tasks) {}
 
-    private record CommitRequest(@org.jetbrains.annotations.Nullable String message) {}
+    private record CommitRequest(@Nullable String message) {}
 
     private void handlePostContextCommit(HttpExchange exchange) throws IOException {
         if (!RouterUtil.ensureMethod(exchange, "POST")) return;
