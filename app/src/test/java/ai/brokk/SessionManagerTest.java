@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
@@ -12,6 +13,7 @@ import ai.brokk.context.ContextHistory;
 import ai.brokk.project.MainProject;
 import ai.brokk.testutil.NoOpConsoleIO;
 import ai.brokk.testutil.TestContextManager;
+import ai.brokk.util.HistoryIo;
 import ai.brokk.util.Messages;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.langchain4j.data.message.AiMessage;
@@ -30,6 +32,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
 import java.util.stream.Collectors;
 import javax.imageio.ImageIO;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
@@ -559,5 +562,63 @@ public class SessionManagerTest {
             String json = mapper.writeValueAsString(info);
             Files.writeString(manifestPath, json);
         }
+    }
+
+    @Test
+    void testQuarantineDoesNotRaceWithInFlightWrites() throws Exception {
+        MainProject project = new MainProject(tempDir);
+        var sessionManager = project.getSessionManager();
+        UUID sessionId = SessionManager.newSessionId();
+        Path zipPath = sessionManager.getSessionHistoryPath(sessionId);
+
+        // 1. Setup: Create a "partial" zip (zip exists but no manifest yet)
+        Files.createDirectories(zipPath.getParent());
+        var emptyHistory = new ContextHistory(new Context(mockContextManager));
+        HistoryIo.writeZip(emptyHistory, zipPath);
+
+        CountDownLatch writerStarted = new CountDownLatch(1);
+        CountDownLatch quarantineCanProceed = new CountDownLatch(1);
+
+        // 2. Queue a delayed manifest write on the session executor
+        var sessionInfo =
+                new SessionInfo(sessionId, "Race Test", System.currentTimeMillis(), System.currentTimeMillis());
+        sessionManager.getSessionExecutorByKey().submit(sessionId.toString(), () -> {
+            writerStarted.countDown();
+            try {
+                quarantineCanProceed.await();
+                sessionManager.writeSessionInfoToZip(zipPath, sessionInfo);
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+            return null;
+        });
+
+        writerStarted.await();
+
+        // 3. Invoke quarantine concurrently.
+        // On old code, this would see the zip, try to read manifest, fail, and quarantine it.
+        // On new code, this submits to the same key and waits, so it runs AFTER the manifest write.
+        var quarantineTask = LoggingFuture.supplyCallableAsync(() -> {
+            return sessionManager.quarantineUnreadableSessions(mockContextManager);
+        });
+
+        // Small sleep to ensure quarantine task is likely blocked on the executor key
+        Thread.sleep(100);
+        quarantineCanProceed.countDown();
+
+        var report = quarantineTask.get();
+
+        // 4. Assertions
+        assertFalse(
+                report.quarantinedSessionIds().contains(sessionId),
+                "Session should not have been quarantined because checks are serialized");
+        assertTrue(Files.exists(zipPath), "Session zip should still exist at original path");
+
+        var sessions = sessionManager.listSessions();
+        assertTrue(
+                sessions.stream().anyMatch(s -> s.id().equals(sessionId)),
+                "Session should be present in listed sessions");
+
+        project.close();
     }
 }

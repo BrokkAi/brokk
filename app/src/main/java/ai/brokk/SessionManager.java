@@ -390,50 +390,66 @@ public class SessionManager implements AutoCloseable {
      * <p>This runs synchronously; intended to be invoked from a background task.
      */
     public QuarantineReport quarantineUnreadableSessions(IContextManager contextManager) {
-        int moved = 0;
+        int movedCount = 0;
         var quarantinedIds = new HashSet<UUID>();
         var quarantinedNoUuid = new ArrayList<String>();
 
+        List<Path> zipFiles;
         try (var stream = Files.list(sessionsDir)) {
-            for (Path zipPath :
-                    stream.filter(p -> p.toString().endsWith(".zip")).toList()) {
-                var maybeUuid = parseUuidFromFilename(zipPath);
-                if (maybeUuid.isEmpty()) {
-                    // Non-UUID filenames are unreadable by definition.
-                    moveZipToUnreadable(zipPath);
-                    quarantinedNoUuid.add(zipPath.getFileName().toString());
-                    moved++;
-                    continue;
-                }
+            zipFiles = stream.filter(p -> p.toString().endsWith(".zip")).toList();
+        } catch (IOException e) {
+            logger.error("Error listing session zip files in {}: {}", sessionsDir, e.getMessage());
+            return new QuarantineReport(Set.of(), List.of(), 0);
+        }
 
-                var sessionId = maybeUuid.get();
+        for (Path zipPath : zipFiles) {
+            var maybeUuid = parseUuidFromFilename(zipPath);
+            if (maybeUuid.isEmpty()) {
+                // Non-UUID filenames are unreadable by definition.
+                moveZipToUnreadable(zipPath);
+                quarantinedNoUuid.add(zipPath.getFileName().toString());
+                movedCount++;
+                continue;
+            }
+
+            var sessionId = maybeUuid.get();
+            // Submit validation to the per-session executor to ensure we don't race with active writes.
+            var future = sessionExecutorByKey.submit(sessionId.toString(), () -> {
                 var info = readSessionInfoFromZip(zipPath);
                 if (info.isEmpty()) {
-                    moveSessionToUnreadable(sessionId);
-                    quarantinedIds.add(sessionId);
-                    moved++;
-                    continue;
+                    moveSessionToUnreadableSync(sessionId);
+                    return Optional.empty();
                 }
                 if (!isVersionSupported(info.get().version())) {
-                    continue;
+                    return Optional.of(info.get());
                 }
 
                 // Exercise migrations and quarantine if history read fails.
                 try {
                     loadHistoryOrQuarantine(sessionId, contextManager);
                 } catch (Exception e) {
-                    quarantinedIds.add(sessionId);
-                    moved++;
-                    continue;
+                    // quarantine happened inside loadHistoryOrQuarantine
+                    return Optional.empty();
                 }
 
                 sessionsCache.putIfAbsent(sessionId, info.get());
+                return Optional.of(info.get());
+            });
+
+            try {
+                if (future.get().isEmpty()) {
+                    quarantinedIds.add(sessionId);
+                    movedCount++;
+                }
+            } catch (InterruptedException | ExecutionException e) {
+                logger.error("Error during serialized quarantine check for session {}", sessionId, e);
+                if (e instanceof InterruptedException) {
+                    Thread.currentThread().interrupt();
+                }
             }
-        } catch (IOException e) {
-            logger.error("Error listing session zip files in {}: {}", sessionsDir, e.getMessage());
         }
 
-        return new QuarantineReport(Set.copyOf(quarantinedIds), List.copyOf(quarantinedNoUuid), moved);
+        return new QuarantineReport(Set.copyOf(quarantinedIds), List.copyOf(quarantinedNoUuid), movedCount);
     }
 
     public SessionInfo copySession(UUID originalSessionId, String newSessionName) throws Exception {
