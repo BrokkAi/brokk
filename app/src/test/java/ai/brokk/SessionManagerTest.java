@@ -576,5 +576,9 @@ public class SessionManagerTest {
 
         // Combined prefixes
         assertEquals("do it", SessionManager.deriveSessionName("@bot /ask /code do it"));
+
+        // Case insensitivity and whitespace
+        assertEquals("case test", SessionManager.deriveSessionName("/ASK  case test"));
+        assertEquals("mixed test", SessionManager.deriveSessionName("@Brokk /Lutz mixed test"));
     }
 }

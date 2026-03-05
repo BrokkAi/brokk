@@ -33,6 +33,8 @@ import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class JobsRouterValidationTest {
     private static final ObjectMapper MAPPER = new ObjectMapper();
@@ -55,7 +57,14 @@ class JobsRouterValidationTest {
 
         var jobRunner = new JobRunner(contextManager, jobStore);
         var jobReservation = new JobReservation();
-        CompletableFuture<Void> headlessInit = CompletableFuture.completedFuture(null);
+        // Ensure the reservation is clear
+        String currentJob = jobReservation.current();
+        if (currentJob != null) {
+            jobReservation.releaseIfOwner(currentJob);
+        }
+
+        CompletableFuture<Void> headlessInit = new CompletableFuture<>();
+        headlessInit.complete(null);
 
         jobsRouter = new JobsRouter(contextManager, jobStore, jobRunner, jobReservation, headlessInit);
 
@@ -83,38 +92,34 @@ class JobsRouterValidationTest {
         assertEquals(fsSnapshotBefore, snapshotTree(jobStoreDir), "JobStore dir changed; job may have been created");
     }
 
-    @Test
-    void postJobs_withDefaultSessionName_triggersAutoRename() throws Exception {
+    @ParameterizedTest
+    @ValueSource(strings = {"TUI Session", "New Session", "Session"})
+    void postJobs_withDefaultSessionName_triggersAutoRename(String defaultName) throws Exception {
         var sm = jobsRouter.contextManager.getProject().getSessionManager();
-        var session = sm.newSession("TUI Session");
+        var session = sm.newSession(defaultName);
         UUID sessionId = session.id();
+        String taskInput = "Rename task for " + defaultName;
 
-        Map<String, Object> body = Map.of(
-                "taskInput", "Implement a login system",
-                "plannerModel", "gpt-4",
-                "autoCommit", true);
+        Map<String, Object> body = Map.of("taskInput", taskInput, "plannerModel", "gpt-4");
 
         var exchange = TestHttpExchange.jsonRequest("POST", "/v1/jobs", body);
-        exchange.getRequestHeaders().set("Idempotency-Key", "rename-test-key");
+        exchange.getRequestHeaders().set("Idempotency-Key", UUID.randomUUID().toString());
         exchange.getRequestHeaders().set("X-Session-Id", sessionId.toString());
 
         jobsRouter.handle(exchange);
-
         assertEquals(201, exchange.responseCode());
 
-        // Renaming is async, so we use assertEventually (or similar poll)
-        long start = System.currentTimeMillis();
-        String currentName = "TUI Session";
-        while (System.currentTimeMillis() - start < 2000) {
+        // Renaming is async, poll for result
+        boolean renamed = false;
+        for (int i = 0; i < 40; i++) {
             var updated = sm.getSessionsCache().get(sessionId);
-            if (updated != null && updated.name().equals("Implement a login system")) {
-                currentName = updated.name();
+            if (updated != null && updated.name().equals(taskInput)) {
+                renamed = true;
                 break;
             }
             Thread.sleep(50);
         }
-
-        assertEquals("Implement a login system", currentName);
+        assertTrue(renamed, "Session '" + defaultName + "' should have been auto-renamed to '" + taskInput + "'");
     }
 
     @Test

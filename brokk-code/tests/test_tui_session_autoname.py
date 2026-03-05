@@ -37,11 +37,14 @@ async def test_client_no_longer_explicitly_renames_on_job(tmp_path):
 
     app._maybe_chat = MagicMock()
 
-    # Submit first prompt
+    # Submit a prompt that would previously trigger a client-side rename
+    # (session name is "TUI Session")
     await app._run_job("Implement a new login system")
 
-    # Wait for any potential background tasks
+    # Wait for worker
     await asyncio.sleep(0.1)
 
-    # Renaming is now handled server-side in JobsRouter
+    # Verify client did NOT emit a rename request
     stub.rename_session.assert_not_called()
+    # Verify client DID emit the job
+    stub.submit_job.assert_called_once()

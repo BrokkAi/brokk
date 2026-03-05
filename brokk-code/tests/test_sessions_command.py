@@ -49,11 +49,13 @@ async def test_show_sessions_flow(tmp_path):
     callback = args[1]
 
     # Simulate selecting session s2
-    app.run_worker = MagicMock()
+    app.run_worker = MagicMock(side_effect=lambda coro: asyncio.create_task(coro))
     callback("s2")
 
     # Verify switch worker was triggered
     app.run_worker.assert_called_once()
+    # Wait for the task to complete
+    await asyncio.sleep(0.1)
 
 
 @pytest.mark.asyncio
@@ -297,9 +299,7 @@ def test_session_select_modal_long_autoname_truncation():
 @pytest.mark.asyncio
 async def test_executor_delete_session(tmp_path):
     """Verify ExecutorManager.delete_session sends the correct request."""
-
     import httpx
-
     from brokk_code.executor import ExecutorManager
 
     executor = ExecutorManager(workspace_dir=tmp_path)
@@ -315,6 +315,28 @@ async def test_executor_delete_session(tmp_path):
     assert result["status"] == "ok"
     executor._http_client.post.assert_called_once_with(
         "/v1/sessions/delete", json={"sessionId": "test-id"}
+    )
+
+
+@pytest.mark.asyncio
+async def test_executor_rename_session(tmp_path):
+    """Verify ExecutorManager.rename_session sends the correct request."""
+    import httpx
+    from brokk_code.executor import ExecutorManager
+
+    executor = ExecutorManager(workspace_dir=tmp_path)
+    executor._http_client = MagicMock(spec=httpx.AsyncClient)
+
+    mock_response = MagicMock(spec=httpx.Response)
+    mock_response.status_code = 200
+    mock_response.json.return_value = {"status": "ok", "name": "New Name"}
+    executor._http_client.post = AsyncMock(return_value=mock_response)
+
+    result = await executor.rename_session("test-id", "New Name")
+
+    assert result["name"] == "New Name"
+    executor._http_client.post.assert_called_once_with(
+        "/v1/sessions/rename", json={"sessionId": "test-id", "name": "New Name"}
     )
 
 
@@ -337,17 +359,18 @@ async def test_show_sessions_rename_flow(tmp_path):
     callback = app.push_screen.call_args[0][1]
 
     # Simulate rename signal
+    app.run_worker = MagicMock(side_effect=lambda coro: asyncio.create_task(coro))
     callback("rename:s1")
 
     # Verify rename workflow helper was called via run_worker
-    # It should be the first call (or only call) to run_worker after the callback
     found_rename = False
     for call in app.run_worker.call_args_list:
-        coro = call[0][0]
-        if "rename_session_workflow" in str(coro):
+        arg = call[0][0]
+        if "rename_session_workflow" in str(arg):
             found_rename = True
             break
     assert found_rename
+    await asyncio.sleep(0.1)
 
 
 @pytest.mark.asyncio
@@ -369,16 +392,18 @@ async def test_show_sessions_delete_flow(tmp_path):
     callback = app.push_screen.call_args[0][1]
 
     # Simulate delete signal
+    app.run_worker = MagicMock(side_effect=lambda coro: asyncio.create_task(coro))
     callback("delete:s1")
 
     # Verify delete workflow helper was called via run_worker
     found_delete = False
     for call in app.run_worker.call_args_list:
-        coro = call[0][0]
-        if "delete_session_workflow" in str(coro):
+        arg = call[0][0]
+        if "delete_session_workflow" in str(arg):
             found_delete = True
             break
     assert found_delete
+    await asyncio.sleep(0.1)
 
 
 @pytest.mark.asyncio
@@ -400,14 +425,15 @@ async def test_show_sessions_new_flow(tmp_path):
     callback = app.push_screen.call_args[0][1]
 
     # Simulate new-session signal
+    app.run_worker = MagicMock(side_effect=lambda coro: asyncio.create_task(coro))
     callback("new")
 
     # Verify create-session workflow helper was called via run_worker
     found_new = False
     for call in app.run_worker.call_args_list:
-        # In the app, this is now a coroutine object self._create_session_from_menu()
         arg = call[0][0]
         if "create_session_from_menu" in str(arg):
             found_new = True
             break
     assert found_new
+    await asyncio.sleep(0.1)
