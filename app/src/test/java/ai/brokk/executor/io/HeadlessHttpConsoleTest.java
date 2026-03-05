@@ -114,6 +114,24 @@ class HeadlessHttpConsoleTest {
         assertEquals("AI", data.get("messageType"));
         assertEquals(true, data.get("isNewMessage"));
         assertEquals(false, data.get("isReasoning"));
+        assertEquals(false, data.get("isTerminal"));
+
+        cleanup();
+    }
+
+    @Test
+    void testLlmOutput_TerminalFlag_MapsToLlmTokenEvent() throws Exception {
+        console.llmOutput(
+                "end", ChatMessageType.CUSTOM, LlmOutputMeta.terminal().withNewMessage(true));
+
+        var events = awaitEvents(1, 1_000);
+        assertEquals(1, events.size());
+
+        var event = events.get(0);
+        @SuppressWarnings("unchecked")
+        var data = (Map<String, Object>) event.data();
+        assertEquals(true, data.get("isNewMessage"));
+        assertEquals(true, data.get("isTerminal"));
 
         cleanup();
     }

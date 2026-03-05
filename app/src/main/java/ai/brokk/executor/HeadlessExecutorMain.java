@@ -203,6 +203,9 @@ public final class HeadlessExecutorMain {
 
     public HeadlessExecutorMain(UUID execId, String listenAddr, String authToken, ContextManager contextManager)
             throws IOException {
+        // Headless executor can be constructed directly in tests/in-process callers, not only via main().
+        // Set this early so any Swing/AWT calls route to headless toolkit and do not require X11 libraries.
+        System.setProperty("java.awt.headless", "true");
         this.execId = execId;
         this.contextManager = contextManager;
 
@@ -409,6 +412,8 @@ public final class HeadlessExecutorMain {
 
     public static void main(String[] args) {
         try {
+            // Must be set before any Swing/AWT code paths are touched.
+            System.setProperty("java.awt.headless", "true");
             // Parse command-line arguments and validate them
             var parseResult = parseArgs(args);
             var parsedArgs = parseResult.args();

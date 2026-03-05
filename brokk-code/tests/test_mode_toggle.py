@@ -175,8 +175,7 @@ def test_action_toggle_mode_handles_unknown_mode():
     app.query_one = MagicMock(return_value=mock_chat)
 
     app.agent_mode = "UNKNOWN"
-    # Should default to the first mode in the cycle: CODE (index 0)
-    # The current implementation defaults to index 0 then increments: (0+1) % 4 = 1 ("ASK")
+    # The implementation defaults to index 0 ("CODE") then increments: (0+1) % 4 = 1 ("ASK")
     app.action_toggle_mode()
     assert app.agent_mode == "ASK"
 

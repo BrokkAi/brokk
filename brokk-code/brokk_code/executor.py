@@ -18,7 +18,7 @@ from brokk_code.workspace import resolve_workspace_dir
 
 logger = logging.getLogger(__name__)
 
-BUNDLED_EXECUTOR_VERSION = "0.23.0"
+BUNDLED_EXECUTOR_VERSION = "0.23.1.beta1"
 _EXECUTOR_JAR_BASE_URL = "https://github.com/BrokkAi/brokk-releases/releases/download"
 _EXECUTOR_MAIN_CLASS = "ai.brokk.executor.HeadlessExecutorMain"
 _READY_SENTINEL = "Executor listening on http://"
@@ -28,7 +28,7 @@ _BROKK_TRUST_URLS = [
     "https://github.com/BrokkAi/brokk-releases",
     "https://github.com/BrokkAi/brokk-releases/releases/download/",
 ]
-_JBANG_SETUP_LOCK_PATH = Path.home() / ".jbang" / "brokk-setup.lock"
+_JBANG_SETUP_LOCK_PATH: Optional[Path] = None
 _JBANG_SETUP_LOCK_TIMEOUT_SECONDS = 120.0
 
 
@@ -79,10 +79,37 @@ def _is_jbang_trusted() -> bool:
         return False
 
 
+def _is_pid_alive(pid: int) -> bool:
+    """Best-effort process liveness check."""
+    if pid <= 0:
+        return False
+
+    if sys.platform == "win32":
+        import ctypes
+
+        process_query_limited_information = 0x1000
+        still_active = 259
+        handle = ctypes.windll.kernel32.OpenProcess(process_query_limited_information, False, pid)
+        if not handle:
+            return False
+        try:
+            exit_code = ctypes.c_ulong()
+            ok = ctypes.windll.kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code))
+            return bool(ok) and exit_code.value == still_active
+        finally:
+            ctypes.windll.kernel32.CloseHandle(handle)
+
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+
+
 @contextlib.contextmanager
 def _jbang_setup_lock() -> Iterator[None]:
     """File-based lock with PID stale detection."""
-    lock_path = _JBANG_SETUP_LOCK_PATH
+    lock_path = _JBANG_SETUP_LOCK_PATH or (Path.home() / ".jbang" / "brokk-setup.lock")
     lock_path.parent.mkdir(parents=True, exist_ok=True)
 
     deadline = time.monotonic() + _JBANG_SETUP_LOCK_TIMEOUT_SECONDS
@@ -102,11 +129,10 @@ def _jbang_setup_lock() -> Iterator[None]:
             try:
                 pid_text = lock_path.read_text(encoding="utf-8").strip()
                 pid = int(pid_text)
-                try:
-                    os.kill(pid, 0)
+                if _is_pid_alive(pid):
                     # Process is alive, wait and retry
                     time.sleep(0.5)
-                except OSError:
+                else:
                     # Process is dead, remove stale lock and retry
                     lock_path.unlink(missing_ok=True)
             except Exception:

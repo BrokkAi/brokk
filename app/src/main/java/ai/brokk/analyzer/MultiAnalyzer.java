@@ -180,6 +180,13 @@ public class MultiAnalyzer implements IAnalyzer, TypeAliasProvider, ImportAnalys
     }
 
     @Override
+    public List<Range> rangesOf(CodeUnit codeUnit) {
+        return delegateFor(codeUnit)
+                .map(delegate -> delegate.rangesOf(codeUnit))
+                .orElse(List.of());
+    }
+
+    @Override
     public Optional<String> getSource(CodeUnit codeUnit, boolean includeComments) {
         return delegateFor(codeUnit).flatMap(analyzer -> analyzer.getSource(codeUnit, includeComments));
     }
