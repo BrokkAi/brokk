@@ -39,4 +39,11 @@ class GoModulePathTest {
         assertEquals("./x/y", GoAnalyzer.formatTestModule(Path.of("x\\y")));
         assertEquals("./sub/dir", GoAnalyzer.formatTestModule(Path.of("sub\\dir")));
     }
+
+    @Test
+    void testWindowsPaths() {
+        // Verify that paths with backslashes are correctly normalized to Unix-style with ./ prefix
+        assertEquals("./callbacks/sub", GoAnalyzer.formatTestModule(Path.of("callbacks\\sub")));
+        assertEquals("./a/b/c", GoAnalyzer.formatTestModule(Path.of("a\\b\\c")));
+    }
 }

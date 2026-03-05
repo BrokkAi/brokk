@@ -76,3 +76,8 @@ with try/catch is unnecessary and futile; don't do that.
    tasks use LoggingFuture.supplyAsync if it is just one, otherwise consider using LoggingExecutorService.newVirtualThreadExecutor.
 5. Use ai.brokk.concurrent.AtomicWrites.save(Path, XXX) for writing to disk, where XXX may be a byte[], a String,
    or a lambda that takes an OutputStream parameter.
+
+## Template Interpolation
+
+1. **Use BuildTools for Mustache**: All template interpolation, especially for build and test commands, must use `BuildTools.interpolateMustacheTemplate`. Do not instantiate `DefaultMustacheFactory` or implement custom interpolation logic in agents.
+1. **Centralized Validation**: `BuildTools.validateMustacheTemplate` is the single source of truth for allowed tags (`files`, `classes`, `fqclasses`, `packages`, `pyver`). Any new tags must be added there first.

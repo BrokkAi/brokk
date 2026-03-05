@@ -799,88 +799,35 @@ public class BuildAgent {
         }
     }
 
-    // Regex to detect delimiter-change tags: {{= ... =}}
-    // These are unsupported and should be flagged
-    private static final Pattern DELIMITER_CHANGE_PATTERN = Pattern.compile("\\{\\{=.*?=\\}\\}");
-
-    // Allowed top-level Mustache keys (section variables)
-    private static final Set<String> ALLOWED_TOP_LEVEL_KEYS =
-            Set.of("files", "classes", "fqclasses", "packages", "pyver");
-
-    // Allowed per-item keys inside sections
-    private static final Set<String> ALLOWED_ITEM_KEYS = Set.of(".", "value", "first", "last", "index");
-
-    // Regex to extract Mustache tags: {{name}}, {{{name}}}, {{#name}}, {{/name}}, {{^name}}, {{>name}}, {{!comment}},
-    // {{=...=}}
-    // Captures the optional prefix character (#, /, ^, >, !) and the tag name
-    private static final Pattern MUSTACHE_TAG_PATTERN =
-            Pattern.compile("\\{\\{\\{?\\s*([#/^>!]?)\\s*([^}\\s]+)\\s*\\}?\\}\\}");
-
     /**
-     * Extracts all Mustache tag names from a template string.
-     * Returns the raw tag names (without prefixes like #, /, ^).
-     * Tags with prefixes like > (partials) or ! (comments) are returned with their prefix
-     * to indicate they are unsupported advanced features.
-     * Delimiter-change tags ({{= ... =}}) are detected separately and returned as "=...".
+     * Visible for testing in BuildAgentTest.
      */
     @VisibleForTesting
     static Set<String> extractMustacheTags(String template) {
         if (template.isEmpty()) {
             return Set.of();
         }
-        var tags = new LinkedHashSet<String>();
-
-        // First, detect delimiter-change tags which have special syntax {{= ... =}}
-        var delimiterMatcher = DELIMITER_CHANGE_PATTERN.matcher(template);
+        var tags = new java.util.LinkedHashSet<String>();
+        var delimiterMatcher = Pattern.compile("\\{\\{=.*?=\\}\\}").matcher(template);
         while (delimiterMatcher.find()) {
-            // Extract the content between {{= and =}} to include in the error message
             String fullMatch = delimiterMatcher.group();
-            // Remove {{= prefix and =}} suffix to get the delimiter specification
             String delimiterSpec =
                     fullMatch.substring(3, fullMatch.length() - 3).trim();
             tags.add("=" + (delimiterSpec.isEmpty() ? "..." : delimiterSpec));
         }
 
-        var matcher = MUSTACHE_TAG_PATTERN.matcher(template);
+        var matcher = Pattern.compile("\\{\\{\\{?\\s*([#/^>!]?)\\s*([^}\\s]+)\\s*\\}?\\}\\}\\s*")
+                .matcher(template);
         while (matcher.find()) {
             String prefix = matcher.group(1);
             String name = matcher.group(2);
-            // For partials (>) and comments (!), include the prefix to mark them as unsupported
             if (">".equals(prefix) || "!".equals(prefix)) {
                 tags.add(prefix + name);
             } else {
-                // For #, /, ^, or no prefix, just use the tag name
                 tags.add(name);
             }
         }
         return tags;
-    }
-
-    /**
-     * Validates that all Mustache tags in a template are in the allowed set.
-     *
-     * @param template the Mustache template string
-     * @param extraAllowedKeys additional keys to allow (e.g., the specific listKey for this call)
-     * @return a set of unsupported tags found, empty if all are valid
-     */
-    @VisibleForTesting
-    static Set<String> findUnsupportedMustacheTags(String template, Set<String> extraAllowedKeys) {
-        var tags = extractMustacheTags(template);
-        if (tags.isEmpty()) {
-            return Set.of();
-        }
-
-        var allAllowed = new HashSet<>(ALLOWED_TOP_LEVEL_KEYS);
-        allAllowed.addAll(ALLOWED_ITEM_KEYS);
-        allAllowed.addAll(extraAllowedKeys);
-
-        var unsupported = new LinkedHashSet<String>();
-        for (String tag : tags) {
-            if (!allAllowed.contains(tag)) {
-                unsupported.add(tag);
-            }
-        }
-        return unsupported;
     }
 
     /**
@@ -895,15 +842,12 @@ public class BuildAgent {
         if (template.isEmpty()) {
             return;
         }
-        // For tool validation, allow all canonical list keys since we don't know which one will be used
-        var unsupported = findUnsupportedMustacheTags(template, Set.of());
-        if (!unsupported.isEmpty()) {
-            var allAllowed = new TreeSet<>(ALLOWED_TOP_LEVEL_KEYS);
-            allAllowed.addAll(ALLOWED_ITEM_KEYS);
+        try {
+            // Validate using centralized logic. Pass empty listKey as we validate against the global allowed set.
+            BuildTools.interpolateMustacheTemplate(template, List.of(), "unused");
+        } catch (IllegalArgumentException e) {
             throw new ToolRegistry.ToolCallException(
-                    ToolExecutionResult.Status.REQUEST_ERROR,
-                    "%s contains unsupported Mustache tags: %s. Allowed: %s"
-                            .formatted(fieldName, unsupported, allAllowed));
+                    ToolExecutionResult.Status.REQUEST_ERROR, fieldName + " " + e.getMessage());
         }
     }
 
