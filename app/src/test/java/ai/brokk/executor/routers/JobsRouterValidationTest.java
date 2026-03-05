@@ -111,13 +111,13 @@ class JobsRouterValidationTest {
 
         // Renaming is async, poll for result
         boolean renamed = false;
-        for (int i = 0; i < 40; i++) {
+        for (int i = 0; i < 100; i++) {
             var updated = sm.getSessionsCache().get(sessionId);
             if (updated != null && updated.name().equals(taskInput)) {
                 renamed = true;
                 break;
             }
-            Thread.sleep(50);
+            Thread.sleep(20);
         }
         assertTrue(renamed, "Session '" + defaultName + "' should have been auto-renamed to '" + taskInput + "'");
     }

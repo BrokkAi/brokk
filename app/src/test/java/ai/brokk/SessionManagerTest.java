@@ -581,4 +581,29 @@ public class SessionManagerTest {
         assertEquals("case test", SessionManager.deriveSessionName("/ASK  case test"));
         assertEquals("mixed test", SessionManager.deriveSessionName("@Brokk /Lutz mixed test"));
     }
+
+    @Test
+    void testAutoRenameIfDefault() throws Exception {
+        MainProject project = new MainProject(tempDir);
+        var sm = project.getSessionManager();
+
+        // 1. Test valid rename from default
+        SessionInfo session1 = sm.newSession("New Session");
+        sm.autoRenameIfDefault(session1.id(), "My special task input").get();
+        assertEquals(
+                "My special task input",
+                sm.getSessionsCache().get(session1.id()).name());
+
+        // 2. Test non-default name remains unchanged
+        SessionInfo session2 = sm.newSession("Custom Name");
+        sm.autoRenameIfDefault(session2.id(), "Should not change").get();
+        assertEquals("Custom Name", sm.getSessionsCache().get(session2.id()).name());
+
+        // 3. Test blank/invalid derived name remains unchanged
+        SessionInfo session3 = sm.newSession("Session");
+        sm.autoRenameIfDefault(session3.id(), "   ").get();
+        assertEquals("Session", sm.getSessionsCache().get(session3.id()).name());
+
+        project.close();
+    }
 }

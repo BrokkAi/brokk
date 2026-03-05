@@ -295,6 +295,44 @@ public class SessionManager implements AutoCloseable {
         }
     }
 
+    /**
+     * Auto-renames a session if it currently has a default/generic name.
+     * This is a best-effort asynchronous operation serialized per session.
+     */
+    public CompletableFuture<Void> autoRenameIfDefault(UUID sessionId, String taskInput) {
+        return sessionExecutorByKey.submit(sessionId.toString(), () -> {
+            try {
+                SessionInfo info = sessionsCache.get(sessionId);
+                if (info == null) return null;
+
+                String currentName = info.name();
+                boolean isDefaultName = currentName.equals("TUI Session")
+                        || currentName.equals("New Session")
+                        || currentName.equals("Session");
+
+                if (isDefaultName) {
+                    String derived = deriveSessionName(taskInput);
+                    if (!derived.isBlank() && !derived.equals(currentName)) {
+                        var updatedInfo = new SessionInfo(
+                                info.id(),
+                                derived,
+                                info.created(),
+                                System.currentTimeMillis(),
+                                info.version(),
+                                info.totalCost());
+                        sessionsCache.put(sessionId, updatedInfo);
+                        Path sessionHistoryPath = getSessionHistoryPath(sessionId);
+                        writeSessionInfoToZip(sessionHistoryPath, updatedInfo);
+                        logger.info("Auto-renamed session {} to '{}' based on job input", sessionId, derived);
+                    }
+                }
+            } catch (Exception e) {
+                logger.warn("Failed to auto-rename session {}: {}", sessionId, e.getMessage());
+            }
+            return null;
+        });
+    }
+
     public void addToTotalCost(UUID sessionId, double delta) {
         if (delta <= 0.0) {
             return; // ignore non-positive or zero deltas

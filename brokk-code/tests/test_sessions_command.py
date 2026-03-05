@@ -300,6 +300,7 @@ def test_session_select_modal_long_autoname_truncation():
 async def test_executor_delete_session(tmp_path):
     """Verify ExecutorManager.delete_session sends the correct request."""
     import httpx
+
     from brokk_code.executor import ExecutorManager
 
     executor = ExecutorManager(workspace_dir=tmp_path)
@@ -322,6 +323,7 @@ async def test_executor_delete_session(tmp_path):
 async def test_executor_rename_session(tmp_path):
     """Verify ExecutorManager.rename_session sends the correct request."""
     import httpx
+
     from brokk_code.executor import ExecutorManager
 
     executor = ExecutorManager(workspace_dir=tmp_path)

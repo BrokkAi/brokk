@@ -3,7 +3,6 @@ package ai.brokk.executor.routers;
 import static java.nio.charset.StandardCharsets.UTF_8;
 
 import ai.brokk.ContextManager;
-import ai.brokk.SessionManager;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.executor.JobReservation;
 import ai.brokk.executor.http.SimpleHttpServer;
@@ -448,28 +447,12 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
     }
 
     private void maybeAutoRenameSession(UUID sessionId, String taskInput) {
-        CompletableFuture.runAsync(() -> {
-            try {
-                var sm = contextManager.getProject().getSessionManager();
-                var info = sm.getSessionsCache().get(sessionId);
-                if (info == null) return;
-
-                String currentName = info.name();
-                boolean isDefaultName = currentName.equals("TUI Session")
-                        || currentName.equals("New Session")
-                        || currentName.equals("Session");
-
-                if (isDefaultName) {
-                    String derived = SessionManager.deriveSessionName(taskInput);
-                    if (!derived.isBlank() && !derived.equals(currentName)) {
-                        sm.renameSession(sessionId, derived);
-                        logger.info("Auto-renamed session {} to '{}' based on job input", sessionId, derived);
-                    }
-                }
-            } catch (Exception e) {
-                logger.warn("Failed to auto-rename session {}: {}", sessionId, e.getMessage());
-            }
-        });
+        try {
+            var sm = contextManager.getProject().getSessionManager();
+            sm.autoRenameIfDefault(sessionId, taskInput);
+        } catch (Exception e) {
+            logger.warn("Failed to initiate auto-rename for session {}: {}", sessionId, e.getMessage());
+        }
     }
 
     private void executeJobAsync(String jobId, JobSpec jobSpec, List<String> seededTextFragmentIds) {
