@@ -422,3 +422,26 @@ async def test_resume_session_seeds_session_cost_from_context(tmp_path):
     assert app.session_total_cost == pytest.approx(4.321, rel=1e-6)
     assert len(stub.import_calls) == 1
     assert stub.import_calls[0][1] == last_id
+
+
+@pytest.mark.asyncio
+async def test_ctrl_d_bound_to_shutdown(tmp_path):
+    """Verify Ctrl+D is bound to handle_ctrl_c and triggers action_quit."""
+    workspace = tmp_path
+    stub = SessionStubExecutor()
+    stub.stop = AsyncMock()
+    app = BrokkApp(executor=stub, workspace_dir=workspace)
+
+    # Check binding
+    binding = next((b for b in app.BINDINGS if b.key == "ctrl+d"), None)
+    assert binding is not None
+    assert binding.action == "handle_ctrl_c"
+
+    # Simulate double-tap Ctrl+D logic by calling action_quit directly 
+    # (which handle_ctrl_c eventually calls)
+    with patch("brokk_code.app.BrokkApp.exit") as mock_exit:
+        await app.action_quit()
+        
+        assert stub.stop.called
+        assert app._shutdown_completed is True
+        assert mock_exit.called

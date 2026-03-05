@@ -625,6 +625,7 @@ class BrokkApp(App):
     BINDINGS = [
         # Footer/help-bar ordering: Context, Tasks, Settings
         Binding("ctrl+c", "handle_ctrl_c", "Quit", show=True),
+        Binding("ctrl+d", "handle_ctrl_c", "Quit", show=False),
         Binding("ctrl+p", "command_palette", "Settings", show=True),
         Binding("ctrl+o", "toggle_output", "Toggle Output", show=True),
         Binding("shift+tab", "toggle_mode", "Toggle mode", show=False, priority=True),
@@ -2410,7 +2411,9 @@ class BrokkApp(App):
         if now - self._last_ctrl_c_time < 2.0:
             await self.action_quit()
         else:
-            self.query_one(ChatPanel).add_system_message("Press Ctrl+C again to quit.")
+            # We don't have easy access to which key triggered the action here without 
+            # changing the signature, but "Ctrl+C or Ctrl+D" is accurate for both.
+            self.query_one(ChatPanel).add_system_message("Press Ctrl+C or Ctrl+D again to quit.")
             self._last_ctrl_c_time = now
 
     async def _shutdown_once(self, *, show_message: bool = True) -> None:
