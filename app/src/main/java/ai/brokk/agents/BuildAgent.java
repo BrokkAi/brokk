@@ -18,6 +18,7 @@ import ai.brokk.util.BuildTools;
 import ai.brokk.util.BuildVerifier;
 import ai.brokk.util.Environment;
 import ai.brokk.util.Messages;
+import ai.brokk.util.MustacheTemplates;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -27,6 +28,9 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
+import com.github.mustachejava.DefaultMustacheFactory;
+import com.github.mustachejava.Mustache;
+import com.github.mustachejava.MustacheFactory;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolContext;
@@ -34,6 +38,8 @@ import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.*;
 import dev.langchain4j.model.chat.request.ToolChoice;
 import java.io.IOException;
+import java.io.StringReader;
+import java.io.StringWriter;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -62,11 +68,6 @@ public class BuildAgent {
     private static final int MAX_REPEATED_TOOL_CALLS = 5;
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
-
-    private static final Pattern DELIMITER_CHANGE_PATTERN = Pattern.compile("\\{\\{=.*?=\\}\\}");
-
-    private static final Pattern MUSTACHE_TAG_PATTERN =
-            Pattern.compile("\\{\\{\\{?\\s*([#/^>!]?)\\s*([^}\\s]+)\\s*\\}?\\}\\}\\s*");
 
     private final Llm llm;
     private final ToolRegistry globalRegistry;
@@ -804,18 +805,43 @@ public class BuildAgent {
         }
     }
 
+    // Regex to detect delimiter-change tags: {{= ... =}}
+    // These are unsupported and should be flagged
+    private static final Pattern DELIMITER_CHANGE_PATTERN = Pattern.compile("\\{\\{=.*?=\\}\\}");
+
+    // Allowed top-level Mustache keys (section variables)
+    private static final Set<String> ALLOWED_TOP_LEVEL_KEYS =
+            Set.of("files", "classes", "fqclasses", "packages", "pyver");
+
+    // Allowed per-item keys inside sections
+    private static final Set<String> ALLOWED_ITEM_KEYS = Set.of(".", "value", "first", "last", "index");
+
+    // Regex to extract Mustache tags: {{name}}, {{{name}}}, {{#name}}, {{/name}}, {{^name}}, {{>name}}, {{!comment}},
+    // {{=...=}}
+    // Captures the optional prefix character (#, /, ^, >, !) and the tag name
+    private static final Pattern MUSTACHE_TAG_PATTERN =
+            Pattern.compile("\\{\\{\\{?\\s*([#/^>!]?)\\s*([^}\\s]+)\\s*\\}?\\}\\}");
+
     /**
-     * Visible for testing in BuildAgentTest.
+     * Extracts all Mustache tag names from a template string.
+     * Returns the raw tag names (without prefixes like #, /, ^).
+     * Tags with prefixes like > (partials) or ! (comments) are returned with their prefix
+     * to indicate they are unsupported advanced features.
+     * Delimiter-change tags ({{= ... =}}) are detected separately and returned as "=...".
      */
     @VisibleForTesting
     static Set<String> extractMustacheTags(String template) {
         if (template.isEmpty()) {
             return Set.of();
         }
-        var tags = new java.util.LinkedHashSet<String>();
+        var tags = new LinkedHashSet<String>();
+
+        // First, detect delimiter-change tags which have special syntax {{= ... =}}
         var delimiterMatcher = DELIMITER_CHANGE_PATTERN.matcher(template);
         while (delimiterMatcher.find()) {
+            // Extract the content between {{= and =}} to include in the error message
             String fullMatch = delimiterMatcher.group();
+            // Remove {{= prefix and =}} suffix to get the delimiter specification
             String delimiterSpec =
                     fullMatch.substring(3, fullMatch.length() - 3).trim();
             tags.add("=" + (delimiterSpec.isEmpty() ? "..." : delimiterSpec));
@@ -825,13 +851,62 @@ public class BuildAgent {
         while (matcher.find()) {
             String prefix = matcher.group(1);
             String name = matcher.group(2);
+            // For partials (>) and comments (!), include the prefix to mark them as unsupported
             if (">".equals(prefix) || "!".equals(prefix)) {
                 tags.add(prefix + name);
             } else {
+                // For #, /, ^, or no prefix, just use the tag name
                 tags.add(name);
             }
         }
         return tags;
+    }
+
+    /**
+     * Validates that all Mustache tags in a template are in the allowed set.
+     *
+     * @param template the Mustache template string
+     * @param extraAllowedKeys additional keys to allow (e.g., the specific listKey for this call)
+     * @return a set of unsupported tags found, empty if all are valid
+     */
+    @VisibleForTesting
+    static Set<String> findUnsupportedMustacheTags(String template, Set<String> extraAllowedKeys) {
+        var tags = extractMustacheTags(template);
+        if (tags.isEmpty()) {
+            return Set.of();
+        }
+
+        var allAllowed = new HashSet<>(ALLOWED_TOP_LEVEL_KEYS);
+        allAllowed.addAll(ALLOWED_ITEM_KEYS);
+        allAllowed.addAll(extraAllowedKeys);
+
+        var unsupported = new LinkedHashSet<String>();
+        for (String tag : tags) {
+            if (!allAllowed.contains(tag)) {
+                unsupported.add(tag);
+            }
+        }
+        return unsupported;
+    }
+
+    /**
+     * Validates a Mustache template, throwing IllegalArgumentException if unsupported tags are found.
+     *
+     * @param template the template to validate
+     * @param listKey the list key used for this interpolation (added to allowed keys)
+     * @throws IllegalArgumentException if unsupported tags are found
+     */
+    private static void validateMustacheTemplate(String template, String listKey) {
+        if (template.isEmpty()) {
+            return;
+        }
+        var unsupported = findUnsupportedMustacheTags(template, Set.of(listKey));
+        if (!unsupported.isEmpty()) {
+            var allAllowed = new TreeSet<>(ALLOWED_TOP_LEVEL_KEYS);
+            allAllowed.addAll(ALLOWED_ITEM_KEYS);
+            throw new IllegalArgumentException(
+                    "Unsupported Mustache tags: %s. Allowed: %s".formatted(unsupported, allAllowed));
+        }
     }
 
     /**
@@ -846,13 +921,79 @@ public class BuildAgent {
         if (template.isEmpty()) {
             return;
         }
-        try {
-            // Validate using centralized logic.
-            BuildTools.interpolateMustacheTemplate(template, List.of(), "unused");
-        } catch (IllegalArgumentException e) {
+        // For tool validation, allow all canonical list keys since we don't know which one will be used
+        var unsupported = findUnsupportedMustacheTags(template, Set.of());
+        if (!unsupported.isEmpty()) {
+            var allAllowed = new TreeSet<>(ALLOWED_TOP_LEVEL_KEYS);
+            allAllowed.addAll(ALLOWED_ITEM_KEYS);
             throw new ToolRegistry.ToolCallException(
-                    ToolExecutionResult.Status.REQUEST_ERROR, fieldName + " " + e.getMessage());
+                    ToolExecutionResult.Status.REQUEST_ERROR,
+                    "%s contains unsupported Mustache tags: %s. Allowed: %s"
+                            .formatted(fieldName, unsupported, allAllowed));
         }
+    }
+
+    /**
+     * Interpolates a Mustache template with the given list of items and optional Python version.
+     * Supports {@code {{#files}}}, {@code {{#classes}}}, {@code {{#fqclasses}}}, {@code {{#packages}}},
+     * and {@code {{pyver}}} variables.
+     *
+     * <p><strong>Per-item keys (API contract):</strong> Inside a section block, each item exposes:
+     * <ul>
+     *   <li>{@code {{.}}}  — the string value (via {@code toString()})</li>
+     *   <li>{@code {{value}}} — the string value (explicit field)</li>
+     *   <li>{@code {{first}}} — boolean, true for the first item</li>
+     *   <li>{@code {{last}}} — boolean, true for the last item</li>
+     *   <li>{@code {{index}}} — 0-based position in the list</li>
+     * </ul>
+     * These keys are backed by {@link StringElement}. Changes to the field names or accessor methods
+     * constitute an API change and require corresponding test updates.
+     */
+    public static String interpolateMustacheTemplate(String template, List<String> items, String listKey) {
+        return interpolateMustacheTemplate(template, items, listKey, null);
+    }
+
+    /**
+     * Interpolates a Mustache template with the given list of items and optional Python version.
+     * Supports {@code {{#files}}}, {@code {{#classes}}}, {@code {{#fqclasses}}}, {@code {{#packages}}},
+     * and {@code {{pyver}}} variables.
+     *
+     * <p><strong>Per-item keys (API contract):</strong> Inside a section block, each item exposes:
+     * <ul>
+     *   <li>{@code {{.}}}  — the string value (via {@code toString()})</li>
+     *   <li>{@code {{value}}} — the string value (explicit field)</li>
+     *   <li>{@code {{first}}} — boolean, true for the first item</li>
+     *   <li>{@code {{last}}} — boolean, true for the last item</li>
+     *   <li>{@code {{index}}} — 0-based position in the list</li>
+     * </ul>
+     * These keys are backed by {@link StringElement}. Changes to the field names or accessor methods
+     * constitute an API change and require corresponding test updates.
+     */
+    public static String interpolateMustacheTemplate(
+            String template, List<String> items, String listKey, @Nullable String pythonVersion) {
+        if (template.isEmpty()) {
+            return "";
+        }
+
+        // Validate template before compiling
+        validateMustacheTemplate(template, listKey);
+
+        MustacheFactory mf = new DefaultMustacheFactory();
+        // The "templateName" argument to compile is for caching and error reporting, can be arbitrary.
+        Mustache mustache = mf.compile(new StringReader(template), "dynamic_template");
+
+        Map<String, Object> context = new HashMap<>();
+        // Mustache.java handles empty lists correctly for {{#section}} blocks (renders zero iterations).
+        // Use StringElement wrapper that supports both {{.}} (via toString) and {{value}}/{{first}}/{{last}}/{{index}}
+        context.put(listKey, MustacheTemplates.toStringElementList(items));
+        context.put("pyver", pythonVersion == null ? "" : pythonVersion);
+
+        StringWriter writer = new StringWriter();
+        // This can throw MustacheException, which will propagate as a RuntimeException
+        // as per the project's "let it throw" style.
+        mustache.execute(writer, context);
+
+        return writer.toString();
     }
 
     /**

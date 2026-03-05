@@ -324,7 +324,7 @@ class BuildAgentTest {
         String template = "pytest {{#files}}{{.}}{{/files}}";
         List<String> files = List.of("tests/test_foo.py", "tests/test_bar.py");
 
-        String result = BuildTools.interpolateMustacheTemplate(template, files, "files");
+        String result = BuildAgent.interpolateMustacheTemplate(template, files, "files");
 
         // Must contain actual file paths
         assertTrue(result.contains("tests/test_foo.py"), "Result should contain first file path");
@@ -339,7 +339,7 @@ class BuildAgentTest {
         String template = "go test -run '{{#classes}}{{.}}{{^last}}|{{/last}}{{/classes}}'";
         List<String> classes = List.of("TestFoo", "TestBar", "TestBaz");
 
-        String result = BuildTools.interpolateMustacheTemplate(template, classes, "classes");
+        String result = BuildAgent.interpolateMustacheTemplate(template, classes, "classes");
 
         // Should produce pipe-separated list without trailing separator
         assertEquals("go test -run 'TestFoo|TestBar|TestBaz'", result);
@@ -353,7 +353,7 @@ class BuildAgentTest {
         String template = "mvn test -Dtest={{#classes}}{{.}}{{^last}},{{/last}}{{/classes}}";
         List<String> classes = List.of("MyTest");
 
-        String result = BuildTools.interpolateMustacheTemplate(template, classes, "classes");
+        String result = BuildAgent.interpolateMustacheTemplate(template, classes, "classes");
 
         assertEquals("mvn test -Dtest=MyTest", result);
         assertFalse(result.contains("Element@"), "Result should not contain Element@ wrapper toString");
@@ -365,7 +365,7 @@ class BuildAgentTest {
         String template = "jest {{#files}}{{.}}{{^last}} {{/last}}{{/files}}";
         List<String> files = List.of("src/app.test.js", "src/util.test.js");
 
-        String result = BuildTools.interpolateMustacheTemplate(template, files, "files");
+        String result = BuildAgent.interpolateMustacheTemplate(template, files, "files");
 
         assertEquals("jest src/app.test.js src/util.test.js", result);
         assertFalse(result.contains("Element@"), "Result should not contain Element@ wrapper toString");
@@ -608,7 +608,7 @@ class BuildAgentTest {
         String template = "pytest --python={{python_version}}";
 
         var ex = assertThrows(IllegalArgumentException.class, () -> {
-            BuildTools.interpolateMustacheTemplate(template, List.of(), "files");
+            BuildAgent.interpolateMustacheTemplate(template, List.of(), "files");
         });
 
         assertTrue(ex.getMessage().contains("python_version"), "Error should mention the unsupported tag");
@@ -621,7 +621,7 @@ class BuildAgentTest {
         String template = "pytest {{#targets}}{{value}}{{/targets}}";
 
         var ex = assertThrows(IllegalArgumentException.class, () -> {
-            BuildTools.interpolateMustacheTemplate(template, List.of(), "files");
+            BuildAgent.interpolateMustacheTemplate(template, List.of(), "files");
         });
 
         assertTrue(ex.getMessage().contains("targets"), "Error should mention the unsupported tag");
@@ -632,22 +632,22 @@ class BuildAgentTest {
     void testInterpolateMustacheTemplateAllowsValidTags() {
         // All these should NOT throw - they use valid tags
         // Test with files section
-        String result1 = BuildTools.interpolateMustacheTemplate(
+        String result1 = BuildAgent.interpolateMustacheTemplate(
                 "pytest {{#files}}{{value}}{{^last}} {{/last}}{{/files}}", List.of("a.py", "b.py"), "files");
         assertEquals("pytest a.py b.py", result1);
 
         // Test with pyver
         String result2 =
-                BuildTools.interpolateMustacheTemplate("python{{pyver}} -m pytest", List.of(), "modules", "3.11");
+                BuildAgent.interpolateMustacheTemplate("python{{pyver}} -m pytest", List.of(), "modules", "3.11");
         assertEquals("python3.11 -m pytest", result2);
 
         // Test with dot syntax
-        String result3 = BuildTools.interpolateMustacheTemplate(
+        String result3 = BuildAgent.interpolateMustacheTemplate(
                 "go test {{#classes}}{{.}}{{/classes}}", List.of("TestFoo"), "classes");
         assertEquals("go test TestFoo", result3);
 
         // Test with index, first, last
-        String result4 = BuildTools.interpolateMustacheTemplate(
+        String result4 = BuildAgent.interpolateMustacheTemplate(
                 "{{#modules}}{{index}}:{{value}}{{^last}},{{/last}}{{/modules}}", List.of("a", "b"), "modules");
         assertEquals("0:a,1:b", result4);
     }
@@ -758,7 +758,7 @@ class BuildAgentTest {
         String template = "{{= <% %> =}}<%#files%><%value%><%/files%>";
 
         var ex = assertThrows(IllegalArgumentException.class, () -> {
-            BuildTools.interpolateMustacheTemplate(template, List.of("a.py"), "files");
+            BuildAgent.interpolateMustacheTemplate(template, List.of("a.py"), "files");
         });
 
         assertTrue(ex.getMessage().contains("="), "Error should mention the delimiter change tag");
@@ -773,7 +773,7 @@ class BuildAgentTest {
         List<String> items = List.of("x");
 
         // Should NOT throw - "unused" is the listKey for this call, so it must be allowed
-        String result = BuildTools.interpolateMustacheTemplate(template, items, "unused", null);
+        String result = BuildAgent.interpolateMustacheTemplate(template, items, "unused", null);
 
         assertEquals("cmd x", result);
     }

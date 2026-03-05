@@ -1,9 +1,12 @@
 package ai.brokk.util;
 
+import ai.brokk.AnalyzerUtil;
 import ai.brokk.ContextManager;
 import ai.brokk.IContextManager;
 import ai.brokk.LlmOutputMeta;
 import ai.brokk.agents.BuildAgent.BuildDetails;
+import ai.brokk.analyzer.CodeUnit;
+import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
@@ -12,19 +15,23 @@ import com.github.mustachejava.DefaultMustacheFactory;
 import com.github.mustachejava.Mustache;
 import com.github.mustachejava.MustacheFactory;
 import dev.langchain4j.data.message.ChatMessageType;
+import java.io.IOException;
 import java.io.StringReader;
 import java.io.StringWriter;
+import java.nio.channels.FileChannel;
+import java.nio.channels.FileLock;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.StandardOpenOption;
 import java.time.Duration;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
@@ -51,6 +58,8 @@ public class BuildTools {
 
     /**
      * Determine the best verification command using the provided Context and an optional override.
+     *
+     * <p>If {@code testFilesOverride} is non-null and non-empty, it overrides workspace-derived test selection.
      */
     @Blocking
     public static @Nullable String determineVerificationCommand(
@@ -72,6 +81,10 @@ public class BuildTools {
             return interpolateCommandWithPythonVersion(cmd, cm.getProject().getRoot());
         }
 
+        if (testFilesOverride != null && !testFilesOverride.isEmpty()) {
+            return getBuildLintSomeCommand(cm, details, testFilesOverride);
+        }
+
         var projectFilesFromEditableOrReadOnly = ctx.allFragments()
                 .filter(f -> f.getType().isPath())
                 .flatMap(fragment -> fragment.sourceFiles().join().stream());
@@ -84,25 +97,11 @@ public class BuildTools {
                 .collect(Collectors.toSet());
 
         var analyzer = cm.getAnalyzer();
-        var workspaceTestFiles = (testFilesOverride != null && !testFilesOverride.isEmpty())
-                ? testFilesOverride
-                : workspaceFiles.stream()
-                        .filter(f -> ContextManager.isTestFile(f, analyzer))
-                        .toList();
+        var workspaceTestFiles = workspaceFiles.stream()
+                .filter(f -> ContextManager.isTestFile(f, analyzer))
+                .toList();
 
         if (workspaceTestFiles.isEmpty()) {
-            // If there are no discovered test targets for a SOME-scoped run, we should still prefer running the
-            // project's "test all" command (when available) over dropping down to lint-only. This keeps verification
-            // semantics consistent and matches BuildVerifier's lint-then-test behavior.
-            String testAll = System.getenv("BRK_TESTALL_CMD") != null
-                    ? System.getenv("BRK_TESTALL_CMD")
-                    : details.testAllCommand();
-
-            if (testAll != null && !testAll.isBlank()) {
-                return interpolateCommandWithPythonVersion(
-                        testAll, cm.getProject().getRoot());
-            }
-
             return interpolateCommandWithPythonVersion(
                     details.buildLintCommand(), cm.getProject().getRoot());
         }
@@ -110,9 +109,77 @@ public class BuildTools {
         return getBuildLintSomeCommand(cm, details, workspaceTestFiles);
     }
 
-    public static CompletableFuture<@Nullable String> determineVerificationCommandAsync(IContextManager cm) {
+    public static String getBuildLintSomeCommand(
+            IContextManager cm, BuildDetails details, Collection<ProjectFile> workspaceTestFiles)
+            throws InterruptedException {
+        return getBuildLintSomeCommand(cm, details, workspaceTestFiles, null);
+    }
+
+    public static CompletableFuture<@Nullable String> determineVerificationCommandAsync(ContextManager cm) {
         return cm.submitBackgroundTask(
                 "Determine build verification command", () -> determineVerificationCommand(cm.liveContext()));
+    }
+
+    public static String getBuildLintSomeCommand(
+            IContextManager cm,
+            BuildDetails details,
+            Collection<ProjectFile> workspaceTestFiles,
+            @Nullable String pythonVersionOverride)
+            throws InterruptedException {
+
+        String testSomeTemplate = System.getenv("BRK_TESTSOME_CMD") != null
+                ? System.getenv("BRK_TESTSOME_CMD")
+                : details.testSomeCommand();
+
+        if (testSomeTemplate.isBlank()) {
+            return details.buildLintCommand();
+        }
+
+        final Path projectRoot = cm.getProject().getRoot();
+        String pythonVersion =
+                pythonVersionOverride != null ? pythonVersionOverride : getPythonVersionForProject(projectRoot);
+
+        IAnalyzer analyzer = cm.getAnalyzer();
+        Map<String, Object> context = new HashMap<>();
+        context.put("pyver", pythonVersion == null ? "" : pythonVersion);
+
+        // Always calculate all potential lists to support mixed templates
+        // 1. Packages
+        List<String> packages = analyzer.getTestModules(workspaceTestFiles);
+        context.put("packages", MustacheTemplates.toStringElementList(packages));
+
+        // 2. Files
+        context.put(
+                "files",
+                MustacheTemplates.toStringElementList(
+                        workspaceTestFiles.stream().map(ProjectFile::toString).toList()));
+
+        // 3. Classes
+        List<String> fqClasses = List.of();
+        List<String> classes = List.of();
+        if (!analyzer.isEmpty()) {
+            var codeUnits = AnalyzerUtil.testFilesToCodeUnits(analyzer, workspaceTestFiles);
+            fqClasses = codeUnits.stream().map(CodeUnit::fqName).sorted().toList();
+            classes = codeUnits.stream().map(CodeUnit::identifier).sorted().toList();
+        }
+        context.put("fqclasses", MustacheTemplates.toStringElementList(fqClasses));
+        context.put("classes", MustacheTemplates.toStringElementList(classes));
+
+        // Perform multi-variable interpolation
+        MustacheFactory mf = new DefaultMustacheFactory();
+        Mustache mustache = mf.compile(new StringReader(testSomeTemplate), "dynamic_template");
+
+        StringWriter writer = new StringWriter();
+        mustache.execute(writer, context);
+        String result = writer.toString();
+
+        // If the result is blank, or it is identical to a template that contains mustache tags,
+        // it means no sections matched or no targets were found; fall back to build/lint command.
+        if (result.isBlank() || (testSomeTemplate.contains("{{") && result.equals(testSomeTemplate))) {
+            return details.buildLintCommand();
+        }
+
+        return result;
     }
 
     private static @Nullable String getPythonVersionForProject(Path projectRoot) {
@@ -126,302 +193,248 @@ public class BuildTools {
 
     private static String interpolateCommandWithPythonVersion(String command, Path projectRoot) {
         if (command.isEmpty()) return command;
+        if (System.getenv("BRK_TESTALL_CMD") != null) command = System.getenv("BRK_TESTALL_CMD");
         String pythonVersion = getPythonVersionForProject(projectRoot);
         return interpolateMustacheTemplate(command, List.of(), "unused", pythonVersion);
     }
 
-    /**
-     * Generates a command for building or testing a specific subset of files/classes.
-     */
-    public static String getBuildLintSomeCommand(
-            IContextManager cm, BuildDetails details, Collection<ProjectFile> workspaceTestFiles)
-            throws InterruptedException {
-        String template = details.testSomeCommand();
-        if (template.isBlank()) {
-            return interpolateCommandWithPythonVersion(
-                    details.buildLintCommand(), cm.getProject().getRoot());
-        }
-
-        IProject project = cm.getProject();
-        var analyzer = cm.getAnalyzer();
-
-        Map<String, Object> mustacheContext = new HashMap<>();
-        mustacheContext.put(
-                "packages", MustacheTemplates.toStringElementList(analyzer.getTestModules(workspaceTestFiles)));
-
-        // Extract both top-level and all declarations to ensure we find test functions/classes
-        List<ai.brokk.analyzer.CodeUnit> declarations = workspaceTestFiles.stream()
-                .flatMap(f -> {
-                    var top = analyzer.getTopLevelDeclarations(f);
-                    return top.isEmpty() ? analyzer.getDeclarations(f).stream() : top.stream();
-                })
-                .toList();
-
-        mustacheContext.put(
-                "fqclasses",
-                MustacheTemplates.toStringElementList(declarations.stream()
-                        .map(ai.brokk.analyzer.CodeUnit::fqName)
-                        .distinct()
-                        .sorted()
-                        .toList()));
-        mustacheContext.put(
-                "classes",
-                MustacheTemplates.toStringElementList(declarations.stream()
-                        .map(ai.brokk.analyzer.CodeUnit::shortName)
-                        .distinct()
-                        .sorted()
-                        .toList()));
-        mustacheContext.put(
-                "files",
-                MustacheTemplates.toStringElementList(workspaceTestFiles.stream()
-                        .map(ProjectFile::toString)
-                        .distinct()
-                        .sorted()
-                        .toList()));
-        mustacheContext.put("pyver", Objects.toString(getPythonVersionForProject(project.getRoot()), ""));
-
-        MustacheFactory mf = new DefaultMustacheFactory();
-        Mustache mustache = mf.compile(new StringReader(template), "test_some_interpolation");
-        StringWriter writer = new StringWriter();
-        mustache.execute(writer, mustacheContext);
-        return writer.toString();
-    }
-
-    private static final Set<String> ALLOWED_TOP_LEVEL_KEYS =
-            Set.of("files", "classes", "fqclasses", "packages", "pyver");
-
-    private static final Set<String> ALLOWED_ITEM_KEYS = Set.of(".", "value", "first", "last", "index");
-
-    private static final Pattern DELIMITER_CHANGE_PATTERN = Pattern.compile("\\{\\{=.*?=\\}\\}");
-
-    private static final Pattern MUSTACHE_TAG_PATTERN =
-            Pattern.compile("\\{\\{\\{?\\s*([#/^>!]?)\\s*([^}\\s]+)\\s*\\}?\\}\\}\\s*");
-
-    /**
-     * Interpolates a Mustache template with the given list of items and optional Python version.
-     * Supports {@code {{#files}}}, {@code {{#classes}}}, {@code {{#fqclasses}}}, {@code {{#packages}}},
-     * and {@code {{pyver}}} variables.
-     */
     public static String interpolateMustacheTemplate(String template, List<String> items, String listKey) {
         return interpolateMustacheTemplate(template, items, listKey, null);
     }
 
-    /**
-     * Interpolates a Mustache template with the given list of items and optional Python version.
-     */
     public static String interpolateMustacheTemplate(
-            String template, List<? extends Object> items, String listKey, @Nullable String pythonVersion) {
-        if (template.isEmpty()) {
-            return "";
-        }
-
-        // Validate template before compiling
-        validateMustacheTemplate(template, listKey);
-
+            String template, List<String> items, String listKey, @Nullable String pythonVersion) {
+        if (template.isEmpty()) return "";
+        // Use unified interpolation logic compatible with BuildAgent
         MustacheFactory mf = new DefaultMustacheFactory();
         Mustache mustache = mf.compile(new StringReader(template), "dynamic_template");
-
         Map<String, Object> context = new HashMap<>();
-        context.put(
-                listKey,
-                MustacheTemplates.toStringElementList(
-                        items.stream().map(Object::toString).toList()));
+        context.put(listKey, MustacheTemplates.toStringElementList(items));
         context.put("pyver", pythonVersion == null ? "" : pythonVersion);
-
         StringWriter writer = new StringWriter();
         mustache.execute(writer, context);
-
         return writer.toString();
     }
 
-    private static void validateMustacheTemplate(String template, String listKey) {
-        if (template.isEmpty()) {
-            return;
-        }
-        var tags = new java.util.LinkedHashSet<String>();
-        var delimiterMatcher = DELIMITER_CHANGE_PATTERN.matcher(template);
-        while (delimiterMatcher.find()) {
-            String fullMatch = delimiterMatcher.group();
-            String delimiterSpec =
-                    fullMatch.substring(3, fullMatch.length() - 3).trim();
-            tags.add("=" + (delimiterSpec.isEmpty() ? "..." : delimiterSpec));
-        }
-
-        var matcher = MUSTACHE_TAG_PATTERN.matcher(template);
-        while (matcher.find()) {
-            String prefix = matcher.group(1);
-            String name = matcher.group(2);
-            if (">".equals(prefix) || "!".equals(prefix)) {
-                tags.add(prefix + name);
-            } else {
-                tags.add(name);
-            }
-        }
-
-        var allAllowed = new java.util.HashSet<>(ALLOWED_TOP_LEVEL_KEYS);
-        allAllowed.addAll(ALLOWED_ITEM_KEYS);
-        allAllowed.add(listKey);
-
-        var unsupported = new java.util.LinkedHashSet<String>();
-        for (String tag : tags) {
-            if (!allAllowed.contains(tag)) {
-                unsupported.add(tag);
-            }
-        }
-
-        if (!unsupported.isEmpty()) {
-            throw new IllegalArgumentException("Unsupported Mustache tags: %s. Allowed: %s"
-                    .formatted(unsupported, new java.util.TreeSet<>(allAllowed)));
-        }
-    }
-
-    /**
-     * Executes an explicit command and updates the context with the result.
-     * If the command is blank, it clears any previous build errors.
-     */
-    @Blocking
-    public static Context runExplicitCommand(Context ctx, String command, @Nullable BuildDetails override)
-            throws InterruptedException {
-        var cm = ctx.getContextManager();
-        var io = cm.getIo();
-
-        if (command.isBlank()) {
-            io.llmOutput("\nNo explicit command specified, skipping.", ChatMessageType.CUSTOM, LlmOutputMeta.DEFAULT);
-            return ctx.withBuildResult(true, "Build succeeded.");
-        }
-
-        var details = override != null ? override : cm.getProject().awaitBuildDetails();
-
-        io.llmOutput("\nRunning explicit command:", ChatMessageType.CUSTOM, LlmOutputMeta.DEFAULT);
-        io.llmOutput(
-                command + "\n\n",
-                ChatMessageType.CUSTOM,
-                LlmOutputMeta.newMessage().withTerminal(true));
-
-        Duration timeout = Duration.ofSeconds(cm.getProject().getTestCommandTimeoutSeconds());
-        if (timeout.isNegative()) timeout = Environment.UNLIMITED_TIMEOUT;
-
-        try {
-            ai.brokk.util.Environment.instance.runShellCommand(
-                    command,
-                    cm.getProject().getRoot(),
-                    line -> io.llmOutput(line + "\n", ChatMessageType.CUSTOM, LlmOutputMeta.terminal()),
-                    timeout,
-                    cm.getProject().getShellConfig(),
-                    details.environmentVariables());
-            return ctx.withBuildResult(true, "Build succeeded.");
-        } catch (ai.brokk.util.Environment.SubprocessException e) {
-            String output = Objects.toString(e.getOutput(), "");
-            return ctx.withBuildResult(
-                    false, "Command failed: " + Objects.toString(e.getMessage(), "") + "\n" + output);
-        }
-    }
-
-    /**
-     * Convenience wrapper that runs verification and returns the error string (blank on success).
-     * Pushes the result to the ContextManager's live context if possible.
-     */
     @Blocking
     public static String runVerification(IContextManager cm) throws InterruptedException {
         return runVerification(cm, null);
     }
 
-    /**
-     * Convenience wrapper that runs verification with an override and returns the error string.
-     * Pushes the result to the ContextManager's live context if possible.
-     */
     @Blocking
     public static String runVerification(IContextManager cm, @Nullable BuildDetails override)
             throws InterruptedException {
-        try {
-            var interrupted = new AtomicReference<InterruptedException>(null);
-            var updated = cm.pushContext(ctx -> {
-                try {
-                    return runVerification(ctx, override);
-                } catch (InterruptedException e) {
-                    interrupted.set(e);
-                    return ctx;
-                }
-            });
-            if (interrupted.get() != null) throw interrupted.get();
-
-            String error = updated.getBuildError();
-            return error.isBlank() ? "Build succeeded." : error;
-        } catch (UnsupportedOperationException e) {
-            // For TestContextManager or other doubles that don't support pushContext
-            String error = runVerification(cm.liveContext(), override).getBuildError();
-            return error.isBlank() ? "Build succeeded." : error;
-        }
+        var interrupted = new AtomicReference<InterruptedException>(null);
+        var updated = cm.pushContext(ctx -> {
+            try {
+                return runVerification(ctx, override);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                interrupted.set(e);
+                return ctx;
+            }
+        });
+        var ie = interrupted.get();
+        if (ie != null) throw ie;
+        return updated.getBuildError();
     }
 
     @Blocking
     public static Context runVerification(Context ctx) throws InterruptedException {
-        return runVerificationInternal(ctx, null, null);
+        return runVerification(ctx, null, null);
     }
 
     @Blocking
     public static Context runVerification(Context ctx, @Nullable BuildDetails override) throws InterruptedException {
-        return runVerificationInternal(ctx, override, null);
+        return runVerification(ctx, override, null);
     }
 
     @Blocking
     public static Context runVerification(
             Context ctx, @Nullable BuildDetails override, @Nullable Collection<ProjectFile> testFilesOverride)
             throws InterruptedException {
-        return runVerificationInternal(ctx, override, testFilesOverride);
-    }
-
-    private static Context runVerificationInternal(
-            Context ctx, @Nullable BuildDetails override, @Nullable Collection<ProjectFile> testFilesOverride)
-            throws InterruptedException {
         var cm = ctx.getContextManager();
         var io = cm.getIo();
-        var details = override != null ? override : cm.getProject().awaitBuildDetails();
         var verificationCommand = determineVerificationCommand(ctx, override, testFilesOverride);
         if (verificationCommand == null || verificationCommand.isBlank()) {
             io.llmOutput(
                     "\nNo verification command specified, skipping build/check.",
                     ChatMessageType.CUSTOM,
                     LlmOutputMeta.DEFAULT);
-            return ctx.withBuildResult(true, "Build succeeded.");
+            return ctx;
         }
-
-        String lintCommand = details.buildLintCommand();
-        String testCommand = verificationCommand.equals(lintCommand) ? "" : verificationCommand;
-
-        // Output messages to IO similar to original behavior
-        io.llmOutput("\nRunning verification command:", ChatMessageType.CUSTOM, LlmOutputMeta.DEFAULT);
-        if (!lintCommand.isBlank()) {
-            io.llmOutput("\nLint: " + lintCommand, ChatMessageType.CUSTOM, LlmOutputMeta.terminal());
+        boolean noConcurrentBuilds = "true".equalsIgnoreCase(System.getenv("BRK_NO_CONCURRENT_BUILDS"));
+        if (noConcurrentBuilds) {
+            var lock = acquireBuildLock(cm);
+            if (lock == null) return runBuildAndUpdateFragmentInternal(ctx, verificationCommand, override);
+            try (var ignored = lock) {
+                return runBuildAndUpdateFragmentInternal(ctx, verificationCommand, override);
+            }
+        } else {
+            return runBuildAndUpdateFragmentInternal(ctx, verificationCommand, override);
         }
-        if (!testCommand.isBlank()) {
-            io.llmOutput("\nTest: " + testCommand, ChatMessageType.CUSTOM, LlmOutputMeta.terminal());
-        }
-        io.llmOutput("\n\n", ChatMessageType.CUSTOM, LlmOutputMeta.newMessage().withTerminal(true));
+    }
 
-        // Determine retries
-        int retries = 1;
-        String retriesEnv = System.getenv("BRK_TEST_RETRIES");
-        if (retriesEnv != null) {
+    @Blocking
+    public static Context runExplicitCommand(Context ctx, String command, @Nullable BuildDetails override)
+            throws InterruptedException {
+        var cm = ctx.getContextManager();
+        var io = cm.getIo();
+        if (command.isBlank()) {
+            io.llmOutput("\nNo explicit command specified, skipping.", ChatMessageType.CUSTOM, LlmOutputMeta.DEFAULT);
+            return ctx.withBuildResult(true, "");
+        }
+        boolean noConcurrentBuilds = "true".equalsIgnoreCase(System.getenv("BRK_NO_CONCURRENT_BUILDS"));
+        if (noConcurrentBuilds) {
+            var lock = acquireBuildLock(cm);
+            if (lock == null) return runExplicitBuildAndUpdateFragmentInternal(ctx, command, override);
+            try (var ignored = lock) {
+                return runExplicitBuildAndUpdateFragmentInternal(ctx, command, override);
+            }
+        } else {
+            return runExplicitBuildAndUpdateFragmentInternal(ctx, command, override);
+        }
+    }
+
+    private record BuildLock(FileChannel channel, FileLock lock, Path lockFile) implements AutoCloseable {
+        @Override
+        public void close() {
             try {
-                retries = Integer.parseInt(retriesEnv.trim());
-            } catch (NumberFormatException e) {
-                logger.warn("Invalid BRK_TEST_RETRIES value: '{}'. Using default (1).", retriesEnv);
+                if (lock.isValid()) lock.release();
+            } catch (Exception e) {
+                logger.debug("Error releasing build lock", e);
+            }
+            try {
+                if (channel.isOpen()) channel.close();
+            } catch (Exception e) {
+                logger.debug("Error closing build lock channel", e);
             }
         }
+    }
 
+    private static @Nullable BuildLock acquireBuildLock(IContextManager cm) {
+        Path lockDir = Paths.get(System.getProperty("java.io.tmpdir"), "brokk");
+        try {
+            Files.createDirectories(lockDir);
+        } catch (IOException e) {
+            return null;
+        }
+        var repoNameForLock = getOriginRepositoryName(cm);
+        Path lockFile = lockDir.resolve(repoNameForLock + ".lock");
+        try {
+            var channel = FileChannel.open(lockFile, StandardOpenOption.CREATE, StandardOpenOption.WRITE);
+            var lock = channel.lock();
+            return new BuildLock(channel, lock, lockFile);
+        } catch (IOException ioe) {
+            return null;
+        }
+    }
+
+    private static String getOriginRepositoryName(IContextManager cm) {
+        var url = cm.getRepo().getRemoteUrl();
+        if (url == null || url.isBlank())
+            return cm.getRepo().getGitTopLevel().getFileName().toString();
+        if (url.endsWith(".git")) url = url.substring(0, url.length() - 4);
+        int idx = Math.max(url.lastIndexOf('/'), url.lastIndexOf(':'));
+        if (idx >= 0 && idx < url.length() - 1) return url.substring(idx + 1);
+        throw new IllegalArgumentException("Unable to parse git repo url " + url);
+    }
+
+    private static Context runBuildAndUpdateFragmentInternal(
+            Context ctx, String verificationCommand, @Nullable BuildDetails override) throws InterruptedException {
+        var cm = ctx.getContextManager();
+        var io = cm.getIo();
+        var details = override != null ? override : cm.getProject().awaitBuildDetails();
+        @Nullable String testRetriesEnv = System.getenv("BRK_TEST_RETRIES");
+        if (testRetriesEnv != null && !testRetriesEnv.isBlank()) {
+            return runBuildWithTestRetries(ctx, verificationCommand, details, Integer.parseInt(testRetriesEnv.trim()));
+        }
+        io.llmOutput("\nRunning verification command:", ChatMessageType.CUSTOM, LlmOutputMeta.DEFAULT);
+        io.llmOutput(
+                verificationCommand + "\n\n",
+                ChatMessageType.CUSTOM,
+                LlmOutputMeta.newMessage().withTerminal(true));
+        try {
+            Environment.instance.runShellCommand(
+                    verificationCommand,
+                    cm.getProject().getRoot(),
+                    line -> io.llmOutput(line + "\n", ChatMessageType.CUSTOM, LlmOutputMeta.terminal()),
+                    resolveTimeout(cm.getProject().getRunCommandTimeoutSeconds()),
+                    cm.getProject().getShellConfig(),
+                    details.environmentVariables());
+            return ctx.withBuildResult(true, "Build succeeded.");
+        } catch (Environment.SubprocessException e) {
+            return ctx.withBuildResult(
+                    false,
+                    BuildOutputProcessor.processForLlm(
+                            Objects.toString(e.getMessage(), "") + "\n\n" + Objects.toString(e.getOutput(), ""), cm));
+        }
+    }
+
+    private static Context runBuildWithTestRetries(
+            Context ctx, String verificationCommand, BuildDetails details, int maxRetries) throws InterruptedException {
+        var cm = ctx.getContextManager();
+        var io = cm.getIo();
+        String lintCommand = details.buildLintCommand();
+        String testCommand = verificationCommand.equals(lintCommand) ? "" : verificationCommand;
+        io.llmOutput(
+                "\nRunning verification with test retries enabled:", ChatMessageType.CUSTOM, LlmOutputMeta.DEFAULT);
+        if (!lintCommand.isBlank())
+            io.llmOutput(
+                    "\nLint/compile: " + lintCommand + "\n",
+                    ChatMessageType.CUSTOM,
+                    LlmOutputMeta.newMessage().withTerminal(true));
+        if (!testCommand.isBlank())
+            io.llmOutput(
+                    "Test: " + testCommand + " (up to " + maxRetries + " attempts)\n\n",
+                    ChatMessageType.CUSTOM,
+                    LlmOutputMeta.terminal());
         var result = BuildVerifier.verifyWithRetries(
                 cm.getProject(),
                 lintCommand,
                 testCommand,
-                retries,
+                maxRetries,
                 details.environmentVariables(),
                 line -> io.llmOutput(line + "\n", ChatMessageType.CUSTOM, LlmOutputMeta.terminal()));
+        if (result.success()) return ctx.withBuildResult(true, "Build succeeded.");
+        else return ctx.withBuildResult(false, BuildOutputProcessor.processForLlm(result.output(), cm));
+    }
 
-        if (result.success()) {
+    private static Context runExplicitBuildAndUpdateFragmentInternal(
+            Context ctx, String command, @Nullable BuildDetails override) throws InterruptedException {
+        var cm = ctx.getContextManager();
+        var io = cm.getIo();
+        io.llmOutput(
+                "\nRunning command: \n\n```bash\n" + command + "\n```\n",
+                ChatMessageType.CUSTOM,
+                LlmOutputMeta.DEFAULT);
+        io.llmOutput(
+                "\n```" + ShellConfig.getShellLanguageFromProject(cm.getProject()) + "\n",
+                ChatMessageType.CUSTOM,
+                LlmOutputMeta.DEFAULT);
+        try {
+            var details = override != null ? override : cm.getProject().awaitBuildDetails();
+            Environment.instance.runShellCommand(
+                    command,
+                    cm.getProject().getRoot(),
+                    line -> io.llmOutput(line + "\n", ChatMessageType.CUSTOM, LlmOutputMeta.terminal()),
+                    resolveTimeout(cm.getProject().getTestCommandTimeoutSeconds()),
+                    cm.getProject().getShellConfig(),
+                    details.environmentVariables());
+            io.llmOutput("\n```", ChatMessageType.CUSTOM, LlmOutputMeta.DEFAULT);
             return ctx.withBuildResult(true, "Build succeeded.");
-        } else {
-            return ctx.withBuildResult(false, result.output());
+        } catch (Environment.SubprocessException e) {
+            io.llmOutput("\n```", ChatMessageType.CUSTOM, LlmOutputMeta.DEFAULT);
+            return ctx.withBuildResult(
+                    false,
+                    BuildOutputProcessor.processForLlm(
+                            Objects.toString(e.getMessage(), "") + "\n\n" + Objects.toString(e.getOutput(), ""), cm));
         }
+    }
+
+    private static Duration resolveTimeout(long timeoutSeconds) {
+        if (timeoutSeconds == -1) return Environment.UNLIMITED_TIMEOUT;
+        else if (timeoutSeconds <= 0) return Environment.DEFAULT_TIMEOUT;
+        else return Duration.ofSeconds(timeoutSeconds);
     }
 }

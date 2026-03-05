@@ -17,8 +17,6 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -143,42 +141,5 @@ class BuildToolsTest {
         // 4. Assertions
         // Ensure the package has the ./ prefix and the class (function) is present
         assertEquals("go test ./callbacks  -run '^TestCallbacks$'", result);
-    }
-
-    @Test
-    void testRunVerificationCallsVerifier(@TempDir Path tempDir) throws Exception {
-        var originalFactory = Environment.shellCommandRunnerFactory;
-        try {
-            Files.writeString(tempDir.resolve("README.md"), "x");
-            var project = new TestProject(tempDir);
-            project.setBuildDetails(
-                    new BuildDetails("lint-cmd", "test-all", "test-some", Set.of(), java.util.Map.of()));
-
-            var io = new NoOpConsoleIO();
-            var testAnalyzer = new TestAnalyzer();
-            var cm = new TestContextManager(project, io, Set.of(), testAnalyzer);
-
-            var callCount = new AtomicInteger(0);
-            var lastCommand = new AtomicReference<String>();
-
-            Environment.shellCommandRunnerFactory = (command, root) -> (outputConsumer, timeout) -> {
-                callCount.incrementAndGet();
-                lastCommand.set(command);
-                return "ok";
-            };
-
-            // This should call BuildVerifier.verifyWithRetries which will execute lint-cmd then test-all
-            String error = BuildTools.runVerification(cm);
-
-            // Verify the success message matches our expectations
-            assertEquals("Build succeeded.", error);
-
-            // Scope is ALL by default in TestProject, so determineVerificationCommand returns testAllCommand
-            // verifyWithRetries(lint="lint-cmd", test="test-all") -> 2 calls
-            assertEquals(2, callCount.get());
-            assertEquals("test-all", lastCommand.get());
-        } finally {
-            Environment.shellCommandRunnerFactory = originalFactory;
-        }
     }
 }
