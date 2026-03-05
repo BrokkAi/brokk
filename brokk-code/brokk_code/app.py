@@ -637,6 +637,14 @@ class RuntimeState:
     auto_rename_eligible: bool = False
     renamed: bool = False
 
+    # Worktree-scoped settings
+    agent_mode: str = "LUTZ"
+    planner_model: str = "gpt-5.2"
+    code_model: str = "gemini-3-flash-preview"
+    reasoning_level: str = "low"
+    reasoning_level_code: str = "disable"
+    auto_commit: bool = True
+
 
 class BrokkApp(App):
     """The main Brokk TUI application."""
@@ -674,7 +682,7 @@ class BrokkApp(App):
         self.runtimes: Dict[Path, RuntimeState] = {}
         self.current_worktree = resolve_workspace_dir(workspace_dir or Path.cwd())
 
-        # Initialize primary runtime
+        # Initialize primary executor
         if executor:
             primary_executor = executor
             if workspace_dir:
@@ -684,38 +692,34 @@ class BrokkApp(App):
         else:
             primary_executor = self._create_executor(self.current_worktree)
 
-        self.runtimes[self.current_worktree] = RuntimeState(executor=primary_executor)
+        # Capture baseline defaults from settings at initialization.
+        # This prevents custom values in one worktree from bleeding into new ones.
+        self._baseline_planner_model = self._normalize_setting(self.settings.last_model, "gpt-5.2")
+        self._baseline_code_model = self._normalize_setting(
+            self.settings.last_code_model, "gemini-3-flash-preview"
+        )
+        self._baseline_reasoning_level = self._normalize_setting(
+            self.settings.last_reasoning_level, "low"
+        )
+        self._baseline_reasoning_level_code = self._normalize_setting(
+            self.settings.last_code_reasoning_level, "disable"
+        )
+        self._baseline_auto_commit = bool(
+            self.settings.last_auto_commit if self.settings.last_auto_commit is not None else True
+        )
+
+        # Initialize initial worktree runtime state with baseline defaults
+        self.runtimes[self.current_worktree] = RuntimeState(
+            executor=primary_executor,
+            planner_model=self._baseline_planner_model,
+            code_model=self._baseline_code_model,
+            reasoning_level=self._baseline_reasoning_level,
+            reasoning_level_code=self._baseline_reasoning_level_code,
+            auto_commit=self._baseline_auto_commit,
+        )
 
         self._set_theme(self.settings.theme)
-        self.agent_mode = "LUTZ"
         self.show_verbose_output: bool = False
-
-        self.current_model = (
-            str(self.settings.last_model).strip()
-            if self.settings.last_model and str(self.settings.last_model).strip()
-            else "gpt-5.2"
-        )
-        self.code_model = (
-            str(self.settings.last_code_model).strip()
-            if self.settings.last_code_model and str(self.settings.last_code_model).strip()
-            else "gemini-3-flash-preview"
-        )
-        self.reasoning_level = (
-            str(self.settings.last_reasoning_level).strip()
-            if self.settings.last_reasoning_level
-            and str(self.settings.last_reasoning_level).strip()
-            else "low"
-        )
-        self.reasoning_level_code = (
-            str(self.settings.last_code_reasoning_level).strip()
-            if self.settings.last_code_reasoning_level
-            else "disable"
-        )
-        self.auto_commit = (
-            bool(self.settings.last_auto_commit)
-            if isinstance(self.settings.last_auto_commit, bool)
-            else True
-        )
 
         self._startup_pending_prompt: Optional[str] = None
         self._resubmit_grace_s: float = 0.2
@@ -738,6 +742,34 @@ class BrokkApp(App):
         repo_root = WorktreeService.find_repo_root(self.current_worktree)
         self.worktree_service = WorktreeService(repo_root) if repo_root else None
 
+    def _ensure_baseline_defaults(self) -> None:
+        """Initializes baseline defaults from settings if not already present."""
+        if not hasattr(self, "settings"):
+            self.settings = Settings.load()
+
+        if not hasattr(self, "_baseline_planner_model"):
+            self._baseline_planner_model = self._normalize_setting(
+                self.settings.last_model, "gpt-5.2"
+            )
+        if not hasattr(self, "_baseline_code_model"):
+            self._baseline_code_model = self._normalize_setting(
+                self.settings.last_code_model, "gemini-3-flash-preview"
+            )
+        if not hasattr(self, "_baseline_reasoning_level"):
+            self._baseline_reasoning_level = self._normalize_setting(
+                self.settings.last_reasoning_level, "low"
+            )
+        if not hasattr(self, "_baseline_reasoning_level_code"):
+            self._baseline_reasoning_level_code = self._normalize_setting(
+                self.settings.last_code_reasoning_level, "disable"
+            )
+        if not hasattr(self, "_baseline_auto_commit"):
+            self._baseline_auto_commit = bool(
+                self.settings.last_auto_commit
+                if self.settings.last_auto_commit is not None
+                else True
+            )
+
     def _lazy_init_runtimes(self) -> None:
         """Ensures core runtime state exists (handles partially initialized app in tests)."""
         if not hasattr(self, "runtimes"):
@@ -752,6 +784,7 @@ class BrokkApp(App):
             self._rename_session_lock = asyncio.Lock()
         if not hasattr(self, "current_worktree"):
             self.current_worktree = resolve_workspace_dir(Path.cwd())
+        self._ensure_baseline_defaults()
 
     @property
     def current_runtime(self) -> RuntimeState:
@@ -849,13 +882,29 @@ class BrokkApp(App):
     def _executor_ready(self, value: bool) -> None:
         self.current_runtime.executor_ready = value
 
+    def _normalize_setting(self, value: Any, fallback: str) -> str:
+        """Safely normalizes an optional string setting to avoid 'None' literal."""
+        if value is None:
+            return fallback
+        s = str(value).strip()
+        return s if s and s.lower() != "none" else fallback
+
     def get_runtime(self, workspace_path: Path) -> RuntimeState:
         """Lazily retrieves or creates a runtime for a given path."""
         self._lazy_init_runtimes()
+        self._ensure_baseline_defaults()
         path = resolve_workspace_dir(workspace_path)
         if path not in self.runtimes:
             exec_mgr = self._create_executor(path)
-            self.runtimes[path] = RuntimeState(executor=exec_mgr)
+            # Use captured baseline defaults for first-time runtimes to ensure isolation.
+            self.runtimes[path] = RuntimeState(
+                executor=exec_mgr,
+                planner_model=self._baseline_planner_model,
+                code_model=self._baseline_code_model,
+                reasoning_level=self._baseline_reasoning_level,
+                reasoning_level_code=self._baseline_reasoning_level_code,
+                auto_commit=self._baseline_auto_commit,
+            )
         return self.runtimes[path]
 
     def _create_executor(self, workspace_dir: Path) -> ExecutorManager:
@@ -886,6 +935,14 @@ class BrokkApp(App):
         return super().run_worker(coroutine, **kwargs)
 
     @property
+    def agent_mode(self) -> str:
+        return self.current_runtime.agent_mode
+
+    @agent_mode.setter
+    def agent_mode(self, value: str) -> None:
+        self.current_runtime.agent_mode = value
+
+    @property
     def current_mode(self) -> str:
         """Alias for agent_mode used by tests and for unified access."""
         return self.agent_mode
@@ -893,6 +950,46 @@ class BrokkApp(App):
     @current_mode.setter
     def current_mode(self, value: str) -> None:
         self.agent_mode = value
+
+    @property
+    def current_model(self) -> str:
+        return self.current_runtime.planner_model
+
+    @current_model.setter
+    def current_model(self, value: str) -> None:
+        self.current_runtime.planner_model = value
+
+    @property
+    def code_model(self) -> str:
+        return self.current_runtime.code_model
+
+    @code_model.setter
+    def code_model(self, value: str) -> None:
+        self.current_runtime.code_model = value
+
+    @property
+    def reasoning_level(self) -> str:
+        return self.current_runtime.reasoning_level
+
+    @reasoning_level.setter
+    def reasoning_level(self, value: str) -> None:
+        self.current_runtime.reasoning_level = value
+
+    @property
+    def reasoning_level_code(self) -> str:
+        return self.current_runtime.reasoning_level_code
+
+    @reasoning_level_code.setter
+    def reasoning_level_code(self, value: str) -> None:
+        self.current_runtime.reasoning_level_code = value
+
+    @property
+    def auto_commit(self) -> bool:
+        return self.current_runtime.auto_commit
+
+    @auto_commit.setter
+    def auto_commit(self, value: bool) -> None:
+        self.current_runtime.auto_commit = value
 
     def _maybe_chat(self) -> Optional[ChatPanel]:
         """Safely attempt to get the ChatPanel, returning None if the UI isn't mounted."""
@@ -2234,6 +2331,13 @@ class BrokkApp(App):
             self.action_toggle_tasklist()
         elif base == "/sessions":
             self.run_worker(self._show_sessions())
+        elif base == "/switch-worktree":
+            # Diagnostic/test helper to simulate worktree switching
+            if len(parts) > 1:
+                new_path = Path(parts[1]).resolve()
+                self.current_worktree = new_path
+                self._update_statusline()
+                chat.add_system_message(f"Switched worktree context to: {new_path}")
         elif base == "/help":
             commands = self.get_slash_commands()
             # Calculate padding based on longest command

@@ -1,6 +1,6 @@
 import pathlib
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional, Union
 
 from textual.app import ComposeResult
 from textual.containers import Horizontal
@@ -49,24 +49,40 @@ class StatusLine(Horizontal):
         yield Static(id="status-metadata")
 
     def on_mount(self) -> None:
-        try:
-            self._metadata = self.query_one("#status-metadata", Static)
-        except Exception:
-            self._metadata = None
+        self._ensure_metadata_initialized()
         app = self.app
         if app is None:
             self._render_status_text()
             return
 
-        mode = getattr(app, "current_mode", getattr(app, "agent_mode", "unknown"))
-        model = getattr(app, "current_model", "unknown")
-        reasoning = getattr(app, "reasoning_level", "unknown")
-        branch = getattr(app, "current_branch", "unknown")
-        workspace = "unknown"
+        self.refresh()
+
+    def _ensure_metadata_initialized(self) -> None:
+        if self._metadata is not None:
+            return
         try:
-            workspace = str(app.current_worktree)
+            self._metadata = self.query_one("#status-metadata", Static)
         except Exception:
-            workspace = "unknown"
+            self._metadata = None
+
+    def refresh(self, *args: Any, **kwargs: Any) -> None:
+        """Synchronize display with the current application state."""
+        super().refresh(*args, **kwargs)
+        app: Any = self.app
+        if app is None:
+            return
+
+        mode = str(getattr(app, "current_mode", "unknown"))
+        model = str(getattr(app, "current_model", "unknown"))
+        reasoning = str(getattr(app, "reasoning_level", "unknown"))
+        workspace = "unknown"
+        branch = "unknown"
+        try:
+            workspace = str(getattr(app, "current_worktree", "unknown"))
+            runtime = getattr(app, "current_runtime", None)
+            branch = str(getattr(runtime, "current_branch", "unknown")) if runtime else "unknown"
+        except Exception:
+            pass
 
         self.update_status(mode, model, reasoning, workspace, branch)
 
@@ -123,6 +139,7 @@ class StatusLine(Horizontal):
         self._set_status_metadata(text)
 
     def _set_status_metadata(self, text: str) -> None:
+        self._ensure_metadata_initialized()
         metadata = self._metadata
         if metadata is None:
             return
