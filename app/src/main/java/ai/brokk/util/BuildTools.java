@@ -23,7 +23,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -309,35 +308,15 @@ public class BuildTools {
         }
     }
 
-    /**
-     * Convenience wrapper that runs verification and returns the error string (blank on success).
-     * Pushes the result to the ContextManager's live context.
-     */
     @Blocking
-    public static String runVerification(ContextManager cm) throws InterruptedException {
-        return runVerification(cm, null);
+    public static String runVerification(IContextManager cm) throws InterruptedException {
+        return runVerification(cm.liveContext()).getBuildError();
     }
 
-    /**
-     * Convenience wrapper that runs verification with an override and returns the error string.
-     * Pushes the result to the ContextManager's live context.
-     */
     @Blocking
-    public static String runVerification(ContextManager cm, @Nullable BuildDetails override)
+    public static String runVerification(IContextManager cm, @Nullable BuildDetails override)
             throws InterruptedException {
-        var interrupted = new AtomicReference<InterruptedException>(null);
-        var updated = cm.pushContext(ctx -> {
-            try {
-                return runVerification(ctx, override);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                interrupted.set(e);
-                return ctx;
-            }
-        });
-        var ie = interrupted.get();
-        if (ie != null) throw ie;
-        return updated.getBuildError();
+        return runVerification(cm.liveContext(), override).getBuildError();
     }
 
     @Blocking
@@ -362,6 +341,7 @@ public class BuildTools {
             throws InterruptedException {
         var cm = ctx.getContextManager();
         var io = cm.getIo();
+        var details = override != null ? override : cm.getProject().awaitBuildDetails();
         var verificationCommand = determineVerificationCommand(ctx, override, testFilesOverride);
         if (verificationCommand == null || verificationCommand.isBlank()) {
             io.llmOutput(
@@ -371,10 +351,10 @@ public class BuildTools {
             return ctx.withBuildResult(true, "");
         }
 
-        var details = override != null ? override : cm.getProject().awaitBuildDetails();
         String lintCommand = details.buildLintCommand();
         String testCommand = verificationCommand.equals(lintCommand) ? "" : verificationCommand;
 
+        // Output messages to IO similar to original behavior
         io.llmOutput("\nRunning verification command:", ChatMessageType.CUSTOM, LlmOutputMeta.DEFAULT);
         if (!lintCommand.isBlank()) {
             io.llmOutput("\nLint: " + lintCommand, ChatMessageType.CUSTOM, LlmOutputMeta.terminal());
@@ -384,6 +364,7 @@ public class BuildTools {
         }
         io.llmOutput("\n\n", ChatMessageType.CUSTOM, LlmOutputMeta.newMessage().withTerminal(true));
 
+        // Determine retries
         int retries = 1;
         String retriesEnv = System.getenv("BRK_TEST_RETRIES");
         if (retriesEnv != null) {

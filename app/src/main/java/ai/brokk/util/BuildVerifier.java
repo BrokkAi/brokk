@@ -5,6 +5,7 @@ import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNul
 import ai.brokk.gui.dialogs.JdkSelector;
 import ai.brokk.project.IProject;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.ArrayDeque;
 import java.util.Arrays;
 import java.util.Deque;
@@ -70,7 +71,8 @@ public final class BuildVerifier {
             @Nullable Consumer<String> outputConsumer) {
         // 1. Run lint/compile first (if configured)
         if (!lintCommand.isBlank()) {
-            var lintResult = verifyStreaming(project, lintCommand, extraEnv, outputConsumer);
+            Duration lintTimeout = resolveTimeout(project.getRunCommandTimeoutSeconds());
+            var lintResult = verifyStreaming(project, lintCommand, extraEnv, outputConsumer, lintTimeout);
             if (!lintResult.success()) {
                 logger.debug("Lint/compile failed (exit {}); skipping tests", lintResult.exitCode());
                 return lintResult;
@@ -83,6 +85,7 @@ public final class BuildVerifier {
             return new VerificationResult(true, 0, "");
         }
 
+        Duration testTimeout = resolveTimeout(project.getTestCommandTimeoutSeconds());
         int effectiveRetries = Math.max(1, maxRetries);
         VerificationResult lastResult = null;
         for (int attempt = 1; attempt <= effectiveRetries; attempt++) {
@@ -92,7 +95,7 @@ public final class BuildVerifier {
                     outputConsumer.accept("[Retry attempt " + attempt + "/" + effectiveRetries + "]");
                 }
             }
-            lastResult = verifyStreaming(project, testCommand, extraEnv, outputConsumer);
+            lastResult = verifyStreaming(project, testCommand, extraEnv, outputConsumer, testTimeout);
             if (lastResult.success()) {
                 if (attempt > 1) {
                     logger.info("Tests passed on attempt {}/{}", attempt, effectiveRetries);
@@ -118,6 +121,15 @@ public final class BuildVerifier {
             String command,
             @Nullable Map<String, String> extraEnv,
             @Nullable Consumer<String> outputConsumer) {
+        return verifyStreaming(project, command, extraEnv, outputConsumer, Environment.DEFAULT_TIMEOUT);
+    }
+
+    public static VerificationResult verifyStreaming(
+            IProject project,
+            String command,
+            @Nullable Map<String, String> extraEnv,
+            @Nullable Consumer<String> outputConsumer,
+            Duration timeout) {
         String trimmed = command.trim();
         if (trimmed.isEmpty()) {
             return new VerificationResult(false, -1, "Command is blank.");
@@ -141,7 +153,7 @@ public final class BuildVerifier {
                             outputConsumer.accept(line);
                         }
                     },
-                    Environment.DEFAULT_TIMEOUT,
+                    timeout,
                     execCfg,
                     env);
 
@@ -233,5 +245,15 @@ public final class BuildVerifier {
         String[] split = fullOutput.split("\\R", -1);
         int start = Math.max(0, split.length - MAX_OUTPUT_LINES);
         return Arrays.stream(split, start, split.length).collect(Collectors.joining("\n"));
+    }
+
+    private static Duration resolveTimeout(long timeoutSeconds) {
+        if (timeoutSeconds == -1) {
+            return Environment.UNLIMITED_TIMEOUT;
+        } else if (timeoutSeconds <= 0) {
+            return Environment.DEFAULT_TIMEOUT;
+        } else {
+            return Duration.ofSeconds(timeoutSeconds);
+        }
     }
 }
