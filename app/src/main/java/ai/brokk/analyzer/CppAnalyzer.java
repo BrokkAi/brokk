@@ -336,9 +336,39 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
             String simpleName,
             String baseIndent,
             ProjectFile file) {
+        if (fieldNode.isNull()) {
+            return super.formatFieldSignature(
+                    fieldNode, sourceContent, exportPrefix, signatureText, simpleName, baseIndent, file);
+        }
+
         if (ENUMERATOR.equals(fieldNode.getType())) {
             return baseIndent + sourceContent.substringFrom(fieldNode);
         }
+
+        TSNode parentDecl = fieldNode.getParent();
+        if (parentDecl != null
+                && !parentDecl.isNull()
+                && (FIELD_DECLARATION.equals(parentDecl.getType()) || DECLARATION.equals(parentDecl.getType()))) {
+            TSNode typeNode = parentDecl.getChildByFieldName("type");
+            if (typeNode != null && !typeNode.isNull()) {
+                String typeText = sourceContent.substringFrom(typeNode);
+                StringBuilder prefix = new StringBuilder();
+                for (int i = 0; i < parentDecl.getChildCount(); i++) {
+                    TSNode child = parentDecl.getChild(i);
+                    if (child == null || child.isNull()) continue;
+                    if (child.equals(typeNode)) break;
+                    String type = child.getType();
+                    if (STORAGE_CLASS_SPECIFIER.equals(type)
+                            || TYPE_QUALIFIER.equals(type)
+                            || VIRTUAL_SPECIFIER.equals(type)) {
+                        prefix.append(sourceContent.substringFrom(child)).append(" ");
+                    }
+                }
+                String declaratorText = sourceContent.substringFrom(fieldNode);
+                return baseIndent + prefix + typeText + " " + declaratorText + ";";
+            }
+        }
+
         return super.formatFieldSignature(
                 fieldNode, sourceContent, exportPrefix, signatureText, simpleName, baseIndent, file);
     }
