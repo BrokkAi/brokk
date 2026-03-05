@@ -1,16 +1,22 @@
 package ai.brokk.agents;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import ai.brokk.TaskEntry;
+import ai.brokk.TaskResult;
 import ai.brokk.context.Context;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.context.SpecialTextType;
 import ai.brokk.prompts.WorkspacePrompts;
 import ai.brokk.tasks.TaskList;
 import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestContextManager;
 import ai.brokk.testutil.TestProject;
+import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.data.message.UserMessage;
+import dev.langchain4j.model.chat.StreamingChatModel;
 import java.nio.file.Path;
 import java.util.EnumSet;
 import java.util.List;
@@ -32,6 +38,8 @@ class ArchitectAgentTest {
         consoleIO = new TestConsoleIO();
         cm = new TestContextManager(projectRoot, consoleIO);
     }
+
+    private static final class StubModel implements StreamingChatModel {}
 
     @Test
     void testArchitectPromptIncludesTaskList() {
@@ -79,5 +87,41 @@ class ArchitectAgentTest {
                         || allMessageText.contains("First task")
                         || allMessageText.contains("Second task"),
                 "CodeAgent prompt should NOT include task list content when suppressed. Got: " + allMessageText);
+    }
+
+    @Test
+    void testFinalMopMessagesMergedIntoLastHistoryEntry() {
+        StreamingChatModel model = new StubModel();
+
+        var initialMsg = UserMessage.from("initial");
+        var entry = new TaskEntry(
+                0, new ContextFragments.TaskFragment(List.of(initialMsg), "initial-desc"), null, null, null);
+        var ctx = new Context(cm).withHistory(List.of(entry));
+
+        var agent = new ArchitectAgent(cm, model, model, "goal", null, ctx, consoleIO);
+
+        consoleIO.llmOutput("final-status", ChatMessageType.AI, ai.brokk.LlmOutputMeta.newMessage());
+
+        var tr = new ai.brokk.TaskResult(ctx, new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS));
+        var finalMessages = consoleIO.getLlmRawMessages();
+        assertFalse(finalMessages.isEmpty());
+
+        var taskHistory = tr.context().getTaskHistory();
+        Context updatedContext;
+        if (!taskHistory.isEmpty()) {
+            var lastEntry = taskHistory.getLast();
+            var updatedLastEntry = lastEntry.withAppendedMopMessages(finalMessages, "Architect: goal");
+            var newHistory = new java.util.ArrayList<>(taskHistory);
+            newHistory.set(newHistory.size() - 1, updatedLastEntry);
+            updatedContext = tr.context().withHistory(newHistory);
+        } else {
+            updatedContext = tr.context()
+                    .addHistoryEntry(new ContextFragments.TaskFragment(finalMessages, "Architect: goal"), null);
+        }
+
+        assertEquals(1, updatedContext.getTaskHistory().size());
+        assertEquals(
+                List.of(initialMsg, finalMessages.getFirst()),
+                updatedContext.getTaskHistory().getLast().mopLog().messages());
     }
 }

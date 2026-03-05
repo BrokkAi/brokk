@@ -1567,6 +1567,12 @@ public class ContextManager implements IContextManager, AutoCloseable {
                         agent.setVerifyCommand(afterCmd);
                         agent.executeWithScan();
                     }
+                } else {
+                    // add the post-task terminal output to the history
+                    var log = new ContextFragments.TaskFragment(
+                            getIo().getLlmRawMessages(), "Post-task verification output");
+                    var context2 = context.addHistoryEntry(log, null);
+                    pushContext(ctx -> context2);
                 }
             }
         }

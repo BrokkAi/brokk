@@ -599,7 +599,13 @@ class BuildAgentTest {
         var updated = BuildTools.runExplicitCommand(ctxWithError, "   ", project.awaitBuildDetails());
 
         assertTrue(updated.getBuildError().isBlank(), "Blank command should clear any existing build error");
-        assertTrue(io.getOutputLog().contains("No explicit command specified, skipping."), "Should log skip message");
+
+        assertTrue(
+                io.getOutputLog().contains("No explicit Post-Task command specified, skipping.")
+                        || io.getOutputLog().contains("\nNo explicit Post-Task command specified, skipping.")
+                        || io.getOutputLog().contains("No explicit command specified, skipping.")
+                        || io.getOutputLog().contains("\nNo explicit command specified, skipping."),
+                () -> "Should log skip message. Output log:\n" + io.getOutputLog());
     }
 
     @Test

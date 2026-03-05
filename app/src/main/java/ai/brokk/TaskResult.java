@@ -4,8 +4,10 @@ import static java.util.Objects.requireNonNull;
 
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragments;
+import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.exception.ContextTooLargeException;
 import dev.langchain4j.exception.OverthinkingException;
+import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import org.jetbrains.annotations.Nullable;
@@ -23,6 +25,14 @@ public record TaskResult(Context context, StopDetails stopDetails) {
 
     public TaskResult withContext(Context ctx) {
         return new TaskResult(ctx, stopDetails);
+    }
+
+    public TaskResult withAppendedMopMessagesToLastEntry(List<? extends ChatMessage> additionalMessages) {
+        var updated = context.withAppendedMopMessagesToLastEntry(additionalMessages);
+        if (updated.equals(context)) {
+            return this;
+        }
+        return withContext(updated);
     }
 
     public @Nullable TaskMeta meta() {
