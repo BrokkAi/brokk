@@ -430,7 +430,10 @@ public class SessionManager implements AutoCloseable {
                         quarantinedIds.add(sessionId);
                         moved++;
                     } else {
-                        sessionsCache.putIfAbsent(sessionId, result.get());
+                        SessionInfo info = result.get();
+                        if (isVersionSupported(info.version())) {
+                            sessionsCache.putIfAbsent(sessionId, info);
+                        }
                     }
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
