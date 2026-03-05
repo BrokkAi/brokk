@@ -485,7 +485,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
 
         String actualParamsText = "";
         TSNode declaratorNode = funcNode.getChildByFieldName("declarator");
-        if (declaratorNode != null && "function_declarator".equals(declaratorNode.getType())) {
+        if (declaratorNode != null && FUNCTION_DECLARATOR.equals(declaratorNode.getType())) {
             TSNode paramsNode = declaratorNode.getChildByFieldName("parameters");
             if (paramsNode != null && !paramsNode.isNull()) {
                 actualParamsText = sourceContent.substringFrom(paramsNode);
@@ -494,7 +494,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
 
         if (functionName.isBlank()) {
             TSNode fallbackDeclaratorNode = funcNode.getChildByFieldName("declarator");
-            if (fallbackDeclaratorNode != null && "function_declarator".equals(fallbackDeclaratorNode.getType())) {
+            if (fallbackDeclaratorNode != null && FUNCTION_DECLARATOR.equals(fallbackDeclaratorNode.getType())) {
                 TSNode innerDeclaratorNode = fallbackDeclaratorNode.getChildByFieldName("declarator");
                 if (innerDeclaratorNode != null) {
                     String extractedName = sourceContent.substringFrom(innerDeclaratorNode);
@@ -811,7 +811,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
 
         // Find the function_declarator (descend if necessary)
         TSNode decl = funcOrDeclNode.getChildByFieldName("declarator");
-        if (decl == null || decl.isNull() || !"function_declarator".equals(decl.getType())) {
+        if (decl == null || decl.isNull() || !FUNCTION_DECLARATOR.equals(decl.getType())) {
             decl = findFunctionDeclaratorRecursive(funcOrDeclNode);
             if (decl == null) return "";
         }
@@ -910,7 +910,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
         }
 
         // Base case: found the function_declarator
-        if ("function_declarator".equals(node.getType())) {
+        if (FUNCTION_DECLARATOR.equals(node.getType())) {
             return node;
         }
 
@@ -959,7 +959,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
 
         if (FUNCTION_DEFINITION.equals(decl.getType())) {
             TSNode declaratorNode = decl.getChildByFieldName("declarator");
-            if (declaratorNode != null && "function_declarator".equals(declaratorNode.getType())) {
+            if (declaratorNode != null && FUNCTION_DECLARATOR.equals(declaratorNode.getType())) {
                 TSNode innerDeclaratorNode = declaratorNode.getChildByFieldName("declarator");
                 if (innerDeclaratorNode != null) {
                     String name = sourceContent.substringFrom(innerDeclaratorNode);
@@ -977,7 +977,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
                 || FIELD_DECLARATION.equals(decl.getType())) {
             TSNode declaratorNode = decl.getChildByFieldName("declarator");
             if (declaratorNode != null) {
-                if ("function_declarator".equals(declaratorNode.getType())) {
+                if (FUNCTION_DECLARATOR.equals(declaratorNode.getType())) {
                     TSNode innerDeclaratorNode = declaratorNode.getChildByFieldName("declarator");
                     if (innerDeclaratorNode != null) {
                         String name = sourceContent.substringFrom(innerDeclaratorNode);
@@ -1020,10 +1020,10 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
 
     private boolean isComplexDeclarationStructure(String nodeType) {
         // Common C++ complex declaration patterns that may not have simple name fields
-        return "declaration".equals(nodeType)
-                || "function_definition".equals(nodeType)
-                || "field_declaration".equals(nodeType)
-                || "parameter_declaration".equals(nodeType);
+        return DECLARATION.equals(nodeType)
+                || FUNCTION_DEFINITION.equals(nodeType)
+                || FIELD_DECLARATION.equals(nodeType)
+                || PARAMETER_DECLARATION.equals(nodeType);
     }
 
     @Override
@@ -1169,7 +1169,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
 
         // Find the function_declarator if present
         TSNode decl = funcOrDeclNode.getChildByFieldName("declarator");
-        if (decl == null || decl.isNull() || !"function_declarator".equals(decl.getType())) {
+        if (decl == null || decl.isNull() || !FUNCTION_DECLARATOR.equals(decl.getType())) {
             decl = findFunctionDeclaratorRecursive(funcOrDeclNode);
             if (decl == null) return "";
         }

@@ -32,6 +32,7 @@ public final class CppTreeSitterNodeTypes {
     public static final String DECLARATION = "declaration";
     public static final String DESTRUCTOR_DECLARATION = "destructor_declaration";
     public static final String PARAMETER_DECLARATION = "parameter_declaration";
+    public static final String FUNCTION_DECLARATOR = "function_declarator";
     public static final String TYPE_DEFINITION = "type_definition";
     public static final String ALIAS_DECLARATION = "alias_declaration";
     public static final String USING_DECLARATION = "using_declaration";
