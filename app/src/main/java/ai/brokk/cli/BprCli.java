@@ -188,10 +188,10 @@ public final class BprCli implements Callable<Integer> {
     private String searchWorkspace;
 
     @CommandLine.Option(
-            names = "--commit",
+            names = "--at-commit",
             description = "Git commit hash to checkout before running search. Used for benchmark reproducibility.")
     @Nullable
-    private String commit;
+    private String checkoutCommit;
 
     @CommandLine.Option(
             names = "--disable-context-scan",
@@ -381,11 +381,11 @@ public final class BprCli implements Callable<Integer> {
                 logger.debug("Worktree directory already exists: " + worktreePath + ". Skipping creation.");
             } else {
                 try (var gitRepo = new GitRepo(projectPath)) {
-                    // Use --commit if provided, otherwise default branch HEAD
+                    // Use --at-commit if provided, otherwise default branch HEAD
                     String targetCommit;
-                    if (commit != null) {
-                        targetCommit = gitRepo.resolveToCommit(commit).getName();
-                        logger.debug("Using commit from --commit option: " + targetCommit);
+                    if (checkoutCommit != null) {
+                        targetCommit = gitRepo.resolveToCommit(checkoutCommit).getName();
+                        logger.debug("Using commit from --at-commit option: " + targetCommit);
                     } else {
                         var defaultBranch = gitRepo.getDefaultBranch();
                         targetCommit = gitRepo.resolveToCommit(defaultBranch).getName();
