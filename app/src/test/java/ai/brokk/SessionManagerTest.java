@@ -560,4 +560,21 @@ public class SessionManagerTest {
             Files.writeString(manifestPath, json);
         }
     }
+
+    @Test
+    void testDeriveSessionName() {
+        assertEquals("Simple prompt", SessionManager.deriveSessionName("Simple prompt"));
+        assertEquals("fix this", SessionManager.deriveSessionName("@lutz fix this"));
+        assertEquals("how does this work?", SessionManager.deriveSessionName("/ask how does this work?"));
+        assertEquals("multi-line", SessionManager.deriveSessionName("multi-line\nsecond line"));
+        assertEquals("multi-line", SessionManager.deriveSessionName("/code multi-line\nsecond line"));
+
+        String longPrompt = "A".repeat(100);
+        String derived = SessionManager.deriveSessionName(longPrompt);
+        assertEquals(60, derived.length());
+        assertTrue(derived.endsWith("..."));
+
+        // Combined prefixes
+        assertEquals("do it", SessionManager.deriveSessionName("@bot /ask /code do it"));
+    }
 }

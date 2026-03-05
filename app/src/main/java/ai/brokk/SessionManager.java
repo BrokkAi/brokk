@@ -45,6 +45,7 @@ import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.function.Consumer;
+import java.util.regex.Pattern;
 import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -87,6 +88,28 @@ public class SessionManager implements AutoCloseable {
     private static final Logger logger = LogManager.getLogger(SessionManager.class);
 
     public static final String UNREADABLE_SESSIONS_DIR = "unreadable";
+
+    private static final Pattern SESSION_NAME_STRIP_PATTERN =
+            Pattern.compile("^(?:@\\S+\\s+|/ask\\s+|/lutz\\s+|/code\\s+)+", Pattern.CASE_INSENSITIVE);
+
+    /**
+     * Derives a session name from the prompt text, mirroring TUI behavior.
+     * Strips leading mentions/commands, takes the first line, and truncates to 60 chars.
+     */
+    public static String deriveSessionName(String text) {
+        // Strip leading mentions and common command-like prefixes
+        String cleaned = SESSION_NAME_STRIP_PATTERN.matcher(text).replaceFirst("");
+
+        // Take first line and truncate
+        String trimmed = cleaned.strip();
+        int newlineIdx = trimmed.indexOf('\n');
+        String firstLine = newlineIdx != -1 ? trimmed.substring(0, newlineIdx).strip() : trimmed;
+
+        if (firstLine.length() > 60) {
+            return firstLine.substring(0, 57).strip() + "...";
+        }
+        return firstLine;
+    }
 
     private static class SessionExecutorThreadFactory implements ThreadFactory {
         private static final ThreadLocal<Boolean> isSessionExecutorThread = ThreadLocal.withInitial(() -> false);
@@ -135,7 +158,7 @@ public class SessionManager implements AutoCloseable {
         this.sessionsCache = loadSessions();
     }
 
-    Map<UUID, SessionInfo> getSessionsCache() {
+    public Map<UUID, SessionInfo> getSessionsCache() {
         return sessionsCache;
     }
 

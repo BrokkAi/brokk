@@ -1622,11 +1622,17 @@ class BrokkApp(App):
             chat.add_system_message(f"Failed to start OpenAI login: {e}", level="ERROR")
 
     def _derive_session_name(self, text: str) -> str:
-        """Derives a short session name from the first prompt text."""
+        """Derives a session name from the prompt text.
+        Mirroring SessionManager.deriveSessionName logic.
+        """
         # Strip leading mentions and common command-like prefixes
-        cleaned = re.sub(r"^(?:@\S+\s+|/ask\s+|/lutz\s+|/code\s+)+", "", text, flags=re.IGNORECASE)
-        # Take first line and truncate
-        first_line = cleaned.strip().split("\n")[0]
+        cleaned = re.sub(
+            r"^(?:@\S+\s+|/ask\s+|/lutz\s+|/code\s+)+", "", text, flags=re.IGNORECASE
+        ).strip()
+
+        # Take first line
+        first_line = cleaned.split("\n")[0].strip()
+
         if len(first_line) > 60:
             return first_line[:57].strip() + "..."
         return first_line
@@ -1668,10 +1674,6 @@ class BrokkApp(App):
                 logger.warning("Failed to auto-rename session: %s", e)
 
     async def _run_job(self, task_input: str) -> None:
-        # Attempt auto-rename on first prompt if session is default
-        if self._executor_ready and self.executor.session_id:
-            self.run_worker(self._maybe_rename_session(task_input))
-
         # Reset per-job cost accumulator
         self.current_job_cost = 0.0
         self.job_in_progress = True
@@ -1679,6 +1681,11 @@ class BrokkApp(App):
         if chat:
             chat.set_job_running(True)
             chat.set_response_pending()
+
+        # Best-effort auto-rename session if it's the first prompt in a new session.
+        # Note: JobsRouter also performs this on the server side.
+        self.run_worker(self._maybe_rename_session(task_input))
+
         attached_fragment_ids: List[str] = []
         try:
             attached_fragment_ids = await self._attach_mentions_to_context(task_input)

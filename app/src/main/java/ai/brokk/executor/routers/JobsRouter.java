@@ -3,6 +3,7 @@ package ai.brokk.executor.routers;
 import static java.nio.charset.StandardCharsets.UTF_8;
 
 import ai.brokk.ContextManager;
+import ai.brokk.SessionManager;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.executor.JobReservation;
 import ai.brokk.executor.http.SimpleHttpServer;
@@ -212,6 +213,24 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
                     response.put("contextTextFragmentIds", contextTextFragmentIds);
                 }
                 executeJobAsync(jobId, jobSpec, contextTextFragmentIds);
+
+                // Auto-rename session if it's new/unnamed (best effort)
+                if (sessionIdHeader != null) {
+                    final UUID sid = sessionIdHeader;
+                    final String input = request.taskInput();
+                    CompletableFuture.runAsync(() -> {
+                        var sm = contextManager.getProject().getSessionManager();
+                        var cache = sm.getSessionsCache();
+                        var info = cache.get(sid);
+                        if (info != null && "TUI Session".equals(info.name())) {
+                            String derived = SessionManager.deriveSessionName(input);
+                            if (!derived.isBlank()) {
+                                sm.renameSession(sid, derived);
+                            }
+                        }
+                    });
+                }
+
                 SimpleHttpServer.sendJsonResponse(exchange, 201, response);
             } catch (Exception e) {
                 jobReservation.releaseIfOwner(jobId);
