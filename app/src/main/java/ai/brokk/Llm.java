@@ -978,6 +978,7 @@ public class Llm {
         String tier = Service.getProcessingTier(model).toString();
 
         SessionManager.CostEvent event = new SessionManager.CostEvent(
+                UUID.randomUUID().toString(),
                 System.currentTimeMillis(),
                 sessionId,
                 this.taskDescription,
@@ -988,6 +989,8 @@ public class Llm {
                 usage.cachedInputTokens(),
                 usage.thinkingTokens(),
                 usage.outputTokens(),
+                // Unknown pricing is intentionally recorded as 0.0 in the ledger.
+                // UI/notifications still surface unknown-cost requests separately.
                 usage.costUsd() != null ? usage.costUsd() : 0.0);
 
         sessionManager.recordCostEvent(sessionId, event);
