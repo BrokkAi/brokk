@@ -1771,7 +1771,9 @@ class BrokkApp(App):
         elif check_text:
             # Record in history regardless of routing
             append_prompt(
-                self.executor.workspace_dir, raw_text, max_history=self.settings.prompt_history_size
+                self.executor.workspace_dir,
+                raw_text,
+                max_history=self.settings.prompt_history_size,
             )
             chat = self._maybe_chat()
             if chat:
@@ -2324,7 +2326,10 @@ class BrokkApp(App):
             {"command": "/info", "description": "Show current configuration and status"},
             {"command": "/settings", "description": "Open settings"},
             {"command": "/api-key", "description": "Update your Brokk API key"},
-            {"command": "/login-openai", "description": "Connect your OpenAI ChatGPT subscription"},
+            {
+                "command": "/login-openai",
+                "description": "Connect your OpenAI ChatGPT subscription",
+            },
             {"command": "/help", "description": "Show help message"},
             {"command": "/quit", "description": "Exit the application"},
             {"command": "/exit", "description": "Exit the application"},

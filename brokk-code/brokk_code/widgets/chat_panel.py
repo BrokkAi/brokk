@@ -14,6 +14,7 @@ from textual.containers import Horizontal, Vertical
 from textual.message import Message
 from textual.widgets import ListItem, ListView, LoadingIndicator, RichLog, Static, TextArea
 
+from brokk_code.widgets.chat_panel import ChatPanel
 from brokk_code.widgets.status_line import StatusLine
 from brokk_code.widgets.token_bar import TokenBar
 
@@ -432,9 +433,10 @@ class ChatInput(TextArea):
 
     def watch_text(self, old_text: str, new_text: str) -> None:
         """Watch for programmatic text changes."""
-        # Trigger immediate sync for slash commands as they are often set programmatically or via pilot.press.
-        # Do not require focus for this path so that programmatic text changes (e.g. chat_input.insert)
-        # still trigger autocomplete even if focus races haven't settled yet.
+        # Trigger immediate sync for slash commands as they are often set programmatically or via
+        # pilot.press. Do not require focus for this path so that programmatic text changes
+        # (e.g. chat_input.insert) still trigger autocomplete even if focus races haven't settled
+        # yet.
         if new_text.startswith("/") and "\n" not in new_text:
             self._sync_autocomplete(new_text, require_focus=False)
             self.call_after_refresh(lambda: self._sync_autocomplete(self.text, require_focus=False))
@@ -834,7 +836,8 @@ class ChatPanel(Vertical):
             yield LoadingIndicator(id="help-spinner", classes="hidden")
             yield Static(id="help-elapsed", classes="hidden")
             yield Static(
-                f"Enter: Send  Ctrl+J: Newline  {UP_ARROW}/{DOWN_ARROW}: History  Shift+Tab: Mode  /worktree",
+                f"Enter: Send  Ctrl+J: Newline  {UP_ARROW}/{DOWN_ARROW}: "
+                + "History  Shift+Tab: Mode  /worktree",
                 id="chat-help",
             )
 

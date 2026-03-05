@@ -18,7 +18,6 @@ def git_repo(tmp_path):
 
 
 def test_find_repo_root(git_repo):
-    service = WorktreeService(git_repo)
     assert WorktreeService.find_repo_root(git_repo) == git_repo
 
     sub = git_repo / "subdir"

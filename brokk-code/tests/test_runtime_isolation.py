@@ -1,5 +1,4 @@
 import asyncio
-from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
@@ -52,8 +51,6 @@ async def test_runtime_isolation_per_path(tmp_path):
 
 
 def test_default_workspace_used_when_none_provided():
-    # Use current working directory if no workspace is provided
-    cwd = Path.cwd().resolve()
     # resolve_workspace_dir might climb up to a git root, so we just check it exists
     app = BrokkApp()
     assert app.current_worktree.exists()
