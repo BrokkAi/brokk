@@ -158,6 +158,60 @@ class TestPickSessionStartupFlow:
                 pass
 
     @pytest.mark.asyncio
+    async def test_show_sessions_callback_switches_session_not_creates(self, tmp_path):
+        """When callback receives a session ID, switch_session is called, not create_session."""
+        app = BrokkApp(workspace_dir=tmp_path, pick_session=True)
+        app.executor = MagicMock()
+        app.executor.workspace_dir = tmp_path
+        app.executor.session_id = "s-current"
+        app._executor_ready = True
+
+        sessions_data = {
+            "sessions": [
+                {"id": "s-current", "name": "Current Session", "aiResponses": 2},
+                {"id": "s-other", "name": "Other Session", "aiResponses": 5},
+            ],
+            "currentSessionId": "s-current",
+        }
+        app.executor.list_sessions = AsyncMock(return_value=sessions_data)
+        app.executor.switch_session = AsyncMock(return_value={})
+        app.executor.create_session = AsyncMock(return_value="s-new")
+        app.executor.get_conversation = AsyncMock(return_value={"entries": []})
+
+        app._maybe_chat = MagicMock(return_value=None)
+        app.push_screen = MagicMock()
+
+        await app._show_sessions()
+
+        app.executor.list_sessions.assert_called_once()
+        app.push_screen.assert_called_once()
+
+        callback = app.push_screen.call_args[0][1]
+
+        scheduled_coros: list[object] = []
+
+        def run_worker_stub(coro):
+            scheduled_coros.append(coro)
+            return MagicMock()
+
+        app.run_worker = MagicMock(side_effect=run_worker_stub)
+
+        callback("s-other")
+
+        assert len(scheduled_coros) == 1
+        coro = scheduled_coros[0]
+        assert hasattr(coro, "cr_code")
+        assert coro.cr_code.co_name == "_switch_to_session"
+
+        app.executor.create_session.assert_not_called()
+
+        for c in scheduled_coros:
+            try:
+                c.close()
+            except Exception:
+                pass
+
+    @pytest.mark.asyncio
     async def test_pick_session_triggers_only_once(self, tmp_path):
         """Verify pick_session flag is consumed and won't trigger again on subsequent calls."""
         app = BrokkApp(workspace_dir=tmp_path, pick_session=True)
