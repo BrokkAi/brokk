@@ -885,13 +885,10 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
      * @param node the root node to search within
      * @return the function_declarator node, or null if not found
      */
-    @SuppressWarnings("RedundantNullCheck") // Defensive check for TreeSitter JNI interop
-    /**
-     * Recursively searches for the field_identifier node within a declarator tree.
-     */
     private @Nullable TSNode findFieldIdentifier(TSNode node) {
-        if (node == null || node.isNull()) return null;
-        if ("field_identifier".equals(node.getType()) || "identifier".equals(node.getType())) return node;
+        if (node.isNull()) return null;
+        var fieldIdentifierTypes = Set.of("pointer_declarator", "field_identifier", "identifier");
+        if (fieldIdentifierTypes.contains(node.getType())) return node;
         for (int i = 0; i < node.getChildCount(); i++) {
             TSNode found = findFieldIdentifier(node.getChild(i));
             if (found != null) return found;
@@ -970,20 +967,18 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
                 || CONSTRUCTOR_DECLARATION.equals(decl.getType())
                 || DESTRUCTOR_DECLARATION.equals(decl.getType())
                 || FIELD_DECLARATION.equals(decl.getType())) {
-            TSNode declaratorNode = decl.getChildByFieldName("declarator");
-            if (declaratorNode != null) {
-                if (FUNCTION_DECLARATOR.equals(declaratorNode.getType())) {
-                    TSNode innerDeclaratorNode = declaratorNode.getChildByFieldName("declarator");
-                    if (innerDeclaratorNode != null) {
-                        String name = sourceContent.substringFrom(innerDeclaratorNode);
+            // For multi-declarator declarations, the "name" capture usually points to the specific identifier.
+            // If we are here, we are trying to extract the name from the declaration node itself.
+            // In C++, we need to check all children because there can be multiple declarators.
+            for (int i = 0; i < decl.getChildCount(); i++) {
+                if ("declarator".equals(decl.getFieldNameForChild(i))) {
+                    TSNode declaratorNode = decl.getChild(i);
+                    TSNode idNode = findFieldIdentifier(declaratorNode);
+                    if (idNode != null && !idNode.isNull()) {
+                        String name = sourceContent.substringFrom(idNode).strip();
                         if (!name.isBlank()) {
                             return Optional.of(name);
                         }
-                    }
-                } else {
-                    String name = sourceContent.substringFrom(declaratorNode);
-                    if (!name.isBlank()) {
-                        return Optional.of(name);
                     }
                 }
             }

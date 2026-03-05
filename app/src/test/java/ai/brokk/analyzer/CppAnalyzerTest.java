@@ -1879,6 +1879,86 @@ public class CppAnalyzerTest {
     }
 
     @Test
+    public void testInitializerAssociationBeyondNumberLiterals() throws IOException {
+        String content =
+                """
+                struct MultiField {
+                    int x = f(1, 2), y = g();
+                    int* p = &x, q = nullptr;
+                    int a, b = 2;
+                };
+                """;
+
+        try (var project =
+                InlineTestProjectCreator.code(content, "initializer_assoc.hpp").build()) {
+            TreeSitterAnalyzer analyzer = AnalyzerCreator.createTreeSitterAnalyzer(project);
+            ProjectFile projectFile = project.getAllFiles().iterator().next();
+
+            var declarations = analyzer.getDeclarations(projectFile).stream()
+                    .filter(CodeUnit::isField)
+                    .toList();
+
+            var xCu = declarations.stream()
+                    .filter(cu -> cu.shortName().endsWith("x"))
+                    .findFirst()
+                    .orElseThrow();
+            var yCu = declarations.stream()
+                    .filter(cu -> cu.shortName().endsWith("y"))
+                    .findFirst()
+                    .orElseThrow();
+            var pCu = declarations.stream()
+                    .filter(cu -> cu.shortName().endsWith("p"))
+                    .findFirst()
+                    .orElseThrow();
+            var qCu = declarations.stream()
+                    .filter(cu -> cu.shortName().endsWith("q"))
+                    .findFirst()
+                    .orElseThrow();
+            var aCu = declarations.stream()
+                    .filter(cu -> cu.shortName().endsWith("a"))
+                    .findFirst()
+                    .orElseThrow();
+            var bCu = declarations.stream()
+                    .filter(cu -> cu.shortName().endsWith("b"))
+                    .findFirst()
+                    .orElseThrow();
+
+            String xSkel = analyzer.getSkeleton(xCu).orElse("");
+            String ySkel = analyzer.getSkeleton(yCu).orElse("");
+            String pSkel = analyzer.getSkeleton(pCu).orElse("");
+            String qSkel = analyzer.getSkeleton(qCu).orElse("");
+            String aSkel = analyzer.getSkeleton(aCu).orElse("");
+            String bSkel = analyzer.getSkeleton(bCu).orElse("");
+
+            // 1) int x = f(1, 2), y = g();
+            assertCodeContains(xSkel, "x = f(1, 2)");
+            assertFalse(xSkel.contains("y"), "x skeleton should not contain y");
+            assertFalse(xSkel.contains("g()"), "x skeleton should not contain g()");
+
+            assertCodeContains(ySkel, "y = g()");
+            assertFalse(ySkel.contains("x"), "y skeleton should not contain x");
+            assertFalse(ySkel.contains("f(1, 2)"), "y skeleton should not contain f(1, 2)");
+
+            // 2) int* p = &x, q = nullptr;
+            assertCodeContains(pSkel, "p = &x");
+            assertFalse(pSkel.contains("q"), "p skeleton should not contain q");
+            assertFalse(pSkel.contains("nullptr"), "p skeleton should not contain nullptr");
+
+            assertCodeContains(qSkel, "q = nullptr");
+            assertFalse(qSkel.contains("p"), "q skeleton should not contain p");
+            assertFalse(qSkel.contains("&x"), "q skeleton should not contain &x");
+
+            // 3) int a, b = 2;
+            assertCodeContains(aSkel, "int a;");
+            assertFalse(aSkel.contains("="), "a skeleton should not contain assignment");
+            assertFalse(aSkel.contains("b"), "a skeleton should not contain b");
+
+            assertCodeContains(bSkel, "b = 2");
+            assertFalse(bSkel.contains("a"), "b skeleton should not contain a");
+        }
+    }
+
+    @Test
     public void testGetDefinitionsStableOrderingPrefersDefinitions() {
         // Lookup overloads by base name via the analyzer lookup (uses normalizeFullName)
         var defs = analyzer.getDefinitions("overloadedFunction").stream().toList();
