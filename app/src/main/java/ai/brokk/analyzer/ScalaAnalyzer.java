@@ -229,13 +229,6 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer {
                     fieldNode, sourceContent, exportPrefix, signatureText, simpleName, baseIndent, file);
         }
 
-        // Strip back any companion object $ for field display
-        String displayName = simpleName.endsWith("$") ? simpleName.substring(0, simpleName.length() - 1) : simpleName;
-        // If it's a member of an object, it might have the dot prefix from receiver logic
-        if (displayName.contains(".")) {
-            displayName = displayName.substring(displayName.lastIndexOf('.') + 1);
-        }
-
         String keyword = VAL_DEFINITION.equals(nodeType) ? "val" : "var";
 
         StringBuilder sb = new StringBuilder();
@@ -243,7 +236,7 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer {
         if (!exportPrefix.isEmpty()) {
             sb.append(exportPrefix.stripTrailing()).append(" ");
         }
-        sb.append(keyword).append(" ").append(displayName);
+        sb.append(keyword).append(" ").append(simpleName);
 
         TSNode typeNode = fieldNode.getChildByFieldName("type");
         if (typeNode != null && !typeNode.isNull()) {
