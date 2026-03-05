@@ -47,4 +47,12 @@ class GoModulePathTest {
         assertEquals("./a/b/c", GoAnalyzer.formatTestModule(Path.of("a\\b\\c")));
         assertEquals("./deep/win/path", GoAnalyzer.formatTestModule(Path.of("deep\\win\\path")));
     }
+
+    @Test
+    void testLocalDirectoryPrefixing() {
+        // Input: Path.of("callbacks") -> Assert Output: "./callbacks"
+        assertEquals("./callbacks", GoAnalyzer.formatTestModule(Path.of("callbacks")));
+        // Input: Path.of("pkg/sub") -> Assert Output: "./pkg/sub"
+        assertEquals("./pkg/sub", GoAnalyzer.formatTestModule(Path.of("pkg/sub")));
+    }
 }
