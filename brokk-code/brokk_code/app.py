@@ -2411,7 +2411,7 @@ class BrokkApp(App):
         if now - self._last_ctrl_c_time < 2.0:
             await self.action_quit()
         else:
-            # We don't have easy access to which key triggered the action here without 
+            # We don't have easy access to which key triggered the action here without
             # changing the signature, but "Ctrl+C or Ctrl+D" is accurate for both.
             self.query_one(ChatPanel).add_system_message("Press Ctrl+C or Ctrl+D again to quit.")
             self._last_ctrl_c_time = now

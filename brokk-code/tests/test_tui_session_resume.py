@@ -208,6 +208,7 @@ def test_main_omits_resume_hint_on_exception(tmp_path, capsys):
     """
     import json
     import zipfile
+
     from brokk_code.__main__ import main
 
     workspace = tmp_path
@@ -242,6 +243,7 @@ def test_main_prints_resume_hint_on_ctrl_d_exit(tmp_path, capsys):
     """
     import json
     import zipfile
+
     from brokk_code.__main__ import main
 
     workspace = tmp_path
@@ -471,11 +473,11 @@ async def test_ctrl_d_bound_to_shutdown(tmp_path):
     assert binding is not None
     assert binding.action == "handle_ctrl_c"
 
-    # Simulate double-tap Ctrl+D logic by calling action_quit directly 
+    # Simulate double-tap Ctrl+D logic by calling action_quit directly
     # (which handle_ctrl_c eventually calls)
     with patch("brokk_code.app.BrokkApp.exit") as mock_exit:
         await app.action_quit()
-        
+
         assert stub.stop.called
         assert app._shutdown_completed is True
         assert mock_exit.called
