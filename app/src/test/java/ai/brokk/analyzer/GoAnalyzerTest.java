@@ -716,6 +716,58 @@ public class GoAnalyzerTest {
     }
 
     @Test
+    void testStructFieldMultiDeclaratorsSplitIntoIndividualFields() throws IOException {
+        String source =
+                """
+                package declpkg
+
+                type StructName struct {
+                    Field1, Field2, Field3 int
+                    Address1, Address2     string `json:"address"`
+                }
+                """
+                        .stripIndent();
+
+        try (var project = InlineTestProjectCreator.code(source, "fields.go").build()) {
+            var inlineAnalyzer = (GoAnalyzer) AnalyzerCreator.createTreeSitterAnalyzer(project);
+            ProjectFile pf = new ProjectFile(project.getRoot(), "fields.go");
+            Set<CodeUnit> declarations = inlineAnalyzer.getDeclarations(pf);
+
+            // Assert CodeUnits exist for all fields
+            CodeUnit f1 = CodeUnit.field(pf, "declpkg", "StructName.Field1");
+            CodeUnit f2 = CodeUnit.field(pf, "declpkg", "StructName.Field2");
+            CodeUnit f3 = CodeUnit.field(pf, "declpkg", "StructName.Field3");
+            CodeUnit a1 = CodeUnit.field(pf, "declpkg", "StructName.Address1");
+            CodeUnit a2 = CodeUnit.field(pf, "declpkg", "StructName.Address2");
+
+            assertTrue(declarations.contains(f1), "Should contain Field1");
+            assertTrue(declarations.contains(f2), "Should contain Field2");
+            assertTrue(declarations.contains(f3), "Should contain Field3");
+            assertTrue(declarations.contains(a1), "Should contain Address1");
+            assertTrue(declarations.contains(a2), "Should contain Address2");
+
+            // Assert Skeletons are clean and individual
+            assertCodeEquals("Field1 int", inlineAnalyzer.getSkeleton(f1).orElse(""));
+            assertCodeEquals("Field2 int", inlineAnalyzer.getSkeleton(f2).orElse(""));
+            assertCodeEquals("Field3 int", inlineAnalyzer.getSkeleton(f3).orElse(""));
+            assertCodeEquals(
+                    "Address1 string `json:\"address\"`",
+                    inlineAnalyzer.getSkeleton(a1).orElse(""));
+            assertCodeEquals(
+                    "Address2 string `json:\"address\"`",
+                    inlineAnalyzer.getSkeleton(a2).orElse(""));
+
+            // Verify they don't contain commas or siblings
+            assertFalse(
+                    inlineAnalyzer.getSkeleton(f1).get().contains("Field2"),
+                    "Skeleton for Field1 should not contain Field2");
+            assertFalse(
+                    inlineAnalyzer.getSkeleton(a1).get().contains("Address2"),
+                    "Skeleton for Address1 should not contain Address2");
+        }
+    }
+
+    @Test
     public void getUsesClassComprehensivePatternsTest() throws InterruptedException {
         var finder = newFinder(testProject, analyzer);
         var symbol = "main.BaseStruct";

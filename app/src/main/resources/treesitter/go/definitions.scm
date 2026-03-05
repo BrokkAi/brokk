@@ -41,16 +41,14 @@
 ) @method.definition
 
 ; Captures field declarations within a struct.
-; We capture each field_identifier as the name and its parent field_declaration as the definition.
-; This allows Tree-sitter to generate multiple matches for one field_declaration node (e.g. Field1, Field2 int).
+; IMPORTANT: TreeSitterAnalyzer.collectDefinitions keeps only one capture per name per match (putIfAbsent),
+; so multi-name fields MUST produce multiple matches. We therefore capture each field_identifier as its own
+; @struct.field.definition (and @struct.field.name), and let GoAnalyzer climb to the enclosing field_declaration
+; for the shared type/tag.
 (struct_type
   (field_declaration_list
     (field_declaration
-      [
-        (field_identifier) @struct.field.name
-        (field_declaration_list (field_declaration (field_identifier) @struct.field.name))
-      ]
-    ) @struct.field.definition
+      name: (field_identifier) @struct.field.definition @struct.field.name)
   )
 )
 
@@ -67,7 +65,6 @@
 ; Uses node shape/ordering to avoid capturing methods with receivers.
 (function_declaration
   "func"
-  !type_parameters
   (identifier) @test_candidate.name
   (parameter_list) @test_candidate.params
 ) @test_marker
