@@ -30,8 +30,10 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
@@ -198,6 +200,100 @@ public class BuildTools {
         return interpolateMustacheTemplate(command, List.of(), "unused", pythonVersion);
     }
 
+    /**
+     * Interpolates a Mustache template with the given list of items and optional Python version.
+     * Supports {@code {{#files}}}, {@code {{#classes}}}, {@code {{#fqclasses}}}, {@code {{#packages}}},
+     * and {@code {{pyver}}} variables.
+     *
+     * <p><strong>Per-item keys (API contract):</strong> Inside a section block, each item exposes:
+     * <ul>
+     *   <li>{@code {{.}}}  — the string value (via {@code toString()})</li>
+     *   <li>{@code {{value}}} — the string value (explicit field)</li>
+     *   <li>{@code {{first}}} — boolean, true for the first item</li>
+     *   <li>{@code {{last}}} — boolean, true for the last item</li>
+     *   <li>{@code {{index}}} — 0-based position in the list</li>
+     * </ul>
+     * These keys are backed by {@link ai.brokk.util.MustacheTemplates.StringElement}.
+     */
+    public static String interpolateMustacheTemplate(String template, List<String> items, String listKey) {
+        return interpolateMustacheTemplate(template, items, listKey, null);
+    }
+
+    /**
+     * Interpolates a Mustache template with the given list of items and optional Python version.
+     */
+    public static String interpolateMustacheTemplate(
+            String template, List<String> items, String listKey, @Nullable String pythonVersion) {
+        if (template.isEmpty()) {
+            return "";
+        }
+
+        // Validate template before compiling
+        validateMustacheTemplate(template, listKey);
+
+        MustacheFactory mf = new DefaultMustacheFactory();
+        Mustache mustache = mf.compile(new StringReader(template), "dynamic_template");
+
+        Map<String, Object> context = new HashMap<>();
+        context.put(listKey, MustacheTemplates.toStringElementList(items));
+        context.put("pyver", pythonVersion == null ? "" : pythonVersion);
+
+        StringWriter writer = new StringWriter();
+        mustache.execute(writer, context);
+
+        return writer.toString();
+    }
+
+    private static final Set<String> ALLOWED_TOP_LEVEL_KEYS =
+            Set.of("files", "classes", "fqclasses", "packages", "pyver");
+
+    private static final Set<String> ALLOWED_ITEM_KEYS = Set.of(".", "value", "first", "last", "index");
+
+    private static final Pattern DELIMITER_CHANGE_PATTERN = Pattern.compile("\\{\\{=.*?=\\}\\}");
+
+    private static final Pattern MUSTACHE_TAG_PATTERN =
+            Pattern.compile("\\{\\{\\{?\\s*([#/^>!]?)\\s*([^}\\s]+)\\s*\\}?\\}\\}\\s*");
+
+    private static void validateMustacheTemplate(String template, String listKey) {
+        if (template.isEmpty()) {
+            return;
+        }
+        var tags = new java.util.LinkedHashSet<String>();
+        var delimiterMatcher = DELIMITER_CHANGE_PATTERN.matcher(template);
+        while (delimiterMatcher.find()) {
+            String fullMatch = delimiterMatcher.group();
+            String delimiterSpec =
+                    fullMatch.substring(3, fullMatch.length() - 3).trim();
+            tags.add("=" + (delimiterSpec.isEmpty() ? "..." : delimiterSpec));
+        }
+
+        var matcher = MUSTACHE_TAG_PATTERN.matcher(template);
+        while (matcher.find()) {
+            String prefix = matcher.group(1);
+            String name = matcher.group(2);
+            if (">".equals(prefix) || "!".equals(prefix)) {
+                tags.add(prefix + name);
+            } else {
+                tags.add(name);
+            }
+        }
+
+        var allAllowed = new java.util.HashSet<>(ALLOWED_TOP_LEVEL_KEYS);
+        allAllowed.addAll(ALLOWED_ITEM_KEYS);
+        allAllowed.add(listKey);
+
+        var unsupported = new java.util.LinkedHashSet<String>();
+        for (String tag : tags) {
+            if (!allAllowed.contains(tag)) {
+                unsupported.add(tag);
+            }
+        }
+
+        if (!unsupported.isEmpty()) {
+            throw new IllegalArgumentException("Unsupported Mustache tags: %s. Allowed: %s"
+                    .formatted(unsupported, new java.util.TreeSet<>(allAllowed)));
+        }
+    }
 
     @Blocking
     public static String runVerification(IContextManager cm) throws InterruptedException {

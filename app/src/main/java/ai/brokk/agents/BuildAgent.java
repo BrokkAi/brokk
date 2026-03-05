@@ -18,7 +18,6 @@ import ai.brokk.util.BuildTools;
 import ai.brokk.util.BuildVerifier;
 import ai.brokk.util.Environment;
 import ai.brokk.util.Messages;
-import ai.brokk.util.MustacheTemplates;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -28,9 +27,6 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
-import com.github.mustachejava.DefaultMustacheFactory;
-import com.github.mustachejava.Mustache;
-import com.github.mustachejava.MustacheFactory;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolContext;
@@ -38,8 +34,6 @@ import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.*;
 import dev.langchain4j.model.chat.request.ToolChoice;
 import java.io.IOException;
-import java.io.StringReader;
-import java.io.StringWriter;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -931,69 +925,6 @@ public class BuildAgent {
                     "%s contains unsupported Mustache tags: %s. Allowed: %s"
                             .formatted(fieldName, unsupported, allAllowed));
         }
-    }
-
-    /**
-     * Interpolates a Mustache template with the given list of items and optional Python version.
-     * Supports {@code {{#files}}}, {@code {{#classes}}}, {@code {{#fqclasses}}}, {@code {{#packages}}},
-     * and {@code {{pyver}}} variables.
-     *
-     * <p><strong>Per-item keys (API contract):</strong> Inside a section block, each item exposes:
-     * <ul>
-     *   <li>{@code {{.}}}  — the string value (via {@code toString()})</li>
-     *   <li>{@code {{value}}} — the string value (explicit field)</li>
-     *   <li>{@code {{first}}} — boolean, true for the first item</li>
-     *   <li>{@code {{last}}} — boolean, true for the last item</li>
-     *   <li>{@code {{index}}} — 0-based position in the list</li>
-     * </ul>
-     * These keys are backed by {@link StringElement}. Changes to the field names or accessor methods
-     * constitute an API change and require corresponding test updates.
-     */
-    public static String interpolateMustacheTemplate(String template, List<String> items, String listKey) {
-        return interpolateMustacheTemplate(template, items, listKey, null);
-    }
-
-    /**
-     * Interpolates a Mustache template with the given list of items and optional Python version.
-     * Supports {@code {{#files}}}, {@code {{#classes}}}, {@code {{#fqclasses}}}, {@code {{#packages}}},
-     * and {@code {{pyver}}} variables.
-     *
-     * <p><strong>Per-item keys (API contract):</strong> Inside a section block, each item exposes:
-     * <ul>
-     *   <li>{@code {{.}}}  — the string value (via {@code toString()})</li>
-     *   <li>{@code {{value}}} — the string value (explicit field)</li>
-     *   <li>{@code {{first}}} — boolean, true for the first item</li>
-     *   <li>{@code {{last}}} — boolean, true for the last item</li>
-     *   <li>{@code {{index}}} — 0-based position in the list</li>
-     * </ul>
-     * These keys are backed by {@link StringElement}. Changes to the field names or accessor methods
-     * constitute an API change and require corresponding test updates.
-     */
-    public static String interpolateMustacheTemplate(
-            String template, List<String> items, String listKey, @Nullable String pythonVersion) {
-        if (template.isEmpty()) {
-            return "";
-        }
-
-        // Validate template before compiling
-        validateMustacheTemplate(template, listKey);
-
-        MustacheFactory mf = new DefaultMustacheFactory();
-        // The "templateName" argument to compile is for caching and error reporting, can be arbitrary.
-        Mustache mustache = mf.compile(new StringReader(template), "dynamic_template");
-
-        Map<String, Object> context = new HashMap<>();
-        // Mustache.java handles empty lists correctly for {{#section}} blocks (renders zero iterations).
-        // Use StringElement wrapper that supports both {{.}} (via toString) and {{value}}/{{first}}/{{last}}/{{index}}
-        context.put(listKey, MustacheTemplates.toStringElementList(items));
-        context.put("pyver", pythonVersion == null ? "" : pythonVersion);
-
-        StringWriter writer = new StringWriter();
-        // This can throw MustacheException, which will propagate as a RuntimeException
-        // as per the project's "let it throw" style.
-        mustache.execute(writer, context);
-
-        return writer.toString();
     }
 
     /**
