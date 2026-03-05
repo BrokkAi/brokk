@@ -1961,6 +1961,46 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     }
 
     /**
+     * Finds a specific declarator node matching simpleName among children of parent.
+     */
+    protected Optional<TSNode> findDeclarator(
+            TSNode parent, String simpleName, SourceContent sourceContent, String declaratorType, String nameField) {
+        if (parent.isNull()) return Optional.empty();
+        for (int i = 0; i < parent.getChildCount(); i++) {
+            TSNode child = parent.getChild(i);
+            if (child == null || child.isNull()) continue;
+            if (declaratorType.equals(child.getType())) {
+                TSNode nameNode = child.getChildByFieldName(nameField);
+                if (nameNode != null && !nameNode.isNull()) {
+                    if (simpleName.equals(sourceContent.substringFrom(nameNode).strip())) {
+                        return Optional.of(child);
+                    }
+                }
+            }
+        }
+        return Optional.empty();
+    }
+
+    /**
+     * Builds a space-separated prefix string from nodes appearing before the target node.
+     */
+    protected String getPrefixText(
+            TSNode parent, TSNode target, SourceContent sourceContent, Set<String> acceptedNodeTypes) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < parent.getChildCount(); i++) {
+            TSNode child = parent.getChild(i);
+            if (child == null || child.isNull() || child.getEndByte() > target.getStartByte()) break;
+            if (acceptedNodeTypes.contains(child.getType())) {
+                String text = sourceContent.substringFrom(child).strip();
+                if (!text.isEmpty()) {
+                    sb.append(text).append(" ");
+                }
+            }
+        }
+        return sb.toString();
+    }
+
+    /**
      * Language-specific closing token for a class or namespace (e.g., "}"). Empty if none.
      */
     protected abstract String getLanguageSpecificCloser(CodeUnit cu);

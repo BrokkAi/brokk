@@ -379,27 +379,8 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
         }
         final String typeText = sourceContent.substringFrom(typeNode).strip();
 
-        // Collect specifiers/qualifiers that appear before the type node.
-        var prefixParts = new ArrayList<String>();
-        for (int i = 0; i < fieldDecl.getChildCount(); i++) {
-            TSNode child = fieldDecl.getChild(i);
-            if (child == null || child.isNull()) {
-                continue;
-            }
-            if (child.equals(typeNode)) {
-                break;
-            }
-            String childType = child.getType();
-            if (STORAGE_CLASS_SPECIFIER.equals(childType)
-                    || TYPE_QUALIFIER.equals(childType)
-                    || VIRTUAL_SPECIFIER.equals(childType)) {
-                String part = sourceContent.substringFrom(child).strip();
-                if (!part.isEmpty()) {
-                    prefixParts.add(part);
-                }
-            }
-        }
-        final String prefixText = prefixParts.isEmpty() ? "" : String.join(" ", prefixParts) + " ";
+        final String prefixText = getPrefixText(
+                fieldDecl, typeNode, sourceContent, Set.of(STORAGE_CLASS_SPECIFIER, TYPE_QUALIFIER, VIRTUAL_SPECIFIER));
 
         // Find the declarator with name == simpleName, then associate the nearest following default_value
         // until the next declarator.
@@ -408,39 +389,26 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
 
         for (int i = 0; i < fieldDecl.getChildCount(); i++) {
             TSNode child = fieldDecl.getChild(i);
-            if (child == null || child.isNull()) {
-                continue;
-            }
+            if (child == null || child.isNull()) continue;
 
-            if (!"declarator".equals(fieldDecl.getFieldNameForChild(i))) {
-                continue;
-            }
+            if (!"declarator".equals(fieldDecl.getFieldNameForChild(i))) continue;
 
             String childText = sourceContent.substringFrom(child).strip();
-            if (!childText.equals(simpleName)) {
-                continue;
-            }
+            if (!childText.equals(simpleName)) continue;
 
             matchedDeclarator = child;
 
             for (int j = i + 1; j < fieldDecl.getChildCount(); j++) {
                 TSNode sibling = fieldDecl.getChild(j);
-                if (sibling == null || sibling.isNull()) {
-                    continue;
-                }
+                if (sibling == null || sibling.isNull()) continue;
 
                 String siblingFieldName = fieldDecl.getFieldNameForChild(j);
-
-                if ("declarator".equals(siblingFieldName)) {
-                    break;
-                }
-
+                if ("declarator".equals(siblingFieldName)) break;
                 if ("default_value".equals(siblingFieldName)) {
                     matchedDefaultValue = sibling;
                     break;
                 }
             }
-
             break;
         }
 

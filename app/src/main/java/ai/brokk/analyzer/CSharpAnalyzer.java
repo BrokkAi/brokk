@@ -275,7 +275,13 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
                 }
             }
             if (varDecl != null && !varDecl.isNull()) {
-                declarator = findVariableDeclarator(varDecl, simpleName, sourceContent);
+                declarator = findDeclarator(
+                                varDecl,
+                                simpleName,
+                                sourceContent,
+                                CSharpTreeSitterNodeTypes.VARIABLE_DECLARATOR,
+                                "name")
+                        .orElse(null);
             }
         } else if (CSharpTreeSitterNodeTypes.VARIABLE_DECLARATOR.equals(nodeType)) {
             // If the capture was the declarator itself, walk up to its variable_declaration and field_declaration
@@ -287,68 +293,18 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
         }
 
         if (fieldDecl != null && varDecl != null && declarator != null) {
-            // The variable_declaration should carry a 'type' child; if not, try to heuristically
-            // find a child before the first declarator that looks like a type.
             TSNode typeNode = varDecl.getChildByFieldName("type");
-            if ((typeNode == null || typeNode.isNull())) {
-                // Heuristic: find the first child whose end is before the first declarator start.
-                int firstDeclaratorStart = Integer.MAX_VALUE;
-                for (int i = 0; i < varDecl.getChildCount(); i++) {
-                    TSNode c = varDecl.getChild(i);
-                    if (c == null || c.isNull()) continue;
-                    if (CSharpTreeSitterNodeTypes.VARIABLE_DECLARATOR.equals(c.getType())) {
-                        firstDeclaratorStart = Math.min(firstDeclaratorStart, c.getStartByte());
-                    }
-                }
-                for (int i = 0; i < varDecl.getChildCount(); i++) {
-                    TSNode c = varDecl.getChild(i);
-                    if (c == null || c.isNull()) continue;
-                    if (c.getEndByte() <= firstDeclaratorStart
-                            && !CSharpTreeSitterNodeTypes.VARIABLE_DECLARATOR.equals(c.getType())) {
-                        typeNode = c;
-                        break;
-                    }
-                }
-            }
-
             if (typeNode != null && !typeNode.isNull()) {
-                // Reconstruct modifiers from children of the field_declaration that appear before the
-                // variable_declaration
-                StringBuilder modifiers = new StringBuilder();
-                for (int i = 0; i < fieldDecl.getChildCount(); i++) {
-                    TSNode child = fieldDecl.getChild(i);
-                    if (child.getEndByte() <= varDecl.getStartByte()) {
-                        String text = sourceContent.substringFrom(child).strip();
-                        if (!text.isEmpty() && !text.startsWith("[")) {
-                            modifiers.append(text).append(" ");
-                        }
-                    } else {
-                        break;
-                    }
-                }
-
+                String modifiers = getPrefixText(fieldDecl, varDecl, sourceContent, Set.of("modifier"));
                 String typeStr = sourceContent.substringFrom(typeNode).strip();
+                String declaratorStr = sourceContent.substringFrom(declarator).strip();
 
-                // Build a declarator string that contains only this declarator by using the declarator's
-                // precise node span (falls back to substring and comma-splitting as a last resort).
-                String declaratorStr;
-                try {
-                    int start = declarator.getStartByte();
-                    int end = declarator.getEndByte();
-                    declaratorStr = sourceContent.substringFromBytes(start, end).strip();
-                } catch (RuntimeException ex) {
-                    // Defensive fallback: use substringFrom and split on comma.
-                    declaratorStr = sourceContent.substringFrom(declarator).strip();
-                }
-
-                // If we accidentally captured a multi-declarator fragment like "x = 1, y = 2",
-                // take only the first top-level segment up to the first comma.
                 int commaIdx = declaratorStr.indexOf(',');
                 if (commaIdx != -1) {
                     declaratorStr = declaratorStr.substring(0, commaIdx).strip();
                 }
 
-                String full = (modifiers.toString() + typeStr + " " + declaratorStr + ";").strip();
+                String full = (modifiers + typeStr + " " + declaratorStr + ";").strip();
                 return baseIndent + full;
             }
         }
@@ -360,46 +316,6 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
             fullSignature += ";";
         }
         return baseIndent + fullSignature;
-    }
-
-    /**
-     * Finds a variable_declarator node with the given simpleName under the provided node.
-     * This function is intentionally defensive: it checks the node itself, its immediate children
-     * (common for variable_declaration -> variable_declarator lists), and finally recurses.
-     */
-    private @Nullable TSNode findVariableDeclarator(TSNode node, String simpleName, SourceContent sourceContent) {
-        if (node.isNull()) return null;
-
-        // If this node itself is a variable_declarator, check it first
-        if (CSharpTreeSitterNodeTypes.VARIABLE_DECLARATOR.equals(node.getType())) {
-            TSNode nameNode = node.getChildByFieldName("name");
-            if (nameNode != null && !nameNode.isNull()) {
-                String name = sourceContent.substringFrom(nameNode).strip();
-                if (simpleName.equals(name)) return node;
-            }
-        }
-
-        // Check immediate children first (common case: variable_declaration has declarator children)
-        for (int i = 0; i < node.getChildCount(); i++) {
-            TSNode child = node.getChild(i);
-            if (child == null || child.isNull()) continue;
-            if (CSharpTreeSitterNodeTypes.VARIABLE_DECLARATOR.equals(child.getType())) {
-                TSNode nameNode = child.getChildByFieldName("name");
-                if (nameNode != null && !nameNode.isNull()) {
-                    String name = sourceContent.substringFrom(nameNode).strip();
-                    if (simpleName.equals(name)) return child;
-                }
-            }
-        }
-
-        // Recurse into children as a last resort
-        for (int i = 0; i < node.getChildCount(); i++) {
-            TSNode child = node.getChild(i);
-            TSNode found = findVariableDeclarator(child, simpleName, sourceContent);
-            if (found != null && !found.isNull()) return found;
-        }
-
-        return null;
     }
 
     @Override

@@ -281,37 +281,16 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
         if (FIELD_DECLARATION.equals(nodeType) || CONSTANT_DECLARATION.equals(nodeType)) {
             TSNode typeNode = fieldNode.getChildByFieldName("type");
             if (typeNode != null && !typeNode.isNull()) {
-                // Reconstruct modifiers from children before the type node
-                StringBuilder modifiers = new StringBuilder();
-                for (int i = 0; i < fieldNode.getChildCount(); i++) {
-                    TSNode child = fieldNode.getChild(i);
-                    if (child.getEndByte() <= typeNode.getStartByte()) {
-                        String text = sourceContent.substringFrom(child).strip();
-                        if (!text.isEmpty()) {
-                            modifiers.append(text).append(" ");
-                        }
-                    } else {
-                        break;
-                    }
-                }
-
+                String modifiers = getPrefixText(fieldNode, typeNode, sourceContent, Set.of("modifiers"));
                 String typeStr = sourceContent.substringFrom(typeNode).strip();
 
-                // Find the specific variable_declarator for this simpleName
-                for (int i = 0; i < fieldNode.getChildCount(); i++) {
-                    TSNode child = fieldNode.getChild(i);
-                    if (VARIABLE_DECLARATOR.equals(child.getType())) {
-                        TSNode nameNode = child.getChildByFieldName("name");
-                        if (nameNode != null
-                                && !nameNode.isNull()
-                                && simpleName.equals(
-                                        sourceContent.substringFrom(nameNode).strip())) {
-                            String declaratorStr =
-                                    sourceContent.substringFrom(child).strip();
-                            String full = (modifiers.toString() + typeStr + " " + declaratorStr + ";").strip();
-                            return baseIndent + full;
-                        }
-                    }
+                Optional<TSNode> declarator =
+                        findDeclarator(fieldNode, simpleName, sourceContent, VARIABLE_DECLARATOR, "name");
+                if (declarator.isPresent()) {
+                    String declaratorStr =
+                            sourceContent.substringFrom(declarator.get()).strip();
+                    String full = (modifiers + typeStr + " " + declaratorStr + ";").strip();
+                    return baseIndent + full;
                 }
             }
         }
