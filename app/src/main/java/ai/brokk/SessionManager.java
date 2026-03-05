@@ -468,27 +468,44 @@ public class SessionManager implements AutoCloseable {
                 }
 
                 var sessionId = maybeUuid.get();
-                var info = readSessionInfoFromZip(zipPath);
-                if (info.isEmpty()) {
+
+                // Exercise manifest check and migrations via the serialized executor
+                // to ensure we aren't racing with other IO for this session.
+                var future = sessionExecutorByKey.submit(sessionId.toString(), () -> {
+                    var info = readSessionInfoFromZip(zipPath);
+                    if (info.isEmpty()) {
+                        moveSessionToUnreadable(sessionId);
+                        return Optional.<SessionInfo>empty();
+                    }
+                    if (!isVersionSupported(info.get().version())) {
+                        return Optional.of(info.get());
+                    }
+
+                    loadHistoryOrQuarantine(sessionId, contextManager);
+                    return Optional.of(info.get());
+                });
+
+                try {
+                    Optional<SessionInfo> result = future.get();
+                    if (result.isEmpty()) {
+                        quarantinedIds.add(sessionId);
+                        moved++;
+                    } else {
+                        SessionInfo info = result.get();
+                        if (isVersionSupported(info.version())) {
+                            sessionsCache.putIfAbsent(sessionId, info);
+                        }
+                    }
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new RuntimeException("Interrupted while validating session " + sessionId, e);
+                } catch (ExecutionException e) {
+                    logger.error(
+                            "Validation failed for session {}; quarantining defensively.", sessionId, e.getCause());
                     moveSessionToUnreadable(sessionId);
                     quarantinedIds.add(sessionId);
                     moved++;
-                    continue;
                 }
-                if (!isVersionSupported(info.get().version())) {
-                    continue;
-                }
-
-                // Exercise migrations and quarantine if history read fails.
-                try {
-                    loadHistoryOrQuarantine(sessionId, contextManager);
-                } catch (Exception e) {
-                    quarantinedIds.add(sessionId);
-                    moved++;
-                    continue;
-                }
-
-                sessionsCache.putIfAbsent(sessionId, info.get());
             }
         } catch (IOException e) {
             logger.error("Error listing session zip files in {}: {}", sessionsDir, e.getMessage());
