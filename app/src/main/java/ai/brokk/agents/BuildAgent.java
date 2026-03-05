@@ -884,26 +884,6 @@ public class BuildAgent {
     }
 
     /**
-     * Validates a Mustache template, throwing IllegalArgumentException if unsupported tags are found.
-     *
-     * @param template the template to validate
-     * @param listKey the list key used for this interpolation (added to allowed keys)
-     * @throws IllegalArgumentException if unsupported tags are found
-     */
-    private static void validateMustacheTemplate(String template, String listKey) {
-        if (template.isEmpty()) {
-            return;
-        }
-        var unsupported = findUnsupportedMustacheTags(template, Set.of(listKey));
-        if (!unsupported.isEmpty()) {
-            var allAllowed = new TreeSet<>(ALLOWED_TOP_LEVEL_KEYS);
-            allAllowed.addAll(ALLOWED_ITEM_KEYS);
-            throw new IllegalArgumentException(
-                    "Unsupported Mustache tags: %s. Allowed: %s".formatted(unsupported, allAllowed));
-        }
-    }
-
-    /**
      * Validates a command template for use in reportBuildDetails tool.
      * Throws ToolCallException with REQUEST_ERROR status if unsupported tags are found.
      *
