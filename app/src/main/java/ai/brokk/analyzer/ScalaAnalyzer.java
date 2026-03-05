@@ -229,12 +229,39 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer {
                     fieldNode, sourceContent, exportPrefix, signatureText, simpleName, baseIndent, file);
         }
 
+        String trimmedSignature = signatureText.strip();
+
+        // Prefer using the raw signature slice when this is a single-name definition.
+        // This preserves text exactly as written (including error-recovery nodes), which matters for cases like
+        // multi-line string literals.
+        //
+        // We only reconstruct from AST fields when it appears to be a multi-name pattern (e.g., "var x, y: Int = 1"),
+        // because in that case the raw slice includes sibling names.
+        int nameListEnd = trimmedSignature.indexOf(':');
+        if (nameListEnd < 0) {
+            nameListEnd = trimmedSignature.indexOf('=');
+        }
+        if (nameListEnd < 0) {
+            nameListEnd = trimmedSignature.length();
+        }
+        String preType = trimmedSignature.substring(0, nameListEnd);
+
+        boolean looksLikeMultiName = preType.contains(",");
+        if (!looksLikeMultiName && preType.contains(simpleName)) {
+            String prefix = exportPrefix.stripTrailing();
+            if (!prefix.isEmpty() && trimmedSignature.startsWith(prefix)) {
+                return baseIndent + trimmedSignature;
+            }
+            return baseIndent + (prefix.isEmpty() ? trimmedSignature : (prefix + " " + trimmedSignature));
+        }
+
         String keyword = VAL_DEFINITION.equals(nodeType) ? "val" : "var";
 
         StringBuilder sb = new StringBuilder();
         sb.append(baseIndent);
-        if (!exportPrefix.isEmpty()) {
-            sb.append(exportPrefix.stripTrailing()).append(" ");
+        String prefix = exportPrefix.stripTrailing();
+        if (!prefix.isEmpty()) {
+            sb.append(prefix).append(" ");
         }
         sb.append(keyword).append(" ").append(simpleName);
 
