@@ -345,85 +345,128 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
             return baseIndent + sourceContent.substringFrom(fieldNode) + ",";
         }
 
-        TSNode parentDecl = fieldNode.getParent();
-        if (parentDecl != null
-                && !parentDecl.isNull()
-                && FIELD_DECLARATION_LIST.equals(parentDecl.getType())) {
+        // Tree-sitter C++ grammar shape for multi-declarator fields we care about (as observed):
+        //
+        // field_declaration
+        //   storage_class_specifier*
+        //   type: primitive_type / type_identifier / etc
+        //   declarator: field_identifier (x)
+        //   default_value: number_literal (1)
+        //   declarator: field_identifier (y)
+        //   default_value: number_literal (2)
+        //
+        // Our query captures a nested node (often the field_identifier). We need to reconstruct just one
+        // declarator + its default_value based on simpleName.
 
-            // Case: fieldNode is a field_identifier (captured by @field.name) inside a field_declaration
-            // The AST structure for "int x=1, y=2;" is:
-            // field_declaration
-            //   type: primitive_type
-            //   declarator: field_identifier (x)
-            //   default_value: number_literal (1)
-            //   declarator: field_identifier (y)
-            //   default_value: number_literal (2)
+        final TSNode fieldDecl = FIELD_DECLARATION.equals(fieldNode.getType())
+                ? fieldNode
+                : (fieldNode.getParent() != null
+                                && !fieldNode.getParent().isNull()
+                                && FIELD_DECLARATION.equals(
+                                        fieldNode.getParent().getType()))
+                        ? fieldNode.getParent()
+                        : null;
 
-            TSNode typeNode = fieldNode.getChildByFieldName("type");
-            if (typeNode != null && !typeNode.isNull()) {
-                String typeText = sourceContent.substringFrom(typeNode);
-                StringBuilder prefix = new StringBuilder();
-
-                // Collect modifiers (storage class, qualifiers) before the type
-                for (int i = 0; i < parentDecl.getChildCount(); i++) {
-                    TSNode child = parentDecl.getChild(i);
-                    if (child == null || child.isNull()) continue;
-                    if (child.equals(typeNode)) break;
-                    String type = child.getType();
-                    if (STORAGE_CLASS_SPECIFIER.equals(type)
-                            || TYPE_QUALIFIER.equals(type)
-                            || VIRTUAL_SPECIFIER.equals(type)) {
-                        prefix.append(sourceContent.substringFrom(child)).append(" ");
-                    }
-                }
-
-                // Construct the declarator part (name + optional initializer)
-                // We identify the fieldNode's index in the parent to scan forward for associated parts
-                int fieldIndex = -1;
-                int childCount = parentDecl.getChildCount();
-                for (int i = 0; i < childCount; i++) {
-                    TSNode child = parentDecl.getChild(i);
-                    if (child.equals(fieldNode)) {
-                        fieldIndex = i;
-                        break;
-                    }
-                }
-
-                var declaratorParts = new ArrayList<String>();
-                declaratorParts.add(simpleName);
-
-                // Scan forward from the fieldNode
-                if (fieldIndex != -1) {
-                    for (int i = fieldIndex + 1; i < fieldNode.getChildCount(); i++) {
-                        TSNode sibling = fieldNode.getChild(i);
-                        String siblingType = sibling.getType();
-
-                        // Stop if we hit a comma, semicolon, or the start of the next declarator
-                        if (",".equals(siblingType) || ";".equals(siblingType)) {
-                            break;
-                        }
-
-                        String fieldName = fieldNode.getFieldNameForChild(i);
-                        if ("declarator".equals(fieldName) && "field_identifier".equals(siblingType)) {
-                            break;
-                        }
-
-                        // Append value assignments or bitfield clauses
-                        // We include default_value, bitfield_clause, or simple assignment tokens
-                        if ("default_value".equals(fieldName)
-                                || "bitfield_clause".equals(siblingType)
-                                || "=".equals(siblingType)) {
-                            declaratorParts.add(sourceContent.substringFrom(sibling));
-                        }
-                    }
-                }
-
-                return baseIndent + prefix + typeText + " " + String.join(" ", declaratorParts) + ";";
-            }
+        if (fieldDecl == null || fieldDecl.isNull()) {
+            return super.formatFieldSignature(
+                    fieldNode, sourceContent, exportPrefix, signatureText, simpleName, baseIndent, file);
         }
 
-        return super.formatFieldSignature(
-                fieldNode, sourceContent, exportPrefix, signatureText, simpleName, baseIndent, file);
+        final TSNode typeNode = fieldDecl.getChildByFieldName("type");
+        if (typeNode == null || typeNode.isNull()) {
+            return super.formatFieldSignature(
+                    fieldNode, sourceContent, exportPrefix, signatureText, simpleName, baseIndent, file);
+        }
+        final String typeText = sourceContent.substringFrom(typeNode).strip();
+
+        // Collect specifiers/qualifiers that appear before the type node.
+        var prefixParts = new ArrayList<String>();
+        for (int i = 0; i < fieldDecl.getChildCount(); i++) {
+            TSNode child = fieldDecl.getChild(i);
+            if (child == null || child.isNull()) {
+                continue;
+            }
+            if (child.equals(typeNode)) {
+                break;
+            }
+            String childType = child.getType();
+            if (STORAGE_CLASS_SPECIFIER.equals(childType)
+                    || TYPE_QUALIFIER.equals(childType)
+                    || VIRTUAL_SPECIFIER.equals(childType)) {
+                String part = sourceContent.substringFrom(child).strip();
+                if (!part.isEmpty()) {
+                    prefixParts.add(part);
+                }
+            }
+        }
+        final String prefixText = prefixParts.isEmpty() ? "" : String.join(" ", prefixParts) + " ";
+
+        // Find the declarator with name == simpleName, then associate the nearest following default_value
+        // until the next declarator.
+        TSNode matchedDeclarator = null;
+        TSNode matchedDefaultValue = null;
+
+        for (int i = 0; i < fieldDecl.getChildCount(); i++) {
+            TSNode child = fieldDecl.getChild(i);
+            if (child == null || child.isNull()) {
+                continue;
+            }
+
+            if (!"declarator".equals(fieldDecl.getFieldNameForChild(i))) {
+                continue;
+            }
+
+            String childText = sourceContent.substringFrom(child).strip();
+            if (!childText.equals(simpleName)) {
+                continue;
+            }
+
+            matchedDeclarator = child;
+
+            for (int j = i + 1; j < fieldDecl.getChildCount(); j++) {
+                TSNode sibling = fieldDecl.getChild(j);
+                if (sibling == null || sibling.isNull()) {
+                    continue;
+                }
+
+                String siblingFieldName = fieldDecl.getFieldNameForChild(j);
+
+                if ("declarator".equals(siblingFieldName)) {
+                    break;
+                }
+
+                if ("default_value".equals(siblingFieldName)) {
+                    matchedDefaultValue = sibling;
+                    break;
+                }
+            }
+
+            break;
+        }
+
+        if (matchedDeclarator == null || matchedDeclarator.isNull()) {
+            return super.formatFieldSignature(
+                    fieldNode, sourceContent, exportPrefix, signatureText, simpleName, baseIndent, file);
+        }
+
+        final String declaratorText;
+        if (matchedDefaultValue != null && !matchedDefaultValue.isNull()) {
+            // Prefer byte-accurate slicing so we include any '=' token between declarator and default_value.
+            declaratorText = sourceContent
+                    .substringFromBytes(matchedDeclarator.getStartByte(), matchedDefaultValue.getEndByte())
+                    .strip();
+        } else {
+            declaratorText = sourceContent.substringFrom(matchedDeclarator).strip();
+        }
+
+        // Defensive: if slicing captured "x = 1, y = 2" somehow, isolate to the first chunk.
+        String singleDeclaratorText = declaratorText;
+        int commaIdx = singleDeclaratorText.indexOf(',');
+        if (commaIdx >= 0) {
+            singleDeclaratorText = singleDeclaratorText.substring(0, commaIdx).strip();
+        }
+
+        return baseIndent + prefixText + typeText + " " + singleDeclaratorText + ";";
     }
 
     @Override
