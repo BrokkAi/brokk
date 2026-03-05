@@ -382,39 +382,53 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
         final String prefixText = getPrefixText(
                 fieldDecl, typeNode, sourceContent, Set.of(STORAGE_CLASS_SPECIFIER, TYPE_QUALIFIER, VIRTUAL_SPECIFIER));
 
-        // Find the declarator with name == simpleName, then associate the nearest following default_value
-        // until the next declarator.
+        // Find the declarator with name == simpleName.
         TSNode matchedDeclarator = null;
-        TSNode matchedDefaultValue = null;
+        int nextDeclaratorStart = Integer.MAX_VALUE;
 
         for (int i = 0; i < fieldDecl.getChildCount(); i++) {
             TSNode child = fieldDecl.getChild(i);
-            if (child == null || child.isNull()) continue;
-
-            if (!"declarator".equals(fieldDecl.getFieldNameForChild(i))) continue;
-
-            String childText = sourceContent.substringFrom(child).strip();
-            if (!childText.equals(simpleName)) continue;
-
-            matchedDeclarator = child;
-
-            for (int j = i + 1; j < fieldDecl.getChildCount(); j++) {
-                TSNode sibling = fieldDecl.getChild(j);
-                if (sibling == null || sibling.isNull()) continue;
-
-                String siblingFieldName = fieldDecl.getFieldNameForChild(j);
-                if ("declarator".equals(siblingFieldName)) break;
-                if ("default_value".equals(siblingFieldName)) {
-                    matchedDefaultValue = sibling;
-                    break;
-                }
+            if (child == null || child.isNull() || !"declarator".equals(fieldDecl.getFieldNameForChild(i))) {
+                continue;
             }
-            break;
+
+            TSNode fieldId = findFieldIdentifier(child);
+            if (fieldId != null
+                    && !fieldId.isNull()
+                    && simpleName.equals(sourceContent.substringFrom(fieldId).strip())) {
+                matchedDeclarator = child;
+                // Look ahead for the next declarator's start byte to bound the initializer search.
+                for (int j = i + 1; j < fieldDecl.getChildCount(); j++) {
+                    TSNode nextChild = fieldDecl.getChild(j);
+                    if (nextChild != null
+                            && !nextChild.isNull()
+                            && "declarator".equals(fieldDecl.getFieldNameForChild(j))) {
+                        nextDeclaratorStart = nextChild.getStartByte();
+                        break;
+                    }
+                }
+                break;
+            }
         }
 
         if (matchedDeclarator == null || matchedDeclarator.isNull()) {
             return super.formatFieldSignature(
                     fieldNode, sourceContent, exportPrefix, signatureText, simpleName, baseIndent, file);
+        }
+
+        // Associate the closest following default_value within this field_declaration that starts
+        // after our declarator and before any subsequent declarator.
+        TSNode matchedDefaultValue = null;
+        for (int i = 0; i < fieldDecl.getChildCount(); i++) {
+            TSNode child = fieldDecl.getChild(i);
+            if (child == null || child.isNull() || !"default_value".equals(fieldDecl.getFieldNameForChild(i))) {
+                continue;
+            }
+            int start = child.getStartByte();
+            if (start >= matchedDeclarator.getEndByte() && start < nextDeclaratorStart) {
+                matchedDefaultValue = child;
+                break;
+            }
         }
 
         final String declaratorText;
@@ -872,6 +886,19 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
      * @return the function_declarator node, or null if not found
      */
     @SuppressWarnings("RedundantNullCheck") // Defensive check for TreeSitter JNI interop
+    /**
+     * Recursively searches for the field_identifier node within a declarator tree.
+     */
+    private @Nullable TSNode findFieldIdentifier(TSNode node) {
+        if (node == null || node.isNull()) return null;
+        if ("field_identifier".equals(node.getType()) || "identifier".equals(node.getType())) return node;
+        for (int i = 0; i < node.getChildCount(); i++) {
+            TSNode found = findFieldIdentifier(node.getChild(i));
+            if (found != null) return found;
+        }
+        return null;
+    }
+
     private @Nullable TSNode findFunctionDeclaratorRecursive(TSNode node) {
         if (node == null || node.isNull()) {
             return null;
