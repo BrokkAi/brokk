@@ -10,8 +10,8 @@ import ai.brokk.context.ContextFragments;
 import ai.brokk.context.SpecialTextType;
 import ai.brokk.executor.http.SimpleHttpServer;
 import ai.brokk.executor.jobs.ErrorPayload;
-import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitWorkflow;
+import ai.brokk.git.IGitRepo;
 import ai.brokk.tasks.TaskList;
 import ai.brokk.util.Messages;
 import com.sun.net.httpserver.HttpExchange;
@@ -643,7 +643,7 @@ public final class ContextRouter implements SimpleHttpServer.CheckedHttpHandler 
         }
 
         try {
-            var repo = (GitRepo) project.getRepo();
+            var repo = project.getRepo();
             var modified = repo.getModifiedFiles();
 
             if (modified.isEmpty()) {
@@ -652,7 +652,7 @@ public final class ContextRouter implements SimpleHttpServer.CheckedHttpHandler 
             }
 
             var filesToCommit =
-                    modified.stream().map(GitRepo.ModifiedFile::file).toList();
+                    modified.stream().map(IGitRepo.ModifiedFile::file).toList();
 
             var gitWorkflow = new GitWorkflow(contextManager);
             @Nullable String message = request.message();
@@ -670,6 +670,10 @@ public final class ContextRouter implements SimpleHttpServer.CheckedHttpHandler 
                     Map.of(
                             "commitId", commitResult.commitId(),
                             "firstLine", commitResult.firstLine()));
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            logger.warn("Commit operation was interrupted", e);
+            SimpleHttpServer.sendJsonResponse(exchange, 503, ErrorPayload.internalError("Operation interrupted", e));
         } catch (Exception e) {
             logger.error("Error handling POST /v1/context/commit", e);
             SimpleHttpServer.sendJsonResponse(exchange, 500, ErrorPayload.internalError("Failed to commit changes", e));

@@ -24,6 +24,7 @@ import ai.brokk.context.ContextFragments;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitRepoFactory;
 import ai.brokk.git.GitWorkflow;
+import ai.brokk.git.IGitRepo;
 import ai.brokk.metrics.SearchMetrics;
 import ai.brokk.project.AbstractProject;
 import ai.brokk.project.MainProject;
@@ -507,7 +508,7 @@ public final class BprCli implements Callable<Integer> {
                 return 1;
             }
 
-            var repo = (GitRepo) project.getRepo();
+            var repo = project.getRepo();
             var modified = repo.getModifiedFiles();
 
             if (modified.isEmpty()) {
@@ -516,7 +517,7 @@ public final class BprCli implements Callable<Integer> {
             }
 
             var filesToCommit =
-                    modified.stream().map(GitRepo.ModifiedFile::file).toList();
+                    modified.stream().map(IGitRepo.ModifiedFile::file).toList();
             var gitWorkflow = new GitWorkflow(cm);
 
             @Nullable String message = commitMessage;
@@ -525,8 +526,10 @@ public final class BprCli implements Callable<Integer> {
             }
 
             var commitResult = gitWorkflow.commit(filesToCommit, message);
-            System.out.println(
-                    "Committed " + repo.shortHash(commitResult.commitId()) + ": " + commitResult.firstLine());
+            var shortHash = commitResult
+                    .commitId()
+                    .substring(0, Math.min(7, commitResult.commitId().length()));
+            System.out.println("Committed " + shortHash + ": " + commitResult.firstLine());
             return 0;
         }
 
