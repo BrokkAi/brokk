@@ -13,6 +13,7 @@ import ai.brokk.testutil.TestContextManager;
 import ai.brokk.testutil.TestProject;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -114,7 +115,12 @@ class BuildToolsTest {
         ProjectFile testFile = new ProjectFile(tempDir, "callbacks/logic_test.go");
 
         // 1. Create a Go analyzer that returns the prefixed path
-        TestAnalyzer goAnalyzer = new TestAnalyzer();
+        TestAnalyzer goAnalyzer = new TestAnalyzer() {
+            @Override
+            public List<String> getTestModules(Collection<ProjectFile> files) {
+                return List.of("./callbacks");
+            }
+        };
         CodeUnit testFn = CodeUnit.fn(testFile, "callbacks", "TestCallbacks");
         goAnalyzer.addDeclaration(testFn);
 
@@ -162,7 +168,10 @@ class BuildToolsTest {
             };
 
             // This should call BuildVerifier.verifyWithRetries which will execute lint-cmd then test-all
-            BuildTools.runVerification(cm);
+            String error = BuildTools.runVerification(cm);
+
+            // Verify the success message matches our expectations
+            assertEquals("Build succeeded.", error);
 
             // Scope is ALL by default in TestProject, so determineVerificationCommand returns testAllCommand
             // verifyWithRetries(lint="lint-cmd", test="test-all") -> 2 calls

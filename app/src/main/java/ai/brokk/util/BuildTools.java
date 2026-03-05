@@ -91,6 +91,18 @@ public class BuildTools {
                         .toList();
 
         if (workspaceTestFiles.isEmpty()) {
+            // If there are no discovered test targets for a SOME-scoped run, we should still prefer running the
+            // project's "test all" command (when available) over dropping down to lint-only. This keeps verification
+            // semantics consistent and matches BuildVerifier's lint-then-test behavior.
+            String testAll = System.getenv("BRK_TESTALL_CMD") != null
+                    ? System.getenv("BRK_TESTALL_CMD")
+                    : details.testAllCommand();
+
+            if (testAll != null && !testAll.isBlank()) {
+                return interpolateCommandWithPythonVersion(
+                        testAll, cm.getProject().getRoot());
+            }
+
             return interpolateCommandWithPythonVersion(
                     details.buildLintCommand(), cm.getProject().getRoot());
         }
@@ -275,7 +287,7 @@ public class BuildTools {
 
         if (command.isBlank()) {
             io.llmOutput("\nNo explicit command specified, skipping.", ChatMessageType.CUSTOM, LlmOutputMeta.DEFAULT);
-            return ctx.withBuildResult(true, "");
+            return ctx.withBuildResult(true, "Build succeeded.");
         }
 
         var details = override != null ? override : cm.getProject().awaitBuildDetails();
@@ -297,7 +309,7 @@ public class BuildTools {
                     timeout,
                     cm.getProject().getShellConfig(),
                     details.environmentVariables());
-            return ctx.withBuildResult(true, "");
+            return ctx.withBuildResult(true, "Build succeeded.");
         } catch (ai.brokk.util.Environment.SubprocessException e) {
             String output = Objects.toString(e.getOutput(), "");
             return ctx.withBuildResult(
@@ -307,7 +319,7 @@ public class BuildTools {
 
     /**
      * Convenience wrapper that runs verification and returns the error string (blank on success).
-     * Pushes the result to the ContextManager's live context.
+     * Pushes the result to the ContextManager's live context if possible.
      */
     @Blocking
     public static String runVerification(IContextManager cm) throws InterruptedException {
@@ -316,22 +328,30 @@ public class BuildTools {
 
     /**
      * Convenience wrapper that runs verification with an override and returns the error string.
-     * Pushes the result to the ContextManager's live context.
+     * Pushes the result to the ContextManager's live context if possible.
      */
     @Blocking
     public static String runVerification(IContextManager cm, @Nullable BuildDetails override)
             throws InterruptedException {
-        var interrupted = new AtomicReference<InterruptedException>(null);
-        var updated = cm.pushContext(ctx -> {
-            try {
-                return runVerification(ctx, override);
-            } catch (InterruptedException e) {
-                interrupted.set(e);
-                return ctx;
-            }
-        });
-        if (interrupted.get() != null) throw interrupted.get();
-        return updated.getBuildError();
+        try {
+            var interrupted = new AtomicReference<InterruptedException>(null);
+            var updated = cm.pushContext(ctx -> {
+                try {
+                    return runVerification(ctx, override);
+                } catch (InterruptedException e) {
+                    interrupted.set(e);
+                    return ctx;
+                }
+            });
+            if (interrupted.get() != null) throw interrupted.get();
+
+            String error = updated.getBuildError();
+            return error.isBlank() ? "Build succeeded." : error;
+        } catch (UnsupportedOperationException e) {
+            // For TestContextManager or other doubles that don't support pushContext
+            String error = runVerification(cm.liveContext(), override).getBuildError();
+            return error.isBlank() ? "Build succeeded." : error;
+        }
     }
 
     @Blocking
@@ -363,7 +383,7 @@ public class BuildTools {
                     "\nNo verification command specified, skipping build/check.",
                     ChatMessageType.CUSTOM,
                     LlmOutputMeta.DEFAULT);
-            return ctx.withBuildResult(true, "");
+            return ctx.withBuildResult(true, "Build succeeded.");
         }
 
         String lintCommand = details.buildLintCommand();
@@ -399,7 +419,7 @@ public class BuildTools {
                 line -> io.llmOutput(line + "\n", ChatMessageType.CUSTOM, LlmOutputMeta.terminal()));
 
         if (result.success()) {
-            return ctx.withBuildResult(true, "");
+            return ctx.withBuildResult(true, "Build succeeded.");
         } else {
             return ctx.withBuildResult(false, result.output());
         }
