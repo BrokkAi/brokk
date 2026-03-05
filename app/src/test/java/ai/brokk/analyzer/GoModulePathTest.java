@@ -41,11 +41,18 @@ class GoModulePathTest {
     }
 
     @Test
-    void testWindowsPaths() {
-        // Verify that paths with backslashes are correctly normalized to Unix-style with ./ prefix
+    void testCrossPlatformPathNormalization() {
+        // Verify that backslashes are normalized to forward slashes with ./ prefix
+        assertEquals("./sub/dir", GoAnalyzer.formatTestModule(Path.of("sub\\dir")));
         assertEquals("./callbacks/sub", GoAnalyzer.formatTestModule(Path.of("callbacks\\sub")));
         assertEquals("./a/b/c", GoAnalyzer.formatTestModule(Path.of("a\\b\\c")));
-        assertEquals("./deep/win/path", GoAnalyzer.formatTestModule(Path.of("deep\\win\\path")));
+
+        // Verify that forward slashes are preserved with ./ prefix
+        assertEquals("./sub/dir", GoAnalyzer.formatTestModule(Path.of("sub/dir")));
+        assertEquals("./callbacks/sub", GoAnalyzer.formatTestModule(Path.of("callbacks/sub")));
+
+        // Verify that mixed slashes are normalized
+        assertEquals("./a/b/c", GoAnalyzer.formatTestModule(Path.of("a/b\\c")));
     }
 
     @Test
