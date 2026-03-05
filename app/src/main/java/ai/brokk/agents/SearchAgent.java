@@ -171,7 +171,8 @@ public class SearchAgent {
             StreamingChatModel model,
             ContextManager.TaskScope scope,
             IConsoleIO io,
-            ScanConfig scanConfig) {
+            ScanConfig scanConfig)
+            throws InterruptedException {
         this(initialContext, goal, model, Objective.WORKSPACE_ONLY, scope, io, scanConfig);
     }
 
@@ -180,7 +181,8 @@ public class SearchAgent {
             String goal,
             StreamingChatModel model,
             Objective objective,
-            ContextManager.TaskScope scope) {
+            ContextManager.TaskScope scope)
+            throws InterruptedException {
         this(
                 initialContext,
                 goal,
@@ -198,14 +200,23 @@ public class SearchAgent {
             Objective objective,
             ContextManager.TaskScope scope,
             IConsoleIO io,
-            ScanConfig scanConfig) {
+            ScanConfig scanConfig)
+            throws InterruptedException {
         this.goal = goal;
         this.cm = initialContext.getContextManager();
         this.model = model;
         this.scope = scope;
 
         this.io = io;
-        this.scanConfig = scanConfig;
+
+        Set<ContextFragment> goalReferences = resolveGoalReferences(goal);
+        if (goalReferences.isEmpty()) {
+            this.scanConfig = scanConfig;
+        } else {
+            this.scanConfig =
+                    new ScanConfig(false, scanConfig.scanModel(), scanConfig.appendToScope(), scanConfig.autoPrune());
+            logger.debug("Goal references resolved: {}. Disabling auto-scan.", goalReferences);
+        }
 
         var llmOptions = new Llm.Options(model, goal, TaskResult.Type.SEARCH).withEcho();
         this.llm = cm.getLlm(llmOptions);
@@ -219,7 +230,9 @@ public class SearchAgent {
                 : SearchMetrics.noOp();
 
         this.mcpTools = initMcpTools(cm.getProject());
-        this.currentState = SearchState.initial(initialContext);
+        this.currentState = goalReferences.isEmpty()
+                ? SearchState.initial(initialContext)
+                : SearchState.initial(initialContext.addFragments(goalReferences));
         this.checkpointState = currentState;
         this.originalPinnedFragments = initialContext.getPinnedFragments().collect(Collectors.toSet());
         this.objective = objective;
@@ -229,6 +242,53 @@ public class SearchAgent {
 
         this.staticTools = initStaticTools(cm.getProject(), mcpTools);
         this.searchTools = new SearchTools(cm);
+    }
+
+    private Set<ContextFragment> resolveGoalReferences(String goal) throws InterruptedException {
+        Set<ContextFragment> references = new HashSet<>();
+
+        for (var file : cm.getProject().getAllFiles()) {
+            String fileName = file.getFileName();
+            if (containsBareToken(goal, fileName)) {
+                references.add(new ContextFragments.ProjectPathFragment(file, cm));
+            }
+        }
+
+        for (var declaration : cm.getAnalyzer().getAllDeclarations()) {
+            String bareClassName = declaration.identifier();
+            if (bareClassName.length() >= 3 && containsBareToken(goal, bareClassName)) {
+                references.add(new ContextFragments.CodeFragment(cm, declaration));
+            }
+        }
+
+        return references;
+    }
+
+    private static boolean containsBareToken(String text, String token) {
+        int tokenLength = token.length();
+        if (tokenLength == 0) {
+            return false;
+        }
+
+        int index = text.indexOf(token);
+        while (index >= 0) {
+            int tokenStart = index;
+            int tokenEnd = index + tokenLength;
+
+            boolean leftBoundary = tokenStart == 0 || !isBareTokenChar(text.charAt(tokenStart - 1));
+            boolean rightBoundary = tokenEnd >= text.length() || !isBareTokenChar(text.charAt(tokenEnd));
+
+            if (leftBoundary && rightBoundary) {
+                return true;
+            }
+
+            index = text.indexOf(token, tokenStart + 1);
+        }
+        return false;
+    }
+
+    private static boolean isBareTokenChar(char c) {
+        return Character.isLetterOrDigit(c) || c == '_' || c == '$';
     }
 
     private static List<McpPrompts.McpTool> initMcpTools(IProject project) {
@@ -289,7 +349,8 @@ public class SearchAgent {
         return WorkspaceTools.filterByAnalyzerAvailability(tools, project);
     }
 
-    public SearchAgent(Context initialContext, String goal, StreamingChatModel model, ContextManager.TaskScope scope) {
+    public SearchAgent(Context initialContext, String goal, StreamingChatModel model, ContextManager.TaskScope scope)
+            throws InterruptedException {
         this(
                 initialContext,
                 goal,
