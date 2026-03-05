@@ -39,8 +39,8 @@
 (class_definition
   body: (template_body
           [
-            (val_definition pattern: (_) @field.name) @field.definition
-            (var_definition pattern: (_) @field.name) @field.definition
+            (val_definition pattern: [ (identifier) @field.name (list_pattern (identifier) @field.name) ]) @field.definition
+            (var_definition pattern: [ (identifier) @field.name (list_pattern (identifier) @field.name) ]) @field.definition
             ]
           )
   )
@@ -48,8 +48,8 @@
 (trait_definition
   body: (template_body
           [
-            (val_definition pattern: (_) @field.name) @field.definition
-            (var_definition pattern: (_) @field.name) @field.definition
+            (val_definition pattern: [ (identifier) @field.name (list_pattern (identifier) @field.name) ]) @field.definition
+            (var_definition pattern: [ (identifier) @field.name (list_pattern (identifier) @field.name) ]) @field.definition
             ]
           )
   )
@@ -57,8 +57,8 @@
 (object_definition
   body: (template_body
           [
-            (val_definition pattern: (_) @field.name) @field.definition
-            (var_definition pattern: (_) @field.name) @field.definition
+            (val_definition pattern: [ (identifier) @field.name (list_pattern (identifier) @field.name) ]) @field.definition
+            (var_definition pattern: [ (identifier) @field.name (list_pattern (identifier) @field.name) ]) @field.definition
             ]
           )
   )
@@ -66,8 +66,8 @@
 ; Top-level variables as field definitions
 (compilation_unit
   [
-    (val_definition pattern: (_) @field.name) @field.definition
-    (var_definition pattern: (_) @field.name) @field.definition
+    (val_definition pattern: [ (identifier) @field.name (list_pattern (identifier) @field.name) ]) @field.definition
+    (var_definition pattern: [ (identifier) @field.name (list_pattern (identifier) @field.name) ]) @field.definition
     ]
   )
 
