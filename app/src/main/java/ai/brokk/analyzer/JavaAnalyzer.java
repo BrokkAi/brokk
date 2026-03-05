@@ -273,16 +273,30 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
             String simpleName,
             String baseIndent,
             ProjectFile file) {
-        if (ENUM_CONSTANT.equals(fieldNode.getType())) {
+        String nodeType = fieldNode.getType();
+        if (ENUM_CONSTANT.equals(nodeType)) {
             return formatEnumConstant(fieldNode, signatureText, baseIndent);
         }
 
-        if (FIELD_DECLARATION.equals(fieldNode.getType()) || CONSTANT_DECLARATION.equals(fieldNode.getType())) {
-            // signatureText might contain multiple variables: "public int x = 1, y = 2;"
-            // We want to reconstruct it for just the specific 'simpleName'.
+        if (FIELD_DECLARATION.equals(nodeType) || CONSTANT_DECLARATION.equals(nodeType)) {
             TSNode typeNode = fieldNode.getChildByFieldName("type");
             if (typeNode != null && !typeNode.isNull()) {
+                // Reconstruct modifiers from children before the type node
+                StringBuilder modifiers = new StringBuilder();
+                for (int i = 0; i < fieldNode.getChildCount(); i++) {
+                    TSNode child = fieldNode.getChild(i);
+                    if (child.getEndByte() <= typeNode.getStartByte()) {
+                        String text = sourceContent.substringFrom(child).strip();
+                        if (!text.isEmpty()) {
+                            modifiers.append(text).append(" ");
+                        }
+                    } else {
+                        break;
+                    }
+                }
+
                 String typeStr = sourceContent.substringFrom(typeNode).strip();
+
                 // Find the specific variable_declarator for this simpleName
                 for (int i = 0; i < fieldNode.getChildCount(); i++) {
                     TSNode child = fieldNode.getChild(i);
@@ -294,8 +308,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
                                         sourceContent.substringFrom(nameNode).strip())) {
                             String declaratorStr =
                                     sourceContent.substringFrom(child).strip();
-                            String prefix = exportPrefix.isEmpty() ? "" : exportPrefix.stripTrailing() + " ";
-                            String full = prefix + typeStr + " " + declaratorStr + ";";
+                            String full = (modifiers.toString() + typeStr + " " + declaratorStr + ";").strip();
                             return baseIndent + full;
                         }
                     }
