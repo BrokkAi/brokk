@@ -16,6 +16,9 @@ public final class CSharpTreeSitterNodeTypes {
 
     // Field-like declarations
     public static final String FIELD_DECLARATION = CommonTreeSitterNodeTypes.FIELD_DECLARATION;
+    // Variable-related nodes used when splitting declarators in multi-declaration fields
+    public static final String VARIABLE_DECLARATION = "variable_declaration";
+    public static final String VARIABLE_DECLARATOR = "variable_declarator";
 
     // ===== C#-SPECIFIC TYPES =====
     // Class-like declarations
