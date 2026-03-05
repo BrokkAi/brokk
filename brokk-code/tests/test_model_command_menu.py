@@ -130,9 +130,11 @@ async def test_code_model_command_no_arg_opens_modal():
             await pilot.press("enter")
             await pilot.pause()
 
+            # Model list is ["m1", "m2"]. Highlight starts at 0. Down moves to 1 ("m2").
             assert app.code_model == "m2"
             # Reasoning list: disable, low, medium, high.
-            # Default start 'disable' (0), down -> 'low' (1)
+            # Reasoning highlight starts at the current value index.
+            # Reasoning was 'disable' (0), down moves to 'low' (1).
             assert app.reasoning_level_code == "low"
 
 

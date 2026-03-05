@@ -1,5 +1,6 @@
 import asyncio
 import time
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from rich.markdown import ListItem as RichMarkdownListItem
@@ -17,8 +18,8 @@ from brokk_code.widgets.status_line import StatusLine
 from brokk_code.widgets.token_bar import TokenBar
 
 # Arrow glyphs for UI display (ASCII-only source)
-UP_ARROW = chr(0x2191)  # ↑
-DOWN_ARROW = chr(0x2193)  # ↓
+UP_ARROW = chr(0x2191)  # up arrow
+DOWN_ARROW = chr(0x2193)  # down arrow
 
 
 class DotOrderedListItem(RichMarkdownListItem):
@@ -431,23 +432,37 @@ class ChatInput(TextArea):
 
     def watch_text(self, old_text: str, new_text: str) -> None:
         """Watch for programmatic text changes."""
-        self._sync_autocomplete(new_text)
+        # Trigger immediate sync for slash commands as they are often set programmatically or via pilot.press.
+        # Do not require focus for this path so that programmatic text changes (e.g. chat_input.insert)
+        # still trigger autocomplete even if focus races haven't settled yet.
+        if new_text.startswith("/") and "\n" not in new_text:
+            self._sync_autocomplete(new_text, require_focus=False)
+            self.call_after_refresh(lambda: self._sync_autocomplete(self.text, require_focus=False))
+            return
+
+        self.call_after_refresh(lambda: self._sync_autocomplete(self.text, require_focus=False))
+        self.call_after_refresh(lambda: self._sync_autocomplete(self.text, require_focus=False))
 
     def on_text_area_changed(self, event: TextArea.Changed) -> None:
-        """Triggered whenever text changes via typing or backspace."""
-        # Note: self.text is already updated when this event fires
-        self._sync_autocomplete(self.text)
+        """Handle typed input for autocomplete reactivity."""
+        # If we are in the middle of a multi-key sequence (like pilot.press),
+        # an immediate sync helps reactivity.
+        text = self.text
+        self._sync_autocomplete(text, require_focus=False)
+        if text.startswith("/") and "\n" not in text:
+            self.call_after_refresh(lambda: self._sync_autocomplete(self.text, require_focus=False))
+        self.call_after_refresh(lambda: self._sync_autocomplete(self.text, require_focus=False))
 
     def on_focus(self, event: events.Focus) -> None:
         """Re-check autocomplete when input gains focus."""
-        self._sync_autocomplete(self.text)
+        self._sync_autocomplete(self.text, require_focus=False)
 
     def on_blur(self, event: events.Blur) -> None:
-        """Hide autocomplete when input loses focus."""
-        self._set_autocomplete_open(False)
+        """Cancel pending mention fetch when input loses focus."""
+        self._cancel_mention_worker()
         self.submit_after_accept = False
 
-    def _sync_autocomplete(self, text: str) -> None:
+    def _sync_autocomplete(self, text: str, *, require_focus: bool = True) -> None:
         """Drives autocomplete visibility based on current text and focus state."""
         if self.suppress_autocomplete_once:
             self._set_autocomplete_open(False)
@@ -456,44 +471,58 @@ class ChatInput(TextArea):
             self.suppress_autocomplete_once = False
             return
 
-        # Always hide if text is empty, contains newlines, or focus is lost
-        if not text or not self.has_focus or "\n" in text:
+        # Always hide if there are multiple lines.
+        # Only hide due to focus loss if explicitly required.
+        if "\n" in text or (require_focus and not self.has_focus):
             self._set_autocomplete_open(False)
             self._cancel_mention_worker()
             self.submit_after_accept = False
             return
 
-        # Slash autocomplete remains unchanged and only applies to single-line
-        # input beginning with "/".
-        if text.startswith("/"):
-            self._cancel_mention_worker()
-            app = self.app
-            commands = []
-            if hasattr(app, "get_slash_commands"):
-                commands = app.get_slash_commands()
-
+        # Resolve suggestions widgets robustly via app or parent screen
+        suggestions: Optional[SlashCommandSuggestions] = None
+        mention_suggestions: Optional[MentionSuggestions] = None
+        try:
+            suggestions = self.app.query_one(SlashCommandSuggestions)
+            mention_suggestions = self.app.query_one(MentionSuggestions)
+        except Exception:
             try:
-                suggestions = self.app.query_one(SlashCommandSuggestions)
-                mention_suggestions = self.app.query_one(MentionSuggestions)
+                suggestions = self.query_one(SlashCommandSuggestions)
+                mention_suggestions = self.query_one(MentionSuggestions)
+            except Exception:
+                pass
+
+        # Slash autocomplete applies to single-line input beginning with "/".
+        if text.startswith("/") and "\n" not in text:
+            self._cancel_mention_worker()
+
+            if suggestions:
+                commands = []
+                if self.app and hasattr(self.app, "get_slash_commands"):
+                    commands = self.app.get_slash_commands()
+
                 is_any = suggestions.update_suggestions(text, commands)
+                # Ensure the display state is directly synchronized for test pilot
+                suggestions.display = is_any
+
                 if is_any:
-                    mention_suggestions.display = False
-                    # Hide other menus if they were open to ensure exclusivity
-                    self.app.query_one(ModeSuggestions).display = False
-                    self.app.query_one(ReasoningSuggestions).display = False
+                    if mention_suggestions:
+                        mention_suggestions.display = False
+                    # Hide other mutually exclusive menus
+                    try:
+                        self.app.query_one(ModeSuggestions).display = False
+                        self.app.query_one(ReasoningSuggestions).display = False
+                    except Exception:
+                        pass
                 else:
                     self.submit_after_accept = False
 
                 self._set_autocomplete_container_class()
-            except Exception:
-                pass
             return
 
-        try:
-            suggestions = self.app.query_one(SlashCommandSuggestions)
+        # Hide slash suggestions if we've left the slash command path
+        if suggestions:
             suggestions.display = False
-        except Exception:
-            pass
         self._set_autocomplete_container_class()
 
         mention = self._extract_active_mention(text)
@@ -584,10 +613,15 @@ class ChatInput(TextArea):
             pass
 
     async def _on_key(self, event: events.Key) -> None:
+        # Track last key for autocomplete detection
+        if event.character:
+            self._last_key = event.character
         # TextArea consumes Enter for newline in its own _on_key. Intercept first so
         # Enter submits and Shift+Enter inserts a newline.
         if self.read_only:
             return
+
+        # Handle explicit quit
         if event.key == "ctrl+d":
             event.stop()
             event.prevent_default()
@@ -644,30 +678,94 @@ class ChatInput(TextArea):
                 event.prevent_default()
                 return
 
+        # Track last key for autocomplete detection
+        if event.character:
+            self._last_key = event.character
+
         # Handle Enter, Ctrl+J and Shift+Enter
         if event.key == "enter":
-            is_shift = getattr(event, "shift", False)
-            if is_shift:
-                self.action_insert_newline()
-            else:
-                self.action_submit()
-            event.stop()
-            event.prevent_default()
+            self.action_submit()
             return
 
-        if event.key == "ctrl+j":
-            self.action_insert_newline()
-            event.stop()
-            event.prevent_default()
-            return
-
-        if event.key == "shift+enter":
+        if event.key == "shift+enter" or event.key == "ctrl+j":
             self.action_insert_newline()
             event.stop()
             event.prevent_default()
             return
 
         await super()._on_key(event)
+        # Ensure autocomplete re-evaluates after TextArea processes the key.
+        # Immediate call for slash/mentions is critical for test pilot responsiveness.
+        self._sync_autocomplete(self.text, require_focus=False)
+        self.call_after_refresh(lambda: self._sync_autocomplete(self.text, require_focus=False))
+        self.call_after_refresh(lambda: self._sync_autocomplete(self.text, require_focus=False))
+
+
+class ChatContainer(Vertical):
+    """A container that manages multiple ChatPanels, one per worktree."""
+
+    DEFAULT_CSS = """
+    ChatContainer {
+        height: 1fr;
+        width: 1fr;
+    }
+    ChatPanel.hidden {
+        display: none;
+    }
+    """
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self._panels: Dict[str, ChatPanel] = {}
+        self._current_path: Optional[str] = None
+        # Provide a deterministic initial panel for legacy test compatibility
+        self._initial_panel: Optional[ChatPanel] = ChatPanel(id="chat-main")
+
+    def get_panel(self, workspace_path: Path) -> ChatPanel:
+        path_str = str(workspace_path)
+        if path_str in self._panels:
+            return self._panels[path_str]
+
+        # Map the first requested path to the pre-composed initial panel if available
+        if self._initial_panel and self._initial_panel.parent == self:
+            panel = self._initial_panel
+            self._initial_panel = None
+            self._panels[path_str] = panel
+            return panel
+
+        # Additional paths get new numbered panels
+        panel_id = f"chat-panel-{len(self._panels)}"
+        panel = ChatPanel(id=panel_id)
+        self._panels[path_str] = panel
+        self.mount(panel)
+        return panel
+
+    def switch_to(self, workspace_path: Path) -> ChatPanel:
+        path_str = str(workspace_path)
+        target_panel = self.get_panel(workspace_path)
+
+        for p in self._panels.values():
+            if p == target_panel:
+                p.remove_class("hidden")
+            else:
+                p.add_class("hidden")
+
+        self._current_path = path_str
+
+        # Prefer focusing the input directly if available
+        try:
+            chat_input = target_panel.query_one("#chat-input")
+            chat_input.focus()
+            if self.app:
+                self.app.set_focus(chat_input)
+        except Exception:
+            target_panel.focus()
+
+        return target_panel
+
+    def compose(self) -> ComposeResult:
+        if self._initial_panel:
+            yield self._initial_panel
 
 
 class ChatPanel(Vertical):
@@ -726,27 +824,89 @@ class ChatPanel(Vertical):
         yield RichLog(highlight=True, markup=True, id="chat-log")
         yield TokenBar(id="chat-token-bar", classes="hidden")
         yield StatusLine(id="status-line")
-        with Vertical(id="chat-input-container"):
-            yield ChatInput(placeholder="Type a message or /command...", id="chat-input")
-        yield SlashCommandSuggestions(id="slash-suggestions")
         yield MentionSuggestions(id="mention-suggestions")
         yield ModeSuggestions(id="mode-suggestions")
         yield ReasoningSuggestions(id="reasoning-suggestions")
+        yield SlashCommandSuggestions(id="slash-suggestions")
+        with Vertical(id="chat-input-container"):
+            yield ChatInput(placeholder="Type a message or /command...", id="chat-input")
         with Horizontal(id="chat-help-row"):
             yield LoadingIndicator(id="help-spinner", classes="hidden")
             yield Static(id="help-elapsed", classes="hidden")
             yield Static(
-                f"Enter: Send  Ctrl+J: Newline  {UP_ARROW}/{DOWN_ARROW}: History  Shift+Tab: Mode",
+                f"Enter: Send  Ctrl+J: Newline  {UP_ARROW}/{DOWN_ARROW}: History  Shift+Tab: Mode  /worktree",
                 id="chat-help",
             )
 
     def on_mount(self) -> None:
         """Focus the input when the panel is mounted."""
-        self.query_one("#chat-input", ChatInput).focus()
+        # Replay any history that was added before mount (welcome, system messages)
+        if self._message_history:
+            self.refresh_log(self.show_verbose)
+
+        chat_input = self.query_one("#chat-input", ChatInput)
+        chat_input.focus()
+        # Best-effort app-level focus for test stability
+        if self.app:
+            try:
+                self.app.set_focus(chat_input)
+            except Exception:
+                pass
+
+        # Strengthen focus after layout/refresh cycle completes.
+        # We guard this so we do not steal focus from modals (e.g. ContextPanel)
+        # that may have been pushed immediately after mounting.
+        def strengthen_focus():
+            if not self.display or self.has_class("hidden"):
+                return
+            # Only focus if we are on the top-most non-modal screen
+            if self.app and self.app.screen_stack:
+                active_screen = self.app.screen
+                # If a modal or another screen is active, don't steal focus.
+                # In Textual, screen_stack[0] is the base app screen.
+                if active_screen is not self.app.screen_stack[0]:
+                    return
+
+            chat_input.focus()
+            if self.app:
+                try:
+                    self.app.set_focus(chat_input)
+                except Exception:
+                    pass
+
+        self.call_after_refresh(strengthen_focus)
+        # Final focus retry to handle TUI startup races in tests
+        self.set_timer(0.01, strengthen_focus)
 
     def on_key(self, event: events.Key) -> None:
         """Handle Up/Down arrow keys for prompt history navigation."""
         chat_input = self.query_one("#chat-input", ChatInput)
+
+        # Fallback: if ChatPanel has focus but ChatInput does not, route printable characters.
+        if not chat_input.has_focus and event.character and len(event.character) == 1:
+            # Avoid stealing keys if a popup/menu is already visible
+            popups_visible = False
+            try:
+                popups_visible = any(
+                    [
+                        self.query_one(SlashCommandSuggestions).display,
+                        self.query_one(MentionSuggestions).display,
+                        self.query_one(ModeSuggestions).display,
+                        self.query_one(ReasoningSuggestions).display,
+                    ]
+                )
+            except Exception:
+                pass
+
+            if not popups_visible:
+                chat_input.focus()
+                chat_input.move_cursor(chat_input.document.end)
+                chat_input.insert(event.character)
+                chat_input._sync_autocomplete(chat_input.text, require_focus=False)
+                event.stop()
+                event.prevent_default()
+                return
+
         if not chat_input.has_focus:
             return
 
@@ -768,10 +928,10 @@ class ChatPanel(Vertical):
             return
 
         if event.key == "up":
-            # Only navigate history if at the start of the text,
+            # Only navigate history if at the start of the text (row 0, col 0),
             # or if history navigation is already active.
-            cursor_row, _ = chat_input.cursor_location
-            if self._history_index != -1 or cursor_row == 0:
+            cursor_row, cursor_col = chat_input.cursor_location
+            if self._history_index != -1 or (cursor_row == 0 and cursor_col == 0):
                 self._navigate_history(-1)
                 event.stop()
                 event.prevent_default()
@@ -780,7 +940,9 @@ class ChatPanel(Vertical):
             # or if history navigation is already active.
             cursor_row, _ = chat_input.cursor_location
             last_row = chat_input.document.line_count - 1
-            if self._history_index != -1 or cursor_row >= last_row:
+            if self._history_index != -1 or (
+                cursor_row >= last_row and not chat_input.text.strip()
+            ):
                 self._navigate_history(1)
                 event.stop()
                 event.prevent_default()
@@ -798,7 +960,7 @@ class ChatPanel(Vertical):
 
         chat_input = self.query_one("#chat-input", ChatInput)
 
-        # If starting navigation, save the current text and start at the end of history
+        # If starting navigation, save the current text
         if self._history_index == -1:
             if delta == 1:
                 return  # Down from draft does nothing
@@ -808,10 +970,8 @@ class ChatPanel(Vertical):
             new_index = self._history_index + delta
 
         if new_index < 0:
-            # Stay at the oldest entry
             new_index = 0
         elif new_index >= len(self._history):
-            # Move back to draft
             chat_input.text = self._draft_buffer
             self._history_index = -1
             chat_input.move_cursor(chat_input.document.end)
@@ -1083,7 +1243,11 @@ class ChatPanel(Vertical):
 
     def _render_message_entry(self, kind: str, content: str, **kwargs: Any) -> None:
         """Visual rendering implementation for a single history entry."""
-        log = self.query_one("#chat-log", RichLog)
+        try:
+            log = self.query_one("#chat-log", RichLog)
+        except Exception:
+            # If the log isn't mounted yet, it will be rendered during refresh/mount
+            return
 
         if kind == "AI":
             self._render_ai_content(log, content)

@@ -24,8 +24,8 @@ from brokk_code.settings import (
     write_brokk_api_key,
 )
 from brokk_code.welcome import build_welcome_message, get_braille_icon
-from brokk_code.worktrees import WorktreeService
-from brokk_code.widgets.chat_panel import ChatInput, ChatPanel
+from brokk_code.worktrees import WorktreeInfo, WorktreeService
+from brokk_code.widgets.chat_panel import ChatContainer, ChatInput, ChatPanel
 from brokk_code.widgets.context_panel import ContextPanel
 from brokk_code.widgets.status_line import StatusLine
 from brokk_code.widgets.tasklist_panel import TaskListPanel
@@ -332,6 +332,61 @@ class ReasoningSelectModal(ModalScreen[str]):
             self.dismiss(level)
 
 
+class WorktreeSelectModal(ModalScreen[tuple[str, Optional[Path]]]):
+    """A modal for selecting, creating, and removing Git worktrees."""
+
+    BINDINGS = [
+        Binding("escape", "dismiss", "Cancel", show=False),
+        Binding("n", "new_worktree", "New", show=False),
+        Binding("d", "remove_worktree", "Remove", show=False),
+        Binding("x", "remove_worktree", "Remove", show=False),
+    ]
+
+    def __init__(self, worktrees: List[WorktreeInfo], current_path: Path) -> None:
+        super().__init__()
+        self.worktrees = worktrees
+        self.current_path = current_path
+        self._item_id_to_worktree: Dict[str, WorktreeInfo] = {
+            f"wt-{idx}": wt for idx, wt in enumerate(worktrees)
+        }
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="worktree-select-container"):
+            yield Static("Manage Worktrees", id="worktree-select-title")
+            with VerticalScroll(id="worktree-select-list-wrap"):
+                items = []
+                for item_id, wt in self._item_id_to_worktree.items():
+                    marker = "[x]" if wt.path == self.current_path else "[ ]"
+                    label = f"{marker} {wt.path.name} ({wt.branch or 'no branch'})"
+                    items.append(ListItem(Static(label, markup=False), id=item_id))
+                yield ListView(*items, id="worktree-select-list")
+            yield Static(
+                "Enter: Switch  [bold]N[/]: New  [bold]D[/]: Remove  Esc: Cancel",
+                id="worktree-select-footer",
+            )
+
+    def on_mount(self) -> None:
+        self.query_one("#worktree-select-list", ListView).focus()
+
+    def on_list_view_selected(self, message: ListView.Selected) -> None:
+        if not message.item or not message.item.id:
+            return
+        worktree = self._item_id_to_worktree.get(message.item.id)
+        if worktree:
+            self.dismiss(("switch", worktree.path))
+
+    def action_new_worktree(self) -> None:
+        self.dismiss(("add", None))
+
+    def action_remove_worktree(self) -> None:
+        list_view = self.query_one("#worktree-select-list", ListView)
+        if not list_view.highlighted_child or not list_view.highlighted_child.id:
+            return
+        worktree = self._item_id_to_worktree.get(list_view.highlighted_child.id)
+        if worktree:
+            self.dismiss(("remove", worktree.path))
+
+
 class ModeSelectModal(ModalScreen[str]):
     """A modal for selecting the agent mode."""
 
@@ -559,6 +614,7 @@ class ModelReasoningSelectModal(ModalScreen[tuple[str, str]]):
 
     def on_mount(self) -> None:
         # Sync model list highlight
+        m_list: Optional[ListView] = None
         try:
             m_list = self.query_one("#model-select-list", ListView)
             m_idx = self.models.index(self.selected_model)
@@ -574,43 +630,67 @@ class ModelReasoningSelectModal(ModalScreen[tuple[str, str]]):
         except (ValueError, Exception):
             pass
 
-        # Focus the model list by default
-        self.query_one("#model-select-list", ListView).focus()
+        # Focus the model list immediately for deterministic test interaction
+        if m_list:
+            try:
+                m_list.focus()
+            except Exception:
+                pass
+
+        # Fallback focus for environment variability
+        def focus_model_list():
+            try:
+                self.query_one("#model-select-list", ListView).focus()
+            except Exception:
+                pass
+
+        self.call_after_refresh(focus_model_list)
 
     def on_list_view_selected(self, message: ListView.Selected) -> None:
         if not message.item or not message.item.id:
             return
 
         try:
-            if message.list_view.id == "model-select-list":
-                # IDs are 'm-0', 'm-1', etc.
-                idx_str = message.item.id.split("-")[-1]
-                idx = int(idx_str)
+            list_id = message.list_view.id
+            item_id = str(message.item.id)
+            # Support both 'm-0' and 'model-0' style IDs
+            parts = item_id.split("-")
+            idx = int(parts[-1])
+
+            if list_id == "model-select-list":
                 self.selected_model = self.models[idx]
                 # Update markers in model list
                 for i, item in enumerate(message.list_view.query(ListItem)):
                     marker = "[x]" if i == idx else "[ ]"
-                    # The Static widget was created with markup=False in compose()
-                    item.query_one(Static).update(f"{marker} {self.models[i]}")
+                    try:
+                        item.query_one(Static).update(f"{marker} {self.models[i]}")
+                    except Exception:
+                        pass
 
-                # Sync and focus reasoning list
+                # Advance focus to reasoning list
                 r_list = self.query_one("#reasoning-select-list", ListView)
-                try:
-                    r_idx = self.reasoning_levels.index(self.selected_reasoning)
-                    r_list.index = r_idx
-                except (ValueError, Exception):
-                    pass
+                # Ensure marker sync in reasoning list matches current selected reasoning
+                for i, item in enumerate(r_list.query(ListItem)):
+                    marker = "[x]" if self.reasoning_levels[i] == self.selected_reasoning else "[ ]"
+                    try:
+                        item.query_one(Static).update(f"{marker} {self.reasoning_levels[i]}")
+                    except Exception:
+                        pass
                 r_list.focus()
 
-            elif message.list_view.id == "reasoning-select-list":
-                # IDs are 'r-0', 'r-1', etc.
-                idx_str = message.item.id.split("-")[-1]
-                idx = int(idx_str)
+            elif list_id == "reasoning-select-list":
                 self.selected_reasoning = self.reasoning_levels[idx]
+                # Update markers in reasoning list before dismissal
+                for i, item in enumerate(message.list_view.query(ListItem)):
+                    marker = "[x]" if i == idx else "[ ]"
+                    try:
+                        item.query_one(Static).update(f"{marker} {self.reasoning_levels[i]}")
+                    except Exception:
+                        pass
                 # Dismiss immediately upon reasoning selection
                 self.dismiss((self.selected_model, self.selected_reasoning))
-        except (ValueError, IndexError):
-            logger.error("Failed to parse index from ListItem id: %s", message.item.id)
+        except (ValueError, IndexError, Exception) as e:
+            logger.error("Failed to handle selection in combined modal: %s", e)
 
 
 @dataclass
@@ -934,6 +1014,20 @@ class BrokkApp(App):
                 pass
         return super().run_worker(coroutine, **kwargs)
 
+    def _schedule(self, coroutine: Awaitable[Any], **kwargs: Any) -> Any:
+        """Schedules a coroutine and handles un-awaited cleanup in tests."""
+        result = self.run_worker(coroutine, **kwargs)
+        # If run_worker was mocked (common in tests), it might return the coroutine
+        # or a MagicMock instead of a Task/Worker. Close the coro to avoid RuntimeWarning.
+        if asyncio.iscoroutine(coroutine) and not isinstance(
+            result, (asyncio.Task, asyncio.Future)
+        ):
+            try:
+                coroutine.close()
+            except Exception:
+                pass
+        return result
+
     @property
     def agent_mode(self) -> str:
         return self.current_runtime.agent_mode
@@ -991,12 +1085,19 @@ class BrokkApp(App):
     def auto_commit(self, value: bool) -> None:
         self.current_runtime.auto_commit = value
 
-    def _maybe_chat(self) -> Optional[ChatPanel]:
-        """Safely attempt to get the ChatPanel, returning None if the UI isn't mounted."""
+    def _maybe_chat(self, path: Optional[Path] = None) -> Optional[ChatPanel]:
+        """Safely attempt to get the ChatPanel for a path, returning current if path is None."""
         try:
-            return self.query_one(ChatPanel)
-        except (ScreenStackError, Exception):
-            return None
+            target_path = path or self.current_worktree
+            # Check for container in the app DOM or active screen
+            container = self.query_one("#chat-container", ChatContainer)
+            return container.get_panel(target_path)
+        except Exception:
+            # Fallback for tests using mocks or direct ChatPanel placement
+            try:
+                return self.query_one(ChatPanel)
+            except Exception:
+                return None
 
     def _show_welcome_message(self) -> None:
         """Constructs and displays the branded welcome message in the ChatPanel."""
@@ -1043,17 +1144,40 @@ class BrokkApp(App):
             return
 
     def compose(self) -> ComposeResult:
+        from brokk_code.widgets.chat_panel import ChatContainer
+
         with Horizontal():
-            yield ChatPanel(id="chat-main")
+            yield ChatContainer(id="chat-container")
             yield TaskListPanel(id="side-tasklist")
 
     async def on_mount(self) -> None:
         self._is_mounted = True
-        chat = self._maybe_chat()
+
+        # Ensure initial runtime/panel exists
+        try:
+            container = self.query_one("#chat-container", ChatContainer)
+        except Exception:
+            # If query fails, we might be in a test that didn't compose correctly
+            return
+
+        # Ensure the first panel created is for the current worktree so it gets #chat-main
+        chat = container.switch_to(self.current_worktree)
+
+        # Fix startup race: ensure visibility after layout/mount cycle completes.
+        def sync_token_bar():
+            c = self._maybe_chat()
+            if c:
+                c.set_token_bar_visible(True)
+
+        # Multiple passes to ensure visibility across different mount timings
+        sync_token_bar()
+        self.set_timer(0.001, sync_token_bar)
+        self.call_after_refresh(sync_token_bar)
+        self.set_timer(0.1, sync_token_bar)
+
         logger.info("Using workspace directory: %s", self.executor.workspace_dir)
         if chat:
             chat.show_verbose = self.show_verbose_output
-            chat.set_token_bar_visible(True)
 
             # Load initial prompt history for arrow-key navigation
             history = load_history(self.executor.workspace_dir)
@@ -1119,12 +1243,12 @@ class BrokkApp(App):
             # Session Management Logic
             session_to_resume = self.requested_session_id
             if not session_to_resume and self.resume_session:
-                session_to_resume = load_last_session_id(self.executor.workspace_dir)
+                session_to_resume = load_last_session_id(runtime.executor.workspace_dir)
 
             resumed = False
             if session_to_resume:
                 zip_path = get_session_zip_resume_path(
-                    self.executor.workspace_dir, session_to_resume
+                    runtime.executor.workspace_dir, session_to_resume
                 )
                 if zip_path.exists():
                     try:
@@ -1134,7 +1258,7 @@ class BrokkApp(App):
                         else:
                             logger.info(msg)
                         zip_bytes = zip_path.read_bytes()
-                        await self.executor.import_session_zip(
+                        await runtime.executor.import_session_zip(
                             zip_bytes, session_id=session_to_resume
                         )
                         resumed = True
@@ -1478,7 +1602,9 @@ class BrokkApp(App):
         return saved
 
     async def _toggle_selected_task(self) -> None:
-        chat = self.query_one(ChatPanel)
+        chat = self._maybe_chat()
+        if not chat:
+            return
         panel = self._active_tasklist_panel()
         selected = panel.selected_task()
         if not selected:
@@ -1505,7 +1631,9 @@ class BrokkApp(App):
             chat.add_system_message(f"Failed to toggle task: {e}", level="ERROR")
 
     async def _delete_selected_task(self) -> None:
-        chat = self.query_one(ChatPanel)
+        chat = self._maybe_chat()
+        if not chat:
+            return
         panel = self._active_tasklist_panel()
         selected = panel.selected_task()
         if not selected:
@@ -1534,7 +1662,9 @@ class BrokkApp(App):
             chat.add_system_message(f"Failed to delete task: {e}", level="ERROR")
 
     async def _add_task(self, title: str) -> None:
-        chat = self.query_one(ChatPanel)
+        chat = self._maybe_chat()
+        if not chat:
+            return
         normalized_title = title.strip()
         if not normalized_title:
             chat.add_system_message("Task title cannot be blank.", level="ERROR")
@@ -1551,7 +1681,9 @@ class BrokkApp(App):
             chat.add_system_message(f"Failed to add task: {e}", level="ERROR")
 
     async def _edit_selected_task(self, title: str) -> None:
-        chat = self.query_one(ChatPanel)
+        chat = self._maybe_chat()
+        if not chat:
+            return
         panel = self._active_tasklist_panel()
         selected = panel.selected_task()
         if not selected:
@@ -1926,8 +2058,8 @@ class BrokkApp(App):
         # Reset per-job cost accumulator
         runtime.current_job_cost = 0.0
         runtime.job_in_progress = True
-        chat = self._maybe_chat()
-        if chat and target_path == self.current_worktree:
+        chat = self._maybe_chat(target_path)
+        if chat:
             chat.set_job_running(True)
             chat.set_response_pending()
         attached_fragment_ids: List[str] = []
@@ -1958,7 +2090,7 @@ class BrokkApp(App):
                         attached_fragment_ids,
                     )
 
-            if chat and target_path == self.current_worktree:
+            if chat:
                 err_type = type(e).__name__
                 chat.add_system_message(
                     f"Job failed or interrupted ({err_type}): {e}",
@@ -1967,7 +2099,7 @@ class BrokkApp(App):
             else:
                 logger.error("Job failed or interrupted (%s): %s", type(e).__name__, e)
         finally:
-            if chat and target_path == self.current_worktree:
+            if chat:
                 chat.set_response_finished()
                 chat.set_job_running(False)
 
@@ -2140,7 +2272,9 @@ class BrokkApp(App):
 
     def _render_info(self) -> None:
         """Renders current status and configuration info to the chat."""
-        chat = self.query_one(ChatPanel)
+        chat = self._maybe_chat()
+        if not chat:
+            return
         status = (
             "[bold green]Ready[/]" if self._executor_ready else "[bold yellow]Initializing...[/]"
         )
@@ -2171,6 +2305,10 @@ class BrokkApp(App):
     def get_slash_commands() -> List[Dict[str, str]]:
         """Returns the structured catalog of supported slash commands."""
         return [
+            {
+                "command": "/worktree",
+                "description": "Open worktree manager (switch/add/remove)",
+            },
             {"command": "/api-key", "description": "Update your Brokk API key"},
             {"command": "/login-openai", "description": "Connect your OpenAI ChatGPT subscription"},
             {"command": "/context", "description": "Toggle and focus context panel"},
@@ -2193,7 +2331,9 @@ class BrokkApp(App):
         ]
 
     def _handle_command(self, cmd: str) -> None:
-        chat = self.query_one(ChatPanel)
+        chat = self._maybe_chat()
+        if not chat:
+            return
         parts = cmd.split()
         base = parts[0].lower()
 
@@ -2331,13 +2471,14 @@ class BrokkApp(App):
             self.action_toggle_tasklist()
         elif base == "/sessions":
             self.run_worker(self._show_sessions())
-        elif base == "/switch-worktree":
-            # Diagnostic/test helper to simulate worktree switching
-            if len(parts) > 1:
-                new_path = Path(parts[1]).resolve()
-                self.current_worktree = new_path
-                self._update_statusline()
-                chat.add_system_message(f"Switched worktree context to: {new_path}")
+        elif base == "/worktree":
+            if len(parts) != 1:
+                chat.add_system_message(
+                    "Usage: /worktree",
+                    level="WARNING",
+                )
+                return
+            self.run_worker(self._show_worktrees())
         elif base == "/help":
             commands = self.get_slash_commands()
             # Calculate padding based on longest command
@@ -2636,11 +2777,13 @@ class BrokkApp(App):
         """Handles Ctrl+C: Clear input, cancel job, or double-tap to quit."""
         chat_panel = self._maybe_chat()
         if chat_panel:
-            chat_inputs = self.query("#chat-input").results(ChatInput)
-            chat_input = next(chat_inputs, None)
-            if chat_input and chat_input.text.strip():
-                chat_panel.clear_input()
-                return
+            try:
+                chat_input = chat_panel.query_one("#chat-input", ChatInput)
+                if chat_input.text.strip():
+                    chat_panel.clear_input()
+                    return
+            except Exception:
+                pass
 
         now = time.time()
         runtime = self.current_runtime
@@ -2659,7 +2802,10 @@ class BrokkApp(App):
         if now - self._last_ctrl_c_time < 2.0:
             await self.action_quit()
         else:
-            self.query_one(ChatPanel).add_system_message("Press Ctrl+C again to quit.")
+            if chat_panel:
+                chat_panel.add_system_message("Press Ctrl+C again to quit.")
+            else:
+                logger.info("Press Ctrl+C again to quit.")
             self._last_ctrl_c_time = now
 
     async def _shutdown_once(self, *, show_message: bool = True) -> None:
@@ -2701,6 +2847,136 @@ class BrokkApp(App):
             # exit() may raise in some test harnesses; ignore to avoid double-shutdown.
             pass
 
+    async def _show_worktrees(self) -> None:
+        if not self.worktree_service:
+            chat = self._maybe_chat()
+            if chat:
+                chat.add_system_message(
+                    "Not in a git repository; worktrees unavailable.", level="WARNING"
+                )
+            return
+
+        worktrees = await asyncio.to_thread(self.worktree_service.list_worktrees)
+
+        def on_selected(action: tuple[str, Optional[Path]] | None) -> None:
+            if not action:
+                return
+            action_type, selected_path = action
+            if action_type == "switch" and selected_path and selected_path != self.current_worktree:
+                self.run_worker(self._switch_to_worktree(selected_path))
+            elif action_type == "add":
+                self._worktree_add_workflow()
+            elif action_type == "remove" and selected_path:
+                self.run_worker(self._perform_worktree_remove(selected_path))
+
+        self.push_screen(WorktreeSelectModal(worktrees, self.current_worktree), on_selected)
+
+    def _worktree_add_workflow(self) -> None:
+        def on_submit(name: Optional[str]) -> None:
+            if not name or not name.strip():
+                return
+            self.run_worker(self._perform_worktree_add(name.strip()))
+
+        self.push_screen(TaskTitleModalScreen("Add Worktree (name or path)"), on_submit)
+
+    async def _perform_worktree_add(self, name: str) -> None:
+        chat = self._maybe_chat()
+        if not self.worktree_service:
+            return
+
+        raw_input = name.strip()
+        # Absolute/explicit filesystem paths should not be treated as branch names.
+        is_explicit_path = Path(raw_input).is_absolute() or raw_input.startswith(
+            (".", "~")
+        )
+
+        # Default behavior: plain names become sibling worktrees and branch names.
+        repo_root = self.worktree_service.repo_root
+        if is_explicit_path:
+            target_path = Path(raw_input).expanduser().resolve()
+            branch = None
+        else:
+            target_path = (repo_root.parent / raw_input).resolve()
+            branch = raw_input
+
+        if chat:
+            chat.add_system_message(f"Creating worktree at {target_path}...")
+
+        if branch is None:
+            success = await asyncio.to_thread(self.worktree_service.add_worktree, target_path)
+        else:
+            success = await asyncio.to_thread(
+                self.worktree_service.add_worktree, target_path, branch=branch
+            )
+        if success:
+            if chat:
+                chat.add_system_message(
+                    f"Worktree created: {target_path}. Use /worktree to switch when ready."
+                )
+        elif chat:
+            chat.add_system_message(f"Failed to create worktree at {target_path}", level="ERROR")
+
+    async def _perform_worktree_remove(self, path: Path) -> None:
+        chat = self._maybe_chat()
+        if not self.worktree_service:
+            return
+        if path.resolve() == self.current_worktree.resolve():
+            if chat:
+                chat.add_system_message(
+                    "Cannot remove the currently selected worktree.",
+                    level="WARNING",
+                )
+            return
+
+        success = await asyncio.to_thread(self.worktree_service.remove_worktree, path)
+        if success:
+            if chat:
+                chat.add_system_message(f"Removed worktree: {path}")
+            if path in self.runtimes:
+                rt = self.runtimes.pop(path)
+                await rt.executor.stop()
+        elif chat:
+            chat.add_system_message(f"Failed to remove worktree: {path}", level="ERROR")
+
+    async def _worktree_remove_workflow(self) -> None:
+        if not self.worktree_service:
+            return
+        worktrees = await asyncio.to_thread(self.worktree_service.list_worktrees)
+        # Filter out current worktree - can't remove while active
+        others = [wt for wt in worktrees if wt.path.resolve() != self.current_worktree.resolve()]
+
+        if not others:
+            chat = self._maybe_chat()
+            if chat:
+                chat.add_system_message("No other worktrees to remove.", level="WARNING")
+            return
+
+        def on_selected(path: Path | None) -> None:
+            if path:
+                self.run_worker(self._perform_worktree_remove(path))
+
+        self.push_screen(WorktreeSelectModal(others, self.current_worktree), on_selected)
+
+    async def _switch_to_worktree(self, path: Path) -> None:
+        # Update current worktree BEFORE switching UI or getting runtime
+        # so that _start_executor/get_runtime uses the new path correctly.
+        self.current_worktree = path
+        try:
+            container = self.query_one("#chat-container", ChatContainer)
+            chat = container.switch_to(path)
+        except Exception:
+            chat = self._maybe_chat()
+
+        runtime = self.get_runtime(path)
+        if not runtime.executor_started:
+            if chat:
+                chat.add_system_message(f"Starting executor for worktree: {path.name}...")
+            self.run_worker(self._start_executor(path))
+
+        self._update_statusline()
+        # Refresh local context
+        await self._refresh_context_panel(path)
+
     async def _show_sessions(self) -> None:
         chat = self._maybe_chat()
         if not self._executor_ready:
@@ -2724,15 +3000,15 @@ class BrokkApp(App):
                 if not selected_id:
                     return
                 if selected_id == "new":
-                    self.run_worker(self._create_session_from_menu())
+                    self._schedule(self._create_session_from_menu())
                 elif selected_id.startswith("rename:"):
                     sid = selected_id.split(":", 1)[1]
-                    self.run_worker(self._rename_session_workflow(sid, sessions))
+                    self._schedule(self._rename_session_workflow(sid, sessions))
                 elif selected_id.startswith("delete:"):
                     sid = selected_id.split(":", 1)[1]
-                    self.run_worker(self._delete_session_workflow(sid))
+                    self._schedule(self._delete_session_workflow(sid))
                 elif selected_id != current_id:
-                    self.run_worker(self._switch_to_session(selected_id))
+                    self._schedule(self._switch_to_session(selected_id))
 
             async def on_rename(session_id: str, new_name: str) -> bool:
                 return await self._rename_session(session_id, new_name)
@@ -2777,8 +3053,11 @@ class BrokkApp(App):
 
             if is_current and chat:
                 chat._message_history.clear()
-                log = chat.query_one("#chat-log")
-                res = log.query("*").remove()
+                try:
+                    log = chat.query_one("#chat-log")
+                    res = log.query("*").remove()
+                except Exception:
+                    res = None
                 if asyncio.iscoroutine(res):
                     await res
 
@@ -2807,7 +3086,7 @@ class BrokkApp(App):
             async def do_rename():
                 await self._rename_session(session_id, new_name.strip())
 
-            self.run_worker(do_rename())
+            self._schedule(do_rename())
 
         self.push_screen(
             TaskTitleModalScreen("Rename Session", initial=initial_name), on_rename_submitted
@@ -2857,8 +3136,11 @@ class BrokkApp(App):
                 logger.warning("Failed to persist session ID", exc_info=True)
 
             chat._message_history.clear()
-            log = chat.query_one("#chat-log")
-            res = log.query("*").remove()
+            try:
+                log = chat.query_one("#chat-log")
+                res = log.query("*").remove()
+            except Exception:
+                res = None
             if asyncio.iscoroutine(res):
                 await res
 
@@ -2888,6 +3170,10 @@ class BrokkApp(App):
             runtime.session_switch_in_progress = False
             runtime.current_switch_target_session_id = None
             chat.set_job_running(False)
+
+    async def _on_mount(self, event: Any) -> None:
+        """Test compatibility alias for on_mount."""
+        await self.on_mount()
 
     async def on_unmount(self) -> None:
         """Ensure cleanup even if app exits via other means."""

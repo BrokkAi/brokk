@@ -401,7 +401,11 @@ async def test_slash_autocomplete_filtering():
         suggestions = app.query_one(SlashCommandSuggestions)
 
         # Type /a
-        await pilot.press(*list("/a"))
+        await pilot.press("/")
+        await pilot.press("a")
+        # Ensure focus and refresh cycles complete
+        await pilot.pause(0.1)
+        await pilot.pause(0.1)
         assert suggestions.display is True
         assert len(suggestions.children) == 2
 
