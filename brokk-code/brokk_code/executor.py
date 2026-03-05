@@ -239,6 +239,7 @@ class ExecutorManager:
         self.exit_on_stdin_eof = exit_on_stdin_eof
         self.brokk_api_key = brokk_api_key
         self.auth_token = str(uuid.uuid4())
+        self.exec_id: str = str(uuid.uuid4())
         self.base_url: Optional[str] = None
         self.session_id: Optional[str] = None
         self.resolved_jar_path: Optional[Path] = None
@@ -371,7 +372,7 @@ class ExecutorManager:
 
     async def start(self):
         """Starts the Java HeadlessExecutorMain subprocess."""
-        exec_id = str(uuid.uuid4())
+        exec_id = self.exec_id
 
         if self.jar_override:
             self.resolved_jar_path = self.jar_override

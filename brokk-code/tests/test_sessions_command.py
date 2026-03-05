@@ -53,7 +53,12 @@ async def test_show_sessions_flow(tmp_path):
     callback("s2")
 
     # Verify switch worker was triggered
-    app.run_worker.assert_called_once()
+    found_switch = False
+    for call in app.run_worker.call_args_list:
+        if "_switch_to_session" in str(call[0][0]):
+            found_switch = True
+            break
+    assert found_switch is True
 
 
 @pytest.mark.asyncio
@@ -79,7 +84,7 @@ async def test_switch_to_session_concurrency_blocking(tmp_path):
     task = asyncio.create_task(app._switch_to_session("s1"))
     # Wait a tiny bit for the first task to set the flag
     await asyncio.sleep(0.01)
-    assert app.session_switch_in_progress is True
+    assert app.current_runtime.session_switch_in_progress is True
 
     # Trigger second switch while first is in progress
     await app._switch_to_session("s2")
@@ -94,7 +99,7 @@ async def test_switch_to_session_concurrency_blocking(tmp_path):
 
     # Ensure first switch finishes
     await task
-    assert app.session_switch_in_progress is False
+    assert app.current_runtime.session_switch_in_progress is False
     # Only s1 should have been called on executor
     app.executor.switch_session.assert_called_once_with("s1")
 
@@ -141,14 +146,14 @@ async def test_prompt_submission_gates_and_queues_during_switch(tmp_path):
     # Start the switch
     switch_task = asyncio.create_task(app._switch_to_session("s-target"))
     await asyncio.sleep(0.01)
-    assert app.session_switch_in_progress is True
+    assert app.current_runtime.session_switch_in_progress is True
 
     # Submit a prompt while switching
     msg = MagicMock()
     msg.text = "Queued prompt during switch"
     app.on_chat_panel_submitted(msg)
 
-    assert app._pending_switch_prompt == ("s-target", "Queued prompt during switch")
+    assert app.current_runtime.pending_switch_prompt == ("s-target", "Queued prompt during switch")
     # Verify no immediate job submission
     app.executor.submit_job.assert_not_called()
 
@@ -173,7 +178,7 @@ async def test_prompt_submission_gates_and_queues_during_switch(tmp_path):
 
     app.executor.submit_job.assert_called_once()
     assert app.executor.submit_job.call_args[0][0] == "Queued prompt during switch"
-    assert app._pending_switch_prompt is None
+    assert app.current_runtime.pending_switch_prompt is None
 
 
 @pytest.mark.asyncio
@@ -204,14 +209,14 @@ async def test_switch_failure_drops_queued_prompt(tmp_path):
     msg = MagicMock()
     msg.text = "Prompt for s1"
     app.on_chat_panel_submitted(msg)
-    assert app._pending_switch_prompt == ("s1", "Prompt for s1")
+    assert app.current_runtime.pending_switch_prompt == ("s1", "Prompt for s1")
 
     # 3. Fail the switch
     switch_event.set()
     await switch_task
 
     # 4. Verify prompt was dropped and user notified
-    assert app._pending_switch_prompt is None
+    assert app.current_runtime.pending_switch_prompt is None
     any_dropped_msg = any(
         "Dropped queued prompt" in str(call.args[0])
         for call in chat.add_system_message.call_args_list

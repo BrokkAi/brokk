@@ -761,12 +761,12 @@ class BrokkApp(App):
 
     @property
     def executor(self) -> ExecutorManager:
-        """Backwards compatibility: returns the current executor."""
+        """Returns the executor for the currently selected worktree."""
         return self.current_runtime.executor
 
     @executor.setter
     def executor(self, value: ExecutorManager) -> None:
-        """Allows tests to inject mock executors."""
+        """Allows tests to inject mock executors into the current runtime."""
         self.current_runtime.executor = value
 
     @property
@@ -1131,21 +1131,24 @@ class BrokkApp(App):
     async def _poll_tasklist(self) -> None:
         """Periodically refreshes the task list details for all ready runtimes."""
         while True:
-            for runtime in list(self.runtimes.values()):
+            for path, runtime in list(self.runtimes.items()):
                 if runtime.executor_ready:
                     try:
                         tasklist_data = await runtime.executor.get_tasklist()
-                        if runtime == self.current_runtime:
+                        if path == self.current_worktree:
                             self._update_tasklist_details_all(tasklist_data)
                     except Exception:
-                        logger.debug("Periodic tasklist poll failed", exc_info=True)
+                        logger.debug("Periodic tasklist poll failed for %s", path, exc_info=True)
             await asyncio.sleep(15.0)
 
     async def _poll_context(self) -> None:
         """Periodically refreshes the context panel for the current runtime."""
         while True:
-            if self.current_runtime.executor_ready:
-                await self._refresh_context_panel()
+            try:
+                if self.current_runtime.executor_ready:
+                    await self._refresh_context_panel()
+            except Exception:
+                logger.debug("Periodic context poll failed", exc_info=True)
             await asyncio.sleep(random.uniform(10.0, 15.0))
 
     async def _refresh_context_panel(self, path: Optional[Path] = None) -> None:
@@ -2650,28 +2653,38 @@ class BrokkApp(App):
                     chat.add_system_message(f"Failed to rename session: {e}", level="ERROR")
                 return False
 
-    async def _create_session_from_menu(self) -> None:
-        """Async worker to create a new session."""
+    async def _create_session_from_menu(self, path: Optional[Path] = None) -> None:
+        """Async worker to create a new session for the specified (or current) worktree."""
         from brokk_code.session_persistence import save_last_session_id
 
+        target_path = path or self.current_worktree
+        runtime = self.get_runtime(target_path)
         chat = self._maybe_chat()
-        if not chat:
-            return
+        is_current = target_path == self.current_worktree
 
         try:
-            chat.add_system_message("Creating new session...")
-            session_id = await self.executor.create_session()
+            if is_current and chat:
+                chat.add_system_message("Creating new session...")
+
+            session_id = await runtime.executor.create_session()
+            runtime.auto_rename_eligible = True
             self._auto_rename_eligible_sessions.add(session_id)
-            save_last_session_id(self.executor.workspace_dir, session_id)
+            save_last_session_id(runtime.executor.workspace_dir, session_id)
 
-            chat._message_history.clear()
-            log = chat.query_one("#chat-log")
-            await log.query("*").remove()
+            if is_current and chat:
+                chat._message_history.clear()
+                log = chat.query_one("#chat-log")
+                res = log.query("*").remove()
+                if asyncio.iscoroutine(res):
+                    await res
 
-            await self._refresh_context_panel()
-            chat.add_system_message(f"Created and switched to session {session_id}.")
+                await self._refresh_context_panel(target_path)
+                chat.add_system_message(f"Created and switched to session {session_id}.")
         except Exception as e:
-            chat.add_system_message(f"Failed to create session: {e}", level="ERROR")
+            if is_current and chat:
+                chat.add_system_message(f"Failed to create session: {e}", level="ERROR")
+            else:
+                logger.error("Failed to create session for %s: %s", target_path, e)
 
     async def _rename_session_workflow(
         self, session_id: str, sessions: List[Dict[str, Any]]
