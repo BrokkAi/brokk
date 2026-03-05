@@ -554,6 +554,40 @@ public class SessionManagerTest {
         assertEquals(1, SessionManager.compareVersions("4.1", "4"));
     }
 
+    @Test
+    void testQuarantineUnreadableSessions_ExecutionExceptionDuringValidation() throws Exception {
+        MainProject project = new MainProject(tempDir);
+        SessionManager sessionManager = project.getSessionManager();
+        Path sessionsDir = sessionManager.getSessionsDir();
+
+        // 1. Create a session that looks valid (UUID filename + manifest)
+        UUID sessionId = UUID.randomUUID();
+        SessionInfo info =
+                new SessionInfo(sessionId, "Broken Session", System.currentTimeMillis(), System.currentTimeMillis());
+        createSessionZip(sessionsDir, info, new ObjectMapper());
+
+        // 2. Corrupt the zip in a way that causes HistoryIo.readZip (called via loadHistoryOrQuarantine) to fail.
+        // We do this by writing invalid bytes over the zip file.
+        Files.write(sessionsDir.resolve(sessionId + ".zip"), "not-a-zip-at-all".getBytes());
+
+        // 3. Run quarantine scan
+        SessionManager.QuarantineReport report = sessionManager.quarantineUnreadableSessions(mockContextManager);
+
+        // 4. Assertions
+        assertTrue(report.quarantinedSessionIds().contains(sessionId), "Session should be in report quarantinedIds");
+        assertEquals(1, report.movedCount(), "Moved count should be 1");
+
+        // Verify it was moved to unreadable dir
+        Path unreadableZip =
+                sessionsDir.resolve(SessionManager.UNREADABLE_SESSIONS_DIR).resolve(sessionId + ".zip");
+        assertTrue(Files.exists(unreadableZip), "Session zip should have been moved to unreadable directory");
+
+        // Verify removed from cache
+        assertFalse(sessionManager.getSessionsCache().containsKey(sessionId), "Session should be removed from cache");
+
+        project.close();
+    }
+
     private void createSessionZip(Path sessionsDir, SessionInfo info, ObjectMapper mapper) throws IOException {
         Path zipPath = sessionsDir.resolve(info.id() + ".zip");
         // Create new zip file

@@ -390,66 +390,64 @@ public class SessionManager implements AutoCloseable {
      * <p>This runs synchronously; intended to be invoked from a background task.
      */
     public QuarantineReport quarantineUnreadableSessions(IContextManager contextManager) {
-        int movedCount = 0;
+        int moved = 0;
         var quarantinedIds = new HashSet<UUID>();
         var quarantinedNoUuid = new ArrayList<String>();
 
-        List<Path> zipFiles;
         try (var stream = Files.list(sessionsDir)) {
-            zipFiles = stream.filter(p -> p.toString().endsWith(".zip")).toList();
+            for (Path zipPath :
+                    stream.filter(p -> p.toString().endsWith(".zip")).toList()) {
+                var maybeUuid = parseUuidFromFilename(zipPath);
+                if (maybeUuid.isEmpty()) {
+                    // Non-UUID filenames are unreadable by definition.
+                    moveZipToUnreadable(zipPath);
+                    quarantinedNoUuid.add(zipPath.getFileName().toString());
+                    moved++;
+                    continue;
+                }
+
+                var sessionId = maybeUuid.get();
+
+                // Exercise manifest check and migrations via the serialized executor
+                // to ensure we aren't racing with other IO for this session.
+                var future = sessionExecutorByKey.submit(sessionId.toString(), () -> {
+                    var info = readSessionInfoFromZip(zipPath);
+                    if (info.isEmpty()) {
+                        moveSessionToUnreadableSync(sessionId);
+                        return Optional.<SessionInfo>empty();
+                    }
+                    if (!isVersionSupported(info.get().version())) {
+                        return Optional.of(info.get());
+                    }
+
+                    loadHistoryOrQuarantine(sessionId, contextManager);
+                    return Optional.of(info.get());
+                });
+
+                try {
+                    Optional<SessionInfo> result = future.get();
+                    if (result.isEmpty()) {
+                        quarantinedIds.add(sessionId);
+                        moved++;
+                    } else {
+                        sessionsCache.putIfAbsent(sessionId, result.get());
+                    }
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new RuntimeException("Interrupted while validating session " + sessionId, e);
+                } catch (ExecutionException e) {
+                    logger.error(
+                            "Validation failed for session {}; quarantining defensively.", sessionId, e.getCause());
+                    moveSessionToUnreadable(sessionId);
+                    quarantinedIds.add(sessionId);
+                    moved++;
+                }
+            }
         } catch (IOException e) {
             logger.error("Error listing session zip files in {}: {}", sessionsDir, e.getMessage());
-            return new QuarantineReport(Set.of(), List.of(), 0);
         }
 
-        for (Path zipPath : zipFiles) {
-            var maybeUuid = parseUuidFromFilename(zipPath);
-            if (maybeUuid.isEmpty()) {
-                // Non-UUID filenames are unreadable by definition.
-                moveZipToUnreadable(zipPath);
-                quarantinedNoUuid.add(zipPath.getFileName().toString());
-                movedCount++;
-                continue;
-            }
-
-            var sessionId = maybeUuid.get();
-            // Submit validation to the per-session executor to ensure we don't race with active writes.
-            var future = sessionExecutorByKey.submit(sessionId.toString(), () -> {
-                var info = readSessionInfoFromZip(zipPath);
-                if (info.isEmpty()) {
-                    moveSessionToUnreadableSync(sessionId);
-                    return Optional.empty();
-                }
-                if (!isVersionSupported(info.get().version())) {
-                    return Optional.of(info.get());
-                }
-
-                // Exercise migrations and quarantine if history read fails.
-                try {
-                    loadHistoryOrQuarantine(sessionId, contextManager);
-                } catch (Exception e) {
-                    // quarantine happened inside loadHistoryOrQuarantine
-                    return Optional.empty();
-                }
-
-                sessionsCache.putIfAbsent(sessionId, info.get());
-                return Optional.of(info.get());
-            });
-
-            try {
-                if (future.get().isEmpty()) {
-                    quarantinedIds.add(sessionId);
-                    movedCount++;
-                }
-            } catch (InterruptedException | ExecutionException e) {
-                logger.error("Error during serialized quarantine check for session {}", sessionId, e);
-                if (e instanceof InterruptedException) {
-                    Thread.currentThread().interrupt();
-                }
-            }
-        }
-
-        return new QuarantineReport(Set.copyOf(quarantinedIds), List.copyOf(quarantinedNoUuid), movedCount);
+        return new QuarantineReport(Set.copyOf(quarantinedIds), List.copyOf(quarantinedNoUuid), moved);
     }
 
     public SessionInfo copySession(UUID originalSessionId, String newSessionName) throws Exception {
