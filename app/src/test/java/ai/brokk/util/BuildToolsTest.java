@@ -102,4 +102,38 @@ class BuildToolsTest {
         String result = BuildTools.getBuildLintSomeCommand(mockCm, details, List.of());
         assertEquals("pytest -q", result);
     }
+
+    @Test
+    void testRunVerificationCallsVerifier(@TempDir Path tempDir) throws Exception {
+        var originalFactory = Environment.shellCommandRunnerFactory;
+        try {
+            Files.writeString(tempDir.resolve("README.md"), "x");
+            var project = new TestProject(tempDir);
+            project.setBuildDetails(
+                    new BuildDetails("lint-cmd", "test-all", "test-some", Set.of(), java.util.Map.of()));
+
+            var io = new NoOpConsoleIO();
+            var testAnalyzer = new TestAnalyzer();
+            var cm = new TestContextManager(project, io, Set.of(), testAnalyzer);
+
+            var callCount = new java.util.concurrent.atomic.AtomicInteger(0);
+            var lastCommand = new java.util.concurrent.atomic.AtomicReference<String>();
+
+            Environment.shellCommandRunnerFactory = (command, root) -> (outputConsumer, timeout) -> {
+                callCount.incrementAndGet();
+                lastCommand.set(command);
+                return "ok";
+            };
+
+            // This should call BuildVerifier.verifyWithRetries which will execute lint-cmd then test-all
+            BuildTools.runVerification(cm);
+
+            // Scope is ALL by default in TestProject, so determineVerificationCommand returns testAllCommand
+            // verifyWithRetries(lint="lint-cmd", test="test-all") -> 2 calls
+            assertEquals(2, callCount.get());
+            assertEquals("test-all", lastCommand.get());
+        } finally {
+            Environment.shellCommandRunnerFactory = originalFactory;
+        }
+    }
 }

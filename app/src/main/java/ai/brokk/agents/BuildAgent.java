@@ -843,7 +843,7 @@ public class BuildAgent {
             return;
         }
         try {
-            // Validate using centralized logic. Pass empty listKey as we validate against the global allowed set.
+            // Validate using centralized logic.
             BuildTools.interpolateMustacheTemplate(template, List.of(), "unused");
         } catch (IllegalArgumentException e) {
             throw new ToolRegistry.ToolCallException(

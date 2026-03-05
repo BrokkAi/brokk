@@ -372,28 +372,40 @@ public class BuildTools {
         }
 
         var details = override != null ? override : cm.getProject().awaitBuildDetails();
+        String lintCommand = details.buildLintCommand();
+        String testCommand = verificationCommand.equals(lintCommand) ? "" : verificationCommand;
 
         io.llmOutput("\nRunning verification command:", ChatMessageType.CUSTOM, LlmOutputMeta.DEFAULT);
-        io.llmOutput(
-                verificationCommand + "\n\n",
-                ChatMessageType.CUSTOM,
-                LlmOutputMeta.newMessage().withTerminal(true));
+        if (!lintCommand.isBlank()) {
+            io.llmOutput("\nLint: " + lintCommand, ChatMessageType.CUSTOM, LlmOutputMeta.terminal());
+        }
+        if (!testCommand.isBlank()) {
+            io.llmOutput("\nTest: " + testCommand, ChatMessageType.CUSTOM, LlmOutputMeta.terminal());
+        }
+        io.llmOutput("\n\n", ChatMessageType.CUSTOM, LlmOutputMeta.newMessage().withTerminal(true));
 
-        Duration timeout = Duration.ofSeconds(cm.getProject().getRunCommandTimeoutSeconds());
-        if (timeout.isNegative()) timeout = Environment.UNLIMITED_TIMEOUT;
+        int retries = 1;
+        String retriesEnv = System.getenv("BRK_TEST_RETRIES");
+        if (retriesEnv != null) {
+            try {
+                retries = Integer.parseInt(retriesEnv.trim());
+            } catch (NumberFormatException e) {
+                logger.warn("Invalid BRK_TEST_RETRIES value: '{}'. Using default (1).", retriesEnv);
+            }
+        }
 
-        try {
-            Environment.instance.runShellCommand(
-                    verificationCommand,
-                    cm.getProject().getRoot(),
-                    line -> io.llmOutput(line + "\n", ChatMessageType.CUSTOM, LlmOutputMeta.terminal()),
-                    timeout,
-                    cm.getProject().getShellConfig(),
-                    details.environmentVariables());
+        var result = BuildVerifier.verifyWithRetries(
+                cm.getProject(),
+                lintCommand,
+                testCommand,
+                retries,
+                details.environmentVariables(),
+                line -> io.llmOutput(line + "\n", ChatMessageType.CUSTOM, LlmOutputMeta.terminal()));
+
+        if (result.success()) {
             return ctx.withBuildResult(true, "");
-        } catch (Environment.SubprocessException e) {
-            String output = e.getOutput();
-            return ctx.withBuildResult(false, "Build failed: " + e.getMessage() + "\n" + output);
+        } else {
+            return ctx.withBuildResult(false, result.output());
         }
     }
 }
