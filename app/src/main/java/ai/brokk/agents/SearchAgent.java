@@ -156,6 +156,7 @@ public class SearchAgent {
 
     private int consecutiveStagnantTurns = 0;
     private final AtomicBoolean finalTurnRequestedByClassifier = new AtomicBoolean(false);
+    private final AtomicBoolean terminalDecisionRequestedByModel = new AtomicBoolean(false);
 
     /**
      * Tracks the fragment IDs present immediately after the most recent successful dropWorkspaceFragments call.
@@ -977,8 +978,16 @@ public class SearchAgent {
                 break;
             }
 
+            boolean hasTerminalRequest = orderedRequests.stream()
+                    .anyMatch(req -> agent.terminalToolNames.contains(req.name()));
+            if (hasTerminalRequest) {
+                agent.terminalDecisionRequestedByModel.compareAndSet(false, true);
+            }
+
             String modelResponse = ai.reasoningContent() + "\n\n" + ai.text();
-            agent.startWorkspaceCompleteClassification(modelResponse);
+            if (!hasTerminalRequest) {
+                agent.startWorkspaceCompleteClassification(modelResponse);
+            }
 
             DropMode effectiveDropMode = (pendingTerminal == null && isFinalTurn()) ? DropMode.NORMAL : dropMode;
 
@@ -1778,6 +1787,10 @@ public class SearchAgent {
     }
 
     private void startWorkspaceCompleteClassification(String modelResponse) {
+        if (terminalDecisionRequestedByModel.get()) {
+            return;
+        }
+
         CompletableFuture.runAsync(() -> {
             try {
                 if (RelevanceClassifier.isRelevant(scanLlm, READY_FOR_FINAL_TURN_FILTER, modelResponse)) {
