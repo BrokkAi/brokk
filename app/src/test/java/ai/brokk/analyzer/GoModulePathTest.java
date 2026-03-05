@@ -45,5 +45,6 @@ class GoModulePathTest {
         // Verify that paths with backslashes are correctly normalized to Unix-style with ./ prefix
         assertEquals("./callbacks/sub", GoAnalyzer.formatTestModule(Path.of("callbacks\\sub")));
         assertEquals("./a/b/c", GoAnalyzer.formatTestModule(Path.of("a\\b\\c")));
+        assertEquals("./deep/win/path", GoAnalyzer.formatTestModule(Path.of("deep\\win\\path")));
     }
 }
