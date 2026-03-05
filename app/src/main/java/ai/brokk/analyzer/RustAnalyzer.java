@@ -424,6 +424,7 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
             SourceContent sourceContent,
             String exportPrefix,
             String signatureText,
+            String simpleName,
             String baseIndent,
             ProjectFile file) {
         String fullSignature = (exportPrefix.stripTrailing() + " " + signatureText.strip()).strip();

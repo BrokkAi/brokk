@@ -270,12 +270,41 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
             SourceContent sourceContent,
             String exportPrefix,
             String signatureText,
+            String simpleName,
             String baseIndent,
             ProjectFile file) {
         if (ENUM_CONSTANT.equals(fieldNode.getType())) {
             return formatEnumConstant(fieldNode, signatureText, baseIndent);
         }
-        return super.formatFieldSignature(fieldNode, sourceContent, exportPrefix, signatureText, baseIndent, file);
+
+        if (FIELD_DECLARATION.equals(fieldNode.getType()) || CONSTANT_DECLARATION.equals(fieldNode.getType())) {
+            // signatureText might contain multiple variables: "public int x = 1, y = 2;"
+            // We want to reconstruct it for just the specific 'simpleName'.
+            TSNode typeNode = fieldNode.getChildByFieldName("type");
+            if (typeNode != null && !typeNode.isNull()) {
+                String typeStr = sourceContent.substringFrom(typeNode).strip();
+                // Find the specific variable_declarator for this simpleName
+                for (int i = 0; i < fieldNode.getChildCount(); i++) {
+                    TSNode child = fieldNode.getChild(i);
+                    if (VARIABLE_DECLARATOR.equals(child.getType())) {
+                        TSNode nameNode = child.getChildByFieldName("name");
+                        if (nameNode != null
+                                && !nameNode.isNull()
+                                && simpleName.equals(
+                                        sourceContent.substringFrom(nameNode).strip())) {
+                            String declaratorStr =
+                                    sourceContent.substringFrom(child).strip();
+                            String prefix = exportPrefix.isEmpty() ? "" : exportPrefix.stripTrailing() + " ";
+                            String full = prefix + typeStr + " " + declaratorStr + ";";
+                            return baseIndent + full;
+                        }
+                    }
+                }
+            }
+        }
+
+        return super.formatFieldSignature(
+                fieldNode, sourceContent, exportPrefix, signatureText, simpleName, baseIndent, file);
     }
 
     private String formatEnumConstant(TSNode fieldNode, String signatureText, String baseIndent) {

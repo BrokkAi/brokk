@@ -245,6 +245,7 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
             SourceContent sourceContent,
             String exportPrefix,
             String signatureText,
+            String simpleName,
             String baseIndent,
             ProjectFile file) {
         var fullSignature = (exportPrefix.stripTrailing() + " " + signatureText.strip()).strip();

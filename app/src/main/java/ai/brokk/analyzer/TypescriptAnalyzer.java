@@ -466,6 +466,7 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
             SourceContent sourceContent,
             String exportPrefix,
             String signatureText,
+            String simpleName,
             String baseIndent,
             ProjectFile file) {
         String fullSignature = (exportPrefix.stripTrailing() + " " + signatureText.strip()).strip();

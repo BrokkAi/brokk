@@ -2605,6 +2605,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             SourceContent sourceContent,
             String exportPrefix,
             String signatureText,
+            String simpleName,
             String baseIndent,
             ProjectFile file) {
         var fullSignature = (exportPrefix.stripTrailing() + " " + signatureText.strip()).strip();
@@ -2780,7 +2781,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                     }
                 }
 
-                String line = formatFieldSignature(nodeForContent, sourceContent, exportPrefix, fieldText, "", file);
+                String line = formatFieldSignature(
+                        nodeForContent, sourceContent, exportPrefix, fieldText, simpleName, "", file);
                 if (!line.isBlank()) signatureLines.add(line);
                 break;
             }

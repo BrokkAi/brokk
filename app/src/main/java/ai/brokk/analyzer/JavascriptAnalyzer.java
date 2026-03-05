@@ -453,6 +453,7 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
             SourceContent sourceContent,
             String exportPrefix,
             String signatureText,
+            String simpleName,
             String baseIndent,
             ProjectFile file) {
         // JavaScript field signatures shouldn't have semicolons
