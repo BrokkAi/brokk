@@ -1575,8 +1575,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
             var compressedTaskHistory = compressedResult.compressedTaskHistory().join();
             return compressedResult
                     .taskResult()
-                    .withContext(
-                            IContextManager.mergeCompressedHistory(compressedResult.taskResult().context(), compressedTaskHistory));
+                    .withContext(IContextManager.mergeCompressedHistory(
+                            compressedResult.taskResult().context(), compressedTaskHistory));
         } catch (CompletionException e) {
             logger.warn("Task history compression failed while finalizing task result", e);
             return compressedResult.taskResult();

@@ -992,6 +992,7 @@ public class SearchAgent {
 
             Context contextAtTurnStart = context;
             boolean executedNonHygiene = false;
+            List<String> nonHygieneToolCalls = new ArrayList<>();
 
             for (var req : primaryCalls) {
                 agent.io.beforeToolCall(req);
@@ -1006,6 +1007,7 @@ public class SearchAgent {
                 sessionMessages.add(toolResult.toExecutionResultMessage());
                 if (!"dropWorkspaceFragments".equals(req.name())) {
                     executedNonHygiene = true;
+                    nonHygieneToolCalls.add(req.name());
                 }
             }
 
@@ -1039,6 +1041,16 @@ public class SearchAgent {
                     return new TurnOutcome.PendingTerminal(context, List.copyOf(sessionMessages), pending);
                 }
                 return new TurnOutcome.Final(agent.finalizePendingTerminal(pending, context));
+            }
+            if (terminalRequest != null) {
+                String changedTools =
+                        nonHygieneToolCalls.stream().distinct().sorted().collect(Collectors.joining(", "));
+                String ignoredMessage = "Terminal call '%s' ignored because tool calls %s changed the Workspace."
+                        .formatted(terminalRequest.name(), changedTools);
+                var ignored = ToolExecutionResult.requestError(terminalRequest, ignoredMessage);
+                agent.io.beforeToolCall(terminalRequest);
+                agent.io.afterToolOutput(ignored);
+                sessionMessages.add(ignored.toExecutionResultMessage());
             }
 
             Set<ProjectFile> filesAfterSet = agent.workspaceFiles(context);
