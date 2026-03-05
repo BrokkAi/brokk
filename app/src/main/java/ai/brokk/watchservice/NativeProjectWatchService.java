@@ -147,7 +147,7 @@ public class NativeProjectWatchService extends AbstractWatchService {
         Path changedPath = event.path();
         DirectoryChangeEvent.EventType eventType = event.eventType();
 
-        logger.debug("handleEvent ENTRY: type={}, path={}, running={}", eventType, changedPath, running);
+        logger.trace("handleEvent ENTRY: type={}, path={}, running={}", eventType, changedPath, running);
 
         lock.lock();
         try {
