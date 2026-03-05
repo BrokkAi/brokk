@@ -441,14 +441,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
             declaratorText = sourceContent.substringFrom(matchedDeclarator).strip();
         }
 
-        // Defensive: if slicing captured "x = 1, y = 2" somehow, isolate to the first chunk.
-        String singleDeclaratorText = declaratorText;
-        int commaIdx = singleDeclaratorText.indexOf(',');
-        if (commaIdx >= 0) {
-            singleDeclaratorText = singleDeclaratorText.substring(0, commaIdx).strip();
-        }
-
-        return baseIndent + prefixText + typeText + " " + singleDeclaratorText + ";";
+        return baseIndent + prefixText + typeText + " " + declaratorText + ";";
     }
 
     @Override
