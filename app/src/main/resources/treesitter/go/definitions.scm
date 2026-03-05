@@ -40,12 +40,16 @@
   name: (field_identifier) @method.name
 ) @method.definition
 
-; Captures field declarations within a struct
+; Captures field declarations within a struct.
+; We capture each field_identifier as the name and its parent field_declaration as the definition.
+; This allows Tree-sitter to generate multiple matches for one field_declaration node (e.g. Field1, Field2 int).
 (struct_type
   (field_declaration_list
     (field_declaration
-      name: (field_identifier) @struct.field.name
-      ; type: (_) @struct.field.type ; Optional: useful for future type analysis
+      [
+        (field_identifier) @struct.field.name
+        (field_declaration_list (field_declaration (field_identifier) @struct.field.name))
+      ]
     ) @struct.field.definition
   )
 )
@@ -54,15 +58,13 @@
 (interface_type
   (method_elem
     name: (field_identifier) @interface.method.name
-    parameters: (parameter_list) @interface.method.parameters ; parameter_list is the type of the node for the 'parameters' field
-    ; result: (_) @interface.method.result ; Result is optional, removing from query to ensure match
+    (parameter_list) @interface.method.parameters
   ) @interface.method.definition
 )
 
 ; Semantic test marker candidate detection
 ; Matches top-level function declarations. Predicate-free so GoAnalyzer can filter in Java.
 ; Uses node shape/ordering to avoid capturing methods with receivers.
-; Excludes generic functions (those with type_parameters) as they cannot be tests.
 (function_declaration
   "func"
   !type_parameters
