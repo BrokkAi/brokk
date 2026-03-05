@@ -23,6 +23,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -94,10 +95,7 @@ public class BuildTools {
                     details.buildLintCommand(), cm.getProject().getRoot());
         }
 
-        // Note: For now we fall back to buildLintCommand if tests are found but testSomeCommand is empty,
-        // or we would perform complex multi-target interpolation here if required.
-        return interpolateCommandWithPythonVersion(
-                details.buildLintCommand(), cm.getProject().getRoot());
+        return getBuildLintSomeCommand(cm, details, workspaceTestFiles);
     }
 
     public static CompletableFuture<@Nullable String> determineVerificationCommandAsync(IContextManager cm) {
@@ -116,7 +114,6 @@ public class BuildTools {
 
     private static String interpolateCommandWithPythonVersion(String command, Path projectRoot) {
         if (command.isEmpty()) return command;
-        if (System.getenv("BRK_TESTALL_CMD") != null) command = System.getenv("BRK_TESTALL_CMD");
         String pythonVersion = getPythonVersionForProject(projectRoot);
         return interpolateMustacheTemplate(command, List.of(), "unused", pythonVersion);
     }
@@ -308,15 +305,33 @@ public class BuildTools {
         }
     }
 
+    /**
+     * Convenience wrapper that runs verification and returns the error string (blank on success).
+     * Pushes the result to the ContextManager's live context.
+     */
     @Blocking
     public static String runVerification(IContextManager cm) throws InterruptedException {
-        return runVerification(cm.liveContext()).getBuildError();
+        return runVerification(cm, null);
     }
 
+    /**
+     * Convenience wrapper that runs verification with an override and returns the error string.
+     * Pushes the result to the ContextManager's live context.
+     */
     @Blocking
     public static String runVerification(IContextManager cm, @Nullable BuildDetails override)
             throws InterruptedException {
-        return runVerification(cm.liveContext(), override).getBuildError();
+        var interrupted = new AtomicReference<InterruptedException>(null);
+        var updated = cm.pushContext(ctx -> {
+            try {
+                return runVerification(ctx, override);
+            } catch (InterruptedException e) {
+                interrupted.set(e);
+                return ctx;
+            }
+        });
+        if (interrupted.get() != null) throw interrupted.get();
+        return updated.getBuildError();
     }
 
     @Blocking

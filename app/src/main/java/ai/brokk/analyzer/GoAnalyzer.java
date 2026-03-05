@@ -439,15 +439,14 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
         // Normalize separators: backslashes -> forward slashes
         String unixPath = ps.replace('\\', '/');
 
-        // Handle root-relative paths
+        // Handle root-relative paths that might have been converted from absolute or otherwise
         if (unixPath.equals("/") || unixPath.equals("./") || unixPath.isEmpty()) return ".";
 
-        // Prepend ./ if it doesn't already start with a relative or absolute marker
-        if (unixPath.startsWith("./") || unixPath.startsWith("/")) {
-            if (unixPath.startsWith("/")) {
-                return "." + unixPath;
-            }
-            return unixPath;
+        // Ensure it starts with "./" (unless it is exactly ".")
+        if (unixPath.startsWith("./")) return unixPath;
+
+        if (unixPath.startsWith("/")) {
+            return "." + unixPath;
         }
 
         return "./" + unixPath;
