@@ -555,6 +555,33 @@ public class SessionManagerTest {
     }
 
     @Test
+    void testQuarantineUnreadableSessions_RemovesCachedSessionWhenManifestUnreadable() throws Exception {
+        MainProject project = new MainProject(tempDir);
+        SessionManager sessionManager = project.getSessionManager();
+        Path sessionsDir = sessionManager.getSessionsDir();
+
+        UUID sessionId = UUID.randomUUID();
+        SessionInfo info =
+                new SessionInfo(sessionId, "Manifest Broken Session", System.currentTimeMillis(), System.currentTimeMillis());
+        createSessionZip(sessionsDir, info, new ObjectMapper());
+
+        // Simulate a previously loaded session that is now corrupted on disk.
+        sessionManager.getSessionsCache().put(sessionId, info);
+        Files.write(sessionsDir.resolve(sessionId + ".zip"), "not-a-zip-at-all".getBytes());
+
+        SessionManager.QuarantineReport report = sessionManager.quarantineUnreadableSessions(mockContextManager);
+
+        assertTrue(report.quarantinedSessionIds().contains(sessionId), "Session should be in report quarantinedIds");
+        assertFalse(sessionManager.getSessionsCache().containsKey(sessionId), "Session should be removed from cache");
+
+        Path unreadableZip =
+                sessionsDir.resolve(SessionManager.UNREADABLE_SESSIONS_DIR).resolve(sessionId + ".zip");
+        assertTrue(Files.exists(unreadableZip), "Session zip should have been moved to unreadable directory");
+
+        project.close();
+    }
+
+    @Test
     void testQuarantineUnreadableSessions_ExecutionExceptionDuringValidation() throws Exception {
         MainProject project = new MainProject(tempDir);
         SessionManager sessionManager = project.getSessionManager();

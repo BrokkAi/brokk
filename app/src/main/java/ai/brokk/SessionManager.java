@@ -413,7 +413,7 @@ public class SessionManager implements AutoCloseable {
                 var future = sessionExecutorByKey.submit(sessionId.toString(), () -> {
                     var info = readSessionInfoFromZip(zipPath);
                     if (info.isEmpty()) {
-                        moveSessionToUnreadableSync(sessionId);
+                        moveSessionToUnreadable(sessionId);
                         return Optional.<SessionInfo>empty();
                     }
                     if (!isVersionSupported(info.get().version())) {
