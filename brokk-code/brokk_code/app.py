@@ -429,7 +429,7 @@ class SessionCostsModalScreen(ModalScreen[None]):
                         token_str += f", out={out_t}"
 
                         row_text = f"{dt} | {op_type:<9} | {model} ({tier})\n"
-                        row_text += f"  {label[:60]}\n"
+                        row_text += f"  {label}\n"
                         row_text += f"  {token_str} | [bold green]${cost:.4f}[/]"
 
                         items.append(

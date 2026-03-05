@@ -322,17 +322,22 @@ def test_session_costs_list_width_expansion():
     """
     css_content = importlib.resources.files("brokk_code.styles").joinpath("app.tcss").read_text()
 
-    # 1. ListView width
+    # 1. ListView container width
+    wrap_match = re.search(r"#session-costs-list-wrap\s*\{([^}]*)\}", css_content)
+    assert wrap_match, "Could not find #session-costs-list-wrap rule in app.tcss"
+    assert "width: 100%;" in wrap_match.group(1)
+
+    # 2. ListView width
     list_match = re.search(r"#session-costs-list\s*\{([^}]*)\}", css_content)
     assert list_match, "Could not find #session-costs-list rule in app.tcss"
     assert "width: 100%;" in list_match.group(1)
 
-    # 2. ListItem width
+    # 3. ListItem width
     item_match = re.search(r"#session-costs-list\s*>\s*ListItem\s*\{([^}]*)\}", css_content)
     assert item_match, "Could not find #session-costs-list > ListItem rule in app.tcss"
     assert "width: 100%;" in item_match.group(1)
 
-    # 3. Row widget width
+    # 4. Row widget width
     row_match = re.search(r"\.session-cost-row\s*\{([^}]*)\}", css_content)
     assert row_match, "Could not find .session-cost-row rule in app.tcss"
     assert "width: 100%;" in row_match.group(1)

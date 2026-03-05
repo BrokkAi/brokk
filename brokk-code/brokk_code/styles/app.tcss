@@ -485,6 +485,7 @@ SlashCommandSuggestions ListItem, ModeSuggestions ListItem, ReasoningSuggestions
 #session-costs-list-wrap {
     height: 1fr;
     border: tall $primary-darken-1;
+    width: 100%;
 }
 
 #session-costs-list {
