@@ -3367,6 +3367,27 @@ public class TypescriptAnalyzerTest {
     }
 
     @Test
+    void testMultiAssignmentFieldSignatures() throws IOException {
+        String code = "export const a: number = 1, b: number = 2;\nlet x = 'one', y = 'two';";
+
+        try (var testProject = InlineTestProjectCreator.code(code, "multi.ts").build()) {
+            var tsAnalyzer = new TypescriptAnalyzer(testProject);
+            ProjectFile file = new ProjectFile(testProject.getRoot(), "multi.ts");
+            Map<CodeUnit, String> skeletons = tsAnalyzer.getSkeletons(file);
+
+            CodeUnit cuA = CodeUnit.field(file, "", "multi.ts.a");
+            CodeUnit cuB = CodeUnit.field(file, "", "multi.ts.b");
+            CodeUnit cuX = CodeUnit.field(file, "", "multi.ts.x");
+            CodeUnit cuY = CodeUnit.field(file, "", "multi.ts.y");
+
+            assertEquals("export const a: number = 1", skeletons.get(cuA).trim());
+            assertEquals("export const b: number = 2", skeletons.get(cuB).trim());
+            assertEquals("let x = 'one'", skeletons.get(cuX).trim());
+            assertEquals("let y = 'two'", skeletons.get(cuY).trim());
+        }
+    }
+
+    @Test
     void testAliasSignatureFormatting() throws IOException {
         // Verifies that renderAliasSignature includes semicolons for type aliases.
         String code = "export type Foo = string | number;";

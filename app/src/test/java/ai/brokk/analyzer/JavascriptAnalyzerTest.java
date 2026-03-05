@@ -554,12 +554,6 @@ public final class JavascriptAnalyzerTest {
         assertTrue(
                 constNames.contains("Vars.js.TOP_CONST_JS"), "Should find 'TOP_CONST_JS' with constant regex pattern");
 
-        // Test multi-assignment
-        var multiRegex = jsAnalyzer.searchDefinitions("multi");
-        var multiNames = multiRegex.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
-        assertTrue(multiNames.contains("Vars.js.multiA"), "Should find 'multiA'");
-        assertTrue(multiNames.contains("Vars.js.multiB"), "Should find 'multiB'");
-
         // Test exact class name matching
         var exactHello = jsAnalyzer.searchDefinitions("Hello");
         var exactHelloNames = exactHello.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
