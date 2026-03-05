@@ -104,6 +104,12 @@ def test_ctrl_p_binding_is_settings():
     assert bindings["ctrl+p"] == ("command_palette", "Settings", True)
 
 
+def test_ctrl_z_binding_is_suspend():
+    app = BrokkApp(executor=MagicMock())
+    bindings = {b.key: (b.action, b.show) for b in app.BINDINGS}
+    assert bindings["ctrl+z"] == ("suspend_process", False)
+
+
 def test_no_notification_binding():
     app = BrokkApp(executor=MagicMock())
     # Verify ctrl+n is no longer in the app-level bindings

@@ -627,6 +627,7 @@ class BrokkApp(App):
         Binding("ctrl+c", "handle_ctrl_c", "Quit", show=True),
         Binding("ctrl+p", "command_palette", "Settings", show=True),
         Binding("ctrl+o", "toggle_output", "Toggle Output", show=True),
+        Binding("ctrl+z", "suspend_process", "Suspend", show=False),
         Binding("shift+tab", "toggle_mode", "Toggle mode", show=False, priority=True),
     ]
 
