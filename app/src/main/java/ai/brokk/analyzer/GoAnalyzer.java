@@ -421,18 +421,20 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
     @Override
     public List<String> getTestModules(Collection<ProjectFile> files) {
         return files.stream()
-                .map(file -> {
-                    Path parent = file.getRelPath().getParent();
-                    if (parent == null || parent.toString().isEmpty()) {
-                        return ".";
-                    }
-                    // Normalize to unix path for Go modules
-                    String unixPath = parent.toString().replace('\\', '/');
-                    return "./" + unixPath;
-                })
+                .map(file -> formatTestModule(file.getRelPath().getParent()))
                 .distinct()
                 .sorted()
                 .toList();
+    }
+
+    static String formatTestModule(@Nullable Path parent) {
+        if (parent == null) return ".";
+        String ps = parent.toString();
+        if (ps.isEmpty() || ps.equals(".")) return ".";
+        String unixPath = ps.replace('\\', '/');
+        // If already starts with ./, leave it alone; otherwise prefix
+        if (unixPath.startsWith("./")) return unixPath;
+        return "./" + unixPath;
     }
 
     @Override
