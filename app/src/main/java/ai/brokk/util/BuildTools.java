@@ -325,18 +325,19 @@ public class BuildTools {
     @Blocking
     public static String runVerification(ContextManager cm, @Nullable BuildDetails override)
             throws InterruptedException {
-        AtomicReference<String> errorRef = new AtomicReference<>("");
-        cm.pushContext(ctx -> {
+        var interrupted = new AtomicReference<InterruptedException>(null);
+        var updated = cm.pushContext(ctx -> {
             try {
-                Context result = runVerificationInternal(ctx, override, null);
-                errorRef.set(result.getBuildError());
-                return result;
+                return runVerification(ctx, override);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
+                interrupted.set(e);
                 return ctx;
             }
         });
-        return errorRef.get();
+        var ie = interrupted.get();
+        if (ie != null) throw ie;
+        return updated.getBuildError();
     }
 
     @Blocking
@@ -382,7 +383,7 @@ public class BuildTools {
         if (timeout.isNegative()) timeout = Environment.UNLIMITED_TIMEOUT;
 
         try {
-            ai.brokk.util.Environment.instance.runShellCommand(
+            Environment.instance.runShellCommand(
                     verificationCommand,
                     cm.getProject().getRoot(),
                     line -> io.llmOutput(line + "\n", ChatMessageType.CUSTOM, LlmOutputMeta.terminal()),
@@ -390,8 +391,8 @@ public class BuildTools {
                     cm.getProject().getShellConfig(),
                     details.environmentVariables());
             return ctx.withBuildResult(true, "");
-        } catch (ai.brokk.util.Environment.SubprocessException e) {
-            String output = e.getOutput() != null ? e.getOutput() : "";
+        } catch (Environment.SubprocessException e) {
+            String output = e.getOutput();
             return ctx.withBuildResult(false, "Build failed: " + e.getMessage() + "\n" + output);
         }
     }
