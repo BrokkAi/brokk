@@ -23,6 +23,7 @@ from brokk_code.settings import (
     write_brokk_api_key,
 )
 from brokk_code.welcome import build_welcome_message, get_braille_icon
+from brokk_code.worktrees import WorktreeService
 from brokk_code.widgets.chat_panel import ChatInput, ChatPanel
 from brokk_code.widgets.context_panel import ContextPanel
 from brokk_code.widgets.status_line import StatusLine
@@ -728,9 +729,30 @@ class BrokkApp(App):
         self._tasklist_restore_focus_widget: Any | None = None
 
         # Shutdown coordination flags and lock
-        self._shutting_down: bool = False
-        self._shutdown_completed: bool = False
+        self._is_mounted = False
+        self._shutting_down = False
+        self._shutdown_completed = False
         self._shutdown_lock = asyncio.Lock()
+
+        # Initialize Worktree service if in a git repo
+        repo_root = WorktreeService.find_repo_root(self.executor.workspace_dir)
+        self.worktree_service = WorktreeService(repo_root) if repo_root else None
+
+    def run_worker(self, coroutine: Awaitable[Any], **kwargs: Any) -> asyncio.Task[Any]:
+        """
+        Overridden to prevent starting background tasks if the app is not
+        yet running or is in a test environment where the loop is managed
+        differently.
+        """
+        if not self._is_mounted:
+            # Fallback for early startup workers or tests
+            try:
+                loop = asyncio.get_running_loop()
+                return loop.create_task(coroutine)
+            except RuntimeError:
+                # No loop running, return a dummy or let it fail gracefully
+                pass
+        return super().run_worker(coroutine, **kwargs)
 
     @property
     def current_mode(self) -> str:
@@ -806,6 +828,7 @@ class BrokkApp(App):
             yield TaskListPanel(id="side-tasklist")
 
     async def on_mount(self) -> None:
+        self._is_mounted = True
         chat = self._maybe_chat()
         logger.info("Using workspace directory: %s", self.executor.workspace_dir)
         if chat:

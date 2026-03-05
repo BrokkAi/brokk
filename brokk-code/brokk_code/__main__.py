@@ -293,6 +293,12 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Attempt to resume a specific session by ID",
     )
     parser.add_argument(
+        "--worktree",
+        type=str,
+        default=None,
+        help="Path to a specific git worktree to use as the workspace root",
+    )
+    parser.add_argument(
         "--resume",
         action="store_true",
         dest="resume_session",
@@ -781,6 +787,7 @@ def main():
         return
 
     workspace_path = Path(args.workspace).resolve()
+    worktree_arg_path = Path(args.worktree).resolve() if args.worktree else None
     jar_path = Path(args.jar).resolve() if args.jar else None
 
     if args.command == "acp":
@@ -894,7 +901,7 @@ def main():
     if not workspace_path.exists():
         print(f"Error: Workspace path does not exist: {workspace_path}")
         sys.exit(1)
-    workspace_path = resolve_workspace_dir(workspace_path)
+    workspace_path = resolve_workspace_dir(workspace_path, worktree_path=worktree_arg_path)
 
     app = BrokkApp(
         workspace_dir=workspace_path,
