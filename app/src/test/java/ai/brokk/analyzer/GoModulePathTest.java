@@ -29,8 +29,10 @@ class GoModulePathTest {
     @Test
     void testGetTestModulesPrefixing() {
         assertEquals(".", GoAnalyzer.formatTestModule(null));
+        assertEquals(".", GoAnalyzer.formatTestModule(Path.of(".")));
         assertEquals("./subdir", GoAnalyzer.formatTestModule(Path.of("subdir")));
         assertEquals("./a/b/c", GoAnalyzer.formatTestModule(Path.of("a", "b", "c")));
+        assertEquals("./leading/slash", GoAnalyzer.formatTestModule(Path.of("/leading/slash")));
         // Windows-style input should be normalized
         assertEquals("./x/y", GoAnalyzer.formatTestModule(Path.of("x\\y")));
     }

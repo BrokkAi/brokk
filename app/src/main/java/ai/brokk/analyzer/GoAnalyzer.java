@@ -436,8 +436,8 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
         String ps = parent.toString();
         if (ps.isEmpty() || ps.equals(".")) return ".";
         String unixPath = ps.replace('\\', '/');
-        // If already starts with ./, leave it alone; otherwise prefix
         if (unixPath.startsWith("./")) return unixPath;
+        if (unixPath.startsWith("/")) return "." + unixPath;
         return "./" + unixPath;
     }
 

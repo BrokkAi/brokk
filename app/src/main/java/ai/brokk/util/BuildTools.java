@@ -198,23 +198,6 @@ public class BuildTools {
         return interpolateMustacheTemplate(command, List.of(), "unused", pythonVersion);
     }
 
-    public static String interpolateMustacheTemplate(String template, List<String> items, String listKey) {
-        return interpolateMustacheTemplate(template, items, listKey, null);
-    }
-
-    public static String interpolateMustacheTemplate(
-            String template, List<String> items, String listKey, @Nullable String pythonVersion) {
-        if (template.isEmpty()) return "";
-        // Use unified interpolation logic compatible with BuildAgent
-        MustacheFactory mf = new DefaultMustacheFactory();
-        Mustache mustache = mf.compile(new StringReader(template), "dynamic_template");
-        Map<String, Object> context = new HashMap<>();
-        context.put(listKey, MustacheTemplates.toStringElementList(items));
-        context.put("pyver", pythonVersion == null ? "" : pythonVersion);
-        StringWriter writer = new StringWriter();
-        mustache.execute(writer, context);
-        return writer.toString();
-    }
 
     @Blocking
     public static String runVerification(IContextManager cm) throws InterruptedException {
