@@ -132,7 +132,11 @@ def test_action_suspend_process_suspends_executor_and_calls_textual_suspend(monk
 
     app.action_suspend_process()
 
-    assert called["kill"] == (4321, signal.SIGTSTP)
+    if hasattr(signal, "SIGTSTP"):
+        assert called["kill"] == (4321, signal.SIGTSTP)
+    else:
+        assert "kill" not in called
+
     assert suspend_called["value"] is True
 
 
@@ -149,7 +153,10 @@ def test_on_app_resume_sends_sigcont_to_executor(monkeypatch):
 
     app._on_app_resume(app)
 
-    assert called["kill"] == (9876, signal.SIGCONT)
+    if hasattr(signal, "SIGCONT"):
+        assert called["kill"] == (9876, signal.SIGCONT)
+    else:
+        assert "kill" not in called
 
 
 def test_no_notification_binding():
