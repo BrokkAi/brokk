@@ -212,6 +212,50 @@ class TestPickSessionStartupFlow:
                 pass
 
     @pytest.mark.asyncio
+    async def test_pick_session_not_scheduled_when_wait_ready_fails(self, tmp_path):
+        """When wait_ready returns False, _show_sessions should NOT be scheduled."""
+        app = BrokkApp(workspace_dir=tmp_path, pick_session=True)
+        app.executor = MagicMock()
+        app.executor.workspace_dir = tmp_path
+        app.executor.session_id = None
+
+        async def create_session(name: str = "TUI Session") -> str:
+            app.executor.session_id = "s-init"
+            return "s-init"
+
+        app.executor.start = AsyncMock()
+        app.executor.create_session = AsyncMock(side_effect=create_session)
+        app.executor.wait_ready = AsyncMock(return_value=False)
+        app.executor.get_health_live = AsyncMock(return_value={})
+
+        app._maybe_chat = MagicMock(return_value=None)
+
+        scheduled: list[object] = []
+
+        def run_worker_stub(coro):
+            scheduled.append(coro)
+            return MagicMock()
+
+        app.run_worker = MagicMock(side_effect=run_worker_stub)
+
+        await app._start_executor()
+
+        show_sessions_scheduled = [
+            coro
+            for coro in scheduled
+            if hasattr(coro, "cr_code") and coro.cr_code.co_name == "_show_sessions"
+        ]
+        assert len(show_sessions_scheduled) == 0, (
+            "_show_sessions should NOT be scheduled when wait_ready returns False"
+        )
+
+        for coro in scheduled:
+            try:
+                coro.close()
+            except Exception:
+                pass
+
+    @pytest.mark.asyncio
     async def test_pick_session_triggers_only_once(self, tmp_path):
         """Verify pick_session flag is consumed and won't trigger again on subsequent calls."""
         app = BrokkApp(workspace_dir=tmp_path, pick_session=True)
