@@ -64,13 +64,9 @@ class StatusLine(Horizontal):
         branch = getattr(app, "current_branch", "unknown")
         workspace = "unknown"
         try:
-            executor = getattr(app, "executor", None)
-            if executor is not None:
-                ws = getattr(executor, "workspace_dir", None)
-                if ws is not None:
-                    workspace = str(ws)
+            workspace = str(app.current_worktree)
         except Exception:
-            pass
+            workspace = "unknown"
 
         self.update_status(mode, model, reasoning, workspace, branch)
 

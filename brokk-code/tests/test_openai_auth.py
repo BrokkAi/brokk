@@ -25,6 +25,7 @@ async def test_login_openai_not_ready():
     # Create app with minimal initialization by patching heavy initialization
     with patch.object(BrokkApp, "__init__", lambda self, **kwargs: None):
         app = BrokkApp()
+        app.current_worktree = MagicMock()
         app.executor = executor
         app._executor_ready = False
 

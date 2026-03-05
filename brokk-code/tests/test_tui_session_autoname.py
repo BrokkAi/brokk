@@ -43,7 +43,10 @@ async def test_auto_rename_on_first_prompt(tmp_path):
     await app._run_job(prompt)
 
     # Wait for background worker
-    await asyncio.sleep(0.1)
+    for _ in range(10):
+        if stub.rename_session.call_count > 0:
+            break
+        await asyncio.sleep(0.05)
 
     # Verify rename called with derived name
     stub.rename_session.assert_called_once_with("test-session-123", "Implement a new login system")
@@ -65,7 +68,7 @@ async def test_auto_rename_skipped_after_manual_switch(tmp_path):
 
     # Submit prompt
     await app._run_job("Prompt in switched session")
-    await asyncio.sleep(0.1)
+    await asyncio.sleep(0.2)
 
     # Should NOT rename
     stub.rename_session.assert_not_called()
@@ -87,7 +90,7 @@ async def test_auto_rename_skips_if_not_default(tmp_path):
     app._auto_rename_eligible_sessions.add("test-session-123")
 
     await app._run_job("Another prompt")
-    await asyncio.sleep(0.1)
+    await asyncio.sleep(0.2)
 
     stub.rename_session.assert_not_called()
     assert "test-session-123" in app._renamed_sessions
@@ -208,8 +211,8 @@ async def test_auto_rename_delayed_until_switch_complete(tmp_path):
     # The rename happens in a separate worker spawned by _run_job
     start_wait = asyncio.get_event_loop().time()
     while stub.rename_session.call_count == 0 and (
-        asyncio.get_event_loop().time() - start_wait < 1.0
+        asyncio.get_event_loop().time() - start_wait < 2.0
     ):
-        await asyncio.sleep(0.01)
+        await asyncio.sleep(0.05)
 
     stub.rename_session.assert_called_once_with("target-sid", "First prompt in new session")

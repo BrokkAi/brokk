@@ -6,6 +6,7 @@ import time
 import webbrowser
 from datetime import datetime
 from pathlib import Path
+from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from textual.app import App, ComposeResult, ScreenStackError
@@ -612,14 +613,33 @@ class ModelReasoningSelectModal(ModalScreen[tuple[str, str]]):
             logger.error("Failed to parse index from ListItem id: %s", message.item.id)
 
 
-class BrokkApp(App):
-    """The main Brokk TUI application.
+@dataclass
+class RuntimeState:
+    """Encapsulates the runtime state for a specific worktree."""
 
-    Task list UI policy:
-    - The task list is accessed via a full-screen modal (TaskListModalScreen).
-    - The side task list panel remains mounted for layout stability and potential future use,
-      but it is not toggled by /task.
-    """
+    executor: ExecutorManager
+    session_id: Optional[str] = None
+    job_in_progress: bool = False
+    current_job_id: Optional[str] = None
+    session_switch_in_progress: bool = False
+    current_switch_target_session_id: Optional[str] = None
+    pending_prompt: Optional[str] = None
+    pending_switch_prompt: Optional[tuple[str, str]] = None
+    pending_updated_at: float = 0
+    pending_generation: int = 0
+    pending_min_wait_until: float = 0.0
+    current_job_cost: float = 0.0
+    session_total_cost: float = 0.0
+    session_total_cost_id: Optional[str] = None
+    executor_started: bool = False
+    executor_ready: bool = False
+    current_branch: str = "unknown"
+    auto_rename_eligible: bool = False
+    renamed: bool = False
+
+
+class BrokkApp(App):
+    """The main Brokk TUI application."""
 
     CSS_PATH = "styles/app.tcss"
     COMMAND_PALETTE_DISPLAY = "Settings"
@@ -644,32 +664,32 @@ class BrokkApp(App):
     ) -> None:
         super().__init__()
         self.settings = Settings.load()
-        if executor:
-            self.executor = executor
-            if workspace_dir:
-                self.executor.workspace_dir = resolve_workspace_dir(workspace_dir)
-            if vendor is not None:
-                self.executor.vendor = vendor
-        else:
-            self.executor = ExecutorManager(
-                resolve_workspace_dir(workspace_dir or Path.cwd()),
-                jar_path,
-                executor_version=executor_version,
-                executor_snapshot=executor_snapshot,
-                vendor=vendor,
-                exit_on_stdin_eof=True,
-                brokk_api_key=self.settings.get_brokk_api_key(),
-            )
+        self._jar_path = jar_path
+        self._executor_version = executor_version
+        self._executor_snapshot = executor_snapshot
+        self._vendor = vendor
         self.requested_session_id = session_id
         self.resume_session = resume_session
+
+        self.runtimes: Dict[Path, RuntimeState] = {}
+        self.current_worktree = resolve_workspace_dir(workspace_dir or Path.cwd())
+
+        # Initialize primary runtime
+        if executor:
+            primary_executor = executor
+            if workspace_dir:
+                primary_executor.workspace_dir = self.current_worktree
+            if vendor is not None:
+                primary_executor.vendor = vendor
+        else:
+            primary_executor = self._create_executor(self.current_worktree)
+
+        self.runtimes[self.current_worktree] = RuntimeState(executor=primary_executor)
+
         self._set_theme(self.settings.theme)
         self.agent_mode = "LUTZ"
         self.show_verbose_output: bool = False
 
-        # Initialize model and reasoning settings from persisted Settings if present,
-        # otherwise fall back to safe defaults.
-        # We accept persisted values as-is at startup; validation against the
-        # executor model catalog can occur later if needed.
         self.current_model = (
             str(self.settings.last_model).strip()
             if self.settings.last_model and str(self.settings.last_model).strip()
@@ -696,47 +716,158 @@ class BrokkApp(App):
             if isinstance(self.settings.last_auto_commit, bool)
             else True
         )
-        self.current_branch = "unknown"
-        self.job_in_progress = False
-        self.session_switch_in_progress = False
-        self.current_job_id: Optional[str] = None
-        self._pending_prompt: Optional[str] = None
-        self._pending_switch_prompt: Optional[tuple[str, str]] = None
+
         self._startup_pending_prompt: Optional[str] = None
-        self._pending_updated_at: float = 0
-        self._pending_generation: int = 0
-        self._pending_min_wait_until: float = 0.0
         self._resubmit_grace_s: float = 0.2
         self._last_ctrl_c_time: float = 0
-        self._executor_started: bool = False
-        self._executor_ready: bool = False
+        self._auto_rename_eligible_sessions: set[str] = set()
+        self._renamed_sessions: set[str] = set()
         self._refresh_context_lock = asyncio.Lock()
         self._reported_refresh_errors: set[str] = set()
-        self._renamed_sessions: set[str] = set()
-        self._auto_rename_eligible_sessions: set[str] = set()
         self._rename_session_lock = asyncio.Lock()
         self._session_switch_lock = asyncio.Lock()
         self._reasoning_target: str = "planner"
 
-        # Accumulators for LLM usage costs (USD).
-        # current_job_cost is per-job and resets at the start of each _run_job.
-        self.current_job_cost: float = 0.0
-        # session_total_cost is the cumulative cost for the active session.
-        self.session_total_cost: float = 0.0
-        # The session ID for which session_total_cost was last reconciled/updated.
-        self.session_total_cost_id: Optional[str] = None
-
         self._tasklist_restore_focus_widget: Any | None = None
 
-        # Shutdown coordination flags and lock
         self._is_mounted = False
         self._shutting_down = False
         self._shutdown_completed = False
         self._shutdown_lock = asyncio.Lock()
 
-        # Initialize Worktree service if in a git repo
-        repo_root = WorktreeService.find_repo_root(self.executor.workspace_dir)
+        repo_root = WorktreeService.find_repo_root(self.current_worktree)
         self.worktree_service = WorktreeService(repo_root) if repo_root else None
+
+    def _lazy_init_runtimes(self) -> None:
+        """Ensures core runtime state exists (handles partially initialized app in tests)."""
+        if not hasattr(self, "runtimes"):
+            self.runtimes = {}
+        if not hasattr(self, "_auto_rename_eligible_sessions"):
+            self._auto_rename_eligible_sessions = set()
+        if not hasattr(self, "_renamed_sessions"):
+            self._renamed_sessions = set()
+        if not hasattr(self, "settings"):
+            self.settings = Settings.load()
+        if not hasattr(self, "_rename_session_lock"):
+            self._rename_session_lock = asyncio.Lock()
+        if not hasattr(self, "current_worktree"):
+            self.current_worktree = resolve_workspace_dir(Path.cwd())
+
+    @property
+    def current_runtime(self) -> RuntimeState:
+        """Returns the RuntimeState for the currently selected worktree."""
+        self._lazy_init_runtimes()
+        return self.get_runtime(self.current_worktree)
+
+    @property
+    def executor(self) -> ExecutorManager:
+        """Backwards compatibility: returns the current executor."""
+        return self.current_runtime.executor
+
+    @executor.setter
+    def executor(self, value: ExecutorManager) -> None:
+        """Allows tests to inject mock executors."""
+        self.current_runtime.executor = value
+
+    @property
+    def session_id(self) -> Optional[str]:
+        return self.current_runtime.session_id
+
+    @session_id.setter
+    def session_id(self, value: Optional[str]) -> None:
+        self.current_runtime.session_id = value
+
+    @property
+    def job_in_progress(self) -> bool:
+        return self.current_runtime.job_in_progress
+
+    @job_in_progress.setter
+    def job_in_progress(self, value: bool) -> None:
+        self.current_runtime.job_in_progress = value
+
+    @property
+    def current_job_id(self) -> Optional[str]:
+        return self.current_runtime.current_job_id
+
+    @current_job_id.setter
+    def current_job_id(self, value: Optional[str]) -> None:
+        self.current_runtime.current_job_id = value
+
+    @property
+    def session_switch_in_progress(self) -> bool:
+        return self.current_runtime.session_switch_in_progress
+
+    @session_switch_in_progress.setter
+    def session_switch_in_progress(self, value: bool) -> None:
+        self.current_runtime.session_switch_in_progress = value
+
+    @property
+    def current_job_cost(self) -> float:
+        return self.current_runtime.current_job_cost
+
+    @current_job_cost.setter
+    def current_job_cost(self, value: float) -> None:
+        self.current_runtime.current_job_cost = value
+
+    @property
+    def session_total_cost(self) -> float:
+        return self.current_runtime.session_total_cost
+
+    @session_total_cost.setter
+    def session_total_cost(self, value: float) -> None:
+        self.current_runtime.session_total_cost = value
+
+    @property
+    def session_total_cost_id(self) -> Optional[str]:
+        return self.current_runtime.session_total_cost_id
+
+    @property
+    def _current_switch_target_session_id(self) -> Optional[str]:
+        return self.current_runtime.current_switch_target_session_id
+
+    @property
+    def _pending_switch_prompt(self) -> Optional[tuple[str, str]]:
+        return self.current_runtime.pending_switch_prompt
+
+    @_pending_switch_prompt.setter
+    def _pending_switch_prompt(self, value: Optional[tuple[str, str]]) -> None:
+        self.current_runtime.pending_switch_prompt = value
+
+    @property
+    def _pending_prompt(self) -> Optional[str]:
+        return self.current_runtime.pending_prompt
+
+    @_pending_prompt.setter
+    def _pending_prompt(self, value: Optional[str]) -> None:
+        self.current_runtime.pending_prompt = value
+
+    @property
+    def _executor_ready(self) -> bool:
+        return self.current_runtime.executor_ready
+
+    @_executor_ready.setter
+    def _executor_ready(self, value: bool) -> None:
+        self.current_runtime.executor_ready = value
+
+    def get_runtime(self, workspace_path: Path) -> RuntimeState:
+        """Lazily retrieves or creates a runtime for a given path."""
+        self._lazy_init_runtimes()
+        path = resolve_workspace_dir(workspace_path)
+        if path not in self.runtimes:
+            exec_mgr = self._create_executor(path)
+            self.runtimes[path] = RuntimeState(executor=exec_mgr)
+        return self.runtimes[path]
+
+    def _create_executor(self, workspace_dir: Path) -> ExecutorManager:
+        return ExecutorManager(
+            workspace_dir=workspace_dir,
+            jar_path=getattr(self, "_jar_path", None),
+            executor_version=getattr(self, "_executor_version", None),
+            executor_snapshot=getattr(self, "_executor_snapshot", True),
+            vendor=getattr(self, "_vendor", None),
+            exit_on_stdin_eof=True,
+            brokk_api_key=self.settings.get_brokk_api_key(),
+        )
 
     def run_worker(self, coroutine: Awaitable[Any], **kwargs: Any) -> asyncio.Task[Any]:
         """
@@ -800,23 +931,15 @@ class BrokkApp(App):
         if not status:
             return
         try:
-            workspace = None
-            try:
-                if getattr(self, "executor", None) is not None:
-                    ws = getattr(self.executor, "workspace_dir", None)
-                    if ws is not None:
-                        workspace = str(ws)
-            except Exception:
-                workspace = None
-
+            runtime = self.current_runtime
             status.update_status(
                 mode=getattr(self, "current_mode", getattr(self, "agent_mode", "unknown")),
                 model=getattr(self, "current_model", None),
                 reasoning=getattr(self, "reasoning_level", None),
-                workspace=workspace,
-                branch=getattr(self, "current_branch", "unknown"),
-                turn_cost=getattr(self, "current_job_cost", None),
-                session_cost=getattr(self, "session_total_cost", None),
+                workspace=str(self.current_worktree),
+                branch=runtime.current_branch,
+                turn_cost=runtime.current_job_cost,
+                session_cost=runtime.session_total_cost,
             )
         except Exception:
             # Swallow all errors when updating UI that's possibly not mounted in tests.
@@ -866,9 +989,11 @@ class BrokkApp(App):
         self.run_worker(self._poll_context())
         self._update_statusline()
 
-    async def _start_executor(self) -> None:
+    async def _start_executor(self, path: Optional[Path] = None) -> None:
+        target_path = path or self.current_worktree
+        runtime = self.get_runtime(target_path)
         chat = self._maybe_chat()
-        if chat:
+        if chat and target_path == self.current_worktree:
             chat.set_job_running(True)
         try:
             from brokk_code.session_persistence import (
@@ -877,13 +1002,12 @@ class BrokkApp(App):
                 save_last_session_id,
             )
 
-            await self.executor.start()
-            # Mark as started only after successful launch so monitor begins checks
-            self._executor_started = True
+            await runtime.executor.start()
+            runtime.executor_started = True
 
             # Fetch and display effective build hint immediately
             try:
-                live_info = await self.executor.get_health_live()
+                live_info = await runtime.executor.get_health_live()
                 version = live_info.get("version", "unknown")
                 proto = live_info.get("protocolVersion", "unknown")
                 eid = live_info.get("execId", "unknown")
@@ -921,21 +1045,21 @@ class BrokkApp(App):
                         logger.warning("Failed to resume session %s: %s", session_to_resume, e)
 
             if not resumed:
-                sid = await self.executor.create_session()
+                sid = await runtime.executor.create_session()
                 if sid:
-                    self._auto_rename_eligible_sessions.add(sid)
+                    runtime.auto_rename_eligible = True
 
-            if self.executor.session_id:
-                save_last_session_id(self.executor.workspace_dir, self.executor.session_id)
+            if runtime.executor.session_id:
+                save_last_session_id(runtime.executor.workspace_dir, runtime.executor.session_id)
 
-            if await self.executor.wait_ready():
-                self._executor_ready = True
+            if await runtime.executor.wait_ready():
+                runtime.executor_ready = True
                 # Initial context load
-                self.run_worker(self._refresh_context_panel())
+                self.run_worker(self._refresh_context_panel(target_path))
 
                 if resumed:
                     try:
-                        conversation_data = await self.executor.get_conversation()
+                        conversation_data = await runtime.executor.get_conversation()
                         replayed = self._replay_conversation_entries(conversation_data)
                         if replayed:
                             msg = (
@@ -982,107 +1106,96 @@ class BrokkApp(App):
                 chat.set_job_running(False)
 
     async def _monitor_executor(self) -> None:
-        """Background worker to check if the executor dies unexpectedly."""
+        """Background worker to check if the executors die unexpectedly."""
         while True:
-            if not self._executor_started:
-                await asyncio.sleep(0.5)
-                continue
-
             await asyncio.sleep(2.0)
-            # Re-check started flag in case of rapid stop during sleep
-            if not self._executor_started:
-                continue
-
-            if not self.executor.check_alive():
-                if self._shutting_down or self._shutdown_completed:
-                    logger.debug("Executor process exited during shutdown.")
-                    break
-                msg = "Executor process crashed unexpectedly."
-                chat = self._maybe_chat()
-                if chat:
-                    chat.add_system_message(msg, level="ERROR")
-                else:
-                    logger.error(msg)
+            if self._shutting_down:
                 break
 
+            for path, runtime in list(self.runtimes.items()):
+                if not runtime.executor_started:
+                    continue
+
+                if not runtime.executor.check_alive():
+                    if self._shutting_down or self._shutdown_completed:
+                        break
+                    msg = f"Executor for {path} crashed unexpectedly."
+                    runtime.executor_started = False
+                    runtime.executor_ready = False
+                    chat = self._maybe_chat()
+                    if chat and path == self.current_worktree:
+                        chat.add_system_message(msg, level="ERROR")
+                    else:
+                        logger.error(msg)
+
     async def _poll_tasklist(self) -> None:
-        """Periodically refreshes the task list details."""
+        """Periodically refreshes the task list details for all ready runtimes."""
         while True:
-            if self._executor_ready:
-                # We poll even if a job is running, as /v1/tasklist is low impact
-                try:
-                    tasklist_data = await self.executor.get_tasklist()
-                    self._update_tasklist_details_all(tasklist_data)
-                except Exception:
-                    logger.debug("Periodic tasklist poll failed", exc_info=True)
+            for runtime in list(self.runtimes.values()):
+                if runtime.executor_ready:
+                    try:
+                        tasklist_data = await runtime.executor.get_tasklist()
+                        if runtime == self.current_runtime:
+                            self._update_tasklist_details_all(tasklist_data)
+                    except Exception:
+                        logger.debug("Periodic tasklist poll failed", exc_info=True)
             await asyncio.sleep(15.0)
 
     async def _poll_context(self) -> None:
-        """Periodically refreshes the context panel."""
+        """Periodically refreshes the context panel for the current runtime."""
         while True:
-            if self._executor_ready:
-                # refresh_context_panel handles both ContextPanel and TaskListPanel overview
+            if self.current_runtime.executor_ready:
                 await self._refresh_context_panel()
-            # Sleep 10-15s with jitter
             await asyncio.sleep(random.uniform(10.0, 15.0))
 
-    async def _refresh_context_panel(self) -> None:
-        """Fetches latest context and updates context, task list, and chat panels."""
-        if not self._executor_ready:
+    async def _refresh_context_panel(self, path: Optional[Path] = None) -> None:
+        """Fetches latest context and updates UI for the specified (or current) path."""
+        target_path = path or self.current_worktree
+        runtime = self.get_runtime(target_path)
+        if not runtime.executor_ready:
             return
 
         async with self._refresh_context_lock:
             try:
-                context_data = await self.executor.get_context()
-                self.current_branch = context_data.get("branch", "unknown")
+                context_data = await runtime.executor.get_context()
+                runtime.current_branch = context_data.get("branch", "unknown")
 
-                # Seed or update session cost from executor's cumulative total.
-                # Only reconcile when no job is running. While a job is active, cost
-                # is updated exclusively via COST notification events in _handle_event.
-                # Reconciling during a job risks double-counting: the executor's
-                # totalCost may already include events the TUI hasn't yet received via
-                # SSE, so bumping session_total_cost with max() and then processing
-                # those same events again inflates the displayed cost.
                 remote_total = context_data.get("totalCost")
-                current_sid = self.executor.session_id
-                if isinstance(remote_total, (int, float)) and not self.job_in_progress:
+                current_sid = runtime.executor.session_id
+                if isinstance(remote_total, (int, float)) and not runtime.job_in_progress:
                     remote_val = round(float(remote_total), 6)
-                    if current_sid != self.session_total_cost_id:
-                        # Session switch detected: overwrite without monotonic guard
-                        # so that cost can legitimately decrease to the new session's level.
-                        self.session_total_cost = remote_val
-                        self.session_total_cost_id = current_sid
+                    if current_sid != runtime.session_total_cost_id:
+                        runtime.session_total_cost = remote_val
+                        runtime.session_total_cost_id = current_sid
                     else:
-                        # Same session: use max() to guard against out-of-order events.
-                        self.session_total_cost = max(self.session_total_cost, remote_val)
+                        runtime.session_total_cost = max(runtime.session_total_cost, remote_val)
 
-                # UI updates are best-effort if screen is not on stack
-                try:
-                    if isinstance(self.screen, ContextModalScreen):
-                        self.screen.query_one(ContextPanel).refresh_context(context_data)
-                    else:
-                        self.query_one(ContextPanel).refresh_context(context_data)
-                except (ScreenStackError, Exception):
-                    pass
+                if target_path == self.current_worktree:
+                    try:
+                        if isinstance(self.screen, ContextModalScreen):
+                            self.screen.query_one(ContextPanel).refresh_context(context_data)
+                        else:
+                            self.query_one(ContextPanel).refresh_context(context_data)
+                    except (ScreenStackError, Exception):
+                        pass
 
-                try:
-                    for task_list in self._tasklist_panels():
-                        if not task_list.has_detailed_info:
-                            task_list.refresh_tasklist(context_data)
-                except (ScreenStackError, Exception):
-                    pass
+                    try:
+                        for task_list in self._tasklist_panels():
+                            if not task_list.has_detailed_info:
+                                task_list.refresh_tasklist(context_data)
+                    except (ScreenStackError, Exception):
+                        pass
 
-                # Update token usage in ChatPanel
-                chat = self._maybe_chat()
-                if chat:
-                    used = context_data.get("usedTokens", 0)
-                    max_tokens = context_data.get("maxTokens")
-                    fragments = context_data.get("fragments")
-                    chat.set_token_usage(
-                        used, max_tokens, fragments, session_cost=self.session_total_cost
-                    )
+                    chat = self._maybe_chat()
+                    if chat:
+                        used = context_data.get("usedTokens", 0)
+                        max_tokens = context_data.get("maxTokens")
+                        fragments = context_data.get("fragments")
+                        chat.set_token_usage(
+                            used, max_tokens, fragments, session_cost=runtime.session_total_cost
+                        )
 
-                self._update_statusline()
+                    self._update_statusline()
 
                 # Clear error tracking on success
                 self._reported_refresh_errors.clear()
@@ -1654,19 +1767,27 @@ class BrokkApp(App):
             return first_line[:57].strip() + "..."
         return first_line
 
-    async def _maybe_rename_session(self, first_prompt: str) -> None:
+    async def _maybe_rename_session(self, first_prompt: str, path: Optional[Path] = None) -> None:
         """Asynchronously renames the session if it's new/unnamed."""
-        session_id = self.executor.session_id
-        if not session_id or session_id not in self._auto_rename_eligible_sessions:
+        self._lazy_init_runtimes()
+        target_path = path or self.current_worktree
+        runtime = self.get_runtime(target_path)
+        session_id = runtime.executor.session_id
+
+        # Use legacy sets for tracking if possible (backwards compatibility for tests)
+        eligible = runtime.auto_rename_eligible or (
+            session_id is not None and session_id in self._auto_rename_eligible_sessions
+        )
+        if not session_id or not eligible:
             return
 
         async with self._rename_session_lock:
-            if session_id in self._renamed_sessions:
+            if runtime.renamed or session_id in self._renamed_sessions:
                 return
 
             # Check if the session name is generic before renaming
             try:
-                sessions_data = await self.executor.list_sessions()
+                sessions_data = await runtime.executor.list_sessions()
                 current_id = sessions_data.get("currentSessionId")
                 sessions = sessions_data.get("sessions", [])
 
@@ -1674,38 +1795,45 @@ class BrokkApp(App):
                 current_session = next((s for s in sessions if s.get("id") == current_id), None)
                 if not current_session or current_session.get("name") != "TUI Session":
                     # Already named or not found; mark as "renamed" to skip further checks
+                    runtime.renamed = True
                     self._renamed_sessions.add(session_id)
                     return
 
                 new_name = self._derive_session_name(first_prompt)
                 if not new_name:
+                    # If we can't derive a name, consider it done so we don't keep trying
+                    runtime.renamed = True
+                    self._renamed_sessions.add(session_id)
                     return
 
-                await self.executor.rename_session(session_id, new_name)
+                await runtime.executor.rename_session(session_id, new_name)
+                runtime.renamed = True
                 self._renamed_sessions.add(session_id)
 
                 chat = self._maybe_chat()
-                if chat:
+                if chat and target_path == self.current_worktree:
                     chat.add_system_message(f"Session renamed to: {new_name}")
             except Exception as e:
                 logger.warning("Failed to auto-rename session: %s", e)
 
-    async def _run_job(self, task_input: str) -> None:
+    async def _run_job(self, task_input: str, path: Optional[Path] = None) -> None:
+        target_path = path or self.current_worktree
+        runtime = self.get_runtime(target_path)
         # Attempt auto-rename on first prompt if session is default
-        if self._executor_ready and self.executor.session_id:
-            self.run_worker(self._maybe_rename_session(task_input))
+        if runtime.executor_ready and runtime.executor.session_id:
+            self.run_worker(self._maybe_rename_session(task_input, target_path))
 
         # Reset per-job cost accumulator
-        self.current_job_cost = 0.0
-        self.job_in_progress = True
+        runtime.current_job_cost = 0.0
+        runtime.job_in_progress = True
         chat = self._maybe_chat()
-        if chat:
+        if chat and target_path == self.current_worktree:
             chat.set_job_running(True)
             chat.set_response_pending()
         attached_fragment_ids: List[str] = []
         try:
             attached_fragment_ids = await self._attach_mentions_to_context(task_input)
-            self.current_job_id = await self.executor.submit_job(
+            runtime.current_job_id = await runtime.executor.submit_job(
                 task_input,
                 self.current_model,
                 code_model=self.code_model,
@@ -1714,23 +1842,23 @@ class BrokkApp(App):
                 mode=self.current_mode,
                 auto_commit=self.auto_commit,
             )
-            async for event in self.executor.stream_events(self.current_job_id):
-                self._handle_event(event)
+            async for event in runtime.executor.stream_events(runtime.current_job_id):
+                self._handle_event(event, target_path)
         except Exception as e:
             if (
-                self.current_job_id is None
+                runtime.current_job_id is None
                 and attached_fragment_ids
-                and hasattr(self.executor, "drop_context_fragments")
+                and hasattr(runtime.executor, "drop_context_fragments")
             ):
                 try:
-                    await self.executor.drop_context_fragments(attached_fragment_ids)
+                    await runtime.executor.drop_context_fragments(attached_fragment_ids)
                 except Exception:
                     logger.exception(
                         "Failed to rollback context fragments after submit_job failure: %s",
                         attached_fragment_ids,
                     )
 
-            if chat:
+            if chat and target_path == self.current_worktree:
                 err_type = type(e).__name__
                 chat.add_system_message(
                     f"Job failed or interrupted ({err_type}): {e}",
@@ -1739,59 +1867,52 @@ class BrokkApp(App):
             else:
                 logger.error("Job failed or interrupted (%s): %s", type(e).__name__, e)
         finally:
-            if chat:
+            if chat and target_path == self.current_worktree:
                 chat.set_response_finished()
                 chat.set_job_running(False)
 
-            # Yield to the event loop to allow any rapid subsequent submissions
-            # triggered by the cancellation to be processed before we check _pending_prompt.
             await asyncio.sleep(0)
 
-            if self._pending_prompt:
-                # Wait for both the grace window (since cancellation)
-                # and the stability debounce (since last keystroke/submit).
-                debounce_window = 0.05  # 50ms
+            if runtime.pending_prompt:
+                debounce_window = 0.05
                 while True:
                     now = time.monotonic()
-                    current_gen = self._pending_generation
-                    elapsed_since_update = now - self._pending_updated_at
+                    current_gen = runtime.pending_generation
+                    elapsed_since_update = now - runtime.pending_updated_at
 
-                    # We must be past the absolute grace timestamp AND stable
-                    # for the debounce window
                     if (
-                        now >= self._pending_min_wait_until
+                        now >= runtime.pending_min_wait_until
                         and elapsed_since_update >= debounce_window
-                        and self._pending_generation == current_gen
+                        and runtime.pending_generation == current_gen
                     ):
                         break
                     await asyncio.sleep(0.01)
 
-                next_prompt = self._pending_prompt
-                self._pending_prompt = None
-                self._pending_updated_at = 0
-                self._pending_generation = 0
-                self._pending_min_wait_until = 0.0
+                next_prompt = runtime.pending_prompt
+                runtime.pending_prompt = None
+                runtime.pending_updated_at = 0
+                runtime.pending_generation = 0
+                runtime.pending_min_wait_until = 0.0
 
-                # Recurse within the same worker context to prevent
-                # the app from flickering to 'idle' and allowing race-condition submits.
-                # We keep job_in_progress = True during this transition.
                 if next_prompt:
-                    await self._run_job(next_prompt)
+                    await self._run_job(next_prompt, target_path)
                 else:
-                    self.job_in_progress = False
-                    self.current_job_id = None
+                    runtime.job_in_progress = False
+                    runtime.current_job_id = None
             else:
-                # Only mark idle once we are sure no more prompts are queued
-                self.job_in_progress = False
-                self.current_job_id = None
+                runtime.job_in_progress = False
+                runtime.current_job_id = None
 
-    def _handle_event(self, event: Dict[str, Any]) -> None:
+    def _handle_event(self, event: Dict[str, Any], path: Optional[Path] = None) -> None:
+        target_path = path or self.current_worktree
+        runtime = self.get_runtime(target_path)
         event_type = event.get("type")
         data = event.get("data", {})
         chat = self._maybe_chat()
+        is_current = target_path == self.current_worktree
 
         if event_type == "LLM_TOKEN":
-            if chat:
+            if chat and is_current:
                 chat.append_token(
                     token=data.get("token", ""),
                     message_type=data.get("messageType", "AI"),
@@ -1810,21 +1931,19 @@ class BrokkApp(App):
 
             if is_cost and isinstance(cost, (int, float)):
                 increment = float(cost)
-                # Use rounding to avoid floating point precision artifacts
-                # LLM costs often go to 4+ decimal places.
-                self.current_job_cost = round(self.current_job_cost + increment, 6)
-                self.session_total_cost = round(self.session_total_cost + increment, 6)
-                self._update_statusline()
+                runtime.current_job_cost = round(runtime.current_job_cost + increment, 6)
+                runtime.session_total_cost = round(runtime.session_total_cost + increment, 6)
+                if is_current:
+                    self._update_statusline()
 
-            if chat and not is_cost and not is_confirm:
+            if chat and is_current and not is_cost and not is_confirm:
                 chat.add_system_message(msg, level=level)
         elif event_type == "ERROR":
             msg = data.get("message", "Unknown error")
-            if chat:
+            if chat and is_current:
                 chat.add_system_message(msg, level="ERROR")
-            # Note: set_job_running(False) happens in _run_job finally block
         elif event_type == "COMMAND_RESULT":
-            if chat:
+            if chat and is_current:
                 stage = data.get("stage", "Command")
                 command = data.get("command", "")
                 success = data.get("success", False)
@@ -1844,7 +1963,7 @@ class BrokkApp(App):
         elif event_type == "STATE_HINT":
             hint_name = data.get("name")
             if hint_name in ("contextHistoryUpdated", "workspaceUpdated"):
-                self.run_worker(self._refresh_context_panel())
+                self.run_worker(self._refresh_context_panel(path))
 
     def _replay_conversation_entries(self, conversation_data: Dict[str, Any]) -> int:
         """Render executor conversation history into the ChatPanel."""
@@ -2417,16 +2536,16 @@ class BrokkApp(App):
                 return
 
         now = time.time()
+        runtime = self.current_runtime
 
-        if self.job_in_progress and self.current_job_id:
-            self._pending_prompt = None  # Clear any pending prompt on manual cancel
-            self._pending_updated_at = 0
-            self._pending_generation = 0
-            self._pending_min_wait_until = 0.0
+        if runtime.job_in_progress and runtime.current_job_id:
+            runtime.pending_prompt = None
+            runtime.pending_updated_at = 0
+            runtime.pending_generation = 0
+            runtime.pending_min_wait_until = 0.0
             if chat_panel:
                 chat_panel.add_system_message("Cancelling job...")
-            await self.executor.cancel_job(self.current_job_id)
-            # Reset double-tap timer so they don't accidentally quit while cancelling
+            await runtime.executor.cancel_job(runtime.current_job_id)
             self._last_ctrl_c_time = now
             return
 
@@ -2437,14 +2556,12 @@ class BrokkApp(App):
             self._last_ctrl_c_time = now
 
     async def _shutdown_once(self, *, show_message: bool = True) -> None:
-        """Perform shutdown actions once completed. Concurrency-safe with retry on stop failure."""
-        # Fast path
+        """Perform shutdown actions for all runtimes."""
         async with self._shutdown_lock:
-            if self._shutdown_completed or self._shutting_down:
+            if self._shutdown_completed:
                 return
-            self._shutting_down = True
 
-            # Notify user once
+            self._shutting_down = True
             if show_message:
                 msg = "Shutting down..."
                 chat = self._maybe_chat()
@@ -2453,19 +2570,19 @@ class BrokkApp(App):
                 else:
                     logger.info(msg)
 
-            # Mark executor not ready immediately so any concurrent refresh short-circuits.
-            self._executor_ready = False
+            success = True
+            for runtime in self.runtimes.values():
+                runtime.executor_ready = False
+                try:
+                    await runtime.executor.stop()
+                except Exception:
+                    success = False
+                    logger.debug("Executor stop failed during shutdown", exc_info=True)
 
-            # Stop executor (best-effort). Multiple calls are safe because
-            # ExecutorManager.stop is idempotent.
-            try:
-                await self.executor.stop()
-            except Exception:
-                logger.debug("Executor.stop encountered an error during shutdown", exc_info=True)
+            if success:
+                self._shutdown_completed = True
+            else:
                 self._shutting_down = False
-                return
-
-            self._shutdown_completed = True
 
     async def action_quit(self) -> None:
         # Centralized shutdown; show_message True to surface to user via chat/logs.
@@ -2598,76 +2715,61 @@ class BrokkApp(App):
         if not chat:
             return
 
+        runtime = self.current_runtime
         async with self._session_switch_lock:
-            if self.session_switch_in_progress:
+            if runtime.session_switch_in_progress:
                 chat.add_system_message("A session switch is already in progress.", level="WARNING")
                 return
-            self.session_switch_in_progress = True
-            self._current_switch_target_session_id = session_id
+            runtime.session_switch_in_progress = True
+            runtime.current_switch_target_session_id = session_id
 
-        # Save previous cost accumulators so we can restore them if the switch fails.
-        _prev_job_cost = self.current_job_cost
-        _prev_session_cost = self.session_total_cost
+        _prev_job_cost = runtime.current_job_cost
+        _prev_session_cost = runtime.session_total_cost
 
         try:
             chat.add_system_message(f"Switching to session {session_id}...")
-            # Set job running to block input UI during switch
             chat.set_job_running(True)
 
-            # Reset accumulators immediately so UI doesn't show previous session's
-            # stale costs during the switch transition. _refresh_context_panel
-            # will re-seed session_total_cost from executor context shortly.
-            self.current_job_cost = 0.0
-            self.session_total_cost = 0.0
-            # We don't update session_total_cost_id here; we let _refresh_context_panel
-            # detect the mismatch between the new executor.session_id and the old ID.
+            runtime.current_job_cost = 0.0
+            runtime.session_total_cost = 0.0
 
-            await self.executor.switch_session(session_id)
+            await runtime.executor.switch_session(session_id)
             try:
-                save_last_session_id(self.executor.workspace_dir, session_id)
+                save_last_session_id(runtime.executor.workspace_dir, session_id)
             except Exception:
-                logger.warning(
-                    "Failed to persist last session ID for session %s", session_id, exc_info=True
-                )
+                logger.warning("Failed to persist session ID", exc_info=True)
 
-            # Clear UI and history
             chat._message_history.clear()
-            # Clear log container (the ScrollableContainer containing message widgets)
             log = chat.query_one("#chat-log")
             res = log.query("*").remove()
             if asyncio.iscoroutine(res):
                 await res
 
-            # Replay
-            conversation_data = await self.executor.get_conversation()
+            conversation_data = await runtime.executor.get_conversation()
             self._replay_conversation_entries(conversation_data)
 
-            # Refresh
             await self._refresh_context_panel()
             chat.add_system_message(f"Successfully switched to session {session_id}.")
 
-            # Handle queued prompt after switch
-            if self._pending_switch_prompt:
-                target_id, prompt = self._pending_switch_prompt
+            if runtime.pending_switch_prompt:
+                target_id, prompt = runtime.pending_switch_prompt
                 if target_id == session_id:
-                    self._pending_switch_prompt = None
+                    runtime.pending_switch_prompt = None
                     self.run_worker(self._run_job(prompt))
                 else:
-                    # This shouldn't normally happen with the lock, but for safety:
-                    self._pending_switch_prompt = None
+                    runtime.pending_switch_prompt = None
 
         except Exception as e:
             logger.exception("Failed to switch session")
-            # Restore cost accumulators so the UI reflects the original session's costs.
-            self.current_job_cost = _prev_job_cost
-            self.session_total_cost = _prev_session_cost
+            runtime.current_job_cost = _prev_job_cost
+            runtime.session_total_cost = _prev_session_cost
             chat.add_system_message(f"Failed to switch session: {e}", level="ERROR")
-            if self._pending_switch_prompt:
-                self._pending_switch_prompt = None
+            if runtime.pending_switch_prompt:
+                runtime.pending_switch_prompt = None
                 chat.add_system_message("Dropped queued prompt due to session switch failure.")
         finally:
-            self.session_switch_in_progress = False
-            self._current_switch_target_session_id = None
+            runtime.session_switch_in_progress = False
+            runtime.current_switch_target_session_id = None
             chat.set_job_running(False)
 
     async def on_unmount(self) -> None:
