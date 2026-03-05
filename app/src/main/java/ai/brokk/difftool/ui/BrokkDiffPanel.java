@@ -697,7 +697,7 @@ public class BrokkDiffPanel extends JPanel
                 .addFragments(contextManager.toPathFragments(changedFiles))
                 .addHistoryEntry(new ContextFragments.TaskFragment(messages, actionDescription), null);
 
-        var result = TaskResult.humanResult(actionDescription, resultingCtx, TaskResult.StopReason.SUCCESS);
+        var result = TaskResult.from(resultingCtx, TaskResult.StopReason.SUCCESS);
 
         // Add a single history entry for the whole batch
         try (var scope = contextManager.beginTaskUngrouped(actionDescription)) {

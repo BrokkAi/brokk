@@ -10,6 +10,7 @@ import ai.brokk.IContextManager;
 import ai.brokk.Llm;
 import ai.brokk.LlmOutputMeta;
 import ai.brokk.MutedConsoleIO;
+import ai.brokk.TaskEntry;
 import ai.brokk.TaskResult;
 import ai.brokk.TaskResult.StopReason;
 import ai.brokk.analyzer.ProjectFile;
@@ -17,6 +18,7 @@ import ai.brokk.context.Context;
 import ai.brokk.context.ContextDelta;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.SpecialTextType;
+import ai.brokk.exception.GlobalExceptionHandler;
 import ai.brokk.prompts.ArchitectPrompts;
 import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.prompts.WorkspacePrompts;
@@ -55,6 +57,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -144,6 +147,9 @@ public class ArchitectAgent {
     private boolean deferBuildForInitialCodeAgentCall = false;
 
     @Nullable
+    private CompletableFuture<List<TaskEntry>> compressedHistoryFuture;
+
+    @Nullable
     private String verifyCommand;
 
     private static final ThreadLocal<SearchAgentOutput> threadlocalSearchResult = new ThreadLocal<>();
@@ -167,7 +173,9 @@ public class ArchitectAgent {
             StreamingChatModel codeModel,
             String goal,
             ContextManager.TaskScope scope) {
-        this(contextManager, planningModel, codeModel, goal, scope, contextManager.liveContext());
+        this(contextManager, planningModel, codeModel, goal, scope, contextManager.liveContext(), (CompletableFuture<
+                        List<TaskEntry>>)
+                null);
     }
 
     /**
@@ -181,7 +189,26 @@ public class ArchitectAgent {
             String goal,
             ContextManager.TaskScope scope,
             Context initialContext) {
-        this(contextManager, planningModel, codeModel, goal, scope, initialContext, contextManager.getIo());
+        this(contextManager, planningModel, codeModel, goal, scope, initialContext, null, contextManager.getIo());
+    }
+
+    public ArchitectAgent(
+            IContextManager contextManager,
+            StreamingChatModel planningModel,
+            StreamingChatModel codeModel,
+            String goal,
+            ContextManager.TaskScope scope,
+            Context initialContext,
+            @Nullable CompletableFuture<List<TaskEntry>> compressedHistoryFuture) {
+        this(
+                contextManager,
+                planningModel,
+                codeModel,
+                goal,
+                scope,
+                initialContext,
+                compressedHistoryFuture,
+                contextManager.getIo());
     }
 
     /**
@@ -195,6 +222,18 @@ public class ArchitectAgent {
             ContextManager.TaskScope scope,
             Context initialContext,
             IConsoleIO io) {
+        this(contextManager, planningModel, codeModel, goal, scope, initialContext, null, io);
+    }
+
+    public ArchitectAgent(
+            IContextManager contextManager,
+            StreamingChatModel planningModel,
+            StreamingChatModel codeModel,
+            String goal,
+            ContextManager.TaskScope scope,
+            Context initialContext,
+            @Nullable CompletableFuture<List<TaskEntry>> compressedHistoryFuture,
+            IConsoleIO io) {
         this.cm = contextManager;
         this.planningModel = planningModel;
         this.codeModel = codeModel;
@@ -202,6 +241,7 @@ public class ArchitectAgent {
         this.io = io;
         this.scope = scope;
         this.context = initialContext;
+        this.compressedHistoryFuture = compressedHistoryFuture;
         this.verifyCommand = null;
     }
 
@@ -264,7 +304,12 @@ public class ArchitectAgent {
         }
 
         // Record planning history before invoking CodeAgent
-        context = cm.compressHistory(context);
+        var initialContext = context;
+        // no-op if we haven't consumed compressedHistoryFuture yet -- there is nothing to compress
+        // except what it's already compressing
+        var historyFuture = compressedHistoryFuture == null
+                ? cm.compressHistoryAsync(context)
+                : CompletableFuture.completedFuture(context.getTaskHistory());
         addPlanningToHistory();
 
         io.llmOutput("**Code Agent** engaged:\n" + instructions, ChatMessageType.CUSTOM, LlmOutputMeta.newMessage());
@@ -273,7 +318,6 @@ public class ArchitectAgent {
         if (deferBuild) {
             opts.add(CodeAgent.Option.DEFER_BUILD);
         }
-        var initialContext = context;
         var result = agent.executeWithoutHistory(context, instructions, opts);
         var stopDetails = result.stopDetails();
         var reason = stopDetails.reason();
@@ -281,7 +325,7 @@ public class ArchitectAgent {
         // Update architect context with the CodeAgent's fragments, preserving the Architect history
         var codeContext = result.context();
         context = codeContext
-                .withHistory(context.getTaskHistory())
+                .withTaskHistory(historyFuture.join())
                 .addHistoryEntry(codeContext.getTaskHistory().getLast());
         scope.append(codeContext);
         var changedFragments =
@@ -290,7 +334,9 @@ public class ArchitectAgent {
         // post-verifyCommand results
         result = null;
 
-        if (reason == StopReason.SUCCESS) {
+        // SUCCESS can also mean "Code Agent threw it back to us to add missing context";
+        // checking for changes de-risks that
+        if (reason == StopReason.SUCCESS && !changedFragments.isEmpty()) {
             logger.debug("callCodeAgent finished successfully");
             if (!deferBuild && !changedFragments.isEmpty()) {
                 codeAgentJustSucceeded = true;
@@ -362,11 +408,11 @@ public class ArchitectAgent {
             String combinedDiffText = CodeAgent.cumulativeDiffForChanges(initialContext, context);
             // FIXME the if here is working around a bug, ContextDelta should not return
             // changed fragments with an empty diff
-            if (!combinedDiffText.isBlank()) {
+            if (combinedDiffText.isBlank()) {
+                context = context.withSpecial(SpecialTextType.CODE_AGENT_CHANGES, "Code Agent made no changes");
+            } else {
                 this.offerUndoToolNext = true;
                 context = context.withSpecial(SpecialTextType.CODE_AGENT_CHANGES, combinedDiffText);
-            } else {
-                context = context.withSpecial(SpecialTextType.CODE_AGENT_CHANGES, "Code Agent made no changes");
             }
         }
 
@@ -583,6 +629,13 @@ public class ArchitectAgent {
             tr = executeInternal();
         } catch (InterruptedException e) {
             tr = resultWithMessages(StopReason.INTERRUPTED);
+        } catch (Throwable th) {
+            // FIXME this should not be fucking necessary
+            GlobalExceptionHandler.handle(th, st -> io.showNotification(IConsoleIO.NotificationRole.ERROR, st));
+            logger.error("Unexpected exception in ArchitectAgent.execute()", th);
+            tr = resultWithMessages(
+                    StopReason.LLM_ERROR,
+                    "Architect execution failed: " + Objects.toString(th.getMessage(), "unknown error"));
         }
 
         if (!terminalCompletionReported) {
@@ -660,8 +713,14 @@ public class ArchitectAgent {
             var fatalReason = this.lastFatalReason != null ? this.lastFatalReason : StopReason.LLM_ERROR;
             this.lastFatalReason = null;
             var errorMessage = "Fatal error executing initial Code Agent: %s".formatted(e.getMessage());
+            logger.warn(errorMessage, e);
             io.showNotification(IConsoleIO.NotificationRole.INFO, errorMessage);
             return resultWithMessages(fatalReason);
+        }
+
+        if (compressedHistoryFuture != null) {
+            context = IContextManager.mergeCompressedHistory(context, compressedHistoryFuture.join());
+            compressedHistoryFuture = null;
         }
 
         if (codeAgentJustSucceeded) {

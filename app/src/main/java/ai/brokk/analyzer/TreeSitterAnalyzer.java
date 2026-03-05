@@ -665,7 +665,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         return codeUnitProperties(codeUnit).signaturesList();
     }
 
-    protected List<Range> rangesOf(CodeUnit codeUnit) {
+    @Override
+    public List<Range> rangesOf(CodeUnit codeUnit) {
         return codeUnitProperties(codeUnit).rangesList();
     }
 

@@ -18,7 +18,7 @@ from brokk_code.workspace import resolve_workspace_dir
 
 logger = logging.getLogger(__name__)
 
-BUNDLED_EXECUTOR_VERSION = "0.23.0"
+BUNDLED_EXECUTOR_VERSION = "0.23.1.beta1"
 _EXECUTOR_JAR_BASE_URL = "https://github.com/BrokkAi/brokk-releases/releases/download"
 _EXECUTOR_MAIN_CLASS = "ai.brokk.executor.HeadlessExecutorMain"
 _READY_SENTINEL = "Executor listening on http://"
@@ -1012,6 +1012,28 @@ class ExecutorManager:
             return resp.json()
         except httpx.HTTPError as e:
             await self._handle_http_error(e, "/v1/openai/oauth/status")
+            raise  # Should not be reached
+
+    async def commit_context(self, message: Optional[str] = None) -> Dict[str, Any]:
+        """Commits current changes with an optional message.
+
+        If message is None or blank, the executor will generate a commit message.
+        Returns commit metadata including commitId and firstLine on success,
+        or {"status": "no_changes"} if there are no uncommitted changes.
+        """
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+
+        payload: Dict[str, Any] = {}
+        if message is not None:
+            payload["message"] = message
+
+        try:
+            resp = await self._http_client.post("/v1/repo/commit", json=payload)
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            await self._handle_http_error(e, "/v1/repo/commit")
             raise  # Should not be reached
 
     async def cancel_job(self, job_id: str):

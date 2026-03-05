@@ -1267,7 +1267,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
                             meta = new TaskResult.TaskMeta(TaskResult.Type.CODE, modelConfig);
                         }
 
-                        var saveResult = TaskResult.humanResult(actionDescription, ctx, TaskResult.StopReason.SUCCESS);
+                        var saveResult = TaskResult.from(ctx, TaskResult.StopReason.SUCCESS);
                         try (var scope = cm.beginTaskUngrouped("File changed saved")) {
                             scope.append(saveResult);
                         }

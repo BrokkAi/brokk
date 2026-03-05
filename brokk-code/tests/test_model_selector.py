@@ -73,7 +73,7 @@ async def test_action_select_model_handles_dotted_model_names():
 
 
 def test_help_command_no_shortcuts_for_model_reasoning():
-    """Verify /help output does not mention Ctrl+U or Ctrl+E."""
+    """Verify /help output does not mention shortcuts or removed reasoning commands."""
     app = BrokkApp(executor=MagicMock())
     mock_chat = MagicMock(spec=ChatPanel)
     app.query_one = MagicMock(return_value=mock_chat)
@@ -87,9 +87,12 @@ def test_help_command_no_shortcuts_for_model_reasoning():
     assert "Ctrl+U" not in help_text
     assert "Ctrl+E" not in help_text
     assert "Shortcut:" not in help_text
-    # Verify the commands themselves are still documented
+    assert "/reasoning" not in help_text
+    assert "/reasoning-code" not in help_text
+
+    # Verify the model commands themselves are still documented
     assert "/model" in help_text
-    assert "/reasoning" in help_text
+    assert "/model-code" in help_text
 
 
 def test_help_output_matches_command_catalog():
