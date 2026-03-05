@@ -355,4 +355,28 @@ public class MultiAnalyzer implements IAnalyzer, TypeAliasProvider, ImportAnalys
                 .map(provider -> provider.getDirectDescendants(cu))
                 .orElse(Set.of());
     }
+
+    @Override
+    public List<String> getTestModules(Collection<ProjectFile> files) {
+        Map<Language, List<ProjectFile>> grouped =
+                files.stream().collect(Collectors.groupingBy(f -> Languages.fromExtension(f.extension())));
+
+        return grouped.entrySet().stream()
+                .flatMap(entry -> {
+                    Language lang = entry.getKey();
+                    List<ProjectFile> groupFiles = entry.getValue();
+                    IAnalyzer delegate = delegates.get(lang);
+                    if (delegate != null) {
+                        return delegate.getTestModules(groupFiles).stream();
+                    }
+                    // Fall back to default interface logic for files without a delegate
+                    return groupFiles.stream()
+                            .flatMap(f -> getTopLevelDeclarations(f).stream())
+                            .map(CodeUnit::packageName)
+                            .filter(s -> !s.isBlank());
+                })
+                .distinct()
+                .sorted()
+                .toList();
+    }
 }
