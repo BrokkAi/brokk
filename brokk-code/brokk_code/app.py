@@ -1,7 +1,9 @@
 import asyncio
 import logging
+import os
 import random
 import re
+import signal
 import time
 import webbrowser
 from datetime import datetime
@@ -627,9 +629,28 @@ class BrokkApp(App):
         Binding("ctrl+c", "handle_ctrl_c", "Quit", show=True),
         Binding("ctrl+p", "command_palette", "Settings", show=True),
         Binding("ctrl+o", "toggle_output", "Toggle Output", show=True),
-        Binding("ctrl+z", "suspend_process", "Suspend", show=False),
+        Binding("ctrl+z", "suspend_process", "Suspend", show=False, priority=True),
         Binding("shift+tab", "toggle_mode", "Toggle mode", show=False, priority=True),
     ]
+
+    def action_suspend_process(self) -> None:
+        """Suspend the app and executor subprocess with resumable job-control signals."""
+        process = self.executor._process
+        if process is not None and process.returncode is None:
+            # Ensure the Java subprocess pauses even though Ctrl+Z is handled in-app.
+            # Textual's parent suspend still controls terminal mode transitions.
+            try:
+                os.kill(process.pid, signal.SIGTSTP)
+            except ProcessLookupError:
+                pass
+            except Exception:
+                logger.debug("Failed to pause executor process before suspend", exc_info=True)
+
+        # Keep Textual's built-in suspend/resume semantics for the app itself.
+        try:
+            super().action_suspend_process()
+        except Exception:
+            logger.debug("Failed to suspend process", exc_info=True)
 
     def __init__(
         self,
@@ -805,6 +826,7 @@ class BrokkApp(App):
             yield TaskListPanel(id="side-tasklist")
 
     async def on_mount(self) -> None:
+        self.app_resume_signal.subscribe(self, self._on_app_resume)
         chat = self._maybe_chat()
         logger.info("Using workspace directory: %s", self.executor.workspace_dir)
         if chat:
@@ -841,6 +863,18 @@ class BrokkApp(App):
         self.run_worker(self._poll_tasklist())
         self.run_worker(self._poll_context())
         self._update_statusline()
+
+    def _on_app_resume(self, _app: App) -> None:
+        """Ensure the executor process resumes if it was paused by suspend."""
+        process = self.executor._process
+        if process is None or process.returncode is not None:
+            return
+        try:
+            os.kill(process.pid, signal.SIGCONT)
+        except ProcessLookupError:
+            return
+        except Exception:
+            logger.debug("Failed to resume executor process after app resume", exc_info=True)
 
     async def _start_executor(self) -> None:
         chat = self._maybe_chat()

@@ -1,3 +1,5 @@
+import signal
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
@@ -106,8 +108,48 @@ def test_ctrl_p_binding_is_settings():
 
 def test_ctrl_z_binding_is_suspend():
     app = BrokkApp(executor=MagicMock())
-    bindings = {b.key: (b.action, b.show) for b in app.BINDINGS}
-    assert bindings["ctrl+z"] == ("suspend_process", False)
+    bindings = {b.key: (b.action, b.show, b.priority) for b in app.BINDINGS}
+    assert bindings["ctrl+z"] == ("suspend_process", False, True)
+
+
+def test_action_suspend_process_suspends_executor_and_calls_textual_suspend(monkeypatch):
+    app = BrokkApp(executor=MagicMock())
+    app.executor._process = SimpleNamespace(pid=4321, returncode=None)
+
+    called: dict[str, tuple[int, int]] = {}
+
+    def _fake_kill(pid: int, sig: int) -> None:
+        called["kill"] = (pid, sig)
+
+    monkeypatch.setattr("brokk_code.app.os.kill", _fake_kill)
+
+    suspend_called = {"value": False}
+
+    def _fake_textual_suspend(self) -> None:  # noqa: ANN001
+        suspend_called["value"] = True
+
+    monkeypatch.setattr("textual.app.App.action_suspend_process", _fake_textual_suspend)
+
+    app.action_suspend_process()
+
+    assert called["kill"] == (4321, signal.SIGTSTP)
+    assert suspend_called["value"] is True
+
+
+def test_on_app_resume_sends_sigcont_to_executor(monkeypatch):
+    app = BrokkApp(executor=MagicMock())
+    app.executor._process = SimpleNamespace(pid=9876, returncode=None)
+
+    called: dict[str, tuple[int, int]] = {}
+
+    def _fake_kill(pid: int, sig: int) -> None:
+        called["kill"] = (pid, sig)
+
+    monkeypatch.setattr("brokk_code.app.os.kill", _fake_kill)
+
+    app._on_app_resume(app)
+
+    assert called["kill"] == (9876, signal.SIGCONT)
 
 
 def test_no_notification_binding():
