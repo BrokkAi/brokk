@@ -16,6 +16,7 @@ import ai.brokk.executor.routers.FavoritesRouter;
 import ai.brokk.executor.routers.JobsRouter;
 import ai.brokk.executor.routers.ModelsRouter;
 import ai.brokk.executor.routers.OpenAiAuthRouter;
+import ai.brokk.executor.routers.RepoRouter;
 import ai.brokk.executor.routers.RouterUtil;
 import ai.brokk.executor.routers.SessionsRouter;
 import ai.brokk.project.MainProject;
@@ -280,6 +281,9 @@ public final class HeadlessExecutorMain {
         this.server.registerAuthenticatedContext("/v1/context", contextRouter);
         this.server.registerAuthenticatedContext("/v1/tasklist", contextRouter);
         this.server.registerAuthenticatedContext("/v1/session/costs", contextRouter);
+
+        var repoRouter = new RepoRouter(this.contextManager);
+        this.server.registerAuthenticatedContext("/v1/repo", repoRouter);
 
         var modelsRouter = new ModelsRouter(this.contextManager);
         this.server.registerAuthenticatedContext("/v1/models", modelsRouter);
@@ -592,6 +596,7 @@ public final class HeadlessExecutorMain {
             System.out.println("    POST /v1/context/text             - add pasted text to context");
             System.out.println("    GET  /v1/tasklist                 - get current task list content");
             System.out.println("    POST /v1/tasklist                 - replace current task list content");
+            System.out.println("    POST /v1/repo/commit              - commit current changes");
             System.out.println("    GET  /v1/completions              - file and symbol completions");
             System.out.println("    GET  /v1/favorites                - user's favorite model configs");
             System.out.println();

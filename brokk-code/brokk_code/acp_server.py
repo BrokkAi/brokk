@@ -664,6 +664,19 @@ class BrokkAcpBridge:
             raise ExecutorError("Brokk executor failed readiness check")
         self._started = True
 
+    async def start_and_create_session(self, name: str) -> str:
+        """Starts the executor (if needed) and creates the first session to satisfy readiness."""
+        if self._started:
+            return await self.executor.create_session(name=name)
+
+        await self.executor.start()
+        session_id = await self.executor.create_session(name=name)
+        ready = await self.executor.wait_ready()
+        if not ready:
+            raise ExecutorError("Brokk executor failed readiness check")
+        self._started = True
+        return session_id
+
     async def _ensure_session(self, acp_session_id: str) -> str:
         existing = self._acp_to_brokk_session.get(acp_session_id)
         if existing:
@@ -1154,10 +1167,9 @@ async def run_acp_server(
             **kwargs: Any,
         ) -> NewSessionResponse:
             del mcp_servers
-            await bridge.ensure_ready()
             requested_name = str(kwargs.get("title") or kwargs.get("name") or "ACP Session").strip()
             session_name = requested_name or "ACP Session"
-            session_id = await bridge.executor.create_session(name=session_name)
+            session_id = await bridge.start_and_create_session(name=session_name)
             self._ensure_session_defaults(session_id, cwd)
             await self._refresh_model_catalog(session_id)
 

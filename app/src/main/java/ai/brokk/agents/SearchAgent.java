@@ -9,6 +9,7 @@ import ai.brokk.Llm;
 import ai.brokk.LlmOutputMeta;
 import ai.brokk.Service;
 import ai.brokk.TaskResult;
+import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.concurrent.ComputedValue;
 import ai.brokk.context.Context;
@@ -171,7 +172,8 @@ public class SearchAgent {
             StreamingChatModel model,
             ContextManager.TaskScope scope,
             IConsoleIO io,
-            ScanConfig scanConfig) {
+            ScanConfig scanConfig)
+            throws InterruptedException {
         this(initialContext, goal, model, Objective.WORKSPACE_ONLY, scope, io, scanConfig);
     }
 
@@ -180,7 +182,8 @@ public class SearchAgent {
             String goal,
             StreamingChatModel model,
             Objective objective,
-            ContextManager.TaskScope scope) {
+            ContextManager.TaskScope scope)
+            throws InterruptedException {
         this(
                 initialContext,
                 goal,
@@ -198,14 +201,23 @@ public class SearchAgent {
             Objective objective,
             ContextManager.TaskScope scope,
             IConsoleIO io,
-            ScanConfig scanConfig) {
+            ScanConfig scanConfig)
+            throws InterruptedException {
         this.goal = goal;
         this.cm = initialContext.getContextManager();
         this.model = model;
         this.scope = scope;
 
         this.io = io;
-        this.scanConfig = scanConfig;
+
+        Set<ContextFragment> goalReferences = resolveGoalReferences(goal);
+        if (goalReferences.isEmpty()) {
+            this.scanConfig = scanConfig;
+        } else {
+            this.scanConfig =
+                    new ScanConfig(false, scanConfig.scanModel(), scanConfig.appendToScope(), scanConfig.autoPrune());
+            logger.debug("Goal references resolved: {}. Disabling auto-scan.", goalReferences);
+        }
 
         var llmOptions = new Llm.Options(model, goal, TaskResult.Type.SEARCH).withEcho();
         this.llm = cm.getLlm(llmOptions);
@@ -219,7 +231,9 @@ public class SearchAgent {
                 : SearchMetrics.noOp();
 
         this.mcpTools = initMcpTools(cm.getProject());
-        this.currentState = SearchState.initial(initialContext);
+        this.currentState = goalReferences.isEmpty()
+                ? SearchState.initial(initialContext)
+                : SearchState.initial(initialContext.addFragments(goalReferences));
         this.checkpointState = currentState;
         this.originalPinnedFragments = initialContext.getPinnedFragments().collect(Collectors.toSet());
         this.objective = objective;
@@ -229,6 +243,83 @@ public class SearchAgent {
 
         this.staticTools = initStaticTools(cm.getProject(), mcpTools);
         this.searchTools = new SearchTools(cm);
+    }
+
+    private Set<ContextFragment> resolveGoalReferences(String goal) throws InterruptedException {
+        Set<ContextFragment> references = new HashSet<>();
+        Set<ProjectFile> filesReferenced = new HashSet<>();
+        Set<CodeUnit> classesReferenced = new HashSet<>();
+        var allDeclarations = cm.getAnalyzer().getAllDeclarations();
+
+        for (var file : cm.getProject().getAllFiles()) {
+            String fileName = file.getFileName();
+            if (containsBareToken(goal, fileName)) {
+                references.add(new ContextFragments.ProjectPathFragment(file, cm));
+                filesReferenced.add(file);
+            }
+        }
+
+        for (var cu : allDeclarations) {
+            if (!cu.isClass()) {
+                continue;
+            }
+            if (filesReferenced.contains(cu.source())) {
+                continue;
+            }
+
+            String target = cu.identifier();
+            if (target.length() < 3 || !containsBareToken(goal, target)) {
+                continue;
+            }
+            references.add(new ContextFragments.CodeFragment(cm, cu));
+            classesReferenced.add(cu);
+        }
+
+        for (var cu : allDeclarations) {
+            if (!(cu.isFunction() || cu.isField())) {
+                continue;
+            }
+            if (filesReferenced.contains(cu.source())) {
+                continue;
+            }
+            if (cm.getAnalyzer().parentOf(cu).map(classesReferenced::contains).orElse(true)) {
+                continue;
+            }
+
+            String target = cu.shortName();
+            if (containsBareToken(goal, target)) {
+                references.add(new ContextFragments.CodeFragment(cm, cu));
+            }
+        }
+
+        return references;
+    }
+
+    private static boolean containsBareToken(String text, String token) {
+        int tokenLength = token.length();
+        if (tokenLength == 0) {
+            return false;
+        }
+
+        int index = text.indexOf(token);
+        while (index >= 0) {
+            int tokenStart = index;
+            int tokenEnd = index + tokenLength;
+
+            boolean leftBoundary = tokenStart == 0 || !isBareTokenChar(text.charAt(tokenStart - 1));
+            boolean rightBoundary = tokenEnd >= text.length() || !isBareTokenChar(text.charAt(tokenEnd));
+
+            if (leftBoundary && rightBoundary) {
+                return true;
+            }
+
+            index = text.indexOf(token, tokenStart + 1);
+        }
+        return false;
+    }
+
+    private static boolean isBareTokenChar(char c) {
+        return Character.isLetterOrDigit(c) || c == '_' || c == '$';
     }
 
     private static List<McpPrompts.McpTool> initMcpTools(IProject project) {
@@ -289,7 +380,8 @@ public class SearchAgent {
         return WorkspaceTools.filterByAnalyzerAvailability(tools, project);
     }
 
-    public SearchAgent(Context initialContext, String goal, StreamingChatModel model, ContextManager.TaskScope scope) {
+    public SearchAgent(Context initialContext, String goal, StreamingChatModel model, ContextManager.TaskScope scope)
+            throws InterruptedException {
         this(
                 initialContext,
                 goal,
@@ -992,6 +1084,7 @@ public class SearchAgent {
 
             Context contextAtTurnStart = context;
             boolean executedNonHygiene = false;
+            List<String> nonHygieneToolCalls = new ArrayList<>();
 
             for (var req : primaryCalls) {
                 agent.io.beforeToolCall(req);
@@ -1006,6 +1099,7 @@ public class SearchAgent {
                 sessionMessages.add(toolResult.toExecutionResultMessage());
                 if (!"dropWorkspaceFragments".equals(req.name())) {
                     executedNonHygiene = true;
+                    nonHygieneToolCalls.add(req.name());
                 }
             }
 
@@ -1036,10 +1130,20 @@ public class SearchAgent {
                 if (agent.isPruningWorthwhile(context)
                         && (primaryCalls.isEmpty()
                                 || !"dropWorkspaceFragments"
-                                        .equals(primaryCalls.getLast().name()))) {
+                                        .equals(primaryCalls.getFirst().name()))) {
                     return new TurnOutcome.PendingTerminal(context, List.copyOf(sessionMessages), pending);
                 }
                 return new TurnOutcome.Final(agent.finalizePendingTerminal(pending, context));
+            }
+            if (terminalRequest != null) {
+                String changedTools =
+                        nonHygieneToolCalls.stream().distinct().sorted().collect(Collectors.joining(", "));
+                String ignoredMessage = "Terminal call '%s' ignored because tool calls %s changed the Workspace."
+                        .formatted(terminalRequest.name(), changedTools);
+                var ignored = ToolExecutionResult.requestError(terminalRequest, ignoredMessage);
+                agent.io.beforeToolCall(terminalRequest);
+                agent.io.afterToolOutput(ignored);
+                sessionMessages.add(ignored.toExecutionResultMessage());
             }
 
             Set<ProjectFile> filesAfterSet = agent.workspaceFiles(context);

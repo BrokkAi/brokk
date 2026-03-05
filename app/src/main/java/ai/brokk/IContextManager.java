@@ -21,12 +21,14 @@ import java.awt.datatransfer.DataFlavor;
 import java.awt.datatransfer.StringSelection;
 import java.io.File;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicReference;
@@ -389,7 +391,38 @@ public interface IContextManager {
 
     @Blocking
     default Context compressHistory(Context ctx) throws InterruptedException {
-        return ctx;
+        try {
+            List<TaskEntry> compressedTaskHistory = compressHistoryAsync(ctx).join();
+            return mergeCompressedHistory(ctx, compressedTaskHistory);
+        } catch (CompletionException e) {
+            var cause = e.getCause();
+            if (cause instanceof InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                throw ie;
+            }
+            throw e;
+        }
+    }
+
+    static Context mergeCompressedHistory(Context currentContext, List<TaskEntry> compressedEntries) {
+        if (compressedEntries.isEmpty()) {
+            return currentContext;
+        }
+
+        var bySequence = new HashMap<Integer, TaskEntry>(compressedEntries.size());
+        for (var entry : compressedEntries) {
+            bySequence.putIfAbsent(entry.sequence(), entry);
+        }
+
+        var mergedTaskHistory = currentContext.getTaskHistory().stream()
+                .map(entry -> bySequence.getOrDefault(entry.sequence(), entry))
+                .toList();
+        return currentContext.withTaskHistory(mergedTaskHistory);
+    }
+
+    @Blocking
+    default CompletableFuture<List<TaskEntry>> compressHistoryAsync(Context ctx) {
+        return CompletableFuture.completedFuture(ctx.getTaskHistory());
     }
 
     @Blocking

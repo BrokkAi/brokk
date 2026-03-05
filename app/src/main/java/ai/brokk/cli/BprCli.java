@@ -173,17 +173,17 @@ public final class BprCli implements Callable<Integer> {
     private @Nullable String deepScanGoal;
 
     @CommandLine.Option(
+            names = "--commit",
+            description = "Git commit hash to checkout before running search. Used for benchmark reproducibility.")
+    @Nullable
+    private String commit;
+
+    @CommandLine.Option(
             names = "--search-workspace",
             description =
                     "Run Search agent in benchmark mode to find relevant context for the given query. Outputs JSON report to stdout.")
     @Nullable
     private String searchWorkspace;
-
-    @CommandLine.Option(
-            names = "--commit",
-            description = "Git commit hash to checkout before running search. Used for benchmark reproducibility.")
-    @Nullable
-    private String commit;
 
     @CommandLine.Option(
             names = "--disable-context-scan",
