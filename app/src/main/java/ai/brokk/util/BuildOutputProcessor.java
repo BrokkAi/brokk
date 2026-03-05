@@ -63,6 +63,7 @@ public class BuildOutputProcessor {
      */
     public static String processForLlm(String rawBuildOutput, IContextManager contextManager)
             throws InterruptedException {
+
         logger.debug("Processing build output. Original length: {} chars", rawBuildOutput.length());
 
         // Step 1: Sanitize build output (cosmetic cleanup)

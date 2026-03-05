@@ -524,6 +524,31 @@ public class Context {
         return taskHistory;
     }
 
+    public Context withAppendedMopMessagesToLastEntry(List<? extends ChatMessage> additionalMessages) {
+        if (additionalMessages.isEmpty()) {
+            return this;
+        }
+
+        var history = getTaskHistory();
+        if (history.isEmpty()) {
+            return this;
+        }
+
+        var lastEntry = history.getLast();
+        if (lastEntry.mopLog() == null) {
+            return this;
+        }
+
+        var updatedLastEntry = lastEntry.withAppendedMopMessages(additionalMessages);
+        if (updatedLastEntry.equals(lastEntry)) {
+            return this;
+        }
+
+        var newHistory = new ArrayList<>(history);
+        newHistory.set(newHistory.size() - 1, updatedLastEntry);
+        return withHistory(newHistory);
+    }
+
     public ComputedValue<String> getAction(@Nullable Context previous) {
         var prev = (previous == null) ? EMPTY : previous;
 
