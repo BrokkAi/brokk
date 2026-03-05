@@ -368,7 +368,7 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
      * (common for variable_declaration -> variable_declarator lists), and finally recurses.
      */
     private @Nullable TSNode findVariableDeclarator(TSNode node, String simpleName, SourceContent sourceContent) {
-        if (node == null || node.isNull()) return null;
+        if (node.isNull()) return null;
 
         // If this node itself is a variable_declarator, check it first
         if (CSharpTreeSitterNodeTypes.VARIABLE_DECLARATOR.equals(node.getType())) {
