@@ -474,7 +474,10 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
         // If fieldNode is a variable_declarator, we want to render just that declarator
         // prefixed by the export/declaration keyword found in exportPrefix.
         if (VARIABLE_DECLARATOR.equals(nodeType)) {
-            return baseIndent + (exportPrefix.stripTrailing() + " " + sourceContent.substringFrom(fieldNode)).strip();
+            return baseIndent
+                    + (exportPrefix.stripTrailing() + " "
+                                    + sourceContent.substringFrom(fieldNode).strip())
+                            .strip();
         }
 
         var fullSignature = (exportPrefix.stripTrailing() + " " + signatureText.strip()).strip();
