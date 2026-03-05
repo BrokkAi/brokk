@@ -59,7 +59,7 @@
 ; Field declarations in classes and structs
 (field_declaration
   declarator: [
-                (pointer_declarator) @field.name
+                (pointer_declarator (field_identifier) @field.name)
                 (field_identifier) @field.name
                 ]) @field.definition
 
