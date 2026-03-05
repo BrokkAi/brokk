@@ -4,6 +4,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import ai.brokk.agents.BuildAgent.BuildDetails;
 import ai.brokk.analyzer.CodeUnit;
+import ai.brokk.analyzer.Languages;
+import ai.brokk.analyzer.MultiAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.testutil.NoOpConsoleIO;
 import ai.brokk.testutil.TestAnalyzer;
@@ -12,7 +14,11 @@ import ai.brokk.testutil.TestProject;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
+
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -115,8 +121,7 @@ class BuildToolsTest {
 
         // 2. Setup MultiAnalyzer with the Go delegate
         // Note: MultiAnalyzer.getTestModules delegates to the language-specific analyzer
-        var multiAnalyzer =
-                new ai.brokk.analyzer.MultiAnalyzer(java.util.Map.of(ai.brokk.analyzer.Languages.GO, goAnalyzer));
+        var multiAnalyzer = new MultiAnalyzer(Map.of(Languages.GO, goAnalyzer));
 
         TestContextManager mockCm = new TestContextManager(project, new NoOpConsoleIO(), Set.of(), multiAnalyzer);
 
@@ -148,8 +153,8 @@ class BuildToolsTest {
             var testAnalyzer = new TestAnalyzer();
             var cm = new TestContextManager(project, io, Set.of(), testAnalyzer);
 
-            var callCount = new java.util.concurrent.atomic.AtomicInteger(0);
-            var lastCommand = new java.util.concurrent.atomic.AtomicReference<String>();
+            var callCount = new AtomicInteger(0);
+            var lastCommand = new AtomicReference<String>();
 
             Environment.shellCommandRunnerFactory = (command, root) -> (outputConsumer, timeout) -> {
                 callCount.incrementAndGet();
