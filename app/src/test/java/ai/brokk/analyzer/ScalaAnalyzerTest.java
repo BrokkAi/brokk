@@ -1,6 +1,7 @@
 package ai.brokk.analyzer;
 
 import static ai.brokk.testutil.AnalyzerCreator.createTreeSitterAnalyzer;
+import static ai.brokk.testutil.AssertionHelperUtil.assertCodeEquals;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.testutil.InlineTestProjectCreator;
@@ -459,6 +460,34 @@ public class ScalaAnalyzerTest {
                     "Expected 1 definition for Foo.Foo due to naming collision between constructor and method in Scala normalization");
 
             assertTrue(methods.iterator().next().isFunction());
+        }
+    }
+
+    @Test
+    public void testMultiAssignmentFieldSignatures() throws IOException {
+        try (var testProject = InlineTestProjectCreator.code(
+                        """
+                        package ai.brokk
+
+                        class Foo {
+                          var x, y: Int = 1
+                          val a, b = "test"
+                        }
+                        """,
+                        "ai/brokk/Foo.scala")
+                .build()) {
+            var analyzer = createTreeSitterAnalyzer(testProject);
+            var file = new ProjectFile(testProject.getRoot(), "ai/brokk/Foo.scala");
+
+            var xUnit = new CodeUnit(file, CodeUnitType.FIELD, "ai.brokk", "Foo.x");
+            var yUnit = new CodeUnit(file, CodeUnitType.FIELD, "ai.brokk", "Foo.y");
+            var aUnit = new CodeUnit(file, CodeUnitType.FIELD, "ai.brokk", "Foo.a");
+            var bUnit = new CodeUnit(file, CodeUnitType.FIELD, "ai.brokk", "Foo.b");
+
+            assertCodeEquals("var x: Int = 1", analyzer.getSkeleton(xUnit).get());
+            assertCodeEquals("var y: Int = 1", analyzer.getSkeleton(yUnit).get());
+            assertCodeEquals("val a = \"test\"", analyzer.getSkeleton(aUnit).get());
+            assertCodeEquals("val b = \"test\"", analyzer.getSkeleton(bUnit).get());
         }
     }
 }

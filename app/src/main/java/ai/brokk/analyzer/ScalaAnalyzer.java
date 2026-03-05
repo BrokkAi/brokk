@@ -214,6 +214,43 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer {
         return false;
     }
 
+    @Override
+    protected String formatFieldSignature(
+            TSNode fieldNode,
+            SourceContent sourceContent,
+            String indent,
+            String exportPrefix,
+            String modifierPrefix,
+            String fieldName,
+            ProjectFile file) {
+        String nodeType = fieldNode.getType();
+        if (!VAL_DEFINITION.equals(nodeType) && !VAR_DEFINITION.equals(nodeType)) {
+            return super.formatFieldSignature(
+                    fieldNode, sourceContent, indent, exportPrefix, modifierPrefix, fieldName, file);
+        }
+
+        String keyword = VAL_DEFINITION.equals(nodeType) ? "val" : "var";
+
+        StringBuilder sb = new StringBuilder();
+        sb.append(indent);
+        if (!modifierPrefix.isEmpty()) {
+            sb.append(modifierPrefix).append(" ");
+        }
+        sb.append(keyword).append(" ").append(fieldName);
+
+        TSNode typeNode = fieldNode.getChildByFieldName("type");
+        if (typeNode != null && !typeNode.isNull()) {
+            sb.append(": ").append(sourceContent.substringFromBytes(typeNode.getStartByte(), typeNode.getEndByte()));
+        }
+
+        TSNode valueNode = fieldNode.getChildByFieldName("value");
+        if (valueNode != null && !valueNode.isNull()) {
+            sb.append(" = ").append(sourceContent.substringFromBytes(valueNode.getStartByte(), valueNode.getEndByte()));
+        }
+
+        return sb.toString();
+    }
+
     private static final Set<String> TEST_ANNOTATIONS = Set.of("Test", "ParameterizedTest", "RepeatedTest");
     private static final Set<String> TEST_INFIX_KEYWORDS = Set.of("in", "should", "must", "can");
 
