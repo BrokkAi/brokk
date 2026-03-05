@@ -218,25 +218,25 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer {
     protected String formatFieldSignature(
             TSNode fieldNode,
             SourceContent sourceContent,
-            String indent,
             String exportPrefix,
-            String modifierPrefix,
-            String fieldName,
+            String signatureText,
+            String simpleName,
+            String baseIndent,
             ProjectFile file) {
         String nodeType = fieldNode.getType();
         if (!VAL_DEFINITION.equals(nodeType) && !VAR_DEFINITION.equals(nodeType)) {
             return super.formatFieldSignature(
-                    fieldNode, sourceContent, indent, exportPrefix, modifierPrefix, fieldName, file);
+                    fieldNode, sourceContent, exportPrefix, signatureText, simpleName, baseIndent, file);
         }
 
         String keyword = VAL_DEFINITION.equals(nodeType) ? "val" : "var";
 
         StringBuilder sb = new StringBuilder();
-        sb.append(indent);
-        if (!modifierPrefix.isEmpty()) {
-            sb.append(modifierPrefix).append(" ");
+        sb.append(baseIndent);
+        if (!exportPrefix.isEmpty()) {
+            sb.append(exportPrefix.stripTrailing()).append(" ");
         }
-        sb.append(keyword).append(" ").append(fieldName);
+        sb.append(keyword).append(" ").append(simpleName);
 
         TSNode typeNode = fieldNode.getChildByFieldName("type");
         if (typeNode != null && !typeNode.isNull()) {
