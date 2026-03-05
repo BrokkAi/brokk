@@ -116,3 +116,83 @@ async def test_job_spinner_clears_for_origin_worktree_after_switch(tmp_path):
     panel_a.set_job_running.assert_any_call(True)
     panel_a.set_job_running.assert_any_call(False)
     panel_b.set_job_running.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_routed_job_uses_origin_runtime_settings(tmp_path):
+    path_a = tmp_path / "a"
+    path_b = tmp_path / "b"
+    path_a.mkdir()
+    path_b.mkdir()
+
+    app = BrokkApp(workspace_dir=path_a)
+    rt_a = app.get_runtime(path_a)
+    rt_b = app.get_runtime(path_b)
+
+    rt_a.planner_model = "planner-a"
+    rt_a.code_model = "code-a"
+    rt_a.reasoning_level = "high"
+    rt_a.reasoning_level_code = "medium"
+    rt_a.agent_mode = "CODE"
+    rt_a.auto_commit = False
+
+    rt_b.planner_model = "planner-b"
+    rt_b.code_model = "code-b"
+    rt_b.reasoning_level = "low"
+    rt_b.reasoning_level_code = "disable"
+    rt_b.agent_mode = "LUTZ"
+    rt_b.auto_commit = True
+
+    app.current_worktree = path_b
+
+    rt_a.executor = MagicMock()
+    rt_a.executor_ready = True
+    rt_a.executor.submit_job = AsyncMock(return_value="job-a")
+    rt_a.executor.stream_events = MagicMock(return_value=AsyncMock())
+
+    app._attach_mentions_to_context = AsyncMock(return_value=[])
+    app._maybe_chat = MagicMock(return_value=MagicMock())
+    app._handle_event = MagicMock()
+
+    await app._run_job("Prompt for A", path=path_a)
+
+    _, kwargs = rt_a.executor.submit_job.call_args
+    assert rt_a.executor.submit_job.call_args.args[1] == "planner-a"
+    assert kwargs["code_model"] == "code-a"
+    assert kwargs["reasoning_level"] == "high"
+    assert kwargs["reasoning_level_code"] == "medium"
+    assert kwargs["mode"] == "CODE"
+    assert kwargs["auto_commit"] is False
+
+
+def test_handle_event_routes_to_origin_panel_after_switch(tmp_path):
+    path_a = tmp_path / "a"
+    path_b = tmp_path / "b"
+    path_a.mkdir()
+    path_b.mkdir()
+
+    app = BrokkApp(workspace_dir=path_a)
+    app.current_worktree = path_b
+
+    panel_a = MagicMock()
+    panel_b = MagicMock()
+    app._maybe_chat = MagicMock(
+        side_effect=lambda path=None: panel_a if path == path_a else panel_b
+    )
+
+    app._handle_event(
+        {
+            "type": "LLM_TOKEN",
+            "data": {
+                "token": "hello",
+                "messageType": "AI",
+                "isNewMessage": True,
+                "isReasoning": False,
+                "isTerminal": False,
+            },
+        },
+        path=path_a,
+    )
+
+    panel_a.append_token.assert_called_once()
+    panel_b.append_token.assert_not_called()

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import asyncio
 import time
 from pathlib import Path
@@ -14,7 +16,6 @@ from textual.containers import Horizontal, Vertical
 from textual.message import Message
 from textual.widgets import ListItem, ListView, LoadingIndicator, RichLog, Static, TextArea
 
-from brokk_code.widgets.chat_panel import ChatPanel
 from brokk_code.widgets.status_line import StatusLine
 from brokk_code.widgets.token_bar import TokenBar
 

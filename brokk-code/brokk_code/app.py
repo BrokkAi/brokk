@@ -2069,12 +2069,12 @@ class BrokkApp(App):
             attached_fragment_ids = await self._attach_mentions_to_context(task_input)
             runtime.current_job_id = await runtime.executor.submit_job(
                 task_input,
-                self.current_model,
-                code_model=self.code_model,
-                reasoning_level=self.reasoning_level,
-                reasoning_level_code=self.reasoning_level_code,
-                mode=self.current_mode,
-                auto_commit=self.auto_commit,
+                runtime.planner_model,
+                code_model=runtime.code_model,
+                reasoning_level=runtime.reasoning_level,
+                reasoning_level_code=runtime.reasoning_level_code,
+                mode=runtime.agent_mode,
+                auto_commit=runtime.auto_commit,
             )
             async for event in runtime.executor.stream_events(runtime.current_job_id):
                 self._handle_event(event, target_path)
@@ -2142,11 +2142,11 @@ class BrokkApp(App):
         runtime = self.get_runtime(target_path)
         event_type = event.get("type")
         data = event.get("data", {})
-        chat = self._maybe_chat()
+        chat = self._maybe_chat(target_path)
         is_current = target_path == self.current_worktree
 
         if event_type == "LLM_TOKEN":
-            if chat and is_current:
+            if chat:
                 chat.append_token(
                     token=data.get("token", ""),
                     message_type=data.get("messageType", "AI"),
@@ -2170,14 +2170,14 @@ class BrokkApp(App):
                 if is_current:
                     self._update_statusline()
 
-            if chat and is_current and not is_cost and not is_confirm:
+            if chat and not is_cost and not is_confirm:
                 chat.add_system_message(msg, level=level)
         elif event_type == "ERROR":
             msg = data.get("message", "Unknown error")
-            if chat and is_current:
+            if chat:
                 chat.add_system_message(msg, level="ERROR")
         elif event_type == "COMMAND_RESULT":
-            if chat and is_current:
+            if chat:
                 stage = data.get("stage", "Command")
                 command = data.get("command", "")
                 success = data.get("success", False)
