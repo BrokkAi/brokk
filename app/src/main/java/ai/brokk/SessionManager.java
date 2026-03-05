@@ -45,6 +45,7 @@ import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.function.Consumer;
+import java.util.regex.Pattern;
 import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -87,6 +88,28 @@ public class SessionManager implements AutoCloseable {
     private static final Logger logger = LogManager.getLogger(SessionManager.class);
 
     public static final String UNREADABLE_SESSIONS_DIR = "unreadable";
+
+    private static final Pattern SESSION_NAME_STRIP_PATTERN =
+            Pattern.compile("^(?:@\\S+\\s+|/ask\\s+|/lutz\\s+|/code\\s+)+", Pattern.CASE_INSENSITIVE);
+
+    /**
+     * Derives a session name from the prompt text, mirroring TUI behavior.
+     * Strips leading mentions/commands, takes the first line, and truncates to 60 chars.
+     */
+    public static String deriveSessionName(String text) {
+        // Strip leading mentions and common command-like prefixes
+        String cleaned = SESSION_NAME_STRIP_PATTERN.matcher(text).replaceFirst("");
+
+        // Take first line and truncate
+        String trimmed = cleaned.strip();
+        int newlineIdx = trimmed.indexOf('\n');
+        String firstLine = newlineIdx != -1 ? trimmed.substring(0, newlineIdx).strip() : trimmed;
+
+        if (firstLine.length() > 60) {
+            return firstLine.substring(0, 57).strip() + "...";
+        }
+        return firstLine;
+    }
 
     private static class SessionExecutorThreadFactory implements ThreadFactory {
         private static final ThreadLocal<Boolean> isSessionExecutorThread = ThreadLocal.withInitial(() -> false);
@@ -135,7 +158,7 @@ public class SessionManager implements AutoCloseable {
         this.sessionsCache = loadSessions();
     }
 
-    Map<UUID, SessionInfo> getSessionsCache() {
+    public Map<UUID, SessionInfo> getSessionsCache() {
         return sessionsCache;
     }
 
@@ -270,6 +293,44 @@ public class SessionManager implements AutoCloseable {
             logger.warn("Session ID {} not found in cache, cannot rename.", sessionId);
             return false;
         }
+    }
+
+    /**
+     * Auto-renames a session if it currently has a default/generic name.
+     * This is a best-effort asynchronous operation serialized per session.
+     */
+    public CompletableFuture<Void> autoRenameIfDefault(UUID sessionId, String taskInput) {
+        return sessionExecutorByKey.submit(sessionId.toString(), () -> {
+            try {
+                SessionInfo info = sessionsCache.get(sessionId);
+                if (info == null) return null;
+
+                String currentName = info.name();
+                boolean isDefaultName = currentName.equals("TUI Session")
+                        || currentName.equals("New Session")
+                        || currentName.equals("Session");
+
+                if (isDefaultName) {
+                    String derived = deriveSessionName(taskInput);
+                    if (!derived.isBlank() && !derived.equals(currentName)) {
+                        var updatedInfo = new SessionInfo(
+                                info.id(),
+                                derived,
+                                info.created(),
+                                System.currentTimeMillis(),
+                                info.version(),
+                                info.totalCost());
+                        sessionsCache.put(sessionId, updatedInfo);
+                        Path sessionHistoryPath = getSessionHistoryPath(sessionId);
+                        writeSessionInfoToZip(sessionHistoryPath, updatedInfo);
+                        logger.info("Auto-renamed session {} to '{}' based on job input", sessionId, derived);
+                    }
+                }
+            } catch (Exception e) {
+                logger.warn("Failed to auto-rename session {}: {}", sessionId, e.getMessage());
+            }
+            return null;
+        });
     }
 
     public void addToTotalCost(UUID sessionId, double delta) {
