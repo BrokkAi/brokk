@@ -1932,29 +1932,15 @@ public class CppAnalyzerTest {
 
             // 1) int x = f(1, 2), y = g();
             assertCodeEquals("int x = f(1, 2);", xSkel);
-            assertFalse(xSkel.contains("y"), "x skeleton should not contain y");
-            assertFalse(xSkel.contains("g()"), "x skeleton should not contain g()");
-
             assertCodeEquals("int y = g();", ySkel);
-            assertFalse(ySkel.contains("x"), "y skeleton should not contain x");
-            assertFalse(ySkel.contains("f(1, 2)"), "y skeleton should not contain f(1, 2)");
 
             // 2) int* p = &x, q = nullptr;
             assertCodeEquals("int* p = &x;", pSkel);
-            assertFalse(pSkel.contains("q"), "p skeleton should not contain q");
-            assertFalse(pSkel.contains("nullptr"), "p skeleton should not contain nullptr");
-
             assertCodeEquals("int* q = nullptr;", qSkel);
-            assertFalse(qSkel.contains("p"), "q skeleton should not contain p");
-            assertFalse(qSkel.contains("&x"), "q skeleton should not contain &x");
 
             // 3) int a, b = 2;
             assertCodeEquals("int a;", aSkel);
-            assertFalse(aSkel.contains("="), "a skeleton should not contain assignment");
-            assertFalse(aSkel.contains("b"), "a skeleton should not contain b");
-
             assertCodeEquals("int b = 2;", bSkel);
-            assertFalse(bSkel.contains("a"), "b skeleton should not contain a");
         }
     }
 

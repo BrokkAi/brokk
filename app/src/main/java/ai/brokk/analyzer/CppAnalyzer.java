@@ -342,7 +342,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
         }
 
         if (ENUMERATOR.equals(fieldNode.getType())) {
-            return baseIndent + sourceContent.substringFrom(fieldNode) + ",";
+            return baseIndent + sourceContent.substringFrom(fieldNode).strip();
         }
 
         // Tree-sitter C++ grammar shape for multi-declarator fields we care about (as observed):
@@ -382,66 +382,166 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
         final String prefixText = getPrefixText(
                 fieldDecl, typeNode, sourceContent, Set.of(STORAGE_CLASS_SPECIFIER, TYPE_QUALIFIER, VIRTUAL_SPECIFIER));
 
-        // Find the declarator with name == simpleName.
-        TSNode matchedDeclarator = null;
-        int nextDeclaratorStart = Integer.MAX_VALUE;
-
+        // Determine whether this declaration is using "type-star" formatting like:
+        //   int* p = &x, q = nullptr;
+        // In that style, users may expect the '*' to be rendered with the type for each declarator skeleton line.
+        boolean hasPointerDeclaratorInDeclaration = false;
         for (int i = 0; i < fieldDecl.getChildCount(); i++) {
-            TSNode child = fieldDecl.getChild(i);
-            if (child == null || child.isNull() || !"declarator".equals(fieldDecl.getFieldNameForChild(i))) {
+            if (!"declarator".equals(fieldDecl.getFieldNameForChild(i))) {
                 continue;
             }
-
-            TSNode fieldId = findFieldIdentifier(child);
-            if (fieldId != null
-                    && !fieldId.isNull()
-                    && simpleName.equals(sourceContent.substringFrom(fieldId).strip())) {
-                matchedDeclarator = child;
-                // Look ahead for the next declarator's start byte to bound the initializer search.
-                for (int j = i + 1; j < fieldDecl.getChildCount(); j++) {
-                    TSNode nextChild = fieldDecl.getChild(j);
-                    if (nextChild != null
-                            && !nextChild.isNull()
-                            && "declarator".equals(fieldDecl.getFieldNameForChild(j))) {
-                        nextDeclaratorStart = nextChild.getStartByte();
-                        break;
-                    }
-                }
+            TSNode child = fieldDecl.getChild(i);
+            if (child == null || child.isNull()) {
+                continue;
+            }
+            if (POINTER_DECLARATOR.equals(child.getType())) {
+                hasPointerDeclaratorInDeclaration = true;
+                break;
+            }
+            String childText = sourceContent.substringFrom(child).stripLeading();
+            if (childText.startsWith("*")) {
+                hasPointerDeclaratorInDeclaration = true;
                 break;
             }
         }
 
-        if (matchedDeclarator == null || matchedDeclarator.isNull()) {
+        // Find the declarator "unit" with name == simpleName.
+        //
+        // IMPORTANT: do not try to splice on commas manually. In particular, commas can appear in expressions
+        // (e.g. f(1, 2)) and at call sites, so we must not use string logic to decide where a declarator ends.
+        //
+        // Instead, prefer slicing exactly the AST "declarator" child node. Then associate an initializer using
+        // AST node boundaries (byte offsets), not string parsing.
+        TSNode matchedDeclaratorUnit = null;
+        TSNode matchedIdNode = null;
+        int matchedDeclaratorIndex = -1;
+
+        for (int i = 0; i < fieldDecl.getChildCount(); i++) {
+            TSNode child = fieldDecl.getChild(i);
+            if (child == null || child.isNull()) {
+                continue;
+            }
+            if (!"declarator".equals(fieldDecl.getFieldNameForChild(i))) {
+                continue;
+            }
+
+            TSNode idNode = findFieldIdentifier(child);
+            if (idNode == null || idNode.isNull()) {
+                continue;
+            }
+
+            String idText = sourceContent.substringFrom(idNode).strip();
+            if (simpleName.equals(idText)) {
+                matchedDeclaratorUnit = child;
+                matchedIdNode = idNode;
+                matchedDeclaratorIndex = i;
+                break;
+            }
+        }
+
+        if (matchedDeclaratorUnit == null
+                || matchedDeclaratorUnit.isNull()
+                || matchedIdNode == null
+                || matchedIdNode.isNull()) {
             return super.formatFieldSignature(
                     fieldNode, sourceContent, exportPrefix, signatureText, simpleName, baseIndent, file);
         }
 
-        // Associate the closest following default_value within this field_declaration that starts
-        // after our declarator and before any subsequent declarator.
-        TSNode matchedDefaultValue = null;
-        for (int i = 0; i < fieldDecl.getChildCount(); i++) {
-            TSNode child = fieldDecl.getChild(i);
-            if (child == null || child.isNull() || !"default_value".equals(fieldDecl.getFieldNameForChild(i))) {
+        int nextDeclaratorStartByte = Integer.MAX_VALUE;
+        for (int i = matchedDeclaratorIndex + 1; i < fieldDecl.getChildCount(); i++) {
+            if (!"declarator".equals(fieldDecl.getFieldNameForChild(i))) {
                 continue;
             }
-            int start = child.getStartByte();
-            if (start >= matchedDeclarator.getEndByte() && start < nextDeclaratorStart) {
-                matchedDefaultValue = child;
+            TSNode next = fieldDecl.getChild(i);
+            if (next != null && !next.isNull()) {
+                nextDeclaratorStartByte = next.getStartByte();
                 break;
             }
         }
 
-        final String declaratorText;
-        if (matchedDefaultValue != null && !matchedDefaultValue.isNull()) {
-            // Prefer byte-accurate slicing so we include any '=' token between declarator and default_value.
-            declaratorText = sourceContent
-                    .substringFromBytes(matchedDeclarator.getStartByte(), matchedDefaultValue.getEndByte())
-                    .strip();
-        } else {
-            declaratorText = sourceContent.substringFrom(matchedDeclarator).strip();
+        // If the matched declarator node does not include its initializer (common when the declarator is just an
+        // identifier/pointer_declarator), then its initializer is typically a sibling default_value node. Associate
+        // the initializer based on byte offsets (between this declarator and the next declarator).
+        TSNode initializerNode = null;
+        for (int i = matchedDeclaratorIndex + 1; i < fieldDecl.getChildCount(); i++) {
+            if (!"default_value".equals(fieldDecl.getFieldNameForChild(i))) {
+                continue;
+            }
+            TSNode candidate = fieldDecl.getChild(i);
+            if (candidate == null || candidate.isNull()) {
+                continue;
+            }
+            int sb = candidate.getStartByte();
+            if (sb >= matchedDeclaratorUnit.getEndByte() && sb < nextDeclaratorStartByte) {
+                initializerNode = candidate;
+                break;
+            }
+            if (sb >= nextDeclaratorStartByte) {
+                break;
+            }
         }
 
-        return baseIndent + prefixText + typeText + " " + declaratorText + ";";
+        // IMPORTANT: Prefer the identifier node for the "name" text. Some grammars can wrap declarators in
+        // a larger node that may also include neighboring declarators; slicing the identifier node avoids
+        // accidentally including sibling names (e.g., "p" showing up in "q" skeletons).
+        String declaratorText = sourceContent.substringFrom(matchedIdNode).strip();
+
+        // Preserve array/bitfield suffixes that are part of the declarator subtree (e.g. "x[3]"),
+        // but do not accidentally include initializers or sibling declarators.
+        if (matchedIdNode.getEndByte() < matchedDeclaratorUnit.getEndByte()) {
+            String suffix = sourceContent
+                    .substringFromBytes(matchedIdNode.getEndByte(), matchedDeclaratorUnit.getEndByte())
+                    .strip();
+
+            int equalsIdx = suffix.indexOf('=');
+            if (equalsIdx >= 0) {
+                suffix = suffix.substring(0, equalsIdx).stripTrailing();
+            }
+            int commaIdx = suffix.indexOf(',');
+            if (commaIdx >= 0) {
+                suffix = suffix.substring(0, commaIdx).stripTrailing();
+            }
+
+            if (!suffix.isEmpty()) {
+                declaratorText = declaratorText + suffix;
+            }
+        }
+
+        // Normalize pointer/reference spacing for cases where the declarator subtree includes the punctuation.
+        // e.g. declaratorText "*p" becomes "p" and we attach "*" to the type: "int* p".
+        String adjustedTypeText = typeText;
+
+        // If any declarator in the same field_declaration is a pointer declarator, treat '*' as a type-suffix
+        // for skeleton rendering consistency across per-declarator lines.
+        if (hasPointerDeclaratorInDeclaration
+                && !adjustedTypeText.stripTrailing().endsWith("*")
+                && !adjustedTypeText.stripTrailing().endsWith("&")) {
+            adjustedTypeText = adjustedTypeText.stripTrailing() + "*";
+        }
+
+        if (declaratorText.startsWith("*")) {
+            // '*' is already accounted for on the type; just strip it from the declarator.
+            declaratorText = declaratorText.substring(1).stripLeading();
+        } else if (declaratorText.startsWith("&")) {
+            adjustedTypeText = adjustedTypeText.stripTrailing() + "&";
+            declaratorText = declaratorText.substring(1).stripLeading();
+        }
+
+        String initializerText = "";
+        if (initializerNode != null && !initializerNode.isNull()) {
+            String initRaw = sourceContent.substringFrom(initializerNode).strip();
+            if (!initRaw.isEmpty()) {
+                // Tree-sitter's C++ "default_value" field commonly excludes the '=' token.
+                // Do not splice by commas; just restore the correct initializer delimiter.
+                if (initRaw.startsWith("=") || initRaw.startsWith("{") || initRaw.startsWith("(")) {
+                    initializerText = " " + initRaw;
+                } else {
+                    initializerText = " = " + initRaw;
+                }
+            }
+        }
+
+        return baseIndent + prefixText + adjustedTypeText + " " + declaratorText + initializerText + ";";
     }
 
     @Override
@@ -880,10 +980,18 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
      */
     private @Nullable TSNode findFieldIdentifier(TSNode node) {
         if (node.isNull()) return null;
-        var fieldIdentifierTypes = Set.of("pointer_declarator", "field_identifier", "identifier");
+
+        // We want the actual identifier node, not an enclosing declarator like pointer_declarator.
+        // Pointer/reference punctuation is handled when rendering; name matching must be done on the identifier text.
+        var fieldIdentifierTypes = Set.of("field_identifier", "identifier");
         if (fieldIdentifierTypes.contains(node.getType())) return node;
+
         for (int i = 0; i < node.getChildCount(); i++) {
-            TSNode found = findFieldIdentifier(node.getChild(i));
+            TSNode child = node.getChild(i);
+            if (child == null || child.isNull()) {
+                continue;
+            }
+            TSNode found = findFieldIdentifier(child);
             if (found != null) return found;
         }
         return null;
