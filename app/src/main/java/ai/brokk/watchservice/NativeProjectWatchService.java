@@ -147,7 +147,7 @@ public class NativeProjectWatchService extends AbstractWatchService {
         Path changedPath = event.path();
         DirectoryChangeEvent.EventType eventType = event.eventType();
 
-        logger.debug("handleEvent ENTRY: type={}, path={}, running={}", eventType, changedPath, running);
+        logger.trace("handleEvent ENTRY: type={}, path={}, running={}", eventType, changedPath, running);
 
         lock.lock();
         try {
@@ -183,7 +183,7 @@ public class NativeProjectWatchService extends AbstractWatchService {
             }
             var pf = new ProjectFile(baseForFile, relativePath);
             accumulatedBatch.getFiles().add(pf);
-            logger.debug(
+            logger.trace(
                     "handleEvent: added ProjectFile={}, batchSize={}, pauseCount={}",
                     pf,
                     accumulatedBatch.getFiles().size(),
@@ -231,7 +231,7 @@ public class NativeProjectWatchService extends AbstractWatchService {
             pendingFlush = null;
 
             // Notify listeners while holding the lock to guarantee pause() semantics
-            logger.debug(
+            logger.trace(
                     "Flushing {} accumulated file events",
                     batchToNotify.getFiles().size());
             notifyFilesChanged(batchToNotify);

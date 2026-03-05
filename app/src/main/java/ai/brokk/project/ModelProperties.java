@@ -27,6 +27,7 @@ public final class ModelProperties {
     private static final String GCF_1 = "grok-code-fast-1";
     private static final String HAIKU_3 = "claude-haiku-3";
     private static final String FLASH_2_0_LITE = "gemini-2.0-flash-lite";
+    private static final String GEMINI_3_1_FLASH_LITE = "gemini-3.1-flash-lite-preview";
     private static final String OPUS_4_6 = "claude-opus-4-6";
     private static final String SONNET_4_6 = "claude-sonnet-4-6";
     private static final String HAIKU_4_5 = "claude-haiku-4-5";
@@ -53,6 +54,7 @@ public final class ModelProperties {
     private static final ModelConfig flash2 = new ModelConfig(FLASH_2_0);
     private static final ModelConfig flash3 = new ModelConfig(FLASH_3, ReasoningLevel.DISABLE);
     private static final ModelConfig g31p = new ModelConfig(GEMINI_3_1_PRO, ReasoningLevel.DISABLE);
+    private static final ModelConfig flash31liteHigh = new ModelConfig(GEMINI_3_1_FLASH_LITE, ReasoningLevel.HIGH);
 
     private static final ModelConfig gcf1 = new ModelConfig(GCF_1);
 
@@ -94,14 +96,14 @@ public final class ModelProperties {
         ARCHITECT("architectConfig", sonnet4_6, gcf1),
 
         // indirectly selectable via vendor preference
-        SUMMARIZE("quickConfig", gpt5Mini, gcf1),
+        SUMMARIZE("quickConfig", flash31liteHigh, gcf1),
         // GCF1 is cheap enough for usages, but we don't get enough concurrent requests, so free tier gets flash2
-        USAGES("usagesConfig", gpt5Mini, flash2),
+        USAGES("usagesConfig", flash31liteHigh, flash2),
         QUICK_EDIT("quickEditConfig", flash3, gcf1),
         QUICKEST("quickestConfig", flash2Lite),
         COMMIT_MESSAGE("commitMessageConfig", flash3, gcf1),
         SCAN("scanConfig", flash3, gcf1),
-        BUILD_PROCESSOR("buildProcessorConfig", gpt5Mini, gpt5Nano);
+        BUILD_PROCESSOR("buildProcessorConfig", flash31liteHigh, gpt5Nano);
 
         public final String propertyKey;
         private final ModelConfig defaultConfig;
@@ -152,7 +154,7 @@ public final class ModelProperties {
                             ModelType.QUICKEST, flash2Lite,
                             ModelType.COMMIT_MESSAGE, flash3,
                             ModelType.SCAN, flash3,
-                            ModelType.BUILD_PROCESSOR, flash3));
+                            ModelType.BUILD_PROCESSOR, flash31liteHigh));
             map.put(
                     "OpenAI",
                     Map.of(

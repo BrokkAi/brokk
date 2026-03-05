@@ -88,11 +88,11 @@ class GapAnnotation:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Render llm history as a PyQt gantt chart")
-    parser.add_argument("start", help="Start time as HH:MM:SS")
+    parser.add_argument("start", help="Start time as HH:MM:SS or HH-MM-SS")
     parser.add_argument(
         "end",
         nargs="?",
-        help="End time as HH:MM:SS; defaults to the last history directory timestamp",
+        help="End time as HH:MM:SS or HH-MM-SS; defaults to the last history directory timestamp",
     )
     parser.add_argument(
         "--history",
@@ -127,10 +127,12 @@ def parse_day(raw: str) -> date:
 
 
 def parse_time(raw: str) -> datetime.time:
-    try:
-        return datetime.strptime(raw, "%H:%M:%S").time()
-    except ValueError as exc:
-        raise ValueError("start/end must be HH:MM:SS") from exc
+    for pattern in ("%H:%M:%S", "%H-%M-%S"):
+        try:
+            return datetime.strptime(raw, pattern).time()
+        except ValueError:
+            continue
+    raise ValueError("start/end must be HH:MM:SS or HH-MM-SS")
 
 
 def decode_properties_value(value: str) -> str:
