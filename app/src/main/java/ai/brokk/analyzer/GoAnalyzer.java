@@ -420,6 +420,10 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
 
     @Override
     public List<String> getTestModules(Collection<ProjectFile> files) {
+        return getTestModulesStatic(files);
+    }
+
+    public static List<String> getTestModulesStatic(Collection<ProjectFile> files) {
         return files.stream()
                 .map(file -> formatTestModule(file.getRelPath().getParent()))
                 .distinct()
