@@ -342,17 +342,29 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
         }
 
         if (ENUMERATOR.equals(fieldNode.getType())) {
-            return baseIndent + sourceContent.substringFrom(fieldNode);
+            return baseIndent + sourceContent.substringFrom(fieldNode) + ",";
         }
 
         TSNode parentDecl = fieldNode.getParent();
         if (parentDecl != null
                 && !parentDecl.isNull()
-                && (FIELD_DECLARATION.equals(parentDecl.getType()) || DECLARATION.equals(parentDecl.getType()))) {
-            TSNode typeNode = parentDecl.getChildByFieldName("type");
+                && FIELD_DECLARATION_LIST.equals(parentDecl.getType())) {
+
+            // Case: fieldNode is a field_identifier (captured by @field.name) inside a field_declaration
+            // The AST structure for "int x=1, y=2;" is:
+            // field_declaration
+            //   type: primitive_type
+            //   declarator: field_identifier (x)
+            //   default_value: number_literal (1)
+            //   declarator: field_identifier (y)
+            //   default_value: number_literal (2)
+
+            TSNode typeNode = fieldNode.getChildByFieldName("type");
             if (typeNode != null && !typeNode.isNull()) {
                 String typeText = sourceContent.substringFrom(typeNode);
                 StringBuilder prefix = new StringBuilder();
+
+                // Collect modifiers (storage class, qualifiers) before the type
                 for (int i = 0; i < parentDecl.getChildCount(); i++) {
                     TSNode child = parentDecl.getChild(i);
                     if (child == null || child.isNull()) continue;
@@ -364,8 +376,49 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
                         prefix.append(sourceContent.substringFrom(child)).append(" ");
                     }
                 }
-                String declaratorText = sourceContent.substringFrom(fieldNode);
-                return baseIndent + prefix + typeText + " " + declaratorText + ";";
+
+                // Construct the declarator part (name + optional initializer)
+                // We identify the fieldNode's index in the parent to scan forward for associated parts
+                int fieldIndex = -1;
+                int childCount = parentDecl.getChildCount();
+                for (int i = 0; i < childCount; i++) {
+                    TSNode child = parentDecl.getChild(i);
+                    if (child.equals(fieldNode)) {
+                        fieldIndex = i;
+                        break;
+                    }
+                }
+
+                var declaratorParts = new ArrayList<String>();
+                declaratorParts.add(simpleName);
+
+                // Scan forward from the fieldNode
+                if (fieldIndex != -1) {
+                    for (int i = fieldIndex + 1; i < fieldNode.getChildCount(); i++) {
+                        TSNode sibling = fieldNode.getChild(i);
+                        String siblingType = sibling.getType();
+
+                        // Stop if we hit a comma, semicolon, or the start of the next declarator
+                        if (",".equals(siblingType) || ";".equals(siblingType)) {
+                            break;
+                        }
+
+                        String fieldName = fieldNode.getFieldNameForChild(i);
+                        if ("declarator".equals(fieldName) && "field_identifier".equals(siblingType)) {
+                            break;
+                        }
+
+                        // Append value assignments or bitfield clauses
+                        // We include default_value, bitfield_clause, or simple assignment tokens
+                        if ("default_value".equals(fieldName)
+                                || "bitfield_clause".equals(siblingType)
+                                || "=".equals(siblingType)) {
+                            declaratorParts.add(sourceContent.substringFrom(sibling));
+                        }
+                    }
+                }
+
+                return baseIndent + prefix + typeText + " " + String.join(" ", declaratorParts) + ";";
             }
         }
 

@@ -36,6 +36,7 @@ public final class CppTreeSitterNodeTypes {
     public static final String ALIAS_DECLARATION = "alias_declaration";
     public static final String USING_DECLARATION = "using_declaration";
     public static final String TYPEDEF_DECLARATION = "typedef_declaration";
+    public static final String FIELD_DECLARATION_LIST = "field_declaration_list";
 
     // Types and Return Types
     public static final String TRAILING_RETURN_TYPE = "trailing_return_type";
