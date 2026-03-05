@@ -1029,11 +1029,11 @@ class ExecutorManager:
             payload["message"] = message
 
         try:
-            resp = await self._http_client.post("/v1/context/commit", json=payload)
+            resp = await self._http_client.post("/v1/repo/commit", json=payload)
             resp.raise_for_status()
             return resp.json()
         except httpx.HTTPError as e:
-            await self._handle_http_error(e, "/v1/context/commit")
+            await self._handle_http_error(e, "/v1/repo/commit")
             raise  # Should not be reached
 
     async def cancel_job(self, job_id: str):

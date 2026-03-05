@@ -10,8 +10,6 @@ import ai.brokk.context.ContextFragments;
 import ai.brokk.context.SpecialTextType;
 import ai.brokk.executor.http.SimpleHttpServer;
 import ai.brokk.executor.jobs.ErrorPayload;
-import ai.brokk.git.GitWorkflow;
-import ai.brokk.git.IGitRepo;
 import ai.brokk.tasks.TaskList;
 import ai.brokk.util.Messages;
 import com.sun.net.httpserver.HttpExchange;
@@ -86,7 +84,6 @@ public final class ContextRouter implements SimpleHttpServer.CheckedHttpHandler 
             case "/v1/context/classes" -> handlePostContextClasses(exchange);
             case "/v1/context/methods" -> handlePostContextMethods(exchange);
             case "/v1/context/text" -> handlePostContextText(exchange);
-            case "/v1/context/commit" -> handlePostContextCommit(exchange);
             case "/v1/tasklist" -> handlePostTaskList(exchange);
             default ->
                 SimpleHttpServer.sendJsonResponse(
@@ -625,58 +622,6 @@ public final class ContextRouter implements SimpleHttpServer.CheckedHttpHandler 
     private record AddContextTextRequest(String text) {}
 
     private record ReplaceTaskListRequest(@Nullable String bigPicture, @Nullable List<TaskList.TaskItem> tasks) {}
-
-    private record CommitRequest(@Nullable String message) {}
-
-    private void handlePostContextCommit(HttpExchange exchange) throws IOException {
-        if (!RouterUtil.ensureMethod(exchange, "POST")) return;
-
-        var request = RouterUtil.parseJsonOr400(exchange, CommitRequest.class, "/v1/context/commit");
-        if (request == null) return;
-
-        var project = contextManager.getProject();
-        if (!project.hasGit()) {
-            RouterUtil.sendValidationError(exchange, "Project does not have a git repository");
-            return;
-        }
-
-        try {
-            var repo = project.getRepo();
-            var modified = repo.getModifiedFiles();
-
-            if (modified.isEmpty()) {
-                SimpleHttpServer.sendJsonResponse(exchange, Map.of("status", "no_changes"));
-                return;
-            }
-
-            var filesToCommit =
-                    modified.stream().map(IGitRepo.ModifiedFile::file).toList();
-
-            var gitWorkflow = new GitWorkflow(contextManager);
-            @Nullable String message = request.message();
-
-            if (message == null || message.isBlank()) {
-                message = gitWorkflow.suggestCommitMessage(filesToCommit, true).orElse("Manual commit");
-            }
-
-            var commitResult = gitWorkflow.commit(filesToCommit, message);
-
-            contextManager.getIo().updateGitRepo();
-
-            SimpleHttpServer.sendJsonResponse(
-                    exchange,
-                    Map.of(
-                            "commitId", commitResult.commitId(),
-                            "firstLine", commitResult.firstLine()));
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            logger.warn("Commit operation was interrupted", e);
-            SimpleHttpServer.sendJsonResponse(exchange, 503, ErrorPayload.internalError("Operation interrupted", e));
-        } catch (Exception e) {
-            logger.error("Error handling POST /v1/context/commit", e);
-            SimpleHttpServer.sendJsonResponse(exchange, 500, ErrorPayload.internalError("Failed to commit changes", e));
-        }
-    }
 
     // ── GET /v1/context/conversation ──────────────────────
 

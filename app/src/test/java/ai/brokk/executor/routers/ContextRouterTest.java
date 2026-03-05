@@ -1,8 +1,6 @@
 package ai.brokk.executor.routers;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.ContextManager;
@@ -23,12 +21,10 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.URI;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import org.eclipse.jgit.api.Git;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -283,84 +279,6 @@ class ContextRouterTest {
         assertEquals(404, exchange.responseCode());
         var payload = MAPPER.readValue(exchange.responseBodyBytes(), ErrorPayload.class);
         assertEquals(ErrorPayload.Code.NOT_FOUND, payload.code());
-    }
-
-    private void initGitRepoAndRecreateContext(boolean modifyAfterCommit) throws Exception {
-        try (var git = Git.init().setDirectory(projectRoot.toFile()).call()) {
-            var testFile = projectRoot.resolve("initial.txt");
-            Files.writeString(testFile, "initial content");
-            git.add().addFilepattern("initial.txt").call();
-            git.commit().setMessage("Initial commit").call();
-
-            if (modifyAfterCommit) {
-                Files.writeString(testFile, "modified content");
-            }
-        }
-
-        if (contextManager != null) {
-            contextManager.close();
-        }
-        var project = new MainProject(projectRoot);
-        contextManager = new ContextManager(project);
-        contextRouter = new ContextRouter(contextManager);
-    }
-
-    @Test
-    void handlePostContextCommit_noChanges_returnsNoChangesStatus() throws Exception {
-        initGitRepoAndRecreateContext(false);
-
-        var exchange = TestHttpExchange.jsonRequest("POST", "/v1/context/commit", Map.of());
-        contextRouter.handle(exchange);
-
-        assertEquals(200, exchange.responseCode());
-        Map<String, Object> body = MAPPER.readValue(exchange.responseBodyBytes(), new TypeReference<>() {});
-        assertEquals("no_changes", body.get("status"));
-    }
-
-    @Test
-    void handlePostContextCommit_withChanges_returnsCommitMetadata() throws Exception {
-        initGitRepoAndRecreateContext(true);
-
-        var exchange =
-                TestHttpExchange.jsonRequest("POST", "/v1/context/commit", Map.of("message", "Test commit message"));
-        contextRouter.handle(exchange);
-
-        assertEquals(200, exchange.responseCode());
-        Map<String, Object> body = MAPPER.readValue(exchange.responseBodyBytes(), new TypeReference<>() {});
-
-        assertNotNull(body.get("commitId"));
-        assertFalse(((String) body.get("commitId")).isBlank());
-        assertEquals("Test commit message", body.get("firstLine"));
-    }
-
-    @Test
-    void handlePostContextCommit_blankMessage_usesDefaultMessage() throws Exception {
-        initGitRepoAndRecreateContext(true);
-
-        var exchange = TestHttpExchange.jsonRequest("POST", "/v1/context/commit", Map.of("message", ""));
-        contextRouter.handle(exchange);
-
-        assertEquals(200, exchange.responseCode());
-        Map<String, Object> body = MAPPER.readValue(exchange.responseBodyBytes(), new TypeReference<>() {});
-
-        assertNotNull(body.get("commitId"));
-        assertFalse(((String) body.get("commitId")).isBlank());
-        assertEquals("Manual commit", body.get("firstLine"));
-    }
-
-    @Test
-    void handlePostContextCommit_omittedMessage_usesDefaultMessage() throws Exception {
-        initGitRepoAndRecreateContext(true);
-
-        var exchange = TestHttpExchange.jsonRequest("POST", "/v1/context/commit", Map.of());
-        contextRouter.handle(exchange);
-
-        assertEquals(200, exchange.responseCode());
-        Map<String, Object> body = MAPPER.readValue(exchange.responseBodyBytes(), new TypeReference<>() {});
-
-        assertNotNull(body.get("commitId"));
-        assertFalse(((String) body.get("commitId")).isBlank());
-        assertEquals("Manual commit", body.get("firstLine"));
     }
 
     private static final class TestHttpExchange extends HttpExchange {
