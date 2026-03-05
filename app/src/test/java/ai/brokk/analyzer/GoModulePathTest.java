@@ -30,10 +30,13 @@ class GoModulePathTest {
     void testGetTestModulesPrefixing() {
         assertEquals(".", GoAnalyzer.formatTestModule(null));
         assertEquals(".", GoAnalyzer.formatTestModule(Path.of(".")));
+        assertEquals(".", GoAnalyzer.formatTestModule(Path.of("./")));
+        assertEquals(".", GoAnalyzer.formatTestModule(Path.of("/")));
         assertEquals("./subdir", GoAnalyzer.formatTestModule(Path.of("subdir")));
         assertEquals("./a/b/c", GoAnalyzer.formatTestModule(Path.of("a", "b", "c")));
         assertEquals("./leading/slash", GoAnalyzer.formatTestModule(Path.of("/leading/slash")));
-        // Windows-style input should be normalized
+        // Windows-style input should be normalized to forward slashes and prefixed with ./
         assertEquals("./x/y", GoAnalyzer.formatTestModule(Path.of("x\\y")));
+        assertEquals("./sub/dir", GoAnalyzer.formatTestModule(Path.of("sub\\dir")));
     }
 }

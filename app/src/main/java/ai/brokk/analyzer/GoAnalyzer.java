@@ -431,13 +431,24 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
                 .toList();
     }
 
-    static String formatTestModule(@Nullable Path parent) {
+    public static String formatTestModule(@Nullable Path parent) {
         if (parent == null) return ".";
         String ps = parent.toString();
-        if (ps.isEmpty() || ps.equals(".")) return ".";
+        if (ps.isEmpty() || ps.equals(".") || ps.equals("./")) return ".";
+
+        // Normalize separators: backslashes -> forward slashes
         String unixPath = ps.replace('\\', '/');
+
+        // Handle root-relative paths that might have been converted from absolute or otherwise
+        if (unixPath.equals("/") || unixPath.equals("./")) return ".";
+
+        // Ensure it starts with "./" (unless it is exactly ".")
         if (unixPath.startsWith("./")) return unixPath;
-        if (unixPath.startsWith("/")) return "." + unixPath;
+
+        if (unixPath.startsWith("/")) {
+            return "." + unixPath;
+        }
+
         return "./" + unixPath;
     }
 
