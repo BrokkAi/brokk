@@ -411,9 +411,9 @@ class SessionCostsModalScreen(ModalScreen[None]):
                     yield Static("Cost", classes="col-cost")
 
                 with VerticalScroll(id="session-costs-list-wrap"):
-                    items = []
                     # Aggregates by (model, tier)
                     aggregates: Dict[tuple[str, str], float] = {}
+                    list_items = []
 
                     for event in events:
                         ts = event.get("timestampMillis", 0)
@@ -436,20 +436,24 @@ class SessionCostsModalScreen(ModalScreen[None]):
                             token_str += f" t:{think_t}"
                         token_str += f" out:{out_t}"
 
-                        with Horizontal(classes="session-cost-row") as row_container:
-                            yield Static(dt, classes="col-ts")
-                            yield Static(op_type, classes="col-type")
-                            yield Static(f"{model} ({tier})", classes="col-model")
-                            yield Static(label, classes="col-label")
-                            yield Static(token_str, classes="col-tokens")
-                            yield Static(f"[bold green]${cost:.4f}[/]", classes="col-cost")
-
-                        items.append(ListItem(row_container))
+                        list_items.append(
+                            ListItem(
+                                Horizontal(
+                                    Static(dt, classes="col-ts"),
+                                    Static(op_type, classes="col-type"),
+                                    Static(f"{model} ({tier})", classes="col-model"),
+                                    Static(label, classes="col-label"),
+                                    Static(token_str, classes="col-tokens"),
+                                    Static(f"[bold green]${cost:.4f}[/]", classes="col-cost"),
+                                    classes="session-cost-row",
+                                )
+                            )
+                        )
 
                         key = (model, tier)
                         aggregates[key] = aggregates.get(key, 0.0) + cost
 
-                    yield ListView(*items, id="session-costs-list")
+                    yield ListView(*list_items, id="session-costs-list")
 
             # Summary Section
             with Vertical(id="session-costs-summary"):

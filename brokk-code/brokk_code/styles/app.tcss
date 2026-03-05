@@ -508,6 +508,10 @@ SlashCommandSuggestions ListItem, ModeSuggestions ListItem, ReasoningSuggestions
     padding: 0;
 }
 
+#session-costs-list > ListItem:focus {
+    background: $accent 15%;
+}
+
 .session-cost-row {
     width: 100%;
     height: auto;
@@ -521,7 +525,7 @@ SlashCommandSuggestions ListItem, ModeSuggestions ListItem, ReasoningSuggestions
 .col-ts { width: 18; }
 .col-type { width: 12; }
 .col-model { width: 1fr; }
-.col-label { width: 1fr; }
+.col-label { width: 2fr; }
 .col-tokens { width: 25; }
 .col-cost { width: 10; content-align: right middle; }
 
