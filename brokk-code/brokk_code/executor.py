@@ -243,7 +243,7 @@ class ExecutorManager:
         self.session_id: Optional[str] = None
         self.resolved_jar_path: Optional[Path] = None
         self.shutdown_context: Optional[str] = None
-        self.environment_type: str = "tui"  
+        self.environment_type: str = "tui"
 
         self._process: Optional[asyncio.subprocess.Process] = None
         # The stdin stream for the subprocess (when created with PIPE).
@@ -354,7 +354,12 @@ class ExecutorManager:
             "--java",
             "21",
             "-R",
-            f"{env_flag} -Djava.awt.headless=true -Dapple.awt.UIElement=true --enable-native-access=ALL-UNNAMED",
+            (
+                f"{env_flag} "
+            "-Djava.awt.headless=true "
+            "-Dapple.awt.UIElement=true "
+            "--enable-native-access=ALL-UNNAMED"
+        ),
             "--main",
             self._main_class,
             jar_url,
