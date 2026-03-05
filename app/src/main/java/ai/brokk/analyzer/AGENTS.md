@@ -36,3 +36,20 @@
    - `IMPORTS`: Specific query for capturing import statements and related symbols. This is **optional**; if not provided, the analyzer will skip import-specific AST passes.
    - `IDENTIFIERS`: Specific query for capturing type identifiers and references. This is **optional**; used for advanced symbol resolution.
 1. **Resource Loading**: The `TreeSitterAnalyzer` base class handles the discovery and loading of these queries based on the language name and `QueryType`. Analyzers should transition away from the single `getQueryResource()` string toward this structured multi-query approach.
+
+### Node-type Constants
+
+1. **Use NodeTypes constants**: When checking TSNode.getType() or comparing node types, prefer using constants defined in NodeTypes-style classes (for example, `ai.brokk.analyzer.csharp.CSharpTreeSitterNodeTypes`, `ai.brokk.analyzer.java.JavaTreeSitterNodeTypes`, `ai.brokk.analyzer.cpp.CppTreeSitterNodeTypes`, or `ai.brokk.analyzer.CommonTreeSitterNodeTypes`) instead of hard-coded string literals like `"field_declaration"`. This improves consistency, avoids typos, and centralizes node-type names.
+
+2. **Importing constants**: It's acceptable to use static imports for readability (e.g., `import static ai.brokk.analyzer.csharp.CSharpTreeSitterNodeTypes.FIELD_DECLARATION;`) but avoid ambiguous static imports across files. If there's a risk of name collision or confusion, prefer referencing the constant via its class (e.g., `CSharpTreeSitterNodeTypes.FIELD_DECLARATION`).
+
+3. **Example**:
+```java
+import static ai.brokk.analyzer.csharp.CSharpTreeSitterNodeTypes.FIELD_DECLARATION;
+
+if (FIELD_DECLARATION.equals(node.getType())) {
+    // handle field declaration
+}
+```
+
+4. **Migration guidance**: When editing code that currently uses string literals for node types, replace them with the corresponding constant where possible. If a node type is missing from the appropriate NodeTypes class, add the constant there (or to `CommonTreeSitterNodeTypes` if it is language-agnostic) so other code can reuse it.
