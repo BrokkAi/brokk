@@ -333,7 +333,9 @@ public class ArchitectAgent {
         // post-verifyCommand results
         result = null;
 
-        if (reason == StopReason.SUCCESS) {
+        // SUCCESS can also mean "Code Agent threw it back to us to add missing context";
+        // checking for changes de-risks that
+        if (reason == StopReason.SUCCESS && !changedFragments.isEmpty()) {
             logger.debug("callCodeAgent finished successfully");
             if (!deferBuild && !changedFragments.isEmpty()) {
                 codeAgentJustSucceeded = true;
@@ -405,11 +407,11 @@ public class ArchitectAgent {
             String combinedDiffText = CodeAgent.cumulativeDiffForChanges(initialContext, context);
             // FIXME the if here is working around a bug, ContextDelta should not return
             // changed fragments with an empty diff
-            if (!combinedDiffText.isBlank()) {
+            if (combinedDiffText.isBlank()) {
+                context = context.withSpecial(SpecialTextType.CODE_AGENT_CHANGES, "Code Agent made no changes");
+            } else {
                 this.offerUndoToolNext = true;
                 context = context.withSpecial(SpecialTextType.CODE_AGENT_CHANGES, combinedDiffText);
-            } else {
-                context = context.withSpecial(SpecialTextType.CODE_AGENT_CHANGES, "Code Agent made no changes");
             }
         }
 
