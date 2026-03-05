@@ -123,7 +123,6 @@ public class Service extends AbstractService implements ExceptionReporter.Report
 
         var mapper = new ObjectMapper();
         var jsonBody = mapper.writeValueAsString(telemetryRequest);
-
         var body = RequestBody.create(jsonBody, MediaType.parse("application/json"));
         var request = new Request.Builder()
                 .url(url)

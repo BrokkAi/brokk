@@ -315,6 +315,7 @@ class ExecutorManager:
         """Returns the command for Direct-Java mode (explicit JAR override)."""
         cmd = [
             "java",
+            "-Dbrokk.tui=true",
             "-Djava.awt.headless=true",
             "-Dapple.awt.UIElement=true",
             "-cp",
@@ -335,7 +336,8 @@ class ExecutorManager:
             "--java",
             "21",
             "-R",
-            "-Djava.awt.headless=true "
+            "-Dbrokk.tui=true "
+            + "-Djava.awt.headless=true "
             + "-Dapple.awt.UIElement=true "
             + "--enable-native-access=ALL-UNNAMED",
             "--main",
