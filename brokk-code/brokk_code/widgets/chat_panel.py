@@ -496,7 +496,7 @@ class ChatInput(TextArea):
         if text.startswith("/") and "\n" not in text:
             self._cancel_mention_worker()
 
-            if suggestions:
+            if suggestions is not None:
                 commands = []
                 if self.app and hasattr(self.app, "get_slash_commands"):
                     commands = self.app.get_slash_commands()
@@ -506,7 +506,7 @@ class ChatInput(TextArea):
                 suggestions.display = is_any
 
                 if is_any:
-                    if mention_suggestions:
+                    if mention_suggestions is not None:
                         mention_suggestions.display = False
                     # Hide other mutually exclusive menus
                     try:
@@ -521,7 +521,7 @@ class ChatInput(TextArea):
             return
 
         # Hide slash suggestions if we've left the slash command path
-        if suggestions:
+        if suggestions is not None:
             suggestions.display = False
         self._set_autocomplete_container_class()
 

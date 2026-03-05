@@ -2305,13 +2305,6 @@ class BrokkApp(App):
     def get_slash_commands() -> List[Dict[str, str]]:
         """Returns the structured catalog of supported slash commands."""
         return [
-            {
-                "command": "/worktree",
-                "description": "Open worktree manager (switch/add/remove)",
-            },
-            {"command": "/api-key", "description": "Update your Brokk API key"},
-            {"command": "/login-openai", "description": "Connect your OpenAI ChatGPT subscription"},
-            {"command": "/context", "description": "Toggle and focus context panel"},
             {"command": "/code", "description": "Set mode to CODE (direct implementation)"},
             {"command": "/ask", "description": "Set mode to ASK (questions only)"},
             {"command": "/lutz", "description": "Set mode to LUTZ (default; full agent access)"},
@@ -2319,12 +2312,19 @@ class BrokkApp(App):
             {"command": "/model", "description": "Change the planner LLM model"},
             {"command": "/model-code", "description": "Change the code LLM model"},
             {"command": "/autocommit", "description": "Toggle auto-commit for submitted jobs"},
-            {"command": "/settings", "description": "Open settings"},
+            {"command": "/task", "description": "Open/close the task list"},
+            {"command": "/context", "description": "Toggle and focus context panel"},
+            {"command": "/sessions", "description": "List and switch between sessions"},
+            {
+                "command": "/worktree",
+                "description": "Open worktree manager (switch/add/remove)",
+            },
             {"command": "/history", "description": "Show recent prompt history"},
             {"command": "/history-clear", "description": "Clear prompt history"},
-            {"command": "/task", "description": "Open/close the task list"},
-            {"command": "/sessions", "description": "List and switch between sessions"},
             {"command": "/info", "description": "Show current configuration and status"},
+            {"command": "/settings", "description": "Open settings"},
+            {"command": "/api-key", "description": "Update your Brokk API key"},
+            {"command": "/login-openai", "description": "Connect your OpenAI ChatGPT subscription"},
             {"command": "/help", "description": "Show help message"},
             {"command": "/quit", "description": "Exit the application"},
             {"command": "/exit", "description": "Exit the application"},
