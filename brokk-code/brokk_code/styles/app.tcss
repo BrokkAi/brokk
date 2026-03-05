@@ -487,6 +487,19 @@ SlashCommandSuggestions ListItem, ModeSuggestions ListItem, ReasoningSuggestions
     border: tall $primary-darken-1;
 }
 
+#session-costs-list {
+    width: 100%;
+    height: auto;
+}
+
+#session-costs-list > ListItem {
+    width: 100%;
+}
+
+.session-cost-row {
+    width: 100%;
+}
+
 #session-costs-summary {
     height: auto;
     margin-top: 1;

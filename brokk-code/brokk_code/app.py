@@ -432,7 +432,9 @@ class SessionCostsModalScreen(ModalScreen[None]):
                         row_text += f"  {label[:60]}\n"
                         row_text += f"  {token_str} | [bold green]${cost:.4f}[/]"
 
-                        items.append(ListItem(Static(row_text, markup=True)))
+                        items.append(
+                            ListItem(Static(row_text, markup=True, classes="session-cost-row"))
+                        )
 
                         key = (model, tier)
                         aggregates[key] = aggregates.get(key, 0.0) + cost
