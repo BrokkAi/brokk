@@ -561,8 +561,8 @@ public class SessionManagerTest {
         Path sessionsDir = sessionManager.getSessionsDir();
 
         UUID sessionId = UUID.randomUUID();
-        SessionInfo info =
-                new SessionInfo(sessionId, "Manifest Broken Session", System.currentTimeMillis(), System.currentTimeMillis());
+        SessionInfo info = new SessionInfo(
+                sessionId, "Manifest Broken Session", System.currentTimeMillis(), System.currentTimeMillis());
         createSessionZip(sessionsDir, info, new ObjectMapper());
 
         // Simulate a previously loaded session that is now corrupted on disk.
