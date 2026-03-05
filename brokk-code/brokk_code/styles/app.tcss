@@ -493,13 +493,37 @@ SlashCommandSuggestions ListItem, ModeSuggestions ListItem, ReasoningSuggestions
     height: auto;
 }
 
+#session-costs-header {
+    width: 100%;
+    height: 1;
+    background: $primary-darken-2;
+    color: $text;
+    text-style: bold;
+    padding: 0 1;
+}
+
 #session-costs-list > ListItem {
     width: 100%;
+    height: auto;
+    padding: 0;
 }
 
 .session-cost-row {
     width: 100%;
+    height: auto;
+    padding: 0 1;
 }
+
+.session-cost-row Static {
+    height: auto;
+}
+
+.col-ts { width: 18; }
+.col-type { width: 12; }
+.col-model { width: 1fr; }
+.col-label { width: 1fr; }
+.col-tokens { width: 25; }
+.col-cost { width: 10; content-align: right middle; }
 
 #session-costs-summary {
     height: auto;

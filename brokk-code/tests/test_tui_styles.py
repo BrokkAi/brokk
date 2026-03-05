@@ -316,30 +316,33 @@ def test_help_menu_layout_contract():
     assert "height: 1;" in costs_help_body
 
 
-def test_session_costs_list_width_expansion():
+def test_session_costs_table_layout():
     """
-    Ensure the session costs list and its rows expand to the full modal width.
+    Ensure the session costs list uses a column-based table layout.
     """
     css_content = importlib.resources.files("brokk_code.styles").joinpath("app.tcss").read_text()
 
-    # 1. ListView container width
+    # Verify header existence and styling
+    header_match = re.search(r"#session-costs-header\s*\{([^}]*)\}", css_content)
+    assert header_match, "Could not find #session-costs-header rule in app.tcss"
+    header_body = header_match.group(1)
+    assert "text-style: bold;" in header_body
+    assert "background:" in header_body
+
+    # Verify column widths are defined
+    for col in [".col-ts", ".col-type", ".col-model", ".col-tokens", ".col-cost"]:
+        assert f"{col} {{ width:" in css_content, f"Missing width definition for {col}"
+
+    # Verify cost column alignment
+    cost_match = re.search(r"\.col-cost\s*\{([^}]*)\}", css_content)
+    assert "content-align: right middle;" in cost_match.group(1)
+
+    # ListView container width expansion
     wrap_match = re.search(r"#session-costs-list-wrap\s*\{([^}]*)\}", css_content)
-    assert wrap_match, "Could not find #session-costs-list-wrap rule in app.tcss"
     assert "width: 100%;" in wrap_match.group(1)
 
-    # 2. ListView width
-    list_match = re.search(r"#session-costs-list\s*\{([^}]*)\}", css_content)
-    assert list_match, "Could not find #session-costs-list rule in app.tcss"
-    assert "width: 100%;" in list_match.group(1)
-
-    # 3. ListItem width
-    item_match = re.search(r"#session-costs-list\s*>\s*ListItem\s*\{([^}]*)\}", css_content)
-    assert item_match, "Could not find #session-costs-list > ListItem rule in app.tcss"
-    assert "width: 100%;" in item_match.group(1)
-
-    # 4. Row widget width
+    # Row widget width expansion
     row_match = re.search(r"\.session-cost-row\s*\{([^}]*)\}", css_content)
-    assert row_match, "Could not find .session-cost-row rule in app.tcss"
     assert "width: 100%;" in row_match.group(1)
 
 

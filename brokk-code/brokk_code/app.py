@@ -402,6 +402,14 @@ class SessionCostsModalScreen(ModalScreen[None]):
                         "No cost data available for this session.", id="session-costs-empty"
                     )
             else:
+                with Horizontal(id="session-costs-header"):
+                    yield Static("Timestamp", classes="col-ts")
+                    yield Static("Type", classes="col-type")
+                    yield Static("Model (Tier)", classes="col-model")
+                    yield Static("Operation", classes="col-label")
+                    yield Static("Tokens", classes="col-tokens")
+                    yield Static("Cost", classes="col-cost")
+
                 with VerticalScroll(id="session-costs-list-wrap"):
                     items = []
                     # Aggregates by (model, tier)
@@ -421,20 +429,22 @@ class SessionCostsModalScreen(ModalScreen[None]):
                         think_t = event.get("thinkingTokens", 0)
                         out_t = event.get("outputTokens", 0)
 
-                        token_str = f"in={in_t}"
+                        token_str = f"in:{in_t}"
                         if cache_t:
-                            token_str += f", cached={cache_t}"
+                            token_str += f" c:{cache_t}"
                         if think_t:
-                            token_str += f", think={think_t}"
-                        token_str += f", out={out_t}"
+                            token_str += f" t:{think_t}"
+                        token_str += f" out:{out_t}"
 
-                        row_text = f"{dt} | {op_type:<9} | {model} ({tier})\n"
-                        row_text += f"  {label}\n"
-                        row_text += f"  {token_str} | [bold green]${cost:.4f}[/]"
+                        with Horizontal(classes="session-cost-row") as row_container:
+                            yield Static(dt, classes="col-ts")
+                            yield Static(op_type, classes="col-type")
+                            yield Static(f"{model} ({tier})", classes="col-model")
+                            yield Static(label, classes="col-label")
+                            yield Static(token_str, classes="col-tokens")
+                            yield Static(f"[bold green]${cost:.4f}[/]", classes="col-cost")
 
-                        items.append(
-                            ListItem(Static(row_text, markup=True, classes="session-cost-row"))
-                        )
+                        items.append(ListItem(row_container))
 
                         key = (model, tier)
                         aggregates[key] = aggregates.get(key, 0.0) + cost

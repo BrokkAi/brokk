@@ -62,6 +62,7 @@ public class SessionManager implements AutoCloseable {
     private static final String LEGACY_MIGRATION_OPERATION_TYPE = "LEGACY_MIGRATION";
     private static final String LEGACY_MIGRATION_MODEL_NAME = "legacy";
     private static final String LEGACY_MIGRATION_TIER = "legacy";
+    private static final double COST_EPSILON = 1.0e-9;
     private static final String COST_LEDGER_FILENAME = "cost_ledger.jsonl";
 
     /** Record representing session metadata for the sessions management system. */
@@ -523,8 +524,9 @@ public class SessionManager implements AutoCloseable {
         }
 
         var sessionInfo = sessionsCache.get(sessionId);
-        if (shouldInjectLegacyMigrationEvent(sessionInfo, merged)) {
-            CostEvent legacyEvent = createLegacyMigrationEvent(sessionId, requireNonNull(sessionInfo));
+        double legacyCarryover = computeLegacyCarryover(sessionInfo, merged);
+        if (shouldInjectLegacyMigrationEvent(sessionInfo, merged, legacyCarryover)) {
+            CostEvent legacyEvent = createLegacyMigrationEvent(sessionId, requireNonNull(sessionInfo), legacyCarryover);
             merged.addFirst(legacyEvent);
             if (legacyMigrationRecorded.add(sessionId)) {
                 recordCostEvent(sessionId, legacyEvent);
@@ -534,22 +536,36 @@ public class SessionManager implements AutoCloseable {
         return List.copyOf(merged);
     }
 
-    private static boolean shouldInjectLegacyMigrationEvent(@Nullable SessionInfo sessionInfo, List<CostEvent> events) {
+    private static boolean shouldInjectLegacyMigrationEvent(
+            @Nullable SessionInfo sessionInfo, List<CostEvent> events, double legacyCarryover) {
         if (sessionInfo == null
                 || sessionInfo.totalCost() == null
                 || sessionInfo.totalCost() <= 0.0
-                || events.isEmpty()) {
+                || legacyCarryover <= COST_EPSILON) {
             return false;
         }
         return events.stream().noneMatch(SessionManager::isLegacyMigrationEvent);
+    }
+
+    private static double computeLegacyCarryover(@Nullable SessionInfo sessionInfo, List<CostEvent> events) {
+        if (sessionInfo == null || sessionInfo.totalCost() == null || sessionInfo.totalCost() <= 0.0) {
+            return 0.0;
+        }
+        double nonLegacyLedgerTotal = events.stream()
+                .filter(event -> !isLegacyMigrationEvent(event))
+                .mapToDouble(CostEvent::costUsd)
+                .sum();
+        double carryover = sessionInfo.totalCost() - nonLegacyLedgerTotal;
+        return carryover <= COST_EPSILON ? 0.0 : carryover;
     }
 
     private static boolean isLegacyMigrationEvent(CostEvent event) {
         return LEGACY_MIGRATION_OPERATION_TYPE.equals(event.operationType());
     }
 
-    private static CostEvent createLegacyMigrationEvent(UUID sessionId, SessionInfo sessionInfo) {
-        double cost = requireNonNull(sessionInfo.totalCost(), "totalCost must not be null for legacy migration");
+    private static CostEvent createLegacyMigrationEvent(UUID sessionId, SessionInfo sessionInfo, double carryoverCost) {
+        assert carryoverCost > COST_EPSILON;
+        requireNonNull(sessionInfo.totalCost(), "totalCost must not be null for legacy migration");
         return new CostEvent(
                 UUID.randomUUID().toString(),
                 sessionInfo.created(),
@@ -562,7 +578,7 @@ public class SessionManager implements AutoCloseable {
                 0,
                 0,
                 0,
-                cost);
+                carryoverCost);
     }
 
     public void deleteSession(UUID sessionId) {
