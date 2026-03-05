@@ -63,6 +63,11 @@ public class BuildAgent {
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
+    private static final Pattern DELIMITER_CHANGE_PATTERN = Pattern.compile("\\{\\{=.*?=\\}\\}");
+
+    private static final Pattern MUSTACHE_TAG_PATTERN =
+            Pattern.compile("\\{\\{\\{?\\s*([#/^>!]?)\\s*([^}\\s]+)\\s*\\}?\\}\\}\\s*");
+
     private final Llm llm;
     private final ToolRegistry globalRegistry;
     private final IConsoleIO io;
@@ -808,7 +813,7 @@ public class BuildAgent {
             return Set.of();
         }
         var tags = new java.util.LinkedHashSet<String>();
-        var delimiterMatcher = Pattern.compile("\\{\\{=.*?=\\}\\}").matcher(template);
+        var delimiterMatcher = DELIMITER_CHANGE_PATTERN.matcher(template);
         while (delimiterMatcher.find()) {
             String fullMatch = delimiterMatcher.group();
             String delimiterSpec =
@@ -816,8 +821,7 @@ public class BuildAgent {
             tags.add("=" + (delimiterSpec.isEmpty() ? "..." : delimiterSpec));
         }
 
-        var matcher = Pattern.compile("\\{\\{\\{?\\s*([#/^>!]?)\\s*([^}\\s]+)\\s*\\}?\\}\\}\\s*")
-                .matcher(template);
+        var matcher = MUSTACHE_TAG_PATTERN.matcher(template);
         while (matcher.find()) {
             String prefix = matcher.group(1);
             String name = matcher.group(2);
