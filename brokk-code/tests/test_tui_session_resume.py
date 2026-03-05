@@ -129,8 +129,11 @@ async def test_resume_command_launches_with_correct_id(tmp_path):
 
 def test_main_prints_resume_hint_on_exit(tmp_path, capsys):
     """
-    Verifies that main() prints the resume hint after the app finishes running,
-    if a last session ID exists AND has history tasks in contexts.jsonl.
+    SPECIFICATION: Resume Hint Behavior
+    The 'brokk resume <id>' hint MUST be printed to stdout if and only if:
+    1. The application exits normally (main returns without unhandled exception).
+    2. A last session ID is found in the workspace metadata.
+    3. The session's ZIP file contains qualifying history tasks (has_tasks is true).
     """
     import json
     import zipfile
@@ -166,8 +169,9 @@ def test_main_prints_resume_hint_on_exit(tmp_path, capsys):
 
 def test_main_omits_resume_hint_when_no_tasks(tmp_path, capsys):
     """
+    SPECIFICATION: Resume Hint Behavior (Empty Session)
     Verifies that main() does NOT print the resume hint if the session exists
-    but has no qualifying history tasks.
+    but has no qualifying history tasks in contexts.jsonl.
     """
     import json
     import zipfile
@@ -191,6 +195,39 @@ def test_main_omits_resume_hint_when_no_tasks(tmp_path, capsys):
         ),
     ):
         main()
+
+    captured = capsys.readouterr()
+    assert "brokk resume" not in captured.out
+
+
+def test_main_omits_resume_hint_on_exception(tmp_path, capsys):
+    """
+    SPECIFICATION: Resume Hint Behavior (Abnormal Exit)
+    Verifies that the resume hint is NOT printed if app.run() raises an exception.
+    The hint logic follows the finally block and relies on normal flow completion.
+    """
+    import json
+    import zipfile
+    from brokk_code.__main__ import main
+
+    workspace = tmp_path
+    session_id = "exception-session"
+    save_last_session_id(workspace, session_id)
+
+    # Create a qualifying zip
+    zip_path = get_session_zip_path(workspace, session_id)
+    with zipfile.ZipFile(zip_path, "w") as z:
+        z.writestr(
+            "contexts.jsonl", json.dumps({"tasks": [{"sequence": 1, "taskType": "LUTZ"}]}) + "\n"
+        )
+
+    # Patch BrokkApp.run to raise an exception
+    with (
+        patch("brokk_code.app.BrokkApp.run", side_effect=RuntimeError("Crash")),
+        patch("sys.argv", ["brokk", "--workspace", str(workspace)]),
+    ):
+        with pytest.raises(RuntimeError, match="Crash"):
+            main()
 
     captured = capsys.readouterr()
     assert "brokk resume" not in captured.out
