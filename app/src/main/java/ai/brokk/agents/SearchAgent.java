@@ -1036,7 +1036,7 @@ public class SearchAgent {
                 if (agent.isPruningWorthwhile(context)
                         && (primaryCalls.isEmpty()
                                 || !"dropWorkspaceFragments"
-                                        .equals(primaryCalls.getLast().name()))) {
+                                        .equals(primaryCalls.getFirst().name()))) {
                     return new TurnOutcome.PendingTerminal(context, List.copyOf(sessionMessages), pending);
                 }
                 return new TurnOutcome.Final(agent.finalizePendingTerminal(pending, context));
