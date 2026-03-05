@@ -1682,10 +1682,6 @@ class BrokkApp(App):
             chat.set_job_running(True)
             chat.set_response_pending()
 
-        # Best-effort auto-rename session if it's the first prompt in a new session.
-        # Note: JobsRouter also performs this on the server side.
-        self.run_worker(self._maybe_rename_session(task_input))
-
         attached_fragment_ids: List[str] = []
         try:
             attached_fragment_ids = await self._attach_mentions_to_context(task_input)
@@ -1771,6 +1767,14 @@ class BrokkApp(App):
 
     def _handle_event(self, event: Dict[str, Any]) -> None:
         event_type = event.get("type")
+        data = event.get("data", {})
+
+        # Check for auto-rename notifications from the server
+        if event_type == "NOTIFICATION" and data.get("level") == "INFO":
+            msg = data.get("message", "")
+            if "Session renamed to:" in msg:
+                # Synchronize internal state so we don't try to auto-rename again
+                self._renamed_sessions.add(self.executor.session_id)
         data = event.get("data", {})
         chat = self._maybe_chat()
 

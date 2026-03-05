@@ -49,7 +49,7 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
     private static final String ALLOWED_REASONING_LEVELS_LIST =
             Arrays.stream(REASONING_LEVEL_VALUES).map(Enum::name).collect(Collectors.joining(", "));
 
-    private final ContextManager contextManager;
+    final ContextManager contextManager;
     private final JobStore jobStore;
     private final JobRunner jobRunner;
     private final JobReservation jobReservation;
@@ -214,21 +214,9 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
                 }
                 executeJobAsync(jobId, jobSpec, contextTextFragmentIds);
 
-                // Auto-rename session if it's new/unnamed (best effort)
+                // Auto-rename session if it has a default name (best effort)
                 if (sessionIdHeader != null) {
-                    final UUID sid = sessionIdHeader;
-                    final String input = request.taskInput();
-                    CompletableFuture.runAsync(() -> {
-                        var sm = contextManager.getProject().getSessionManager();
-                        var cache = sm.getSessionsCache();
-                        var info = cache.get(sid);
-                        if (info != null && "TUI Session".equals(info.name())) {
-                            String derived = SessionManager.deriveSessionName(input);
-                            if (!derived.isBlank()) {
-                                sm.renameSession(sid, derived);
-                            }
-                        }
-                    });
+                    maybeAutoRenameSession(sessionIdHeader, request.taskInput());
                 }
 
                 SimpleHttpServer.sendJsonResponse(exchange, 201, response);
@@ -457,6 +445,31 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
             SimpleHttpServer.sendJsonResponse(exchange, code, payload);
             return true;
         }
+    }
+
+    private void maybeAutoRenameSession(UUID sessionId, String taskInput) {
+        CompletableFuture.runAsync(() -> {
+            try {
+                var sm = contextManager.getProject().getSessionManager();
+                var info = sm.getSessionsCache().get(sessionId);
+                if (info == null) return;
+
+                String currentName = info.name();
+                boolean isDefaultName = currentName.equals("TUI Session")
+                        || currentName.equals("New Session")
+                        || currentName.equals("Session");
+
+                if (isDefaultName) {
+                    String derived = SessionManager.deriveSessionName(taskInput);
+                    if (!derived.isBlank() && !derived.equals(currentName)) {
+                        sm.renameSession(sessionId, derived);
+                        logger.info("Auto-renamed session {} to '{}' based on job input", sessionId, derived);
+                    }
+                }
+            } catch (Exception e) {
+                logger.warn("Failed to auto-rename session {}: {}", sessionId, e.getMessage());
+            }
+        });
     }
 
     private void executeJobAsync(String jobId, JobSpec jobSpec, List<String> seededTextFragmentIds) {

@@ -45,9 +45,8 @@ async def test_auto_rename_on_first_prompt(tmp_path):
     # Wait for background worker
     await asyncio.sleep(0.1)
 
-    # Verify rename called with derived name
-    stub.rename_session.assert_called_once_with("test-session-123", "Implement a new login system")
-    assert "test-session-123" in app._renamed_sessions
+    # With server-side auto-rename, the client no longer calls rename_session explicitly
+    stub.rename_session.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -90,7 +89,6 @@ async def test_auto_rename_skips_if_not_default(tmp_path):
     await asyncio.sleep(0.1)
 
     stub.rename_session.assert_not_called()
-    assert "test-session-123" in app._renamed_sessions
 
 
 @pytest.mark.asyncio
@@ -205,11 +203,5 @@ async def test_auto_rename_delayed_until_switch_complete(tmp_path):
 
     stub.submit_job.assert_called_once()
 
-    # The rename happens in a separate worker spawned by _run_job
-    start_wait = asyncio.get_event_loop().time()
-    while stub.rename_session.call_count == 0 and (
-        asyncio.get_event_loop().time() - start_wait < 1.0
-    ):
-        await asyncio.sleep(0.01)
-
-    stub.rename_session.assert_called_once_with("target-sid", "First prompt in new session")
+    # With server-side auto-rename, the client no longer calls rename_session explicitly
+    stub.rename_session.assert_not_called()
