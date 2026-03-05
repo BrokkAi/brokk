@@ -423,4 +423,32 @@ public final class CSharpAnalyzerTest {
             assertCodeEquals("public int y = 2;", ySkeleton.get());
         }
     }
+
+    @Test
+    void testMultiAssignmentWithAttributes() throws IOException {
+        String code =
+                """
+                public class C {
+                  [NonSerialized] public int x = 1, y = 2;
+                }
+                """;
+        try (var testProject = InlineTestProjectCreator.code(code, "C.cs").build()) {
+            CSharpAnalyzer analyzer = new CSharpAnalyzer(testProject);
+
+            var xDefs = analyzer.getDefinitions("C.x");
+            assertEquals(1, xDefs.size());
+            var xCu = xDefs.iterator().next();
+            var xSkeleton = analyzer.getSkeleton(xCu);
+            assertTrue(xSkeleton.isPresent());
+            // Should contain 'public' and NOT contain the attribute
+            assertCodeEquals("public int x = 1;", xSkeleton.get());
+
+            var yDefs = analyzer.getDefinitions("C.y");
+            assertEquals(1, yDefs.size());
+            var yCu = yDefs.iterator().next();
+            var ySkeleton = analyzer.getSkeleton(yCu);
+            assertTrue(ySkeleton.isPresent());
+            assertCodeEquals("public int y = 2;", ySkeleton.get());
+        }
+    }
 }
