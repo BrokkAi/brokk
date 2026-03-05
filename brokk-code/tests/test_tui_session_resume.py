@@ -233,6 +233,40 @@ def test_main_omits_resume_hint_on_exception(tmp_path, capsys):
     assert "brokk resume" not in captured.out
 
 
+def test_main_prints_resume_hint_on_ctrl_d_exit(tmp_path, capsys):
+    """
+    SPECIFICATION: Resume Hint Behavior (Ctrl+D)
+    Verifies that the resume hint is printed when the app exits via Ctrl+D.
+    From the perspective of main(), this is identical to a Ctrl+C exit as
+    long as app.run() returns normally.
+    """
+    import json
+    import zipfile
+    from brokk_code.__main__ import main
+
+    workspace = tmp_path
+    session_id = "ctrl-d-session"
+    save_last_session_id(workspace, session_id)
+
+    # Create a qualifying zip
+    zip_path = get_session_zip_path(workspace, session_id)
+    with zipfile.ZipFile(zip_path, "w") as z:
+        z.writestr(
+            "contexts.jsonl", json.dumps({"tasks": [{"sequence": 1, "taskType": "LUTZ"}]}) + "\n"
+        )
+
+    # Patch BrokkApp.run to simulate a successful return (as it does after Ctrl+D/action_quit)
+    with (
+        patch("brokk_code.app.BrokkApp.run", return_value=None),
+        patch("sys.argv", ["brokk", "--workspace", str(workspace)]),
+    ):
+        main()
+
+    captured = capsys.readouterr()
+    expected_hint = f"brokk resume {session_id}"
+    assert expected_hint in captured.out
+
+
 def test_replay_conversation_entries_renders_messages(tmp_path):
     workspace = tmp_path
     stub = SessionStubExecutor()
