@@ -307,6 +307,33 @@ def test_help_menu_layout_contract():
     # 9. Ensure notification panel CSS is removed from main rules
     assert "#notification-panel" not in css_content
 
+    # 10. Ensure costs modal help line matches parity
+    costs_help_match = re.search(r"#session-costs-help-line\s*\{([^}]*)\}", css_content)
+    assert costs_help_match, "Could not find #session-costs-help-line rule in app.tcss"
+    costs_help_body = costs_help_match.group(1)
+    assert "background: transparent;" in costs_help_body
+    assert "color: $text-disabled;" in costs_help_body
+    assert "height: 1;" in costs_help_body
+
+
+def test_session_costs_modal_dimensions_regression():
+    """
+    Ensure the session costs modal uses full-screen dimensions.
+    """
+    css_content = importlib.resources.files("brokk_code.styles").joinpath("app.tcss").read_text()
+
+    modal_match = re.search(r"#session-costs-container\s*\{([^}]*)\}", css_content)
+    assert modal_match, "Could not find #session-costs-container rule in app.tcss"
+    modal_body = modal_match.group(1)
+
+    assert "width: 100%" in modal_body, "#session-costs-container should use full width"
+    assert "height: 100%" in modal_body, "#session-costs-container should use full height"
+
+    # Verify centering rule exists
+    centering_match = re.search(r"SessionCostsModalScreen\s*\{([^}]*)\}", css_content)
+    assert centering_match, "Could not find SessionCostsModalScreen rule in app.tcss"
+    assert "align: center middle;" in centering_match.group(1)
+
 
 def test_api_key_modal_dimensions_regression():
     """

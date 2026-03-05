@@ -2,7 +2,7 @@ Screen {
     background: $surface;
 }
 
-ContextModalScreen, TaskListModalScreen {
+ContextModalScreen, TaskListModalScreen, SessionCostsModalScreen {
     align: center middle;
 }
 
@@ -18,6 +18,13 @@ BrokkApiKeyModalScreen, TaskTitleModalScreen, ModelReasoningSelectModal {
 }
 
 #tasklist-modal-container {
+    width: 100%;
+    height: 100%;
+    padding: 1 2;
+    background: $surface;
+}
+
+#session-costs-container {
     width: 100%;
     height: 100%;
     padding: 1 2;
@@ -456,4 +463,34 @@ SlashCommandSuggestions ListItem, ModeSuggestions ListItem, ReasoningSuggestions
     width: 100%;
     margin-top: 1;
     color: $text-disabled;
+}
+
+#session-costs-help-line {
+    width: 100%;
+    height: 1;
+    color: $text-disabled;
+    background: transparent;
+    margin-top: 1;
+    padding: 0 1;
+}
+
+#session-costs-title {
+    text-align: center;
+    width: 100%;
+    text-style: bold;
+    margin-bottom: 1;
+    color: $text;
+}
+
+#session-costs-list-wrap {
+    height: 1fr;
+    border: tall $primary-darken-1;
+}
+
+#session-costs-summary {
+    height: auto;
+    margin-top: 1;
+    padding: 1 2;
+    background: $primary-darken-3;
+    border: tall $primary-darken-1;
 }

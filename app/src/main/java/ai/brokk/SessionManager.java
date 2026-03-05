@@ -446,7 +446,8 @@ public class SessionManager implements AutoCloseable {
                 Path sessionHistoryPath = getSessionHistoryPath(sessionId);
                 // Ensure zip exists before trying to open it as a filesystem
                 if (!Files.exists(sessionHistoryPath)) {
-                    logger.debug("Deferring cost ledger persistence for session {} until history zip exists", sessionId);
+                    logger.debug(
+                            "Deferring cost ledger persistence for session {} until history zip exists", sessionId);
                     return null;
                 }
                 try (var fs = FileSystems.newFileSystem(sessionHistoryPath, Map.of("create", "false"))) {
@@ -907,7 +908,8 @@ public class SessionManager implements AutoCloseable {
         }
         try (var fs = FileSystems.newFileSystem(zipPath, Map.of("create", "false"))) {
             Path ledgerPath = fs.getPath(COST_LEDGER_FILENAME);
-            Files.writeString(ledgerPath, costLedgerJsonl, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+            Files.writeString(
+                    ledgerPath, costLedgerJsonl, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
         }
     }
 
@@ -946,7 +948,8 @@ public class SessionManager implements AutoCloseable {
 
     private List<CostEvent> parseCostLedgerJsonl(String jsonl) throws IOException {
         var events = new ArrayList<CostEvent>();
-        try (var reader = new StringReader(jsonl); var buffered = new BufferedReader(reader)) {
+        try (var reader = new StringReader(jsonl);
+                var buffered = new BufferedReader(reader)) {
             String line;
             while ((line = buffered.readLine()) != null) {
                 if (line.isBlank()) {

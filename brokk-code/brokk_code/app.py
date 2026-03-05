@@ -451,18 +451,13 @@ class SessionCostsModalScreen(ModalScreen[None]):
                     f"[bold]Total Session Cost: ${total_cost:.4f}[/]", id="session-costs-total"
                 )
 
-            with Horizontal(id="session-costs-actions"):
-                yield Button("Close", id="session-costs-close", variant="primary")
+            yield Static("Esc: Close", id="session-costs-help-line")
 
     def on_mount(self) -> None:
         if self.query(ListView):
             self.query_one(ListView).focus()
         else:
-            self.query_one("#session-costs-close").focus()
-
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "session-costs-close":
-            self.dismiss()
+            self.query_one("#session-costs-help-line").focus()
 
 
 class SessionSelectModal(ModalScreen[str]):

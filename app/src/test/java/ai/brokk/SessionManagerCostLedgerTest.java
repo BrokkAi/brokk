@@ -24,9 +24,21 @@ public class SessionManagerCostLedgerTest {
         UUID sessionId = info.id();
 
         CostEvent event1 = new CostEvent(
-                System.currentTimeMillis(), sessionId, "Task 1", "CODE", "gpt-4", "standard", 100, 50, 0, 20, 0.005);
+                UUID.randomUUID().toString(),
+                System.currentTimeMillis(),
+                sessionId,
+                "Task 1",
+                "CODE",
+                "gpt-4",
+                "standard",
+                100,
+                50,
+                0,
+                20,
+                0.005);
 
         CostEvent event2 = new CostEvent(
+                UUID.randomUUID().toString(),
                 System.currentTimeMillis() + 100,
                 sessionId,
                 "Task 2",
@@ -68,7 +80,18 @@ public class SessionManagerCostLedgerTest {
         UUID sessionId = sessionManager1.newSession("Merge Test").id();
 
         CostEvent event1 = new CostEvent(
-                System.currentTimeMillis(), sessionId, "Op 1", "CODE", "gpt-4", "standard", 10, 0, 0, 5, 0.001);
+                UUID.randomUUID().toString(),
+                System.currentTimeMillis(),
+                sessionId,
+                "Op 1",
+                "CODE",
+                "gpt-4",
+                "standard",
+                10,
+                0,
+                0,
+                5,
+                0.001);
 
         // Record and ensure event1 is persisted before creating the second manager
         sessionManager1.recordCostEvent(sessionId, event1);
@@ -82,7 +105,18 @@ public class SessionManagerCostLedgerTest {
 
         // Record a second event in manager2; it is in memory but not yet persisted
         CostEvent event2 = new CostEvent(
-                System.currentTimeMillis() + 10, sessionId, "Op 2", "CODE", "gpt-4", "standard", 20, 0, 0, 10, 0.002);
+                UUID.randomUUID().toString(),
+                System.currentTimeMillis() + 10,
+                sessionId,
+                "Op 2",
+                "CODE",
+                "gpt-4",
+                "standard",
+                20,
+                0,
+                0,
+                10,
+                0.002);
         sessionManager2.recordCostEvent(sessionId, event2);
 
         // Read BEFORE manager2 finishes persisting event2.
@@ -119,7 +153,18 @@ public class SessionManagerCostLedgerTest {
         sessionManager.getSessionsCache().put(sessionId, legacyInfo);
 
         CostEvent newEvent = new CostEvent(
-                System.currentTimeMillis() + 1, sessionId, "new op", "CODE", "gpt-4", "standard", 10, 0, 0, 5, 1.25);
+                UUID.randomUUID().toString(),
+                System.currentTimeMillis() + 1,
+                sessionId,
+                "new op",
+                "CODE",
+                "gpt-4",
+                "standard",
+                10,
+                0,
+                0,
+                5,
+                1.25);
         sessionManager.recordCostEvent(sessionId, newEvent);
 
         List<CostEvent> events = sessionManager.readCostEvents(sessionId);

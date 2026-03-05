@@ -31,11 +31,33 @@ public class LlmTest {
         sessionManager.recordCostEvent(
                 sessionId,
                 new SessionManager.CostEvent(
-                        System.currentTimeMillis(), sessionId, "op1", "type1", "m1", "t1", 10, 0, 0, 5, 0.50));
+                        UUID.randomUUID().toString(),
+                        System.currentTimeMillis(),
+                        sessionId,
+                        "op1",
+                        "type1",
+                        "m1",
+                        "t1",
+                        10,
+                        0,
+                        0,
+                        5,
+                        0.50));
         sessionManager.recordCostEvent(
                 sessionId,
                 new SessionManager.CostEvent(
-                        System.currentTimeMillis(), sessionId, "op2", "type2", "m2", "t1", 20, 0, 0, 10, 1.25));
+                        UUID.randomUUID().toString(),
+                        System.currentTimeMillis(),
+                        sessionId,
+                        "op2",
+                        "type2",
+                        "m2",
+                        "t1",
+                        20,
+                        0,
+                        0,
+                        10,
+                        1.25));
 
         // 2. Verify in-memory aggregation works immediately (via readCostEvents cache path)
         assertEquals(1.75, sessionManager.totalCostFromLedger(sessionId), 0.001);
