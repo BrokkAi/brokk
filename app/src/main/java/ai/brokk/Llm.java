@@ -917,6 +917,8 @@ public class Llm {
         if (result != null) {
             var usage = result.metadata(this);
             if (usage != null) {
+                recordCostEventInLedger(model, usage);
+
                 var service = contextManager.getService();
                 var modelName = service.nameOf(model);
                 // Filter out cost notifications for free-tier models unless explicitly enabled
@@ -953,8 +955,6 @@ public class Llm {
                     io.showNotification(IConsoleIO.NotificationRole.COST, message, cost);
                     logger.debug("LLM cost: {}", message);
                 }
-
-                recordCostEventInLedger(model, usage);
             }
         }
     }

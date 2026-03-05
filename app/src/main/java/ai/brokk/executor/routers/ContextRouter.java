@@ -154,15 +154,9 @@ public final class ContextRouter implements SimpleHttpServer.CheckedHttpHandler 
                 branch = "(no git)";
             }
 
-            double totalCost = 0.0;
             var sessionId = contextManager.getCurrentSessionId();
             var sessionManager = contextManager.getProject().getSessionManager();
-            var maybeSessionInfo = sessionManager.listSessions().stream()
-                    .filter(s -> s.id().equals(sessionId))
-                    .findFirst();
-            if (maybeSessionInfo.isPresent() && maybeSessionInfo.get().totalCost() != null) {
-                totalCost = maybeSessionInfo.get().totalCost();
-            }
+            double totalCost = sessionManager.getTotalSessionCost(sessionId);
 
             int maxTokens = 200_000;
             var response = Map.of(
@@ -639,11 +633,6 @@ public final class ContextRouter implements SimpleHttpServer.CheckedHttpHandler 
 
         try {
             var sessionId = contextManager.getCurrentSessionId();
-            if (sessionId == null) {
-                SimpleHttpServer.sendJsonResponse(
-                        exchange, Map.of("sessionId", null, "totalCost", 0.0, "events", List.of()));
-                return;
-            }
 
             var sessionManager = contextManager.getProject().getSessionManager();
             var events = sessionManager.readCostEvents(sessionId);

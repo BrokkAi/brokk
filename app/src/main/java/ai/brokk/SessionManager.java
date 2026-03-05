@@ -1,5 +1,7 @@
 package ai.brokk;
 
+import static java.util.Objects.requireNonNull;
+
 import ai.brokk.concurrent.AtomicWrites;
 import ai.brokk.concurrent.LoggingExecutorService;
 import ai.brokk.concurrent.LoggingFuture;
@@ -38,6 +40,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -53,6 +56,9 @@ import org.jetbrains.annotations.Nullable;
 
 public class SessionManager implements AutoCloseable {
     private static final String SESSIONS_FORMAT_VERSION = "4.0";
+    private static final String LEGACY_MIGRATION_OPERATION_TYPE = "LEGACY_MIGRATION";
+    private static final String LEGACY_MIGRATION_MODEL_NAME = "legacy";
+    private static final String LEGACY_MIGRATION_TIER = "legacy";
 
     /** Record representing session metadata for the sessions management system. */
     @JsonIgnoreProperties(ignoreUnknown = true)
@@ -134,7 +140,8 @@ public class SessionManager implements AutoCloseable {
     private final SerialByKeyExecutor sessionExecutorByKey;
     private final Path sessionsDir;
     private final Map<UUID, SessionInfo> sessionsCache;
-    private final Map<UUID, List<CostEvent>> costLedgerCache = new ConcurrentHashMap<>();
+    private final Map<UUID, CopyOnWriteArrayList<CostEvent>> costLedgerCache = new ConcurrentHashMap<>();
+    private final Set<UUID> legacyMigrationRecorded = ConcurrentHashMap.newKeySet();
 
     private final Set<CompletableFuture<?>> inFlightForeignDownloads = ConcurrentHashMap.newKeySet();
 
@@ -322,9 +329,14 @@ public class SessionManager implements AutoCloseable {
      */
     @Blocking
     public double totalCostFromLedger(UUID sessionId) {
-        return readCostEvents(sessionId).stream()
-                .mapToDouble(CostEvent::costUsd)
-                .sum();
+        try {
+            return readCostEvents(sessionId).stream()
+                    .mapToDouble(CostEvent::costUsd)
+                    .sum();
+        } catch (Exception e) {
+            logger.error("Error calculating total cost from ledger for session {}", sessionId, e);
+            return 0.0;
+        }
     }
 
     /**
@@ -351,7 +363,9 @@ public class SessionManager implements AutoCloseable {
     }
 
     public void recordCostEvent(UUID sessionId, CostEvent event) {
-        costLedgerCache.computeIfAbsent(sessionId, k -> new ArrayList<>()).add(event);
+        costLedgerCache
+                .computeIfAbsent(sessionId, k -> new CopyOnWriteArrayList<>())
+                .add(event);
 
         sessionExecutorByKey.submit(sessionId.toString(), () -> {
             try {
@@ -374,16 +388,10 @@ public class SessionManager implements AutoCloseable {
 
     @Blocking
     public List<CostEvent> readCostEvents(UUID sessionId) {
-        // Fast path: if we have in-memory events for this session in the current JVM, return them.
-        // This avoids races between async writes and reads in the same JVM.
-        var cached = costLedgerCache.get(sessionId);
-        if (cached != null && !cached.isEmpty()) {
-            return List.copyOf(cached);
-        }
-
+        List<CostEvent> persistedEvents;
         try {
             Path zipPath = resolveSessionHistoryZipPath(sessionId);
-            return sessionExecutorByKey
+            persistedEvents = sessionExecutorByKey
                     .submit(sessionId.toString(), () -> {
                         List<CostEvent> events = new ArrayList<>();
                         try (var fs = FileSystems.newFileSystem(zipPath, Map.of())) {
@@ -404,14 +412,68 @@ public class SessionManager implements AutoCloseable {
                     })
                     .get();
         } catch (FileNotFoundException e) {
-            return List.of();
+            persistedEvents = List.of();
         } catch (InterruptedException | ExecutionException e) {
             logger.error("Error awaiting cost ledger read for session {}: {}", sessionId, e.getMessage());
             if (e instanceof InterruptedException) {
                 Thread.currentThread().interrupt();
             }
-            return List.of();
+            persistedEvents = List.of();
         }
+
+        var cached = costLedgerCache.get(sessionId);
+        // Merge persisted and cached events, removing duplicates while preserving order.
+        // Persisted events come first (historical), followed by any cached events not yet on disk.
+        List<CostEvent> merged = new ArrayList<>(persistedEvents);
+        Set<CostEvent> seen = new HashSet<>(persistedEvents);
+        if (cached != null) {
+            for (CostEvent event : cached) {
+                if (seen.add(event)) {
+                    merged.add(event);
+                }
+            }
+        }
+
+        var sessionInfo = sessionsCache.get(sessionId);
+        if (shouldInjectLegacyMigrationEvent(sessionInfo, merged)) {
+            CostEvent legacyEvent = createLegacyMigrationEvent(sessionId, requireNonNull(sessionInfo));
+            merged.addFirst(legacyEvent);
+            if (legacyMigrationRecorded.add(sessionId)) {
+                recordCostEvent(sessionId, legacyEvent);
+            }
+        }
+
+        return List.copyOf(merged);
+    }
+
+    private static boolean shouldInjectLegacyMigrationEvent(@Nullable SessionInfo sessionInfo, List<CostEvent> events) {
+        if (sessionInfo == null
+                || sessionInfo.totalCost() == null
+                || sessionInfo.totalCost() <= 0.0
+                || events.isEmpty()) {
+            return false;
+        }
+        return events.stream().noneMatch(SessionManager::isLegacyMigrationEvent);
+    }
+
+    private static boolean isLegacyMigrationEvent(CostEvent event) {
+        return LEGACY_MIGRATION_OPERATION_TYPE.equals(event.operationType());
+    }
+
+    private static CostEvent createLegacyMigrationEvent(UUID sessionId, SessionInfo sessionInfo) {
+        double cost = requireNonNull(sessionInfo.totalCost(), "totalCost must not be null for legacy migration");
+        return new CostEvent(
+                sessionInfo.created(),
+                sessionId,
+                "Legacy session cost carryover",
+                LEGACY_MIGRATION_OPERATION_TYPE,
+                LEGACY_MIGRATION_MODEL_NAME,
+                LEGACY_MIGRATION_TIER,
+                0,
+                0,
+                0,
+                0,
+                cost);
     }
 
     public void deleteSession(UUID sessionId) {
