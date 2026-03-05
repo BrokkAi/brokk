@@ -1,5 +1,3 @@
-import asyncio
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -109,7 +107,9 @@ async def test_job_spinner_clears_for_origin_worktree_after_switch(tmp_path):
 
     app._attach_mentions_to_context = AsyncMock(return_value=[])
     app._handle_event = MagicMock()
-    app._maybe_chat = MagicMock(side_effect=lambda path=None: panel_a if path == path_a else panel_b)
+    app._maybe_chat = MagicMock(
+        side_effect=lambda path=None: panel_a if path == path_a else panel_b
+    )
 
     await app._run_job("Prompt for A", path=path_a)
 

@@ -1,6 +1,6 @@
 import pathlib
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import Any, Optional
 
 from textual.app import ComposeResult
 from textual.containers import Horizontal

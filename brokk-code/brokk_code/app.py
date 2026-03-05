@@ -4,9 +4,9 @@ import random
 import re
 import time
 import webbrowser
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from textual.app import App, ComposeResult, ScreenStackError
@@ -24,12 +24,12 @@ from brokk_code.settings import (
     write_brokk_api_key,
 )
 from brokk_code.welcome import build_welcome_message, get_braille_icon
-from brokk_code.worktrees import WorktreeInfo, WorktreeService
 from brokk_code.widgets.chat_panel import ChatContainer, ChatInput, ChatPanel
 from brokk_code.widgets.context_panel import ContextPanel
 from brokk_code.widgets.status_line import StatusLine
 from brokk_code.widgets.tasklist_panel import TaskListPanel
 from brokk_code.workspace import resolve_workspace_dir
+from brokk_code.worktrees import WorktreeInfo, WorktreeService
 
 logger = logging.getLogger(__name__)
 
@@ -2886,9 +2886,7 @@ class BrokkApp(App):
 
         raw_input = name.strip()
         # Absolute/explicit filesystem paths should not be treated as branch names.
-        is_explicit_path = Path(raw_input).is_absolute() or raw_input.startswith(
-            (".", "~")
-        )
+        is_explicit_path = Path(raw_input).is_absolute() or raw_input.startswith((".", "~"))
 
         # Default behavior: plain names become sibling worktrees and branch names.
         repo_root = self.worktree_service.repo_root

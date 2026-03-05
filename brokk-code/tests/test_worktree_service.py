@@ -1,6 +1,7 @@
 import subprocess
-from pathlib import Path
+
 import pytest
+
 from brokk_code.worktrees import WorktreeService
 
 

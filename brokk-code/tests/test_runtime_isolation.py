@@ -1,9 +1,10 @@
 import asyncio
-import pytest
 from pathlib import Path
 from unittest.mock import MagicMock
-from brokk_code.app import BrokkApp, RuntimeState
-from brokk_code.executor import ExecutorManager
+
+import pytest
+
+from brokk_code.app import BrokkApp
 
 
 @pytest.mark.asyncio

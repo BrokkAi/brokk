@@ -1,7 +1,7 @@
-import subprocess
 import logging
+import subprocess
 from pathlib import Path
-from typing import List, Optional, NamedTuple
+from typing import List, NamedTuple, Optional
 
 logger = logging.getLogger(__name__)
 

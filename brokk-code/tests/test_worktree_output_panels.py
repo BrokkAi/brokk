@@ -1,8 +1,7 @@
 import pytest
-from pathlib import Path
-from unittest.mock import MagicMock, AsyncMock
+
 from brokk_code.app import BrokkApp
-from brokk_code.widgets.chat_panel import ChatPanel, ChatContainer
+from brokk_code.widgets.chat_panel import ChatContainer
 
 
 @pytest.mark.asyncio
