@@ -598,6 +598,10 @@ public class Context {
                 this.pinnedFragments);
     }
 
+    public Context withTaskHistory(List<TaskEntry> taskHistory) {
+        return withHistory(taskHistory);
+    }
+
     /**
      * Creates a new (live) Context that copies specific elements from the provided context.
      */

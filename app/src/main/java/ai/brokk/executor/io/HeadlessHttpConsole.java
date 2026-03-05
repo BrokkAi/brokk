@@ -60,7 +60,7 @@ public class HeadlessHttpConsole extends MemoryConsole {
     private void appendEvent(String type, @Nullable Object data) {
         try {
             long seq = jobStore.appendEvent(jobId, JobEvent.of(type, data));
-            logger.debug("Appended event type={} seq={}", type, seq);
+            logger.trace("Appended event type={} seq={}", type, seq);
         } catch (IOException e) {
             logger.error("Failed to append event of type {}", type, e);
         }

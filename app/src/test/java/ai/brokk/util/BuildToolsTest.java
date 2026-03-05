@@ -4,6 +4,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import ai.brokk.agents.BuildAgent.BuildDetails;
 import ai.brokk.analyzer.CodeUnit;
+import ai.brokk.analyzer.Languages;
+import ai.brokk.analyzer.MultiAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.testutil.NoOpConsoleIO;
 import ai.brokk.testutil.TestAnalyzer;
@@ -11,7 +13,9 @@ import ai.brokk.testutil.TestContextManager;
 import ai.brokk.testutil.TestProject;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -101,5 +105,41 @@ class BuildToolsTest {
         // Even with empty workspace test files, it should return the static command verbatim
         String result = BuildTools.getBuildLintSomeCommand(mockCm, details, List.of());
         assertEquals("pytest -q", result);
+    }
+
+    @Test
+    void testGetBuildLintSomeCommand_GoMultiAnalyzerRegression(@TempDir Path tempDir) throws Exception {
+        TestProject project = new TestProject(tempDir);
+        ProjectFile testFile = new ProjectFile(tempDir, "callbacks/logic_test.go");
+
+        // 1. Create a Go analyzer that returns the prefixed path
+        TestAnalyzer goAnalyzer = new TestAnalyzer() {
+            @Override
+            public List<String> getTestModules(Collection<ProjectFile> files) {
+                return List.of("./callbacks");
+            }
+        };
+        CodeUnit testFn = CodeUnit.fn(testFile, "callbacks", "TestCallbacks");
+        goAnalyzer.addDeclaration(testFn);
+
+        // 2. Setup MultiAnalyzer with the Go delegate
+        // Note: MultiAnalyzer.getTestModules delegates to the language-specific analyzer
+        var multiAnalyzer = new MultiAnalyzer(Map.of(Languages.GO, goAnalyzer));
+
+        TestContextManager mockCm = new TestContextManager(project, new NoOpConsoleIO(), Set.of(), multiAnalyzer);
+
+        // User's reported template
+        BuildDetails details = new BuildDetails(
+                "go build",
+                "go test ./...",
+                "go test {{#packages}}{{value}} {{/packages}} -run '^{{#classes}}{{value}}{{^last}}|{{/last}}{{/classes}}$'",
+                Set.of());
+
+        // 3. Interpolate
+        String result = BuildTools.getBuildLintSomeCommand(mockCm, details, List.of(testFile));
+
+        // 4. Assertions
+        // Ensure the package has the ./ prefix and the class (function) is present
+        assertEquals("go test ./callbacks  -run '^TestCallbacks$'", result);
     }
 }

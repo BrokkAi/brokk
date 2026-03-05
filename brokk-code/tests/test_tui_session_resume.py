@@ -129,8 +129,11 @@ async def test_resume_command_launches_with_correct_id(tmp_path):
 
 def test_main_prints_resume_hint_on_exit(tmp_path, capsys):
     """
-    Verifies that main() prints the resume hint after the app finishes running,
-    if a last session ID exists AND has history tasks in contexts.jsonl.
+    SPECIFICATION: Resume Hint Behavior
+    The 'brokk resume <id>' hint MUST be printed to stdout if and only if:
+    1. The application exits normally (main returns without unhandled exception).
+    2. A last session ID is found in the workspace metadata.
+    3. The session's ZIP file contains qualifying history tasks (has_tasks is true).
     """
     import json
     import zipfile
@@ -166,8 +169,9 @@ def test_main_prints_resume_hint_on_exit(tmp_path, capsys):
 
 def test_main_omits_resume_hint_when_no_tasks(tmp_path, capsys):
     """
+    SPECIFICATION: Resume Hint Behavior (Empty Session)
     Verifies that main() does NOT print the resume hint if the session exists
-    but has no qualifying history tasks.
+    but has no qualifying history tasks in contexts.jsonl.
     """
     import json
     import zipfile
@@ -194,6 +198,75 @@ def test_main_omits_resume_hint_when_no_tasks(tmp_path, capsys):
 
     captured = capsys.readouterr()
     assert "brokk resume" not in captured.out
+
+
+def test_main_omits_resume_hint_on_exception(tmp_path, capsys):
+    """
+    SPECIFICATION: Resume Hint Behavior (Abnormal Exit)
+    Verifies that the resume hint is NOT printed if app.run() raises an exception.
+    The hint logic follows the finally block and relies on normal flow completion.
+    """
+    import json
+    import zipfile
+
+    from brokk_code.__main__ import main
+
+    workspace = tmp_path
+    session_id = "exception-session"
+    save_last_session_id(workspace, session_id)
+
+    # Create a qualifying zip
+    zip_path = get_session_zip_path(workspace, session_id)
+    with zipfile.ZipFile(zip_path, "w") as z:
+        z.writestr(
+            "contexts.jsonl", json.dumps({"tasks": [{"sequence": 1, "taskType": "LUTZ"}]}) + "\n"
+        )
+
+    # Patch BrokkApp.run to raise an exception
+    with (
+        patch("brokk_code.app.BrokkApp.run", side_effect=RuntimeError("Crash")),
+        patch("sys.argv", ["brokk", "--workspace", str(workspace)]),
+    ):
+        with pytest.raises(RuntimeError, match="Crash"):
+            main()
+
+    captured = capsys.readouterr()
+    assert "brokk resume" not in captured.out
+
+
+def test_main_prints_resume_hint_on_ctrl_d_exit(tmp_path, capsys):
+    """
+    SPECIFICATION: Resume Hint Behavior (Ctrl+D)
+    Verifies that the resume hint is printed when the app exits via Ctrl+D.
+    From the perspective of main(), this is identical to a Ctrl+C exit as
+    long as app.run() returns normally.
+    """
+    import json
+    import zipfile
+
+    from brokk_code.__main__ import main
+
+    workspace = tmp_path
+    session_id = "ctrl-d-session"
+    save_last_session_id(workspace, session_id)
+
+    # Create a qualifying zip
+    zip_path = get_session_zip_path(workspace, session_id)
+    with zipfile.ZipFile(zip_path, "w") as z:
+        z.writestr(
+            "contexts.jsonl", json.dumps({"tasks": [{"sequence": 1, "taskType": "LUTZ"}]}) + "\n"
+        )
+
+    # Patch BrokkApp.run to simulate a successful return (as it does after Ctrl+D/action_quit)
+    with (
+        patch("brokk_code.app.BrokkApp.run", return_value=None),
+        patch("sys.argv", ["brokk", "--workspace", str(workspace)]),
+    ):
+        main()
+
+    captured = capsys.readouterr()
+    expected_hint = f"brokk resume {session_id}"
+    assert expected_hint in captured.out
 
 
 def test_replay_conversation_entries_renders_messages(tmp_path):
@@ -385,3 +458,26 @@ async def test_resume_session_seeds_session_cost_from_context(tmp_path):
     assert app.session_total_cost == pytest.approx(4.321, rel=1e-6)
     assert len(stub.import_calls) == 1
     assert stub.import_calls[0][1] == last_id
+
+
+@pytest.mark.asyncio
+async def test_ctrl_d_bound_to_shutdown(tmp_path):
+    """Verify Ctrl+D is bound to handle_ctrl_c and triggers action_quit."""
+    workspace = tmp_path
+    stub = SessionStubExecutor()
+    stub.stop = AsyncMock()
+    app = BrokkApp(executor=stub, workspace_dir=workspace)
+
+    # Check binding
+    binding = next((b for b in app.BINDINGS if b.key == "ctrl+d"), None)
+    assert binding is not None
+    assert binding.action == "handle_ctrl_c"
+
+    # Simulate double-tap Ctrl+D logic by calling action_quit directly
+    # (which handle_ctrl_c eventually calls)
+    with patch("brokk_code.app.BrokkApp.exit") as mock_exit:
+        await app.action_quit()
+
+        assert stub.stop.called
+        assert app._shutdown_completed is True
+        assert mock_exit.called

@@ -1,7 +1,9 @@
 import asyncio
 import logging
+import os
 import random
 import re
+import signal
 import time
 import webbrowser
 from datetime import datetime
@@ -625,10 +627,31 @@ class BrokkApp(App):
     BINDINGS = [
         # Footer/help-bar ordering: Context, Tasks, Settings
         Binding("ctrl+c", "handle_ctrl_c", "Quit", show=True),
+        Binding("ctrl+d", "handle_ctrl_c", "Quit", show=False),
         Binding("ctrl+p", "command_palette", "Settings", show=True),
         Binding("ctrl+o", "toggle_output", "Toggle Output", show=True),
+        Binding("ctrl+z", "suspend_process", "Suspend", show=False, priority=True),
         Binding("shift+tab", "toggle_mode", "Toggle mode", show=False, priority=True),
     ]
+
+    def action_suspend_process(self) -> None:
+        """Suspend the app and executor subprocess with resumable job-control signals."""
+        process = self.executor._process
+        if process is not None and process.returncode is None:
+            # Ensure the Java subprocess pauses even though Ctrl+Z is handled in-app.
+            # Textual's parent suspend still controls terminal mode transitions.
+            try:
+                os.kill(process.pid, signal.SIGTSTP)
+            except ProcessLookupError:
+                pass
+            except Exception:
+                logger.debug("Failed to pause executor process before suspend", exc_info=True)
+
+        # Keep Textual's built-in suspend/resume semantics for the app itself.
+        try:
+            super().action_suspend_process()
+        except Exception:
+            logger.debug("Failed to suspend process", exc_info=True)
 
     def __init__(
         self,
@@ -711,9 +734,6 @@ class BrokkApp(App):
         self._executor_ready: bool = False
         self._refresh_context_lock = asyncio.Lock()
         self._reported_refresh_errors: set[str] = set()
-        self._renamed_sessions: set[str] = set()
-        self._auto_rename_eligible_sessions: set[str] = set()
-        self._rename_session_lock = asyncio.Lock()
         self._session_switch_lock = asyncio.Lock()
         self._reasoning_target: str = "planner"
 
@@ -806,6 +826,7 @@ class BrokkApp(App):
             yield TaskListPanel(id="side-tasklist")
 
     async def on_mount(self) -> None:
+        self.app_resume_signal.subscribe(self, self._on_app_resume)
         chat = self._maybe_chat()
         logger.info("Using workspace directory: %s", self.executor.workspace_dir)
         if chat:
@@ -842,6 +863,18 @@ class BrokkApp(App):
         self.run_worker(self._poll_tasklist())
         self.run_worker(self._poll_context())
         self._update_statusline()
+
+    def _on_app_resume(self, _app: App) -> None:
+        """Ensure the executor process resumes if it was paused by suspend."""
+        process = self.executor._process
+        if process is None or process.returncode is not None:
+            return
+        try:
+            os.kill(process.pid, signal.SIGCONT)
+        except ProcessLookupError:
+            return
+        except Exception:
+            logger.debug("Failed to resume executor process after app resume", exc_info=True)
 
     async def _start_executor(self) -> None:
         chat = self._maybe_chat()
@@ -898,9 +931,7 @@ class BrokkApp(App):
                         logger.warning("Failed to resume session %s: %s", session_to_resume, e)
 
             if not resumed:
-                sid = await self.executor.create_session()
-                if sid:
-                    self._auto_rename_eligible_sessions.add(sid)
+                await self.executor.create_session()
 
             if self.executor.session_id:
                 save_last_session_id(self.executor.workspace_dir, self.executor.session_id)
@@ -1621,57 +1652,7 @@ class BrokkApp(App):
             logger.exception("OpenAI OAuth login failed")
             chat.add_system_message(f"Failed to start OpenAI login: {e}", level="ERROR")
 
-    def _derive_session_name(self, text: str) -> str:
-        """Derives a short session name from the first prompt text."""
-        # Strip leading mentions and common command-like prefixes
-        cleaned = re.sub(r"^(?:@\S+\s+|/ask\s+|/lutz\s+|/code\s+)+", "", text, flags=re.IGNORECASE)
-        # Take first line and truncate
-        first_line = cleaned.strip().split("\n")[0]
-        if len(first_line) > 60:
-            return first_line[:57].strip() + "..."
-        return first_line
-
-    async def _maybe_rename_session(self, first_prompt: str) -> None:
-        """Asynchronously renames the session if it's new/unnamed."""
-        session_id = self.executor.session_id
-        if not session_id or session_id not in self._auto_rename_eligible_sessions:
-            return
-
-        async with self._rename_session_lock:
-            if session_id in self._renamed_sessions:
-                return
-
-            # Check if the session name is generic before renaming
-            try:
-                sessions_data = await self.executor.list_sessions()
-                current_id = sessions_data.get("currentSessionId")
-                sessions = sessions_data.get("sessions", [])
-
-                # Find current session and check if it's using the default name
-                current_session = next((s for s in sessions if s.get("id") == current_id), None)
-                if not current_session or current_session.get("name") != "TUI Session":
-                    # Already named or not found; mark as "renamed" to skip further checks
-                    self._renamed_sessions.add(session_id)
-                    return
-
-                new_name = self._derive_session_name(first_prompt)
-                if not new_name:
-                    return
-
-                await self.executor.rename_session(session_id, new_name)
-                self._renamed_sessions.add(session_id)
-
-                chat = self._maybe_chat()
-                if chat:
-                    chat.add_system_message(f"Session renamed to: {new_name}")
-            except Exception as e:
-                logger.warning("Failed to auto-rename session: %s", e)
-
     async def _run_job(self, task_input: str) -> None:
-        # Attempt auto-rename on first prompt if session is default
-        if self._executor_ready and self.executor.session_id:
-            self.run_worker(self._maybe_rename_session(task_input))
-
         # Reset per-job cost accumulator
         self.current_job_cost = 0.0
         self.job_in_progress = True
@@ -1679,6 +1660,7 @@ class BrokkApp(App):
         if chat:
             chat.set_job_running(True)
             chat.set_response_pending()
+
         attached_fragment_ids: List[str] = []
         try:
             attached_fragment_ids = await self._attach_mentions_to_context(task_input)
@@ -2410,7 +2392,9 @@ class BrokkApp(App):
         if now - self._last_ctrl_c_time < 2.0:
             await self.action_quit()
         else:
-            self.query_one(ChatPanel).add_system_message("Press Ctrl+C again to quit.")
+            # We don't have easy access to which key triggered the action here without
+            # changing the signature, but "Ctrl+C or Ctrl+D" is accurate for both.
+            self.query_one(ChatPanel).add_system_message("Press Ctrl+C or Ctrl+D again to quit.")
             self._last_ctrl_c_time = now
 
     async def _shutdown_once(self, *, show_message: bool = True) -> None:
@@ -2497,18 +2481,16 @@ class BrokkApp(App):
 
     async def _rename_session(self, session_id: str, new_name: str) -> bool:
         chat = self._maybe_chat()
-        async with self._rename_session_lock:
-            try:
-                await self.executor.rename_session(session_id, new_name)
-                self._renamed_sessions.add(session_id)
-                if chat:
-                    chat.add_system_message(f"Session renamed to: {new_name}")
-                await self._refresh_context_panel()
-                return True
-            except Exception as e:
-                if chat:
-                    chat.add_system_message(f"Failed to rename session: {e}", level="ERROR")
-                return False
+        try:
+            await self.executor.rename_session(session_id, new_name)
+            if chat:
+                chat.add_system_message(f"Session renamed to: {new_name}")
+            await self._refresh_context_panel()
+            return True
+        except Exception as e:
+            if chat:
+                chat.add_system_message(f"Failed to rename session: {e}", level="ERROR")
+            return False
 
     async def _create_session_from_menu(self) -> None:
         """Async worker to create a new session."""
@@ -2521,7 +2503,6 @@ class BrokkApp(App):
         try:
             chat.add_system_message("Creating new session...")
             session_id = await self.executor.create_session()
-            self._auto_rename_eligible_sessions.add(session_id)
             save_last_session_id(self.executor.workspace_dir, session_id)
 
             chat._message_history.clear()

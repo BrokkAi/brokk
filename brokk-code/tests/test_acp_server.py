@@ -527,6 +527,28 @@ async def test_ensure_ready_bootstraps_session_before_wait_ready() -> None:
     assert calls == ["start", "create_session:ACP Bootstrap Session", "wait_ready"]
 
 
+async def test_start_and_create_session_avoids_bootstrap_on_first_call() -> None:
+    calls: list[str] = []
+
+    class StubExecutor:
+        async def start(self) -> None:
+            calls.append("start")
+
+        async def create_session(self, name: str = "ignored") -> str:
+            calls.append(f"create_session:{name}")
+            return "session-real"
+
+        async def wait_ready(self) -> bool:
+            calls.append("wait_ready")
+            return True
+
+    bridge = BrokkAcpBridge(StubExecutor())  # type: ignore[arg-type]
+    session_id = await bridge.start_and_create_session(name="Requested Session")
+
+    assert session_id == "session-real"
+    assert calls == ["start", "create_session:Requested Session", "wait_ready"]
+
+
 async def test_prompt_emits_tokens_but_no_snapshot(tmp_path: Path) -> None:
     updates: list[tuple[str, dict[str, str]]] = []
 

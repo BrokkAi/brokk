@@ -432,6 +432,7 @@ public class SearchPrompts {
                     - Each task must be self-contained; the Code Agent will not have access to your instructions or conversation history.
                     - It is CRITICAL to keep the project buildable and testable after each task; in the VERY RARE case where breaking the build
                       temporarily is necessary, YOU MUST BE EXPLICIT about this to avoid confusing the Code Agent.
+                    - Given the above, DO NOT create pure "testing" tasks.
                 {{/if}}
                 {{#if terminalWorkspace}}
                 - workspaceComplete(): when the Workspace contains all the information necessary to accomplish the goal.
