@@ -703,6 +703,7 @@ public class ArchitectAgent {
             var fatalReason = this.lastFatalReason != null ? this.lastFatalReason : StopReason.LLM_ERROR;
             this.lastFatalReason = null;
             var errorMessage = "Fatal error executing initial Code Agent: %s".formatted(e.getMessage());
+            logger.warn(errorMessage, e);
             io.showNotification(IConsoleIO.NotificationRole.INFO, errorMessage);
             return resultWithMessages(fatalReason);
         }

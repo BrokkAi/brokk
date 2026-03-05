@@ -151,7 +151,7 @@ public final class JobStore {
         Files.createDirectories(jobDir);
         Files.writeString(eventsFile, eventLine, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
 
-        logger.debug("Appended event {} to job {} with seq {}", event.type(), jobId, seq);
+        logger.trace("Appended event {} to job {} with seq {}", event.type(), jobId, seq);
         return seq;
     }
 
