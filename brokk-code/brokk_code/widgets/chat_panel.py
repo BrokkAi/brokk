@@ -1220,6 +1220,7 @@ class ChatPanel(Vertical):
                 content=entry["content"],
                 **{k: v for k, v in entry.items() if k not in ("kind", "content")},
             )
+        self.call_later(self._sync_autoscroll)
 
     def add_markdown(self, content: str) -> None:
         """Renders a block of Markdown content to the chat log."""

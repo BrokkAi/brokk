@@ -1102,3 +1102,45 @@ async def test_sync_autoscroll_respects_scroll_position():
         # _sync_autoscroll should re-enable it
         panel._sync_autoscroll()
         assert log.auto_scroll is True
+
+
+@pytest.mark.asyncio
+async def test_refresh_log_preserves_scroll_state():
+    """
+    Verify that after scrolling up (auto_scroll disabled), calling refresh_log
+    leaves auto_scroll disabled and the scroll-to-bottom button visible.
+    """
+    from textual.app import App, ComposeResult
+    from textual.widgets import Button, RichLog
+
+    class TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield ChatPanel(id="chat")
+
+    app = TestApp()
+    async with app.run_test() as pilot:
+        panel = app.query_one("#chat", ChatPanel)
+        log = panel.query_one("#chat-log", RichLog)
+        scroll_btn = panel.query_one("#scroll-to-bottom", Button)
+
+        for i in range(50):
+            panel.add_system_message(f"Message {i}")
+        await pilot.pause()
+
+        if log.max_scroll_y > 0:
+            log.scroll_to(y=0, animate=False)
+            await pilot.pause()
+            panel._sync_autoscroll()
+            assert log.auto_scroll is False
+            assert not scroll_btn.has_class("hidden")
+
+            # refresh_log clears and re-renders; state should be synced after
+            panel.refresh_log(show_verbose=True)
+            await pilot.pause()
+
+            assert log.auto_scroll is False, (
+                "auto_scroll should remain disabled after refresh_log when not at bottom"
+            )
+            assert not scroll_btn.has_class("hidden"), (
+                "scroll-to-bottom button should remain visible after refresh_log"
+            )
