@@ -876,15 +876,15 @@ async def test_autoscroll_disabled_when_scrolled_up():
             yield ChatPanel(id="chat")
 
     app = TestApp()
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(80, 10)) as pilot:
         panel = app.query_one("#chat", ChatPanel)
         log = panel.query_one("#chat-log", RichLog)
 
         # auto_scroll defaults to True in RichLog
         assert log.auto_scroll is True
 
-        # Add enough content to make the log scrollable
-        for i in range(50):
+        # Add enough content to make the log scrollable in small viewport
+        for i in range(20):
             panel.add_system_message(f"Message {i}")
         await pilot.pause()
 
@@ -892,22 +892,24 @@ async def test_autoscroll_disabled_when_scrolled_up():
         # (RichLog.write() scrolls to end when auto_scroll is True)
         assert log.auto_scroll is True
 
+        # Verify scrollability is deterministic
+        assert log.max_scroll_y > 0, "Log must be scrollable for this test"
+
         # Simulate user scrolling up
-        if log.max_scroll_y > 0:
-            log.scroll_to(y=0, animate=False)
-            await pilot.pause()
+        log.scroll_to(y=0, animate=False)
+        await pilot.pause()
 
-            # Call _sync_autoscroll to simulate the scroll event handler
-            panel._sync_autoscroll()
-            assert log.auto_scroll is False, "auto_scroll should be disabled when scrolled up"
+        # Call _sync_autoscroll to simulate the scroll event handler
+        panel._sync_autoscroll()
+        assert log.auto_scroll is False, "auto_scroll should be disabled when scrolled up"
 
-            # Scroll back to the bottom
-            log.scroll_end(animate=False)
-            await pilot.pause()
+        # Scroll back to the bottom
+        log.scroll_end(animate=False)
+        await pilot.pause()
 
-            # Call _sync_autoscroll to simulate the scroll event handler
-            panel._sync_autoscroll()
-            assert log.auto_scroll is True, "auto_scroll should be re-enabled at bottom"
+        # Call _sync_autoscroll to simulate the scroll event handler
+        panel._sync_autoscroll()
+        assert log.auto_scroll is True, "auto_scroll should be re-enabled at bottom"
 
 
 @pytest.mark.asyncio
@@ -926,32 +928,34 @@ async def test_autoscroll_reset_on_submission():
             yield ChatPanel(id="chat")
 
     app = TestApp()
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(80, 10)) as pilot:
         panel = app.query_one("#chat", ChatPanel)
         log = panel.query_one("#chat-log", RichLog)
         chat_input = panel.query_one("#chat-input", ChatInput)
 
-        # Add enough content to make the log scrollable
-        for i in range(50):
+        # Add enough content to make the log scrollable in small viewport
+        for i in range(20):
             panel.add_system_message(f"Message {i}")
         await pilot.pause()
 
+        # Verify scrollability is deterministic
+        assert log.max_scroll_y > 0, "Log must be scrollable for this test"
+
         # Scroll up to disable auto_scroll
-        if log.max_scroll_y > 0:
-            log.scroll_to(y=0, animate=False)
-            await pilot.pause()
-            panel._sync_autoscroll()
-            assert log.auto_scroll is False
+        log.scroll_to(y=0, animate=False)
+        await pilot.pause()
+        panel._sync_autoscroll()
+        assert log.auto_scroll is False
 
-            # Type and submit a message
-            chat_input.text = "Hello"
-            chat_input.action_submit()
-            await pilot.pause()
+        # Type and submit a message
+        chat_input.text = "Hello"
+        chat_input.action_submit()
+        await pilot.pause()
 
-            # After submission, auto_scroll should be re-enabled
-            assert log.auto_scroll is True
-            # And we should be at the bottom
-            assert log.is_vertical_scroll_end
+        # After submission, auto_scroll should be re-enabled
+        assert log.auto_scroll is True
+        # And we should be at the bottom
+        assert log.is_vertical_scroll_end
 
 
 @pytest.mark.asyncio
@@ -985,7 +989,7 @@ async def test_scroll_to_bottom_button_visibility_on_scroll():
             yield ChatPanel(id="chat")
 
     app = TestApp()
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(80, 10)) as pilot:
         panel = app.query_one("#chat", ChatPanel)
         log = panel.query_one("#chat-log", RichLog)
         scroll_btn = panel.query_one("#scroll-to-bottom", Button)
@@ -993,27 +997,29 @@ async def test_scroll_to_bottom_button_visibility_on_scroll():
         # Initially hidden
         assert scroll_btn.has_class("hidden")
 
-        # Add enough content to make scrollable
-        for i in range(50):
+        # Add enough content to make scrollable in small viewport
+        for i in range(20):
             panel.add_system_message(f"Message {i}")
         await pilot.pause()
 
-        # Scroll up if there's scrollable content
-        if log.max_scroll_y > 0:
-            log.scroll_to(y=0, animate=False)
-            await pilot.pause()
-            panel._sync_autoscroll()
+        # Verify scrollability is deterministic
+        assert log.max_scroll_y > 0, "Log must be scrollable for this test"
 
-            # Button should now be visible
-            assert not scroll_btn.has_class("hidden")
+        # Scroll up
+        log.scroll_to(y=0, animate=False)
+        await pilot.pause()
+        panel._sync_autoscroll()
 
-            # Scroll back to bottom
-            log.scroll_end(animate=False)
-            await pilot.pause()
-            panel._sync_autoscroll()
+        # Button should now be visible
+        assert not scroll_btn.has_class("hidden")
 
-            # Button should be hidden again
-            assert scroll_btn.has_class("hidden")
+        # Scroll back to bottom
+        log.scroll_end(animate=False)
+        await pilot.pause()
+        panel._sync_autoscroll()
+
+        # Button should be hidden again
+        assert scroll_btn.has_class("hidden")
 
 
 @pytest.mark.asyncio
@@ -1030,34 +1036,36 @@ async def test_scroll_to_bottom_button_click():
             yield ChatPanel(id="chat")
 
     app = TestApp()
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(80, 10)) as pilot:
         panel = app.query_one("#chat", ChatPanel)
         log = panel.query_one("#chat-log", RichLog)
         scroll_btn = panel.query_one("#scroll-to-bottom", Button)
 
-        # Add enough content to make scrollable
-        for i in range(50):
+        # Add enough content to make scrollable in small viewport
+        for i in range(20):
             panel.add_system_message(f"Message {i}")
         await pilot.pause()
 
+        # Verify scrollability is deterministic
+        assert log.max_scroll_y > 0, "Log must be scrollable for this test"
+
         # Scroll up and disable auto_scroll
-        if log.max_scroll_y > 0:
-            log.scroll_to(y=0, animate=False)
-            log.auto_scroll = False
-            await pilot.pause()
-            panel._sync_autoscroll()
+        log.scroll_to(y=0, animate=False)
+        log.auto_scroll = False
+        await pilot.pause()
+        panel._sync_autoscroll()
 
-            assert not scroll_btn.has_class("hidden")
-            assert log.auto_scroll is False
+        assert not scroll_btn.has_class("hidden")
+        assert log.auto_scroll is False
 
-            # Click the button
-            scroll_btn.press()
-            await pilot.pause()
+        # Click the button
+        scroll_btn.press()
+        await pilot.pause()
 
-            # Should be back at bottom with auto_scroll enabled
-            assert log.auto_scroll is True
-            assert log.is_vertical_scroll_end
-            assert scroll_btn.has_class("hidden")
+        # Should be back at bottom with auto_scroll enabled
+        assert log.auto_scroll is True
+        assert log.is_vertical_scroll_end
+        assert scroll_btn.has_class("hidden")
 
 
 @pytest.mark.asyncio
@@ -1118,41 +1126,41 @@ async def test_refresh_log_preserves_scroll_state():
             yield ChatPanel(id="chat")
 
     app = TestApp()
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(80, 10)) as pilot:
         panel = app.query_one("#chat", ChatPanel)
         log = panel.query_one("#chat-log", RichLog)
         scroll_btn = panel.query_one("#scroll-to-bottom", Button)
 
-        for i in range(50):
+        for i in range(20):
             panel.add_system_message(f"Message {i}")
         await pilot.pause()
 
-        if log.max_scroll_y > 0:
-            # Scroll to a middle position
-            mid_y = log.max_scroll_y // 2
-            log.scroll_to(y=mid_y, animate=False)
-            await pilot.pause()
-            panel._sync_autoscroll()
-            assert log.auto_scroll is False
-            assert not scroll_btn.has_class("hidden")
+        # Verify scrollability is deterministic
+        assert log.max_scroll_y > 0, "Log must be scrollable for this test"
 
-            # refresh_log clears and re-renders; state should be synced after
-            panel.refresh_log(show_verbose=True)
-            await pilot.pause()
+        # Scroll to a middle position
+        mid_y = log.max_scroll_y // 2
+        log.scroll_to(y=mid_y, animate=False)
+        await pilot.pause()
+        panel._sync_autoscroll()
+        assert log.auto_scroll is False
+        assert not scroll_btn.has_class("hidden")
 
-            assert log.auto_scroll is False, (
-                "auto_scroll should remain disabled after refresh_log when not at bottom"
-            )
-            assert not scroll_btn.has_class("hidden"), (
-                "scroll-to-bottom button should remain visible after refresh_log"
-            )
-            # Scroll position should be restored (clamped to new max)
-            assert log.scroll_y <= log.max_scroll_y, (
-                "scroll_y should not exceed max_scroll_y after refresh_log"
-            )
-            assert log.scroll_y > 0, (
-                "scroll_y should be restored near prior position, not reset to 0"
-            )
+        # refresh_log clears and re-renders; state should be synced after
+        panel.refresh_log(show_verbose=True)
+        await pilot.pause()
+
+        assert log.auto_scroll is False, (
+            "auto_scroll should remain disabled after refresh_log when not at bottom"
+        )
+        assert not scroll_btn.has_class("hidden"), (
+            "scroll-to-bottom button should remain visible after refresh_log"
+        )
+        # Scroll position should be restored (clamped to new max)
+        assert log.scroll_y <= log.max_scroll_y, (
+            "scroll_y should not exceed max_scroll_y after refresh_log"
+        )
+        assert log.scroll_y > 0, "scroll_y should be restored near prior position, not reset to 0"
 
 
 @pytest.mark.asyncio
@@ -1170,42 +1178,44 @@ async def test_add_message_does_not_jump_when_scrolled_up():
             yield ChatPanel(id="chat")
 
     app = TestApp()
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(80, 10)) as pilot:
         panel = app.query_one("#chat", ChatPanel)
         log = panel.query_one("#chat-log", RichLog)
         scroll_btn = panel.query_one("#scroll-to-bottom", Button)
 
-        # Add enough content to make the log scrollable
-        for i in range(50):
+        # Add enough content to make the log scrollable in small viewport
+        for i in range(20):
             panel.add_system_message(f"Message {i}")
         await pilot.pause()
 
-        if log.max_scroll_y > 0:
-            # Scroll up to disable auto_scroll
-            log.scroll_to(y=0, animate=False)
-            await pilot.pause()
-            panel._sync_autoscroll()
+        # Verify scrollability is deterministic
+        assert log.max_scroll_y > 0, "Log must be scrollable for this test"
 
-            assert log.auto_scroll is False
-            assert not scroll_btn.has_class("hidden")
+        # Scroll up to disable auto_scroll
+        log.scroll_to(y=0, animate=False)
+        await pilot.pause()
+        panel._sync_autoscroll()
 
-            # Record scroll position before adding new message
-            scroll_y_before = log.scroll_y
+        assert log.auto_scroll is False
+        assert not scroll_btn.has_class("hidden")
 
-            # Add another message while scrolled up
-            panel.add_system_message("New message while scrolled up")
-            await pilot.pause()
+        # Record scroll position before adding new message
+        scroll_y_before = log.scroll_y
 
-            # scroll_y should not have jumped to max_scroll_y
-            assert log.scroll_y == scroll_y_before, (
-                f"scroll_y jumped from {scroll_y_before} to {log.scroll_y}; "
-                "should stay in place when auto_scroll is disabled"
-            )
-            assert log.scroll_y < log.max_scroll_y, (
-                "scroll_y should not be at max_scroll_y when auto_scroll is disabled"
-            )
+        # Add another message while scrolled up
+        panel.add_system_message("New message while scrolled up")
+        await pilot.pause()
 
-            # Button should still be visible
-            assert not scroll_btn.has_class("hidden"), (
-                "scroll-to-bottom button should remain visible after adding a message"
-            )
+        # scroll_y should not have jumped to max_scroll_y
+        assert log.scroll_y == scroll_y_before, (
+            f"scroll_y jumped from {scroll_y_before} to {log.scroll_y}; "
+            "should stay in place when auto_scroll is disabled"
+        )
+        assert log.scroll_y < log.max_scroll_y, (
+            "scroll_y should not be at max_scroll_y when auto_scroll is disabled"
+        )
+
+        # Button should still be visible
+        assert not scroll_btn.has_class("hidden"), (
+            "scroll-to-bottom button should remain visible after adding a message"
+        )

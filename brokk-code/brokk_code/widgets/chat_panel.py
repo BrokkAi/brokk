@@ -11,6 +11,7 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.message import Message
+from textual.css.query import NoMatches
 from textual.widgets import Button, ListItem, ListView, LoadingIndicator, RichLog, Static, TextArea
 
 from brokk_code.widgets.status_line import StatusLine
@@ -763,22 +764,22 @@ class ChatPanel(Vertical):
         try:
             log = self.query_one("#chat-log", RichLog)
             scroll_btn = self.query_one("#scroll-to-bottom", Button)
-            # Only act when there's actually scrollable content
-            if log.max_scroll_y > 0:
-                # Use is_vertical_scroll_end which properly accounts for scroll position
-                at_bottom = log.is_vertical_scroll_end
-                if at_bottom:
-                    log.auto_scroll = True
-                    scroll_btn.set_class(True, "hidden")
-                else:
-                    log.auto_scroll = False
-                    scroll_btn.set_class(False, "hidden")
-            else:
-                # Content fits in view - restore auto_scroll and hide button
+        except NoMatches:
+            return
+        # Only act when there's actually scrollable content
+        if log.max_scroll_y > 0:
+            # Use is_vertical_scroll_end which properly accounts for scroll position
+            at_bottom = log.is_vertical_scroll_end
+            if at_bottom:
                 log.auto_scroll = True
                 scroll_btn.set_class(True, "hidden")
-        except Exception:
-            pass
+            else:
+                log.auto_scroll = False
+                scroll_btn.set_class(False, "hidden")
+        else:
+            # Content fits in view - restore auto_scroll and hide button
+            log.auto_scroll = True
+            scroll_btn.set_class(True, "hidden")
 
     def on_key(self, event: events.Key) -> None:
         """Handle Up/Down arrow keys for prompt history navigation."""
@@ -884,15 +885,12 @@ class ChatPanel(Vertical):
         """Re-enable autoscroll and scroll the log to the end."""
         try:
             log = self.query_one("#chat-log", RichLog)
-            log.auto_scroll = True
-            log.scroll_end(animate=False)
-        except Exception:
-            pass
-        try:
             scroll_btn = self.query_one("#scroll-to-bottom", Button)
-            scroll_btn.set_class(True, "hidden")
-        except Exception:
-            pass
+        except NoMatches:
+            return
+        log.auto_scroll = True
+        log.scroll_end(animate=False)
+        scroll_btn.set_class(True, "hidden")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle button press events."""
@@ -1226,7 +1224,9 @@ class ChatPanel(Vertical):
 
         if not was_following:
             log.auto_scroll = False
-            self.call_later(lambda: log.scroll_to(y=min(prior_scroll_y, log.max_scroll_y), animate=False))
+            self.call_later(
+                lambda: log.scroll_to(y=min(prior_scroll_y, log.max_scroll_y), animate=False)
+            )
         self.call_later(self._sync_autoscroll)
 
     def add_markdown(self, content: str) -> None:
