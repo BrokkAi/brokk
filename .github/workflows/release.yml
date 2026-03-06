@@ -11,6 +11,7 @@ concurrency:
 
 jobs:
   build-and-release:
+    if: "!startsWith(github.ref_name, 'brokk-code-')"
     runs-on: ubuntu-latest
 
     permissions:
