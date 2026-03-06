@@ -2049,24 +2049,26 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         log.trace("Root node type for {}: {}", file, rootNode.getType());
 
         // Phase 1: Explicit Imports Pass (New Multi-Query Architecture)
-        withCachedQuery(QueryType.IMPORTS, importsQuery -> {
-            try (TSQueryCursor cursor = new TSQueryCursor()) {
-                cursor.exec(importsQuery, rootNode);
-                TSQueryMatch match = new TSQueryMatch();
-                while (cursor.nextMatch(match)) {
-                    Map<String, TSNode> capturedNodesForMatch = new HashMap<>();
-                    for (TSQueryCapture capture : match.getCaptures()) {
-                        String captureName = importsQuery.getCaptureNameForId(capture.getIndex());
-                        TSNode node = capture.getNode();
-                        if (node != null && !node.isNull()) {
-                            capturedNodesForMatch.putIfAbsent(captureName, node);
+        if (hasQuery(QueryType.IMPORTS)) {
+            withCachedQuery(QueryType.IMPORTS, importsQuery -> {
+                try (TSQueryCursor cursor = new TSQueryCursor()) {
+                    cursor.exec(importsQuery, rootNode);
+                    TSQueryMatch match = new TSQueryMatch();
+                    while (cursor.nextMatch(match)) {
+                        Map<String, TSNode> capturedNodesForMatch = new HashMap<>();
+                        for (TSQueryCapture capture : match.getCaptures()) {
+                            String captureName = importsQuery.getCaptureNameForId(capture.getIndex());
+                            TSNode node = capture.getNode();
+                            if (node != null && !node.isNull()) {
+                                capturedNodesForMatch.putIfAbsent(captureName, node);
+                            }
                         }
+                        extractImports(capturedNodesForMatch, sourceContent, localImportInfos);
                     }
-                    extractImports(capturedNodesForMatch, sourceContent, localImportInfos);
                 }
-            }
-            return null;
-        });
+                return null;
+            });
+        }
 
         // Phase 2: Definitions Pass (Includes legacy imports pass if QueryType.IMPORTS is missing)
         List<Map.Entry<TSNode, DefinitionInfoRecord>> declarationNodes =
@@ -2259,7 +2261,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     private List<Map.Entry<TSNode, DefinitionInfoRecord>> collectDefinitions(
             ProjectFile file, TSNode rootNode, SourceContent sourceContent, List<ImportInfo> localImportInfos) {
         List<Map.Entry<TSNode, DefinitionInfoRecord>> declarationNodes = new ArrayList<>();
-        withCachedQuery(QueryType.DEFINITIONS, query -> {
+        Boolean found = withCachedQuery(QueryType.DEFINITIONS, query -> {
             try (TSQueryCursor cursor = new TSQueryCursor()) {
                 cursor.exec(query, rootNode);
 
@@ -2321,8 +2323,12 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                     }
                 }
             }
-            return null;
+            return true;
         });
+
+        if (found == null) {
+            throw new IllegalStateException("Required DEFINITIONS query source is missing for " + language);
+        }
 
         return declarationNodes;
     }
