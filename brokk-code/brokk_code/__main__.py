@@ -23,6 +23,7 @@ from brokk_code.mcp_config import (
     configure_claude_code_mcp_settings,
     configure_codex_mcp_settings,
 )
+from brokk_code.git_utils import infer_github_repo_from_remote
 from brokk_code.workspace import resolve_workspace_dir
 from brokk_code.zed_config import ExistingBrokkCodeEntryError, configure_zed_acp_settings
 
@@ -32,6 +33,7 @@ _HEADLESS_EXECUTOR_MAIN_CLASS = "ai.brokk.executor.HeadlessExecutorMain"
 _MCP_SERVER_MAIN_CLASS = "ai.brokk.mcpserver.BrokkExternalMcpServer"
 _MCP_JBANG_PACKAGE = "brokk-headless@brokkai/brokk-releases"
 _JBANG_PREFETCH_TIMEOUT_SECONDS = 120.0
+
 
 
 def _validate_github_params(
@@ -510,6 +512,46 @@ def _build_parser() -> argparse.ArgumentParser:
         help="GitHub API token (defaults to GITHUB_TOKEN env var)",
     )
 
+    pr_review_parser = pr_subparsers.add_parser("review", help="Review a pull request")
+    _add_common_runtime_args(pr_review_parser)
+    pr_review_parser.add_argument(
+        "--pr-number",
+        type=int,
+        required=True,
+        help="The pull request number to review",
+    )
+    pr_review_parser.add_argument(
+        "--github-token",
+        type=str,
+        default=os.environ.get("GITHUB_TOKEN"),
+        help="GitHub API token (defaults to GITHUB_TOKEN env var)",
+    )
+    pr_review_parser.add_argument(
+        "--repo-owner",
+        type=str,
+        default=None,
+        help="GitHub repository owner (inferred from git remote if omitted)",
+    )
+    pr_review_parser.add_argument(
+        "--repo-name",
+        type=str,
+        default=None,
+        help="GitHub repository name (inferred from git remote if omitted)",
+    )
+    pr_review_parser.add_argument(
+        "--planner-model",
+        type=str,
+        default="gpt-5.1",
+        help="LLM model for the review (default: gpt-5.1)",
+    )
+    pr_review_parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        default=False,
+        help="Show full headless executor output (events/tokens) for debugging",
+    )
+
     return parser
 
 
@@ -637,6 +679,196 @@ async def run_pr_create(
         print(f"Unexpected error: {e}", file=sys.stderr)
         sys.exit(1)
     finally:
+        await manager.stop()
+
+
+async def run_pr_review_job(
+    workspace_dir: Path,
+    pr_number: int,
+    github_token: str,
+    repo_owner: str,
+    repo_name: str,
+    planner_model: str,
+    verbose: bool = False,
+    jar_path: Path | None = None,
+    executor_version: str | None = None,
+    executor_snapshot: bool = True,
+    vendor: str | None = None,
+) -> None:
+    """Runs a PR review job via ExecutorManager and streams events to stdout."""
+    from brokk_code.executor import ExecutorError, ExecutorManager
+
+    manager = ExecutorManager(
+        workspace_dir=workspace_dir,
+        jar_path=jar_path,
+        executor_version=executor_version,
+        executor_snapshot=executor_snapshot,
+        vendor=vendor,
+        exit_on_stdin_eof=True,
+    )
+
+    stage = "initializing"
+    job_id: str | None = None
+    last_state: str | None = None
+    error_messages: list[str] = []
+    spinner_index = 0
+    spinner_active = False
+    spinner_label = f"Reviewing PR #{pr_number}"
+    spinner_frames = "|/-\\"
+    spinner_enabled = sys.stdout.isatty() and not verbose
+
+    def _event_data(event: dict[str, Any]) -> dict[str, Any]:
+        raw = event.get("data")
+        return raw if isinstance(raw, dict) else {}
+
+    def _extract_message(event: dict[str, Any]) -> str:
+        data = _event_data(event)
+        for key in ("message", "text", "detail", "error"):
+            value = data.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        for key in ("message", "text", "detail", "error"):
+            value = event.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        return ""
+
+    def _render_spinner() -> None:
+        nonlocal spinner_index, spinner_active
+        if not spinner_enabled:
+            return
+        frame = spinner_frames[spinner_index % len(spinner_frames)]
+        spinner_index += 1
+        sys.stdout.write(f"\r{spinner_label}... {frame}")
+        sys.stdout.flush()
+        spinner_active = True
+
+    def _clear_spinner() -> None:
+        nonlocal spinner_active
+        if not spinner_enabled or not spinner_active:
+            return
+        width = len(spinner_label) + 20
+        sys.stdout.write("\r" + (" " * width) + "\r")
+        sys.stdout.flush()
+        spinner_active = False
+
+    def _update_shutdown_context() -> None:
+        context_parts = [f"mode=REVIEW", f"stage={stage}"]
+        if job_id:
+            context_parts.append(f"job_id={job_id}")
+        if last_state:
+            context_parts.append(f"last_state={last_state}")
+        if error_messages:
+            context_parts.append(f"last_error={error_messages[-1]}")
+        manager.shutdown_context = ", ".join(context_parts)
+
+    try:
+        stage = "starting executor"
+        _update_shutdown_context()
+        await manager.start()
+
+        stage = "creating executor session"
+        _update_shutdown_context()
+        await manager.create_session(name=f"PR Review #{pr_number}")
+
+        stage = "waiting for executor readiness"
+        _update_shutdown_context()
+        if not await manager.wait_ready():
+            print(
+                f"Error during PR review job ({stage}): executor failed to become ready.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+        stage = "submitting job"
+        _update_shutdown_context()
+        _render_spinner()
+        job_id = await manager.submit_pr_review_job(
+            planner_model=planner_model,
+            github_token=github_token,
+            owner=repo_owner,
+            repo=repo_name,
+            pr_number=pr_number,
+        )
+        _update_shutdown_context()
+
+        stage = "streaming job events"
+        _update_shutdown_context()
+        async for event in manager.stream_events(job_id):
+            _render_spinner()
+            event_type = event.get("type")
+            data = _event_data(event)
+            if event_type == "NOTIFICATION":
+                message = _extract_message(event)
+                if not message:
+                    continue
+                level = str(data.get("level", event.get("level", "INFO"))).strip().upper()
+                if not verbose and level not in {"WARN", "WARNING", "ERROR"}:
+                    continue
+                _clear_spinner()
+                print(f"[{level}] {message}")
+            elif event_type == "STATE_CHANGE":
+                last_state = str(data.get("state", event.get("state", "UNKNOWN")))
+                _update_shutdown_context()
+                if verbose:
+                    _clear_spinner()
+                    print(f"Job state: {last_state}")
+            elif event_type in {"TOKEN", "LLM_TOKEN"}:
+                text = str(data.get("token", event.get("text", "")))
+                if verbose and text:
+                    sys.stdout.write(text)
+                    sys.stdout.flush()
+                continue
+            elif event_type == "ERROR":
+                message = _extract_message(event) or "Unknown error event"
+                error_messages.append(message)
+                _update_shutdown_context()
+                _clear_spinner()
+                print(f"\nError event: {message}", file=sys.stderr)
+            elif event_type == "COMMAND_RESULT":
+                if verbose:
+                    _clear_spinner()
+                    print(f"[COMMAND_RESULT] {data}")
+            elif event_type == "TOOL_OUTPUT":
+                if verbose:
+                    _clear_spinner()
+                    print(f"[TOOL_OUTPUT] {data}")
+
+        if last_state in {"FAILED", "CANCELLED"}:
+            _clear_spinner()
+            detail = f" Last error: {error_messages[-1]}" if error_messages else ""
+            print(
+                f"\nPR review job ended with state {last_state}.{detail}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+        if error_messages and last_state != "COMPLETED":
+            _clear_spinner()
+            detail = f" Last error: {error_messages[-1]}"
+            observed_state = last_state or "UNKNOWN"
+            print(
+                f"\nPR review job ended with errors (last observed state: {observed_state}).{detail}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+        _clear_spinner()
+        print(f"PR #{pr_number} review complete.")
+
+    except ExecutorError as e:
+        _clear_spinner()
+        _update_shutdown_context()
+        print(f"Executor error during PR review job ({stage}): {e}", file=sys.stderr)
+        sys.exit(1)
+    except Exception as e:
+        _clear_spinner()
+        _update_shutdown_context()
+        print(f"Unexpected error during PR review job ({stage}): {e}", file=sys.stderr)
+        sys.exit(1)
+    finally:
+        _clear_spinner()
+        _update_shutdown_context()
         await manager.stop()
 
 
@@ -1020,6 +1252,33 @@ def main():
                     base_branch=args.base,
                     head_branch=args.head,
                     github_token=args.github_token,
+                    jar_path=jar_path,
+                    executor_version=args.executor_version,
+                    executor_snapshot=args.executor_snapshot,
+                    vendor=args.vendor,
+                )
+            )
+        if args.pr_command == "review":
+            repo_owner = args.repo_owner
+            repo_name = args.repo_name
+            if not repo_owner or not repo_name:
+                inferred_owner, inferred_repo = infer_github_repo_from_remote(workspace_path)
+                if not repo_owner:
+                    repo_owner = inferred_owner
+                if not repo_name:
+                    repo_name = inferred_repo
+
+            _validate_github_params(args.github_token, repo_owner, repo_name, "pr review")
+
+            asyncio.run(
+                run_pr_review_job(
+                    workspace_dir=workspace_path,
+                    pr_number=args.pr_number,
+                    github_token=args.github_token or "",
+                    repo_owner=repo_owner or "",
+                    repo_name=repo_name or "",
+                    planner_model=args.planner_model,
+                    verbose=args.verbose,
                     jar_path=jar_path,
                     executor_version=args.executor_version,
                     executor_snapshot=args.executor_snapshot,
