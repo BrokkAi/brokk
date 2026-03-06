@@ -101,23 +101,22 @@ jobs:
         if: steps.resolve_commits.outputs.should_skip == 'false'
         uses: gradle/actions/setup-gradle@v4
 
+      - name: Checkout RESOLVED_HEAD_SHA
+        if: steps.resolve_commits.outputs.should_skip == 'false'
+        run: git checkout ${{ env.RESOLVED_HEAD_SHA }}
+
       - name: Setup test projects
         if: steps.resolve_commits.outputs.should_skip == 'false'
-        run: |
-          git checkout ${{ env.RESOLVED_HEAD_SHA }}
-          ${{ env.CI_TOOLS }}/run-treesitter-repos.sh setup
+        run: ${{ env.CI_TOOLS }}/run-treesitter-repos.sh setup
 
       - name: Run benchmark on HEAD (3 iterations with 1 warm-up)
         if: steps.resolve_commits.outputs.should_skip == 'false'
-        run: |
-          git checkout ${{ env.RESOLVED_HEAD_SHA }}
-          ${{ env.CI_TOOLS }}/run-treesitter-repos.sh full --output "${{ env.REPORT_ROOT }}/head" --max-files 1000 --json --warm-up-iterations 1 --iterations 3
+        run: ${{ env.CI_TOOLS }}/run-treesitter-repos.sh full --output "${{ env.REPORT_ROOT }}/head" --max-files 1000 --json --warm-up-iterations 1 --iterations 3
 
       - id: coarse_memory
         name: Coarse memory regression test (HEAD)
         if: steps.resolve_commits.outputs.should_skip == 'false'
         run: |
-          git checkout ${{ env.RESOLVED_HEAD_SHA }}
           set +e
           RUNNER_XMX=100M "${{ env.CI_TOOLS }}/run-treesitter-repos.sh" directory --project intellij-community --language java --max-files 1800 --iterations 1 --warm-up-iterations 0 --fail-on-thrashing --stats --verbose
           exit_code=$?

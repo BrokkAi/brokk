@@ -1,16 +1,20 @@
 #!/bin/bash
 
 # Script to find the most recent commit that compiles successfully.
-# Usage: ./scripts/find-compilable-commit.sh <START_SHA> [MAX_RETRIES] [--stay]
+# Usage: ./scripts/find-compilable-commit.sh <START_SHA> [MAX_RETRIES] [--restore]
 
 set -e
 
-STAY=false
+RESTORE=false
 ARGS=()
 while [[ $# -gt 0 ]]; do
     case $1 in
+        --restore|--no-stay)
+            RESTORE=true
+            shift
+            ;;
         --stay)
-            STAY=true
+            RESTORE=false
             shift
             ;;
         *)
@@ -30,9 +34,9 @@ if [ "$INITIAL_STATE" == "HEAD" ]; then
     INITIAL_STATE=$(git rev-parse HEAD)
 fi
 
-# Function to restore initial state unless --stay is provided
+# Function to restore initial state if --restore is provided
 cleanup() {
-    if [ "$STAY" = false ]; then
+    if [ "$RESTORE" = true ]; then
         echo "Restoring initial state: $INITIAL_STATE" >&2
         git checkout -q "$INITIAL_STATE"
     fi
