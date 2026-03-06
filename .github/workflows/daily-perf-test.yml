@@ -103,7 +103,12 @@ jobs:
 
       - name: Checkout RESOLVED_HEAD_SHA
         if: steps.resolve_commits.outputs.should_skip == 'false'
-        run: git checkout ${{ env.RESOLVED_HEAD_SHA }}
+        run: |
+          if [ -z "${{ env.RESOLVED_HEAD_SHA }}" ]; then
+            echo "Error: RESOLVED_HEAD_SHA is empty"
+            exit 1
+          fi
+          git checkout "${{ env.RESOLVED_HEAD_SHA }}"
 
       - name: Setup test projects
         if: steps.resolve_commits.outputs.should_skip == 'false'
@@ -135,7 +140,11 @@ jobs:
       - name: Run benchmark on BASE (3 iterations with 1 warm-up)
         if: steps.resolve_commits.outputs.should_skip == 'false'
         run: |
-          git checkout ${{ env.RESOLVED_BASE_SHA }}
+          if [ -z "${{ env.RESOLVED_BASE_SHA }}" ]; then
+            echo "Error: RESOLVED_BASE_SHA is empty"
+            exit 1
+          fi
+          git checkout "${{ env.RESOLVED_BASE_SHA }}"
           ${{ env.CI_TOOLS }}/run-treesitter-repos.sh full --output "${{ env.REPORT_ROOT }}/base" --max-files 1000 --json --warm-up-iterations 1 --iterations 3
 
       - name: Compare results
