@@ -1226,6 +1226,15 @@ class ChatPanel(Vertical):
         self._history_index = -1
         self._draft_buffer = ""
 
+    def clear_transcript(self) -> None:
+        """Clears the rendered chat log and the in-memory transcript history."""
+        self._message_history.clear()
+        self._current_message_buffer = ""
+        self._current_message_type = None
+        self._is_reasoning = False
+        log = self.query_one("#chat-log", RichLog)
+        log.clear()
+
     def set_token_usage(
         self,
         used: int,

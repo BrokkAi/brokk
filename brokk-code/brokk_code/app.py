@@ -1920,6 +1920,7 @@ class BrokkApp(App):
         return [
             {"command": "/api-key", "description": "Update your Brokk API key"},
             {"command": "/login-openai", "description": "Connect your OpenAI ChatGPT subscription"},
+            {"command": "/clear", "description": "Clear the chat transcript"},
             {"command": "/context", "description": "Toggle and focus context panel"},
             {"command": "/model", "description": "Change the planner LLM model"},
             {"command": "/model-code", "description": "Change the code LLM model"},
@@ -2016,6 +2017,8 @@ class BrokkApp(App):
             self.action_command_palette()
         elif base == "/info":
             self._render_info()
+        elif base == "/clear":
+            chat.clear_transcript()
         elif base == "/login-openai":
             if len(parts) > 1:
                 chat.add_system_message(
