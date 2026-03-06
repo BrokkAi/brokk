@@ -2,7 +2,7 @@ package ai.brokk.agents;
 
 import static java.lang.Math.max;
 import static java.lang.Math.min;
-import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
+import static java.util.Objects.requireNonNull;
 
 import ai.brokk.*;
 import ai.brokk.analyzer.CodeUnit;
@@ -300,8 +300,10 @@ public class ContextAgent {
         // while tests are filtered by filename and included as skeletons.
         var partitionedCandidates =
                 candidates.stream().collect(Collectors.partitioningBy(f -> ContextManager.isTestFile(f, analyzer)));
-        List<ProjectFile> primaryCandidates = castNonNull(partitionedCandidates.get(false));
-        List<ProjectFile> testCandidates = castNonNull(partitionedCandidates.get(true));
+        List<ProjectFile> primaryCandidates =
+                requireNonNull(partitionedCandidates.get(false), "partitioningBy must contain key false");
+        List<ProjectFile> testCandidates =
+                requireNonNull(partitionedCandidates.get(true), "partitioningBy must contain key true");
 
         Set<ProjectFile> analyzedFileSet = primaryCandidates.stream()
                 .filter(pf -> !analyzer.getTopLevelDeclarations(pf).isEmpty())
