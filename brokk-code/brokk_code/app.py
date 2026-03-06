@@ -17,7 +17,7 @@ from textual.screen import ModalScreen
 from textual.widgets import Button, Input, ListItem, ListView, Static
 
 from brokk_code.executor import ExecutorError, ExecutorManager
-from brokk_code.prompt_history import append_prompt, clear_history, load_history
+from brokk_code.prompt_history import append_prompt, load_history
 from brokk_code.settings import (
     DEFAULT_THEME,
     Settings,
@@ -1921,16 +1921,10 @@ class BrokkApp(App):
             {"command": "/api-key", "description": "Update your Brokk API key"},
             {"command": "/login-openai", "description": "Connect your OpenAI ChatGPT subscription"},
             {"command": "/context", "description": "Toggle and focus context panel"},
-            {"command": "/code", "description": "Set mode to CODE (direct implementation)"},
-            {"command": "/ask", "description": "Set mode to ASK (questions only)"},
-            {"command": "/lutz", "description": "Set mode to LUTZ (default; full agent access)"},
-            {"command": "/mode", "description": "Open mode selection menu"},
             {"command": "/model", "description": "Change the planner LLM model"},
             {"command": "/model-code", "description": "Change the code LLM model"},
             {"command": "/autocommit", "description": "Toggle auto-commit for submitted jobs"},
             {"command": "/settings", "description": "Open settings"},
-            {"command": "/history", "description": "Show recent prompt history"},
-            {"command": "/history-clear", "description": "Clear prompt history"},
             {"command": "/task", "description": "Open/close the task list"},
             {"command": "/sessions", "description": "List and switch between sessions"},
             {"command": "/commit", "description": "Commit current changes"},
@@ -2021,26 +2015,8 @@ class BrokkApp(App):
             if len(parts) > 1:
                 chat.add_system_message("Settings opens from /settings with no arguments.")
             self.action_command_palette()
-        elif base in ("/code", "/ask", "/lutz", "/plan"):
-            self._set_mode(base[1:].upper())
-        elif base == "/mode":
-            if len(parts) > 1:
-                self._set_mode(parts[1].upper())
-            else:
-                self.action_select_mode()
         elif base == "/info":
             self._render_info()
-        elif base == "/history":
-            history = load_history(self.executor.workspace_dir)
-            if not history:
-                chat.add_system_message("Prompt history is empty.")
-            else:
-                formatted = "\n".join(f"{i + 1}. {p}" for i, p in enumerate(history))
-                chat.append_message("System", f"Recent Prompts:\n{formatted}")
-        elif base == "/history-clear":
-            clear_history(self.executor.workspace_dir)
-            chat.set_history([])
-            chat.add_system_message("Prompt history cleared.")
         elif base == "/login-openai":
             if len(parts) > 1:
                 chat.add_system_message(

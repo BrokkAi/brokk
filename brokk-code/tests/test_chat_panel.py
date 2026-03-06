@@ -373,9 +373,10 @@ async def test_slash_command_catalog_stability():
 
     # Verify key commands exist
     cmds_only = {c["command"] for c in commands}
-    assert "/ask" in cmds_only
     assert "/task" in cmds_only
     assert "/help" in cmds_only
+    assert "/ask" not in cmds_only
+    assert "/mode" not in cmds_only
 
 
 @pytest.mark.asyncio
@@ -388,8 +389,8 @@ async def test_slash_autocomplete_filtering():
     class TestApp(App):
         def get_slash_commands(self):
             return [
-                {"command": "/ask", "description": "d"},
-                {"command": "/ask-more", "description": "d"},
+                {"command": "/api-key", "description": "d"},
+                {"command": "/autocommit", "description": "d"},
                 {"command": "/help", "description": "d"},
             ]
 
@@ -403,12 +404,13 @@ async def test_slash_autocomplete_filtering():
         # Type /a
         await pilot.press(*list("/a"))
         assert suggestions.display is True
+        # matches /api-key and /autocommit
         assert len(suggestions.children) == 2
 
-        # Type sk-
-        await pilot.press(*list("sk-"))
+        # Type uto
+        await pilot.press(*list("uto"))
         assert len(suggestions.children) == 1
-        assert "/ask-more" in str(suggestions.children[0].query_one(Static).render())
+        assert "/autocommit" in str(suggestions.children[0].query_one(Static).render())
 
         # Esc hides
         await pilot.press("escape")
