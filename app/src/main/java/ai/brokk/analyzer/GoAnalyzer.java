@@ -24,7 +24,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
-import org.treesitter.TSQuery;
 import org.treesitter.TSQueryCapture;
 import org.treesitter.TSQueryCursor;
 import org.treesitter.TSQueryMatch;
@@ -120,27 +119,31 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
     @Override
     protected String determinePackageName(
             ProjectFile file, TSNode definitionNode, TSNode rootNode, SourceContent sourceContent) {
-        try (TSQuery query = createQuery(QueryType.DEFINITIONS);
-                TSQueryCursor cursor = new TSQueryCursor()) {
-            if (query == null) return "";
-            cursor.exec(query, rootNode);
-            TSQueryMatch match = new TSQueryMatch();
+        String result = withCachedQuery(QueryType.DEFINITIONS, query -> {
+            try (TSQueryCursor cursor = new TSQueryCursor()) {
+                cursor.exec(query, rootNode);
+                TSQueryMatch match = new TSQueryMatch();
 
-            while (cursor.nextMatch(match)) {
-                for (TSQueryCapture capture : match.getCaptures()) {
-                    String captureName = query.getCaptureNameForId(capture.getIndex());
-                    if (CaptureNames.PACKAGE_NAME.equals(captureName)) {
-                        TSNode node = capture.getNode();
-                        if (node != null && !node.isNull()) {
-                            return sourceContent.substringFrom(node).trim();
+                while (cursor.nextMatch(match)) {
+                    for (TSQueryCapture capture : match.getCaptures()) {
+                        String captureName = query.getCaptureNameForId(capture.getIndex());
+                        if (CaptureNames.PACKAGE_NAME.equals(captureName)) {
+                            TSNode node = capture.getNode();
+                            if (node != null && !node.isNull()) {
+                                return sourceContent.substringFrom(node).trim();
+                            }
                         }
                     }
                 }
             }
-        }
+            return "";
+        });
 
-        log.warn("No package declaration found in Go file: {}", file);
-        return "";
+        if (result == null || result.isEmpty()) {
+            log.warn("No package declaration found in Go file: {}", file);
+            return "";
+        }
+        return result;
     }
 
     @Override
@@ -371,19 +374,20 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
 
         Map<String, TSNode> localCaptures = new HashMap<>();
         // Re-query the node to extract the receiver type from captures
-        try (TSQuery query = createQuery(QueryType.DEFINITIONS);
-                TSQueryCursor cursor = new TSQueryCursor()) {
-            if (query == null) return Optional.empty();
-            cursor.exec(query, node);
-            TSQueryMatch match = new TSQueryMatch();
+        withCachedQuery(QueryType.DEFINITIONS, query -> {
+            try (TSQueryCursor cursor = new TSQueryCursor()) {
+                cursor.exec(query, node);
+                TSQueryMatch match = new TSQueryMatch();
 
-            if (cursor.nextMatch(match)) {
-                for (TSQueryCapture capture : match.getCaptures()) {
-                    String capName = query.getCaptureNameForId(capture.getIndex());
-                    localCaptures.put(capName, capture.getNode());
+                if (cursor.nextMatch(match)) {
+                    for (TSQueryCapture capture : match.getCaptures()) {
+                        String capName = query.getCaptureNameForId(capture.getIndex());
+                        localCaptures.put(capName, capture.getNode());
+                    }
                 }
             }
-        }
+            return null;
+        });
 
         TSNode receiverNode = localCaptures.get("method.receiver.type");
         if (receiverNode != null && !receiverNode.isNull()) {
@@ -637,24 +641,23 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
 
             SourceContent sourceContent = SourceContent.of(source);
             Set<String> identifiers = new HashSet<>();
-            try (TSQuery query = createQuery(QueryType.IDENTIFIERS)) {
-                if (query != null) {
-                    try (TSQueryCursor cursor = new TSQueryCursor()) {
-                        cursor.exec(query, tree.getRootNode());
+            withCachedQuery(QueryType.IDENTIFIERS, query -> {
+                try (TSQueryCursor cursor = new TSQueryCursor()) {
+                    cursor.exec(query, tree.getRootNode());
 
-                        TSQueryMatch match = new TSQueryMatch();
-                        while (cursor.nextMatch(match)) {
-                            for (TSQueryCapture capture : match.getCaptures()) {
-                                TSNode node = capture.getNode();
-                                if (node != null && !node.isNull()) {
-                                    identifiers.add(
-                                            sourceContent.substringFrom(node).trim());
-                                }
+                    TSQueryMatch match = new TSQueryMatch();
+                    while (cursor.nextMatch(match)) {
+                        for (TSQueryCapture capture : match.getCaptures()) {
+                            TSNode node = capture.getNode();
+                            if (node != null && !node.isNull()) {
+                                identifiers.add(
+                                        sourceContent.substringFrom(node).trim());
                             }
                         }
                     }
                 }
-            }
+                return null;
+            });
             return identifiers;
         }
     }
@@ -770,8 +773,7 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
 
     @Override
     protected boolean containsTestMarkers(TSTree tree, SourceContent sourceContent) {
-        try (TSQuery query = createQuery(QueryType.DEFINITIONS)) {
-            if (query == null) return false;
+        Boolean result = withCachedQuery(QueryType.DEFINITIONS, query -> {
             try (TSQueryCursor cursor = new TSQueryCursor()) {
                 cursor.exec(query, tree.getRootNode());
                 TSQueryMatch match = new TSQueryMatch();
@@ -870,8 +872,9 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
                     }
                 }
             }
-        }
+            return false;
+        });
 
-        return false;
+        return result != null && result;
     }
 }

@@ -444,31 +444,30 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected boolean containsTestMarkers(TSTree tree, SourceContent sourceContent) {
-        try (TSQuery query = createQuery(QueryType.DEFINITIONS)) {
-            if (query != null) {
-                try (TSQueryCursor cursor = new TSQueryCursor()) {
-                    cursor.exec(query, tree.getRootNode());
+        Boolean result = withCachedQuery(QueryType.DEFINITIONS, query -> {
+            try (TSQueryCursor cursor = new TSQueryCursor()) {
+                cursor.exec(query, tree.getRootNode());
 
-                    TSQueryMatch match = new TSQueryMatch();
-                    while (cursor.nextMatch(match)) {
-                        for (TSQueryCapture capture : match.getCaptures()) {
-                            String captureName = query.getCaptureNameForId(capture.getIndex());
-                            if (TEST_MARKER.equals(captureName)) {
-                                // The capture is now directly on the attribute_item node
-                                TSNode attrItemNode = capture.getNode();
-                                if (attrItemNode != null && !attrItemNode.isNull()) {
-                                    String content = sourceContent.substringFrom(attrItemNode);
-                                    // Rust attributes look like #[test] or #[cfg(test)]
-                                    if (content.contains("#[test]") || content.contains("#[cfg(test)]")) {
-                                        return true;
-                                    }
+                TSQueryMatch match = new TSQueryMatch();
+                while (cursor.nextMatch(match)) {
+                    for (TSQueryCapture capture : match.getCaptures()) {
+                        String captureName = query.getCaptureNameForId(capture.getIndex());
+                        if (TEST_MARKER.equals(captureName)) {
+                            // The capture is now directly on the attribute_item node
+                            TSNode attrItemNode = capture.getNode();
+                            if (attrItemNode != null && !attrItemNode.isNull()) {
+                                String content = sourceContent.substringFrom(attrItemNode);
+                                // Rust attributes look like #[test] or #[cfg(test)]
+                                if (content.contains("#[test]") || content.contains("#[cfg(test)]")) {
+                                    return true;
                                 }
                             }
                         }
                     }
                 }
             }
-        }
-        return false;
+            return false;
+        });
+        return result != null && result;
     }
 }
