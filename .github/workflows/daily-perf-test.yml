@@ -66,13 +66,21 @@ jobs:
         id: resolve_commits
         run: |
           echo "Resolving HEAD compilable commit starting from ${{ env.HEAD_SHA }}..."
-          RESOLVED_HEAD_SHA=$(${{ env.CI_TOOLS }}/find-compilable-commit.sh ${{ env.HEAD_SHA }} -- ./gradlew compileJava)
+          if ! RESOLVED_HEAD_SHA=$(${{ env.CI_TOOLS }}/find-compilable-commit.sh ${{ env.HEAD_SHA }} -- ./gradlew compileJava); then
+            echo "Failed to resolve a compilable HEAD commit. Skipping performance test."
+            echo "should_skip=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
           echo "RESOLVED_HEAD_SHA=$RESOLVED_HEAD_SHA" >> $GITHUB_ENV
           echo "RESOLVED_HEAD_SHA_SHORT=$(git rev-parse --short $RESOLVED_HEAD_SHA)" >> $GITHUB_ENV
 
           if [ -n "${{ env.BASE_SHA }}" ]; then
             echo "Resolving BASE compilable commit starting from ${{ env.BASE_SHA }}..."
-            RESOLVED_BASE_SHA=$(${{ env.CI_TOOLS }}/find-compilable-commit.sh ${{ env.BASE_SHA }} -- ./gradlew compileJava)
+            if ! RESOLVED_BASE_SHA=$(${{ env.CI_TOOLS }}/find-compilable-commit.sh ${{ env.BASE_SHA }} -- ./gradlew compileJava); then
+              echo "Failed to resolve a compilable BASE commit. Skipping performance test."
+              echo "should_skip=true" >> $GITHUB_OUTPUT
+              exit 0
+            fi
             echo "RESOLVED_BASE_SHA=$RESOLVED_BASE_SHA" >> $GITHUB_ENV
             echo "RESOLVED_BASE_SHA_SHORT=$(git rev-parse --short $RESOLVED_BASE_SHA)" >> $GITHUB_ENV
           else
