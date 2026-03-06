@@ -95,9 +95,13 @@ jobs:
             echo "should_skip=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Set up JBR 21
+      - name: Set up Java 21 (JetBrains Runtime)
         if: steps.resolve_commits.outputs.should_skip == 'false'
-        uses: jansorg/github-actions-jbr-setup/setup_jbr21@main
+        uses: actions/setup-java@v4
+        with:
+          distribution: jetbrains
+          java-package: jdk+jcef
+          java-version: '21'
 
       - name: Set up Python
         if: steps.resolve_commits.outputs.should_skip == 'false'
