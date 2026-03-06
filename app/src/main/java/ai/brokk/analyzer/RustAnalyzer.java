@@ -440,7 +440,7 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected Set<String> getLeadingMetadataNodeTypes() {
-        return Set.of("attribute_item", "inner_attribute");
+        return Set.of(ATTRIBUTE_ITEM, INNER_ATTRIBUTE);
     }
 
     @Override
