@@ -112,6 +112,40 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     private final Map<QueryType, String> querySources;
 
     /**
+     * Per-thread cache for compiled queries. Since parsing runs on a fixed thread pool,
+     * this keeps native allocations bounded and avoids recompilation overhead.
+     */
+    private final ThreadLocal<Map<QueryType, TSQuery>> threadLocalQueries =
+            ThreadLocal.withInitial(() -> new EnumMap<>(QueryType.class));
+
+    /**
+     * Provides borrowed access to a cached compiled query for the duration of the provided function.
+     *
+     * <p>Queries are reused per thread and are scoped to the lifetime of this analyzer snapshot.
+     * Callers <b>must not</b> close the query passed to the function.
+     *
+     * @param type the type of query to access
+     * @param fn the function to execute with the cached query
+     * @param <T> the return type of the function
+     * @return the result of the function, or null if the query type is not supported by this analyzer
+     */
+    protected final <T> @Nullable T withCachedQuery(QueryType type, Function<TSQuery, T> fn) {
+        Map<QueryType, TSQuery> cache = threadLocalQueries.get();
+        TSQuery query = cache.get(type);
+
+        if (query == null) {
+            String source = querySources.get(type);
+            if (source == null) {
+                return null;
+            }
+            query = new TSQuery(getTSLanguage(), source);
+            cache.put(type, query);
+        }
+
+        return fn.apply(query);
+    }
+
+    /**
      * Creates a new query instance for the specified type.
      * The caller is responsible for closing the returned query.
      *
@@ -2015,27 +2049,24 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         log.trace("Root node type for {}: {}", file, rootNode.getType());
 
         // Phase 1: Explicit Imports Pass (New Multi-Query Architecture)
-        if (hasQuery(QueryType.IMPORTS)) {
-            try (TSQuery importsQuery = createQuery(QueryType.IMPORTS)) {
-                if (importsQuery != null) {
-                    try (TSQueryCursor cursor = new TSQueryCursor()) {
-                        cursor.exec(importsQuery, rootNode);
-                        TSQueryMatch match = new TSQueryMatch();
-                        while (cursor.nextMatch(match)) {
-                            Map<String, TSNode> capturedNodesForMatch = new HashMap<>();
-                            for (TSQueryCapture capture : match.getCaptures()) {
-                                String captureName = importsQuery.getCaptureNameForId(capture.getIndex());
-                                TSNode node = capture.getNode();
-                                if (node != null && !node.isNull()) {
-                                    capturedNodesForMatch.putIfAbsent(captureName, node);
-                                }
-                            }
-                            extractImports(capturedNodesForMatch, sourceContent, localImportInfos);
+        withCachedQuery(QueryType.IMPORTS, importsQuery -> {
+            try (TSQueryCursor cursor = new TSQueryCursor()) {
+                cursor.exec(importsQuery, rootNode);
+                TSQueryMatch match = new TSQueryMatch();
+                while (cursor.nextMatch(match)) {
+                    Map<String, TSNode> capturedNodesForMatch = new HashMap<>();
+                    for (TSQueryCapture capture : match.getCaptures()) {
+                        String captureName = importsQuery.getCaptureNameForId(capture.getIndex());
+                        TSNode node = capture.getNode();
+                        if (node != null && !node.isNull()) {
+                            capturedNodesForMatch.putIfAbsent(captureName, node);
                         }
                     }
+                    extractImports(capturedNodesForMatch, sourceContent, localImportInfos);
                 }
             }
-        }
+            return null;
+        });
 
         // Phase 2: Definitions Pass (Includes legacy imports pass if QueryType.IMPORTS is missing)
         List<Map.Entry<TSNode, DefinitionInfoRecord>> declarationNodes =
@@ -2228,67 +2259,71 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     private List<Map.Entry<TSNode, DefinitionInfoRecord>> collectDefinitions(
             ProjectFile file, TSNode rootNode, SourceContent sourceContent, List<ImportInfo> localImportInfos) {
         List<Map.Entry<TSNode, DefinitionInfoRecord>> declarationNodes = new ArrayList<>();
-        try (TSQuery currentThreadQuery = createQuery();
-                TSQueryCursor cursor = new TSQueryCursor()) {
-            cursor.exec(currentThreadQuery, rootNode);
+        withCachedQuery(QueryType.DEFINITIONS, query -> {
+            try (TSQueryCursor cursor = new TSQueryCursor()) {
+                cursor.exec(query, rootNode);
 
-            TSQueryMatch match = new TSQueryMatch();
-            while (cursor.nextMatch(match)) {
-                Map<String, TSNode> capturedNodesForMatch = new HashMap<>();
-                List<TSNode> modifierNodesForMatch = new ArrayList<>();
-                List<TSNode> decoratorNodesForMatch = new ArrayList<>();
+                TSQueryMatch match = new TSQueryMatch();
+                while (cursor.nextMatch(match)) {
+                    Map<String, TSNode> capturedNodesForMatch = new HashMap<>();
+                    List<TSNode> modifierNodesForMatch = new ArrayList<>();
+                    List<TSNode> decoratorNodesForMatch = new ArrayList<>();
 
-                for (TSQueryCapture capture : match.getCaptures()) {
-                    String captureName = currentThreadQuery.getCaptureNameForId(capture.getIndex());
-                    if (getIgnoredCaptures().contains(captureName)) continue;
+                    for (TSQueryCapture capture : match.getCaptures()) {
+                        String captureName = query.getCaptureNameForId(capture.getIndex());
+                        if (getIgnoredCaptures().contains(captureName)) continue;
 
-                    TSNode node = capture.getNode();
-                    if (node != null && !node.isNull()) {
-                        if ("keyword.modifier".equals(captureName)) {
-                            modifierNodesForMatch.add(node);
-                        } else if (CaptureNames.DECORATOR_DEFINITION.equals(captureName)) {
-                            decoratorNodesForMatch.add(node);
-                        } else {
-                            capturedNodesForMatch.putIfAbsent(captureName, node);
+                        TSNode node = capture.getNode();
+                        if (node != null && !node.isNull()) {
+                            if ("keyword.modifier".equals(captureName)) {
+                                modifierNodesForMatch.add(node);
+                            } else if (CaptureNames.DECORATOR_DEFINITION.equals(captureName)) {
+                                decoratorNodesForMatch.add(node);
+                            } else {
+                                capturedNodesForMatch.putIfAbsent(captureName, node);
+                            }
                         }
                     }
-                }
 
-                modifierNodesForMatch.sort(Comparator.comparingInt(TSNode::getStartByte));
-                List<String> sortedModifierStrings = modifierNodesForMatch.stream()
-                        .map(modNode -> sourceContent.substringFrom(modNode).strip())
-                        .toList();
+                    modifierNodesForMatch.sort(Comparator.comparingInt(TSNode::getStartByte));
+                    List<String> sortedModifierStrings = modifierNodesForMatch.stream()
+                            .map(modNode -> sourceContent.substringFrom(modNode).strip())
+                            .toList();
 
-                decoratorNodesForMatch.sort(Comparator.comparingInt(TSNode::getStartByte));
+                    decoratorNodesForMatch.sort(Comparator.comparingInt(TSNode::getStartByte));
 
-                // Backward Compatibility: Only run extractImports during definition pass
-                // if a dedicated IMPORTS query is NOT provided.
-                if (!hasQuery(QueryType.IMPORTS)) {
-                    extractImports(capturedNodesForMatch, sourceContent, localImportInfos);
-                }
+                    // Backward Compatibility: Only run extractImports during definition pass
+                    // if a dedicated IMPORTS query is NOT provided.
+                    if (!hasQuery(QueryType.IMPORTS)) {
+                        extractImports(capturedNodesForMatch, sourceContent, localImportInfos);
+                    }
 
-                for (var captureEntry : capturedNodesForMatch.entrySet()) {
-                    String captureName = captureEntry.getKey();
-                    TSNode definitionNode = captureEntry.getValue();
+                    for (var captureEntry : capturedNodesForMatch.entrySet()) {
+                        String captureName = captureEntry.getKey();
+                        TSNode definitionNode = captureEntry.getValue();
 
-                    if (captureName.endsWith(".definition")) {
-                        Optional<String> simpleNameOpt = resolveSimpleName(
-                                captureName, definitionNode, capturedNodesForMatch, sourceContent, file);
-                        if (simpleNameOpt.isPresent() && !simpleNameOpt.get().isBlank()) {
-                            String simpleName = simpleNameOpt.get();
-                            declarationNodes.add(Map.entry(
-                                    definitionNode,
-                                    new DefinitionInfoRecord(
-                                            captureName,
-                                            simpleName,
-                                            sortedModifierStrings,
-                                            decoratorNodesForMatch,
-                                            definitionNode.getParent())));
+                        if (captureName.endsWith(".definition")) {
+                            Optional<String> simpleNameOpt = resolveSimpleName(
+                                    captureName, definitionNode, capturedNodesForMatch, sourceContent, file);
+                            if (simpleNameOpt.isPresent()
+                                    && !simpleNameOpt.get().isBlank()) {
+                                String simpleName = simpleNameOpt.get();
+                                declarationNodes.add(Map.entry(
+                                        definitionNode,
+                                        new DefinitionInfoRecord(
+                                                captureName,
+                                                simpleName,
+                                                sortedModifierStrings,
+                                                decoratorNodesForMatch,
+                                                definitionNode.getParent())));
+                            }
                         }
                     }
                 }
             }
-        }
+            return null;
+        });
+
         return declarationNodes;
     }
 
