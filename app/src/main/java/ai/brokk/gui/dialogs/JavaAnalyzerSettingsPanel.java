@@ -41,7 +41,7 @@ public class JavaAnalyzerSettingsPanel extends AnalyzerSettingsPanel {
             }
         };
 
-        for (String root : project.getJavaSourceRoots()) {
+        for (String root : project.getSourceRoots(language)) {
             tableModel.addRow(new Object[] {root});
         }
 
@@ -152,13 +152,14 @@ public class JavaAnalyzerSettingsPanel extends AnalyzerSettingsPanel {
         }
 
         List<String> newRoots = new ArrayList<>(canonicalRoots);
-        List<String> existingRoots = project.getJavaSourceRoots();
+        List<String> existingRoots = project.getSourceRoots(language);
 
         if (!newRoots.equals(existingRoots)) {
-            project.setJavaSourceRoots(newRoots);
+            project.setSourceRoots(language, newRoots);
             logger.debug(
-                    "Saved {} Java source roots for project {}",
+                    "Saved {} {} source roots for project {}",
                     newRoots.size(),
+                    language.name(),
                     project.getRoot().getFileName());
 
             // Update table to show canonicalized versions

@@ -2,6 +2,7 @@ package ai.brokk.analyzer.java;
 
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.CodeUnitType;
+import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.usages.UsageHit;
 import ai.brokk.project.IProject;
@@ -175,7 +176,7 @@ public class JdtUsageAnalyzer {
         Path projectRoot = project.getRoot();
         Set<String> roots = new HashSet<>();
 
-        for (String rootPathStr : project.getJavaSourceRoots()) {
+        for (String rootPathStr : project.getSourceRoots(Languages.JAVA)) {
             try {
                 Path resolved =
                         projectRoot.resolve(rootPathStr).toAbsolutePath().normalize();
