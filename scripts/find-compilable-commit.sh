@@ -1,19 +1,42 @@
 #!/bin/bash
 
 # Script to find the most recent commit that compiles successfully.
-# Usage: ./scripts/find-compilable-commit.sh <START_SHA> [MAX_RETRIES]
+# Usage: ./scripts/find-compilable-commit.sh <START_SHA> [MAX_RETRIES] [--stay]
 
 set -e
 
-START_SHA=${1:-HEAD}
-MAX_RETRIES=${2:-5}
+STAY=false
+ARGS=()
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --stay)
+            STAY=true
+            shift
+            ;;
+        *)
+            ARGS+=("$1")
+            shift
+            ;;
+    esac
+done
 
-# Record the initial state (branch or SHA) to allow returning if necessary,
-# though we currently stay on the found commit.
+START_SHA=${ARGS[0]:-HEAD}
+MAX_RETRIES=${ARGS[1]:-5}
+
+# Record the initial state (branch or SHA) to allow returning if necessary.
 INITIAL_STATE=$(git rev-parse --abbrev-ref HEAD)
 if [ "$INITIAL_STATE" == "HEAD" ]; then
     INITIAL_STATE=$(git rev-parse HEAD)
 fi
+
+# Function to restore initial state unless --stay is provided
+cleanup() {
+    if [ "$STAY" = false ]; then
+        echo "Restoring initial state: $INITIAL_STATE" >&2
+        git checkout -q "$INITIAL_STATE"
+    fi
+}
+trap cleanup EXIT
 
 CURRENT_SHA=$(git rev-parse "$START_SHA")
 RETRIES_LEFT=$MAX_RETRIES
@@ -54,5 +77,4 @@ while [ "$RETRIES_LEFT" -ge 0 ]; do
 done
 
 echo "Error: Could not find a compilable commit within the retry limit." >&2
-# Optional: git checkout "$INITIAL_STATE" -q
 exit 1
