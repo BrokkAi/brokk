@@ -744,6 +744,31 @@ class ChatPanel(Vertical):
         """Focus the input when the panel is mounted."""
         self.query_one("#chat-input", ChatInput).focus()
 
+    def on_rich_log_scroll(self, event: events.Event) -> None:
+        """Handle scroll events from the chat log to update autoscroll state."""
+        self._sync_autoscroll()
+
+    def _sync_autoscroll(self) -> None:
+        """Update the RichLog's auto_scroll based on whether we're at the bottom.
+
+        This is called after user scroll events. It only DISABLES auto_scroll
+        when the user scrolls away from the bottom. Re-enabling happens when
+        the user scrolls back to the bottom OR submits a new message.
+        """
+        try:
+            log = self.query_one("#chat-log", RichLog)
+            # Only act when there's actually scrollable content
+            if log.max_scroll_y > 0:
+                # Use is_vertical_scroll_end which properly accounts for scroll position
+                at_bottom = log.is_vertical_scroll_end
+                if at_bottom:
+                    log.auto_scroll = True
+                else:
+                    log.auto_scroll = False
+            # If max_scroll_y is 0, content fits in view - don't change auto_scroll
+        except Exception:
+            pass
+
     def on_key(self, event: events.Key) -> None:
         """Handle Up/Down arrow keys for prompt history navigation."""
         chat_input = self.query_one("#chat-input", ChatInput)
@@ -840,7 +865,18 @@ class ChatPanel(Vertical):
         """Forward submission message from the internal ChatInput."""
         self._history_index = -1
         self._draft_buffer = ""
+        # Reset to follow-bottom mode and scroll to end on new submission
+        self._reset_to_follow_bottom()
         self.post_message(self.Submitted(event.text))
+
+    def _reset_to_follow_bottom(self) -> None:
+        """Re-enable autoscroll and scroll the log to the end."""
+        try:
+            log = self.query_one("#chat-log", RichLog)
+            log.auto_scroll = True
+            log.scroll_end(animate=False)
+        except Exception:
+            pass
 
     def open_mode_menu(self, modes: List[str], current: str) -> None:
         """Opens the lightweight mode selection popup."""

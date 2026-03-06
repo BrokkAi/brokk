@@ -860,3 +860,139 @@ async def test_collapsed_summary_text_bold_label():
         assert result2.spans[0].start == 0
         assert result2.spans[0].end == len("Command Output")
         assert "bold" in str(result2.spans[0].style).lower()
+
+
+@pytest.mark.asyncio
+async def test_autoscroll_disabled_when_scrolled_up():
+    """
+    Verify that when the user scrolls up from the bottom, auto_scroll is disabled,
+    and when they scroll back to the bottom, it is re-enabled.
+    """
+    from textual.app import App, ComposeResult
+    from textual.widgets import RichLog
+
+    class TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield ChatPanel(id="chat")
+
+    app = TestApp()
+    async with app.run_test() as pilot:
+        panel = app.query_one("#chat", ChatPanel)
+        log = panel.query_one("#chat-log", RichLog)
+
+        # auto_scroll defaults to True in RichLog
+        assert log.auto_scroll is True
+
+        # Add enough content to make the log scrollable
+        for i in range(50):
+            panel.add_system_message(f"Message {i}")
+        await pilot.pause()
+
+        # After writes with auto_scroll=True, we should still have auto_scroll enabled
+        # (RichLog.write() scrolls to end when auto_scroll is True)
+        assert log.auto_scroll is True
+
+        # Simulate user scrolling up
+        if log.max_scroll_y > 0:
+            log.scroll_to(y=0, animate=False)
+            await pilot.pause()
+
+            # Call _sync_autoscroll to simulate the scroll event handler
+            panel._sync_autoscroll()
+            assert log.auto_scroll is False, "auto_scroll should be disabled when scrolled up"
+
+            # Scroll back to the bottom
+            log.scroll_end(animate=False)
+            await pilot.pause()
+
+            # Call _sync_autoscroll to simulate the scroll event handler
+            panel._sync_autoscroll()
+            assert log.auto_scroll is True, "auto_scroll should be re-enabled at bottom"
+
+
+@pytest.mark.asyncio
+async def test_autoscroll_reset_on_submission():
+    """
+    Verify that submitting a new user message resets the chat to bottom-follow mode
+    and scrolls the log back to the end.
+    """
+    from textual.app import App, ComposeResult
+    from textual.widgets import RichLog
+
+    from brokk_code.widgets.chat_panel import ChatInput
+
+    class TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield ChatPanel(id="chat")
+
+    app = TestApp()
+    async with app.run_test() as pilot:
+        panel = app.query_one("#chat", ChatPanel)
+        log = panel.query_one("#chat-log", RichLog)
+        chat_input = panel.query_one("#chat-input", ChatInput)
+
+        # Add enough content to make the log scrollable
+        for i in range(50):
+            panel.add_system_message(f"Message {i}")
+        await pilot.pause()
+
+        # Scroll up to disable auto_scroll
+        if log.max_scroll_y > 0:
+            log.scroll_to(y=0, animate=False)
+            await pilot.pause()
+            panel._sync_autoscroll()
+            assert log.auto_scroll is False
+
+            # Type and submit a message
+            chat_input.text = "Hello"
+            chat_input.action_submit()
+            await pilot.pause()
+
+            # After submission, auto_scroll should be re-enabled
+            assert log.auto_scroll is True
+            # And we should be at the bottom
+            assert log.is_vertical_scroll_end
+
+
+@pytest.mark.asyncio
+async def test_sync_autoscroll_respects_scroll_position():
+    """
+    Verify that _sync_autoscroll correctly updates auto_scroll based on
+    the current scroll position, not based on message writes.
+    """
+    from textual.app import App, ComposeResult
+    from textual.widgets import RichLog
+
+    class TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield ChatPanel(id="chat")
+
+    app = TestApp()
+    async with app.run_test() as pilot:
+        panel = app.query_one("#chat", ChatPanel)
+        log = panel.query_one("#chat-log", RichLog)
+
+        # Add content to make log scrollable
+        for i in range(30):
+            panel.add_system_message(f"Line {i}")
+        await pilot.pause()
+
+        # auto_scroll should remain True after writes (RichLog keeps it)
+        assert log.auto_scroll is True
+
+        # Manually disable auto_scroll and scroll up to simulate user action
+        log.auto_scroll = False
+        log.scroll_to(y=0, animate=False)
+        await pilot.pause()
+
+        # _sync_autoscroll should keep it False since we're not at bottom
+        panel._sync_autoscroll()
+        assert log.auto_scroll is False
+
+        # Now scroll to end
+        log.scroll_end(animate=False)
+        await pilot.pause()
+
+        # _sync_autoscroll should re-enable it
+        panel._sync_autoscroll()
+        assert log.auto_scroll is True
