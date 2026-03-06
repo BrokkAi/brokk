@@ -336,6 +336,10 @@ public class ContextAgent {
                 new Llm.Options(filesModel, "ContextAgent Files (Unanalyzed): " + goal, TaskResult.Type.SCAN));
         filesLlmUnanalyzed.setOutput(io);
 
+        var filesLlmTests =
+                cm.getLlm(new Llm.Options(filesModel, "ContextAgent Files (Tests): " + goal, TaskResult.Type.SCAN));
+        filesLlmTests.setOutput(io);
+
         var analyzedOpts = new Llm.Options(model, "ContextAgent (Analyzed): " + goal, TaskResult.Type.SCAN)
                 .withForceReasoningEcho()
                 .withEcho();
@@ -395,7 +399,7 @@ public class ContextAgent {
                         testFilenames,
                         workspaceRepresentation,
                         min(50_000, pruneBudgetRemaining),
-                        filesLlmAnalyzed,
+                        filesLlmTests,
                         false);
 
                 // Map results to recommendedTests specifically
