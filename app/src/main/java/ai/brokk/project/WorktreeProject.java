@@ -295,12 +295,12 @@ public final class WorktreeProject extends AbstractProject {
     }
 
     @Override
-    public List<String> getJavaSourceRoots() {
-        return parent.getJavaSourceRoots();
+    public List<String> getSourceRoots(Language language) {
+        return parent.getSourceRoots(language);
     }
 
     @Override
-    public void setJavaSourceRoots(List<String> roots) {
-        parent.setJavaSourceRoots(roots);
+    public void setSourceRoots(Language language, List<String> roots) {
+        parent.setSourceRoots(language, roots);
     }
 }

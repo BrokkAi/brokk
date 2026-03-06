@@ -589,6 +589,25 @@ public interface IProject extends AutoCloseable {
     }
 
     /**
+     * Returns the list of source roots configured for this project for the given language.
+     *
+     * @param language the language to get source roots for.
+     * @return a list of relative or absolute paths as strings.
+     */
+    @Blocking
+    default List<String> getSourceRoots(Language language) {
+        return SourceRootScanner.scan(this, language);
+    }
+
+    /**
+     * Configures the source roots for this project for the given language.
+     *
+     * @param language the language to set source roots for.
+     * @param roots the list of source root paths.
+     */
+    default void setSourceRoots(Language language, List<String> roots) {}
+
+    /**
      * Returns the list of Java source roots configured for this project.
      * These are used by tools like JDT to resolve symbols across the project.
      *
@@ -596,7 +615,7 @@ public interface IProject extends AutoCloseable {
      */
     @Blocking
     default List<String> getJavaSourceRoots() {
-        return SourceRootScanner.scan(this, Languages.JAVA);
+        return getSourceRoots(Languages.JAVA);
     }
 
     /**
@@ -604,7 +623,9 @@ public interface IProject extends AutoCloseable {
      *
      * @param roots the list of source root paths.
      */
-    default void setJavaSourceRoots(List<String> roots) {}
+    default void setJavaSourceRoots(List<String> roots) {
+        setSourceRoots(Languages.JAVA, roots);
+    }
 
     enum CodeAgentTestScope {
         ALL,

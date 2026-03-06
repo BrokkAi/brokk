@@ -87,7 +87,8 @@ public final class MainProject extends AbstractProject {
 
     private static final long DEFAULT_DISK_CACHE_SIZE = 10L * 1024L * 1024L; // 10 MB
 
-    private static final String JAVA_SOURCE_ROOTS_KEY = "javaSourceRoots";
+    private static final String SOURCE_ROOTS_PREFIX = "sourceRoots.";
+    private static final String JAVA_SOURCE_ROOTS_KEY = "javaSourceRoots"; // Legacy key
     private static final String CODE_INTELLIGENCE_LANGUAGES_KEY = "code_intelligence_languages";
     private static final String GITHUB_TOKEN_KEY = "githubToken";
 
@@ -686,30 +687,42 @@ public final class MainProject extends AbstractProject {
     }
 
     @Override
-    public List<String> getJavaSourceRoots() {
-        String json = projectProps.getProperty(JAVA_SOURCE_ROOTS_KEY);
+    public List<String> getSourceRoots(Language language) {
+        String key = SOURCE_ROOTS_PREFIX + language.internalName().toLowerCase(Locale.ROOT);
+        String json = projectProps.getProperty(key);
+
+        // Fallback to legacy key for Java
+        if (json == null && language == Languages.JAVA) {
+            json = projectProps.getProperty(JAVA_SOURCE_ROOTS_KEY);
+        }
+
         if (json == null || json.isBlank()) {
-            return super.getJavaSourceRoots();
+            return super.getSourceRoots(language);
         }
         try {
             var tf = objectMapper.getTypeFactory();
             var type = tf.constructCollectionType(List.class, String.class);
             return objectMapper.readValue(json, type);
         } catch (JsonProcessingException e) {
-            logger.error("Failed to deserialize javaSourceRoots from JSON: {}", json, e);
-            return super.getJavaSourceRoots();
+            logger.error("Failed to deserialize source roots for {} from JSON: {}", language.name(), json, e);
+            return super.getSourceRoots(language);
         }
     }
 
     @Override
-    public void setJavaSourceRoots(List<String> roots) {
+    public void setSourceRoots(Language language, List<String> roots) {
+        String key = SOURCE_ROOTS_PREFIX + language.internalName().toLowerCase(Locale.ROOT);
         try {
             String json = objectMapper.writeValueAsString(roots);
-            projectProps.setProperty(JAVA_SOURCE_ROOTS_KEY, json);
+            projectProps.setProperty(key, json);
+            // If setting Java roots, also clear legacy key to avoid confusion
+            if (language == Languages.JAVA) {
+                projectProps.remove(JAVA_SOURCE_ROOTS_KEY);
+            }
             saveProjectProperties();
-            logger.debug("Saved Java source roots to project properties.");
+            logger.debug("Saved {} source roots to project properties.", language.name());
         } catch (JsonProcessingException e) {
-            throw new RuntimeException("Failed to serialize javaSourceRoots", e);
+            throw new RuntimeException("Failed to serialize source roots for " + language.name(), e);
         }
     }
 
