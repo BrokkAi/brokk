@@ -34,7 +34,8 @@ while [[ $# -gt 0 ]]; do
 done
 
 START_SHA=${ARGS[0]:-HEAD}
-MAX_RETRIES=${ARGS[1]:-5}
+# Maintain compatibility with MAX_RETRIES if MAX_ATTEMPTS is not set
+MAX_ATTEMPTS=${MAX_ATTEMPTS:-${MAX_RETRIES:-${ARGS[1]:-5}}}
 
 # Record the initial state (branch or SHA) to allow returning if necessary.
 INITIAL_STATE=$(git rev-parse --abbrev-ref HEAD)
@@ -52,12 +53,13 @@ cleanup() {
 trap cleanup EXIT
 
 CURRENT_SHA=$(git rev-parse "$START_SHA")
-RETRIES_LEFT=$MAX_RETRIES
+ATTEMPTS_LEFT=$MAX_ATTEMPTS
 
-echo "Starting search from $CURRENT_SHA with $MAX_RETRIES retries..." >&2
+echo "Starting search from $CURRENT_SHA with up to $MAX_ATTEMPTS attempts..." >&2
 
-while [ "$RETRIES_LEFT" -ge 0 ]; do
-    echo "Checking out $CURRENT_SHA..." >&2
+while [ "$ATTEMPTS_LEFT" -gt 0 ]; do
+    ATTEMPTS_LEFT=$((ATTEMPTS_LEFT - 1))
+    echo "Checking out $CURRENT_SHA... ($ATTEMPTS_LEFT attempts remaining after this)" >&2
     git checkout -q "$CURRENT_SHA"
 
     echo "Running ${BUILD_CMD[*]}..." >&2
@@ -69,7 +71,7 @@ while [ "$RETRIES_LEFT" -ge 0 ]; do
     else
         echo "Compilation failed at $CURRENT_SHA" >&2
         
-        if [ "$RETRIES_LEFT" -eq 0 ]; then
+        if [ "$ATTEMPTS_LEFT" -eq 0 ]; then
             break
         fi
 
@@ -82,10 +84,8 @@ while [ "$RETRIES_LEFT" -ge 0 ]; do
         fi
 
         CURRENT_SHA=$PARENT_SHA
-        RETRIES_LEFT=$((RETRIES_LEFT - 1))
-        echo "Retries remaining: $RETRIES_LEFT" >&2
     fi
 done
 
-echo "Error: Could not find a compilable commit within the retry limit." >&2
+echo "Error: Could not find a compilable commit within the limit of $MAX_ATTEMPTS attempts." >&2
 exit 1
