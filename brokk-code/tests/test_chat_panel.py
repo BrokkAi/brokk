@@ -1144,3 +1144,59 @@ async def test_refresh_log_preserves_scroll_state():
             assert not scroll_btn.has_class("hidden"), (
                 "scroll-to-bottom button should remain visible after refresh_log"
             )
+
+
+@pytest.mark.asyncio
+async def test_add_message_does_not_jump_when_scrolled_up():
+    """
+    Verify that when auto_scroll is disabled (user scrolled up), adding a new
+    message via add_system_message does not jump to the bottom, and the
+    scroll-to-bottom button remains visible.
+    """
+    from textual.app import App, ComposeResult
+    from textual.widgets import Button, RichLog
+
+    class TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield ChatPanel(id="chat")
+
+    app = TestApp()
+    async with app.run_test() as pilot:
+        panel = app.query_one("#chat", ChatPanel)
+        log = panel.query_one("#chat-log", RichLog)
+        scroll_btn = panel.query_one("#scroll-to-bottom", Button)
+
+        # Add enough content to make the log scrollable
+        for i in range(50):
+            panel.add_system_message(f"Message {i}")
+        await pilot.pause()
+
+        if log.max_scroll_y > 0:
+            # Scroll up to disable auto_scroll
+            log.scroll_to(y=0, animate=False)
+            await pilot.pause()
+            panel._sync_autoscroll()
+
+            assert log.auto_scroll is False
+            assert not scroll_btn.has_class("hidden")
+
+            # Record scroll position before adding new message
+            scroll_y_before = log.scroll_y
+
+            # Add another message while scrolled up
+            panel.add_system_message("New message while scrolled up")
+            await pilot.pause()
+
+            # scroll_y should not have jumped to max_scroll_y
+            assert log.scroll_y == scroll_y_before, (
+                f"scroll_y jumped from {scroll_y_before} to {log.scroll_y}; "
+                "should stay in place when auto_scroll is disabled"
+            )
+            assert log.scroll_y < log.max_scroll_y, (
+                "scroll_y should not be at max_scroll_y when auto_scroll is disabled"
+            )
+
+            # Button should still be visible
+            assert not scroll_btn.has_class("hidden"), (
+                "scroll-to-bottom button should remain visible after adding a message"
+            )
