@@ -16,6 +16,7 @@ import ai.brokk.executor.routers.FavoritesRouter;
 import ai.brokk.executor.routers.JobsRouter;
 import ai.brokk.executor.routers.ModelsRouter;
 import ai.brokk.executor.routers.OpenAiAuthRouter;
+import ai.brokk.executor.routers.RepoRouter;
 import ai.brokk.executor.routers.RouterUtil;
 import ai.brokk.executor.routers.SessionsRouter;
 import ai.brokk.project.MainProject;
@@ -203,6 +204,9 @@ public final class HeadlessExecutorMain {
 
     public HeadlessExecutorMain(UUID execId, String listenAddr, String authToken, ContextManager contextManager)
             throws IOException {
+        // Headless executor can be constructed directly in tests/in-process callers, not only via main().
+        // Set this early so any Swing/AWT calls route to headless toolkit and do not require X11 libraries.
+        System.setProperty("java.awt.headless", "true");
         this.execId = execId;
         this.contextManager = contextManager;
 
@@ -276,6 +280,9 @@ public final class HeadlessExecutorMain {
         var contextRouter = new ContextRouter(this.contextManager);
         this.server.registerAuthenticatedContext("/v1/context", contextRouter);
         this.server.registerAuthenticatedContext("/v1/tasklist", contextRouter);
+
+        var repoRouter = new RepoRouter(this.contextManager);
+        this.server.registerAuthenticatedContext("/v1/repo", repoRouter);
 
         var modelsRouter = new ModelsRouter(this.contextManager);
         this.server.registerAuthenticatedContext("/v1/models", modelsRouter);
@@ -408,6 +415,8 @@ public final class HeadlessExecutorMain {
 
     public static void main(String[] args) {
         try {
+            // Must be set before any Swing/AWT code paths are touched.
+            System.setProperty("java.awt.headless", "true");
             // Parse command-line arguments and validate them
             var parseResult = parseArgs(args);
             var parsedArgs = parseResult.args();
@@ -586,6 +595,7 @@ public final class HeadlessExecutorMain {
             System.out.println("    POST /v1/context/text             - add pasted text to context");
             System.out.println("    GET  /v1/tasklist                 - get current task list content");
             System.out.println("    POST /v1/tasklist                 - replace current task list content");
+            System.out.println("    POST /v1/repo/commit              - commit current changes");
             System.out.println("    GET  /v1/completions              - file and symbol completions");
             System.out.println("    GET  /v1/favorites                - user's favorite model configs");
             System.out.println();

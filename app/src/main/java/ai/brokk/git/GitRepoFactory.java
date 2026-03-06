@@ -127,12 +127,6 @@ public class GitRepoFactory {
     }
 
     public static GitRepo cloneRepo(
-            Supplier<String> tokenSupplier, String remoteUrl, Path directory, int depth, boolean allowUnauthenticated)
-            throws GitAPIException {
-        return cloneRepoInternal(tokenSupplier, remoteUrl, directory, depth, null, null, allowUnauthenticated);
-    }
-
-    public static GitRepo cloneRepo(
             Supplier<String> tokenSupplier, String remoteUrl, Path directory, int depth, @Nullable String branchOrTag)
             throws GitAPIException {
         return cloneRepoInternal(tokenSupplier, remoteUrl, directory, depth, branchOrTag, null, false);

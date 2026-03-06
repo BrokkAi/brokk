@@ -8,9 +8,7 @@
   (function_declaration
     name: (identifier) @function.name) @function.definition)
 
-; Top-level const/let/var MyComponent = () => { ... }
-; This needs to be a direct child of program, or within a block that is a direct child of program.
-; For simplicity, anchoring to program for top-level lexical arrow functions.
+; Top-level lexical arrow functions
 (program
   (lexical_declaration
     ["const" "let"] @keyword.modifier
@@ -18,16 +16,7 @@
       name: (identifier) @arrow_function.name
       value: ((arrow_function) @arrow_function.definition))))
 
-; Top-level non-exported const/let/var variable assignment
-; ((lexical_declaration
-;  (variable_declarator
-;    name: (identifier) @field.name
-;    value: _ ; Ensures it's an assignment with a value
-;  )
-; ) @field.definition) ; Capture the entire lexical_declaration as the definition
-
 ; Class method
-; Captures method_definition within a class_body. Name can be property_identifier or identifier.
 (
   (class_declaration
     body: (class_body
@@ -38,10 +27,7 @@
   )
 )
 
-; Top-level non-exported const/let/var variable assignment
-; Catches 'const x = 1;', 'let y = "foo";', 'var z = {};' etc.
-; but not 'const F = () => ...' or 'const C = class ...'
-; Anchoring to program for top-level variables.
+; Top-level non-exported variable assignment
 (program
   [
     (lexical_declaration
@@ -99,8 +85,7 @@
   ]
 )
 
-; Exported top-level const/let/var variable assignment
-; Catches 'export const x = 1;' etc.
+; Exported top-level variable assignment
 (
   (export_statement
     "export" @keyword.modifier
@@ -177,7 +162,7 @@
   )
 ) @function.definition)
 
-; Exported top-level arrow function (e.g., export const Foo = () => {})
+; Exported top-level arrow function
 (
   (export_statement
     "export" @keyword.modifier
@@ -190,15 +175,3 @@
     )
   )
 )
-
-; Capture import statements to be part of the module preamble
-(import_statement) @import_declaration
-
-; CommonJS require statements - captured as call_expression, filtered in Java code
-; Note: #eq? predicate is not enforced by JNI Tree-sitter, so filtering is done in JavascriptAnalyzer
-(call_expression
-  function: (identifier) @_require_func
-  arguments: (arguments (string) @_require_path)
-) @module.require_call
-
-; Ignore decorators / modifiers for now

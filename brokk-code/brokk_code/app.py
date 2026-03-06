@@ -1,7 +1,9 @@
 import asyncio
 import logging
+import os
 import random
 import re
+import signal
 import time
 import webbrowser
 from datetime import datetime
@@ -625,10 +627,31 @@ class BrokkApp(App):
     BINDINGS = [
         # Footer/help-bar ordering: Context, Tasks, Settings
         Binding("ctrl+c", "handle_ctrl_c", "Quit", show=True),
+        Binding("ctrl+d", "handle_ctrl_c", "Quit", show=False),
         Binding("ctrl+p", "command_palette", "Settings", show=True),
         Binding("ctrl+o", "toggle_output", "Toggle Output", show=True),
+        Binding("ctrl+z", "suspend_process", "Suspend", show=False, priority=True),
         Binding("shift+tab", "toggle_mode", "Toggle mode", show=False, priority=True),
     ]
+
+    def action_suspend_process(self) -> None:
+        """Suspend the app and executor subprocess with resumable job-control signals."""
+        process = self.executor._process
+        if process is not None and process.returncode is None:
+            # Ensure the Java subprocess pauses even though Ctrl+Z is handled in-app.
+            # Textual's parent suspend still controls terminal mode transitions.
+            try:
+                os.kill(process.pid, signal.SIGTSTP)
+            except ProcessLookupError:
+                pass
+            except Exception:
+                logger.debug("Failed to pause executor process before suspend", exc_info=True)
+
+        # Keep Textual's built-in suspend/resume semantics for the app itself.
+        try:
+            super().action_suspend_process()
+        except Exception:
+            logger.debug("Failed to suspend process", exc_info=True)
 
     def __init__(
         self,
@@ -697,8 +720,10 @@ class BrokkApp(App):
         )
         self.current_branch = "unknown"
         self.job_in_progress = False
+        self.session_switch_in_progress = False
         self.current_job_id: Optional[str] = None
         self._pending_prompt: Optional[str] = None
+        self._pending_switch_prompt: Optional[tuple[str, str]] = None
         self._startup_pending_prompt: Optional[str] = None
         self._pending_updated_at: float = 0
         self._pending_generation: int = 0
@@ -709,15 +734,16 @@ class BrokkApp(App):
         self._executor_ready: bool = False
         self._refresh_context_lock = asyncio.Lock()
         self._reported_refresh_errors: set[str] = set()
-        self._renamed_sessions: set[str] = set()
-        self._rename_session_lock = asyncio.Lock()
+        self._session_switch_lock = asyncio.Lock()
         self._reasoning_target: str = "planner"
 
         # Accumulators for LLM usage costs (USD).
-        # current_job_cost resets at the start of each new job submission.
-        # session_total_cost accumulates for the lifetime of the App instance.
+        # current_job_cost is per-job and resets at the start of each _run_job.
         self.current_job_cost: float = 0.0
+        # session_total_cost is the cumulative cost for the active session.
         self.session_total_cost: float = 0.0
+        # The session ID for which session_total_cost was last reconciled/updated.
+        self.session_total_cost_id: Optional[str] = None
 
         self._tasklist_restore_focus_widget: Any | None = None
 
@@ -800,6 +826,7 @@ class BrokkApp(App):
             yield TaskListPanel(id="side-tasklist")
 
     async def on_mount(self) -> None:
+        self.app_resume_signal.subscribe(self, self._on_app_resume)
         chat = self._maybe_chat()
         logger.info("Using workspace directory: %s", self.executor.workspace_dir)
         if chat:
@@ -836,6 +863,18 @@ class BrokkApp(App):
         self.run_worker(self._poll_tasklist())
         self.run_worker(self._poll_context())
         self._update_statusline()
+
+    def _on_app_resume(self, _app: App) -> None:
+        """Ensure the executor process resumes if it was paused by suspend."""
+        process = self.executor._process
+        if process is None or process.returncode is not None:
+            return
+        try:
+            os.kill(process.pid, signal.SIGCONT)
+        except ProcessLookupError:
+            return
+        except Exception:
+            logger.debug("Failed to resume executor process after app resume", exc_info=True)
 
     async def _start_executor(self) -> None:
         chat = self._maybe_chat()
@@ -1005,15 +1044,25 @@ class BrokkApp(App):
                 context_data = await self.executor.get_context()
                 self.current_branch = context_data.get("branch", "unknown")
 
-                # Seed or update session cost from executor's cumulative total
+                # Seed or update session cost from executor's cumulative total.
+                # Only reconcile when no job is running. While a job is active, cost
+                # is updated exclusively via COST notification events in _handle_event.
+                # Reconciling during a job risks double-counting: the executor's
+                # totalCost may already include events the TUI hasn't yet received via
+                # SSE, so bumping session_total_cost with max() and then processing
+                # those same events again inflates the displayed cost.
                 remote_total = context_data.get("totalCost")
-                if isinstance(remote_total, (int, float)):
-                    # We only seed from remote if our local tracker is 0 or if the remote
-                    # total is higher (e.g. following a resume).
-                    # Ongoing increments happen via _handle_event.
-                    self.session_total_cost = max(
-                        self.session_total_cost, round(float(remote_total), 6)
-                    )
+                current_sid = self.executor.session_id
+                if isinstance(remote_total, (int, float)) and not self.job_in_progress:
+                    remote_val = round(float(remote_total), 6)
+                    if current_sid != self.session_total_cost_id:
+                        # Session switch detected: overwrite without monotonic guard
+                        # so that cost can legitimately decrease to the new session's level.
+                        self.session_total_cost = remote_val
+                        self.session_total_cost_id = current_sid
+                    else:
+                        # Same session: use max() to guard against out-of-order events.
+                        self.session_total_cost = max(self.session_total_cost, remote_val)
 
                 # UI updates are best-effort if screen is not on stack
                 try:
@@ -1387,11 +1436,15 @@ class BrokkApp(App):
             append_prompt(
                 self.executor.workspace_dir, raw_text, max_history=self.settings.prompt_history_size
             )
-            chat = self.query_one(ChatPanel)
-            chat.add_history_entry(raw_text)
-
-            chat.add_user_message(raw_text)
-            if self.job_in_progress and self.current_job_id:
+            chat = self._maybe_chat()
+            if chat:
+                chat.add_history_entry(raw_text)
+                chat.add_user_message(raw_text)
+            if self.session_switch_in_progress and self._current_switch_target_session_id:
+                self._pending_switch_prompt = (self._current_switch_target_session_id, raw_text)
+                if chat:
+                    chat.add_system_message("Queuing prompt until session switch is complete...")
+            elif self.job_in_progress and self.current_job_id:
                 self._pending_prompt = raw_text
                 now = time.monotonic()
                 self._pending_updated_at = now
@@ -1400,12 +1453,13 @@ class BrokkApp(App):
                     self._pending_min_wait_until, now + self._resubmit_grace_s
                 )
                 # Avoid redundant cancellation messages if already pending
-                if self._pending_generation == 1:
+                if self._pending_generation == 1 and chat:
                     chat.add_system_message("Interrupting current job to start new request...")
                 self.run_worker(self.executor.cancel_job(self.current_job_id))
             elif not self._executor_ready:
                 self._startup_pending_prompt = raw_text
-                chat.add_system_message("Queuing prompt until Brokk is ready...")
+                if chat:
+                    chat.add_system_message("Queuing prompt until Brokk is ready...")
             else:
                 self.run_worker(self._run_job(raw_text))
 
@@ -1598,63 +1652,15 @@ class BrokkApp(App):
             logger.exception("OpenAI OAuth login failed")
             chat.add_system_message(f"Failed to start OpenAI login: {e}", level="ERROR")
 
-    def _derive_session_name(self, text: str) -> str:
-        """Derives a short session name from the first prompt text."""
-        # Strip leading mentions and common command-like prefixes
-        cleaned = re.sub(r"^(?:@\S+\s+|/ask\s+|/lutz\s+|/code\s+)+", "", text, flags=re.IGNORECASE)
-        # Take first line and truncate
-        first_line = cleaned.strip().split("\n")[0]
-        if len(first_line) > 60:
-            return first_line[:57].strip() + "..."
-        return first_line
-
-    async def _maybe_rename_session(self, first_prompt: str) -> None:
-        """Asynchronously renames the session if it's new/unnamed."""
-        session_id = self.executor.session_id
-        if not session_id:
-            return
-
-        async with self._rename_session_lock:
-            if session_id in self._renamed_sessions:
-                return
-
-            # Check if the session name is generic before renaming
-            try:
-                sessions_data = await self.executor.list_sessions()
-                current_id = sessions_data.get("currentSessionId")
-                sessions = sessions_data.get("sessions", [])
-
-                # Find current session and check if it's using the default name
-                current_session = next((s for s in sessions if s.get("id") == current_id), None)
-                if not current_session or current_session.get("name") != "TUI Session":
-                    # Already named or not found; mark as "renamed" to skip further checks
-                    self._renamed_sessions.add(session_id)
-                    return
-
-                new_name = self._derive_session_name(first_prompt)
-                if not new_name:
-                    return
-
-                await self.executor.rename_session(session_id, new_name)
-                self._renamed_sessions.add(session_id)
-
-                chat = self._maybe_chat()
-                if chat:
-                    chat.add_system_message(f"Session renamed to: {new_name}")
-            except Exception as e:
-                logger.warning("Failed to auto-rename session: %s", e)
-
     async def _run_job(self, task_input: str) -> None:
-        # Attempt auto-rename on first prompt if session is default
-        if self._executor_ready and self.executor.session_id:
-            self.run_worker(self._maybe_rename_session(task_input))
-
+        # Reset per-job cost accumulator
         self.current_job_cost = 0.0
         self.job_in_progress = True
         chat = self._maybe_chat()
         if chat:
             chat.set_job_running(True)
             chat.set_response_pending()
+
         attached_fragment_ids: List[str] = []
         try:
             attached_fragment_ids = await self._attach_mentions_to_context(task_input)
@@ -1914,14 +1920,13 @@ class BrokkApp(App):
             {"command": "/mode", "description": "Open mode selection menu"},
             {"command": "/model", "description": "Change the planner LLM model"},
             {"command": "/model-code", "description": "Change the code LLM model"},
-            {"command": "/reasoning", "description": "Set reasoning level for planner"},
-            {"command": "/reasoning-code", "description": "Set reasoning level for code model"},
             {"command": "/autocommit", "description": "Toggle auto-commit for submitted jobs"},
             {"command": "/settings", "description": "Open settings"},
             {"command": "/history", "description": "Show recent prompt history"},
             {"command": "/history-clear", "description": "Clear prompt history"},
             {"command": "/task", "description": "Open/close the task list"},
             {"command": "/sessions", "description": "List and switch between sessions"},
+            {"command": "/commit", "description": "Commit current changes"},
             {"command": "/info", "description": "Show current configuration and status"},
             {"command": "/help", "description": "Show help message"},
             {"command": "/quit", "description": "Exit the application"},
@@ -1959,36 +1964,6 @@ class BrokkApp(App):
                 self._update_statusline()
             else:
                 self.run_worker(self.action_select_code_model_and_reasoning())
-        elif base == "/reasoning":
-            if len(parts) > 1:
-                self.reasoning_level = parts[1]
-                # Persist planner reasoning preference
-                try:
-                    self.settings.last_reasoning_level = self.reasoning_level
-                    self.settings.save()
-                except Exception:
-                    logger.exception("Failed to persist last_reasoning_level setting")
-                chat.add_system_message_markup(
-                    f"Reasoning level changed to: [bold]{self.reasoning_level}[/]"
-                )
-                self._update_statusline()
-            else:
-                self.action_select_reasoning(target="planner")
-        elif base == "/reasoning-code":
-            if len(parts) > 1:
-                self.reasoning_level_code = parts[1]
-                # Persist code reasoning preference
-                try:
-                    self.settings.last_code_reasoning_level = self.reasoning_level_code
-                    self.settings.save()
-                except Exception:
-                    logger.exception("Failed to persist last_code_reasoning_level setting")
-                chat.add_system_message_markup(
-                    f"Code reasoning level changed to: [bold]{self.reasoning_level_code}[/]"
-                )
-                self._update_statusline()
-            else:
-                self.action_select_reasoning(target="code")
         elif base == "/autocommit":
             if len(parts) == 1:
                 state = "ON" if self.auto_commit else "OFF"
@@ -2039,7 +2014,7 @@ class BrokkApp(App):
             if len(parts) > 1:
                 chat.add_system_message("Settings opens from /settings with no arguments.")
             self.action_command_palette()
-        elif base in ("/code", "/ask", "/lutz"):
+        elif base in ("/code", "/ask", "/lutz", "/plan"):
             self._set_mode(base[1:].upper())
         elif base == "/mode":
             if len(parts) > 1:
@@ -2095,6 +2070,18 @@ class BrokkApp(App):
                 )
                 return
             self.action_toggle_tasklist()
+        elif base == "/commit":
+            if not self._executor_ready:
+                chat.add_system_message(
+                    "Executor is not ready. Cannot commit changes.",
+                    level="ERROR",
+                )
+                return
+            # Extract optional message from remaining args
+            commit_message: Optional[str] = None
+            if len(parts) > 1:
+                commit_message = " ".join(parts[1:])
+            self.run_worker(self._commit_changes(commit_message))
         elif base == "/sessions":
             self.run_worker(self._show_sessions())
         elif base == "/help":
@@ -2243,21 +2230,10 @@ class BrokkApp(App):
             if chat:
                 chat.add_system_message(f"Failed to fetch models: {e}", level="ERROR")
 
-    def action_select_reasoning(self, target: str = "planner") -> None:
-        chat = self._maybe_chat()
-        if chat:
-            self._reasoning_target = target
-            levels = ["disable", "low", "medium", "high"]
-            current_val = self.reasoning_level_code if target == "code" else self.reasoning_level
-            current = str(current_val or "low").strip() or "low"
-            if current not in levels:
-                current = "low"
-            chat.open_reasoning_menu(levels, current)
-
     def action_select_mode(self) -> None:
         chat = self._maybe_chat()
         if chat:
-            chat.open_mode_menu(["CODE", "ASK", "LUTZ"], self.agent_mode)
+            chat.open_mode_menu(["CODE", "ASK", "LUTZ", "PLAN"], self.agent_mode)
 
     def action_toggle_context(self) -> None:
         if isinstance(self.screen, ContextModalScreen):
@@ -2372,8 +2348,8 @@ class BrokkApp(App):
             chat.refresh_log(self.show_verbose_output)
 
     def action_toggle_mode(self) -> None:
-        """Cycles through agent modes: CODE -> ASK -> LUTZ -> CODE."""
-        modes = ["CODE", "ASK", "LUTZ"]
+        """Cycles through agent modes: CODE -> ASK -> LUTZ -> PLAN -> CODE."""
+        modes = ["CODE", "ASK", "LUTZ", "PLAN"]
         try:
             current_index = modes.index(self.agent_mode)
         except ValueError:
@@ -2429,7 +2405,9 @@ class BrokkApp(App):
         if now - self._last_ctrl_c_time < 2.0:
             await self.action_quit()
         else:
-            self.query_one(ChatPanel).add_system_message("Press Ctrl+C again to quit.")
+            # We don't have easy access to which key triggered the action here without
+            # changing the signature, but "Ctrl+C or Ctrl+D" is accurate for both.
+            self.query_one(ChatPanel).add_system_message("Press Ctrl+C or Ctrl+D again to quit.")
             self._last_ctrl_c_time = now
 
     async def _shutdown_once(self, *, show_message: bool = True) -> None:
@@ -2472,6 +2450,37 @@ class BrokkApp(App):
         except Exception:
             # exit() may raise in some test harnesses; ignore to avoid double-shutdown.
             pass
+
+    async def _commit_changes(self, message: Optional[str] = None) -> None:
+        """Async worker to commit current changes."""
+        chat = self._maybe_chat()
+        if not chat:
+            return
+
+        try:
+            result = await self.executor.commit_context(message)
+
+            if result.get("status") == "no_changes":
+                chat.add_system_message("No uncommitted changes to commit.")
+                return
+
+            commit_id = result.get("commitId", "")
+            first_line = result.get("firstLine", "")
+
+            # Show short hash (first 7 chars) if available
+            short_hash = commit_id[:7] if commit_id else ""
+            if short_hash and first_line:
+                chat.add_system_message_markup(f"Committed [bold]{short_hash}[/]: {first_line}")
+            elif short_hash:
+                chat.add_system_message_markup(f"Committed [bold]{short_hash}[/]")
+            else:
+                chat.add_system_message("Changes committed successfully.")
+
+            # Refresh context to update any UI state
+            await self._refresh_context_panel()
+        except Exception as e:
+            logger.exception("Commit failed")
+            chat.add_system_message(f"Commit failed: {e}", level="ERROR")
 
     async def _show_sessions(self) -> None:
         chat = self._maybe_chat()
@@ -2516,20 +2525,19 @@ class BrokkApp(App):
 
     async def _rename_session(self, session_id: str, new_name: str) -> bool:
         chat = self._maybe_chat()
-        async with self._rename_session_lock:
-            try:
-                await self.executor.rename_session(session_id, new_name)
-                self._renamed_sessions.add(session_id)
-                if chat:
-                    chat.add_system_message(f"Session renamed to: {new_name}")
-                await self._refresh_context_panel()
-                return True
-            except Exception as e:
-                if chat:
-                    chat.add_system_message(f"Failed to rename session: {e}", level="ERROR")
-                return False
+        try:
+            await self.executor.rename_session(session_id, new_name)
+            if chat:
+                chat.add_system_message(f"Session renamed to: {new_name}")
+            await self._refresh_context_panel()
+            return True
+        except Exception as e:
+            if chat:
+                chat.add_system_message(f"Failed to rename session: {e}", level="ERROR")
+            return False
 
     async def _create_session_from_menu(self) -> None:
+        """Async worker to create a new session."""
         from brokk_code.session_persistence import save_last_session_id
 
         chat = self._maybe_chat()
@@ -2553,6 +2561,7 @@ class BrokkApp(App):
     async def _rename_session_workflow(
         self, session_id: str, sessions: List[Dict[str, Any]]
     ) -> None:
+        """Async worker for the rename session flow."""
         initial_name = ""
         for s in sessions:
             if str(s.get("id")) == session_id:
@@ -2573,6 +2582,7 @@ class BrokkApp(App):
         )
 
     async def _delete_session_workflow(self, session_id: str) -> None:
+        """Async worker for the delete session flow."""
         chat = self._maybe_chat()
         try:
             await self.executor.delete_session(session_id)
@@ -2590,16 +2600,45 @@ class BrokkApp(App):
         if not chat:
             return
 
+        async with self._session_switch_lock:
+            if self.session_switch_in_progress:
+                chat.add_system_message("A session switch is already in progress.", level="WARNING")
+                return
+            self.session_switch_in_progress = True
+            self._current_switch_target_session_id = session_id
+
+        # Save previous cost accumulators so we can restore them if the switch fails.
+        _prev_job_cost = self.current_job_cost
+        _prev_session_cost = self.session_total_cost
+
         try:
             chat.add_system_message(f"Switching to session {session_id}...")
+            # Set job running to block input UI during switch
+            chat.set_job_running(True)
+
+            # Reset accumulators immediately so UI doesn't show previous session's
+            # stale costs during the switch transition. _refresh_context_panel
+            # will re-seed session_total_cost from executor context shortly.
+            self.current_job_cost = 0.0
+            self.session_total_cost = 0.0
+            # We don't update session_total_cost_id here; we let _refresh_context_panel
+            # detect the mismatch between the new executor.session_id and the old ID.
+
             await self.executor.switch_session(session_id)
-            save_last_session_id(self.executor.workspace_dir, session_id)
+            try:
+                save_last_session_id(self.executor.workspace_dir, session_id)
+            except Exception:
+                logger.warning(
+                    "Failed to persist last session ID for session %s", session_id, exc_info=True
+                )
 
             # Clear UI and history
             chat._message_history.clear()
             # Clear log container (the ScrollableContainer containing message widgets)
             log = chat.query_one("#chat-log")
-            await log.query("*").remove()
+            res = log.query("*").remove()
+            if asyncio.iscoroutine(res):
+                await res
 
             # Replay
             conversation_data = await self.executor.get_conversation()
@@ -2608,9 +2647,30 @@ class BrokkApp(App):
             # Refresh
             await self._refresh_context_panel()
             chat.add_system_message(f"Successfully switched to session {session_id}.")
+
+            # Handle queued prompt after switch
+            if self._pending_switch_prompt:
+                target_id, prompt = self._pending_switch_prompt
+                if target_id == session_id:
+                    self._pending_switch_prompt = None
+                    self.run_worker(self._run_job(prompt))
+                else:
+                    # This shouldn't normally happen with the lock, but for safety:
+                    self._pending_switch_prompt = None
+
         except Exception as e:
             logger.exception("Failed to switch session")
+            # Restore cost accumulators so the UI reflects the original session's costs.
+            self.current_job_cost = _prev_job_cost
+            self.session_total_cost = _prev_session_cost
             chat.add_system_message(f"Failed to switch session: {e}", level="ERROR")
+            if self._pending_switch_prompt:
+                self._pending_switch_prompt = None
+                chat.add_system_message("Dropped queued prompt due to session switch failure.")
+        finally:
+            self.session_switch_in_progress = False
+            self._current_switch_target_session_id = None
+            chat.set_job_running(False)
 
     async def on_unmount(self) -> None:
         """Ensure cleanup even if app exits via other means."""

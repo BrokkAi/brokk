@@ -51,7 +51,6 @@ import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
@@ -148,6 +147,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
             TimeUnit.SECONDS,
             new LinkedBlockingQueue<>(), // Unbounded queue to prevent rejection
             ExecutorsUtil.createNamedThreadFactory("BackgroundTask")));
+
+    private final LoggingExecutorService historyCompressionExecutor =
+            ExecutorsUtil.newFixedThreadExecutor("HistoryCompress-", 5);
 
     private final LoggingExecutorService syncExecutor = createLoggingExecutorService(
             Executors.newSingleThreadExecutor(ExecutorsUtil.createNamedThreadFactory("SessionSync")));
@@ -1357,8 +1359,15 @@ public class ContextManager implements IContextManager, AutoCloseable {
         var contextActionFuture = contextActionExecutor.shutdownAndAwait(awaitMillis, "contextActionExecutor");
         var backgroundFuture = backgroundTasks.shutdownAndAwait(awaitMillis, "backgroundTasks");
         var userActionsFuture = userActions.shutdownAndAwait(awaitMillis);
+        var historyCompressionFuture =
+                historyCompressionExecutor.shutdownAndAwait(awaitMillis, "historyCompressionExecutor");
 
-        return CompletableFuture.allOf(contextActionFuture, backgroundFuture, userActionsFuture, syncExecutorFuture)
+        return CompletableFuture.allOf(
+                        contextActionFuture,
+                        backgroundFuture,
+                        userActionsFuture,
+                        syncExecutorFuture,
+                        historyCompressionFuture)
                 .whenComplete((v, t) -> project.close());
     }
 
@@ -1558,6 +1567,12 @@ public class ContextManager implements IContextManager, AutoCloseable {
                         agent.setVerifyCommand(afterCmd);
                         agent.executeWithScan();
                     }
+                } else {
+                    // add the post-task terminal output to the history
+                    var log = new ContextFragments.TaskFragment(
+                            getIo().getLlmRawMessages(), "Post-task verification output");
+                    var context2 = context.addHistoryEntry(log, null);
+                    pushContext(ctx -> context2);
                 }
             }
         }
@@ -1566,6 +1581,25 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     public TaskResult executeTask(
+            TaskList.TaskItem task, StreamingChatModel planningModel, StreamingChatModel codeModel)
+            throws InterruptedException {
+        return applyCompressedTaskHistory(executeTaskInternal(task, planningModel, codeModel));
+    }
+
+    private TaskResult applyCompressedTaskHistory(CompressedResult compressedResult) {
+        try {
+            var compressedTaskHistory = compressedResult.compressedTaskHistory().join();
+            return compressedResult
+                    .taskResult()
+                    .withContext(IContextManager.mergeCompressedHistory(
+                            compressedResult.taskResult().context(), compressedTaskHistory));
+        } catch (CompletionException e) {
+            logger.warn("Task history compression failed while finalizing task result", e);
+            return compressedResult.taskResult();
+        }
+    }
+
+    private CompressedResult executeTaskInternal(
             TaskList.TaskItem task, StreamingChatModel planningModel, StreamingChatModel codeModel)
             throws InterruptedException {
         // IMPORTANT: Use task.text() as the LLM prompt, NOT task.title().
@@ -1577,8 +1611,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
         TaskResult result;
         var title = task.title().isBlank() ? task.text() : task.title();
+        var initialContext = liveContext();
+        var compressedTaskHistory = compressHistoryAsync(initialContext);
         try (var scope = beginTask(prompt, true, "Task: " + title)) {
-            var agent = new ArchitectAgent(this, planningModel, codeModel, prompt, scope);
+            var agent = new ArchitectAgent(
+                    this, planningModel, codeModel, prompt, scope, initialContext, compressedTaskHistory);
             result = agent.executeWithScan();
 
             if (result.stopDetails().reason() == TaskResult.StopReason.SUCCESS) {
@@ -1587,15 +1624,16 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
                 result = result.withContext(ctx); // result with task done
                 scope.append(result); // result with new history = top context
-                result = result.withContext(scope.compressTop()); // compress top context
             }
         } finally {
             // mirror panel behavior
             checkBalanceAndNotify();
         }
 
-        return result;
+        return new CompressedResult(result, compressedTaskHistory);
     }
+
+    private record CompressedResult(TaskResult taskResult, CompletableFuture<List<TaskEntry>> compressedTaskHistory) {}
 
     /** Replace the given task with its 'done=true' variant. */
     private Context markTaskDone(Context context, TaskList.TaskItem task) {
@@ -2714,10 +2752,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
     @TestOnly
     void createHeadless() {
         createHeadless(true, new HeadlessConsole());
-        var mp = project.getMainProject();
         // configure a placeholder build so awaitBuildDetails() doesn't block indefinitely
-        if (mp.loadBuildDetails().isEmpty()) {
-            mp.setBuildDetails(BuildDetails.EMPTY);
+        if (project.loadBuildDetails().isEmpty()) {
+            project.setBuildDetails(BuildDetails.EMPTY);
         }
     }
 
@@ -2825,57 +2862,35 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     @Override
-    @Blocking
-    public Context compressHistory(Context ctx) throws InterruptedException {
+    public CompletableFuture<List<TaskEntry>> compressHistoryAsync(Context ctx) {
         io.disableHistoryPanel();
-        try {
-            // Use bounded-concurrency executor to avoid overwhelming the LLM provider
-            List<Future<TaskEntry>> futures =
-                    new ArrayList<>(ctx.getTaskHistory().size());
-            try (var exec = ExecutorsUtil.newFixedThreadExecutor("HistoryCompress-", 5)) {
-                // Submit all compression tasks
-                for (TaskEntry entry : ctx.getTaskHistory()) {
-                    futures.add(exec.submit(() -> compressHistory(entry)));
-                }
+        var taskHistory = ctx.getTaskHistory();
 
-                // Collect results in order, with fallback to original on failure
-                List<TaskEntry> compressedTaskEntries =
-                        new ArrayList<>(ctx.getTaskHistory().size());
-                for (int i = 0; i < futures.size(); i++) {
-                    try {
-                        compressedTaskEntries.add(futures.get(i).get());
-                    } catch (InterruptedException ie) {
-                        // Cancellation requested - cancel remaining futures and re-throw
-                        logger.debug("History compression interrupted");
-                        for (int j = i + 1; j < futures.size(); j++) {
-                            futures.get(j).cancel(true);
-                        }
-                        throw ie;
-                    } catch (ExecutionException ee) {
-                        // Individual task failed - use original entry and continue
-                        logger.warn("History compression task failed", ee);
-                        compressedTaskEntries.add(ctx.getTaskHistory().get(i));
+        var compressionFutures = taskHistory.stream()
+                .map(taskEntry -> {
+                    return LoggingFuture.supplyCallableAsync(
+                                    () -> compressHistory(taskEntry), historyCompressionExecutor)
+                            .exceptionally(th -> {
+                                logger.warn("History compression task failed", th);
+                                return taskEntry;
+                            });
+                })
+                .toList();
+
+        var allDone = LoggingFuture.allOf(compressionFutures.toArray(CompletableFuture[]::new))
+                .thenApply(ignored ->
+                        compressionFutures.stream().map(CompletableFuture::join).toList())
+                .thenApply(compressedTaskEntries -> {
+                    boolean changed = IntStream.range(0, taskHistory.size())
+                            .anyMatch(i -> compressedTaskEntries.get(i).isCompressed()
+                                    && !taskHistory.get(i).isCompressed());
+                    if (!changed) {
+                        return taskHistory;
                     }
-                }
+                    return compressedTaskEntries;
+                });
 
-                // Check if any entries were actually modified (got a summary attached)
-                boolean changed = IntStream.range(0, ctx.getTaskHistory().size())
-                        .anyMatch(i -> {
-                            TaskEntry original = ctx.getTaskHistory().get(i);
-                            TaskEntry compressed = compressedTaskEntries.get(i);
-                            // Entry changed if it now has a summary when it didn't before
-                            return compressed.isCompressed() && !original.isCompressed();
-                        });
-
-                if (!changed) {
-                    return ctx;
-                }
-
-                return ctx.withHistory(compressedTaskEntries);
-            }
-        } finally {
-            SwingUtilities.invokeLater(io::enableHistoryPanel);
-        }
+        return allDone.whenComplete((ignored, th) -> SwingUtilities.invokeLater(io::enableHistoryPanel));
     }
 
     @TestOnly

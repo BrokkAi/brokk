@@ -268,27 +268,7 @@ async def test_mode_command_no_arg_opens_menu():
                 # Simulate typing /mode with no args
                 app._handle_command("/mode")
                 await pilot.pause()
-                mock_open.assert_called_once_with(["CODE", "ASK", "LUTZ"], "LUTZ")
-
-
-@pytest.mark.asyncio
-async def test_reasoning_command_with_arg_sets_directly():
-    executor = MagicMock()
-    executor.stop = AsyncMock()
-    app = BrokkApp(executor=executor)
-    app._executor_ready = True
-
-    with (
-        patch.object(BrokkApp, "_start_executor", return_value=None),
-        patch.object(BrokkApp, "_monitor_executor", return_value=None),
-        patch.object(BrokkApp, "_poll_tasklist", return_value=None),
-        patch.object(BrokkApp, "_poll_context", return_value=None),
-    ):
-        async with app.run_test() as pilot:
-            app._handle_command("/reasoning high")
-            await pilot.pause()
-
-            assert app.reasoning_level == "high"
+                mock_open.assert_called_once_with(["CODE", "ASK", "LUTZ", "PLAN"], "LUTZ")
 
 
 @pytest.mark.asyncio

@@ -713,6 +713,28 @@ public final class JavascriptAnalyzerTest {
     }
 
     @Test
+    public void testMultiAssignmentFieldSignatures() throws Exception {
+        try (var testProject = InlineTestProjectCreator.code(
+                        "export const a = 1, b = 2;\nlet x = 'one', y = 'two';", "multi.js")
+                .build()) {
+
+            var analyzer = new JavascriptAnalyzer(testProject);
+            var file = new ProjectFile(testProject.getRoot(), "multi.js");
+            var skeletons = analyzer.getSkeletons(file);
+
+            CodeUnit cuA = CodeUnit.field(file, "", "multi.js.a");
+            CodeUnit cuB = CodeUnit.field(file, "", "multi.js.b");
+            CodeUnit cuX = CodeUnit.field(file, "", "multi.js.x");
+            CodeUnit cuY = CodeUnit.field(file, "", "multi.js.y");
+
+            assertEquals("export const a = 1", skeletons.get(cuA).trim());
+            assertEquals("export const b = 2", skeletons.get(cuB).trim());
+            assertEquals("let x = 'one'", skeletons.get(cuX).trim());
+            assertEquals("let y = 'two'", skeletons.get(cuY).trim());
+        }
+    }
+
+    @Test
     public void getUsesClassComprehensivePatternsTest() throws InterruptedException {
         var finder = newFinder(jsTestProject, jsAnalyzer);
         var symbol = "BaseClass";

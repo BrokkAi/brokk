@@ -39,7 +39,7 @@ async def test_action_select_mode_opens_menu():
     app.action_select_mode()
 
     # Verify it opens the inline menu on ChatPanel instead of pushing a modal screen
-    mock_chat.open_mode_menu.assert_called_once_with(["CODE", "ASK", "LUTZ"], "LUTZ")
+    mock_chat.open_mode_menu.assert_called_once_with(["CODE", "ASK", "LUTZ", "PLAN"], "LUTZ")
 
 
 @pytest.mark.asyncio
@@ -73,7 +73,7 @@ async def test_action_select_model_handles_dotted_model_names():
 
 
 def test_help_command_no_shortcuts_for_model_reasoning():
-    """Verify /help output does not mention Ctrl+U or Ctrl+E."""
+    """Verify /help output does not mention shortcuts or removed reasoning commands."""
     app = BrokkApp(executor=MagicMock())
     mock_chat = MagicMock(spec=ChatPanel)
     app.query_one = MagicMock(return_value=mock_chat)
@@ -87,9 +87,12 @@ def test_help_command_no_shortcuts_for_model_reasoning():
     assert "Ctrl+U" not in help_text
     assert "Ctrl+E" not in help_text
     assert "Shortcut:" not in help_text
-    # Verify the commands themselves are still documented
+    assert "/reasoning" not in help_text
+    assert "/reasoning-code" not in help_text
+
+    # Verify the model commands themselves are still documented
     assert "/model" in help_text
-    assert "/reasoning" in help_text
+    assert "/model-code" in help_text
 
 
 def test_help_output_matches_command_catalog():

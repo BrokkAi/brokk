@@ -6,6 +6,7 @@ import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNul
 import ai.brokk.context.ContextFragments;
 import ai.brokk.util.Messages;
 import dev.langchain4j.data.message.ChatMessage;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
@@ -62,6 +63,78 @@ public final class TaskEntry {
             return this;
         }
         return new TaskEntry(sequence, mopLog, null, newSummary, meta);
+    }
+
+    /**
+     * Returns a copy of this TaskEntry with additional messages appended to the existing mop log.
+     *
+     * <p>If additionalMessages is empty, returns this unchanged.
+     *
+     * <p>If mopLog is null (summary-only entry), this is a no-op; callers should create a new TaskEntry
+     * rather than mutating a summary-only entry.
+     *
+     * <p>Preserves the existing mop log description.
+     */
+    public TaskEntry withAppendedMopMessages(List<? extends ChatMessage> additionalMessages) {
+        if (additionalMessages.isEmpty() || mopLog == null) {
+            return this;
+        }
+        return withAppendedMopMessages(
+                additionalMessages, mopLog.shortDescription().join());
+    }
+
+    /**
+     * Returns a copy of this TaskEntry with additional messages appended to the existing mop log, and sets the
+     * resulting mop/llm log descriptions to the provided value.
+     *
+     * <p>If additionalMessages is empty, returns this unchanged.
+     *
+     * <p>If mopLog is null (summary-only entry), this is a no-op; callers should create a new TaskEntry
+     * rather than mutating a summary-only entry.
+     *
+     * <p>Always preserves sequence, meta, and summary.
+     */
+    public TaskEntry withAppendedMopMessages(List<? extends ChatMessage> additionalMessages, String description) {
+        if (additionalMessages.isEmpty() || mopLog == null) {
+            return this;
+        }
+
+        // Workaround: only add new messages; can be removed when we implement the TaskEntryBuilder
+        var existingMopMessages = mopLog.messages();
+        int existingSize = existingMopMessages.size();
+        int additionalSize = additionalMessages.size();
+
+        int maxK = Math.min(existingSize, additionalSize);
+        int overlap = 0;
+        for (int k = 1; k <= maxK; k++) {
+            if (existingMopMessages.subList(existingSize - k, existingSize).equals(additionalMessages.subList(0, k))) {
+                overlap = k;
+            }
+        }
+
+        var effectiveAdditional = additionalMessages.subList(overlap, additionalSize);
+        if (effectiveAdditional.isEmpty()) {
+            return this;
+        }
+
+        var combinedMop = new ArrayList<ChatMessage>(existingSize + effectiveAdditional.size());
+        combinedMop.addAll(existingMopMessages);
+        combinedMop.addAll(effectiveAdditional);
+
+        var newMopLog = new ContextFragments.TaskFragment(combinedMop, description, mopLog.isEscapeHtml());
+
+        final ContextFragments.@Nullable TaskFragment newLlmLog;
+        if (llmLog == null) {
+            newLlmLog = null;
+        } else {
+            var existingLlmMessages = llmLog.messages();
+            var combinedLlm = new ArrayList<ChatMessage>(existingLlmMessages.size() + effectiveAdditional.size());
+            combinedLlm.addAll(existingLlmMessages);
+            combinedLlm.addAll(effectiveAdditional);
+            newLlmLog = new ContextFragments.TaskFragment(combinedLlm, description, llmLog.isEscapeHtml());
+        }
+
+        return new TaskEntry(sequence, newMopLog, newLlmLog, summary, meta);
     }
 
     /**

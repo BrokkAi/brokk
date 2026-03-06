@@ -12,14 +12,14 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 import org.eclipse.jgit.api.Git;
-import org.junit.jupiter.api.Disabled;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-@Disabled
 class RealProjectFixtureTest {
 
     @TempDir
@@ -43,6 +43,7 @@ class RealProjectFixtureTest {
     }
 
     @Test
+    @Tag("git-integration")
     void testRuffProject() throws Exception {
         String url = "https://github.com/astral-sh/ruff.git";
         String commitId = "0e19fc9a61477e71abc4eb76f05a129b6b9ab873";
@@ -80,6 +81,73 @@ class RealProjectFixtureTest {
     }
 
     @Test
+    @Tag("git-integration")
+    void testFromGitUrlWithCompressedCache(@TempDir Path customCache) throws Exception {
+        InlineTestProjectCreator.GitCloneStrategy.setCacheRoot(customCache);
+
+        // 1. Create a local source repo
+        Path sourceRepoPath = tempDir.resolve("source-repo-cached");
+        Files.createDirectories(sourceRepoPath);
+        GitRepoFactory.initRepo(sourceRepoPath);
+        Files.writeString(sourceRepoPath.resolve("Foo.java"), "public class Foo {}");
+
+        String commitId;
+        try (Git git = Git.open(sourceRepoPath.toFile())) {
+            git.add().addFilepattern("Foo.java").call();
+            commitId = git.commit()
+                    .setMessage("Initial commit")
+                    .setAuthor("Tester", "tester@brokk.ai")
+                    .setSign(false)
+                    .call()
+                    .name();
+        }
+
+        String url = sourceRepoPath.toUri().toString();
+
+        // 2. First run: should create .tar.lz4 in cache
+        try (ITestProject project =
+                InlineTestProjectCreator.fromGitUrl(url, "HEAD").build()) {
+            assertTrue(Files.exists(project.getRoot().resolve("Foo.java")));
+            assertEquals(commitId, project.getRepo().getCurrentCommitId());
+        }
+
+        try (var stream = Files.list(customCache)) {
+            List<Path> files = stream.map(Path::getFileName).toList();
+            assertTrue(files.stream().anyMatch(p -> p.toString().endsWith(".tar.lz4")), "Cache archive should exist");
+            assertFalse(
+                    files.stream().anyMatch(p -> p.toString().endsWith(".expanded")),
+                    "Expanded directory should have been cleaned up");
+        }
+
+        // 3. Second run: should use the archive
+        try (ITestProject project =
+                InlineTestProjectCreator.fromGitUrl(url, "HEAD").build()) {
+            assertTrue(Files.exists(project.getRoot().resolve("Foo.java")));
+            assertEquals(commitId, project.getRepo().getCurrentCommitId());
+        }
+
+        // 4. Simulate corruption
+        Path archive = Files.list(customCache)
+                .filter(p -> p.toString().endsWith(".tar.lz4"))
+                .findFirst()
+                .orElseThrow();
+        Files.writeString(archive, "corrupt content");
+
+        try (ITestProject project =
+                InlineTestProjectCreator.fromGitUrl(url, "HEAD").build()) {
+            assertTrue(Files.exists(project.getRoot().resolve("Foo.java")), "Should recover from corrupt archive");
+            assertEquals(commitId, project.getRepo().getCurrentCommitId());
+        }
+
+        // 5. Ensure archive was rebuilt (is now valid LZ4 again)
+        try (var fis = Files.newInputStream(archive);
+                var lz4In = new net.jpountz.lz4.LZ4FrameInputStream(fis)) {
+            // If this doesn't throw, it's at least a valid LZ4 frame
+        }
+    }
+
+    @Test
+    @Tag("git-integration")
     void testFromGitUrl() throws Exception {
         // 1. Create a local source repo
         Path sourceRepoPath = tempDir.resolve("source-repo");

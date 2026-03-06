@@ -1,3 +1,5 @@
+import signal
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
@@ -18,17 +20,22 @@ def test_action_toggle_mode_cycles_correctly():
     # Initial state
     assert app.agent_mode == "LUTZ"
 
-    # Cycle 1: LUTZ -> CODE
+    # Cycle 1: LUTZ -> PLAN
+    app.action_toggle_mode()
+    assert app.agent_mode == "PLAN"
+    mock_chat.add_system_message_markup.assert_called_with("Mode changed to: [bold]PLAN[/]")
+
+    # Cycle 2: PLAN -> CODE
     app.action_toggle_mode()
     assert app.agent_mode == "CODE"
     mock_chat.add_system_message_markup.assert_called_with("Mode changed to: [bold]CODE[/]")
 
-    # Cycle 2: CODE -> ASK
+    # Cycle 3: CODE -> ASK
     app.action_toggle_mode()
     assert app.agent_mode == "ASK"
     mock_chat.add_system_message_markup.assert_called_with("Mode changed to: [bold]ASK[/]")
 
-    # Cycle 3: ASK -> LUTZ
+    # Cycle 4: ASK -> LUTZ
     app.action_toggle_mode()
     assert app.agent_mode == "LUTZ"
     mock_chat.add_system_message_markup.assert_called_with("Mode changed to: [bold]LUTZ[/]")
@@ -54,6 +61,20 @@ def test_handle_command_updates_agent_mode():
     assert app.agent_mode == "LUTZ"
     mock_chat.add_system_message_markup.assert_called_with("Mode changed to: [bold]LUTZ[/]")
 
+    # Test /plan
+    app._handle_command("/plan")
+    assert app.agent_mode == "PLAN"
+    mock_chat.add_system_message_markup.assert_called_with("Mode changed to: [bold]PLAN[/]")
+
+
+def test_handle_command_plan_sets_plan_mode():
+    app = BrokkApp(executor=MagicMock())
+    mock_chat = MagicMock(spec=ChatPanel)
+    app.query_one = MagicMock(return_value=mock_chat)
+
+    app._handle_command("/plan")
+    assert app.agent_mode == "PLAN"
+
 
 def test_mode_command_no_arg_opens_menu():
     app = BrokkApp(executor=MagicMock())
@@ -65,7 +86,7 @@ def test_mode_command_no_arg_opens_menu():
 
     # Test /mode opens menu
     app._handle_command("/mode")
-    mock_chat.open_mode_menu.assert_called_once_with(["CODE", "ASK", "LUTZ"], "LUTZ")
+    mock_chat.open_mode_menu.assert_called_once_with(["CODE", "ASK", "LUTZ", "PLAN"], "LUTZ")
 
 
 def test_no_f2_settings_binding():
@@ -83,6 +104,59 @@ def test_ctrl_p_binding_is_settings():
     app = BrokkApp(executor=MagicMock())
     bindings = {b.key: (b.action, b.description, b.show) for b in app.BINDINGS}
     assert bindings["ctrl+p"] == ("command_palette", "Settings", True)
+
+
+def test_ctrl_z_binding_is_suspend():
+    app = BrokkApp(executor=MagicMock())
+    bindings = {b.key: (b.action, b.show, b.priority) for b in app.BINDINGS}
+    assert bindings["ctrl+z"] == ("suspend_process", False, True)
+
+
+def test_action_suspend_process_suspends_executor_and_calls_textual_suspend(monkeypatch):
+    app = BrokkApp(executor=MagicMock())
+    app.executor._process = SimpleNamespace(pid=4321, returncode=None)
+
+    called: dict[str, tuple[int, int]] = {}
+
+    def _fake_kill(pid: int, sig: int) -> None:
+        called["kill"] = (pid, sig)
+
+    monkeypatch.setattr("brokk_code.app.os.kill", _fake_kill)
+
+    suspend_called = {"value": False}
+
+    def _fake_textual_suspend(self) -> None:  # noqa: ANN001
+        suspend_called["value"] = True
+
+    monkeypatch.setattr("textual.app.App.action_suspend_process", _fake_textual_suspend)
+
+    app.action_suspend_process()
+
+    if hasattr(signal, "SIGTSTP"):
+        assert called["kill"] == (4321, signal.SIGTSTP)
+    else:
+        assert "kill" not in called
+
+    assert suspend_called["value"] is True
+
+
+def test_on_app_resume_sends_sigcont_to_executor(monkeypatch):
+    app = BrokkApp(executor=MagicMock())
+    app.executor._process = SimpleNamespace(pid=9876, returncode=None)
+
+    called: dict[str, tuple[int, int]] = {}
+
+    def _fake_kill(pid: int, sig: int) -> None:
+        called["kill"] = (pid, sig)
+
+    monkeypatch.setattr("brokk_code.app.os.kill", _fake_kill)
+
+    app._on_app_resume(app)
+
+    if hasattr(signal, "SIGCONT"):
+        assert called["kill"] == (9876, signal.SIGCONT)
+    else:
+        assert "kill" not in called
 
 
 def test_no_notification_binding():
@@ -128,6 +202,10 @@ async def test_shift_tab_keypress_cycles_mode_in_running_app():
     assert app.agent_mode == "LUTZ"
 
     async with app.run_test() as pilot:
+        # Cycle: CODE -> ASK -> LUTZ -> PLAN
+        await pilot.press("shift+tab")
+        assert app.agent_mode == "PLAN"
+
         await pilot.press("shift+tab")
         assert app.agent_mode == "CODE"
 
@@ -136,6 +214,9 @@ async def test_shift_tab_keypress_cycles_mode_in_running_app():
 
         await pilot.press("shift+tab")
         assert app.agent_mode == "LUTZ"
+
+        await pilot.press("shift+tab")
+        assert app.agent_mode == "PLAN"
 
 
 def test_textual_command_palette_is_enabled():
@@ -149,7 +230,7 @@ def test_action_toggle_mode_handles_unknown_mode():
     app.query_one = MagicMock(return_value=mock_chat)
 
     app.agent_mode = "UNKNOWN"
-    # Should default to first mode in cycle after first (index 0 + 1)
+    # The implementation defaults to index 0 ("CODE") then increments: (0+1) % 4 = 1 ("ASK")
     app.action_toggle_mode()
     assert app.agent_mode == "ASK"
 

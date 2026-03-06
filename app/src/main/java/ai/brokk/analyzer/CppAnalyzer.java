@@ -191,8 +191,12 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
     }
 
     @Override
-    protected String getQueryResource() {
-        return "treesitter/cpp.scm";
+    protected Optional<String> getQueryResource(QueryType type) {
+        return switch (type) {
+            case DEFINITIONS -> Optional.of("treesitter/cpp/definitions.scm");
+            case IMPORTS -> Optional.of("treesitter/cpp/imports.scm");
+            case IDENTIFIERS -> Optional.of("treesitter/cpp/identifiers.scm");
+        };
     }
 
     @Override
@@ -329,12 +333,215 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
             SourceContent sourceContent,
             String exportPrefix,
             String signatureText,
+            String simpleName,
             String baseIndent,
             ProjectFile file) {
-        if (ENUMERATOR.equals(fieldNode.getType())) {
-            return baseIndent + sourceContent.substringFrom(fieldNode);
+        if (fieldNode.isNull()) {
+            return super.formatFieldSignature(
+                    fieldNode, sourceContent, exportPrefix, signatureText, simpleName, baseIndent, file);
         }
-        return super.formatFieldSignature(fieldNode, sourceContent, exportPrefix, signatureText, baseIndent, file);
+
+        if (ENUMERATOR.equals(fieldNode.getType())) {
+            return baseIndent + sourceContent.substringFrom(fieldNode).strip();
+        }
+
+        // Tree-sitter C++ grammar shape for multi-declarator fields we care about (as observed):
+        //
+        // field_declaration
+        //   storage_class_specifier*
+        //   type: primitive_type / type_identifier / etc
+        //   declarator: field_identifier (x)
+        //   default_value: number_literal (1)
+        //   declarator: field_identifier (y)
+        //   default_value: number_literal (2)
+        //
+        // Our query captures a nested node (often the field_identifier). We need to reconstruct just one
+        // declarator + its default_value based on simpleName.
+
+        final TSNode fieldDecl = FIELD_DECLARATION.equals(fieldNode.getType())
+                ? fieldNode
+                : (fieldNode.getParent() != null
+                                && !fieldNode.getParent().isNull()
+                                && FIELD_DECLARATION.equals(
+                                        fieldNode.getParent().getType()))
+                        ? fieldNode.getParent()
+                        : null;
+
+        if (fieldDecl == null || fieldDecl.isNull()) {
+            return super.formatFieldSignature(
+                    fieldNode, sourceContent, exportPrefix, signatureText, simpleName, baseIndent, file);
+        }
+
+        final TSNode typeNode = fieldDecl.getChildByFieldName("type");
+        if (typeNode == null || typeNode.isNull()) {
+            return super.formatFieldSignature(
+                    fieldNode, sourceContent, exportPrefix, signatureText, simpleName, baseIndent, file);
+        }
+        final String typeText = sourceContent.substringFrom(typeNode).strip();
+
+        final String prefixText = getPrefixText(
+                fieldDecl, typeNode, sourceContent, Set.of(STORAGE_CLASS_SPECIFIER, TYPE_QUALIFIER, VIRTUAL_SPECIFIER));
+
+        // Determine whether this declaration is using "type-star" formatting like:
+        //   int* p = &x, q = nullptr;
+        // In that style, users may expect the '*' to be rendered with the type for each declarator skeleton line.
+        boolean hasPointerDeclaratorInDeclaration = false;
+        for (int i = 0; i < fieldDecl.getChildCount(); i++) {
+            if (!"declarator".equals(fieldDecl.getFieldNameForChild(i))) {
+                continue;
+            }
+            TSNode child = fieldDecl.getChild(i);
+            if (child == null || child.isNull()) {
+                continue;
+            }
+            if (POINTER_DECLARATOR.equals(child.getType())) {
+                hasPointerDeclaratorInDeclaration = true;
+                break;
+            }
+            String childText = sourceContent.substringFrom(child).stripLeading();
+            if (childText.startsWith("*")) {
+                hasPointerDeclaratorInDeclaration = true;
+                break;
+            }
+        }
+
+        // Find the declarator "unit" with name == simpleName.
+        //
+        // IMPORTANT: do not try to splice on commas manually. In particular, commas can appear in expressions
+        // (e.g. f(1, 2)) and at call sites, so we must not use string logic to decide where a declarator ends.
+        //
+        // Instead, prefer slicing exactly the AST "declarator" child node. Then associate an initializer using
+        // AST node boundaries (byte offsets), not string parsing.
+        TSNode matchedDeclaratorUnit = null;
+        TSNode matchedIdNode = null;
+        int matchedDeclaratorIndex = -1;
+
+        for (int i = 0; i < fieldDecl.getChildCount(); i++) {
+            TSNode child = fieldDecl.getChild(i);
+            if (child == null || child.isNull()) {
+                continue;
+            }
+            if (!"declarator".equals(fieldDecl.getFieldNameForChild(i))) {
+                continue;
+            }
+
+            TSNode idNode = findFieldIdentifier(child);
+            if (idNode == null || idNode.isNull()) {
+                continue;
+            }
+
+            String idText = sourceContent.substringFrom(idNode).strip();
+            if (simpleName.equals(idText)) {
+                matchedDeclaratorUnit = child;
+                matchedIdNode = idNode;
+                matchedDeclaratorIndex = i;
+                break;
+            }
+        }
+
+        if (matchedDeclaratorUnit == null
+                || matchedDeclaratorUnit.isNull()
+                || matchedIdNode == null
+                || matchedIdNode.isNull()) {
+            return super.formatFieldSignature(
+                    fieldNode, sourceContent, exportPrefix, signatureText, simpleName, baseIndent, file);
+        }
+
+        int nextDeclaratorStartByte = Integer.MAX_VALUE;
+        for (int i = matchedDeclaratorIndex + 1; i < fieldDecl.getChildCount(); i++) {
+            if (!"declarator".equals(fieldDecl.getFieldNameForChild(i))) {
+                continue;
+            }
+            TSNode next = fieldDecl.getChild(i);
+            if (next != null && !next.isNull()) {
+                nextDeclaratorStartByte = next.getStartByte();
+                break;
+            }
+        }
+
+        // If the matched declarator node does not include its initializer (common when the declarator is just an
+        // identifier/pointer_declarator), then its initializer is typically a sibling default_value node. Associate
+        // the initializer based on byte offsets (between this declarator and the next declarator).
+        TSNode initializerNode = null;
+        for (int i = matchedDeclaratorIndex + 1; i < fieldDecl.getChildCount(); i++) {
+            if (!"default_value".equals(fieldDecl.getFieldNameForChild(i))) {
+                continue;
+            }
+            TSNode candidate = fieldDecl.getChild(i);
+            if (candidate == null || candidate.isNull()) {
+                continue;
+            }
+            int sb = candidate.getStartByte();
+            if (sb >= matchedDeclaratorUnit.getEndByte() && sb < nextDeclaratorStartByte) {
+                initializerNode = candidate;
+                break;
+            }
+            if (sb >= nextDeclaratorStartByte) {
+                break;
+            }
+        }
+
+        // IMPORTANT: Prefer the identifier node for the "name" text. Some grammars can wrap declarators in
+        // a larger node that may also include neighboring declarators; slicing the identifier node avoids
+        // accidentally including sibling names (e.g., "p" showing up in "q" skeletons).
+        String declaratorText = sourceContent.substringFrom(matchedIdNode).strip();
+
+        // Preserve array/bitfield suffixes that are part of the declarator subtree (e.g. "x[3]"),
+        // but do not accidentally include initializers or sibling declarators.
+        if (matchedIdNode.getEndByte() < matchedDeclaratorUnit.getEndByte()) {
+            String suffix = sourceContent
+                    .substringFromBytes(matchedIdNode.getEndByte(), matchedDeclaratorUnit.getEndByte())
+                    .strip();
+
+            int equalsIdx = suffix.indexOf('=');
+            if (equalsIdx >= 0) {
+                suffix = suffix.substring(0, equalsIdx).stripTrailing();
+            }
+            int commaIdx = suffix.indexOf(',');
+            if (commaIdx >= 0) {
+                suffix = suffix.substring(0, commaIdx).stripTrailing();
+            }
+
+            if (!suffix.isEmpty()) {
+                declaratorText = declaratorText + suffix;
+            }
+        }
+
+        // Normalize pointer/reference spacing for cases where the declarator subtree includes the punctuation.
+        // e.g. declaratorText "*p" becomes "p" and we attach "*" to the type: "int* p".
+        String adjustedTypeText = typeText;
+
+        // If any declarator in the same field_declaration is a pointer declarator, treat '*' as a type-suffix
+        // for skeleton rendering consistency across per-declarator lines.
+        if (hasPointerDeclaratorInDeclaration
+                && !adjustedTypeText.stripTrailing().endsWith("*")
+                && !adjustedTypeText.stripTrailing().endsWith("&")) {
+            adjustedTypeText = adjustedTypeText.stripTrailing() + "*";
+        }
+
+        if (declaratorText.startsWith("*")) {
+            // '*' is already accounted for on the type; just strip it from the declarator.
+            declaratorText = declaratorText.substring(1).stripLeading();
+        } else if (declaratorText.startsWith("&")) {
+            adjustedTypeText = adjustedTypeText.stripTrailing() + "&";
+            declaratorText = declaratorText.substring(1).stripLeading();
+        }
+
+        String initializerText = "";
+        if (initializerNode != null && !initializerNode.isNull()) {
+            String initRaw = sourceContent.substringFrom(initializerNode).strip();
+            if (!initRaw.isEmpty()) {
+                // Tree-sitter's C++ "default_value" field commonly excludes the '=' token.
+                // Do not splice by commas; just restore the correct initializer delimiter.
+                if (initRaw.startsWith("=") || initRaw.startsWith("{") || initRaw.startsWith("(")) {
+                    initializerText = " " + initRaw;
+                } else {
+                    initializerText = " = " + initRaw;
+                }
+            }
+        }
+
+        return baseIndent + prefixText + adjustedTypeText + " " + declaratorText + initializerText + ";";
     }
 
     @Override
@@ -353,7 +560,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
 
         String actualParamsText = "";
         TSNode declaratorNode = funcNode.getChildByFieldName("declarator");
-        if (declaratorNode != null && "function_declarator".equals(declaratorNode.getType())) {
+        if (declaratorNode != null && FUNCTION_DECLARATOR.equals(declaratorNode.getType())) {
             TSNode paramsNode = declaratorNode.getChildByFieldName("parameters");
             if (paramsNode != null && !paramsNode.isNull()) {
                 actualParamsText = sourceContent.substringFrom(paramsNode);
@@ -362,7 +569,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
 
         if (functionName.isBlank()) {
             TSNode fallbackDeclaratorNode = funcNode.getChildByFieldName("declarator");
-            if (fallbackDeclaratorNode != null && "function_declarator".equals(fallbackDeclaratorNode.getType())) {
+            if (fallbackDeclaratorNode != null && FUNCTION_DECLARATOR.equals(fallbackDeclaratorNode.getType())) {
                 TSNode innerDeclaratorNode = fallbackDeclaratorNode.getChildByFieldName("declarator");
                 if (innerDeclaratorNode != null) {
                     String extractedName = sourceContent.substringFrom(innerDeclaratorNode);
@@ -679,7 +886,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
 
         // Find the function_declarator (descend if necessary)
         TSNode decl = funcOrDeclNode.getChildByFieldName("declarator");
-        if (decl == null || decl.isNull() || !"function_declarator".equals(decl.getType())) {
+        if (decl == null || decl.isNull() || !FUNCTION_DECLARATOR.equals(decl.getType())) {
             decl = findFunctionDeclaratorRecursive(funcOrDeclNode);
             if (decl == null) return "";
         }
@@ -771,14 +978,32 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
      * @param node the root node to search within
      * @return the function_declarator node, or null if not found
      */
-    @SuppressWarnings("RedundantNullCheck") // Defensive check for TreeSitter JNI interop
+    private @Nullable TSNode findFieldIdentifier(TSNode node) {
+        if (node.isNull()) return null;
+
+        // We want the actual identifier node, not an enclosing declarator like pointer_declarator.
+        // Pointer/reference punctuation is handled when rendering; name matching must be done on the identifier text.
+        var fieldIdentifierTypes = Set.of(FIELD_IDENTIFIER, IDENTIFIER);
+        if (fieldIdentifierTypes.contains(node.getType())) return node;
+
+        for (int i = 0; i < node.getChildCount(); i++) {
+            TSNode child = node.getChild(i);
+            if (child == null || child.isNull()) {
+                continue;
+            }
+            TSNode found = findFieldIdentifier(child);
+            if (found != null) return found;
+        }
+        return null;
+    }
+
     private @Nullable TSNode findFunctionDeclaratorRecursive(TSNode node) {
-        if (node == null || node.isNull()) {
+        if (node.isNull()) {
             return null;
         }
 
         // Base case: found the function_declarator
-        if ("function_declarator".equals(node.getType())) {
+        if (FUNCTION_DECLARATOR.equals(node.getType())) {
             return node;
         }
 
@@ -827,7 +1052,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
 
         if (FUNCTION_DEFINITION.equals(decl.getType())) {
             TSNode declaratorNode = decl.getChildByFieldName("declarator");
-            if (declaratorNode != null && "function_declarator".equals(declaratorNode.getType())) {
+            if (declaratorNode != null && FUNCTION_DECLARATOR.equals(declaratorNode.getType())) {
                 TSNode innerDeclaratorNode = declaratorNode.getChildByFieldName("declarator");
                 if (innerDeclaratorNode != null) {
                     String name = sourceContent.substringFrom(innerDeclaratorNode);
@@ -843,20 +1068,18 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
                 || CONSTRUCTOR_DECLARATION.equals(decl.getType())
                 || DESTRUCTOR_DECLARATION.equals(decl.getType())
                 || FIELD_DECLARATION.equals(decl.getType())) {
-            TSNode declaratorNode = decl.getChildByFieldName("declarator");
-            if (declaratorNode != null) {
-                if ("function_declarator".equals(declaratorNode.getType())) {
-                    TSNode innerDeclaratorNode = declaratorNode.getChildByFieldName("declarator");
-                    if (innerDeclaratorNode != null) {
-                        String name = sourceContent.substringFrom(innerDeclaratorNode);
+            // For multi-declarator declarations, the "name" capture usually points to the specific identifier.
+            // If we are here, we are trying to extract the name from the declaration node itself.
+            // In C++, we need to check all children because there can be multiple declarators.
+            for (int i = 0; i < decl.getChildCount(); i++) {
+                if ("declarator".equals(decl.getFieldNameForChild(i))) {
+                    TSNode declaratorNode = decl.getChild(i);
+                    TSNode idNode = findFieldIdentifier(declaratorNode);
+                    if (idNode != null && !idNode.isNull()) {
+                        String name = sourceContent.substringFrom(idNode).strip();
                         if (!name.isBlank()) {
                             return Optional.of(name);
                         }
-                    }
-                } else {
-                    String name = sourceContent.substringFrom(declaratorNode);
-                    if (!name.isBlank()) {
-                        return Optional.of(name);
                     }
                 }
             }
@@ -888,10 +1111,10 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
 
     private boolean isComplexDeclarationStructure(String nodeType) {
         // Common C++ complex declaration patterns that may not have simple name fields
-        return "declaration".equals(nodeType)
-                || "function_definition".equals(nodeType)
-                || "field_declaration".equals(nodeType)
-                || "parameter_declaration".equals(nodeType);
+        return DECLARATION.equals(nodeType)
+                || FUNCTION_DEFINITION.equals(nodeType)
+                || FIELD_DECLARATION.equals(nodeType)
+                || PARAMETER_DECLARATION.equals(nodeType);
     }
 
     @Override
@@ -1037,7 +1260,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
 
         // Find the function_declarator if present
         TSNode decl = funcOrDeclNode.getChildByFieldName("declarator");
-        if (decl == null || decl.isNull() || !"function_declarator".equals(decl.getType())) {
+        if (decl == null || decl.isNull() || !FUNCTION_DECLARATOR.equals(decl.getType())) {
             decl = findFunctionDeclaratorRecursive(funcOrDeclNode);
             if (decl == null) return "";
         }
@@ -1427,33 +1650,59 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
     public Set<String> extractTypeIdentifiers(String source) {
         Set<String> identifiers = new HashSet<>();
         TSParser parser = getTSParser();
-        TSTree tree = parser.parseString(null, source);
-        if (tree == null || tree.getRootNode().isNull()) {
-            return identifiers;
-        }
+        try (TSTree tree = parser.parseString(null, source)) {
+            if (tree == null || tree.getRootNode().isNull()) {
+                return identifiers;
+            }
 
-        TSQuery query = new TSQuery(
-                getTSLanguage(), "[(type_identifier) @type (identifier) @id (qualified_identifier) @qualified]");
-        TSQueryCursor cursor = new TSQueryCursor();
-        cursor.exec(query, tree.getRootNode());
+            try (TSQuery query = createQuery(QueryType.IDENTIFIERS)) {
+                if (query != null) {
+                    try (TSQueryCursor cursor = new TSQueryCursor()) {
+                        cursor.exec(query, tree.getRootNode());
 
-        SourceContent sourceContent = SourceContent.of(source);
-        TSQueryMatch match = new TSQueryMatch();
-        while (cursor.nextMatch(match)) {
-            for (TSQueryCapture capture : match.getCaptures()) {
-                String text = sourceContent.substringFrom(capture.getNode()).strip();
-                if (text.isEmpty()) continue;
+                        SourceContent sourceContent = SourceContent.of(source);
+                        TSQueryMatch match = new TSQueryMatch();
+                        while (cursor.nextMatch(match)) {
+                            for (TSQueryCapture capture : match.getCaptures()) {
+                                TSNode node = capture.getNode();
+                                if (node != null && !node.isNull()) {
+                                    String text =
+                                            sourceContent.substringFrom(node).strip();
+                                    if (text.isEmpty()) continue;
 
-                // For qualified identifiers (e.g., std::string), split into parts
-                List<String> parts = Splitter.on("::").splitToList(text);
-                for (String part : parts) {
-                    if (!part.isEmpty() && !CPP_KEYWORDS.contains(part)) {
-                        identifiers.add(part);
+                                    // For qualified identifiers (e.g., std::string), split into parts
+                                    List<String> parts = Splitter.on("::").splitToList(text);
+                                    for (String part : parts) {
+                                        if (!part.isEmpty() && !CPP_KEYWORDS.contains(part)) {
+                                            identifiers.add(part);
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
         }
-
         return identifiers;
+    }
+
+    @Override
+    protected boolean containsTestMarkers(TSTree tree, SourceContent sourceContent) {
+        try (TSQuery query = createQuery(QueryType.DEFINITIONS);
+                TSQueryCursor cursor = new TSQueryCursor()) {
+            if (query == null) return false;
+            cursor.exec(query, tree.getRootNode());
+            TSQueryMatch match = new TSQueryMatch();
+            while (cursor.nextMatch(match)) {
+                for (TSQueryCapture capture : match.getCaptures()) {
+                    // Use literal name or ensure TEST_MARKER is available in CppTreeSitterNodeTypes
+                    if ("test.marker".equals(query.getCaptureNameForId(capture.getIndex()))) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
     }
 }

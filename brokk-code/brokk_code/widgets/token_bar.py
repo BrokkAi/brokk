@@ -100,17 +100,13 @@ class TokenBar(Static):
             self._rendered_text = Text(usage_str, style="dim")
             self._emit_hover(None, None)
         else:
-            cost_hint = ""
-            if self._session_cost is not None and self._session_cost > 0:
-                cost_hint = f" (${self._session_cost:.2f})"
-
             if self._max_tokens > 0:
                 # Clamp used_tokens to 0 for percentage display if negative
                 display_used = max(0, self._used_tokens)
                 pct = max(0.0, min(100.0, 100 * (1 - display_used / self._max_tokens)))
-                usage_str = f" {pct:.1f}% context remaining{cost_hint}"
+                usage_str = f" {pct:.1f}% context remaining"
             else:
-                usage_str = f" {format_token_count(self._used_tokens)} tokens{cost_hint}"
+                usage_str = f" {format_token_count(self._used_tokens)} tokens"
 
             # Reserve space for the text at the end
             bar_width = width - len(usage_str)

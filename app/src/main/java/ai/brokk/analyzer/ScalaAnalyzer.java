@@ -4,10 +4,14 @@ import static ai.brokk.analyzer.scala.ScalaTreeSitterNodeTypes.*;
 
 import ai.brokk.analyzer.cache.AnalyzerCache;
 import ai.brokk.project.IProject;
-import java.util.*;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 import org.jetbrains.annotations.Nullable;
 import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
+import org.treesitter.TSQuery;
 import org.treesitter.TSQueryCapture;
 import org.treesitter.TSQueryCursor;
 import org.treesitter.TSQueryMatch;
@@ -45,13 +49,17 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected LanguageSyntaxProfile getLanguageSyntaxProfile() {
-        return SCALA_SYNTAX_PROFILE;
+    protected Optional<String> getQueryResource(QueryType type) {
+        return switch (type) {
+            case DEFINITIONS -> Optional.of("treesitter/scala/definitions.scm");
+            case IMPORTS -> Optional.of("treesitter/scala/imports.scm");
+            case IDENTIFIERS -> Optional.empty();
+        };
     }
 
     @Override
-    protected String getQueryResource() {
-        return "treesitter/scala.scm";
+    protected LanguageSyntaxProfile getLanguageSyntaxProfile() {
+        return SCALA_SYNTAX_PROFILE;
     }
 
     @Override
@@ -206,37 +214,104 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer {
         return false;
     }
 
+    @Override
+    protected String formatFieldSignature(
+            TSNode fieldNode,
+            SourceContent sourceContent,
+            String exportPrefix,
+            String signatureText,
+            String simpleName,
+            String baseIndent,
+            ProjectFile file) {
+        String nodeType = fieldNode.getType();
+        if (!VAL_DEFINITION.equals(nodeType) && !VAR_DEFINITION.equals(nodeType)) {
+            return super.formatFieldSignature(
+                    fieldNode, sourceContent, exportPrefix, signatureText, simpleName, baseIndent, file);
+        }
+
+        String trimmedSignature = signatureText.strip();
+
+        // Decide whether this is a single-name or multi-name definition based on the AST shape,
+        // not by scanning raw text for commas. This avoids brittle handling and works for:
+        //   var x, y: Int = 1
+        // where the grammar provides:
+        //   (var_definition pattern: (identifiers (identifier) (identifier)) type: ... value: ...)
+        TSNode patternNode = fieldNode.getChildByFieldName("pattern");
+        if (patternNode != null && !patternNode.isNull()) {
+            // Single-name pattern: preserve the raw slice exactly as written (important for multi-line literals and
+            // error recovery).
+            if ("identifier".equals(patternNode.getType())) {
+                String patternText = sourceContent.substringFrom(patternNode).strip();
+                if (!patternText.isEmpty() && patternText.equals(simpleName)) {
+                    String prefix = exportPrefix.stripTrailing();
+                    if (!prefix.isEmpty() && trimmedSignature.startsWith(prefix)) {
+                        return baseIndent + trimmedSignature;
+                    }
+                    return baseIndent + (prefix.isEmpty() ? trimmedSignature : (prefix + " " + trimmedSignature));
+                }
+            }
+        }
+
+        // Multi-name pattern (or unknown pattern shape): reconstruct a per-declarator signature from AST fields.
+        String keyword = VAL_DEFINITION.equals(nodeType) ? "val" : "var";
+
+        StringBuilder sb = new StringBuilder();
+        sb.append(baseIndent);
+        String prefix = exportPrefix.stripTrailing();
+        if (!prefix.isEmpty()) {
+            sb.append(prefix).append(" ");
+        }
+        sb.append(keyword).append(" ").append(simpleName);
+
+        TSNode typeNode = fieldNode.getChildByFieldName("type");
+        if (typeNode != null && !typeNode.isNull()) {
+            sb.append(": ").append(sourceContent.substringFromBytes(typeNode.getStartByte(), typeNode.getEndByte()));
+        }
+
+        TSNode valueNode = fieldNode.getChildByFieldName("value");
+        if (valueNode != null && !valueNode.isNull()) {
+            sb.append(" = ").append(sourceContent.substringFromBytes(valueNode.getStartByte(), valueNode.getEndByte()));
+        }
+
+        return sb.toString();
+    }
+
     private static final Set<String> TEST_ANNOTATIONS = Set.of("Test", "ParameterizedTest", "RepeatedTest");
     private static final Set<String> TEST_INFIX_KEYWORDS = Set.of("in", "should", "must", "can");
 
     @Override
     protected boolean containsTestMarkers(TSTree tree, SourceContent sourceContent) {
-        var query = getThreadLocalQuery();
-        var cursor = new TSQueryCursor();
-        cursor.exec(query, tree.getRootNode());
+        try (TSQuery query = createQuery(QueryType.DEFINITIONS)) {
+            if (query != null) {
+                try (TSQueryCursor cursor = new TSQueryCursor()) {
+                    cursor.exec(query, tree.getRootNode());
 
-        TSQueryMatch match = new TSQueryMatch();
-        while (cursor.nextMatch(match)) {
-            for (TSQueryCapture capture : match.getCaptures()) {
-                String captureName = query.getCaptureNameForId(capture.getIndex());
-                switch (captureName) {
-                    case "test.import", "test.call" -> {
-                        return true;
-                    }
-                    case "test.annotation" -> {
-                        String nodeText = sourceContent.substringFromBytes(
-                                capture.getNode().getStartByte(),
-                                capture.getNode().getEndByte());
-                        if (TEST_ANNOTATIONS.contains(nodeText)) {
-                            return true;
-                        }
-                    }
-                    case "test.infix" -> {
-                        String nodeText = sourceContent.substringFromBytes(
-                                capture.getNode().getStartByte(),
-                                capture.getNode().getEndByte());
-                        if (TEST_INFIX_KEYWORDS.contains(nodeText)) {
-                            return true;
+                    TSQueryMatch match = new TSQueryMatch();
+                    while (cursor.nextMatch(match)) {
+                        for (TSQueryCapture capture : match.getCaptures()) {
+                            TSNode node = capture.getNode();
+                            if (node == null || node.isNull()) continue;
+
+                            String captureName = query.getCaptureNameForId(capture.getIndex());
+                            switch (captureName) {
+                                case "test.import", "test.call" -> {
+                                    return true;
+                                }
+                                case "test.annotation" -> {
+                                    String nodeText =
+                                            sourceContent.substringFromBytes(node.getStartByte(), node.getEndByte());
+                                    if (TEST_ANNOTATIONS.contains(nodeText)) {
+                                        return true;
+                                    }
+                                }
+                                case "test.infix" -> {
+                                    String nodeText =
+                                            sourceContent.substringFromBytes(node.getStartByte(), node.getEndByte());
+                                    if (TEST_INFIX_KEYWORDS.contains(nodeText)) {
+                                        return true;
+                                    }
+                                }
+                            }
                         }
                     }
                 }

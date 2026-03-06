@@ -24,7 +24,7 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
             Set.of(VARIABLE_DECLARATOR),
             Set.of(), // JS standard decorators not captured as simple preceding nodes by current query.
             Set.of(),
-            IMPORT_DECLARATION,
+            CaptureNames.IMPORT_DECLARATION,
             "name", // identifierFieldName
             "body", // bodyFieldName
             "parameters", // parametersFieldName
@@ -73,8 +73,12 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
     }
 
     @Override
-    protected String getQueryResource() {
-        return "treesitter/javascript.scm";
+    protected Optional<String> getQueryResource(QueryType type) {
+        return switch (type) {
+            case DEFINITIONS -> Optional.of("treesitter/javascript/definitions.scm");
+            case IMPORTS -> Optional.of("treesitter/javascript/imports.scm");
+            case IDENTIFIERS -> Optional.of("treesitter/javascript/identifiers.scm");
+        };
     }
 
     @Override
@@ -240,7 +244,7 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
         return "jsx_element".equals(type) || "jsx_self_closing_element".equals(type) || "jsx_fragment".equals(type);
     }
 
-    private boolean returnsJsxElement(TSNode funcNode) { // src parameter removed
+    private boolean returnsJsxElement(TSNode funcNode) {
         TSNode bodyNode =
                 funcNode.getChildByFieldName(getLanguageSyntaxProfile().bodyFieldName());
         if (bodyNode == null || bodyNode.isNull()) {
@@ -274,14 +278,14 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
     (return_statement (parenthesized_expression (jsx_element)) @jsx_return)
     (return_statement (parenthesized_expression (jsx_self_closing_element)) @jsx_return)
     """;
-            // TSQuery and TSLanguage are not AutoCloseable by default in the used library version.
-            // Ensure cursor is handled if it were AutoCloseable.
-            TSQuery returnJsxQuery = new TSQuery(jsLanguage, jsxReturnQueryStr);
-            TSQueryCursor cursor = new TSQueryCursor();
-            cursor.exec(returnJsxQuery, bodyNode);
-            TSQueryMatch match = new TSQueryMatch(); // Reusable match object
-            if (cursor.nextMatch(match)) {
-                return true; // Found a JSX return
+
+            try (TSQuery returnJsxQuery = new TSQuery(jsLanguage, jsxReturnQueryStr);
+                    TSQueryCursor cursor = new TSQueryCursor()) {
+                cursor.exec(returnJsxQuery, bodyNode);
+                TSQueryMatch match = new TSQueryMatch();
+                if (cursor.nextMatch(match)) {
+                    return true; // Found a JSX return
+                }
             }
         } catch (TSQueryException e) {
             // Log specific query exceptions, which usually indicate a problem with the query string itself.
@@ -307,18 +311,19 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
     (update_expression argument: (member_expression property: (property_identifier) @mutated.id))
     """;
 
-        // TSLanguage and TSQuery are not AutoCloseable.
-        TSLanguage jsLanguage = getTSLanguage(); // Use thread-local language instance
-        TSQuery mutationQuery = new TSQuery(jsLanguage, mutationQueryStr);
-        TSQueryCursor cursor = new TSQueryCursor();
-        cursor.exec(mutationQuery, bodyNode);
-        TSQueryMatch match = new TSQueryMatch(); // Reusable match object
-        while (cursor.nextMatch(match)) {
-            for (TSQueryCapture capture : match.getCaptures()) {
-                String captureName = mutationQuery.getCaptureNameForId(capture.getIndex());
-                if ("mutated.id".equals(captureName)) {
-                    TSNode node = capture.getNode();
-                    mutatedIdentifiers.add(sourceContent.substringFromBytes(node.getStartByte(), node.getEndByte()));
+        TSLanguage jsLanguage = getTSLanguage();
+        try (TSQuery mutationQuery = new TSQuery(jsLanguage, mutationQueryStr);
+                TSQueryCursor cursor = new TSQueryCursor()) {
+            cursor.exec(mutationQuery, bodyNode);
+            TSQueryMatch match = new TSQueryMatch();
+            while (cursor.nextMatch(match)) {
+                for (TSQueryCapture capture : match.getCaptures()) {
+                    String captureName = mutationQuery.getCaptureNameForId(capture.getIndex());
+                    if ("mutated.id".equals(captureName)) {
+                        TSNode node = capture.getNode();
+                        mutatedIdentifiers.add(
+                                sourceContent.substringFromBytes(node.getStartByte(), node.getEndByte()));
+                    }
                 }
             }
         }
@@ -448,9 +453,18 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
             SourceContent sourceContent,
             String exportPrefix,
             String signatureText,
+            String simpleName,
             String baseIndent,
             ProjectFile file) {
-        // JavaScript field signatures shouldn't have semicolons
+        // JavaScript field signatures shouldn't have semicolons.
+        // If fieldNode is a variable_declarator, we want to render just that declarator
+        // prefixed by the export/declaration keyword found in exportPrefix.
+        if (VARIABLE_DECLARATOR.equals(fieldNode.getType())) {
+            return baseIndent
+                    + (exportPrefix.stripTrailing() + " "
+                                    + sourceContent.substringFrom(fieldNode).strip())
+                            .strip();
+        }
         var fullSignature = (exportPrefix.stripTrailing() + " " + signatureText.strip()).strip();
         return baseIndent + fullSignature;
     }
@@ -504,9 +518,8 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
             (namespace_import (identifier) @import.alias)
             """;
 
-        try {
-            TSQuery query = new TSQuery(getTSLanguage(), queryStr);
-            TSQueryCursor cursor = new TSQueryCursor();
+        try (TSQuery query = new TSQuery(getTSLanguage(), queryStr);
+                TSQueryCursor cursor = new TSQueryCursor()) {
             cursor.exec(query, importNode);
             TSQueryMatch match = new TSQueryMatch();
 
@@ -546,21 +559,39 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
                 (import_specifier name: (identifier) @import.id)
                 (import_specifier alias: (identifier) @import.alias)
                 (namespace_import (identifier) @import.alias)
-                (variable_declarator name: (identifier) @import.id value: (call_expression function: (identifier) @func (#eq? @func "require")))
-                (variable_declarator name: (object_pattern (shorthand_property_identifier_pattern) @import.id) value: (call_expression function: (identifier) @func (#eq? @func "require")))
+                (variable_declarator
+                  name: [
+                    (identifier) @import.id
+                    (object_pattern (shorthand_property_identifier_pattern) @import.id)
+                  ]
+                  value: (call_expression function: (identifier) @import.require_func))
                 """;
 
-            TSQuery query = new TSQuery(getTSLanguage(), queryStr);
-            TSQueryCursor cursor = new TSQueryCursor();
-            cursor.exec(query, rootNode);
-            TSQueryMatch match = new TSQueryMatch();
+            try (TSQuery query = new TSQuery(getTSLanguage(), queryStr);
+                    TSQueryCursor cursor = new TSQueryCursor()) {
+                cursor.exec(query, rootNode);
+                TSQueryMatch match = new TSQueryMatch();
 
-            while (cursor.nextMatch(match)) {
-                for (TSQueryCapture capture : match.getCaptures()) {
-                    String captureName = query.getCaptureNameForId(capture.getIndex());
-                    if (captureName.startsWith("import.")) {
-                        TSNode node = capture.getNode();
-                        identifiers.add(sourceContent.substringFrom(node));
+                while (cursor.nextMatch(match)) {
+                    TSNode requireFunc = null;
+                    TSNode importId = null;
+
+                    for (TSQueryCapture capture : match.getCaptures()) {
+                        String captureName = query.getCaptureNameForId(capture.getIndex());
+                        if (captureName.equals("import.id")) {
+                            importId = capture.getNode();
+                        } else if (captureName.equals("import.require_func")) {
+                            requireFunc = capture.getNode();
+                        }
+                    }
+
+                    if (requireFunc != null
+                            && !sourceContent.substringFrom(requireFunc).equals("require")) {
+                        continue;
+                    }
+
+                    if (importId != null) {
+                        identifiers.add(sourceContent.substringFrom(importId).strip());
                     }
                 }
             }
@@ -581,31 +612,28 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
     public Set<String> extractTypeIdentifiers(String source) {
         Set<String> identifiers = new HashSet<>();
         TSParser parser = getTSParser();
-        try {
+        try (TSTree tree = parser.parseString(null, source)) {
+            if (tree == null || tree.getRootNode().isNull()) {
+                return identifiers;
+            }
             SourceContent sourceContent = SourceContent.of(source);
-            TSTree tree = parser.parseString(null, source);
             TSNode rootNode = tree.getRootNode();
-            TSLanguage jsLanguage = getTSLanguage();
 
-            // Query for standard identifiers and JSX tag names
-            String queryStr =
-                    """
-                (identifier) @id
-                (jsx_opening_element name: (identifier) @id)
-                (jsx_opening_element name: (member_expression property: (property_identifier) @id))
-                (jsx_self_closing_element name: (identifier) @id)
-                (jsx_self_closing_element name: (member_expression property: (property_identifier) @id))
-                """;
+            try (TSQuery query = createQuery(QueryType.IDENTIFIERS)) {
+                if (query != null) {
+                    try (TSQueryCursor cursor = new TSQueryCursor()) {
+                        cursor.exec(query, rootNode);
+                        TSQueryMatch match = new TSQueryMatch();
 
-            TSQuery query = new TSQuery(jsLanguage, queryStr);
-            TSQueryCursor cursor = new TSQueryCursor();
-            cursor.exec(query, rootNode);
-            TSQueryMatch match = new TSQueryMatch();
-
-            while (cursor.nextMatch(match)) {
-                for (TSQueryCapture capture : match.getCaptures()) {
-                    TSNode node = capture.getNode();
-                    identifiers.add(sourceContent.substringFrom(node));
+                        while (cursor.nextMatch(match)) {
+                            for (TSQueryCapture capture : match.getCaptures()) {
+                                TSNode node = capture.getNode();
+                                if (node != null && !node.isNull()) {
+                                    identifiers.add(sourceContent.substringFrom(node));
+                                }
+                            }
+                        }
+                    }
                 }
             }
         } catch (Exception e) {

@@ -25,7 +25,6 @@ import ai.brokk.util.DependencyUpdateScheduler;
 import ai.brokk.util.Environment;
 import ai.brokk.util.GlobalUiSettings;
 import ai.brokk.util.IStringDiskCache;
-import ai.brokk.util.PathNormalizer;
 import ai.brokk.util.StringDiskCache;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.google.common.annotations.VisibleForTesting;
@@ -42,7 +41,6 @@ import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -52,9 +50,7 @@ import java.util.Optional;
 import java.util.Properties;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.ExecutionException;
 import java.util.stream.Collectors;
 import javax.swing.SwingUtilities;
 import org.apache.logging.log4j.LogManager;
@@ -70,13 +66,10 @@ public final class MainProject extends AbstractProject {
     private static final Logger logger =
             LogManager.getLogger(MainProject.class); // Separate logger from AbstractProject
 
-    private final Path propertiesFile;
-    private final Properties projectProps;
     private final Path styleGuidePath;
     private final Path legacyStyleGuidePath;
     private final SessionManager sessionManager;
     private final SessionRegistry sessionRegistry = new SessionRegistry();
-    private volatile CompletableFuture<BuildAgent.BuildDetails> detailsFuture = new CompletableFuture<>();
 
     @Nullable
     private volatile Set<Language> autoDetectedLanguagesCache = null;
@@ -94,7 +87,6 @@ public final class MainProject extends AbstractProject {
 
     private static final long DEFAULT_DISK_CACHE_SIZE = 10L * 1024L * 1024L; // 10 MB
 
-    private static final String BUILD_DETAILS_KEY = "buildDetailsJson";
     private static final String JAVA_SOURCE_ROOTS_KEY = "javaSourceRoots";
     private static final String CODE_INTELLIGENCE_LANGUAGES_KEY = "code_intelligence_languages";
     private static final String GITHUB_TOKEN_KEY = "githubToken";
@@ -231,33 +223,11 @@ public final class MainProject extends AbstractProject {
     public MainProject(Path root) {
         super(root); // Initializes this.root and this.repo
 
-        this.propertiesFile = this.masterRootPathForConfig.resolve(BROKK_DIR).resolve(PROJECT_PROPERTIES_FILE);
         this.styleGuidePath = this.masterRootPathForConfig.resolve(STYLE_GUIDE_FILE);
         this.legacyStyleGuidePath =
                 this.masterRootPathForConfig.resolve(BROKK_DIR).resolve(LEGACY_STYLE_GUIDE_FILE);
         var sessionsDir = this.masterRootPathForConfig.resolve(BROKK_DIR).resolve(SESSIONS_DIR);
         this.sessionManager = new SessionManager(sessionsDir);
-
-        this.projectProps = new Properties();
-
-        try {
-            if (Files.exists(propertiesFile)) {
-                try (var reader = Files.newBufferedReader(propertiesFile)) {
-                    projectProps.load(reader);
-                }
-            }
-        } catch (IOException e) {
-            logger.error("Error loading project properties from {}: {}", propertiesFile, e.getMessage());
-            projectProps.clear();
-        }
-
-        // Load build details
-        var bdOpt = loadBuildDetails();
-        if (bdOpt.isPresent()) {
-            this.detailsFuture.complete(bdOpt.get());
-        } else {
-            this.detailsFuture.complete(BuildAgent.BuildDetails.EMPTY);
-        }
 
         // Initialize cache and trigger migration/defaulting if necessary
         this.issuesProviderCache = getIssuesProvider();
@@ -470,169 +440,6 @@ public final class MainProject extends AbstractProject {
         } catch (IOException e) {
             logger.error("Error saving global properties: {}", e.getMessage());
             globalPropertiesCache = null; // Invalidate cache on error
-        }
-    }
-
-    @Override
-    public boolean hasBuildDetails() {
-        return detailsFuture.isDone();
-    }
-
-    @Override
-    public Optional<BuildAgent.BuildDetails> loadBuildDetails() {
-        String json = projectProps.getProperty(BUILD_DETAILS_KEY);
-        if (json == null || json.isBlank()) {
-            return Optional.empty();
-        }
-
-        try {
-            var details = objectMapper.readValue(json, BuildAgent.BuildDetails.class);
-
-            // Canonicalize exclusion patterns that look like paths
-            var canonicalExclusions = new LinkedHashSet<String>();
-            for (String pattern : details.exclusionPatterns()) {
-                // Only canonicalize patterns that look like directory paths (contain / or \)
-                if (pattern.contains("/") || pattern.contains("\\")) {
-                    String c = PathNormalizer.canonicalizeForProject(pattern, getMasterRootPathForConfig());
-                    if (!c.isBlank()) {
-                        canonicalExclusions.add(c);
-                    }
-                } else {
-                    canonicalExclusions.add(pattern);
-                }
-            }
-
-            // Normalize environment variables and migrate JAVA_HOME to workspace properties
-            Map<String, String> envIn = details.environmentVariables();
-            Map<String, String> canonicalEnv = new LinkedHashMap<>(envIn.size());
-
-            for (Map.Entry<String, String> e : envIn.entrySet()) {
-                String k = e.getKey();
-                String v = e.getValue();
-                if (v == null) {
-                    continue;
-                }
-                if ("JAVA_HOME".equalsIgnoreCase(k)) {
-                    // Migration: Move JAVA_HOME from project.properties to workspace.properties
-                    String canonicalPath = PathNormalizer.canonicalizeEnvPathValue(v);
-                    if (!canonicalPath.isBlank()) {
-                        setJdk(canonicalPath);
-                        logger.info("Migrated JAVA_HOME from project build details to workspace JDK settings.");
-                    }
-                } else {
-                    canonicalEnv.put(k, v);
-                }
-            }
-
-            // Return a re-wrapped BuildDetails with canonicalized content
-            return Optional.of(new BuildAgent.BuildDetails(
-                    details.buildLintCommand(),
-                    details.testAllCommand(),
-                    details.testSomeCommand(),
-                    canonicalExclusions,
-                    canonicalEnv,
-                    details.maxBuildAttempts(),
-                    details.afterTaskListCommand()));
-        } catch (JsonProcessingException e) {
-            logger.error("Failed to deserialize BuildDetails from JSON: {}", json, e);
-        }
-        return Optional.empty();
-    }
-
-    @Override
-    public void saveBuildDetails(BuildAgent.BuildDetails details) {
-        // Build canonical details for stable on-disk representation
-        // 1) Canonicalize exclusion patterns that look like paths
-        var canonicalExclusions = new LinkedHashSet<String>();
-        for (String pattern : details.exclusionPatterns()) {
-            // Only canonicalize patterns that look like directory paths (contain / or \)
-            if (pattern.contains("/") || pattern.contains("\\")) {
-                String c = PathNormalizer.canonicalizeForProject(pattern, getMasterRootPathForConfig());
-                if (!c.isBlank()) {
-                    canonicalExclusions.add(c);
-                }
-            } else {
-                canonicalExclusions.add(pattern);
-            }
-        }
-
-        // 2) Normalize environment variables.
-        // Omit JAVA_HOME from project-scoped storage as it is persisted in workspace properties.
-        Map<String, String> envIn = details.environmentVariables();
-        Map<String, String> canonicalEnv = new LinkedHashMap<>(envIn.size());
-        for (Map.Entry<String, String> e : envIn.entrySet()) {
-            String k = e.getKey();
-            String v = e.getValue();
-            if (v == null || "JAVA_HOME".equalsIgnoreCase(k)) {
-                continue;
-            }
-            canonicalEnv.put(k, v);
-        }
-
-        var canonicalDetails = new BuildAgent.BuildDetails(
-                details.buildLintCommand(),
-                details.testAllCommand(),
-                details.testSomeCommand(),
-                canonicalExclusions,
-                canonicalEnv,
-                details.maxBuildAttempts(),
-                details.afterTaskListCommand());
-
-        try {
-            String json = objectMapper.writeValueAsString(canonicalDetails);
-            projectProps.setProperty(BUILD_DETAILS_KEY, json);
-            logger.debug("Saving build details to project properties.");
-        } catch (JsonProcessingException e) {
-            throw new RuntimeException(e);
-        }
-        saveProjectProperties();
-        setBuildDetails(canonicalDetails);
-        invalidateAllFiles();
-    }
-
-    /**
-     * Used by BrokkCli to override build details; deliberately does not save
-     */
-    @Override
-    public void setBuildDetails(BuildAgent.BuildDetails details) {
-        // not threadsafe, that's okay;
-        // the only caller (outside of tests) does so during construction before anyone else can see it
-        if (detailsFuture.isDone()) {
-            // existing Future completed with an unknown value; overwrite it with ours
-            // (again: we don't care about potential references to the old Future; there aren't any)
-            logger.warn("Project build details are already saved; overwriting them with " + details);
-            detailsFuture = CompletableFuture.completedFuture(details);
-        } else {
-            detailsFuture.complete(details);
-        }
-    }
-
-    @Override
-    public CompletableFuture<BuildAgent.BuildDetails> getBuildDetailsFuture() {
-        return detailsFuture;
-    }
-
-    /**
-     * Blocking call that waits for build details to be available.
-     *
-     * <p>Important: this must NOT be invoked on the Swing Event Dispatch Thread (EDT) as it will
-     * block the UI and can deadlock. From the EDT, prefer {@link #getBuildDetailsFuture()} and
-     * update the UI when the future completes.
-     *
-     * @return the resolved build details
-     * @throws IllegalStateException if called on the Swing EDT
-     */
-    @Override
-    @Blocking
-    public BuildAgent.BuildDetails awaitBuildDetails() {
-        try {
-            return detailsFuture.get();
-        } catch (ExecutionException e) {
-            logger.error("ExecutionException while awaiting build details completion", e);
-            return BuildAgent.BuildDetails.EMPTY;
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new RuntimeException(e);
         }
     }
 

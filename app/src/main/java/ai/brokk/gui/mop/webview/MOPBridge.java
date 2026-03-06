@@ -339,6 +339,7 @@ public final class MOPBridge {
     }
 
     public void onAck(int e) {
+        logger.trace("Received ACK for epoch: {}", e);
         var p = awaiting.remove(e);
         if (p != null) {
             p.complete(null);
@@ -633,13 +634,6 @@ public final class MOPBridge {
         });
     }
 
-    public void captureText(String text) {
-        var cm = contextManager;
-        if (cm != null) {
-            cm.addPastedTextFragment(text);
-        }
-    }
-
     public void deleteHistoryTask(int sequence) {
         var cm = contextManager;
         if (cm == null) {
@@ -647,6 +641,15 @@ public final class MOPBridge {
             return;
         }
         cm.submitExclusiveAction(() -> cm.dropHistoryEntryBySequence(sequence));
+    }
+
+    public void captureText(String text) {
+        var cm = contextManager;
+        if (cm == null) {
+            logger.warn("Cannot capture text - no context manager");
+            return;
+        }
+        cm.submitContextTask(() -> cm.addPastedTextFragment(text));
     }
 
     public String getContextCacheId() {

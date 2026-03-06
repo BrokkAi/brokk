@@ -25,11 +25,11 @@ class SearchAgentTest {
     @TempDir
     Path tempDir;
 
-    private static SearchAgent newAgent(TestContextManager cm, StreamingChatModel model) {
+    private static SearchAgent newAgent(TestContextManager cm, StreamingChatModel model) throws InterruptedException {
         return new SearchAgent(cm.liveContext(), "goal", model, null);
     }
 
-    private SearchAgent newAgent(TestContextManager cm) {
+    private SearchAgent newAgent(TestContextManager cm) throws InterruptedException {
         return new SearchAgent(
                 cm.liveContext(),
                 "goal",
@@ -40,7 +40,7 @@ class SearchAgentTest {
     }
 
     @Test
-    void calculateAllowedToolNames_normalMode_includesDropWhenDroppableFragmentsExist() {
+    void calculateAllowedToolNames_normalMode_includesDropWhenDroppableFragmentsExist() throws InterruptedException {
         TestConsoleIO io = new TestConsoleIO();
         TestContextManager cm = new TestContextManager(tempDir, io);
 
@@ -55,33 +55,24 @@ class SearchAgentTest {
         assertTrue(
                 agent.hasDroppableFragments(context),
                 "Workspace should have droppable fragments after adding a new one");
-        List<String> allowed = agent.calculateAllowedToolNames(context, SearchAgent.DropMode.NORMAL);
+        List<String> allowed = agent.calculateAllowedToolNames(context);
         assertTrue(allowed.contains("dropWorkspaceFragments"), "Allowed tools should include drop tool");
     }
 
     @Test
-    void categorizeTool_classifiesDropAsWorkspaceHygiene() {
+    void calculateAllowedToolNames_includesLineRangeWorkspaceTool_notLegacyReadLineRange() throws InterruptedException {
         TestConsoleIO io = new TestConsoleIO();
         TestContextManager cm = new TestContextManager(tempDir, io);
 
         SearchAgent agent = newAgent(cm, new OfflineStreamingModel());
-        assertEquals(SearchAgent.ToolCategory.WORKSPACE_HYGIENE, agent.categorizeTool("dropWorkspaceFragments"));
-    }
-
-    @Test
-    void calculateAllowedToolNames_includesLineRangeWorkspaceTool_notLegacyReadLineRange() {
-        TestConsoleIO io = new TestConsoleIO();
-        TestContextManager cm = new TestContextManager(tempDir, io);
-
-        SearchAgent agent = newAgent(cm, new OfflineStreamingModel());
-        List<String> allowed = agent.calculateAllowedToolNames(cm.liveContext(), SearchAgent.DropMode.NORMAL);
+        List<String> allowed = agent.calculateAllowedToolNames(cm.liveContext());
 
         assertTrue(allowed.contains("addLineRangeToWorkspace"));
         assertFalse(allowed.contains("readLineRange"));
     }
 
     @Test
-    void testInequalityPinning() {
+    void testInequalityPinning() throws InterruptedException {
         var cm = new TestContextManager(tempDir, new NoOpConsoleIO());
 
         // Create fragments with controlled sizes
@@ -148,7 +139,7 @@ class SearchAgentTest {
     }
 
     @Test
-    void testNewFragmentsAreNotPinned() {
+    void testNewFragmentsAreNotPinned() throws InterruptedException {
         var cm = new TestContextManager(tempDir, new NoOpConsoleIO());
         // Use very large strings to exceed the 10k token delta (approx 4 chars/token)
         // f1: ~20k tokens, f2: ~20k tokens
@@ -175,7 +166,7 @@ class SearchAgentTest {
     }
 
     @Test
-    void testConvergenceScoreEdgeCases() {
+    void testConvergenceScoreEdgeCases() throws InterruptedException {
         var cm = new TestContextManager(tempDir, new NoOpConsoleIO());
         Context empty = new Context(cm);
         SearchAgent agent = new SearchAgent(
@@ -200,7 +191,7 @@ class SearchAgentTest {
     }
 
     @Test
-    void computeOverflowGrowth_reportsNetGrowthAndAddedFragmentsSortedByTokens() {
+    void computeOverflowGrowth_reportsNetGrowthAndAddedFragmentsSortedByTokens() throws InterruptedException {
         var cm = new TestContextManager(tempDir, new NoOpConsoleIO());
         var agent = newAgent(cm);
 
@@ -222,7 +213,7 @@ class SearchAgentTest {
     }
 
     @Test
-    void buildOverflowRecoveryHarnessNote_includesTokenGrowthAndFragmentDetails() {
+    void buildOverflowRecoveryHarnessNote_includesTokenGrowthAndFragmentDetails() throws InterruptedException {
         var cm = new TestContextManager(tempDir, new NoOpConsoleIO());
         var agent = newAgent(cm);
 
