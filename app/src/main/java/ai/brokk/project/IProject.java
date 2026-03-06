@@ -9,6 +9,7 @@ import ai.brokk.agents.BuildAgent;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.analyzer.SourceRootScanner;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.mcpclient.McpConfig;
 import ai.brokk.project.ModelProperties.ModelType;
@@ -595,7 +596,7 @@ public interface IProject extends AutoCloseable {
      */
     @Blocking
     default List<String> getJavaSourceRoots() {
-        return ai.brokk.analyzer.SourceRootScanner.scan(this, ai.brokk.analyzer.Languages.JAVA);
+        return SourceRootScanner.scan(this, Languages.JAVA);
     }
 
     /**
