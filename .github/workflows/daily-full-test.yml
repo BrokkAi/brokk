@@ -20,6 +20,7 @@ jobs:
       uses: actions/setup-java@v4
       with:
         distribution: jetbrains
+        java-package: jdk+jcef
         java-version: '21'
 
     - name: Set up Node.js
