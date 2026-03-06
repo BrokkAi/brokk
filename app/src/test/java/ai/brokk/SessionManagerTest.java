@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
@@ -12,6 +13,7 @@ import ai.brokk.context.ContextHistory;
 import ai.brokk.project.MainProject;
 import ai.brokk.testutil.NoOpConsoleIO;
 import ai.brokk.testutil.TestContextManager;
+import ai.brokk.util.HistoryIo;
 import ai.brokk.util.Messages;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.langchain4j.data.message.AiMessage;
@@ -30,6 +32,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
 import java.util.stream.Collectors;
 import javax.imageio.ImageIO;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
@@ -551,6 +554,67 @@ public class SessionManagerTest {
         assertEquals(1, SessionManager.compareVersions("4.1", "4"));
     }
 
+    @Test
+    void testQuarantineUnreadableSessions_RemovesCachedSessionWhenManifestUnreadable() throws Exception {
+        MainProject project = new MainProject(tempDir);
+        SessionManager sessionManager = project.getSessionManager();
+        Path sessionsDir = sessionManager.getSessionsDir();
+
+        UUID sessionId = UUID.randomUUID();
+        SessionInfo info = new SessionInfo(
+                sessionId, "Manifest Broken Session", System.currentTimeMillis(), System.currentTimeMillis());
+        createSessionZip(sessionsDir, info, new ObjectMapper());
+
+        // Simulate a previously loaded session that is now corrupted on disk.
+        sessionManager.getSessionsCache().put(sessionId, info);
+        Files.write(sessionsDir.resolve(sessionId + ".zip"), "not-a-zip-at-all".getBytes());
+
+        SessionManager.QuarantineReport report = sessionManager.quarantineUnreadableSessions(mockContextManager);
+
+        assertTrue(report.quarantinedSessionIds().contains(sessionId), "Session should be in report quarantinedIds");
+        assertFalse(sessionManager.getSessionsCache().containsKey(sessionId), "Session should be removed from cache");
+
+        Path unreadableZip =
+                sessionsDir.resolve(SessionManager.UNREADABLE_SESSIONS_DIR).resolve(sessionId + ".zip");
+        assertTrue(Files.exists(unreadableZip), "Session zip should have been moved to unreadable directory");
+
+        project.close();
+    }
+
+    @Test
+    void testQuarantineUnreadableSessions_ExecutionExceptionDuringValidation() throws Exception {
+        MainProject project = new MainProject(tempDir);
+        SessionManager sessionManager = project.getSessionManager();
+        Path sessionsDir = sessionManager.getSessionsDir();
+
+        // 1. Create a session that looks valid (UUID filename + manifest)
+        UUID sessionId = UUID.randomUUID();
+        SessionInfo info =
+                new SessionInfo(sessionId, "Broken Session", System.currentTimeMillis(), System.currentTimeMillis());
+        createSessionZip(sessionsDir, info, new ObjectMapper());
+
+        // 2. Corrupt the zip in a way that causes HistoryIo.readZip (called via loadHistoryOrQuarantine) to fail.
+        // We do this by writing invalid bytes over the zip file.
+        Files.write(sessionsDir.resolve(sessionId + ".zip"), "not-a-zip-at-all".getBytes());
+
+        // 3. Run quarantine scan
+        SessionManager.QuarantineReport report = sessionManager.quarantineUnreadableSessions(mockContextManager);
+
+        // 4. Assertions
+        assertTrue(report.quarantinedSessionIds().contains(sessionId), "Session should be in report quarantinedIds");
+        assertEquals(1, report.movedCount(), "Moved count should be 1");
+
+        // Verify it was moved to unreadable dir
+        Path unreadableZip =
+                sessionsDir.resolve(SessionManager.UNREADABLE_SESSIONS_DIR).resolve(sessionId + ".zip");
+        assertTrue(Files.exists(unreadableZip), "Session zip should have been moved to unreadable directory");
+
+        // Verify removed from cache
+        assertFalse(sessionManager.getSessionsCache().containsKey(sessionId), "Session should be removed from cache");
+
+        project.close();
+    }
+
     private void createSessionZip(Path sessionsDir, SessionInfo info, ObjectMapper mapper) throws IOException {
         Path zipPath = sessionsDir.resolve(info.id() + ".zip");
         // Create new zip file
@@ -559,5 +623,106 @@ public class SessionManagerTest {
             String json = mapper.writeValueAsString(info);
             Files.writeString(manifestPath, json);
         }
+    }
+
+    @Test
+    void testQuarantineDoesNotRaceWithInFlightWrites() throws Exception {
+        MainProject project = new MainProject(tempDir);
+        var sessionManager = project.getSessionManager();
+        UUID sessionId = SessionManager.newSessionId();
+        Path zipPath = sessionManager.getSessionHistoryPath(sessionId);
+
+        // 1. Setup: Create a "partial" zip (zip exists but no manifest yet)
+        Files.createDirectories(zipPath.getParent());
+        var emptyHistory = new ContextHistory(new Context(mockContextManager));
+        HistoryIo.writeZip(emptyHistory, zipPath);
+
+        CountDownLatch writerStarted = new CountDownLatch(1);
+        CountDownLatch quarantineCanProceed = new CountDownLatch(1);
+
+        // 2. Queue a delayed manifest write on the session executor
+        var sessionInfo =
+                new SessionInfo(sessionId, "Race Test", System.currentTimeMillis(), System.currentTimeMillis());
+        sessionManager.getSessionExecutorByKey().submit(sessionId.toString(), () -> {
+            writerStarted.countDown();
+            try {
+                quarantineCanProceed.await();
+                sessionManager.writeSessionInfoToZip(zipPath, sessionInfo);
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+            return null;
+        });
+
+        writerStarted.await();
+
+        // 3. Invoke quarantine concurrently.
+        // On old code, this would see the zip, try to read manifest, fail, and quarantine it.
+        // On new code, this submits to the same key and waits, so it runs AFTER the manifest write.
+        var quarantineTask = LoggingFuture.supplyCallableAsync(() -> {
+            return sessionManager.quarantineUnreadableSessions(mockContextManager);
+        });
+
+        // Small sleep to ensure quarantine task is likely blocked on the executor key
+        Thread.sleep(100);
+        quarantineCanProceed.countDown();
+
+        var report = quarantineTask.get();
+
+        // 4. Assertions
+        assertFalse(
+                report.quarantinedSessionIds().contains(sessionId),
+                "Session should not have been quarantined because checks are serialized");
+        assertTrue(Files.exists(zipPath), "Session zip should still exist at original path");
+
+        var sessions = sessionManager.listSessions();
+        assertTrue(
+                sessions.stream().anyMatch(s -> s.id().equals(sessionId)),
+                "Session should be present in listed sessions");
+    }
+
+    @Test
+    void testDeriveSessionName() {
+        assertEquals("Simple prompt", SessionManager.deriveSessionName("Simple prompt"));
+        assertEquals("fix this", SessionManager.deriveSessionName("@lutz fix this"));
+        assertEquals("how does this work?", SessionManager.deriveSessionName("/ask how does this work?"));
+        assertEquals("multi-line", SessionManager.deriveSessionName("multi-line\nsecond line"));
+        assertEquals("multi-line", SessionManager.deriveSessionName("/code multi-line\nsecond line"));
+
+        String longPrompt = "A".repeat(100);
+        String derived = SessionManager.deriveSessionName(longPrompt);
+        assertEquals(60, derived.length());
+        assertTrue(derived.endsWith("..."));
+
+        // Combined prefixes
+        assertEquals("do it", SessionManager.deriveSessionName("@bot /ask /code do it"));
+
+        // Case insensitivity and whitespace
+        assertEquals("case test", SessionManager.deriveSessionName("/ASK  case test"));
+        assertEquals("mixed test", SessionManager.deriveSessionName("@Brokk /Lutz mixed test"));
+    }
+
+    @Test
+    void testAutoRenameIfDefault() throws Exception {
+        MainProject project = new MainProject(tempDir);
+        var sm = project.getSessionManager();
+
+        // 1. Test valid rename from default
+        SessionInfo session1 = sm.newSession("New Session");
+        sm.autoRenameIfDefault(session1.id(), "My special task input").get();
+        assertEquals(
+                "My special task input",
+                sm.getSessionsCache().get(session1.id()).name());
+
+        // 2. Test non-default name remains unchanged
+        SessionInfo session2 = sm.newSession("Custom Name");
+        sm.autoRenameIfDefault(session2.id(), "Should not change").get();
+        assertEquals("Custom Name", sm.getSessionsCache().get(session2.id()).name());
+
+        // 3. Test blank/invalid derived name remains unchanged
+        SessionInfo session3 = sm.newSession("Session");
+        sm.autoRenameIfDefault(session3.id(), "   ").get();
+        assertEquals("Session", sm.getSessionsCache().get(session3.id()).name());
+        project.close();
     }
 }

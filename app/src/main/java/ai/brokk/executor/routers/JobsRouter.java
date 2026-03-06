@@ -48,7 +48,7 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
     private static final String ALLOWED_REASONING_LEVELS_LIST =
             Arrays.stream(REASONING_LEVEL_VALUES).map(Enum::name).collect(Collectors.joining(", "));
 
-    private final ContextManager contextManager;
+    final ContextManager contextManager;
     private final JobStore jobStore;
     private final JobRunner jobRunner;
     private final JobReservation jobReservation;
@@ -212,6 +212,12 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
                     response.put("contextTextFragmentIds", contextTextFragmentIds);
                 }
                 executeJobAsync(jobId, jobSpec, contextTextFragmentIds);
+
+                // Auto-rename session if it has a default name (best effort)
+                if (sessionIdHeader != null) {
+                    maybeAutoRenameSession(sessionIdHeader, request.taskInput());
+                }
+
                 SimpleHttpServer.sendJsonResponse(exchange, 201, response);
             } catch (Exception e) {
                 jobReservation.releaseIfOwner(jobId);
@@ -437,6 +443,15 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
                     : ErrorPayload.of("NOT_READY", "Executor is still initializing");
             SimpleHttpServer.sendJsonResponse(exchange, code, payload);
             return true;
+        }
+    }
+
+    private void maybeAutoRenameSession(UUID sessionId, String taskInput) {
+        try {
+            var sm = contextManager.getProject().getSessionManager();
+            sm.autoRenameIfDefault(sessionId, taskInput);
+        } catch (Exception e) {
+            logger.warn("Failed to initiate auto-rename for session {}: {}", sessionId, e.getMessage());
         }
     }
 

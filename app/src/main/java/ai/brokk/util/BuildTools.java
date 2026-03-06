@@ -404,14 +404,11 @@ public class BuildTools {
             Context ctx, String command, @Nullable BuildDetails override) throws InterruptedException {
         var cm = ctx.getContextManager();
         var io = cm.getIo();
+        io.llmOutput("\nRunning Post-Task command:", ChatMessageType.CUSTOM, LlmOutputMeta.newMessage());
         io.llmOutput(
-                "\nRunning command: \n\n```bash\n" + command + "\n```\n",
+                command + "\n\n",
                 ChatMessageType.CUSTOM,
-                LlmOutputMeta.DEFAULT);
-        io.llmOutput(
-                "\n```" + ShellConfig.getShellLanguageFromProject(cm.getProject()) + "\n",
-                ChatMessageType.CUSTOM,
-                LlmOutputMeta.DEFAULT);
+                LlmOutputMeta.newMessage().withTerminal(true));
         try {
             var details = override != null ? override : cm.getProject().awaitBuildDetails();
             Environment.instance.runShellCommand(
@@ -421,10 +418,8 @@ public class BuildTools {
                     resolveTimeout(cm.getProject().getTestCommandTimeoutSeconds()),
                     cm.getProject().getShellConfig(),
                     details.environmentVariables());
-            io.llmOutput("\n```", ChatMessageType.CUSTOM, LlmOutputMeta.DEFAULT);
             return ctx.withBuildResult(true, "Build succeeded.");
         } catch (Environment.SubprocessException e) {
-            io.llmOutput("\n```", ChatMessageType.CUSTOM, LlmOutputMeta.DEFAULT);
             return ctx.withBuildResult(
                     false,
                     BuildOutputProcessor.processForLlm(
