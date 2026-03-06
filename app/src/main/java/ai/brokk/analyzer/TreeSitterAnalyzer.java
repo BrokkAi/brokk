@@ -118,6 +118,13 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     private final ThreadLocal<Map<QueryType, TSQuery>> threadLocalQueries =
             ThreadLocal.withInitial(() -> new EnumMap<>(QueryType.class));
 
+    /** Test-only hook to count query compilations. */
+    private final AtomicInteger queryCompilationCount = new AtomicInteger(0);
+
+    protected int getQueryCompilationCount() {
+        return queryCompilationCount.get();
+    }
+
     /**
      * Provides borrowed access to a cached compiled query for the duration of the provided function.
      *
@@ -139,6 +146,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 return null;
             }
             query = new TSQuery(getTSLanguage(), source);
+            queryCompilationCount.incrementAndGet();
             cache.put(type, query);
         }
 

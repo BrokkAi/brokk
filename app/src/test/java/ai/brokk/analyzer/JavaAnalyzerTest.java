@@ -1877,6 +1877,26 @@ public class JavaAnalyzerTest {
     }
 
     @Test
+    public void testQueryCachingBehavior() {
+        assertNotNull(analyzer);
+        int initialCount = analyzer.getQueryCompilationCount();
+
+        // Repeated access to DEFINITIONS query within same thread
+        analyzer.withCachedQuery(TreeSitterAnalyzer.QueryType.DEFINITIONS, q1 -> {
+            analyzer.withCachedQuery(TreeSitterAnalyzer.QueryType.DEFINITIONS, q2 -> {
+                assertSame(q1, q2, "Should return identical TSQuery instance within same thread");
+                return null;
+            });
+            return null;
+        });
+
+        // Counter should have incremented at most once if it wasn't already cached from previous tests
+        int finalCount = analyzer.getQueryCompilationCount();
+        assertTrue(finalCount >= initialCount);
+        assertTrue(finalCount <= initialCount + 1, "Query should be compiled at most once during this test");
+    }
+
+    @Test
     public void testFindNearestDeclaration_MethodParameter() throws IOException {
         String content =
                 """
