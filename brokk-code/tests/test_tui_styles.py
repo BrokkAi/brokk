@@ -320,9 +320,9 @@ def test_scroll_to_bottom_button_styling():
     assert scroll_btn_match, "Could not find #scroll-to-bottom rule in app.tcss"
     scroll_btn_body = scroll_btn_match.group(1)
 
-    # Verify dock: bottom for overlay positioning
-    assert "dock: bottom" in scroll_btn_body, (
-        "#scroll-to-bottom should use 'dock: bottom' for positioning"
+    # Verify it has height: 1 for inline positioning in help row
+    assert "height: 1" in scroll_btn_body, (
+        "#scroll-to-bottom should use 'height: 1' for inline positioning"
     )
 
     # Verify it has width styling

@@ -744,13 +744,11 @@ class ChatPanel(Vertical):
     def on_mount(self) -> None:
         """Focus the input when the panel is mounted."""
         self.query_one("#chat-input", ChatInput).focus()
+        log = self.query_one("#chat-log", RichLog)
+        self.watch(log, "scroll_y", self._on_chat_log_scroll_change)
 
-    def on_mouse_scroll_up(self, event: events.MouseScrollUp) -> None:
-        """Handle mouse scroll-up events to update autoscroll state."""
-        self._sync_autoscroll()
-
-    def on_mouse_scroll_down(self, event: events.MouseScrollDown) -> None:
-        """Handle mouse scroll-down events to update autoscroll state."""
+    def _on_chat_log_scroll_change(self, old: float, new: float) -> None:
+        """Called when the chat log's scroll_y changes."""
         self._sync_autoscroll()
 
     def _sync_autoscroll(self) -> None:
