@@ -112,28 +112,60 @@ public class JavaAnalyzerSettingsPanel extends AnalyzerSettingsPanel {
         add(contentPanel, BorderLayout.CENTER);
     }
 
-    private List<String> getRootsFromTable() {
-        int rowCount = tableModel.getRowCount();
-        List<String> roots = new ArrayList<>(rowCount);
-        for (int i = 0; i < rowCount; i++) {
-            String val = (String) tableModel.getValueAt(i, 0);
-            if (val != null && !val.trim().isEmpty()) {
-                roots.add(val.trim());
-            }
-        }
-        return roots;
-    }
-
     @Override
     public void saveSettings() {
         if (table.isEditing()) {
             table.getCellEditor().stopCellEditing();
         }
-        List<String> roots = getRootsFromTable();
-        project.setJavaSourceRoots(roots);
-        logger.debug(
-                "Saved {} Java source roots for project {}",
-                roots.size(),
-                project.getRoot().getFileName());
+
+        int rowCount = tableModel.getRowCount();
+        java.util.LinkedHashSet<String> canonicalRoots = new java.util.LinkedHashSet<>();
+        List<String> invalidRoots = new ArrayList<>();
+
+        java.nio.file.Path masterRoot = project.getMasterRootPathForConfig();
+
+        for (int i = 0; i < rowCount; i++) {
+            String val = (String) tableModel.getValueAt(i, 0);
+            if (val == null || val.isBlank()) {
+                continue;
+            }
+
+            String canonical = ai.brokk.util.PathNormalizer.canonicalizeForProject(val, masterRoot);
+            if (canonical.isEmpty()) {
+                continue;
+            }
+
+            // A path is invalid if it escapes the project root (contains ".." at the start or elsewhere
+            // after canonicalization that PathNormalizer couldn't resolve within the root).
+            if (canonical.startsWith("../") || canonical.equals("..")) {
+                invalidRoots.add(val.trim());
+            } else {
+                canonicalRoots.add(canonical);
+            }
+        }
+
+        if (!invalidRoots.isEmpty()) {
+            String msg = "The following source roots are invalid or outside the project root:\n"
+                    + String.join("\n", invalidRoots);
+            io.toolError(msg, "Invalid Source Roots");
+            return;
+        }
+
+        List<String> newRoots = new ArrayList<>(canonicalRoots);
+        List<String> existingRoots = project.getJavaSourceRoots();
+
+        if (!newRoots.equals(existingRoots)) {
+            project.setJavaSourceRoots(newRoots);
+            logger.debug(
+                    "Saved {} Java source roots for project {}",
+                    newRoots.size(),
+                    project.getRoot().getFileName());
+
+            // Update table to show canonicalized versions
+            tableModel.setRowCount(0);
+            for (String root : newRoots) {
+                tableModel.addRow(new Object[] {root});
+            }
+        }
     }
 }
