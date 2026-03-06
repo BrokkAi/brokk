@@ -607,26 +607,6 @@ public interface IProject extends AutoCloseable {
      */
     default void setSourceRoots(Language language, List<String> roots) {}
 
-    /**
-     * Returns the list of Java source roots configured for this project.
-     * These are used by tools like JDT to resolve symbols across the project.
-     *
-     * @return a list of relative or absolute paths as strings.
-     */
-    @Blocking
-    default List<String> getJavaSourceRoots() {
-        return getSourceRoots(Languages.JAVA);
-    }
-
-    /**
-     * Configures the Java source roots for this project.
-     *
-     * @param roots the list of source root paths.
-     */
-    default void setJavaSourceRoots(List<String> roots) {
-        setSourceRoots(Languages.JAVA, roots);
-    }
-
     enum CodeAgentTestScope {
         ALL,
         WORKSPACE;

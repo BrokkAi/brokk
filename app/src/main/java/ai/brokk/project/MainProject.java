@@ -87,7 +87,6 @@ public final class MainProject extends AbstractProject {
 
     private static final long DEFAULT_DISK_CACHE_SIZE = 10L * 1024L * 1024L; // 10 MB
 
-    private static final String JAVA_SOURCE_ROOTS_KEY = "javaSourceRoots"; // Legacy key
     private static final String CODE_INTELLIGENCE_LANGUAGES_KEY = "code_intelligence_languages";
     private static final String GITHUB_TOKEN_KEY = "githubToken";
 
@@ -690,11 +689,6 @@ public final class MainProject extends AbstractProject {
         String key = getSourceRootsKey(language);
         String json = projectProps.getProperty(key);
 
-        // Fallback to legacy key for Java if new key is missing
-        if ((json == null || json.isBlank()) && language == Languages.JAVA) {
-            json = projectProps.getProperty(JAVA_SOURCE_ROOTS_KEY);
-        }
-
         if (json == null || json.isBlank()) {
             return super.getSourceRoots(language);
         }
@@ -714,14 +708,13 @@ public final class MainProject extends AbstractProject {
         String key = getSourceRootsKey(language);
         try {
             String json = objectMapper.writeValueAsString(roots);
-            projectProps.setProperty(key, json);
+            String existingJson = projectProps.getProperty(key);
 
-            // Migration: If writing Java roots, remove the legacy key to ensure
-            // subsequent reads use the new per-language key format.
-            if (language == Languages.JAVA) {
-                projectProps.remove(JAVA_SOURCE_ROOTS_KEY);
+            if (Objects.equals(existingJson, json)) {
+                return;
             }
 
+            projectProps.setProperty(key, json);
             saveProjectProperties();
             logger.debug("Saved {} source roots to project properties using key: {}", language.name(), key);
         } catch (JsonProcessingException e) {
