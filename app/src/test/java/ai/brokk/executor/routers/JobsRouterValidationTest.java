@@ -30,6 +30,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Stream;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -48,7 +49,7 @@ class JobsRouterValidationTest {
     @BeforeEach
     void setUp(@TempDir Path tempDir) throws Exception {
         // Real (lightweight) production objects; this test never reaches execution paths that need headless init.
-        var project = new MainProject(tempDir);
+        var project = MainProject.forTests(tempDir);
         contextManager = new ContextManager(project);
 
         jobStoreDir = tempDir.resolve("job-store");
@@ -70,6 +71,13 @@ class JobsRouterValidationTest {
 
         // Snapshot filesystem state after construction; invalid requests must not create anything new.
         fsSnapshotBefore = snapshotTree(jobStoreDir);
+    }
+
+    @AfterEach
+    void tearDown() {
+        if (contextManager != null) {
+            contextManager.close();
+        }
     }
 
     @Test
