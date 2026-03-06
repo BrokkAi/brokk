@@ -453,9 +453,18 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
             SourceContent sourceContent,
             String exportPrefix,
             String signatureText,
+            String simpleName,
             String baseIndent,
             ProjectFile file) {
-        // JavaScript field signatures shouldn't have semicolons
+        // JavaScript field signatures shouldn't have semicolons.
+        // If fieldNode is a variable_declarator, we want to render just that declarator
+        // prefixed by the export/declaration keyword found in exportPrefix.
+        if (VARIABLE_DECLARATOR.equals(fieldNode.getType())) {
+            return baseIndent
+                    + (exportPrefix.stripTrailing() + " "
+                                    + sourceContent.substringFrom(fieldNode).strip())
+                            .strip();
+        }
         var fullSignature = (exportPrefix.stripTrailing() + " " + signatureText.strip()).strip();
         return baseIndent + fullSignature;
     }

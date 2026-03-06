@@ -3,6 +3,7 @@ package ai.brokk.analyzer;
 import static ai.brokk.analyzer.csharp.CSharpTreeSitterNodeTypes.*;
 
 import ai.brokk.analyzer.cache.AnalyzerCache;
+import ai.brokk.analyzer.csharp.CSharpTreeSitterNodeTypes;
 import ai.brokk.project.IProject;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -21,6 +22,9 @@ import org.treesitter.TSQueryMatch;
 import org.treesitter.TSTree;
 import org.treesitter.TreeSitterCSharp;
 
+/**
+ * C# analyzer using Tree-sitter. Responsible for producing CodeUnits and skeletons for C# sources.
+ */
 public final class CSharpAnalyzer extends TreeSitterAnalyzer {
     static final Logger log = LoggerFactory.getLogger(CSharpAnalyzer.class);
 
@@ -245,17 +249,87 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
             SourceContent sourceContent,
             String exportPrefix,
             String signatureText,
+            String simpleName,
             String baseIndent,
             ProjectFile file) {
-        var fullSignature = (exportPrefix.stripTrailing() + " " + signatureText.strip()).strip();
+        String nodeType = fieldNode.getType();
 
-        // In C#, only actual field declarations need semicolons, not properties
-        // Properties look like: public string Name { get; set; }
-        // Fields look like: public string name;
-        if (FIELD_DECLARATION.equals(fieldNode.getType()) && !fullSignature.endsWith(";")) {
-            fullSignature += ";";
+        TSNode fieldDecl = null;
+        TSNode varDecl = null;
+        TSNode declarator = null;
+
+        // If we captured the whole field_declaration, try to locate the variable_declaration child.
+        if (FIELD_DECLARATION.equals(nodeType) || EVENT_FIELD_DECLARATION.equals(nodeType)) {
+            fieldDecl = fieldNode;
+            // Some grammars expose the variable_declaration via a field name, others as a plain child.
+            varDecl = fieldNode.getChildByFieldName("declaration");
+            if (varDecl == null || varDecl.isNull()) {
+                for (int i = 0; i < fieldNode.getChildCount(); i++) {
+                    TSNode child = fieldNode.getChild(i);
+                    if (child != null
+                            && !child.isNull()
+                            && CSharpTreeSitterNodeTypes.VARIABLE_DECLARATION.equals(child.getType())) {
+                        varDecl = child;
+                        break;
+                    }
+                }
+            }
+            if (varDecl != null && !varDecl.isNull()) {
+                declarator = findDeclarator(
+                                varDecl,
+                                simpleName,
+                                sourceContent,
+                                CSharpTreeSitterNodeTypes.VARIABLE_DECLARATOR,
+                                "name")
+                        .orElse(null);
+            }
+        } else if (CSharpTreeSitterNodeTypes.VARIABLE_DECLARATOR.equals(nodeType)) {
+            // If the capture was the declarator itself, walk up to its variable_declaration and field_declaration
+            declarator = fieldNode;
+            varDecl = fieldNode.getParent();
+            if (varDecl != null && CSharpTreeSitterNodeTypes.VARIABLE_DECLARATION.equals(varDecl.getType())) {
+                fieldDecl = varDecl.getParent();
+            }
         }
 
+        if (fieldDecl != null && varDecl != null && declarator != null) {
+            TSNode typeNode = varDecl.getChildByFieldName("type");
+            if (typeNode != null && !typeNode.isNull()) {
+                StringBuilder modifiersBuilder = new StringBuilder();
+                for (int i = 0; i < fieldDecl.getChildCount(); i++) {
+                    TSNode child = fieldDecl.getChild(i);
+                    if (child == null || child.isNull() || child.getEndByte() > varDecl.getStartByte()) {
+                        break;
+                    }
+                    String childType = child.getType();
+                    if ("modifier".equals(childType)) {
+                        String text = sourceContent.substringFrom(child).strip();
+                        if (!text.isEmpty()) {
+                            modifiersBuilder.append(text).append(" ");
+                        }
+                    }
+                }
+
+                String modifiers = modifiersBuilder.toString();
+                String typeStr = sourceContent.substringFrom(typeNode).strip();
+                String declaratorStr = sourceContent.substringFrom(declarator).strip();
+
+                int commaIdx = declaratorStr.indexOf(',');
+                if (commaIdx != -1) {
+                    declaratorStr = declaratorStr.substring(0, commaIdx).strip();
+                }
+
+                String full = (modifiers + typeStr + " " + declaratorStr + ";").strip();
+                return baseIndent + full;
+            }
+        }
+
+        // Fallback: use provided signatureText
+        String fullSignature = (exportPrefix.stripTrailing() + " " + signatureText.strip()).strip();
+        if ((FIELD_DECLARATION.equals(nodeType) || EVENT_FIELD_DECLARATION.equals(nodeType))
+                && !fullSignature.endsWith(";")) {
+            fullSignature += ";";
+        }
         return baseIndent + fullSignature;
     }
 

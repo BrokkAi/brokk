@@ -16,6 +16,9 @@ public final class CSharpTreeSitterNodeTypes {
 
     // Field-like declarations
     public static final String FIELD_DECLARATION = CommonTreeSitterNodeTypes.FIELD_DECLARATION;
+    // Variable-related nodes used when splitting declarators in multi-declaration fields
+    public static final String VARIABLE_DECLARATION = "variable_declaration";
+    public static final String VARIABLE_DECLARATOR = "variable_declarator";
 
     // ===== C#-SPECIFIC TYPES =====
     // Class-like declarations
@@ -34,6 +37,8 @@ public final class CSharpTreeSitterNodeTypes {
     public static final String NAMESPACE_DECLARATION = "namespace_declaration";
 
     public static final String IMPORT_DECLARATION = "using_directive";
+
+    public static final String ATTRIBUTE_LIST = "attribute_list";
 
     public static final String TEST_MARKER = "test_marker";
 

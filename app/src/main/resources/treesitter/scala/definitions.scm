@@ -36,11 +36,31 @@
   ) @constructor.definition
 
 ; Field definitions
+;
+; IMPORTANT: TreeSitterAnalyzer.collectDefinitions stores captures per match via putIfAbsent,
+; so multi-name patterns must produce one match per identifier. For Scala multi-declarators
+; like "var x, y: Int = 1", the grammar provides:
+;   (var_definition pattern: (identifiers (identifier) (identifier)) type: ... value: ...)
+; These patterns match a single (identifier) @field.name within the identifiers list,
+; and Tree-sitter will emit a separate match per identifier.
 (class_definition
   body: (template_body
           [
-            (val_definition pattern: (identifier) @field.name) @field.definition
-            (var_definition pattern: (identifier) @field.name) @field.definition
+            (val_definition
+              pattern: (identifier) @field.name
+              ) @field.definition
+
+            (val_definition
+              pattern: (identifiers (identifier) @field.name)
+              ) @field.definition
+
+            (var_definition
+              pattern: (identifier) @field.name
+              ) @field.definition
+
+            (var_definition
+              pattern: (identifiers (identifier) @field.name)
+              ) @field.definition
             ]
           )
   )
@@ -48,8 +68,21 @@
 (trait_definition
   body: (template_body
           [
-            (val_definition pattern: (identifier) @field.name) @field.definition
-            (var_definition pattern: (identifier) @field.name) @field.definition
+            (val_definition
+              pattern: (identifier) @field.name
+              ) @field.definition
+
+            (val_definition
+              pattern: (identifiers (identifier) @field.name)
+              ) @field.definition
+
+            (var_definition
+              pattern: (identifier) @field.name
+              ) @field.definition
+
+            (var_definition
+              pattern: (identifiers (identifier) @field.name)
+              ) @field.definition
             ]
           )
   )
@@ -57,8 +90,21 @@
 (object_definition
   body: (template_body
           [
-            (val_definition pattern: (identifier) @field.name) @field.definition
-            (var_definition pattern: (identifier) @field.name) @field.definition
+            (val_definition
+              pattern: (identifier) @field.name
+              ) @field.definition
+
+            (val_definition
+              pattern: (identifiers (identifier) @field.name)
+              ) @field.definition
+
+            (var_definition
+              pattern: (identifier) @field.name
+              ) @field.definition
+
+            (var_definition
+              pattern: (identifiers (identifier) @field.name)
+              ) @field.definition
             ]
           )
   )
@@ -66,8 +112,21 @@
 ; Top-level variables as field definitions
 (compilation_unit
   [
-    (val_definition pattern: (identifier) @field.name) @field.definition
-    (var_definition pattern: (identifier) @field.name) @field.definition
+    (val_definition
+      pattern: (identifier) @field.name
+      ) @field.definition
+
+    (val_definition
+      pattern: (identifiers (identifier) @field.name)
+      ) @field.definition
+
+    (var_definition
+      pattern: (identifier) @field.name
+      ) @field.definition
+
+    (var_definition
+      pattern: (identifiers (identifier) @field.name)
+      ) @field.definition
     ]
   )
 
