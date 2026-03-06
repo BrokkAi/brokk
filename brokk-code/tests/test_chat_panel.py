@@ -373,9 +373,10 @@ async def test_slash_command_catalog_stability():
 
     # Verify key commands exist
     cmds_only = {c["command"] for c in commands}
-    assert "/ask" in cmds_only
     assert "/task" in cmds_only
-    assert "/help" in cmds_only
+    assert "/clear" in cmds_only
+    assert "/help" not in cmds_only
+    assert "/mode" not in cmds_only
 
 
 @pytest.mark.asyncio
@@ -388,9 +389,8 @@ async def test_slash_autocomplete_filtering():
     class TestApp(App):
         def get_slash_commands(self):
             return [
-                {"command": "/ask", "description": "d"},
-                {"command": "/ask-more", "description": "d"},
-                {"command": "/help", "description": "d"},
+                {"command": "/api-key", "description": "d"},
+                {"command": "/autocommit", "description": "d"},
             ]
 
         def compose(self) -> ComposeResult:
@@ -403,12 +403,13 @@ async def test_slash_autocomplete_filtering():
         # Type /a
         await pilot.press(*list("/a"))
         assert suggestions.display is True
+        # matches /api-key and /autocommit
         assert len(suggestions.children) == 2
 
-        # Type sk-
-        await pilot.press(*list("sk-"))
+        # Type uto
+        await pilot.press(*list("uto"))
         assert len(suggestions.children) == 1
-        assert "/ask-more" in str(suggestions.children[0].query_one(Static).render())
+        assert "/autocommit" in str(suggestions.children[0].query_one(Static).render())
 
         # Esc hides
         await pilot.press("escape")
@@ -828,6 +829,51 @@ async def test_tool_call_visibility_toggle_integration():
         chat.show_verbose = False
         filtered_off_again = chat._filter_tool_call_blocks(tool_markdown)
         assert "list_files [+] (ctrl+o to expand) - directory: src" in filtered_off_again
+
+
+@pytest.mark.asyncio
+async def test_clear_transcript_command():
+    """Verify that /clear removes messages from the UI and memory."""
+    from textual.widgets import RichLog
+
+    from brokk_code.app import BrokkApp
+
+    executor = MagicMock()
+    app = BrokkApp(executor=executor)
+
+    async def _noop() -> None:
+        return None
+
+    app._start_executor = _noop  # type: ignore[method-assign]
+    app._monitor_executor = _noop  # type: ignore[method-assign]
+    app._poll_tasklist = _noop  # type: ignore[method-assign]
+    app._poll_context = _noop  # type: ignore[method-assign]
+
+    async with app.run_test() as pilot:
+        chat = app.query_one(ChatPanel)
+        log = chat.query_one("#chat-log", RichLog)
+
+        # Add some messages
+        chat.add_user_message("Message 1")
+        chat.add_markdown("Response 1")
+        await pilot.pause()
+
+        initial_count = len(chat._message_history)
+        chat.add_user_message("Message 2")
+        chat.add_markdown("Response 2")
+        await pilot.pause()
+
+        assert len(chat._message_history) == initial_count + 2
+        assert len(log.lines) > 0
+
+        # Run /clear
+        app._handle_command("/clear")
+        await pilot.pause()
+
+        # Verify everything is gone
+        assert len(chat._message_history) == 0
+        assert len(log.lines) == 0
+        assert chat._current_message_buffer == ""
 
 
 @pytest.mark.asyncio

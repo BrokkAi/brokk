@@ -41,7 +41,6 @@ def test_build_welcome_message_content():
     mock_commands = [
         {"command": "/context", "description": "test"},
         {"command": "/task", "description": "test"},
-        {"command": "/help", "description": "test"},
     ]
 
     msg = build_welcome_message(mock_commands)
@@ -52,7 +51,6 @@ def test_build_welcome_message_content():
     assert "https://brokk.ai/" in msg
     assert "/context" in msg
     assert "/task" in msg
-    assert "/help" in msg
 
 
 def test_get_braille_icon_contains_braille():
