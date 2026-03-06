@@ -415,6 +415,10 @@ public class SearchAgent {
                     };
             reportComplete(details.reason(), message);
         }
+        var finalMessages = io.getLlmRawMessages();
+        if (!finalMessages.isEmpty()) {
+            tr = tr.withAppendedMopMessagesToLastEntry(finalMessages);
+        }
 
         return tr;
     }
@@ -698,6 +702,10 @@ public class SearchAgent {
         var janitor = new JanitorAgent(cm, io, goal, context);
         var result = janitor.execute();
 
+        if (scanConfig.appendToScope) {
+            this.scope.append(result.context());
+        }
+
         currentState = currentState.withContext(result.context());
         recordDropBaseline(result.context());
         contextPruned = true;
@@ -758,6 +766,10 @@ public class SearchAgent {
         metrics.recordContextScan(filesAdded.size(), false, toRelativePaths(filesAdded), md);
         context = context.addHistoryEntry(
                 io.getLlmRawMessages(), TaskResult.Type.SCAN, scanModel, "Locate relevant context");
+
+        if (scanConfig.appendToScope) {
+            this.scope.append(context);
+        }
 
         currentState = currentState.withContext(context);
         return context;
@@ -1355,7 +1367,12 @@ public class SearchAgent {
                 @P("Detailed instructions for the CodeAgent, referencing the current project and Workspace.")
                         String instructions)
                 throws InterruptedException, ToolRegistry.FatalLlmException {
-            agent.scope.append(context);
+
+            var oldContext = context;
+            context = agent.appendUiMessagesToHistory(context);
+            if (!oldContext.equals(context)) {
+                agent.scope.append(context);
+            }
 
             logger.debug("SearchAgent.callCodeAgent invoked with instructions: {}", instructions);
 
@@ -1376,6 +1393,7 @@ public class SearchAgent {
             var stopDetails = result.stopDetails();
             var reason = stopDetails.reason();
             agent.scope.append(result);
+            context = result.context();
 
             if (reason == TaskResult.StopReason.SUCCESS) {
                 new GitWorkflow(agent.cm).performAutoCommit(instructions);

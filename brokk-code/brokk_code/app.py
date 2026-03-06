@@ -762,6 +762,7 @@ class BrokkApp(App):
         executor: Optional[ExecutorManager] = None,
         session_id: Optional[str] = None,
         resume_session: bool = False,
+        pick_session: bool = False,
         vendor: Optional[str] = None,
     ) -> None:
         super().__init__()
@@ -784,6 +785,7 @@ class BrokkApp(App):
             )
         self.requested_session_id = session_id
         self.resume_session = resume_session
+        self.pick_session = pick_session
         self._set_theme(self.settings.theme)
         self.agent_mode = "LUTZ"
         self.show_verbose_output: bool = False
@@ -821,6 +823,7 @@ class BrokkApp(App):
         self.current_branch = "unknown"
         self.job_in_progress = False
         self.session_switch_in_progress = False
+        self._current_switch_target_session_id: Optional[str] = None
         self.current_job_id: Optional[str] = None
         self._pending_prompt: Optional[str] = None
         self._pending_switch_prompt: Optional[tuple[str, str]] = None
@@ -1040,6 +1043,10 @@ class BrokkApp(App):
                 self._executor_ready = True
                 # Initial context load
                 self.run_worker(self._refresh_context_panel())
+
+                if self.pick_session:
+                    self.pick_session = False
+                    self.run_worker(self._show_sessions())
 
                 if resumed:
                     try:
@@ -2620,7 +2627,8 @@ class BrokkApp(App):
                 return
 
             def on_selected(selected_id: str | None) -> None:
-                if not selected_id:
+                if selected_id is None:
+                    # User canceled the modal (Esc); continue with current session.
                     return
                 if selected_id == "new":
                     self.run_worker(self._create_session_from_menu())

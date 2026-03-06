@@ -106,6 +106,9 @@ public class CodeAgent {
         }
 
         return changedFragments.stream()
+                // do not include "Latest Build Results" in diff
+                .filter(newFrag -> !(newFrag instanceof ContextFragments.StringFragment sf
+                        && sf.specialType().isPresent()))
                 .map(newFrag -> {
                     var fragInTo = to.allFragments()
                             .filter(newFrag::hasSameSource)
@@ -653,7 +656,7 @@ public class CodeAgent {
         io.llmOutput(
                 "\n## Code Agent Finished\n" + badge + "\n\n**Reason:** " + message,
                 ChatMessageType.CUSTOM,
-                LlmOutputMeta.terminal().withNewMessage(true));
+                LlmOutputMeta.newMessage());
     }
 
     Step parsePhase(

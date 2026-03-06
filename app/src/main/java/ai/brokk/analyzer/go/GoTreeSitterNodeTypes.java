@@ -30,6 +30,9 @@ public final class GoTreeSitterNodeTypes {
 
     public static final String PARAMETER_DECLARATION = "parameter_declaration";
 
+    public static final String FIELD_DECLARATION = "field_declaration";
+    public static final String FIELD_IDENTIFIER = "field_identifier";
+
     public static final String FIELD_TYPE = "type";
 
     public static final String POINTER_TYPE = "pointer_type";

@@ -358,6 +358,86 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
     }
 
     @Override
+    protected String formatFieldSignature(
+            TSNode fieldNode,
+            SourceContent sourceContent,
+            String exportPrefix,
+            String signatureText,
+            String simpleName,
+            String baseIndent,
+            ProjectFile file) {
+        // Go struct fields are usually captured as field_identifiers (one match per name).
+        // The parent field_declaration provides the shared type and optional tag.
+        if (FIELD_IDENTIFIER.equals(fieldNode.getType())) {
+            TSNode fieldDeclNode = fieldNode.getParent();
+            while (fieldDeclNode != null
+                    && !fieldDeclNode.isNull()
+                    && !FIELD_DECLARATION.equals(fieldDeclNode.getType())) {
+                fieldDeclNode = fieldDeclNode.getParent();
+            }
+
+            if (fieldDeclNode != null
+                    && !fieldDeclNode.isNull()
+                    && FIELD_DECLARATION.equals(fieldDeclNode.getType())
+                    && isInsideStructType(fieldDeclNode)) {
+                String fieldName = sourceContent.substringFrom(fieldNode).trim();
+
+                TSNode typeNode = fieldDeclNode.getChildByFieldName(FIELD_TYPE);
+                TSNode tagNode = fieldDeclNode.getChildByFieldName("tag");
+
+                String typeText = (typeNode != null && !typeNode.isNull())
+                        ? sourceContent.substringFrom(typeNode).trim()
+                        : "";
+                String tagText = (tagNode != null && !tagNode.isNull())
+                        ? " " + sourceContent.substringFrom(tagNode).trim()
+                        : "";
+
+                if (!typeText.isEmpty()) {
+                    return (baseIndent + fieldName + " " + typeText + tagText).stripTrailing();
+                }
+            }
+        } else if (FIELD_DECLARATION.equals(fieldNode.getType()) && isInsideStructType(fieldNode)) {
+            // Defensive: if the query ever captures the whole field_declaration node, still render a single-field
+            // signature based on simpleName (which is the field identifier for this CodeUnit).
+            TSNode typeNode = fieldNode.getChildByFieldName(FIELD_TYPE);
+            TSNode tagNode = fieldNode.getChildByFieldName("tag");
+
+            String typeText = (typeNode != null && !typeNode.isNull())
+                    ? sourceContent.substringFrom(typeNode).trim()
+                    : "";
+            String tagText = (tagNode != null && !tagNode.isNull())
+                    ? " " + sourceContent.substringFrom(tagNode).trim()
+                    : "";
+
+            if (!typeText.isEmpty()) {
+                return (baseIndent + simpleName + " " + typeText + tagText).stripTrailing();
+            }
+        }
+
+        // Fallback for package-level var/const/type-alias: use signatureText which includes type/initializer.
+        String identifier = simpleName;
+        if (simpleName.contains("._module_.")) {
+            identifier = simpleName.substring(simpleName.lastIndexOf('.') + 1);
+        }
+
+        if (signatureText.startsWith(identifier)) {
+            return (baseIndent + signatureText).trim();
+        }
+        return (baseIndent + identifier + " " + signatureText).trim();
+    }
+
+    private static boolean isInsideStructType(TSNode node) {
+        TSNode current = node;
+        while (current != null && !current.isNull()) {
+            if (STRUCT_TYPE.equals(current.getType())) {
+                return true;
+            }
+            current = current.getParent();
+        }
+        return false;
+    }
+
+    @Override
     protected String bodyPlaceholder() {
         return "...";
     }

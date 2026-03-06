@@ -1407,7 +1407,7 @@ class CodeAgentTest {
         agent.reportComplete(TaskResult.StopReason.SUCCESS, "finished");
         assertEquals(2, capture.capturedMeta.size());
         assertTrue(capture.capturedMeta.get(1).isNewMessage());
-        assertTrue(capture.capturedMeta.get(1).isTerminal());
+        assertFalse(capture.capturedMeta.get(1).isTerminal());
         assertEquals(dev.langchain4j.data.message.ChatMessageType.CUSTOM, capture.capturedTypes.get(1));
     }
 

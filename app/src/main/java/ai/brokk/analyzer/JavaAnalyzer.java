@@ -270,12 +270,33 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
             SourceContent sourceContent,
             String exportPrefix,
             String signatureText,
+            String simpleName,
             String baseIndent,
             ProjectFile file) {
-        if (ENUM_CONSTANT.equals(fieldNode.getType())) {
+        String nodeType = fieldNode.getType();
+        if (ENUM_CONSTANT.equals(nodeType)) {
             return formatEnumConstant(fieldNode, signatureText, baseIndent);
         }
-        return super.formatFieldSignature(fieldNode, sourceContent, exportPrefix, signatureText, baseIndent, file);
+
+        if (FIELD_DECLARATION.equals(nodeType) || CONSTANT_DECLARATION.equals(nodeType)) {
+            TSNode typeNode = fieldNode.getChildByFieldName("type");
+            if (typeNode != null && !typeNode.isNull()) {
+                String modifiers = getPrefixText(fieldNode, typeNode, sourceContent, Set.of("modifiers"));
+                String typeStr = sourceContent.substringFrom(typeNode).strip();
+
+                Optional<TSNode> declarator =
+                        findDeclarator(fieldNode, simpleName, sourceContent, VARIABLE_DECLARATOR, "name");
+                if (declarator.isPresent()) {
+                    String declaratorStr =
+                            sourceContent.substringFrom(declarator.get()).strip();
+                    String full = (modifiers + typeStr + " " + declaratorStr + ";").strip();
+                    return baseIndent + full;
+                }
+            }
+        }
+
+        return super.formatFieldSignature(
+                fieldNode, sourceContent, exportPrefix, signatureText, simpleName, baseIndent, file);
     }
 
     private String formatEnumConstant(TSNode fieldNode, String signatureText, String baseIndent) {

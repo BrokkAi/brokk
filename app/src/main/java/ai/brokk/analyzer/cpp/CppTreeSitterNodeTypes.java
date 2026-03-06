@@ -32,10 +32,13 @@ public final class CppTreeSitterNodeTypes {
     public static final String DECLARATION = "declaration";
     public static final String DESTRUCTOR_DECLARATION = "destructor_declaration";
     public static final String PARAMETER_DECLARATION = "parameter_declaration";
+    public static final String FUNCTION_DECLARATOR = "function_declarator";
     public static final String TYPE_DEFINITION = "type_definition";
     public static final String ALIAS_DECLARATION = "alias_declaration";
     public static final String USING_DECLARATION = "using_declaration";
     public static final String TYPEDEF_DECLARATION = "typedef_declaration";
+    public static final String FIELD_DECLARATION_LIST = "field_declaration_list";
+    public static final String POINTER_DECLARATOR = "pointer_declarator";
 
     // Types and Return Types
     public static final String TRAILING_RETURN_TYPE = "trailing_return_type";
@@ -45,6 +48,8 @@ public final class CppTreeSitterNodeTypes {
 
     // Other nodes
     public static final String ENUMERATOR = "enumerator";
+    public static final String FIELD_IDENTIFIER = "field_identifier";
+    public static final String IDENTIFIER = "identifier";
 
     public static final String IMPORT_DECLARATION = "preproc_include";
 
