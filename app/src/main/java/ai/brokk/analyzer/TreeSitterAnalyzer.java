@@ -2003,6 +2003,46 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     }
 
     /**
+     * Finds a specific declarator node matching simpleName among children of parent.
+     */
+    protected Optional<TSNode> findDeclarator(
+            TSNode parent, String simpleName, SourceContent sourceContent, String declaratorType, String nameField) {
+        if (parent.isNull()) return Optional.empty();
+        for (int i = 0; i < parent.getChildCount(); i++) {
+            TSNode child = parent.getChild(i);
+            if (child == null || child.isNull()) continue;
+            if (declaratorType.equals(child.getType())) {
+                TSNode nameNode = child.getChildByFieldName(nameField);
+                if (nameNode != null && !nameNode.isNull()) {
+                    if (simpleName.equals(sourceContent.substringFrom(nameNode).strip())) {
+                        return Optional.of(child);
+                    }
+                }
+            }
+        }
+        return Optional.empty();
+    }
+
+    /**
+     * Builds a space-separated prefix string from nodes appearing before the target node.
+     */
+    protected String getPrefixText(
+            TSNode parent, TSNode target, SourceContent sourceContent, Set<String> acceptedNodeTypes) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < parent.getChildCount(); i++) {
+            TSNode child = parent.getChild(i);
+            if (child == null || child.isNull() || child.getEndByte() > target.getStartByte()) break;
+            if (acceptedNodeTypes.contains(child.getType())) {
+                String text = sourceContent.substringFrom(child).strip();
+                if (!text.isEmpty()) {
+                    sb.append(text).append(" ");
+                }
+            }
+        }
+        return sb.toString();
+    }
+
+    /**
      * Language-specific closing token for a class or namespace (e.g., "}"). Empty if none.
      */
     protected abstract String getLanguageSpecificCloser(CodeUnit cu);
@@ -2654,6 +2694,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             SourceContent sourceContent,
             String exportPrefix,
             String signatureText,
+            String simpleName,
             String baseIndent,
             ProjectFile file) {
         var fullSignature = (exportPrefix.stripTrailing() + " " + signatureText.strip()).strip();
@@ -2829,7 +2870,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                     }
                 }
 
-                String line = formatFieldSignature(nodeForContent, sourceContent, exportPrefix, fieldText, "", file);
+                String line = formatFieldSignature(
+                        nodeForContent, sourceContent, exportPrefix, fieldText, simpleName, "", file);
                 if (!line.isBlank()) signatureLines.add(line);
                 break;
             }
@@ -3809,11 +3851,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             return false;
         }
         String nodeType = node.getType();
-        return nodeType.equals("comment")
-                || nodeType.equals("line_comment")
-                || nodeType.equals("block_comment")
-                || nodeType.equals("doc_comment")
-                || nodeType.equals("documentation_comment");
+        return nodeType.equals(CommonTreeSitterNodeTypes.COMMENT)
+                || nodeType.equals(CommonTreeSitterNodeTypes.LINE_COMMENT)
+                || nodeType.equals(CommonTreeSitterNodeTypes.BLOCK_COMMENT)
+                || nodeType.equals(CommonTreeSitterNodeTypes.DOC_COMMENT)
+                || nodeType.equals(CommonTreeSitterNodeTypes.DOCUMENTATION_COMMENT);
     }
 
     /**
@@ -3867,8 +3909,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         }
         // Common whitespace node types in Tree-Sitter grammars
         String nodeType = node.getType();
-        return nodeType.equals("whitespace")
-                || nodeType.equals("newline")
+        return nodeType.equals(CommonTreeSitterNodeTypes.WHITESPACE)
+                || nodeType.equals(CommonTreeSitterNodeTypes.NEWLINE)
                 || nodeType.equals("\n")
                 || nodeType.equals(" ");
     }

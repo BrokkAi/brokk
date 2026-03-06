@@ -606,6 +606,9 @@ public interface IAnalyzer {
 
     /**
      * Get skeletons for all top-level declarations in a file.
+     * <p>
+     * Note: The returned map contains only top-level {@link CodeUnit}s as keys. To get a skeleton
+     * for a nested member, use {@link #getSkeleton(CodeUnit)} directly on the desired unit.
      *
      * @param file the file to get skeletons for
      * @return map of code units to their skeletons

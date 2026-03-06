@@ -466,11 +466,23 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
             SourceContent sourceContent,
             String exportPrefix,
             String signatureText,
+            String simpleName,
             String baseIndent,
             ProjectFile file) {
-        String fullSignature = (exportPrefix.stripTrailing() + " " + signatureText.strip()).strip();
+        String nodeType = fieldNode.getType();
 
-        // Remove trailing semicolons
+        // If fieldNode is a variable_declarator, we want to render just that declarator
+        // prefixed by the export/declaration keyword found in exportPrefix.
+        if (VARIABLE_DECLARATOR.equals(nodeType)) {
+            return baseIndent
+                    + (exportPrefix.stripTrailing() + " "
+                                    + sourceContent.substringFrom(fieldNode).strip())
+                            .strip();
+        }
+
+        var fullSignature = (exportPrefix.stripTrailing() + " " + signatureText.strip()).strip();
+
+        // TypeScript field signatures in skeletons look better without trailing semicolons.
         fullSignature = TRAILING_SEMICOLON.matcher(fullSignature).replaceAll("");
 
         // Special handling for enum members - add comma instead of semicolon

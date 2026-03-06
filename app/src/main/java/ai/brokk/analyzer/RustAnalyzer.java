@@ -424,9 +424,19 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
             SourceContent sourceContent,
             String exportPrefix,
             String signatureText,
+            String simpleName,
             String baseIndent,
             ProjectFile file) {
-        String fullSignature = (exportPrefix.stripTrailing() + " " + signatureText.strip()).strip();
+        String sig = signatureText.strip();
+        String pref = exportPrefix.strip();
+
+        String fullSignature;
+        if (!pref.isEmpty() && sig.startsWith(pref)) {
+            fullSignature = sig;
+        } else {
+            fullSignature = (exportPrefix.stripTrailing() + " " + sig).strip();
+        }
+
         // Rust fields like "pub x: i32," and "const ORIGIN: Point = ..." should not have semicolons added in skeleton
         // format
         return baseIndent + fullSignature;
@@ -439,7 +449,7 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected Set<String> getLeadingMetadataNodeTypes() {
-        return Set.of("attribute_item", "inner_attribute");
+        return Set.of(ATTRIBUTE_ITEM, INNER_ATTRIBUTE);
     }
 
     @Override

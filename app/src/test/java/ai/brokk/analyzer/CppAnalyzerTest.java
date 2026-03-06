@@ -1,6 +1,7 @@
 package ai.brokk.analyzer;
 
 import static ai.brokk.testutil.AssertionHelperUtil.assertCodeContains;
+import static ai.brokk.testutil.AssertionHelperUtil.assertCodeEquals;
 import static ai.brokk.testutil.UsageFinderTestUtil.fileNamesFromHits;
 import static ai.brokk.testutil.UsageFinderTestUtil.newFinder;
 import static org.junit.jupiter.api.Assertions.*;
@@ -1820,6 +1821,126 @@ public class CppAnalyzerTest {
             assertTrue(
                     barSignatures.stream().anyMatch(s -> s.contains("std::map<int,int>")),
                     "Missing signature with std::map<int,int>");
+        }
+    }
+
+    @Test
+    public void testMultiAssignmentFieldSignatures() throws IOException {
+        String content =
+                """
+                struct MultiField {
+                    int x = 1, y = 2;
+                    static inline double a = 0.5, b = 1.5;
+                };
+                """;
+
+        try (var project =
+                InlineTestProjectCreator.code(content, "multifield.hpp").build()) {
+            TreeSitterAnalyzer analyzer = AnalyzerCreator.createTreeSitterAnalyzer(project);
+            ProjectFile projectFile = project.getAllFiles().iterator().next();
+
+            var declarations = analyzer.getDeclarations(projectFile).stream()
+                    .filter(CodeUnit::isField)
+                    .toList();
+
+            assertEquals(4, declarations.size(), "Should find 4 field declarations");
+
+            var xCu = declarations.stream()
+                    .filter(cu -> cu.shortName().endsWith("x"))
+                    .findFirst()
+                    .orElseThrow();
+            var yCu = declarations.stream()
+                    .filter(cu -> cu.shortName().endsWith("y"))
+                    .findFirst()
+                    .orElseThrow();
+            var aCu = declarations.stream()
+                    .filter(cu -> cu.shortName().endsWith("a"))
+                    .findFirst()
+                    .orElseThrow();
+            var bCu = declarations.stream()
+                    .filter(cu -> cu.shortName().endsWith("b"))
+                    .findFirst()
+                    .orElseThrow();
+
+            // Skeletons for nested members must be fetched directly via getSkeleton(CodeUnit)
+            String xSkel = analyzer.getSkeleton(xCu).orElse("");
+            String ySkel = analyzer.getSkeleton(yCu).orElse("");
+            String aSkel = analyzer.getSkeleton(aCu).orElse("");
+            String bSkel = analyzer.getSkeleton(bCu).orElse("");
+
+            // Verify x and y have separate skeletons and don't include each other's assignments
+            assertCodeEquals("int x = 1;", xSkel);
+            assertCodeEquals("int y = 2;", ySkel);
+
+            // Verify static inline qualifiers are preserved for both a and b
+            assertCodeEquals("static inline double a = 0.5;", aSkel);
+            assertCodeEquals("static inline double b = 1.5;", bSkel);
+        }
+    }
+
+    @Test
+    public void testInitializerAssociationBeyondNumberLiterals() throws IOException {
+        String content =
+                """
+                struct MultiField {
+                    int x = f(1, 2), y = g();
+                    int* p = &x, q = nullptr;
+                    int a, b = 2;
+                };
+                """;
+
+        try (var project =
+                InlineTestProjectCreator.code(content, "initializer_assoc.hpp").build()) {
+            TreeSitterAnalyzer analyzer = AnalyzerCreator.createTreeSitterAnalyzer(project);
+            ProjectFile projectFile = project.getAllFiles().iterator().next();
+
+            var declarations = analyzer.getDeclarations(projectFile).stream()
+                    .filter(CodeUnit::isField)
+                    .toList();
+
+            var xCu = declarations.stream()
+                    .filter(cu -> cu.shortName().endsWith("x"))
+                    .findFirst()
+                    .orElseThrow();
+            var yCu = declarations.stream()
+                    .filter(cu -> cu.shortName().endsWith("y"))
+                    .findFirst()
+                    .orElseThrow();
+            var pCu = declarations.stream()
+                    .filter(cu -> cu.shortName().endsWith("p"))
+                    .findFirst()
+                    .orElseThrow();
+            var qCu = declarations.stream()
+                    .filter(cu -> cu.shortName().endsWith("q"))
+                    .findFirst()
+                    .orElseThrow();
+            var aCu = declarations.stream()
+                    .filter(cu -> cu.shortName().endsWith("a"))
+                    .findFirst()
+                    .orElseThrow();
+            var bCu = declarations.stream()
+                    .filter(cu -> cu.shortName().endsWith("b"))
+                    .findFirst()
+                    .orElseThrow();
+
+            String xSkel = analyzer.getSkeleton(xCu).orElse("");
+            String ySkel = analyzer.getSkeleton(yCu).orElse("");
+            String pSkel = analyzer.getSkeleton(pCu).orElse("");
+            String qSkel = analyzer.getSkeleton(qCu).orElse("");
+            String aSkel = analyzer.getSkeleton(aCu).orElse("");
+            String bSkel = analyzer.getSkeleton(bCu).orElse("");
+
+            // 1) int x = f(1, 2), y = g();
+            assertCodeEquals("int x = f(1, 2);", xSkel);
+            assertCodeEquals("int y = g();", ySkel);
+
+            // 2) int* p = &x, q = nullptr;
+            assertCodeEquals("int* p = &x;", pSkel);
+            assertCodeEquals("int* q = nullptr;", qSkel);
+
+            // 3) int a, b = 2;
+            assertCodeEquals("int a;", aSkel);
+            assertCodeEquals("int b = 2;", bSkel);
         }
     }
 

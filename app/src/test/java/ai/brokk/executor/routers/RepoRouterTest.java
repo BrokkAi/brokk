@@ -36,7 +36,7 @@ class RepoRouterTest {
             var testFile = projectRoot.resolve("initial.txt");
             Files.writeString(testFile, "initial content");
             git.add().addFilepattern("initial.txt").call();
-            git.commit().setMessage("Initial commit").call();
+            git.commit().setMessage("Initial commit").setSign(false).call();
 
             if (modifyAfterCommit) {
                 Files.writeString(testFile, "modified content");

@@ -10,9 +10,11 @@ import ai.brokk.AnalyzerUtil;
 import ai.brokk.IContextManager;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
+import ai.brokk.testutil.InlineTestProjectCreator;
 import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestContextManager;
 import ai.brokk.testutil.TestProject;
+import java.io.IOException;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -392,5 +394,61 @@ public final class CSharpAnalyzerTest {
         assertTrue(
                 classUsageHits.size() >= 2,
                 "Expected at least 2 different usage patterns, found: " + classUsageHits.size());
+    }
+
+    @Test
+    void testMultiAssignmentFieldSignatures() throws IOException {
+        String code =
+                """
+                public class MultiField {
+                    public int x = 1, y = 2;
+                }
+                """;
+        try (var testProject =
+                InlineTestProjectCreator.code(code, "MultiField.cs").build()) {
+            CSharpAnalyzer analyzer = new CSharpAnalyzer(testProject);
+
+            var xDefs = analyzer.getDefinitions("MultiField.x");
+            assertEquals(1, xDefs.size());
+            var xCu = xDefs.iterator().next();
+            var xSkeleton = analyzer.getSkeleton(xCu);
+            assertTrue(xSkeleton.isPresent());
+            assertCodeEquals("public int x = 1;", xSkeleton.get());
+
+            var yDefs = analyzer.getDefinitions("MultiField.y");
+            assertEquals(1, yDefs.size());
+            var yCu = yDefs.iterator().next();
+            var ySkeleton = analyzer.getSkeleton(yCu);
+            assertTrue(ySkeleton.isPresent());
+            assertCodeEquals("public int y = 2;", ySkeleton.get());
+        }
+    }
+
+    @Test
+    void testMultiAssignmentWithAttributes() throws IOException {
+        String code =
+                """
+                public class C {
+                  [NonSerialized] public int x = 1, y = 2;
+                }
+                """;
+        try (var testProject = InlineTestProjectCreator.code(code, "C.cs").build()) {
+            CSharpAnalyzer analyzer = new CSharpAnalyzer(testProject);
+
+            var xDefs = analyzer.getDefinitions("C.x");
+            assertEquals(1, xDefs.size());
+            var xCu = xDefs.iterator().next();
+            var xSkeleton = analyzer.getSkeleton(xCu);
+            assertTrue(xSkeleton.isPresent());
+            // Should contain 'public' and NOT contain the attribute
+            assertCodeEquals("public int x = 1;", xSkeleton.get());
+
+            var yDefs = analyzer.getDefinitions("C.y");
+            assertEquals(1, yDefs.size());
+            var yCu = yDefs.iterator().next();
+            var ySkeleton = analyzer.getSkeleton(yCu);
+            assertTrue(ySkeleton.isPresent());
+            assertCodeEquals("public int y = 2;", ySkeleton.get());
+        }
     }
 }

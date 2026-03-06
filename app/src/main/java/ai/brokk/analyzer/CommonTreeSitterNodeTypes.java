@@ -50,5 +50,15 @@ public final class CommonTreeSitterNodeTypes {
     /** Export statement (JavaScript/TypeScript) */
     public static final String EXPORT_STATEMENT = "export_statement";
 
+    // ===== COMMENTS / WHITESPACE =====
+    public static final String COMMENT = "comment";
+    public static final String LINE_COMMENT = "line_comment";
+    public static final String BLOCK_COMMENT = "block_comment";
+    public static final String DOC_COMMENT = "doc_comment";
+    public static final String DOCUMENTATION_COMMENT = "documentation_comment";
+
+    public static final String WHITESPACE = "whitespace";
+    public static final String NEWLINE = "newline";
+
     private CommonTreeSitterNodeTypes() {}
 }

@@ -1924,4 +1924,32 @@ public class JavaAnalyzerTest {
             assertEquals("param", result.get().name());
         }
     }
+
+    @Test
+    public void testMultiAssignmentFieldSignatures() throws IOException {
+        String code =
+                """
+                public class MultiField {
+                    public int x = 1, y = 2;
+                }
+                """;
+        try (var testProject =
+                InlineTestProjectCreator.code(code, "MultiField.java").build()) {
+            JavaAnalyzer analyzer = new JavaAnalyzer(testProject);
+
+            var xDefs = analyzer.getDefinitions("MultiField.x");
+            assertEquals(1, xDefs.size());
+            var xCu = xDefs.iterator().next();
+            var xSkeleton = analyzer.getSkeleton(xCu);
+            assertTrue(xSkeleton.isPresent());
+            assertCodeEquals("public int x = 1;", xSkeleton.get());
+
+            var yDefs = analyzer.getDefinitions("MultiField.y");
+            assertEquals(1, yDefs.size());
+            var yCu = yDefs.iterator().next();
+            var ySkeleton = analyzer.getSkeleton(yCu);
+            assertTrue(ySkeleton.isPresent());
+            assertCodeEquals("public int y = 2;", ySkeleton.get());
+        }
+    }
 }
