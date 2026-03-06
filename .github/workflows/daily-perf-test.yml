@@ -62,20 +62,6 @@ jobs:
             echo "BASE_SHA_SHORT=none" >> $GITHUB_ENV
           fi
 
-      - name: Set up JBR 21
-        if: steps.check_commits.outputs.should_skip == 'false'
-        uses: jansorg/github-actions-jbr-setup/setup_jbr21@main
-
-      - name: Set up Python
-        if: always() && steps.resolve_commits.outputs.should_skip != 'true'
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.x'
-
-      - name: Setup Gradle
-        if: always() && steps.resolve_commits.outputs.should_skip != 'true'
-        uses: gradle/actions/setup-gradle@v4
-
       - name: Resolve HEAD and BASE commits
         id: resolve_commits
         run: |
@@ -100,6 +86,20 @@ jobs:
             echo "Compilable commits resolved: HEAD($RESOLVED_HEAD_SHA) vs BASE($RESOLVED_BASE_SHA)"
             echo "should_skip=false" >> $GITHUB_OUTPUT
           fi
+
+      - name: Set up JBR 21
+        if: steps.resolve_commits.outputs.should_skip == 'false'
+        uses: jansorg/github-actions-jbr-setup/setup_jbr21@main
+
+      - name: Set up Python
+        if: steps.resolve_commits.outputs.should_skip == 'false'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Setup Gradle
+        if: steps.resolve_commits.outputs.should_skip == 'false'
+        uses: gradle/actions/setup-gradle@v4
 
       - name: Setup test projects
         if: steps.resolve_commits.outputs.should_skip == 'false'
