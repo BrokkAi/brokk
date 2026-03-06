@@ -724,7 +724,6 @@ class ChatPanel(Vertical):
 
     def compose(self) -> ComposeResult:
         yield RichLog(highlight=True, markup=True, id="chat-log")
-        yield Button("Scroll to Bottom", id="scroll-to-bottom", classes="hidden")
         yield TokenBar(id="chat-token-bar", classes="hidden")
         yield StatusLine(id="status-line")
         with Vertical(id="chat-input-container"):
@@ -734,6 +733,7 @@ class ChatPanel(Vertical):
         yield ModeSuggestions(id="mode-suggestions")
         yield ReasoningSuggestions(id="reasoning-suggestions")
         with Horizontal(id="chat-help-row"):
+            yield Button("Scroll to Bottom", id="scroll-to-bottom", classes="hidden")
             yield LoadingIndicator(id="help-spinner", classes="hidden")
             yield Static(id="help-elapsed", classes="hidden")
             yield Static(
