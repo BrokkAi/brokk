@@ -1128,7 +1128,9 @@ async def test_refresh_log_preserves_scroll_state():
         await pilot.pause()
 
         if log.max_scroll_y > 0:
-            log.scroll_to(y=0, animate=False)
+            # Scroll to a middle position
+            mid_y = log.max_scroll_y // 2
+            log.scroll_to(y=mid_y, animate=False)
             await pilot.pause()
             panel._sync_autoscroll()
             assert log.auto_scroll is False
@@ -1143,6 +1145,13 @@ async def test_refresh_log_preserves_scroll_state():
             )
             assert not scroll_btn.has_class("hidden"), (
                 "scroll-to-bottom button should remain visible after refresh_log"
+            )
+            # Scroll position should be restored (clamped to new max)
+            assert log.scroll_y <= log.max_scroll_y, (
+                "scroll_y should not exceed max_scroll_y after refresh_log"
+            )
+            assert log.scroll_y > 0, (
+                "scroll_y should be restored near prior position, not reset to 0"
             )
 
 

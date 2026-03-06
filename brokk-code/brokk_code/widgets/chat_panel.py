@@ -1213,6 +1213,8 @@ class ChatPanel(Vertical):
         """Clears the RichLog and re-renders history based on the verbosity filter."""
         self.show_verbose = show_verbose
         log = self.query_one("#chat-log", RichLog)
+        was_following = log.auto_scroll
+        prior_scroll_y = log.scroll_y
         log.clear()
 
         for entry in self._message_history:
@@ -1221,6 +1223,10 @@ class ChatPanel(Vertical):
                 content=entry["content"],
                 **{k: v for k, v in entry.items() if k not in ("kind", "content")},
             )
+
+        if not was_following:
+            log.auto_scroll = False
+            self.call_later(lambda: log.scroll_to(y=min(prior_scroll_y, log.max_scroll_y), animate=False))
         self.call_later(self._sync_autoscroll)
 
     def add_markdown(self, content: str) -> None:
