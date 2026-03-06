@@ -7,7 +7,9 @@ import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.project.IProject;
 import java.awt.BorderLayout;
+import java.awt.Dimension;
 import java.awt.FlowLayout;
+import java.awt.Insets;
 import java.util.ArrayList;
 import java.util.List;
 import javax.swing.BorderFactory;
@@ -44,18 +46,31 @@ public class JavaAnalyzerSettingsPanel extends AnalyzerSettingsPanel {
         }
 
         table = new JTable(tableModel);
+        table.setName("JavaSourceRootsTable");
         table.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
         table.setFillsViewportHeight(true);
         table.setRowHeight(24);
 
-        contentPanel.add(new JScrollPane(table), BorderLayout.CENTER);
+        JScrollPane scrollPane = new JScrollPane(table);
+        scrollPane.setName("JavaSourceRootsScrollPane");
+        // Reduce default preferred height to roughly half (e.g. 80-100px) but keep it responsive
+        scrollPane.setPreferredSize(new Dimension(400, 80));
+        contentPanel.add(scrollPane, BorderLayout.CENTER);
 
         JPanel toolbar = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
         toolbar.setBorder(BorderFactory.createEmptyBorder(5, 0, 0, 0));
 
+        Dimension compactBtnSize = new Dimension(26, 26);
+        Insets compactMargin = new Insets(2, 2, 2, 2);
+
         MaterialButton addButton = new MaterialButton();
+        addButton.setName("AddSourceRootButton");
         addButton.setIcon(Icons.ADD);
         addButton.setToolTipText("Add Source Root");
+        addButton.setPreferredSize(compactBtnSize);
+        addButton.setMinimumSize(compactBtnSize);
+        addButton.setMaximumSize(compactBtnSize);
+        addButton.setMargin(compactMargin);
         addButton.addActionListener(e -> {
             tableModel.addRow(new Object[] {""});
             int row = tableModel.getRowCount() - 1;
@@ -64,8 +79,13 @@ public class JavaAnalyzerSettingsPanel extends AnalyzerSettingsPanel {
         });
 
         MaterialButton removeButton = new MaterialButton();
+        removeButton.setName("RemoveSourceRootButton");
         removeButton.setIcon(Icons.REMOVE);
         removeButton.setToolTipText("Remove Selected");
+        removeButton.setPreferredSize(compactBtnSize);
+        removeButton.setMinimumSize(compactBtnSize);
+        removeButton.setMaximumSize(compactBtnSize);
+        removeButton.setMargin(compactMargin);
         removeButton.addActionListener(e -> {
             int[] selectedRows = table.getSelectedRows();
             for (int i = selectedRows.length - 1; i >= 0; i--) {
@@ -73,22 +93,20 @@ public class JavaAnalyzerSettingsPanel extends AnalyzerSettingsPanel {
             }
         });
 
-        MaterialButton autoDetectButton = new MaterialButton("Auto-detect");
-        autoDetectButton.setIcon(Icons.SEARCH);
-        autoDetectButton.addActionListener(e -> {
+        MaterialButton resetButton = new MaterialButton("Reset");
+        resetButton.setName("ResetSourceRootsButton");
+        resetButton.setToolTipText("Reset to detected source roots");
+        resetButton.addActionListener(e -> {
             List<String> detected = SourceRootScanner.scan(project, language);
-            List<String> current = getRootsFromTable();
+            tableModel.setRowCount(0);
             for (String path : detected) {
-                if (!current.contains(path)) {
-                    tableModel.addRow(new Object[] {path});
-                    current.add(path);
-                }
+                tableModel.addRow(new Object[] {path});
             }
         });
 
         toolbar.add(addButton);
         toolbar.add(removeButton);
-        toolbar.add(autoDetectButton);
+        toolbar.add(resetButton);
 
         contentPanel.add(toolbar, BorderLayout.SOUTH);
         add(contentPanel, BorderLayout.CENTER);
