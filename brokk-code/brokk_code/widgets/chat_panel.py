@@ -11,7 +11,7 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.message import Message
-from textual.widgets import ListItem, ListView, LoadingIndicator, RichLog, Static, TextArea
+from textual.widgets import Button, ListItem, ListView, LoadingIndicator, RichLog, Static, TextArea
 
 from brokk_code.widgets.status_line import StatusLine
 from brokk_code.widgets.token_bar import TokenBar
@@ -724,6 +724,7 @@ class ChatPanel(Vertical):
 
     def compose(self) -> ComposeResult:
         yield RichLog(highlight=True, markup=True, id="chat-log")
+        yield Button("Scroll to Bottom", id="scroll-to-bottom", classes="hidden")
         yield TokenBar(id="chat-token-bar", classes="hidden")
         yield StatusLine(id="status-line")
         with Vertical(id="chat-input-container"):
@@ -754,18 +755,25 @@ class ChatPanel(Vertical):
         This is called after user scroll events. It only DISABLES auto_scroll
         when the user scrolls away from the bottom. Re-enabling happens when
         the user scrolls back to the bottom OR submits a new message.
+
+        Also toggles visibility of the scroll-to-bottom button.
         """
         try:
             log = self.query_one("#chat-log", RichLog)
+            scroll_btn = self.query_one("#scroll-to-bottom", Button)
             # Only act when there's actually scrollable content
             if log.max_scroll_y > 0:
                 # Use is_vertical_scroll_end which properly accounts for scroll position
                 at_bottom = log.is_vertical_scroll_end
                 if at_bottom:
                     log.auto_scroll = True
+                    scroll_btn.set_class(True, "hidden")
                 else:
                     log.auto_scroll = False
-            # If max_scroll_y is 0, content fits in view - don't change auto_scroll
+                    scroll_btn.set_class(False, "hidden")
+            else:
+                # Content fits in view - hide button
+                scroll_btn.set_class(True, "hidden")
         except Exception:
             pass
 
@@ -877,6 +885,17 @@ class ChatPanel(Vertical):
             log.scroll_end(animate=False)
         except Exception:
             pass
+        try:
+            scroll_btn = self.query_one("#scroll-to-bottom", Button)
+            scroll_btn.set_class(True, "hidden")
+        except Exception:
+            pass
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Handle button press events."""
+        if event.button.id == "scroll-to-bottom":
+            self._reset_to_follow_bottom()
+            event.stop()
 
     def open_mode_menu(self, modes: List[str], current: str) -> None:
         """Opens the lightweight mode selection popup."""

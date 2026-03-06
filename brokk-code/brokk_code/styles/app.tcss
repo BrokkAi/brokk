@@ -102,6 +102,26 @@ ChatPanel {
     background: $surface;
 }
 
+#scroll-to-bottom {
+    dock: bottom;
+    width: auto;
+    min-width: 20;
+    margin: 0 2 1 2;
+    background: $primary;
+    color: $text;
+    border: none;
+    text-style: bold;
+    content-align: center middle;
+}
+
+#scroll-to-bottom:hover {
+    background: $primary-lighten-1;
+}
+
+#scroll-to-bottom:focus {
+    background: $primary-lighten-1;
+}
+
 
 
 #help-elapsed {

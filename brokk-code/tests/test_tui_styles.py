@@ -308,6 +308,33 @@ def test_help_menu_layout_contract():
     assert "#notification-panel" not in css_content
 
 
+def test_scroll_to_bottom_button_styling():
+    """
+    Regression test to ensure #scroll-to-bottom button has proper styling
+    and the .hidden class continues to work for it.
+    """
+    css_content = importlib.resources.files("brokk_code.styles").joinpath("app.tcss").read_text()
+
+    # Check that #scroll-to-bottom rule exists
+    scroll_btn_match = re.search(r"#scroll-to-bottom\s*\{([^}]*)\}", css_content)
+    assert scroll_btn_match, "Could not find #scroll-to-bottom rule in app.tcss"
+    scroll_btn_body = scroll_btn_match.group(1)
+
+    # Verify dock: bottom for overlay positioning
+    assert "dock: bottom" in scroll_btn_body, (
+        "#scroll-to-bottom should use 'dock: bottom' for positioning"
+    )
+
+    # Verify it has width styling
+    assert "width:" in scroll_btn_body, "#scroll-to-bottom should have width defined"
+
+    # Verify .hidden class still exists and hides elements
+    hidden_match = re.search(r"\.hidden\s*\{([^}]*)\}", css_content)
+    assert hidden_match, "Could not find .hidden rule in app.tcss"
+    hidden_body = hidden_match.group(1)
+    assert "display: none" in hidden_body, ".hidden should set display: none"
+
+
 def test_api_key_modal_dimensions_regression():
     """
     Ensure the API key modal uses full-screen dimensions and does not revert to a small fixed size.

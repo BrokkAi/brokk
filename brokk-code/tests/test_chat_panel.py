@@ -955,6 +955,112 @@ async def test_autoscroll_reset_on_submission():
 
 
 @pytest.mark.asyncio
+async def test_scroll_to_bottom_button_hidden_by_default():
+    """Verify the scroll-to-bottom button is hidden when composed."""
+    from textual.app import App, ComposeResult
+    from textual.widgets import Button
+
+    class TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield ChatPanel(id="chat")
+
+    app = TestApp()
+    async with app.run_test():
+        panel = app.query_one("#chat", ChatPanel)
+        scroll_btn = panel.query_one("#scroll-to-bottom", Button)
+        assert scroll_btn.has_class("hidden")
+
+
+@pytest.mark.asyncio
+async def test_scroll_to_bottom_button_visibility_on_scroll():
+    """
+    Verify the scroll-to-bottom button becomes visible when scrolled up
+    and hidden again when at the bottom.
+    """
+    from textual.app import App, ComposeResult
+    from textual.widgets import Button, RichLog
+
+    class TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield ChatPanel(id="chat")
+
+    app = TestApp()
+    async with app.run_test() as pilot:
+        panel = app.query_one("#chat", ChatPanel)
+        log = panel.query_one("#chat-log", RichLog)
+        scroll_btn = panel.query_one("#scroll-to-bottom", Button)
+
+        # Initially hidden
+        assert scroll_btn.has_class("hidden")
+
+        # Add enough content to make scrollable
+        for i in range(50):
+            panel.add_system_message(f"Message {i}")
+        await pilot.pause()
+
+        # Scroll up if there's scrollable content
+        if log.max_scroll_y > 0:
+            log.scroll_to(y=0, animate=False)
+            await pilot.pause()
+            panel._sync_autoscroll()
+
+            # Button should now be visible
+            assert not scroll_btn.has_class("hidden")
+
+            # Scroll back to bottom
+            log.scroll_end(animate=False)
+            await pilot.pause()
+            panel._sync_autoscroll()
+
+            # Button should be hidden again
+            assert scroll_btn.has_class("hidden")
+
+
+@pytest.mark.asyncio
+async def test_scroll_to_bottom_button_click():
+    """
+    Verify clicking the scroll-to-bottom button scrolls to end
+    and re-enables auto_scroll.
+    """
+    from textual.app import App, ComposeResult
+    from textual.widgets import Button, RichLog
+
+    class TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield ChatPanel(id="chat")
+
+    app = TestApp()
+    async with app.run_test() as pilot:
+        panel = app.query_one("#chat", ChatPanel)
+        log = panel.query_one("#chat-log", RichLog)
+        scroll_btn = panel.query_one("#scroll-to-bottom", Button)
+
+        # Add enough content to make scrollable
+        for i in range(50):
+            panel.add_system_message(f"Message {i}")
+        await pilot.pause()
+
+        # Scroll up and disable auto_scroll
+        if log.max_scroll_y > 0:
+            log.scroll_to(y=0, animate=False)
+            log.auto_scroll = False
+            await pilot.pause()
+            panel._sync_autoscroll()
+
+            assert not scroll_btn.has_class("hidden")
+            assert log.auto_scroll is False
+
+            # Click the button
+            scroll_btn.press()
+            await pilot.pause()
+
+            # Should be back at bottom with auto_scroll enabled
+            assert log.auto_scroll is True
+            assert log.is_vertical_scroll_end
+            assert scroll_btn.has_class("hidden")
+
+
+@pytest.mark.asyncio
 async def test_sync_autoscroll_respects_scroll_position():
     """
     Verify that _sync_autoscroll correctly updates auto_scroll based on
