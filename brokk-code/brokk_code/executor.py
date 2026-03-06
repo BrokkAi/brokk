@@ -586,6 +586,50 @@ class ExecutorManager:
         except httpx.HTTPError as e:
             raise ExecutorError(f"Failed to import session: {e}")
 
+    async def submit_pr_review_job(
+        self,
+        planner_model: str,
+        github_token: str,
+        owner: str,
+        repo: str,
+        pr_number: int,
+    ) -> str:
+        """Submits a PR review job to the executor.
+
+        Args:
+            planner_model: The LLM model to use for the review.
+            github_token: GitHub API token for accessing the PR.
+            owner: GitHub repository owner.
+            repo: GitHub repository name.
+            pr_number: The pull request number to review.
+
+        Returns:
+            The jobId of the created job.
+
+        Raises:
+            ExecutorError: If the executor is not started or the request fails.
+        """
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+
+        payload = {
+            "plannerModel": planner_model,
+            "githubToken": github_token,
+            "owner": owner,
+            "repo": repo,
+            "prNumber": pr_number,
+        }
+
+        headers = {"Idempotency-Key": str(uuid.uuid4())}
+
+        try:
+            resp = await self._http_client.post("/v1/jobs/pr-review", json=payload, headers=headers)
+            resp.raise_for_status()
+            return resp.json()["jobId"]
+        except httpx.HTTPError as e:
+            status = getattr(getattr(e, "response", None), "status_code", "N/A")
+            raise ExecutorError(f"Failed POST /v1/jobs/pr-review (status={status}): {e}") from e
+
     async def submit_job(
         self,
         task_input: str,
