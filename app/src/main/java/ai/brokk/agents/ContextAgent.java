@@ -3,12 +3,7 @@ package ai.brokk.agents;
 import static java.lang.Math.max;
 import static java.lang.Math.min;
 
-import ai.brokk.AnalyzerUtil;
-import ai.brokk.IConsoleIO;
-import ai.brokk.IContextManager;
-import ai.brokk.Llm;
-import ai.brokk.LlmOutputMeta;
-import ai.brokk.TaskResult;
+import ai.brokk.*;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
@@ -302,8 +297,8 @@ public class ContextAgent {
         // Partition candidates into non-test (primary) and test files.
         // We treat tests differently to optimize token budget: primary files get full evaluation,
         // while tests are filtered by filename and included as skeletons.
-        var partitionedCandidates = candidates.stream()
-                .collect(Collectors.partitioningBy(f -> ai.brokk.ContextManager.isTestFile(f, analyzer)));
+        var partitionedCandidates =
+                candidates.stream().collect(Collectors.partitioningBy(f -> ContextManager.isTestFile(f, analyzer)));
         List<ProjectFile> primaryCandidates = partitionedCandidates.get(false);
         List<ProjectFile> testCandidates = partitionedCandidates.get(true);
 
@@ -950,6 +945,7 @@ public class ContextAgent {
                 You are given a goal, the current workspace contents (if any), and an <available_files> list.
 
                 Interpreting <available_files>:
+                - For this stage, <available_files> contains primary non-test files only.
                 - Analyzed source files are represented as symbol/class summaries (APIs/skeletons), not full file text.
                 - Unanalyzed files may be represented as:
                   - Full text (for small files), or
@@ -994,14 +990,12 @@ public class ContextAgent {
                 - Think about how you would solve the <goal>, and identify additional classes and files relevant to your plan.
                   For example, if the plan involves instantiating class Foo, or calling a method of class Bar,
                   then Foo and Bar are relevant classes, and their source files may be relevant files.
-                - Identify test, spec, e2e, or integration files that verify behavior related to the goal. Note that a separate pass handles identifying relevant tests from the broader project; you should only recommend tests here if they are explicitly present in the provided <available_files> and you are confident they are relevant.
                 - It's possible that files that were previously discarded are newly relevant, but when in doubt,
                   do not recommend files that are listed in the <discarded_context> section.
                 - Compare this combined list against the items in the provided section (either summaries OR files content).
 
                 Selection rubric (important):
                 - Prefer `classesToSummarize` when you need navigational context (APIs, types, call sites) and are not confident the file will be edited.
-                - Prefer `testsToAdd` for tests/specs that clarify intended behavior or will likely need updating to verify the goal.
                 - Use `filesToAdd` for files you expect to edit or where exact implementation details are required.
                 - If a file entry is truncated/excerpted (truncated="true") and you need details that might be in the omitted portion to decide or to implement the goal correctly, you SHOULD still recommend that file in `filesToAdd`.
 
@@ -1009,7 +1003,7 @@ public class ContextAgent {
 
                 - Populate `filesToAdd` with full (relative) paths of files to edit or whose full text is necessary. Must exactly match one of the file paths provided in this message.
                 - Populate `classesToSummarize` with fully-qualified names of classes whose APIs or structure are relevant but which do not need to be edited.
-                - Populate `testsToAdd` with full (relative) paths of related test/spec/e2e/integration files that help understand or verify the goal. These will be included as skeletons only (not full file contents) to conserve token budget. Must exactly match one of the file paths provided in this message.
+                - Populate `testsToAdd`: relevant tests are usually selected in a separate pass, so prefer leaving testsToAdd empty in this stage. Only use testsToAdd if a test file is explicitly present among the selectable file entries for this request and you are confident it is relevant.
 
                 Either or all arguments may be empty. Do NOT invent or guess file paths. Only use file paths that are present in the file list provided in this message. If no file list is provided, call `recommendContext` with empty lists.
                 """;
