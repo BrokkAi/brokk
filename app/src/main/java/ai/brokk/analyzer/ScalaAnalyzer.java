@@ -231,30 +231,28 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer {
 
         String trimmedSignature = signatureText.strip();
 
-        // Prefer using the raw signature slice when this is a single-name definition.
-        // This preserves text exactly as written (including error-recovery nodes), which matters for cases like
-        // multi-line string literals.
-        //
-        // We only reconstruct from AST fields when it appears to be a multi-name pattern (e.g., "var x, y: Int = 1"),
-        // because in that case the raw slice includes sibling names.
-        int nameListEnd = trimmedSignature.indexOf(':');
-        if (nameListEnd < 0) {
-            nameListEnd = trimmedSignature.indexOf('=');
-        }
-        if (nameListEnd < 0) {
-            nameListEnd = trimmedSignature.length();
-        }
-        String preType = trimmedSignature.substring(0, nameListEnd);
-
-        boolean looksLikeMultiName = preType.contains(",");
-        if (!looksLikeMultiName && preType.contains(simpleName)) {
-            String prefix = exportPrefix.stripTrailing();
-            if (!prefix.isEmpty() && trimmedSignature.startsWith(prefix)) {
-                return baseIndent + trimmedSignature;
+        // Decide whether this is a single-name or multi-name definition based on the AST shape,
+        // not by scanning raw text for commas. This avoids brittle handling and works for:
+        //   var x, y: Int = 1
+        // where the grammar provides:
+        //   (var_definition pattern: (identifiers (identifier) (identifier)) type: ... value: ...)
+        TSNode patternNode = fieldNode.getChildByFieldName("pattern");
+        if (patternNode != null && !patternNode.isNull()) {
+            // Single-name pattern: preserve the raw slice exactly as written (important for multi-line literals and
+            // error recovery).
+            if ("identifier".equals(patternNode.getType())) {
+                String patternText = sourceContent.substringFrom(patternNode).strip();
+                if (!patternText.isEmpty() && patternText.equals(simpleName)) {
+                    String prefix = exportPrefix.stripTrailing();
+                    if (!prefix.isEmpty() && trimmedSignature.startsWith(prefix)) {
+                        return baseIndent + trimmedSignature;
+                    }
+                    return baseIndent + (prefix.isEmpty() ? trimmedSignature : (prefix + " " + trimmedSignature));
+                }
             }
-            return baseIndent + (prefix.isEmpty() ? trimmedSignature : (prefix + " " + trimmedSignature));
         }
 
+        // Multi-name pattern (or unknown pattern shape): reconstruct a per-declarator signature from AST fields.
         String keyword = VAL_DEFINITION.equals(nodeType) ? "val" : "var";
 
         StringBuilder sb = new StringBuilder();
