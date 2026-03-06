@@ -20,8 +20,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up JBR 21
-        uses: jansorg/github-actions-jbr-setup/setup_jbr21@main
+      - name: Set up Java 21 (JetBrains Runtime)
+        uses: actions/setup-java@v4
+        with:
+          distribution: jetbrains
+          java-version: '21'
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
