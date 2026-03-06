@@ -3802,11 +3802,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             return false;
         }
         String nodeType = node.getType();
-        return nodeType.equals("comment")
-                || nodeType.equals("line_comment")
-                || nodeType.equals("block_comment")
-                || nodeType.equals("doc_comment")
-                || nodeType.equals("documentation_comment");
+        return nodeType.equals(CommonTreeSitterNodeTypes.COMMENT)
+                || nodeType.equals(CommonTreeSitterNodeTypes.LINE_COMMENT)
+                || nodeType.equals(CommonTreeSitterNodeTypes.BLOCK_COMMENT)
+                || nodeType.equals(CommonTreeSitterNodeTypes.DOC_COMMENT)
+                || nodeType.equals(CommonTreeSitterNodeTypes.DOCUMENTATION_COMMENT);
     }
 
     /**
@@ -3860,8 +3860,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         }
         // Common whitespace node types in Tree-Sitter grammars
         String nodeType = node.getType();
-        return nodeType.equals("whitespace")
-                || nodeType.equals("newline")
+        return nodeType.equals(CommonTreeSitterNodeTypes.WHITESPACE)
+                || nodeType.equals(CommonTreeSitterNodeTypes.NEWLINE)
                 || nodeType.equals("\n")
                 || nodeType.equals(" ");
     }

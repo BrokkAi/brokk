@@ -983,7 +983,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
 
         // We want the actual identifier node, not an enclosing declarator like pointer_declarator.
         // Pointer/reference punctuation is handled when rendering; name matching must be done on the identifier text.
-        var fieldIdentifierTypes = Set.of("field_identifier", "identifier");
+        var fieldIdentifierTypes = Set.of(FIELD_IDENTIFIER, IDENTIFIER);
         if (fieldIdentifierTypes.contains(node.getType())) return node;
 
         for (int i = 0; i < node.getChildCount(); i++) {

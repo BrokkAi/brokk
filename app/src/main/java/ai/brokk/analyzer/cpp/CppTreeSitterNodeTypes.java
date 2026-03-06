@@ -48,6 +48,8 @@ public final class CppTreeSitterNodeTypes {
 
     // Other nodes
     public static final String ENUMERATOR = "enumerator";
+    public static final String FIELD_IDENTIFIER = "field_identifier";
+    public static final String IDENTIFIER = "identifier";
 
     public static final String IMPORT_DECLARATION = "preproc_include";
 
