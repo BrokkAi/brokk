@@ -4,11 +4,12 @@ import os
 import random
 import re
 import signal
+import subprocess
 import time
 import webbrowser
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Awaitable, Callable, Dict, List, Optional
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 
 from textual import events
 from textual.app import App, ComposeResult, ScreenStackError
@@ -33,6 +34,45 @@ from brokk_code.widgets.tasklist_panel import TaskListPanel
 from brokk_code.workspace import resolve_workspace_dir
 
 logger = logging.getLogger(__name__)
+
+_GITHUB_HTTPS_REGEX = r"^https://github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(?:\.git)?$"
+_GITHUB_SSH_REGEX = r"^git@github\.com:([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(?:\.git)?$"
+
+
+def _infer_github_repo_from_remote(workspace_dir: Path) -> Tuple[Optional[str], Optional[str]]:
+    """Infers GitHub owner and repo from the git remote 'origin' URL.
+
+    Returns (owner, repo) if successfully parsed, otherwise (None, None).
+    Supports HTTPS and SSH GitHub remote URL formats.
+    """
+    try:
+        result = subprocess.run(
+            ["git", "remote", "get-url", "origin"],
+            capture_output=True,
+            text=True,
+            timeout=10.0,
+            cwd=str(workspace_dir),
+        )
+        if result.returncode != 0:
+            return (None, None)
+
+        remote_url = result.stdout.strip()
+        if not remote_url:
+            return (None, None)
+
+        # Try HTTPS format: https://github.com/owner/repo.git
+        https_match = re.match(_GITHUB_HTTPS_REGEX, remote_url)
+        if https_match:
+            return (https_match.group(1), https_match.group(2))
+
+        # Try SSH format: git@github.com:owner/repo.git
+        ssh_match = re.match(_GITHUB_SSH_REGEX, remote_url)
+        if ssh_match:
+            return (ssh_match.group(1), ssh_match.group(2))
+
+        return (None, None)
+    except Exception:
+        return (None, None)
 
 
 class ContextModalScreen(ModalScreen[None]):
@@ -1757,6 +1797,136 @@ class BrokkApp(App):
 
         return list(dict.fromkeys(attached_fragment_ids))
 
+    def _handle_review_command(self, parts: List[str]) -> None:
+        """Handle the /review slash command.
+
+        Supported syntaxes:
+          /review <pr_number>                     - infer owner/repo from git remote
+          /review <owner> <repo> <pr_number>      - explicit owner/repo
+        """
+        chat = self._maybe_chat()
+        if not chat:
+            return
+
+        if not self._executor_ready:
+            chat.add_system_message(
+                "Executor is not ready. Cannot submit PR review.",
+                level="ERROR",
+            )
+            return
+
+        # Parse arguments
+        args = parts[1:] if len(parts) > 1 else []
+
+        if len(args) == 0:
+            chat.add_system_message(
+                "Usage: /review <pr_number> or /review <owner> <repo> <pr_number>",
+                level="WARNING",
+            )
+            return
+
+        pr_number: Optional[int] = None
+        owner: Optional[str] = None
+        repo: Optional[str] = None
+
+        if len(args) == 1:
+            # /review <pr_number> - infer owner/repo
+            try:
+                pr_number = int(args[0])
+            except ValueError:
+                chat.add_system_message(
+                    f"Invalid PR number: {args[0]}. Expected an integer.",
+                    level="ERROR",
+                )
+                return
+            owner, repo = _infer_github_repo_from_remote(self.executor.workspace_dir)
+            if not owner or not repo:
+                chat.add_system_message(
+                    "Could not infer GitHub owner/repo from git remote. "
+                    "Use: /review <owner> <repo> <pr_number>",
+                    level="ERROR",
+                )
+                return
+        elif len(args) == 3:
+            # /review <owner> <repo> <pr_number>
+            owner = args[0]
+            repo = args[1]
+            try:
+                pr_number = int(args[2])
+            except ValueError:
+                chat.add_system_message(
+                    f"Invalid PR number: {args[2]}. Expected an integer.",
+                    level="ERROR",
+                )
+                return
+        else:
+            chat.add_system_message(
+                "Usage: /review <pr_number> or /review <owner> <repo> <pr_number>",
+                level="WARNING",
+            )
+            return
+
+        # Get GitHub token from environment
+        github_token = os.environ.get("GITHUB_TOKEN", "").strip()
+        if not github_token:
+            chat.add_system_message(
+                "GITHUB_TOKEN environment variable is not set. "
+                "Please set it to submit a PR review.",
+                level="ERROR",
+            )
+            return
+
+        chat.add_system_message(f"Submitting PR review for {owner}/{repo}#{pr_number}...")
+        self.run_worker(
+            self._run_pr_review_job(
+                pr_number=pr_number,
+                github_token=github_token,
+                repo_owner=owner,
+                repo_name=repo,
+            )
+        )
+
+    async def _run_pr_review_job(
+        self,
+        pr_number: int,
+        github_token: str,
+        repo_owner: str,
+        repo_name: str,
+    ) -> None:
+        """Run a PR review job and stream events to the chat."""
+        self.current_job_cost = 0.0
+        self.job_in_progress = True
+        chat = self._maybe_chat()
+        if chat:
+            chat.set_job_running(True)
+            chat.set_response_pending()
+
+        try:
+            self.current_job_id = await self.executor.submit_pr_review_job(
+                planner_model=self.current_model,
+                github_token=github_token,
+                owner=repo_owner,
+                repo=repo_name,
+                pr_number=pr_number,
+            )
+            async for event in self.executor.stream_events(self.current_job_id):
+                self._handle_event(event)
+        except Exception as e:
+            if chat:
+                err_type = type(e).__name__
+                chat.add_system_message(
+                    f"PR review job failed ({err_type}): {e}",
+                    level="ERROR",
+                )
+            else:
+                logger.error("PR review job failed (%s): %s", type(e).__name__, e)
+        finally:
+            if chat:
+                chat.set_response_finished()
+                chat.set_job_running(False)
+            self.job_in_progress = False
+            self.current_job_id = None
+
     async def _login_openai(self) -> None:
         """Async helper to initiate OpenAI OAuth login flow."""
         chat = self._maybe_chat()
@@ -2073,6 +2243,8 @@ class BrokkApp(App):
             {"command": "/commit", "description": "Commit current changes"},
             {"command": "/pr", "description": "Create a pull request"},
             {"command": "/info", "description": "Show current configuration and status"},
+            {"command": "/help", "description": "Show help message"},
+            {"command": "/review", "description": "Submit a PR review job"},
             {"command": "/quit", "description": "Exit the application"},
             {"command": "/exit", "description": "Exit the application"},
         ]
@@ -2224,6 +2396,16 @@ class BrokkApp(App):
             if len(parts) > 1:
                 base_branch = parts[1]
             self.run_worker(self._create_pull_request(base_branch))
+        elif base == "/help":
+            commands = self.get_slash_commands()
+            # Calculate padding based on longest command
+            max_cmd_len = max(len(c["command"]) for c in commands)
+            lines = ["Available commands:"]
+            for c in commands:
+                lines.append(f"  {c['command']: <{max_cmd_len}} - {c['description']}")
+            chat.append_message("System", "\n".join(lines))
+        elif base == "/review":
+            self._handle_review_command(parts)
         elif base in ("/quit", "/exit"):
             self.action_quit()
         else:
