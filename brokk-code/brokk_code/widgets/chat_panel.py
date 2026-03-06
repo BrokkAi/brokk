@@ -774,7 +774,8 @@ class ChatPanel(Vertical):
                     log.auto_scroll = False
                     scroll_btn.set_class(False, "hidden")
             else:
-                # Content fits in view - hide button
+                # Content fits in view - restore auto_scroll and hide button
+                log.auto_scroll = True
                 scroll_btn.set_class(True, "hidden")
         except Exception:
             pass
