@@ -22,6 +22,7 @@ done
 
 START_SHA=${ARGS[0]:-HEAD}
 MAX_RETRIES=${ARGS[1]:-5}
+BUILD_CMD=${ARGS[2]:-"./gradlew compileJava"}
 
 # Record the initial state (branch or SHA) to allow returning if necessary.
 INITIAL_STATE=$(git rev-parse --abbrev-ref HEAD)
@@ -47,10 +48,9 @@ while [ "$RETRIES_LEFT" -ge 0 ]; do
     echo "Checking out $CURRENT_SHA..." >&2
     git checkout -q "$CURRENT_SHA"
 
-    echo "Running ./gradlew compileJava..." >&2
-    # Use --no-daemon to ensure clean state in CI environments if needed, 
-    # but standard ./gradlew is usually fine.
-    if ./gradlew compileJava; then
+    echo "Running $BUILD_CMD..." >&2
+    # Use eval to allow for commands with arguments passed as a single string
+    if eval "$BUILD_CMD"; then
         echo "Successfully compiled at $CURRENT_SHA" >&2
         # Print the successful SHA to stdout
         echo "$CURRENT_SHA"
