@@ -1929,7 +1929,6 @@ class BrokkApp(App):
             {"command": "/sessions", "description": "List and switch between sessions"},
             {"command": "/commit", "description": "Commit current changes"},
             {"command": "/info", "description": "Show current configuration and status"},
-            {"command": "/help", "description": "Show help message"},
             {"command": "/quit", "description": "Exit the application"},
             {"command": "/exit", "description": "Exit the application"},
         ]
@@ -2067,18 +2066,10 @@ class BrokkApp(App):
             self.run_worker(self._commit_changes(commit_message))
         elif base == "/sessions":
             self.run_worker(self._show_sessions())
-        elif base == "/help":
-            commands = self.get_slash_commands()
-            # Calculate padding based on longest command
-            max_cmd_len = max(len(c["command"]) for c in commands)
-            lines = ["Available commands:"]
-            for c in commands:
-                lines.append(f"  {c['command']: <{max_cmd_len}} - {c['description']}")
-            chat.append_message("System", "\n".join(lines))
         elif base in ("/quit", "/exit"):
             self.action_quit()
         else:
-            chat.append_message("System", f"Unknown command: {base}. Type /help for assistance.")
+            chat.append_message("System", f"Unknown command: {base}.")
 
     async def action_select_model(self) -> None:
         chat = self._maybe_chat()

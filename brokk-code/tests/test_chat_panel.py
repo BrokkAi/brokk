@@ -374,8 +374,7 @@ async def test_slash_command_catalog_stability():
     # Verify key commands exist
     cmds_only = {c["command"] for c in commands}
     assert "/task" in cmds_only
-    assert "/help" in cmds_only
-    assert "/ask" not in cmds_only
+    assert "/help" not in cmds_only
     assert "/mode" not in cmds_only
 
 
@@ -391,7 +390,6 @@ async def test_slash_autocomplete_filtering():
             return [
                 {"command": "/api-key", "description": "d"},
                 {"command": "/autocommit", "description": "d"},
-                {"command": "/help", "description": "d"},
             ]
 
         def compose(self) -> ComposeResult:
