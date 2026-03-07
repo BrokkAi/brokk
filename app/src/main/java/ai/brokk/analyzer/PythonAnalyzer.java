@@ -433,7 +433,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
                     }
                     return false;
                 },
-                Boolean.FALSE);
+                false);
     }
 
     private boolean isPytestMark(TSNode decoratorNode, SourceContent sourceContent) {
@@ -1120,9 +1120,9 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
                             }
                         }
                     }
-                    return Boolean.TRUE;
+                    return true;
                 },
-                Boolean.FALSE);
+                false);
 
         return identifiers;
     }

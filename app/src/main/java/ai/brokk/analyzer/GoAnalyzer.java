@@ -470,9 +470,9 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
                             }
                         }
                     }
-                    return Boolean.TRUE;
+                    return true;
                 },
-                Boolean.FALSE);
+                false);
 
         TSNode receiverNode = localCaptures.get("method.receiver.type");
         if (receiverNode != null && !receiverNode.isNull()) {
@@ -744,9 +744,9 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
                                 }
                             }
                         }
-                        return Boolean.TRUE;
+                        return true;
                     },
-                    Boolean.FALSE);
+                    false);
             return identifiers;
         }
     }
@@ -969,6 +969,6 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
                     }
                     return false;
                 },
-                Boolean.FALSE);
+                false);
     }
 }

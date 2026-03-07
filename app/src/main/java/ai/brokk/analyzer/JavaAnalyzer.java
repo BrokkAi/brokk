@@ -369,7 +369,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
                     }
                     return false;
                 },
-                Boolean.FALSE);
+                false);
     }
 
     @Override
@@ -911,9 +911,9 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
                             }
                         }
                     }
-                    return Boolean.TRUE;
+                    return true;
                 },
-                Boolean.FALSE);
+                false);
         return identifiers;
     }
 

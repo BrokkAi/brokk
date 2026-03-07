@@ -480,6 +480,6 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
                     }
                     return false;
                 },
-                Boolean.FALSE);
+                false);
     }
 }

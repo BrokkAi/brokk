@@ -1683,9 +1683,9 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
                                 }
                             }
                         }
-                        return Boolean.TRUE;
+                        return true;
                     },
-                    Boolean.FALSE);
+                    false);
         }
         return identifiers;
     }
@@ -1709,6 +1709,6 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
                     }
                     return false;
                 },
-                Boolean.FALSE);
+                false);
     }
 }

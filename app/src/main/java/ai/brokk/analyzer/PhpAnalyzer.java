@@ -413,7 +413,7 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
                     }
                     return false;
                 },
-                Boolean.FALSE);
+                false);
     }
 
     @Override
