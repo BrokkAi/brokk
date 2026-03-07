@@ -885,8 +885,8 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
             return Set.of();
         }
 
-        Set<String> identifiers = new HashSet<>();
-        withCachedQuery(QueryType.IDENTIFIERS, query -> {
+        return withCachedQuery(QueryType.IDENTIFIERS, query -> {
+            Set<String> identifiers = new HashSet<>();
             try (TSQueryCursor cursor = new TSQueryCursor()) {
                 cursor.exec(query, root);
 
@@ -905,9 +905,8 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
                     }
                 }
             }
-            return null;
+            return identifiers;
         });
-        return identifiers;
     }
 
     @Override

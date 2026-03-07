@@ -349,7 +349,7 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected boolean containsTestMarkers(TSTree tree, SourceContent sourceContent) {
-        Boolean result = withCachedQuery(QueryType.DEFINITIONS, query -> {
+        return withCachedQuery(QueryType.DEFINITIONS, query -> {
             try (TSQueryCursor cursor = new TSQueryCursor()) {
                 cursor.exec(query, tree.getRootNode());
                 TSQueryMatch match = new TSQueryMatch();
@@ -388,7 +388,6 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
                 }
             }
             return false;
-        });
-        return result != null && result;
+        }, false);
     }
 }

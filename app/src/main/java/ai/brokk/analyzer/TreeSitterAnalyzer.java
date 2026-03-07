@@ -133,17 +133,19 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
      *
      * @param type the type of query to access
      * @param fn the function to execute with the cached query
+     * @param defaultValue the default value if the query source cannot be found.
      * @param <T> the return type of the function
      * @return the result of the function, or null if the query type is not supported by this analyzer
      */
-    protected final <T> @Nullable T withCachedQuery(QueryType type, Function<TSQuery, T> fn) {
+    protected final <T> T withCachedQuery(QueryType type, Function<TSQuery, T> fn, T defaultValue) {
         Map<QueryType, TSQuery> cache = threadLocalQueries.get();
         TSQuery query = cache.get(type);
 
         if (query == null) {
             String source = querySources.get(type);
             if (source == null) {
-                return null;
+                log.warn("Unable to resolve a Tree Sitter query source for {}", type.name());
+                return defaultValue;
             }
             query = new TSQuery(getTSLanguage(), source);
             queryCompilationCount.incrementAndGet();
