@@ -1,7 +1,10 @@
 #!/bin/bash
 
 # Script to find the most recent commit that compiles successfully.
-# Usage: ./scripts/find-compilable-commit.sh <START_SHA> [MAX_RETRIES] [--restore]
+# Usage: ./scripts/find-compilable-commit.sh <START_SHA> [MAX_RETRIES] [--restore] [--] [BUILD_CMD...]
+#
+# Important: The script prints ONLY the successful SHA to stdout. All other output (including build output)
+# goes to stderr so callers can safely use command substitution, e.g. RESOLVED_SHA=$(...).
 
 set -e
 
@@ -43,7 +46,6 @@ if [ "$INITIAL_STATE" == "HEAD" ]; then
     INITIAL_STATE=$(git rev-parse HEAD)
 fi
 
-# Function to restore initial state if --restore is provided
 cleanup() {
     if [ "$RESTORE" = true ]; then
         echo "Restoring initial state: $INITIAL_STATE" >&2
@@ -63,21 +65,19 @@ while [ "$ATTEMPTS_LEFT" -gt 0 ]; do
     git checkout -q "$CURRENT_SHA"
 
     echo "Running ${BUILD_CMD[*]}..." >&2
-    if "${BUILD_CMD[@]}"; then
+    if "${BUILD_CMD[@]}" 1>&2; then
         echo "Successfully compiled at $CURRENT_SHA" >&2
-        # Print the successful SHA to stdout
         echo "$CURRENT_SHA"
         exit 0
     else
         echo "Compilation failed at $CURRENT_SHA" >&2
-        
+
         if [ "$ATTEMPTS_LEFT" -eq 0 ]; then
             break
         fi
 
-        # Attempt to get the parent commit
         PARENT_SHA=$(git rev-parse "$CURRENT_SHA^" 2>/dev/null || true)
-        
+
         if [ -z "$PARENT_SHA" ]; then
             echo "No parent commit found. Reached beginning of history." >&2
             break
