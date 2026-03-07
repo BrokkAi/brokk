@@ -826,7 +826,8 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
                                     wildcardModule = absolutePath.orElse(null);
                                 }
                                 case IMPORT_WILDCARD -> {
-                                    // Wildcard import - expand and add all public symbols (may overwrite previous
+                                    // Wildcard import - expand and add all public symbols (may overwrite
+                                    // previous
                                     // imports)
                                     if (wildcardModule != null && !wildcardModule.isEmpty()) {
                                         var moduleFile = resolveModuleFile(wildcardModule);
@@ -868,7 +869,6 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
                         }
                     }
                 }
-                return null;
             });
         }
 

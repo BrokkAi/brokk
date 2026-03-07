@@ -398,6 +398,6 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
                     }
                     return false;
                 },
-                Boolean.FALSE);
+                false);
     }
 }

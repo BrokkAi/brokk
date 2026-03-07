@@ -883,7 +883,8 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
         }
     }
 
-    private Set<String> performIdentifierExtraction(@Nullable TSNode root, String source) {
+    @Override
+    public Set<String> performIdentifierExtraction(@Nullable TSNode root, String source) {
         if (root == null || root.isNull()) {
             return Set.of();
         }

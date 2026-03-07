@@ -317,6 +317,6 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer {
                     }
                     return false;
                 },
-                Boolean.FALSE);
+                false);
     }
 }

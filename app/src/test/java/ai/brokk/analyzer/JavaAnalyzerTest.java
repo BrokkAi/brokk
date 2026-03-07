@@ -1885,9 +1885,7 @@ public class JavaAnalyzerTest {
         analyzer.withCachedQuery(TreeSitterAnalyzer.QueryType.DEFINITIONS, q1 -> {
             analyzer.withCachedQuery(TreeSitterAnalyzer.QueryType.DEFINITIONS, q2 -> {
                 assertSame(q1, q2, "Should return identical TSQuery instance within same thread");
-                return null;
             });
-            return null;
         });
 
         // Counter should have incremented at most once if it wasn't already cached from previous tests
