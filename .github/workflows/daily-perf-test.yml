@@ -4,9 +4,6 @@ on:
   schedule:
     - cron: '0 3 * * *' # Run daily at 3 AM UTC
   workflow_dispatch: # Allow manual triggering
-  push:
-    branches:
-      - dave/fix-perf-daily
 
 jobs:
   performance-test:
