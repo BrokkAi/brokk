@@ -17,7 +17,7 @@ from textual.screen import ModalScreen
 from textual.widgets import Button, Input, ListItem, ListView, Static
 
 from brokk_code.executor import ExecutorError, ExecutorManager
-from brokk_code.prompt_history import append_prompt, clear_history, load_history
+from brokk_code.prompt_history import append_prompt, load_history
 from brokk_code.settings import (
     DEFAULT_THEME,
     Settings,
@@ -662,6 +662,7 @@ class BrokkApp(App):
         executor: Optional[ExecutorManager] = None,
         session_id: Optional[str] = None,
         resume_session: bool = False,
+        pick_session: bool = False,
         vendor: Optional[str] = None,
     ) -> None:
         super().__init__()
@@ -684,6 +685,7 @@ class BrokkApp(App):
             )
         self.requested_session_id = session_id
         self.resume_session = resume_session
+        self.pick_session = pick_session
         self._set_theme(self.settings.theme)
         self.agent_mode = "LUTZ"
         self.show_verbose_output: bool = False
@@ -721,6 +723,7 @@ class BrokkApp(App):
         self.current_branch = "unknown"
         self.job_in_progress = False
         self.session_switch_in_progress = False
+        self._current_switch_target_session_id: Optional[str] = None
         self.current_job_id: Optional[str] = None
         self._pending_prompt: Optional[str] = None
         self._pending_switch_prompt: Optional[tuple[str, str]] = None
@@ -940,6 +943,10 @@ class BrokkApp(App):
                 self._executor_ready = True
                 # Initial context load
                 self.run_worker(self._refresh_context_panel())
+
+                if self.pick_session:
+                    self.pick_session = False
+                    self.run_worker(self._show_sessions())
 
                 if resumed:
                     try:
@@ -1913,22 +1920,16 @@ class BrokkApp(App):
         return [
             {"command": "/api-key", "description": "Update your Brokk API key"},
             {"command": "/login-openai", "description": "Connect your OpenAI ChatGPT subscription"},
+            {"command": "/clear", "description": "Clear the chat transcript"},
             {"command": "/context", "description": "Toggle and focus context panel"},
-            {"command": "/code", "description": "Set mode to CODE (direct implementation)"},
-            {"command": "/ask", "description": "Set mode to ASK (questions only)"},
-            {"command": "/lutz", "description": "Set mode to LUTZ (default; full agent access)"},
-            {"command": "/mode", "description": "Open mode selection menu"},
             {"command": "/model", "description": "Change the planner LLM model"},
             {"command": "/model-code", "description": "Change the code LLM model"},
             {"command": "/autocommit", "description": "Toggle auto-commit for submitted jobs"},
             {"command": "/settings", "description": "Open settings"},
-            {"command": "/history", "description": "Show recent prompt history"},
-            {"command": "/history-clear", "description": "Clear prompt history"},
             {"command": "/task", "description": "Open/close the task list"},
             {"command": "/sessions", "description": "List and switch between sessions"},
             {"command": "/commit", "description": "Commit current changes"},
             {"command": "/info", "description": "Show current configuration and status"},
-            {"command": "/help", "description": "Show help message"},
             {"command": "/quit", "description": "Exit the application"},
             {"command": "/exit", "description": "Exit the application"},
         ]
@@ -2014,26 +2015,10 @@ class BrokkApp(App):
             if len(parts) > 1:
                 chat.add_system_message("Settings opens from /settings with no arguments.")
             self.action_command_palette()
-        elif base in ("/code", "/ask", "/lutz", "/plan"):
-            self._set_mode(base[1:].upper())
-        elif base == "/mode":
-            if len(parts) > 1:
-                self._set_mode(parts[1].upper())
-            else:
-                self.action_select_mode()
         elif base == "/info":
             self._render_info()
-        elif base == "/history":
-            history = load_history(self.executor.workspace_dir)
-            if not history:
-                chat.add_system_message("Prompt history is empty.")
-            else:
-                formatted = "\n".join(f"{i + 1}. {p}" for i, p in enumerate(history))
-                chat.append_message("System", f"Recent Prompts:\n{formatted}")
-        elif base == "/history-clear":
-            clear_history(self.executor.workspace_dir)
-            chat.set_history([])
-            chat.add_system_message("Prompt history cleared.")
+        elif base == "/clear":
+            chat.clear_transcript()
         elif base == "/login-openai":
             if len(parts) > 1:
                 chat.add_system_message(
@@ -2084,18 +2069,10 @@ class BrokkApp(App):
             self.run_worker(self._commit_changes(commit_message))
         elif base == "/sessions":
             self.run_worker(self._show_sessions())
-        elif base == "/help":
-            commands = self.get_slash_commands()
-            # Calculate padding based on longest command
-            max_cmd_len = max(len(c["command"]) for c in commands)
-            lines = ["Available commands:"]
-            for c in commands:
-                lines.append(f"  {c['command']: <{max_cmd_len}} - {c['description']}")
-            chat.append_message("System", "\n".join(lines))
         elif base in ("/quit", "/exit"):
             self.action_quit()
         else:
-            chat.append_message("System", f"Unknown command: {base}. Type /help for assistance.")
+            chat.append_message("System", f"Unknown command: {base}.")
 
     async def action_select_model(self) -> None:
         chat = self._maybe_chat()
@@ -2502,7 +2479,8 @@ class BrokkApp(App):
                 return
 
             def on_selected(selected_id: str | None) -> None:
-                if not selected_id:
+                if selected_id is None:
+                    # User canceled the modal (Esc); continue with current session.
                     return
                 if selected_id == "new":
                     self.run_worker(self._create_session_from_menu())

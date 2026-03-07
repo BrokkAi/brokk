@@ -398,6 +398,60 @@ def test_main_resume_routes_correctly(monkeypatch, tmp_path) -> None:
     assert captured["kwargs"]["vendor"] == "Anthropic"
 
 
+def test_main_sessions_routes_correctly(monkeypatch, tmp_path) -> None:
+    captured: dict[str, Any] = {"ran": False}
+    fake_app_module = ModuleType("brokk_code.app")
+
+    class FakeApp:
+        def __init__(self, **kwargs: Any):
+            captured["kwargs"] = kwargs
+
+        def run(self) -> None:
+            captured["ran"] = True
+
+    fake_app_module.BrokkApp = FakeApp
+    monkeypatch.setitem(sys.modules, "brokk_code.app", fake_app_module)
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "brokk",
+            "sessions",
+            "--workspace",
+            str(tmp_path),
+            "--vendor",
+            "OpenAI",
+        ],
+    )
+
+    main_module.main()
+
+    assert captured["ran"] is True
+    # pick_session must be True for the sessions command
+    assert captured["kwargs"]["pick_session"] is True
+    # workspace_dir should be resolved
+    assert captured["kwargs"]["workspace_dir"] == tmp_path.resolve()
+    # vendor should be passed through
+    assert captured["kwargs"]["vendor"] == "OpenAI"
+    # sessions command overrides session_id and resume_session
+    assert captured["kwargs"]["session_id"] is None
+    assert captured["kwargs"]["resume_session"] is False
+
+
+def test_main_sessions_rejects_positional_args(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["brokk", "sessions", "unexpected-arg", "--workspace", str(tmp_path)],
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        main_module.main()
+
+    assert exc.value.code == 2
+
+
 def test_main_issue_create_routes_correctly(monkeypatch, tmp_path) -> None:
     captured: dict[str, Any] = {"ran": False}
     temp_workspace = tmp_path / "temp-create"

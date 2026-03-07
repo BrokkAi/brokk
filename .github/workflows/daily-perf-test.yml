@@ -24,13 +24,14 @@ jobs:
           mkdir -p .ci-tools
           cp -v ./scripts/run-treesitter-repos.sh ./.ci-tools/run-treesitter-repos.sh
           cp -v ./scripts/compare-perf-results.py ./.ci-tools/compare-perf-results.py
+          cp -v ./scripts/find-compilable-commit.sh ./.ci-tools/find-compilable-commit.sh
           chmod +x ./.ci-tools/run-treesitter-repos.sh
+          chmod +x ./.ci-tools/find-compilable-commit.sh
           # Absolute paths for stability across checkouts
           echo "CI_TOOLS=$GITHUB_WORKSPACE/.ci-tools" >> $GITHUB_ENV
           echo "REPORT_ROOT=$GITHUB_WORKSPACE/perf" >> $GITHUB_ENV
           mkdir -p "$GITHUB_WORKSPACE/.ci-tools"
           mkdir -p "$GITHUB_WORKSPACE/perf"
-          chmod +x "$GITHUB_WORKSPACE/.ci-tools/run-treesitter-repos.sh"
 
       - name: Get commit hashes
         id: get_commits
@@ -61,43 +62,77 @@ jobs:
             echo "BASE_SHA_SHORT=none" >> $GITHUB_ENV
           fi
 
-      - name: Check for new commits
-        id: check_commits
+      - name: Resolve HEAD and BASE commits
+        id: resolve_commits
         run: |
-          if [ "${{ env.HEAD_SHA }}" == "${{ env.BASE_SHA }}" ] || [ -z "${{ env.BASE_SHA }}" ]; then
-            echo "No new commits in the last 24 hours or no prior commit found. Skipping performance test."
+          echo "Resolving HEAD compilable commit starting from ${{ env.HEAD_SHA }}..."
+          if ! RESOLVED_HEAD_SHA=$(${{ env.CI_TOOLS }}/find-compilable-commit.sh ${{ env.HEAD_SHA }} -- ./gradlew compileJava); then
+            echo "Failed to resolve a compilable HEAD commit. Skipping performance test."
+            echo "should_skip=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          echo "RESOLVED_HEAD_SHA=$RESOLVED_HEAD_SHA" >> $GITHUB_ENV
+          echo "RESOLVED_HEAD_SHA_SHORT=$(git rev-parse --short $RESOLVED_HEAD_SHA)" >> $GITHUB_ENV
+
+          if [ -n "${{ env.BASE_SHA }}" ]; then
+            echo "Resolving BASE compilable commit starting from ${{ env.BASE_SHA }}..."
+            if ! RESOLVED_BASE_SHA=$(${{ env.CI_TOOLS }}/find-compilable-commit.sh ${{ env.BASE_SHA }} -- ./gradlew compileJava); then
+              echo "Failed to resolve a compilable BASE commit. Skipping performance test."
+              echo "should_skip=true" >> $GITHUB_OUTPUT
+              exit 0
+            fi
+            echo "RESOLVED_BASE_SHA=$RESOLVED_BASE_SHA" >> $GITHUB_ENV
+            echo "RESOLVED_BASE_SHA_SHORT=$(git rev-parse --short $RESOLVED_BASE_SHA)" >> $GITHUB_ENV
+          else
+            RESOLVED_BASE_SHA=""
+          fi
+
+          if [ "$RESOLVED_HEAD_SHA" == "$RESOLVED_BASE_SHA" ] || [ -z "$RESOLVED_BASE_SHA" ]; then
+            echo "Resolved commits are identical or BASE is missing. Skipping performance test."
             echo "should_skip=true" >> $GITHUB_OUTPUT
           else
-            echo "New commits found. Running performance test."
+            echo "Compilable commits resolved: HEAD($RESOLVED_HEAD_SHA) vs BASE($RESOLVED_BASE_SHA)"
             echo "should_skip=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Set up JBR 21
-        if: steps.check_commits.outputs.should_skip == 'false'
-        uses: jansorg/github-actions-jbr-setup/setup_jbr21@main
+      - name: Set up Java 21 (JetBrains Runtime)
+        if: steps.resolve_commits.outputs.should_skip == 'false'
+        uses: actions/setup-java@v4
+        with:
+          distribution: jetbrains
+          java-package: jdk+jcef
+          java-version: '21'
 
       - name: Set up Python
-        if: steps.check_commits.outputs.should_skip == 'false'
+        if: steps.resolve_commits.outputs.should_skip == 'false'
         uses: actions/setup-python@v5
         with:
           python-version: '3.x'
 
       - name: Setup Gradle
-        if: steps.check_commits.outputs.should_skip == 'false'
+        if: steps.resolve_commits.outputs.should_skip == 'false'
         uses: gradle/actions/setup-gradle@v4
 
+      - name: Checkout RESOLVED_HEAD_SHA
+        if: steps.resolve_commits.outputs.should_skip == 'false'
+        run: |
+          if [ -z "${{ env.RESOLVED_HEAD_SHA }}" ]; then
+            echo "Error: RESOLVED_HEAD_SHA is empty"
+            exit 1
+          fi
+          git checkout "${{ env.RESOLVED_HEAD_SHA }}"
+
       - name: Setup test projects
-        if: steps.check_commits.outputs.should_skip == 'false'
+        if: steps.resolve_commits.outputs.should_skip == 'false'
         run: ${{ env.CI_TOOLS }}/run-treesitter-repos.sh setup
 
       - name: Run benchmark on HEAD (3 iterations with 1 warm-up)
-        if: steps.check_commits.outputs.should_skip == 'false'
-        run: |
-          ${{ env.CI_TOOLS }}/run-treesitter-repos.sh full --output "${{ env.REPORT_ROOT }}/head" --max-files 1000 --json --warm-up-iterations 1 --iterations 3
+        if: steps.resolve_commits.outputs.should_skip == 'false'
+        run: ${{ env.CI_TOOLS }}/run-treesitter-repos.sh full --output "${{ env.REPORT_ROOT }}/head" --max-files 1000 --json --warm-up-iterations 1 --iterations 3
 
       - id: coarse_memory
         name: Coarse memory regression test (HEAD)
-        if: steps.check_commits.outputs.should_skip == 'false'
+        if: steps.resolve_commits.outputs.should_skip == 'false'
         run: |
           set +e
           RUNNER_XMX=100M "${{ env.CI_TOOLS }}/run-treesitter-repos.sh" directory --project intellij-community --language java --max-files 1800 --iterations 1 --warm-up-iterations 0 --fail-on-thrashing --stats --verbose
@@ -111,20 +146,21 @@ jobs:
           fi
 
       - name: Clean build artifacts
-        if: steps.check_commits.outputs.should_skip == 'false'
+        if: steps.resolve_commits.outputs.should_skip == 'false'
         run: ./gradlew clean
 
-      - name: Checkout BASE
-        if: steps.check_commits.outputs.should_skip == 'false'
-        run: git checkout ${{ env.BASE_SHA }}
-
       - name: Run benchmark on BASE (3 iterations with 1 warm-up)
-        if: steps.check_commits.outputs.should_skip == 'false'
+        if: steps.resolve_commits.outputs.should_skip == 'false'
         run: |
+          if [ -z "${{ env.RESOLVED_BASE_SHA }}" ]; then
+            echo "Error: RESOLVED_BASE_SHA is empty"
+            exit 1
+          fi
+          git checkout "${{ env.RESOLVED_BASE_SHA }}"
           ${{ env.CI_TOOLS }}/run-treesitter-repos.sh full --output "${{ env.REPORT_ROOT }}/base" --max-files 1000 --json --warm-up-iterations 1 --iterations 3
 
       - name: Compare results
-        if: steps.check_commits.outputs.should_skip == 'false'
+        if: steps.resolve_commits.outputs.should_skip == 'false'
         id: compare
         run: |
           summary_json=$(python3 "${{ env.CI_TOOLS }}/compare-perf-results.py" --format=json "${{ env.REPORT_ROOT }}/base" "${{ env.REPORT_ROOT }}/head")
@@ -148,7 +184,7 @@ jobs:
           echo "fps_status_emoji=$(echo "$summary_json" | jq -r '.metrics.files_per_second.status_emoji // empty')" >> $GITHUB_OUTPUT
 
       - name: Send performance data to Slack Workflow
-        if: steps.check_commits.outputs.should_skip == 'false'
+        if: steps.resolve_commits.outputs.should_skip == 'false'
         uses: slackapi/slack-github-action@v2.1.1
         with:
           webhook: ${{ secrets.SLACK_DAILY_PERF_WEBHOOK_URL }}
@@ -157,8 +193,8 @@ jobs:
             {
               "ok": "${{ steps.compare.outputs.ok }}",
               "error_text": "${{ steps.compare.outputs.error_text }}",
-              "head_sha_short": "${{ env.HEAD_SHA_SHORT }}",
-              "base_sha_short": "${{ env.BASE_SHA_SHORT }}",
+              "head_sha_short": "${{ env.RESOLVED_HEAD_SHA_SHORT }}",
+              "base_sha_short": "${{ env.RESOLVED_BASE_SHA_SHORT }}",
               "workflow_run_url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
 
               "time_base": "${{ steps.compare.outputs.time_base }}",
