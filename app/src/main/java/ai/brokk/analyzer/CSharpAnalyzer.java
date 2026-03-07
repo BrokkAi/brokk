@@ -349,45 +349,55 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected boolean containsTestMarkers(TSTree tree, SourceContent sourceContent) {
-        return withCachedQuery(QueryType.DEFINITIONS, query -> {
-            try (TSQueryCursor cursor = new TSQueryCursor()) {
-                cursor.exec(query, tree.getRootNode());
-                TSQueryMatch match = new TSQueryMatch();
+        return withCachedQuery(
+                QueryType.DEFINITIONS,
+                query -> {
+                    try (TSQueryCursor cursor = new TSQueryCursor()) {
+                        cursor.exec(query, tree.getRootNode());
+                        TSQueryMatch match = new TSQueryMatch();
 
-                Set<String> testAttributes = Set.of(
-                        "Test", "Fact", "Theory", "TestCase", "TestMethod", "DataTestMethod", "SetUp", "TearDown");
+                        Set<String> testAttributes = Set.of(
+                                "Test",
+                                "Fact",
+                                "Theory",
+                                "TestCase",
+                                "TestMethod",
+                                "DataTestMethod",
+                                "SetUp",
+                                "TearDown");
 
-                while (cursor.nextMatch(match)) {
-                    boolean hasTestMarker = false;
-                    String capturedAttrName = null;
+                        while (cursor.nextMatch(match)) {
+                            boolean hasTestMarker = false;
+                            String capturedAttrName = null;
 
-                    for (var capture : match.getCaptures()) {
-                        String captureName = query.getCaptureNameForId(capture.getIndex());
-                        TSNode node = capture.getNode();
-                        if (node == null || node.isNull()) continue;
+                            for (var capture : match.getCaptures()) {
+                                String captureName = query.getCaptureNameForId(capture.getIndex());
+                                TSNode node = capture.getNode();
+                                if (node == null || node.isNull()) continue;
 
-                        if (TEST_MARKER.equals(captureName)) {
-                            hasTestMarker = true;
-                        } else if ("test_attr".equals(captureName)) {
-                            capturedAttrName = sourceContent.substringFrom(node);
+                                if (TEST_MARKER.equals(captureName)) {
+                                    hasTestMarker = true;
+                                } else if ("test_attr".equals(captureName)) {
+                                    capturedAttrName = sourceContent.substringFrom(node);
+                                }
+                            }
+
+                            if (hasTestMarker && capturedAttrName != null) {
+                                String normalizedName = capturedAttrName;
+                                if (normalizedName.endsWith("Attribute")) {
+                                    normalizedName =
+                                            normalizedName.substring(0, normalizedName.length() - "Attribute".length());
+                                }
+                                final String finalName = normalizedName;
+                                if (testAttributes.stream()
+                                        .anyMatch(attr -> finalName.equals(attr) || finalName.endsWith("." + attr))) {
+                                    return true;
+                                }
+                            }
                         }
                     }
-
-                    if (hasTestMarker && capturedAttrName != null) {
-                        String normalizedName = capturedAttrName;
-                        if (normalizedName.endsWith("Attribute")) {
-                            normalizedName =
-                                    normalizedName.substring(0, normalizedName.length() - "Attribute".length());
-                        }
-                        final String finalName = normalizedName;
-                        if (testAttributes.stream()
-                                .anyMatch(attr -> finalName.equals(attr) || finalName.endsWith("." + attr))) {
-                            return true;
-                        }
-                    }
-                }
-            }
-            return false;
-        }, false);
+                    return false;
+                },
+                false);
     }
 }
