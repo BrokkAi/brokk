@@ -280,41 +280,43 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected boolean containsTestMarkers(TSTree tree, SourceContent sourceContent) {
-        Boolean result = withCachedQuery(QueryType.DEFINITIONS, query -> {
-            try (TSQueryCursor cursor = new TSQueryCursor()) {
-                cursor.exec(query, tree.getRootNode());
+        return withCachedQuery(
+                QueryType.DEFINITIONS,
+                query -> {
+                    try (TSQueryCursor cursor = new TSQueryCursor()) {
+                        cursor.exec(query, tree.getRootNode());
 
-                TSQueryMatch match = new TSQueryMatch();
-                while (cursor.nextMatch(match)) {
-                    for (TSQueryCapture capture : match.getCaptures()) {
-                        TSNode node = capture.getNode();
-                        if (node == null || node.isNull()) continue;
+                        TSQueryMatch match = new TSQueryMatch();
+                        while (cursor.nextMatch(match)) {
+                            for (TSQueryCapture capture : match.getCaptures()) {
+                                TSNode node = capture.getNode();
+                                if (node == null || node.isNull()) continue;
 
-                        String captureName = query.getCaptureNameForId(capture.getIndex());
-                        switch (captureName) {
-                            case "test.import", "test.call" -> {
-                                return true;
-                            }
-                            case "test.annotation" -> {
-                                String nodeText =
-                                        sourceContent.substringFromBytes(node.getStartByte(), node.getEndByte());
-                                if (TEST_ANNOTATIONS.contains(nodeText)) {
-                                    return true;
-                                }
-                            }
-                            case "test.infix" -> {
-                                String nodeText =
-                                        sourceContent.substringFromBytes(node.getStartByte(), node.getEndByte());
-                                if (TEST_INFIX_KEYWORDS.contains(nodeText)) {
-                                    return true;
+                                String captureName = query.getCaptureNameForId(capture.getIndex());
+                                switch (captureName) {
+                                    case "test.import", "test.call" -> {
+                                        return true;
+                                    }
+                                    case "test.annotation" -> {
+                                        String nodeText = sourceContent.substringFromBytes(
+                                                node.getStartByte(), node.getEndByte());
+                                        if (TEST_ANNOTATIONS.contains(nodeText)) {
+                                            return true;
+                                        }
+                                    }
+                                    case "test.infix" -> {
+                                        String nodeText = sourceContent.substringFromBytes(
+                                                node.getStartByte(), node.getEndByte());
+                                        if (TEST_INFIX_KEYWORDS.contains(nodeText)) {
+                                            return true;
+                                        }
+                                    }
                                 }
                             }
                         }
                     }
-                }
-            }
-            return false;
-        });
-        return result != null && result;
+                    return false;
+                },
+                Boolean.FALSE);
     }
 }
