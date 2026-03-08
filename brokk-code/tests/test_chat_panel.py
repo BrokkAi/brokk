@@ -928,3 +928,108 @@ async def test_chat_log_selection_updated_clears_cache():
 
         # Cache should be empty after selection_updated
         assert len(log._line_cache) == 0
+
+
+@pytest.mark.asyncio
+async def test_chat_log_selection_rendering_applies_styles():
+    """
+    Integration test verifying that ChatLog._render_line() applies selection
+    styling to rendered output when a real Selection is active.
+
+    This test exercises the Textual 8.0.0 private internals compatibility block in
+    ChatLog._render_line(). If a future Textual upgrade changes the private
+    APIs (_start_line, _widest_line_width, _line_cache, Strip._segments),
+    this test should fail, signaling that the compatibility block needs updating.
+    """
+    from textual.app import App, ComposeResult
+    from textual.geometry import Offset
+    from textual.selection import Selection
+
+    from brokk_code.widgets.chat_panel import ChatLog
+
+    class SelectionTestApp(App):
+        def compose(self) -> ComposeResult:
+            yield ChatPanel(id="chat")
+
+    app = SelectionTestApp()
+    async with app.run_test() as pilot:
+        chat = app.query_one("#chat", ChatPanel)
+        log = chat.query_one("#chat-log", ChatLog)
+
+        # Add content to the log
+        chat.add_markdown("hello world test content")
+        await pilot.pause()
+
+        # Ensure we have rendered lines
+        assert len(log.lines) > 0, "ChatLog should have rendered lines"
+
+        # Find the line containing our text
+        text_line_idx = None
+        for idx, strip in enumerate(log.lines):
+            if "hello" in strip.text.lower():
+                text_line_idx = idx
+                break
+
+        assert text_line_idx is not None, "Should find line with 'hello' in it"
+
+        # --- Render WITHOUT selection first ---
+        log._line_cache.clear()
+        strip_no_selection = log._render_line(text_line_idx, 0, 80)
+        assert strip_no_selection.cell_length > 0, "Strip should have content"
+
+        # Extract segments and styles without selection
+        segments_no_sel = list(strip_no_selection._segments)
+        styles_no_sel = [seg.style for seg in segments_no_sel]
+
+        # --- Now set up a real Selection using the correct Textual 8.0.0 API ---
+        # Selection is NamedTuple(start: Offset | None, end: Offset | None)
+        # Offset is (x, y) where x=column, y=row
+        # Select characters 0-5 on our target line (should cover "hello")
+        start_offset = Offset(x=0, y=text_line_idx)
+        end_offset = Offset(x=5, y=text_line_idx)
+        selection = Selection.from_offsets(start_offset, end_offset)
+
+        # Store selection in screen.selections dict (the real Textual API)
+        # Widget.text_selection reads from screen.selections.get(widget, None)
+        log.screen.selections[log] = selection
+
+        # Clear cache to force re-rendering with selection active
+        log._line_cache.clear()
+
+        # --- Render WITH selection ---
+        strip_with_selection = log._render_line(text_line_idx, 0, 80)
+        assert strip_with_selection.cell_length > 0, "Strip should have content"
+
+        # Extract segments and styles with selection
+        segments_with_sel = list(strip_with_selection._segments)
+        styles_with_sel = [seg.style for seg in segments_with_sel]
+
+        # --- Verify text content is unchanged ---
+        text_no_sel = "".join(seg.text for seg in segments_no_sel)
+        text_with_sel = "".join(seg.text for seg in segments_with_sel)
+        assert text_no_sel == text_with_sel, (
+            "Text content should be identical with or without selection"
+        )
+
+        # --- Verify styling differs due to selection ---
+        # The selection should cause style changes in the selected range.
+        # We check that at least one style differs between the two renders.
+        # This proves the selection render path actually applied selection styling.
+        styles_differ = styles_no_sel != styles_with_sel
+        assert styles_differ, (
+            "Styles should differ when selection is active. "
+            "If this fails, either selection styling is not being applied "
+            "or the Textual private API has changed."
+        )
+
+        # --- Verify cache was populated ---
+        cache_key = (
+            text_line_idx + log._start_line,
+            0,
+            80,
+            log._widest_line_width,
+        )
+        assert cache_key in log._line_cache, "Rendered line should be cached"
+
+        # --- Clean up: remove selection ---
+        del log.screen.selections[log]

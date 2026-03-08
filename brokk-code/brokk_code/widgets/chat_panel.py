@@ -326,26 +326,42 @@ class ChatLog(RichLog):
         return selection.extract(text), "\n"
 
     def selection_updated(self, selection: Selection | None) -> None:
-        # Private: invalidate cache so _render_line re-applies selection styles
+        # Uses private _line_cache; see _render_line compatibility block
         self._line_cache.clear()
         self.refresh()
 
     def _render_line(self, y: int, scroll_x: int, width: int) -> Strip:
-        # Private override: no public hook for Strip-level selection highlighting;
-        # TextArea uses the same private override internally
         from textual.strip import Strip
 
         if y >= len(self.lines):
             return Strip.blank(width, self.rich_style)
 
-        # Private: _start_line and _widest_line_width are part of the base
-        # class cache key scheme, needed for correct keying after max_lines trim
-        key = (y + self._start_line, scroll_x, width, self._widest_line_width)
+        # =========================================================================
+        # TEXTUAL 8.0.0 COMPATIBILITY BLOCK (private API usage)
+        #
+        # This block accesses private RichLog/Strip internals that have no public API.
+        # If Textual upgrades break this, update the version comment and adjust accordingly.
+        # Private attributes used:
+        #   - self._start_line: offset for cache key after max_lines trimming
+        #   - self._widest_line_width: part of cache key scheme
+        #   - self._line_cache: dict cache for rendered Strip objects
+        #   - strip._segments: list of Rich Segments inside a Strip (no public accessor)
+        # =========================================================================
+        cache_key = (y + self._start_line, scroll_x, width, self._widest_line_width)
+        line_cache = self._line_cache
+
+        def extract_segments_from_strip(strip: Strip) -> list[Segment]:
+            """Extract segments from Strip using private _segments attribute."""
+            return list(strip._segments)
+
+        # End of compatibility block declarations
+        # =========================================================================
+
         selection = self.text_selection
 
-        # Private: replicating base class _line_cache behavior
-        if selection is None and key in self._line_cache:
-            return self._line_cache[key]
+        # Use cache when no selection active
+        if selection is None and cache_key in line_cache:
+            return line_cache[cache_key]
 
         line = self.lines[y].crop_extend(scroll_x, scroll_x + width, self.rich_style)
 
@@ -354,8 +370,8 @@ class ChatLog(RichLog):
             if span is not None:
                 start, end = span
                 text = Text()
-                # Private: no public segment accessor or Strip.to_text()
-                for segment in line._segments:
+                # Use compatibility helper to access private segments
+                for segment in extract_segments_from_strip(line):
                     text.append(segment.text, style=segment.style)
                 if end == -1:
                     end = len(text)
@@ -364,7 +380,7 @@ class ChatLog(RichLog):
                 line = Strip(text.render(self.app.console), line.cell_length)
 
         line = line.apply_offsets(scroll_x, y)
-        self._line_cache[key] = line
+        line_cache[cache_key] = line
         return line
 
 
