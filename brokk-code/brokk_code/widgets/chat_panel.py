@@ -1,12 +1,6 @@
-from __future__ import annotations
-
 import asyncio
 import time
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple
-
-if TYPE_CHECKING:
-    from textual.selection import Selection
-    from textual.strip import Strip
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from rich.markdown import ListItem as RichMarkdownListItem
 from rich.markdown import Markdown, Segment, loop_first
@@ -321,16 +315,17 @@ class ChatLog(RichLog):
     the pre-rendered Strip objects that RichLog produces.
     """
 
-    def get_selection(self, selection: Selection) -> tuple[str, str] | None:
+    def get_selection(self, selection: "Selection") -> tuple[str, str] | None:
+        from textual.selection import Selection
         text = "\n".join(strip.text for strip in self.lines)
         return selection.extract(text), "\n"
 
-    def selection_updated(self, selection: Selection | None) -> None:
+    def selection_updated(self, selection: "Selection | None") -> None:
         # Uses private _line_cache; see _render_line compatibility block
         self._line_cache.clear()
         self.refresh()
 
-    def _render_line(self, y: int, scroll_x: int, width: int) -> Strip:
+    def _render_line(self, y: int, scroll_x: int, width: int) -> "Strip":
         from textual.strip import Strip
 
         if y >= len(self.lines):
