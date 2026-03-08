@@ -1,6 +1,10 @@
 import asyncio
 import time
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple
+
+if TYPE_CHECKING:
+    from textual.selection import Selection
+    from textual.strip import Strip
 
 from rich.markdown import ListItem as RichMarkdownListItem
 from rich.markdown import Markdown, Segment, loop_first
@@ -316,7 +320,6 @@ class ChatLog(RichLog):
     """
 
     def get_selection(self, selection: "Selection") -> tuple[str, str] | None:
-        from textual.selection import Selection
         text = "\n".join(strip.text for strip in self.lines)
         return selection.extract(text), "\n"
 
