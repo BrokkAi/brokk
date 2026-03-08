@@ -373,10 +373,15 @@ class ChatLog(RichLog):
                 # Use compatibility helper to access private segments
                 for segment in extract_segments_from_strip(line):
                     text.append(segment.text, style=segment.style)
+                text_len = len(text)
                 if end == -1:
-                    end = len(text)
-                selection_style = self.screen.get_component_rich_style("screen--selection")
-                text.stylize(selection_style, start, end)
+                    end = text_len + scroll_x
+                # Convert from full-line coordinates to viewport coordinates
+                adj_start = max(0, start - scroll_x)
+                adj_end = min(text_len, end - scroll_x)
+                if adj_start < adj_end:
+                    selection_style = self.screen.get_component_rich_style("screen--selection")
+                    text.stylize(selection_style, adj_start, adj_end)
                 line = Strip(text.render(self.app.console), line.cell_length)
 
         line = line.apply_offsets(scroll_x, y)

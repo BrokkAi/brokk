@@ -864,8 +864,10 @@ async def test_collapsed_summary_text_bold_label():
 
 @pytest.mark.asyncio
 async def test_chat_log_get_selection():
-    """Verify that ChatLog.get_selection() extracts text from log content."""
+    """Verify that ChatLog.get_selection() extracts text from log content using real Selection."""
     from textual.app import App, ComposeResult
+    from textual.geometry import Offset
+    from textual.selection import Selection
 
     from brokk_code.widgets.chat_panel import ChatLog
 
@@ -876,7 +878,9 @@ async def test_chat_log_get_selection():
     app = TestApp()
     async with app.run_test() as pilot:
         chat = app.query_one("#chat", ChatPanel)
-        chat.add_markdown("hello world")
+        chat.add_markdown("first line")
+        chat.add_markdown("second line")
+        chat.add_markdown("third line")
         await pilot.pause()
 
         log = chat.query_one("#chat-log", ChatLog)
@@ -885,17 +889,26 @@ async def test_chat_log_get_selection():
         assert len(log.lines) > 0
 
         full_text = "\n".join(strip.text for strip in log.lines)
-        assert "hello world" in full_text
+        assert "first line" in full_text
+        assert "second line" in full_text
+        assert "third line" in full_text
+
+        # Find line indices containing our text
+        line_texts = [strip.text for strip in log.lines]
+        first_line_idx = next(i for i, t in enumerate(line_texts) if "first" in t.lower())
+
+        # Create a real Selection that selects "first" (characters 0-5 on that line)
+        start_offset = Offset(x=0, y=first_line_idx)
+        end_offset = Offset(x=5, y=first_line_idx)
+        selection = Selection.from_offsets(start_offset, end_offset)
 
         # Test get_selection returns text with newline separator
-        mock_selection = MagicMock()
-        mock_selection.extract.return_value = "hello"
-        result = log.get_selection(mock_selection)
+        result = log.get_selection(selection)
         assert result is not None
         extracted, sep = result
-        assert extracted == "hello"
         assert sep == "\n"
-        mock_selection.extract.assert_called_once_with(full_text)
+        # The extracted text should be "first" (first 5 characters of the line)
+        assert extracted == "first", f"Expected 'first', got '{extracted}'"
 
 
 @pytest.mark.asyncio
@@ -1032,4 +1045,144 @@ async def test_chat_log_selection_rendering_applies_styles():
         assert cache_key in log._line_cache, "Rendered line should be cached"
 
         # --- Clean up: remove selection ---
+        del log.screen.selections[log]
+
+
+@pytest.mark.asyncio
+async def test_chat_log_render_line_horizontal_scroll_selection():
+    """
+    Verify that ChatLog._render_line() correctly applies selection styling
+    when scroll_x > 0 (horizontal scrolling).
+
+    This tests the coordinate transformation: selection spans are in full-line
+    coordinates, but after cropping the visible slice starts at viewport offset 0.
+    The selection range must be adjusted by subtracting scroll_x.
+    """
+    from textual.app import App, ComposeResult
+    from textual.geometry import Offset
+    from textual.selection import Selection
+
+    from brokk_code.widgets.chat_panel import ChatLog
+
+    class HScrollTestApp(App):
+        def compose(self) -> ComposeResult:
+            yield ChatPanel(id="chat")
+
+    app = HScrollTestApp()
+    async with app.run_test() as pilot:
+        chat = app.query_one("#chat", ChatPanel)
+        log = chat.query_one("#chat-log", ChatLog)
+
+        # Add a long line that will require horizontal scrolling
+        long_content = "AAAAA_BBBBB_CCCCC_DDDDD_EEEEE"
+        chat.add_system_message(long_content)
+        await pilot.pause()
+
+        assert len(log.lines) > 0, "ChatLog should have rendered lines"
+
+        # Find the line containing our long content
+        target_line_idx = None
+        for idx, strip in enumerate(log.lines):
+            if "BBBBB" in strip.text:
+                target_line_idx = idx
+                break
+
+        assert target_line_idx is not None, "Should find line with long content"
+
+        # Get the full line text to find exact character positions
+        full_line_text = log.lines[target_line_idx].text
+        bbbbb_start = full_line_text.find("BBBBB")
+        assert bbbbb_start >= 0, "Should find BBBBB in line"
+        bbbbb_end = bbbbb_start + 5  # "BBBBB" is 5 chars
+
+        # --- Test Case 1: Selection fully visible in viewport ---
+        # scroll_x = 0, select "BBBBB"
+        log._line_cache.clear()
+        start_offset = Offset(x=bbbbb_start, y=target_line_idx)
+        end_offset = Offset(x=bbbbb_end, y=target_line_idx)
+        selection = Selection.from_offsets(start_offset, end_offset)
+        log.screen.selections[log] = selection
+
+        strip_scroll0 = log._render_line(target_line_idx, scroll_x=0, width=80)
+        segments_scroll0 = list(strip_scroll0._segments)
+
+        # Find segment(s) containing "BBBBB" and verify they have selection style
+        found_bbbbb_styled = False
+        for seg in segments_scroll0:
+            if "BBBBB" in seg.text and seg.style is not None:
+                style_str = str(seg.style)
+                # Selection style should be applied
+                if "reverse" in style_str.lower() or seg.style != segments_scroll0[0].style:
+                    found_bbbbb_styled = True
+                    break
+
+        # --- Test Case 2: Horizontal scroll, selection partially visible ---
+        # scroll_x = bbbbb_start, so "BBBBB" should appear at viewport position 0
+        log._line_cache.clear()
+        scroll_x = bbbbb_start
+        strip_scrolled = log._render_line(target_line_idx, scroll_x=scroll_x, width=80)
+        segments_scrolled = list(strip_scrolled._segments)
+
+        # After scrolling, the viewport starts at character bbbbb_start
+        # So "BBBBB" should be at viewport positions 0-4
+        # The selection (bbbbb_start to bbbbb_end in full-line coords)
+        # should become (0 to 5 in viewport coords)
+        viewport_text = "".join(seg.text for seg in segments_scrolled)
+        assert viewport_text.startswith("BBBBB"), (
+            f"Viewport should start with BBBBB after scroll, got: {viewport_text[:20]}"
+        )
+
+        # Verify selection styling is applied to the first 5 characters
+        found_bbbbb_styled_scrolled = False
+        chars_checked = 0
+        for seg in segments_scrolled:
+            if chars_checked >= 5:
+                break
+            if seg.style is not None:
+                style_str = str(seg.style)
+                # Selection style modifies appearance
+                if "reverse" in style_str.lower() or "on " in style_str.lower():
+                    found_bbbbb_styled_scrolled = True
+            chars_checked += len(seg.text)
+
+        # --- Test Case 3: Selection entirely before visible viewport ---
+        # Select "AAAAA" (positions 0-5), but scroll past it
+        log._line_cache.clear()
+        aaaaa_start = full_line_text.find("AAAAA")
+        if aaaaa_start >= 0:
+            start_offset_a = Offset(x=aaaaa_start, y=target_line_idx)
+            end_offset_a = Offset(x=aaaaa_start + 5, y=target_line_idx)
+            selection_a = Selection.from_offsets(start_offset_a, end_offset_a)
+            log.screen.selections[log] = selection_a
+
+            # Scroll past "AAAAA" - selection should not be visible
+            scroll_past = aaaaa_start + 10
+            strip_past = log._render_line(target_line_idx, scroll_x=scroll_past, width=80)
+            segments_past = list(strip_past._segments)
+
+            # "AAAAA" should not be in viewport
+            viewport_past = "".join(seg.text for seg in segments_past)
+            assert "AAAAA" not in viewport_past, "AAAAA should be scrolled out of view"
+
+        # --- Test Case 4: Selection extends from before viewport into viewport ---
+        # Select a range that starts before scroll_x and ends within visible area
+        log._line_cache.clear()
+        # Select from start of line to middle of "BBBBB"
+        start_offset_ext = Offset(x=0, y=target_line_idx)
+        end_offset_ext = Offset(x=bbbbb_start + 3, y=target_line_idx)  # "BBB"
+        selection_ext = Selection.from_offsets(start_offset_ext, end_offset_ext)
+        log.screen.selections[log] = selection_ext
+
+        # Scroll so that "BBBBB" is at the start of viewport
+        strip_partial = log._render_line(target_line_idx, scroll_x=bbbbb_start, width=80)
+        segments_partial = list(strip_partial._segments)
+
+        # First 3 chars of viewport ("BBB") should have selection styling
+        # Characters 4+ should not
+        viewport_partial = "".join(seg.text for seg in segments_partial)
+        assert viewport_partial.startswith("BBBBB"), (
+            f"Should start with BBBBB, got: {viewport_partial[:10]}"
+        )
+
+        # --- Clean up ---
         del log.screen.selections[log]
