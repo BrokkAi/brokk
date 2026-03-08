@@ -1105,16 +1105,7 @@ async def test_chat_log_render_line_horizontal_scroll_selection():
 
         strip_scroll0 = log._render_line(target_line_idx, scroll_x=0, width=80)
         segments_scroll0 = list(strip_scroll0._segments)
-
-        # Find segment(s) containing "BBBBB" and verify they have selection style
-        found_bbbbb_styled = False
-        for seg in segments_scroll0:
-            if "BBBBB" in seg.text and seg.style is not None:
-                style_str = str(seg.style)
-                # Selection style should be applied
-                if "reverse" in style_str.lower() or seg.style != segments_scroll0[0].style:
-                    found_bbbbb_styled = True
-                    break
+        assert len(segments_scroll0) > 0, "Should have segments when rendering with selection"
 
         # --- Test Case 2: Horizontal scroll, selection partially visible ---
         # scroll_x = bbbbb_start, so "BBBBB" should appear at viewport position 0
@@ -1131,19 +1122,6 @@ async def test_chat_log_render_line_horizontal_scroll_selection():
         assert viewport_text.startswith("BBBBB"), (
             f"Viewport should start with BBBBB after scroll, got: {viewport_text[:20]}"
         )
-
-        # Verify selection styling is applied to the first 5 characters
-        found_bbbbb_styled_scrolled = False
-        chars_checked = 0
-        for seg in segments_scrolled:
-            if chars_checked >= 5:
-                break
-            if seg.style is not None:
-                style_str = str(seg.style)
-                # Selection style modifies appearance
-                if "reverse" in style_str.lower() or "on " in style_str.lower():
-                    found_bbbbb_styled_scrolled = True
-            chars_checked += len(seg.text)
 
         # --- Test Case 3: Selection entirely before visible viewport ---
         # Select "AAAAA" (positions 0-5), but scroll past it
