@@ -334,6 +334,7 @@ class ChatLog(RichLog):
         # Private override: no public hook for Strip-level selection highlighting;
         # TextArea uses the same private override internally
         from textual.strip import Strip
+
         if y >= len(self.lines):
             return Strip.blank(width, self.rich_style)
 
@@ -1144,7 +1145,7 @@ class ChatPanel(Vertical):
 
     def _render_message_entry(self, kind: str, content: str, **kwargs: Any) -> None:
         """Visual rendering implementation for a single history entry."""
-        log = self.query_one("#chat-log", ChatLog)
+        log = self.query_one("#chat-log", RichLog)
 
         if kind == "AI":
             self._render_ai_content(log, content)
@@ -1213,9 +1214,9 @@ class ChatPanel(Vertical):
             log.write(output)
 
     def refresh_log(self, show_verbose: bool) -> None:
-        """Clears the ChatLog and re-renders history based on the verbosity filter."""
+        """Clears the RichLog and re-renders history based on the verbosity filter."""
         self.show_verbose = show_verbose
-        log = self.query_one("#chat-log", ChatLog)
+        log = self.query_one("#chat-log", RichLog)
         log.clear()
 
         for entry in self._message_history:
