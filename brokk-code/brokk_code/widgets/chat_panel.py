@@ -1,6 +1,12 @@
+from __future__ import annotations
+
 import asyncio
 import time
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple
+
+if TYPE_CHECKING:
+    from textual.selection import Selection
+    from textual.strip import Strip
 
 from rich.markdown import ListItem as RichMarkdownListItem
 from rich.markdown import Markdown, Segment, loop_first
@@ -304,6 +310,61 @@ class MentionSuggestions(ListView):
             self.display = False
             if value:
                 self.post_message(self.MentionSelected(value))
+
+
+class ChatLog(RichLog):
+    """A RichLog subclass that supports Textual's built-in text selection.
+
+    Implements get_selection() and selection_updated() so that click-drag
+    highlighting and Ctrl+C copy work via Textual's Screen-level selection
+    system. Overrides _render_line() to apply selection highlighting to
+    the pre-rendered Strip objects that RichLog produces.
+    """
+
+    def get_selection(self, selection: Selection) -> tuple[str, str] | None:
+        text = "\n".join(strip.text for strip in self.lines)
+        return selection.extract(text), "\n"
+
+    def selection_updated(self, selection: Selection | None) -> None:
+        # Private: invalidate cache so _render_line re-applies selection styles
+        self._line_cache.clear()
+        self.refresh()
+
+    def _render_line(self, y: int, scroll_x: int, width: int) -> Strip:
+        # Private override: no public hook for Strip-level selection highlighting;
+        # TextArea uses the same private override internally
+        from textual.strip import Strip
+        if y >= len(self.lines):
+            return Strip.blank(width, self.rich_style)
+
+        # Private: _start_line and _widest_line_width are part of the base
+        # class cache key scheme, needed for correct keying after max_lines trim
+        key = (y + self._start_line, scroll_x, width, self._widest_line_width)
+        selection = self.text_selection
+
+        # Private: replicating base class _line_cache behavior
+        if selection is None and key in self._line_cache:
+            return self._line_cache[key]
+
+        line = self.lines[y].crop_extend(scroll_x, scroll_x + width, self.rich_style)
+
+        if selection is not None:
+            span = selection.get_span(y)
+            if span is not None:
+                start, end = span
+                text = Text()
+                # Private: no public segment accessor or Strip.to_text()
+                for segment in line._segments:
+                    text.append(segment.text, style=segment.style)
+                if end == -1:
+                    end = len(text)
+                selection_style = self.screen.get_component_rich_style("screen--selection")
+                text.stylize(selection_style, start, end)
+                line = Strip(text.render(self.app.console), line.cell_length)
+
+        line = line.apply_offsets(scroll_x, y)
+        self._line_cache[key] = line
+        return line
 
 
 class ChatInput(TextArea):
@@ -723,7 +784,7 @@ class ChatPanel(Vertical):
         self._draft_buffer: str = ""  # Stores text before history navigation started
 
     def compose(self) -> ComposeResult:
-        yield RichLog(highlight=True, markup=True, id="chat-log")
+        yield ChatLog(highlight=True, markup=True, id="chat-log")
         yield TokenBar(id="chat-token-bar", classes="hidden")
         yield StatusLine(id="status-line")
         with Vertical(id="chat-input-container"):
@@ -1083,7 +1144,7 @@ class ChatPanel(Vertical):
 
     def _render_message_entry(self, kind: str, content: str, **kwargs: Any) -> None:
         """Visual rendering implementation for a single history entry."""
-        log = self.query_one("#chat-log", RichLog)
+        log = self.query_one("#chat-log", ChatLog)
 
         if kind == "AI":
             self._render_ai_content(log, content)
@@ -1152,9 +1213,9 @@ class ChatPanel(Vertical):
             log.write(output)
 
     def refresh_log(self, show_verbose: bool) -> None:
-        """Clears the RichLog and re-renders history based on the verbosity filter."""
+        """Clears the ChatLog and re-renders history based on the verbosity filter."""
         self.show_verbose = show_verbose
-        log = self.query_one("#chat-log", RichLog)
+        log = self.query_one("#chat-log", ChatLog)
         log.clear()
 
         for entry in self._message_history:

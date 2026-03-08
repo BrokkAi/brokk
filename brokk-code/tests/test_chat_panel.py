@@ -108,10 +108,11 @@ async def test_token_bar_visibility_control():
 async def test_streaming_duplication_regression():
     """
     Verify that streaming tokens incrementally does not result in duplicated
-    content in the RichLog.
+    content in the ChatLog.
     """
     from textual.app import App, ComposeResult
-    from textual.widgets import RichLog
+
+    from brokk_code.widgets.chat_panel import ChatLog
 
     class TestApp(App):
         def compose(self) -> ComposeResult:
@@ -120,7 +121,7 @@ async def test_streaming_duplication_regression():
     app = TestApp()
     async with app.run_test() as pilot:
         panel = app.query_one("#chat", ChatPanel)
-        log = panel.query_one("#chat-log", RichLog)
+        log = panel.query_one("#chat-log", ChatLog)
 
         # Simulate a stream: "Hello" -> "Hello world" -> "Hello world!"
         # We use a short flush interval to ensure incremental flushes trigger.
@@ -164,7 +165,8 @@ async def test_whitespace_reasoning_terminal_does_not_stick():
     the panel must not remain in reasoning mode for the next non-reasoning message.
     """
     from textual.app import App, ComposeResult
-    from textual.widgets import RichLog
+
+    from brokk_code.widgets.chat_panel import ChatLog
 
     class TestApp(App):
         def compose(self) -> ComposeResult:
@@ -173,7 +175,7 @@ async def test_whitespace_reasoning_terminal_does_not_stick():
     app = TestApp()
     async with app.run_test() as pilot:
         panel = app.query_one("#chat", ChatPanel)
-        log = panel.query_one("#chat-log", RichLog)
+        log = panel.query_one("#chat-log", ChatLog)
 
         # 1) Simulate a reasoning stream that only emits whitespace and is terminal.
         panel.append_token("   ", "AI", is_new_message=True, is_reasoning=True, is_terminal=True)
@@ -215,7 +217,8 @@ async def test_no_notification_panel_widget():
 async def test_notification_routing_to_chat_log():
     """Verify that notifications are routed to the main chat log with styling."""
     from textual.app import App, ComposeResult
-    from textual.widgets import RichLog
+
+    from brokk_code.widgets.chat_panel import ChatLog
 
     class TestApp(App):
         def compose(self) -> ComposeResult:
@@ -224,7 +227,7 @@ async def test_notification_routing_to_chat_log():
     app = TestApp()
     async with app.run_test() as pilot:
         panel = app.query_one("#chat", ChatPanel)
-        log = panel.query_one("#chat-log", RichLog)
+        log = panel.query_one("#chat-log", ChatLog)
 
         # Test INFO notification (no prefix)
         panel.add_system_message("Info message", level="INFO")
@@ -355,8 +358,6 @@ async def test_chat_help_line_includes_shift_tab_mode_after_history() -> None:
 @pytest.mark.asyncio
 async def test_slash_command_catalog_stability():
     """Verify the slash command catalog is stable and follows rules."""
-    from unittest.mock import MagicMock
-
     from brokk_code.app import BrokkApp
 
     app = BrokkApp(executor=MagicMock())
@@ -492,7 +493,8 @@ async def test_mention_autocomplete_ignores_email_like_text():
 async def test_chat_panel_history_and_filtering():
     """Verify that ChatPanel records history and filters correctly during refresh_log."""
     from textual.app import App, ComposeResult
-    from textual.widgets import RichLog
+
+    from brokk_code.widgets.chat_panel import ChatLog
 
     class TestApp(App):
         def compose(self) -> ComposeResult:
@@ -501,7 +503,7 @@ async def test_chat_panel_history_and_filtering():
     app = TestApp()
     async with app.run_test() as pilot:
         chat = app.query_one("#chat", ChatPanel)
-        log = chat.query_one("#chat-log", RichLog)
+        log = chat.query_one("#chat-log", ChatLog)
 
         # 1. Add various message types
         chat.add_user_message("Hello User")
@@ -571,9 +573,8 @@ async def test_chat_panel_history_and_filtering():
 @pytest.mark.asyncio
 async def test_brokk_app_command_result_handling_and_filtering():
     """Verify that BrokkApp correctly routes COMMAND_RESULT events and they obey verbosity."""
-    from textual.widgets import RichLog
-
     from brokk_code.app import BrokkApp
+    from brokk_code.widgets.chat_panel import ChatLog
 
     executor = MagicMock()
     app = BrokkApp(executor=executor)
@@ -591,7 +592,7 @@ async def test_brokk_app_command_result_handling_and_filtering():
 
     async with app.run_test() as pilot:
         chat = app.query_one(ChatPanel)
-        log = chat.query_one("#chat-log", RichLog)
+        log = chat.query_one("#chat-log", ChatLog)
 
         # Simulate a COMMAND_RESULT event
         event = {
@@ -739,9 +740,8 @@ async def test_tool_call_visibility_toggle_integration():
     Integration-style test: verify that toggling output via BrokkApp.action_toggle_output
     correctly refreshes the visibility of tool calls in existing AI messages.
     """
-    from textual.widgets import RichLog
-
     from brokk_code.app import BrokkApp
+    from brokk_code.widgets.chat_panel import ChatLog
 
     executor = MagicMock()
     app = BrokkApp(executor=executor)
@@ -786,7 +786,7 @@ async def test_tool_call_visibility_toggle_integration():
             return text_str
 
         rendered_off = "".join(
-            get_plain_text(line) for line in chat.query_one("#chat-log", RichLog).lines
+            get_plain_text(line) for line in chat.query_one("#chat-log", ChatLog).lines
         )
         # Collapsed tool call should show summary line with first YAML line as hint
         assert "list_files [+] (ctrl+o to expand) - directory: src" in rendered_off
@@ -804,7 +804,7 @@ async def test_tool_call_visibility_toggle_integration():
         await pilot.pause()
         assert app.show_verbose_output is True
         rendered_on = "".join(
-            get_plain_text(line) for line in chat.query_one("#chat-log", RichLog).lines
+            get_plain_text(line) for line in chat.query_one("#chat-log", ChatLog).lines
         )
         assert "Tool Call: list_files [-] (ctrl+o to collapse)" in rendered_on
 
@@ -820,7 +820,7 @@ async def test_tool_call_visibility_toggle_integration():
         assert app.show_verbose_output is False
 
         rendered_off_again = "".join(
-            get_plain_text(line) for line in chat.query_one("#chat-log", RichLog).lines
+            get_plain_text(line) for line in chat.query_one("#chat-log", ChatLog).lines
         )
         assert "list_files [+] (ctrl+o to expand) - directory: src" in rendered_off_again
 
@@ -860,3 +860,71 @@ async def test_collapsed_summary_text_bold_label():
         assert result2.spans[0].start == 0
         assert result2.spans[0].end == len("Command Output")
         assert "bold" in str(result2.spans[0].style).lower()
+
+
+@pytest.mark.asyncio
+async def test_chat_log_get_selection():
+    """Verify that ChatLog.get_selection() extracts text from log content."""
+    from textual.app import App, ComposeResult
+
+    from brokk_code.widgets.chat_panel import ChatLog
+
+    class TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield ChatPanel(id="chat")
+
+    app = TestApp()
+    async with app.run_test() as pilot:
+        chat = app.query_one("#chat", ChatPanel)
+        chat.add_markdown("hello world")
+        await pilot.pause()
+
+        log = chat.query_one("#chat-log", ChatLog)
+
+        # Verify lines are populated
+        assert len(log.lines) > 0
+
+        full_text = "\n".join(strip.text for strip in log.lines)
+        assert "hello world" in full_text
+
+        # Test get_selection returns text with newline separator
+        mock_selection = MagicMock()
+        mock_selection.extract.return_value = "hello"
+        result = log.get_selection(mock_selection)
+        assert result is not None
+        extracted, sep = result
+        assert extracted == "hello"
+        assert sep == "\n"
+        mock_selection.extract.assert_called_once_with(full_text)
+
+
+@pytest.mark.asyncio
+async def test_chat_log_selection_updated_clears_cache():
+    """Verify that selection_updated() clears the line cache and refreshes."""
+    from unittest.mock import patch
+
+    from textual.app import App, ComposeResult
+
+    from brokk_code.widgets.chat_panel import ChatLog
+
+    class TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield ChatPanel(id="chat")
+
+    app = TestApp()
+    async with app.run_test() as pilot:
+        chat = app.query_one("#chat", ChatPanel)
+        chat.add_markdown("some text")
+        await pilot.pause()
+
+        log = chat.query_one("#chat-log", ChatLog)
+
+        # Prime the cache by rendering
+        assert len(log.lines) > 0
+
+        with patch.object(log, "refresh") as mock_refresh:
+            log.selection_updated(None)
+            mock_refresh.assert_called_once()
+
+        # Cache should be empty after selection_updated
+        assert len(log._line_cache) == 0
