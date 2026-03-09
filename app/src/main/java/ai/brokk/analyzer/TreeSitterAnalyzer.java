@@ -508,7 +508,14 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                                     return readFileBytes(pf, timing);
                                 },
                                 ioExecutor)
-                        .thenApplyAsync(fileBytes -> analyzeFile(pf, fileBytes, timing), parseExecutor)
+                        .thenApplyAsync(
+                                fileBytes -> {
+                                    // Cache the source content during initial project-wide analysis
+                                    cache.sources()
+                                            .put(pf, SourceContent.of(new String(fileBytes, StandardCharsets.UTF_8)));
+                                    return analyzeFile(pf, fileBytes, timing);
+                                },
+                                parseExecutor)
                         .thenAcceptAsync(
                                 analysisResult -> mergeAnalysisResultIntoMaps(
                                         pf,
@@ -916,33 +923,32 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     }
 
     protected @Nullable TSTree treeOf(ProjectFile file) {
-        // 1. Check lazy cache first
-        TSTree cached = cache.trees().get(file);
-        if (cached != null) {
-            return cached;
-        }
-
-        // 2. Parse on-demand if file exists and cache result
-        if (Files.exists(file.absPath())) {
-            try {
-                byte[] bytes = readFileBytes(file, null);
-                if (bytes.length == 0) {
+        // SourceContent is cached across snapshots, but TSTree is recreated as needed.
+        SourceContent sc = cache.sources().get(file);
+        if (sc == null) {
+            if (Files.exists(file.absPath())) {
+                try {
+                    byte[] bytes = readFileBytes(file, null);
+                    if (bytes.length == 0) {
+                        return null;
+                    }
+                    sc = SourceContent.of(new String(TextCanonicalizer.stripUtf8Bom(bytes), StandardCharsets.UTF_8));
+                    cache.sources().put(file, sc);
+                } catch (Exception e) {
+                    log.debug("Failed to read source on-demand for {}: {}", file, e.getMessage());
                     return null;
                 }
-                bytes = TextCanonicalizer.stripUtf8Bom(bytes);
-                String src = new String(bytes, StandardCharsets.UTF_8);
-                TSTree tree = getTSParser().parseString(null, src);
-                if (tree != null) {
-                    cache.trees().put(file, tree);
-                }
-                return tree;
-            } catch (Exception e) {
-                log.debug("Failed to parse tree on-demand for {}: {}", file, e.getMessage());
+            } else {
                 return null;
             }
         }
 
-        return null;
+        try {
+            return getTSParser().parseString(null, sc.text());
+        } catch (Exception e) {
+            log.debug("Failed to parse tree for {}: {}", file, e.getMessage());
+            return null;
+        }
     }
 
     // ---------- IAnalyzer ----------
@@ -3630,6 +3636,13 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                                         try {
                                             var parser = getTSParser();
                                             byte[] bytes = readFileBytes(file, null);
+                                            // Cache the new source content
+                                            cache.sources()
+                                                    .put(
+                                                            file,
+                                                            SourceContent.of(
+                                                                    new String(bytes, StandardCharsets.UTF_8)));
+
                                             var analysisResult = analyzeFileContent(file, bytes, parser, null);
                                             mergeAnalysisResultIntoMaps(
                                                     file,

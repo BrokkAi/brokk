@@ -2,10 +2,10 @@ package ai.brokk.analyzer.cache;
 
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.analyzer.SourceContent;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
-import org.treesitter.TSTree;
 
 /**
  * Composes all analyzer-specific caches into a single helper object.
@@ -16,14 +16,14 @@ import org.treesitter.TSTree;
  */
 public final class AnalyzerCache {
 
-    private final SimpleCache<ProjectFile, TSTree> trees;
+    private final SimpleCache<ProjectFile, SourceContent> sources;
     private final SimpleCache<ProjectFile, Set<String>> typeIdentifiers;
     private final SimpleCache<CodeUnit, List<String>> rawSupertypes;
     private final BidirectionalCache<ProjectFile, Set<CodeUnit>, Set<ProjectFile>> imports;
     private final BidirectionalCache<CodeUnit, List<CodeUnit>, Set<CodeUnit>> typeHierarchy;
 
     public AnalyzerCache() {
-        this.trees = new CaffeineSimpleCache<>(1000);
+        this.sources = new CaffeineSimpleCache<>(1000);
         this.typeIdentifiers = new CaffeineSimpleCache<>(10000);
         this.rawSupertypes = new CaffeineSimpleCache<>(5000);
         this.imports = new CaffeineBidirectionalCache<>(
@@ -53,9 +53,9 @@ public final class AnalyzerCache {
      */
     public AnalyzerCache(AnalyzerCache previous, Set<ProjectFile> changedFiles) {
         this();
-        previous.trees.forEach((file, tree) -> {
+        previous.sources.forEach((file, source) -> {
             if (!changedFiles.contains(file)) {
-                this.trees.put(file, tree);
+                this.sources.put(file, source);
             }
         });
 
@@ -84,8 +84,8 @@ public final class AnalyzerCache {
         });
     }
 
-    public SimpleCache<ProjectFile, TSTree> trees() {
-        return trees;
+    public SimpleCache<ProjectFile, SourceContent> sources() {
+        return sources;
     }
 
     public SimpleCache<ProjectFile, Set<String>> typeIdentifiers() {
@@ -108,7 +108,7 @@ public final class AnalyzerCache {
      * Returns true only if ALL caches are empty.
      */
     public boolean isEmpty() {
-        return trees.isEmpty()
+        return sources.isEmpty()
                 && typeIdentifiers.isEmpty()
                 && rawSupertypes.isEmpty()
                 && imports.isEmpty()
@@ -119,14 +119,14 @@ public final class AnalyzerCache {
      * Returns a snapshot of the current state of all caches.
      */
     public CacheSnapshot snapshot() {
-        return new CacheSnapshot(trees, typeIdentifiers, rawSupertypes, imports, typeHierarchy);
+        return new CacheSnapshot(sources, typeIdentifiers, rawSupertypes, imports, typeHierarchy);
     }
 
     /**
      * Record containing the current state of all caches.
      */
     public record CacheSnapshot(
-            SimpleCache<ProjectFile, TSTree> trees,
+            SimpleCache<ProjectFile, SourceContent> sources,
             SimpleCache<ProjectFile, Set<String>> typeIdentifiers,
             SimpleCache<CodeUnit, List<String>> rawSupertypes,
             BidirectionalCache<ProjectFile, Set<CodeUnit>, Set<ProjectFile>> imports,
