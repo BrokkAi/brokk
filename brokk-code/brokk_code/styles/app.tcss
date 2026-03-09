@@ -483,12 +483,12 @@ PrCreateModalScreen {
 }
 
 #pr-create-container {
-    width: 80;
+    width: 95%;
     height: auto;
-    max-height: 90%;
+    max-height: 95%;
     border: thick $primary;
     background: $surface;
-    padding: 1 2;
+    padding: 1 1;
 }
 
 #pr-create-title {

@@ -1152,7 +1152,10 @@ class ExecutorManager:
 
         try:
             resp = await self._http_client.post(
-                "/v1/repo/pr/create", json=payload, headers=headers if headers else None
+                "/v1/repo/pr/create",
+                json=payload,
+                headers=headers if headers else None,
+                timeout=None,
             )
             resp.raise_for_status()
             return resp.json()
