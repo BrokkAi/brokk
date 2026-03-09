@@ -1461,6 +1461,29 @@ async def run_acp_server(
             return SetSessionConfigOptionResponse(config_options=options)
 
         async def prompt(self, prompt: Any, session_id: str, **kwargs: Any) -> Any:
+            prompt_text = extract_prompt_text(prompt)
+
+            # Handle explicit slash commands
+            if prompt_text.startswith("/"):
+                base_cmd = prompt_text.split()[0].lower()
+                if base_cmd == "/context":
+                    if not self.client:
+                        raise ExecutorError("ACP client connection not established.")
+                    try:
+                        await bridge.ensure_ready()
+                        context_data = await bridge.executor.get_context()
+                        snapshot_md = format_context_snapshot(context_data)
+                        await self.client.session_update(
+                            session_id, update_agent_message_text(f"\n{snapshot_md}\n")
+                        )
+                    except Exception as e:
+                        logger.exception("Failed to handle /context command in ACP")
+                        await self.client.session_update(
+                            session_id,
+                            update_agent_message_text(f"\n[ERROR] Context retrieval failed: {e}\n"),
+                        )
+                    return PromptResponse(stop_reason="end_turn")
+
             await self._refresh_model_catalog_if_fallback(session_id)
             mode = normalize_mode(kwargs.get("mode") or self._mode_by_session.get(session_id))
             planner_model = (
