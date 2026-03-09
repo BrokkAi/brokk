@@ -742,9 +742,30 @@ class ExecutorManager:
                 f"Your executor version may be too old{diag_info}."
             ) from e
 
+        # Try to extract the server's error message from the response body
+        server_message = ""
+        if response is not None:
+            try:
+                body = response.json()
+                msg = body.get("message", "")
+                details = body.get("details", "")
+                if msg and details:
+                    server_message = f"{msg}: {details}"
+                elif msg:
+                    server_message = msg
+                elif details:
+                    server_message = details
+            except Exception:
+                pass
+
         status_str = str(status) if status is not None else "N/A"
+        method = getattr(getattr(e, "request", None), "method", "?")
+        if server_message:
+            raise ExecutorError(
+                f"Failed {method} {endpoint} (status={status_str}): {server_message}"
+            ) from e
         raise ExecutorError(
-            f"Failed GET {endpoint} (status={status_str}): {type(e).__name__}: {e}"
+            f"Failed {method} {endpoint} (status={status_str}): {type(e).__name__}: {e}"
         ) from e
 
     async def get_context(self) -> Dict[str, Any]:
