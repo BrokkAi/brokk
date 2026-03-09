@@ -12,6 +12,7 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.concurrent.LoggingExecutorService;
 import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.project.IProject;
+import ai.brokk.project.WorktreeProject;
 import ai.brokk.watchservice.AbstractWatchService;
 import ai.brokk.watchservice.AbstractWatchService.EventBatch;
 import java.io.IOException;
@@ -108,7 +109,7 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
      */
     private void submitInitialAnalyzerBuild() {
         analyzerExecutor.submit(() -> {
-            if (project instanceof ai.brokk.project.WorktreeProject wp) {
+            if (project instanceof WorktreeProject wp) {
                 wp.warmStartAnalyzerCachesFromParent();
             }
 
