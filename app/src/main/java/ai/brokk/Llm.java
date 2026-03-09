@@ -896,24 +896,12 @@ public class Llm {
             logger.error("Failed to write LLM response history file", e);
         }
 
-        // Compute and show cost notification if usage/pricing are available
+        // Compute cost and notify if usage/pricing are available
         if (result != null) {
             var usage = result.metadata();
             if (usage != null) {
                 var service = contextManager.getService();
                 var modelName = service.nameOf(model);
-                // Filter out cost notifications for free-tier models unless explicitly enabled
-                if (service.isFreeTier(modelName) && !GlobalUiSettings.isShowFreeInternalLLMCostNotifications()) {
-                    logger.debug(
-                            "Skipping cost notification for {} (user preference for Free Internal LLM logging)",
-                            modelName);
-                    return;
-                }
-                // Respect user preference for cost notifications
-                if (!GlobalUiSettings.isShowCostNotifications()) {
-                    logger.debug("Cost notifications disabled by user settings");
-                    return;
-                }
                 var tier = Service.getProcessingTier(model);
                 var pricing = service.getModelPricing(modelName, tier);
 
@@ -928,16 +916,27 @@ public class Llm {
 
                 if (pricing.bands().isEmpty()) {
                     String message = "Cost unknown for %s (%s)".formatted(modelName, tokenSummary);
-                    io.showNotification(IConsoleIO.NotificationRole.COST, message);
                     logger.debug("LLM cost: {}", message);
+                    if (GlobalUiSettings.isShowCostNotifications()) {
+                        io.showNotification(IConsoleIO.NotificationRole.COST, message);
+                    }
                 } else {
                     double cost = pricing.getCostFor(uncached, cached, output);
+                    io.recordCost(cost);
+
                     DecimalFormat df = (DecimalFormat) NumberFormat.getNumberInstance(Locale.US);
                     df.applyPattern("#,##0.0000");
                     String costStr = df.format(cost);
                     String message = "$" + costStr + " for " + modelName + " (" + tokenSummary + ")";
-                    io.showNotification(IConsoleIO.NotificationRole.COST, message, cost);
                     logger.debug("LLM cost: {}", message);
+
+                    boolean showFree = GlobalUiSettings.isShowFreeInternalLLMCostNotifications();
+                    boolean isFree = service.isFreeTier(modelName);
+                    if (GlobalUiSettings.isShowCostNotifications() && (!isFree || showFree)) {
+                        // Pass null for cost to showNotification here because we already called recordCost above
+                        // and we don't want duplicate accounting in HeadlessHttpConsole.
+                        io.showNotification(IConsoleIO.NotificationRole.COST, message, null);
+                    }
                 }
             }
         }
