@@ -200,6 +200,64 @@ async def test_brokk_app_session_cost_seeded_from_context(mock_executor):
 
 
 @pytest.mark.asyncio
+async def test_brokk_app_session_cost_reconciles_without_notifications(mock_executor):
+    """
+    Verify that session_total_cost reconciles from backend totalCost
+    even if no COST notifications were received.
+    """
+    app = BrokkApp(executor=mock_executor)
+    app._executor_ready = True
+    app.session_total_cost = 1.0
+
+    # Backend now reports 1.5, even though we saw no events
+    mock_executor.get_context = AsyncMock(
+        return_value={
+            "branch": "main",
+            "totalCost": 1.5,
+        }
+    )
+
+    await app._refresh_context_panel()
+
+    # Reconciled to backend truth
+    assert app.session_total_cost == 1.5
+    # Job cost remains 0 as it only tracks live events during a job
+    assert app.current_job_cost == 0.0
+
+
+@pytest.mark.asyncio
+async def test_brokk_app_cost_mixed_behavior(mock_executor):
+    """
+    Verify mixed behavior: live events increment totals, and subsequent
+    refresh reconciles to backend truth (e.g. including hidden costs).
+    """
+    app = BrokkApp(executor=mock_executor)
+    app._executor_ready = True
+    app.session_total_cost = 1.0
+    app.job_in_progress = True  # Block reconciliation during "job"
+
+    # 1. Receive a live cost event
+    app._handle_event(
+        {
+            "type": "NOTIFICATION",
+            "data": {"level": "COST", "message": "Cost: $0.10", "cost": 0.10},
+        }
+    )
+    assert app.session_total_cost == 1.10
+    assert app.current_job_cost == 0.10
+
+    # 2. Refresh occurs WHILE job is running - should NOT reconcile (monotonicity/double-count guard)
+    mock_executor.get_context = AsyncMock(return_value={"totalCost": 1.25})
+    await app._refresh_context_panel()
+    assert app.session_total_cost == 1.10
+
+    # 3. Job finishes, next refresh reconciles to 1.25
+    app.job_in_progress = False
+    await app._refresh_context_panel()
+    assert app.session_total_cost == 1.25
+
+
+@pytest.mark.asyncio
 async def test_brokk_app_session_cost_ignores_missing_or_bad_total_cost(mock_executor):
     """Verify that missing or non-numeric totalCost in context doesn't reset or crash the app."""
     app = BrokkApp(executor=mock_executor)
