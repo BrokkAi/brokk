@@ -39,9 +39,14 @@ public final class WorktreeProject extends AbstractProject {
     @Blocking
     public void warmStartAnalyzerCachesFromParent() {
         assert !SwingUtilities.isEventDispatchThread() : "warmStartAnalyzerCachesFromParent called on EDT";
+        warmStartAnalyzerCachesFromParent(parent.getAnalyzerLanguages());
+    }
 
-        Set<Language> languages = parent.getAnalyzerLanguages();
-        Set<Language> effectiveLanguages = languages.stream()
+    @Blocking
+    void warmStartAnalyzerCachesFromParent(Set<Language> parentLanguages) {
+        assert !SwingUtilities.isEventDispatchThread() : "warmStartAnalyzerCachesFromParent called on EDT";
+
+        Set<Language> effectiveLanguages = parentLanguages.stream()
                 .flatMap(l -> l instanceof Language.MultiLanguage ml ? ml.getLanguages().stream() : Stream.of(l))
                 .filter(l -> l != Languages.NONE)
                 .collect(Collectors.toSet());
