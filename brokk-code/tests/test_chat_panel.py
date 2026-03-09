@@ -906,3 +906,337 @@ async def test_collapsed_summary_text_bold_label():
         assert result2.spans[0].start == 0
         assert result2.spans[0].end == len("Command Output")
         assert "bold" in str(result2.spans[0].style).lower()
+
+
+@pytest.mark.asyncio
+async def test_autoscroll_and_button_toggle_on_scroll():
+    """
+    Verify that scrolling up disables auto_scroll and shows the button,
+    and scrolling back to bottom re-enables auto_scroll and hides the button.
+    """
+    from textual.app import App, ComposeResult
+    from textual.widgets import Button, RichLog
+
+    class TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield ChatPanel(id="chat")
+
+    app = TestApp()
+    async with app.run_test(size=(80, 10)) as pilot:
+        panel = app.query_one("#chat", ChatPanel)
+        log = panel.query_one("#chat-log", RichLog)
+        scroll_btn = panel.query_one("#scroll-to-bottom", Button)
+
+        assert log.auto_scroll is True
+        assert scroll_btn.has_class("hidden")
+
+        for i in range(20):
+            panel.add_system_message(f"Message {i}")
+        await pilot.pause()
+
+        assert log.auto_scroll is True
+        assert log.max_scroll_y > 0, "Log must be scrollable for this test"
+
+        # Scroll up
+        log.scroll_to(y=0, animate=False)
+        await pilot.pause()
+        panel._sync_autoscroll()
+
+        assert log.auto_scroll is False, "auto_scroll should be disabled when scrolled up"
+        assert not scroll_btn.has_class("hidden"), "Button should be visible when scrolled up"
+
+        # Scroll back to bottom
+        log.scroll_end(animate=False)
+        await pilot.pause()
+        panel._sync_autoscroll()
+
+        assert log.auto_scroll is True, "auto_scroll should be re-enabled at bottom"
+        assert scroll_btn.has_class("hidden"), "Button should be hidden at bottom"
+
+
+@pytest.mark.asyncio
+async def test_autoscroll_reset_on_submission():
+    """
+    Verify that submitting a new user message resets the chat to bottom-follow mode
+    and scrolls the log back to the end.
+    """
+    from textual.app import App, ComposeResult
+    from textual.widgets import RichLog
+
+    from brokk_code.widgets.chat_panel import ChatInput
+
+    class TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield ChatPanel(id="chat")
+
+    app = TestApp()
+    async with app.run_test(size=(80, 10)) as pilot:
+        panel = app.query_one("#chat", ChatPanel)
+        log = panel.query_one("#chat-log", RichLog)
+        chat_input = panel.query_one("#chat-input", ChatInput)
+
+        # Add enough content to make the log scrollable in small viewport
+        for i in range(20):
+            panel.add_system_message(f"Message {i}")
+        await pilot.pause()
+
+        # Verify scrollability is deterministic
+        assert log.max_scroll_y > 0, "Log must be scrollable for this test"
+
+        # Scroll up to disable auto_scroll
+        log.scroll_to(y=0, animate=False)
+        await pilot.pause()
+        panel._sync_autoscroll()
+        assert log.auto_scroll is False
+
+        # Type and submit a message
+        chat_input.text = "Hello"
+        chat_input.action_submit()
+        await pilot.pause()
+
+        # After submission, auto_scroll should be re-enabled
+        assert log.auto_scroll is True
+        # And we should be at the bottom
+        assert log.is_vertical_scroll_end
+
+
+@pytest.mark.asyncio
+async def test_scroll_to_bottom_button_hidden_by_default():
+    """Verify the scroll-to-bottom button is hidden when composed."""
+    from textual.app import App, ComposeResult
+    from textual.widgets import Button
+
+    class TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield ChatPanel(id="chat")
+
+    app = TestApp()
+    async with app.run_test():
+        panel = app.query_one("#chat", ChatPanel)
+        scroll_btn = panel.query_one("#scroll-to-bottom", Button)
+        assert scroll_btn.has_class("hidden")
+
+
+@pytest.mark.asyncio
+async def test_scroll_to_bottom_button_click():
+    """
+    Verify clicking the scroll-to-bottom button scrolls to end
+    and re-enables auto_scroll.
+    """
+    from textual.app import App, ComposeResult
+    from textual.widgets import Button, RichLog
+
+    class TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield ChatPanel(id="chat")
+
+    app = TestApp()
+    async with app.run_test(size=(80, 10)) as pilot:
+        panel = app.query_one("#chat", ChatPanel)
+        log = panel.query_one("#chat-log", RichLog)
+        scroll_btn = panel.query_one("#scroll-to-bottom", Button)
+
+        # Add enough content to make scrollable in small viewport
+        for i in range(20):
+            panel.add_system_message(f"Message {i}")
+        await pilot.pause()
+
+        # Verify scrollability is deterministic
+        assert log.max_scroll_y > 0, "Log must be scrollable for this test"
+
+        # Scroll up and disable auto_scroll
+        log.scroll_to(y=0, animate=False)
+        log.auto_scroll = False
+        await pilot.pause()
+        panel._sync_autoscroll()
+
+        assert not scroll_btn.has_class("hidden")
+        assert log.auto_scroll is False
+
+        # Click the button
+        scroll_btn.press()
+        await pilot.pause()
+
+        # Should be back at bottom with auto_scroll enabled
+        assert log.auto_scroll is True
+        assert log.is_vertical_scroll_end
+        assert scroll_btn.has_class("hidden")
+
+
+@pytest.mark.asyncio
+async def test_autoscroll_restored_when_content_becomes_non_scrollable():
+    """
+    Regression test: When auto_scroll was disabled (user scrolled up while content
+    was scrollable), and then the log becomes non-scrollable (e.g., clear + short
+    re-render), auto_scroll must be restored to True and the button hidden.
+
+    This guards the fix in _sync_autoscroll's else branch where log.auto_scroll = True
+    is set when max_scroll_y <= 0.
+    """
+    from textual.app import App, ComposeResult
+    from textual.widgets import Button, RichLog
+
+    class TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield ChatPanel(id="chat")
+
+    app = TestApp()
+    async with app.run_test(size=(80, 10)) as pilot:
+        panel = app.query_one("#chat", ChatPanel)
+        log = panel.query_one("#chat-log", RichLog)
+        scroll_btn = panel.query_one("#scroll-to-bottom", Button)
+
+        # Add enough content to make the log scrollable in small viewport
+        for i in range(20):
+            panel.add_system_message(f"Message {i}")
+        await pilot.pause()
+
+        # Verify scrollability is deterministic
+        assert log.max_scroll_y > 0, "Log must be scrollable for this test"
+
+        # Scroll up to disable auto_scroll
+        log.scroll_to(y=0, animate=False)
+        await pilot.pause()
+        panel._sync_autoscroll()
+
+        assert log.auto_scroll is False, "auto_scroll should be disabled when scrolled up"
+        assert not scroll_btn.has_class("hidden"), "Button should be visible when scrolled up"
+
+        # Clear history and re-render with a single short message so content fits
+        panel._message_history.clear()
+        panel._message_history.append(
+            {"kind": "SYSTEM", "content": "Short", "level": "INFO", "markup": False}
+        )
+        panel.refresh_log(show_verbose=True)
+        await pilot.pause()
+
+        # Content now fits in view, so max_scroll_y should be <= 0
+        assert log.max_scroll_y <= 0, "Log should no longer be scrollable after truncation"
+
+        # auto_scroll must be restored and button hidden
+        assert log.auto_scroll is True, (
+            "auto_scroll should be restored to True when content becomes non-scrollable"
+        )
+        assert scroll_btn.has_class("hidden"), (
+            "Button should be hidden when content becomes non-scrollable"
+        )
+
+
+@pytest.mark.asyncio
+async def test_refresh_log_preserves_middle_scroll_position():
+    """
+    Verify that when scrolled to a middle position (not 0, not bottom),
+    refresh_log preserves the scroll position (clamped to new max) and
+    keeps auto_scroll disabled.
+    """
+    from textual.app import App, ComposeResult
+    from textual.widgets import Button, RichLog
+
+    class TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield ChatPanel(id="chat")
+
+    app = TestApp()
+    async with app.run_test(size=(80, 10)) as pilot:
+        panel = app.query_one("#chat", ChatPanel)
+        log = panel.query_one("#chat-log", RichLog)
+        scroll_btn = panel.query_one("#scroll-to-bottom", Button)
+
+        # Add enough content to make the log scrollable in small viewport
+        for i in range(20):
+            panel.add_system_message(f"Message {i}")
+        await pilot.pause()
+
+        # Verify scrollability is deterministic
+        assert log.max_scroll_y > 0, "Log must be scrollable for this test"
+
+        # Scroll to middle position (not 0, not bottom)
+        mid_y = log.max_scroll_y // 2
+        assert mid_y > 0, "mid_y must be positive to test middle scroll"
+        log.scroll_to(y=mid_y, animate=False)
+        await pilot.pause()
+        panel._sync_autoscroll()
+
+        assert log.auto_scroll is False, "auto_scroll should be disabled at middle position"
+        assert not scroll_btn.has_class("hidden"), "Button should be visible at middle position"
+
+        prior_scroll_y = log.scroll_y
+
+        # Call refresh_log
+        panel.refresh_log(show_verbose=True)
+        await pilot.pause()
+
+        # scroll_y should be restored (clamped to new max_scroll_y)
+        assert log.scroll_y <= log.max_scroll_y, (
+            "scroll_y should not exceed max_scroll_y after refresh"
+        )
+        assert log.scroll_y > 0, "scroll_y should be restored near prior position, not reset to 0"
+        # Allow some tolerance since content may re-render slightly differently
+        assert abs(log.scroll_y - min(prior_scroll_y, log.max_scroll_y)) <= 1, (
+            f"scroll_y ({log.scroll_y}) should be close to prior ({prior_scroll_y}) "
+            f"or clamped to max ({log.max_scroll_y})"
+        )
+        assert log.auto_scroll is False, (
+            "auto_scroll should remain disabled after refresh_log at middle position"
+        )
+        assert not scroll_btn.has_class("hidden"), (
+            "Button should remain visible after refresh_log at middle position"
+        )
+
+
+@pytest.mark.asyncio
+async def test_add_message_does_not_jump_when_scrolled_up():
+    """
+    Verify that when auto_scroll is disabled (user scrolled up), adding a new
+    message via add_system_message does not jump to the bottom, and the
+    scroll-to-bottom button remains visible.
+    """
+    from textual.app import App, ComposeResult
+    from textual.widgets import Button, RichLog
+
+    class TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield ChatPanel(id="chat")
+
+    app = TestApp()
+    async with app.run_test(size=(80, 10)) as pilot:
+        panel = app.query_one("#chat", ChatPanel)
+        log = panel.query_one("#chat-log", RichLog)
+        scroll_btn = panel.query_one("#scroll-to-bottom", Button)
+
+        # Add enough content to make the log scrollable in small viewport
+        for i in range(20):
+            panel.add_system_message(f"Message {i}")
+        await pilot.pause()
+
+        # Verify scrollability is deterministic
+        assert log.max_scroll_y > 0, "Log must be scrollable for this test"
+
+        # Scroll up to disable auto_scroll
+        log.scroll_to(y=0, animate=False)
+        await pilot.pause()
+        panel._sync_autoscroll()
+
+        assert log.auto_scroll is False
+        assert not scroll_btn.has_class("hidden")
+
+        # Record scroll position before adding new message
+        scroll_y_before = log.scroll_y
+
+        # Add another message while scrolled up
+        panel.add_system_message("New message while scrolled up")
+        await pilot.pause()
+
+        # scroll_y should not have jumped to max_scroll_y
+        assert log.scroll_y == scroll_y_before, (
+            f"scroll_y jumped from {scroll_y_before} to {log.scroll_y}; "
+            "should stay in place when auto_scroll is disabled"
+        )
+        assert log.scroll_y < log.max_scroll_y, (
+            "scroll_y should not be at max_scroll_y when auto_scroll is disabled"
+        )
+
+        # Button should still be visible
+        assert not scroll_btn.has_class("hidden"), (
+            "scroll-to-bottom button should remain visible after adding a message"
+        )
