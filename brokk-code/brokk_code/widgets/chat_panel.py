@@ -766,10 +766,13 @@ class ChatPanel(Vertical):
             scroll_btn = self.query_one("#scroll-to-bottom", Button)
         except NoMatches:
             return
+
         # Only act when there's actually scrollable content
         if log.max_scroll_y > 0:
-            # Use is_vertical_scroll_end which properly accounts for scroll position
-            at_bottom = log.is_vertical_scroll_end
+            # Check if we are within 1 unit of the bottom.
+            # We avoid is_vertical_scroll_end because it returns True when size is 0,
+            # which causes flakiness during layout updates.
+            at_bottom = log.scroll_y >= (log.max_scroll_y - 1)
             if at_bottom:
                 log.auto_scroll = True
                 scroll_btn.set_class(True, "hidden")
