@@ -3640,6 +3640,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
         long cleanupNanos = System.nanoTime() - cleanupStart;
 
+        // Evict old source content entries to ensure re-analysis uses fresh data
+        cache.sources().removeAll(relevantFiles);
+
         // 3. Re-analyze changed files in parallel
         int total = relevantFiles.size();
         var reanalyzedCount = new AtomicInteger(0);
@@ -3658,12 +3661,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                                         long reanStart = System.nanoTime();
                                         try {
                                             byte[] bytes = readFileBytes(file, null);
-                                            // TODO: evict old entry without duplicating work, i.e., `.remove(file)`
-                                            cache.sources()
-                                                    .put(
-                                                            file,
-                                                            SourceContent.of(
-                                                                    new String(bytes, StandardCharsets.UTF_8)));
                                             var analysisResult = analyzeFileContent(file, bytes, null);
                                             mergeAnalysisResultIntoMaps(
                                                     file,
