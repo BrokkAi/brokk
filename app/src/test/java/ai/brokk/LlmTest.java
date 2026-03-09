@@ -461,6 +461,70 @@ public class LlmTest {
     }
 
     @Test
+    void testStreamingMetadata_ContentFirst() throws InterruptedException {
+        var console = new ai.brokk.testutil.TestConsoleIO();
+        // The scripted model splits text on spaces, so "Hello world" becomes 2 chunks
+        var model = new TestScriptedLanguageModel("Hello world");
+        var llm = contextManager.getLlm(new Llm.Options(model, "test", TaskResult.Type.NONE).withEcho());
+        llm.setOutput(console);
+
+        llm.sendRequest(List.of(new UserMessage("hi")));
+
+        var captured = console.getCapturedOutputs();
+        assertTrue(captured.size() >= 2, "Expected at least 2 chunks for 'Hello world'");
+
+        // First chunk: isNewMessage=true, isReasoning=false
+        assertTrue(captured.get(0).meta().isNewMessage());
+        assertFalse(captured.get(0).meta().isReasoning());
+        assertEquals("Hello ", captured.get(0).token());
+
+        // Second chunk: isNewMessage=false
+        assertFalse(captured.get(1).meta().isNewMessage());
+        assertEquals("world", captured.get(1).token());
+    }
+
+    @Test
+    void testStreamingMetadata_ReasoningFirst() throws InterruptedException {
+        var console = new ai.brokk.testutil.TestConsoleIO();
+        // Scripted model with reasoning then content
+        var model = new StreamingChatModel() {
+            @Override
+            public void doChat(
+                    dev.langchain4j.model.chat.request.ChatRequest request,
+                    dev.langchain4j.model.chat.response.StreamingChatResponseHandler handler) {
+                handler.onReasoningResponse("Thinking");
+                handler.onReasoningResponse("...");
+                handler.onPartialResponse("Result");
+                handler.onCompleteResponse(dev.langchain4j.model.chat.response.ChatResponse.builder()
+                        .aiMessage(AiMessage.from("Result"))
+                        .build());
+            }
+        };
+
+        var llm = contextManager.getLlm(new Llm.Options(model, "test", TaskResult.Type.NONE).withEcho());
+        llm.setOutput(console);
+
+        llm.sendRequest(List.of(new UserMessage("hi")));
+
+        var captured = console.getCapturedOutputs();
+        assertEquals(3, captured.size());
+
+        // First reasoning chunk: isNewMessage=true, isReasoning=true
+        assertTrue(captured.get(0).meta().isNewMessage());
+        assertTrue(captured.get(0).meta().isReasoning());
+        assertEquals("Thinking", captured.get(0).token());
+
+        // Second reasoning chunk: isNewMessage=false, isReasoning=true
+        assertFalse(captured.get(1).meta().isNewMessage());
+        assertTrue(captured.get(1).meta().isReasoning());
+
+        // Content chunk: isNewMessage=false (already started by reasoning), isReasoning=false
+        assertFalse(captured.get(2).meta().isNewMessage());
+        assertFalse(captured.get(2).meta().isReasoning());
+        assertEquals("Result", captured.get(2).token());
+    }
+
+    @Test
     void sumClampsElapsedMsOverflowToLongMaxValue() {
         long almostMax = Long.MAX_VALUE - 5;
         long small = 10L;

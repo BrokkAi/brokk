@@ -43,7 +43,11 @@ public class TestScriptedLanguageModel implements StreamingChatModel {
 
         String text = ai.text() == null ? "" : ai.text();
         if (!text.isEmpty()) {
-            handler.onPartialResponse(text);
+            // Split into words to simulate multi-chunk streaming for boundary testing
+            String[] chunks = text.split("(?<=\\s)");
+            for (String chunk : chunks) {
+                handler.onPartialResponse(chunk);
+            }
         }
         var cr = ChatResponse.builder().aiMessage(ai).build();
         handler.onCompleteResponse(cr);

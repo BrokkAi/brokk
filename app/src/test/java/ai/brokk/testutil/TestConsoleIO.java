@@ -10,6 +10,9 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class TestConsoleIO implements IConsoleIO {
+    public record CapturedOutput(String token, ChatMessageType type, LlmOutputMeta meta) {}
+
+    private final List<CapturedOutput> capturedOutputs = new ArrayList<>();
     private final StringBuilder outputLog = new StringBuilder();
     private final StringBuilder errorLog = new StringBuilder();
     private final List<ChatMessage> llmRawMessages = new ArrayList<>();
@@ -37,6 +40,7 @@ public class TestConsoleIO implements IConsoleIO {
 
     @Override
     public void llmOutput(String token, ChatMessageType type, LlmOutputMeta meta) {
+        capturedOutputs.add(new CapturedOutput(token, type, meta));
         if (type == ChatMessageType.AI) {
             if (meta.isNewMessage() && streamingAiMessage.length() > 0) {
                 llmRawMessages.add(new AiMessage(streamingAiMessage.toString()));
@@ -50,6 +54,10 @@ public class TestConsoleIO implements IConsoleIO {
             llmRawMessages.add(new AiMessage(token));
             outputLog.append(token);
         }
+    }
+
+    public List<CapturedOutput> getCapturedOutputs() {
+        return List.copyOf(capturedOutputs);
     }
 
     private void finishStreamingAiMessage() {
