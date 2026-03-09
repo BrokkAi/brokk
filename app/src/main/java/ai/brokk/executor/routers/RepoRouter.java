@@ -3,7 +3,6 @@ package ai.brokk.executor.routers;
 import ai.brokk.ContextManager;
 import ai.brokk.executor.http.SimpleHttpServer;
 import ai.brokk.executor.jobs.ErrorPayload;
-import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitWorkflow;
 import ai.brokk.git.IGitRepo;
 import com.sun.net.httpserver.HttpExchange;
@@ -121,7 +120,7 @@ public final class RepoRouter implements SimpleHttpServer.CheckedHttpHandler {
         var githubToken = exchange.getRequestHeaders().getFirst("X-Github-Token");
 
         try {
-            var repo = (GitRepo) project.getRepo();
+            var repo = project.getRepo();
             String source = resolveSourceBranch(request.sourceBranch(), repo);
             String target = resolveTargetBranch(request.targetBranch(), repo);
 
@@ -140,9 +139,6 @@ public final class RepoRouter implements SimpleHttpServer.CheckedHttpHandler {
             Thread.currentThread().interrupt();
             logger.warn("PR suggest operation was interrupted", e);
             SimpleHttpServer.sendJsonResponse(exchange, 503, ErrorPayload.internalError("Operation interrupted", e));
-        } catch (GitAPIException e) {
-            logger.error("Git error during PR suggest", e);
-            SimpleHttpServer.sendJsonResponse(exchange, 500, ErrorPayload.internalError("Git operation failed", e));
         } catch (Exception e) {
             logger.error("Error handling POST /v1/repo/pr/suggest", e);
             SimpleHttpServer.sendJsonResponse(
@@ -174,7 +170,7 @@ public final class RepoRouter implements SimpleHttpServer.CheckedHttpHandler {
         var githubToken = exchange.getRequestHeaders().getFirst("X-Github-Token");
 
         try {
-            var repo = (GitRepo) project.getRepo();
+            var repo = project.getRepo();
             String source = resolveSourceBranch(request.sourceBranch(), repo);
             String target = resolveTargetBranch(request.targetBranch(), repo);
 
@@ -198,14 +194,14 @@ public final class RepoRouter implements SimpleHttpServer.CheckedHttpHandler {
         }
     }
 
-    private String resolveSourceBranch(@Nullable String requested, GitRepo repo) throws GitAPIException {
+    private String resolveSourceBranch(@Nullable String requested, IGitRepo repo) throws GitAPIException {
         if (requested != null && !requested.isBlank()) {
             return requested.strip();
         }
         return repo.getCurrentBranch();
     }
 
-    private String resolveTargetBranch(@Nullable String requested, GitRepo repo) throws GitAPIException {
+    private String resolveTargetBranch(@Nullable String requested, IGitRepo repo) throws GitAPIException {
         if (requested != null && !requested.isBlank()) {
             return requested.strip();
         }
