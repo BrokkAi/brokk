@@ -376,8 +376,8 @@ class ModeSelectModal(ModalScreen[str]):
             self.dismiss(mode)
 
 
-class PrCreateModalScreen(ModalScreen[Optional[tuple[str, str]]]):
-    """Modal for creating a pull request with editable title and body."""
+class PrCreateModalScreen(ModalScreen[Optional[tuple[str, str, List[str]]]]):
+    """Modal for creating a pull request with editable title, body, and session selection."""
 
     BINDINGS = [
         Binding("escape", "dismiss", "Cancel", show=False),
@@ -390,12 +390,18 @@ class PrCreateModalScreen(ModalScreen[Optional[tuple[str, str]]]):
         suggested_body: str = "",
         source_branch: str = "",
         target_branch: str = "",
+        sessions: Optional[List[Dict[str, Any]]] = None,
+        selected_session_ids: Optional[List[str]] = None,
     ) -> None:
         super().__init__()
         self._suggested_title = suggested_title
         self._suggested_body = suggested_body
         self._source_branch = source_branch
         self._target_branch = target_branch
+        self._sessions = sessions or []
+        self._selected_session_ids = set(selected_session_ids or [])
+        # Build ordered list of session IDs to preserve display order in result
+        self._session_id_order = [str(s.get("id", "")) for s in self._sessions]
 
     def compose(self) -> ComposeResult:
         with Vertical(id="pr-create-container"):
@@ -408,12 +414,73 @@ class PrCreateModalScreen(ModalScreen[Optional[tuple[str, str]]]):
             yield Input(value=self._suggested_title, placeholder="PR title", id="pr-title-input")
             yield Static("Description:", id="pr-body-label")
             yield TextArea(text=self._suggested_body, id="pr-body-input")
+            if self._sessions:
+                yield Static("Sessions (Space/Enter to toggle):", id="pr-sessions-label")
+                with VerticalScroll(id="pr-sessions-scroll"):
+                    items = []
+                    for session in self._sessions:
+                        session_id = str(session.get("id", ""))
+                        session_name = session.get("name") or session_id[:8]
+                        is_selected = session_id in self._selected_session_ids
+                        marker = "[x]" if is_selected else "[ ]"
+                        item = ListItem(
+                            Static(f"{marker} {session_name}", markup=False),
+                            id=f"pr-session-{session_id}",
+                        )
+                        item.session_id = session_id
+                        items.append(item)
+                    yield ListView(*items, id="pr-sessions-list")
             with Horizontal(id="pr-create-actions"):
                 yield Button("Create PR", id="pr-create-submit", variant="primary")
                 yield Button("Cancel", id="pr-create-cancel")
 
     def on_mount(self) -> None:
         self.query_one("#pr-title-input", Input).focus()
+
+    def on_list_view_selected(self, event: ListView.Selected) -> None:
+        """Toggle session selection when Enter is pressed on a list item."""
+        if event.item and hasattr(event.item, "session_id"):
+            self._toggle_session(event.item.session_id)
+            event.stop()
+
+    def on_key(self, event) -> None:
+        """Handle Space key to toggle selection in the sessions list."""
+        if event.key == "space":
+            try:
+                sessions_list = self.query_one("#pr-sessions-list", ListView)
+                if sessions_list.has_focus or (
+                    sessions_list.highlighted_child and sessions_list.highlighted_child.has_focus
+                ):
+                    item = sessions_list.highlighted_child
+                    if item and hasattr(item, "session_id"):
+                        self._toggle_session(item.session_id)
+                        event.stop()
+                        event.prevent_default()
+            except Exception:
+                pass
+
+    def _toggle_session(self, session_id: str) -> None:
+        """Toggle selection state for a session."""
+        if session_id in self._selected_session_ids:
+            self._selected_session_ids.discard(session_id)
+            is_selected = False
+        else:
+            self._selected_session_ids.add(session_id)
+            is_selected = True
+
+        # Update the visual state
+        try:
+            item = self.query_one(f"#pr-session-{session_id}", ListItem)
+            session_name = None
+            for s in self._sessions:
+                if str(s.get("id", "")) == session_id:
+                    session_name = s.get("name") or session_id[:8]
+                    break
+            if session_name:
+                marker = "[x]" if is_selected else "[ ]"
+                item.query_one(Static).update(f"{marker} {session_name}")
+        except Exception:
+            pass
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "pr-create-submit":
@@ -432,7 +499,9 @@ class PrCreateModalScreen(ModalScreen[Optional[tuple[str, str]]]):
         if not title:
             title_label.update("[bold red]Title is required[/]")
             return
-        self.dismiss((title, body))
+        # Return selected IDs in display order (deterministic)
+        selected_ids = [sid for sid in self._session_id_order if sid in self._selected_session_ids]
+        self.dismiss((title, body, selected_ids))
 
 
 class SessionSelectModal(ModalScreen[str]):
@@ -2538,8 +2607,18 @@ class BrokkApp(App):
             return
 
         try:
-            chat.add_system_message("Fetching PR suggestion...")
+            chat.add_system_message("Fetching sessions and PR suggestion...")
             chat.set_job_running(True)
+
+            # Fetch available sessions
+            sessions_data = await self.executor.list_sessions()
+            sessions = sessions_data.get("sessions", [])
+            current_session_id = sessions_data.get("currentSessionId", "")
+
+            # Default selection: current session if present
+            default_selected_ids: List[str] = []
+            if current_session_id:
+                default_selected_ids = [current_session_id]
 
             # Use current branch as source, optional base branch override or let executor default
             source_branch = self.current_branch if self.current_branch != "unknown" else None
@@ -2547,6 +2626,7 @@ class BrokkApp(App):
             suggestion = await self.executor.pr_suggest(
                 source_branch=source_branch,
                 target_branch=base_branch,
+                session_ids=default_selected_ids if default_selected_ids else None,
             )
 
             suggested_title = suggestion.get("title", "")
@@ -2556,12 +2636,16 @@ class BrokkApp(App):
 
             chat.set_job_running(False)
 
-            def on_pr_result(result: Optional[tuple[str, str]]) -> None:
+            def on_pr_result(result: Optional[tuple[str, str, List[str]]]) -> None:
                 if result is None:
                     chat.add_system_message("PR creation cancelled.")
                     return
-                title, body = result
-                self.run_worker(self._do_create_pr(title, body, resolved_source, resolved_target))
+                title, body, selected_session_ids = result
+                self.run_worker(
+                    self._do_create_pr(
+                        title, body, resolved_source, resolved_target, selected_session_ids
+                    )
+                )
 
             self.push_screen(
                 PrCreateModalScreen(
@@ -2569,6 +2653,8 @@ class BrokkApp(App):
                     suggested_body=suggested_body,
                     source_branch=resolved_source,
                     target_branch=resolved_target,
+                    sessions=sessions,
+                    selected_session_ids=default_selected_ids,
                 ),
                 on_pr_result,
             )
@@ -2579,7 +2665,12 @@ class BrokkApp(App):
             chat.set_job_running(False)
 
     async def _do_create_pr(
-        self, title: str, body: str, source_branch: str, target_branch: str
+        self,
+        title: str,
+        body: str,
+        source_branch: str,
+        target_branch: str,
+        session_ids: Optional[List[str]] = None,
     ) -> None:
         """Async worker to actually create the PR after user confirms."""
         chat = self._maybe_chat()
@@ -2595,6 +2686,7 @@ class BrokkApp(App):
                 body=body,
                 source_branch=source_branch,
                 target_branch=target_branch,
+                session_ids=session_ids if session_ids else None,
             )
 
             pr_url = result.get("url", "")

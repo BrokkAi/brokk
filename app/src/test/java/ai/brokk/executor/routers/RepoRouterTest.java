@@ -145,6 +145,42 @@ class RepoRouterTest {
     }
 
     @Test
+    void handlePostPrSuggest_acceptsSessionIds(@TempDir Path tempDir) throws Exception {
+        initGitRepoWithFeatureBranch(tempDir);
+
+        var exchange = TestHttpExchange.jsonRequest(
+                "POST",
+                "/v1/repo/pr/suggest",
+                Map.of(
+                        "sourceBranch", "feature",
+                        "targetBranch", "master",
+                        "sessionIds", java.util.List.of("550e8400-e29b-41d4-a716-446655440000")));
+        repoRouter.handle(exchange);
+
+        int code = exchange.responseCode();
+        // Either succeeds or fails during LLM - not a validation error (400)
+        assertTrue(code == 200 || code == 500, "Expected 200 or 500, got " + code);
+    }
+
+    @Test
+    void handlePostPrSuggest_invalidSessionId_returns400(@TempDir Path tempDir) throws Exception {
+        initGitRepoWithFeatureBranch(tempDir);
+
+        var exchange = TestHttpExchange.jsonRequest(
+                "POST",
+                "/v1/repo/pr/suggest",
+                Map.of(
+                        "sourceBranch", "feature",
+                        "targetBranch", "master",
+                        "sessionIds", java.util.List.of("not-a-valid-uuid")));
+        repoRouter.handle(exchange);
+
+        assertEquals(400, exchange.responseCode());
+        Map<String, Object> body = MAPPER.readValue(exchange.responseBodyBytes(), new TypeReference<>() {});
+        assertTrue(body.get("message").toString().contains("UUID"));
+    }
+
+    @Test
     void handlePostPrSuggest_noGitRepo_returns400(@TempDir Path tempDir) throws Exception {
         // Initialize without git
         projectRoot = tempDir;
@@ -246,6 +282,45 @@ class RepoRouterTest {
         // Should pass validation; fails at GitHub API level
         int code = exchange.responseCode();
         assertTrue(code == 200 || code == 500, "Expected 200 or 500 (GitHub call), got " + code);
+    }
+
+    @Test
+    void handlePostPrCreate_acceptsSessionIds(@TempDir Path tempDir) throws Exception {
+        initGitRepoWithFeatureBranch(tempDir);
+
+        var exchange = TestHttpExchange.jsonRequest(
+                "POST",
+                "/v1/repo/pr/create",
+                Map.of(
+                        "title", "My PR",
+                        "body", "Description",
+                        "sourceBranch", "feature",
+                        "targetBranch", "master",
+                        "sessionIds", java.util.List.of("550e8400-e29b-41d4-a716-446655440000")));
+        exchange.getRequestHeaders().set("X-Github-Token", "ghp_test123");
+        repoRouter.handle(exchange);
+
+        // Should pass validation; fails at GitHub API level
+        int code = exchange.responseCode();
+        assertTrue(code == 200 || code == 500, "Expected 200 or 500 (GitHub call), got " + code);
+    }
+
+    @Test
+    void handlePostPrCreate_invalidSessionId_returns400(@TempDir Path tempDir) throws Exception {
+        initGitRepoWithFeatureBranch(tempDir);
+
+        var exchange = TestHttpExchange.jsonRequest(
+                "POST",
+                "/v1/repo/pr/create",
+                Map.of(
+                        "title", "My PR",
+                        "body", "Description",
+                        "sessionIds", java.util.List.of("invalid-uuid-format")));
+        repoRouter.handle(exchange);
+
+        assertEquals(400, exchange.responseCode());
+        Map<String, Object> body = MAPPER.readValue(exchange.responseBodyBytes(), new TypeReference<>() {});
+        assertTrue(body.get("message").toString().contains("UUID"));
     }
 
     @Test

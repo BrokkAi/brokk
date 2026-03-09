@@ -1041,6 +1041,7 @@ class ExecutorManager:
         source_branch: Optional[str] = None,
         target_branch: Optional[str] = None,
         github_token: Optional[str] = None,
+        session_ids: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """Suggests PR title and description based on branch diff.
 
@@ -1048,6 +1049,7 @@ class ExecutorManager:
             source_branch: Source branch (defaults to current branch on server)
             target_branch: Target branch (defaults to default branch on server)
             github_token: Optional GitHub token for authentication
+            session_ids: Optional list of session UUIDs to include in context
 
         Returns:
             Dict with title, description, usedCommitMessages, sourceBranch, targetBranch
@@ -1060,6 +1062,8 @@ class ExecutorManager:
             payload["sourceBranch"] = source_branch
         if target_branch:
             payload["targetBranch"] = target_branch
+        if session_ids:
+            payload["sessionIds"] = session_ids
 
         headers: Dict[str, str] = {}
         if github_token:
@@ -1082,6 +1086,7 @@ class ExecutorManager:
         source_branch: Optional[str] = None,
         target_branch: Optional[str] = None,
         github_token: Optional[str] = None,
+        session_ids: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """Creates a pull request.
 
@@ -1091,6 +1096,7 @@ class ExecutorManager:
             source_branch: Source branch (defaults to current branch on server)
             target_branch: Target branch (defaults to default branch on server)
             github_token: Optional GitHub token for authentication
+            session_ids: Optional list of session UUIDs to embed in PR body
 
         Returns:
             Dict with url, sourceBranch, targetBranch
@@ -1103,6 +1109,8 @@ class ExecutorManager:
             payload["sourceBranch"] = source_branch
         if target_branch:
             payload["targetBranch"] = target_branch
+        if session_ids:
+            payload["sessionIds"] = session_ids
 
         headers: Dict[str, str] = {}
         if github_token:

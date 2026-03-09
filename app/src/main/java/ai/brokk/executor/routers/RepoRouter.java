@@ -7,7 +7,10 @@ import ai.brokk.git.GitWorkflow;
 import ai.brokk.git.IGitRepo;
 import com.sun.net.httpserver.HttpExchange;
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
@@ -50,13 +53,15 @@ public final class RepoRouter implements SimpleHttpServer.CheckedHttpHandler {
 
     private record CommitRequest(@Nullable String message) {}
 
-    private record PrSuggestRequest(@Nullable String sourceBranch, @Nullable String targetBranch) {}
+    private record PrSuggestRequest(
+            @Nullable String sourceBranch, @Nullable String targetBranch, @Nullable List<String> sessionIds) {}
 
     private record PrCreateRequest(
             @Nullable String sourceBranch,
             @Nullable String targetBranch,
             @Nullable String title,
-            @Nullable String body) {}
+            @Nullable String body,
+            @Nullable List<String> sessionIds) {}
 
     private void handlePostCommit(HttpExchange exchange) throws IOException {
         if (!RouterUtil.ensureMethod(exchange, "POST")) return;
@@ -120,13 +125,26 @@ public final class RepoRouter implements SimpleHttpServer.CheckedHttpHandler {
         var request = RouterUtil.parseJsonOr400(exchange, PrSuggestRequest.class, "/v1/repo/pr/suggest");
         if (request == null) return;
 
+        // Parse and validate session IDs if provided
+        List<UUID> sessionUuids = parseSessionIds(request.sessionIds());
+        if (sessionUuids == null) {
+            RouterUtil.sendValidationError(exchange, "Invalid session ID format; expected valid UUIDs");
+            return;
+        }
+
         try {
             var repo = project.getRepo();
             String source = resolveSourceBranch(request.sourceBranch(), repo);
             String target = resolveTargetBranch(request.targetBranch(), repo);
 
             var gitWorkflow = new GitWorkflow(contextManager);
-            var suggestion = gitWorkflow.suggestPullRequestDetails(source, target, contextManager.getIo());
+            GitWorkflow.PrSuggestion suggestion;
+            if (sessionUuids.isEmpty()) {
+                suggestion = gitWorkflow.suggestPullRequestDetails(source, target, contextManager.getIo());
+            } else {
+                suggestion =
+                        gitWorkflow.suggestPullRequestDetails(source, target, contextManager.getIo(), sessionUuids);
+            }
 
             SimpleHttpServer.sendJsonResponse(
                     exchange,
@@ -168,6 +186,13 @@ public final class RepoRouter implements SimpleHttpServer.CheckedHttpHandler {
             return;
         }
 
+        // Parse and validate session IDs if provided
+        List<UUID> sessionUuids = parseSessionIds(request.sessionIds());
+        if (sessionUuids == null) {
+            RouterUtil.sendValidationError(exchange, "Invalid session ID format; expected valid UUIDs");
+            return;
+        }
+
         var githubToken = exchange.getRequestHeaders().getFirst("X-Github-Token");
 
         try {
@@ -175,8 +200,16 @@ public final class RepoRouter implements SimpleHttpServer.CheckedHttpHandler {
             String source = resolveSourceBranch(request.sourceBranch(), repo);
             String target = resolveTargetBranch(request.targetBranch(), repo);
 
+            // Append session IDs metadata line to body if any sessions are selected
+            String finalBody = request.body();
+            if (!sessionUuids.isEmpty()) {
+                String ids =
+                        sessionUuids.stream().map(UUID::toString).collect(java.util.stream.Collectors.joining(","));
+                finalBody = finalBody + "\n\nbrokk-session-ids:" + ids;
+            }
+
             var gitWorkflow = new GitWorkflow(contextManager);
-            var prUri = gitWorkflow.createPullRequest(source, target, request.title(), request.body(), githubToken);
+            var prUri = gitWorkflow.createPullRequest(source, target, request.title(), finalBody, githubToken);
 
             SimpleHttpServer.sendJsonResponse(
                     exchange,
@@ -207,5 +240,30 @@ public final class RepoRouter implements SimpleHttpServer.CheckedHttpHandler {
             return requested.strip();
         }
         return repo.getDefaultBranch();
+    }
+
+    /**
+     * Parses a list of session ID strings into UUIDs.
+     * Returns an empty list if input is null or empty.
+     * Returns null if any ID fails to parse (indicating a validation error).
+     */
+    @Nullable
+    private List<UUID> parseSessionIds(@Nullable List<String> sessionIds) {
+        if (sessionIds == null || sessionIds.isEmpty()) {
+            return new ArrayList<>();
+        }
+        var result = new ArrayList<UUID>(sessionIds.size());
+        for (String idStr : sessionIds) {
+            if (idStr == null || idStr.isBlank()) {
+                continue;
+            }
+            try {
+                result.add(UUID.fromString(idStr.strip()));
+            } catch (IllegalArgumentException e) {
+                logger.warn("Invalid session ID format: {}", idStr);
+                return null;
+            }
+        }
+        return result;
     }
 }
