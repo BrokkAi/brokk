@@ -293,4 +293,14 @@ public final class WorktreeProject extends AbstractProject {
     public void setGitConfigDeclined(boolean declined) {
         parent.setGitConfigDeclined(declined);
     }
+
+    @Override
+    public List<String> getSourceRoots(Language language) {
+        return parent.getSourceRoots(language);
+    }
+
+    @Override
+    public void setSourceRoots(Language language, List<String> roots) {
+        parent.setSourceRoots(language, roots);
+    }
 }
