@@ -33,6 +33,7 @@ import ai.brokk.tools.SearchTools;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
 import ai.brokk.tools.WorkspaceTools;
+import ai.brokk.util.Lines;
 import ai.brokk.util.Messages;
 import com.google.common.collect.Streams;
 import dev.langchain4j.agent.tool.P;
@@ -253,7 +254,7 @@ public class SearchAgent {
 
         for (var file : cm.getProject().getAllFiles()) {
             String fileName = file.getFileName();
-            if (containsBareToken(goal, fileName)) {
+            if (Lines.containsBareToken(goal, fileName)) {
                 references.add(new ContextFragments.ProjectPathFragment(file, cm));
                 filesReferenced.add(file);
             }
@@ -268,7 +269,7 @@ public class SearchAgent {
             }
 
             String target = cu.identifier();
-            if (target.length() < 3 || !containsBareToken(goal, target)) {
+            if (target.length() < 3 || !Lines.containsBareToken(goal, target)) {
                 continue;
             }
             references.add(new ContextFragments.CodeFragment(cm, cu));
@@ -287,39 +288,12 @@ public class SearchAgent {
             }
 
             String target = cu.shortName();
-            if (containsBareToken(goal, target)) {
+            if (Lines.containsBareToken(goal, target)) {
                 references.add(new ContextFragments.CodeFragment(cm, cu));
             }
         }
 
         return references;
-    }
-
-    private static boolean containsBareToken(String text, String token) {
-        int tokenLength = token.length();
-        if (tokenLength == 0) {
-            return false;
-        }
-
-        int index = text.indexOf(token);
-        while (index >= 0) {
-            int tokenStart = index;
-            int tokenEnd = index + tokenLength;
-
-            boolean leftBoundary = tokenStart == 0 || !isBareTokenChar(text.charAt(tokenStart - 1));
-            boolean rightBoundary = tokenEnd >= text.length() || !isBareTokenChar(text.charAt(tokenEnd));
-
-            if (leftBoundary && rightBoundary) {
-                return true;
-            }
-
-            index = text.indexOf(token, tokenStart + 1);
-        }
-        return false;
-    }
-
-    private static boolean isBareTokenChar(char c) {
-        return Character.isLetterOrDigit(c) || c == '_' || c == '$';
     }
 
     private static List<McpPrompts.McpTool> initMcpTools(IProject project) {

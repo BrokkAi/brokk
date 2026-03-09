@@ -327,18 +327,18 @@ class BrokkDefenseScreen(ModalScreen[None]):
                 # Row -2: horns + dome emerging
                 put(cx - 2, CITY_ROW - 2, "⣿", _H)
                 put(cx - 1, CITY_ROW - 2, "⡀", _H)
-                put(cx,     CITY_ROW - 2, "⣤", _H)
+                put(cx, CITY_ROW - 2, "⣤", _H)
                 put(cx + 1, CITY_ROW - 2, "⢀", _H)
                 put(cx + 2, CITY_ROW - 2, "⣿", _H)
                 # Row -1: dome widens
                 put(cx - 2, CITY_ROW - 1, "⠘", _H)
                 put(cx - 1, CITY_ROW - 1, "⣿", _H)
-                put(cx,     CITY_ROW - 1, "⣿", _H)
+                put(cx, CITY_ROW - 1, "⣿", _H)
                 put(cx + 1, CITY_ROW - 1, "⣿", _H)
                 put(cx + 2, CITY_ROW - 1, "⠃", _H)
                 # Row 0: visor / base
                 put(cx - 1, CITY_ROW, "⠈", _H)
-                put(cx,     CITY_ROW, "⠛", _H)
+                put(cx, CITY_ROW, "⠛", _H)
                 put(cx + 1, CITY_ROW, "⠁", _H)
             else:
                 put(cx, CITY_ROW, "☠", "bright_black")

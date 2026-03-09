@@ -827,7 +827,7 @@ public class ContextAgent {
         var tokenUsage = result.metadata();
         var selected = filenames.stream()
                 .parallel()
-                .filter(f -> result.text().contains(f))
+                .filter(f -> Lines.containsBareToken(result.text(), f))
                 .toList();
         return new LlmRecommendation(toProjectFiles(selected), Set.of(), Set.of(), tokenUsage);
     }
