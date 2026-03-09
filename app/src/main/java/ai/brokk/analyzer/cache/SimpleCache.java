@@ -12,6 +12,10 @@ public interface SimpleCache<K, V> {
 
     void put(K key, V value);
 
+    void remove(K key);
+
+    void removeAll(Iterable<? extends K> keys);
+
     /**
      * Copies all entries from the source cache into this cache.
      */
