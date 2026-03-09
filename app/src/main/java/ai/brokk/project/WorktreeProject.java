@@ -28,42 +28,33 @@ public final class WorktreeProject extends AbstractProject {
     }
 
     /**
-     * Copies analyzer cache files (*.bin.lz4) from the parent's .brokk directory to the worktree's
-     * .brokk directory if they don't already exist. This allows the worktree to start with a
-     * warm analyzer state.
+     * Copies analyzer cache files from the parent's storage locations to the worktree if they don't
+     * already exist. This allows the worktree to start with a warm analyzer state.
      */
     private void copyAnalyzerCachesFromParent() {
-        Path parentBrokkDir = parent.getRoot().resolve(BROKK_DIR);
-        if (!Files.exists(parentBrokkDir)) {
-            return;
-        }
-
-        Path worktreeBrokkDir = root.resolve(BROKK_DIR);
-
-        try {
-            try (var stream = Files.list(parentBrokkDir)) {
-                List<Path> cachesToCopy = stream.filter(
-                                p -> p.getFileName().toString().endsWith(Language.ANALYZER_STATE_SUFFIX))
-                        .toList();
-
-                if (cachesToCopy.isEmpty()) {
-                    return;
-                }
-
-                if (!Files.exists(worktreeBrokkDir)) {
-                    Files.createDirectories(worktreeBrokkDir);
-                }
-
-                for (Path cacheFile : cachesToCopy) {
-                    Path target = worktreeBrokkDir.resolve(cacheFile.getFileName());
-                    if (!Files.exists(target)) {
-                        Files.copy(cacheFile, target);
-                        logger.debug("Copied analyzer cache {} from parent to worktree", cacheFile.getFileName());
-                    }
-                }
+        Set<Language> languages = parent.getAnalyzerLanguages();
+        for (Language lang : languages) {
+            if (lang == ai.brokk.analyzer.Languages.NONE) {
+                continue;
             }
-        } catch (IOException e) {
-            logger.warn("Failed to copy analyzer caches from parent project: {}", e.getMessage());
+
+            try {
+                Path source = lang.getStoragePath(parent);
+                Path target = lang.getStoragePath(this);
+
+                if (Files.exists(source) && !Files.exists(target)) {
+                    Path targetParent = target.getParent();
+                    if (targetParent != null && !Files.exists(targetParent)) {
+                        Files.createDirectories(targetParent);
+                    }
+                    Files.copy(source, target);
+                    logger.debug(
+                            "Copied analyzer cache for {} from {} to {}", lang.name(), source.getFileName(), target);
+                }
+            } catch (IOException e) {
+                logger.warn(
+                        "Failed to copy analyzer cache for {} from parent project: {}", lang.name(), e.getMessage());
+            }
         }
     }
 
