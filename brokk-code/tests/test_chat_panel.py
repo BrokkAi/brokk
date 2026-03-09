@@ -1376,8 +1376,11 @@ async def test_refresh_log_preserves_middle_scroll_position():
         mid_y = log.max_scroll_y // 2
         assert mid_y > 0, "mid_y must be positive to test middle scroll"
         log.scroll_to(y=mid_y, animate=False)
-        await pilot.pause()
-        panel._sync_autoscroll()
+        for _ in range(10):
+            await pilot.pause()
+            panel._sync_autoscroll()
+            if not log.auto_scroll:
+                break
 
         assert log.auto_scroll is False, "auto_scroll should be disabled at middle position"
         assert not scroll_btn.has_class("hidden"), "Button should be visible at middle position"
@@ -1436,8 +1439,11 @@ async def test_add_message_does_not_jump_when_scrolled_up():
 
         # Scroll up to disable auto_scroll
         log.scroll_to(y=0, animate=False)
-        await pilot.pause()
-        panel._sync_autoscroll()
+        for _ in range(10):
+            await pilot.pause()
+            panel._sync_autoscroll()
+            if not log.auto_scroll:
+                break
 
         assert log.auto_scroll is False
         assert not scroll_btn.has_class("hidden")
