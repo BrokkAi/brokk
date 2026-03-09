@@ -480,8 +480,10 @@ def map_executor_event_to_session_update(
 
     if event_type == "STATE_HINT":
         # These are transient UI state updates and should not be appended to
-        # persistent chat output.
-        return None
+        # persistent chat output unless full_content mode is requested.
+        if not full_content:
+            return None
+        return update_agent_message_text(_format_generic_event_line(event_type, data))
 
     if event_type == "TOOL_CALL":
         name = data.get("name", "tool")
@@ -532,7 +534,20 @@ def map_executor_event_to_session_update(
 
         return None
 
+    if full_content:
+        return update_agent_message_text(_format_generic_event_line(event_type or "UNKNOWN", data))
+
     return None
+
+
+def _format_generic_event_line(event_type: str, data: Any) -> str:
+    import json
+
+    try:
+        pretty_data = json.dumps(data, indent=2)
+    except Exception:
+        pretty_data = str(data)
+    return f"\n\n[EVENT: {event_type}]\n{pretty_data}\n"
 
 
 def conversation_payload_to_session_updates(

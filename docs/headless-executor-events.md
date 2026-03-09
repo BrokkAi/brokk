@@ -130,6 +130,6 @@ Headless default decision policy:
 
 ## Client Guidance
 
-- Treat unknown `type` values as forward-compatible and ignore or log them.
+- Treat unknown `type` values as forward-compatible. ACP clients should generally ignore unknown types, but the Brokk ACP server may surface them in "full content" debugging modes.
 - Handle both `NOTIFICATION` payload forms (object and string).
 - Use `nextAfter` from `/v1/jobs/{jobId}/events` for incremental polling.

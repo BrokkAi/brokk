@@ -395,9 +395,44 @@ def test_map_executor_error_notification_event_surfaces_as_message() -> None:
     }
 
 
-def test_map_executor_state_hint_surfaces_as_message() -> None:
-    event = {"type": "STATE_HINT", "data": {"message": "indexing workspace"}}
+def test_map_executor_state_hint_suppressed_by_default() -> None:
+    event = {"type": "STATE_HINT", "data": {"name": "workspaceUpdated"}}
     assert map_executor_event_to_session_update(event, _text_block, _thought_block) is None
+
+
+def test_map_executor_state_hint_surfaces_in_full_content_mode() -> None:
+    event = {"type": "STATE_HINT", "data": {"name": "workspaceUpdated", "value": True}}
+    update = map_executor_event_to_session_update(
+        event, _text_block, _thought_block, full_content=True
+    )
+    assert update["sessionUpdate"] == "agent_message_chunk"
+    assert "[EVENT: STATE_HINT]" in update["text"]
+    assert '"name": "workspaceUpdated"' in update["text"]
+
+
+def test_map_executor_command_result_surfaces_in_full_content_mode() -> None:
+    event = {
+        "type": "COMMAND_RESULT",
+        "data": {"command": "pytest", "success": True, "output": "PASSED"},
+    }
+    update = map_executor_event_to_session_update(
+        event, _text_block, _thought_block, full_content=True
+    )
+    assert update["sessionUpdate"] == "agent_message_chunk"
+    assert "[EVENT: COMMAND_RESULT]" in update["text"]
+    assert "pytest" in update["text"]
+
+
+def test_map_executor_unknown_event_surfaces_in_full_content_mode() -> None:
+    event = {"type": "FUTURE_EVENT_TYPE", "data": {"key": "val"}}
+    # Suppressed by default
+    assert map_executor_event_to_session_update(event, _text_block) is None
+
+    # Surfaced in full content
+    update = map_executor_event_to_session_update(event, _text_block, full_content=True)
+    assert update["sessionUpdate"] == "agent_message_chunk"
+    assert "[EVENT: FUTURE_EVENT_TYPE]" in update["text"]
+    assert '"key": "val"' in update["text"]
 
 
 def test_map_executor_warning_notification_event_surfaces_as_message() -> None:
