@@ -10,6 +10,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
+from textual import events
 from textual.app import App, ComposeResult, ScreenStackError
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
@@ -44,6 +45,7 @@ class ContextModalScreen(ModalScreen[None]):
     def __init__(self, on_close: Callable[[], None]) -> None:
         super().__init__()
         self._on_close = on_close
+        self._easter_egg_buf: list[str] = []
 
     def compose(self) -> ComposeResult:
         with Vertical(id="context-modal-container"):
@@ -51,6 +53,17 @@ class ContextModalScreen(ModalScreen[None]):
 
     def on_mount(self) -> None:
         self.query_one(ContextPanel).focus()
+
+    def on_key(self, event: events.Key) -> None:
+        char = event.character
+        if char:
+            self._easter_egg_buf.append(char)
+            if len(self._easter_egg_buf) > 5:
+                self._easter_egg_buf.pop(0)
+            if self._easter_egg_buf == list("!-!-!"):
+                self._easter_egg_buf.clear()
+                from brokk_code.widgets.brokk_defense import BrokkDefenseScreen
+                self.app.push_screen(BrokkDefenseScreen())
 
     def action_close_context(self) -> None:
         self._on_close()
