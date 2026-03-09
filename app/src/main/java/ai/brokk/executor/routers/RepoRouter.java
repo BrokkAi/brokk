@@ -3,6 +3,7 @@ package ai.brokk.executor.routers;
 import ai.brokk.ContextManager;
 import ai.brokk.executor.http.SimpleHttpServer;
 import ai.brokk.executor.jobs.ErrorPayload;
+import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitWorkflow;
 import ai.brokk.git.IGitRepo;
 import com.sun.net.httpserver.HttpExchange;
@@ -10,6 +11,7 @@ import java.io.IOException;
 import java.util.Map;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.eclipse.jgit.api.errors.GitAPIException;
 import org.jetbrains.annotations.Nullable;
 import org.jspecify.annotations.NullMarked;
 
@@ -39,6 +41,8 @@ public final class RepoRouter implements SimpleHttpServer.CheckedHttpHandler {
 
         switch (normalizedPath) {
             case "/v1/repo/commit" -> handlePostCommit(exchange);
+            case "/v1/repo/pr/suggest" -> handlePostPrSuggest(exchange);
+            case "/v1/repo/pr/create" -> handlePostPrCreate(exchange);
             default ->
                 SimpleHttpServer.sendJsonResponse(
                         exchange, 404, ErrorPayload.of(ErrorPayload.Code.NOT_FOUND, "Not found"));
@@ -46,6 +50,11 @@ public final class RepoRouter implements SimpleHttpServer.CheckedHttpHandler {
     }
 
     private record CommitRequest(@Nullable String message) {}
+
+    private record PrSuggestRequest(@Nullable String sourceBranch, @Nullable String targetBranch) {}
+
+    private record PrCreateRequest(
+            @Nullable String sourceBranch, @Nullable String targetBranch, String title, String body) {}
 
     private void handlePostCommit(HttpExchange exchange) throws IOException {
         if (!RouterUtil.ensureMethod(exchange, "POST")) return;
@@ -95,5 +104,111 @@ public final class RepoRouter implements SimpleHttpServer.CheckedHttpHandler {
             logger.error("Error handling POST /v1/repo/commit", e);
             SimpleHttpServer.sendJsonResponse(exchange, 500, ErrorPayload.internalError("Failed to commit changes", e));
         }
+    }
+
+    private void handlePostPrSuggest(HttpExchange exchange) throws IOException {
+        if (!RouterUtil.ensureMethod(exchange, "POST")) return;
+
+        var project = contextManager.getProject();
+        if (!project.hasGit()) {
+            RouterUtil.sendValidationError(exchange, "Project does not have a git repository");
+            return;
+        }
+
+        var request = RouterUtil.parseJsonOr400(exchange, PrSuggestRequest.class, "/v1/repo/pr/suggest");
+        if (request == null) return;
+
+        var githubToken = exchange.getRequestHeaders().getFirst("X-Github-Token");
+
+        try {
+            var repo = (GitRepo) project.getRepo();
+            String source = resolveSourceBranch(request.sourceBranch(), repo);
+            String target = resolveTargetBranch(request.targetBranch(), repo);
+
+            var gitWorkflow = new GitWorkflow(contextManager);
+            var suggestion = gitWorkflow.suggestPullRequestDetails(source, target, contextManager.getIo());
+
+            SimpleHttpServer.sendJsonResponse(
+                    exchange,
+                    Map.of(
+                            "title", suggestion.title(),
+                            "description", suggestion.description(),
+                            "usedCommitMessages", suggestion.usedCommitMessages(),
+                            "sourceBranch", source,
+                            "targetBranch", target));
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            logger.warn("PR suggest operation was interrupted", e);
+            SimpleHttpServer.sendJsonResponse(exchange, 503, ErrorPayload.internalError("Operation interrupted", e));
+        } catch (GitAPIException e) {
+            logger.error("Git error during PR suggest", e);
+            SimpleHttpServer.sendJsonResponse(exchange, 500, ErrorPayload.internalError("Git operation failed", e));
+        } catch (Exception e) {
+            logger.error("Error handling POST /v1/repo/pr/suggest", e);
+            SimpleHttpServer.sendJsonResponse(
+                    exchange, 500, ErrorPayload.internalError("Failed to suggest PR details", e));
+        }
+    }
+
+    private void handlePostPrCreate(HttpExchange exchange) throws IOException {
+        if (!RouterUtil.ensureMethod(exchange, "POST")) return;
+
+        var project = contextManager.getProject();
+        if (!project.hasGit()) {
+            RouterUtil.sendValidationError(exchange, "Project does not have a git repository");
+            return;
+        }
+
+        var request = RouterUtil.parseJsonOr400(exchange, PrCreateRequest.class, "/v1/repo/pr/create");
+        if (request == null) return;
+
+        if (request.title() == null || request.title().isBlank()) {
+            RouterUtil.sendValidationError(exchange, "title is required");
+            return;
+        }
+        if (request.body() == null) {
+            RouterUtil.sendValidationError(exchange, "body is required");
+            return;
+        }
+
+        var githubToken = exchange.getRequestHeaders().getFirst("X-Github-Token");
+
+        try {
+            var repo = (GitRepo) project.getRepo();
+            String source = resolveSourceBranch(request.sourceBranch(), repo);
+            String target = resolveTargetBranch(request.targetBranch(), repo);
+
+            var gitWorkflow = new GitWorkflow(contextManager);
+            var prUri = gitWorkflow.createPullRequest(source, target, request.title(), request.body(), githubToken);
+
+            SimpleHttpServer.sendJsonResponse(
+                    exchange,
+                    Map.of(
+                            "url", prUri.toString(),
+                            "sourceBranch", source,
+                            "targetBranch", target));
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            logger.warn("PR create operation was interrupted", e);
+            SimpleHttpServer.sendJsonResponse(exchange, 503, ErrorPayload.internalError("Operation interrupted", e));
+        } catch (Exception e) {
+            logger.error("Error handling POST /v1/repo/pr/create", e);
+            SimpleHttpServer.sendJsonResponse(
+                    exchange, 500, ErrorPayload.internalError("Failed to create pull request", e));
+        }
+    }
+
+    private String resolveSourceBranch(@Nullable String requested, GitRepo repo) throws GitAPIException {
+        if (requested != null && !requested.isBlank()) {
+            return requested.strip();
+        }
+        return repo.getCurrentBranch();
+    }
+
+    private String resolveTargetBranch(@Nullable String requested, GitRepo repo) throws GitAPIException {
+        if (requested != null && !requested.isBlank()) {
+            return requested.strip();
+        }
+        return repo.getDefaultBranch();
     }
 }
