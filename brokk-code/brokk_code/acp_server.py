@@ -11,6 +11,7 @@ from urllib.parse import unquote, urlparse
 from brokk_code import __version__
 from brokk_code.executor import ExecutorError, ExecutorManager
 from brokk_code.settings import Settings
+from brokk_code.widgets.token_bar import get_token_bar_markdown
 
 logger = logging.getLogger(__name__)
 
@@ -736,14 +737,15 @@ class BrokkAcpBridge:
         reasoning_level: Optional[str],
         reasoning_level_code: Optional[str],
         send_update: Callable[[str, Any], Awaitable[Any]],
+        update_agent_message: Callable[[Any], Any],
         update_agent_message_text: Callable[[str], Any],
+        image_block: Callable[..., Any],
+        start_tool_call: Callable[..., Any],
+        update_tool_call: Callable[..., Any],
+        tool_content: Callable[[Any], Any],
         update_agent_thought_text: Optional[Callable[[str], Any]] = None,
-        start_tool_call: Optional[Callable[..., Any]] = None,
-        update_tool_call: Optional[Callable[..., Any]] = None,
-        tool_content: Optional[Callable[[Any], Any]] = None,
         text_block: Optional[Callable[[str], Any]] = None,
         cwd: str = "",
-        **kwargs: Any,
     ) -> None:
         await self.ensure_ready()
         executor_session_id = await self._ensure_session(session_id)
@@ -755,7 +757,12 @@ class BrokkAcpBridge:
 
         command = get_slash_command(prompt_text)
         if command:
-            await self._handle_command(command, session_id, update_agent_message_text, send_update)
+            await self._handle_command(
+                command,
+                session_id,
+                send_update=send_update,
+                update_agent_message_text=update_agent_message_text,
+            )
             return
 
         await self._handle_model_job(
@@ -782,35 +789,57 @@ class BrokkAcpBridge:
         self,
         command: str,
         session_id: str,
-        update_agent_message_text: Callable[[str], Any],
         send_update: Callable[[str, Any], Awaitable[Any]],
+        update_agent_message_text: Callable[[str], Any],
     ) -> None:
         if command == "/context":
             ctx = await self.executor.get_context()
             fragments = ctx.get("fragments", [])
-            used = ctx.get("usedTokens", 0)
+            used_tokens = int(ctx.get("usedTokens", 0) or 0)
             max_tokens = ctx.get("maxTokens", 0)
-            branch = ctx.get("branch", "unknown")
-            cost = ctx.get("totalCost", 0.0)
+            fragment_list = fragments if isinstance(fragments, list) else []
+            base_tokens = int(max_tokens or 0)
+            if base_tokens <= 0:
+                base_tokens = sum(int(f.get("tokens", 0) or 0) for f in fragment_list)
+            if base_tokens <= 0:
+                base_tokens = 1
+
+            def _fragment_row(fragment: Any) -> tuple[str, int, float]:
+                if not isinstance(fragment, dict):
+                    return ("Unknown", 0, 0.0)
+                name = str(fragment.get("shortDescription") or fragment.get("id") or "Unknown")
+                tokens = int(fragment.get("tokens", 0) or 0)
+                pct = (tokens / base_tokens) * 100
+                return (name, tokens, pct)
+
+            rows = [_fragment_row(f) for f in fragment_list]
+            rows.sort(key=lambda row: row[2], reverse=True)
+            top_rows = rows[:4]
+            remainder = rows[4:]
+            if remainder:
+                other_tokens = sum(tokens for _name, tokens, _pct in remainder)
+                other_pct = sum(pct for _name, _tokens, pct in remainder)
+                top_rows.append(("(other)", other_tokens, other_pct))
 
             lines = [
-                "### Context Snapshot",
-                f"- **Branch**: `{branch}`",
-                f"- **Tokens**: {used:,} / {max_tokens:,}",
-                f"- **Session Cost**: ${cost:.4f}",
-                "",
-                f"#### Fragments ({len(fragments)})",
+                "| Fragment | Tokens | % Context |",
+                "|---|---:|---:|",
             ]
-            for f in fragments:
-                status = []
-                if f.get("pinned"):
-                    status.append("pinned")
-                if f.get("readonly"):
-                    status.append("readonly")
-                status_str = f" ({', '.join(status)})" if status else ""
-
-                desc = f.get("shortDescription") or f.get("id")
-                lines.append(f"- {desc}{status_str}")
+            lines.extend(
+                f"| {name} | {tokens:,} | {pct:.2f}% |" for name, tokens, pct in top_rows
+            )
+            if not top_rows:
+                lines.append("| (none) | 0 | 0.00% |")
+            token_bar_md = get_token_bar_markdown(
+                used_tokens=used_tokens,
+                max_tokens=int(max_tokens or 0),
+                fragments=fragment_list,
+            )
+            if token_bar_md:
+                lines.append("")
+                lines.append(f"**Total Tokens:** {used_tokens:,} / {int(max_tokens or 0):,}")
+                lines.append("")
+                lines.append(token_bar_md)
 
             await send_update(session_id, update_agent_message_text("\n".join(lines)))
 
@@ -909,10 +938,12 @@ async def run_acp_server(
             PromptResponse,
             SetSessionModelResponse,
             SetSessionModeResponse,
+            image_block,
             run_agent,
             start_tool_call,
             text_block,
             tool_content,
+            update_agent_message,
             update_agent_message_text,
             update_agent_thought_text,
             update_tool_call,
@@ -1624,12 +1655,14 @@ async def run_acp_server(
                 reasoning_level=reasoning_level,
                 reasoning_level_code=reasoning_level_code,
                 send_update=self.client.session_update,
+                update_agent_message=update_agent_message,
                 update_agent_message_text=update_agent_message_text,
                 update_agent_thought_text=update_agent_thought_text,
                 start_tool_call=start_tool_call,
                 update_tool_call=update_tool_call,
                 tool_content=tool_content,
                 text_block=text_block,
+                image_block=image_block,
             )
             return PromptResponse(stop_reason="end_turn")
 

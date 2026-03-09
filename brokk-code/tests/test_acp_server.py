@@ -52,6 +52,13 @@ def _text_block_helper(text: str) -> dict[str, str]:
     return {"type": "text", "text": text}
 
 
+def _image_block_helper(data: str, mime_type: str, *, uri: str | None = None) -> dict[str, str]:
+    payload: dict[str, str] = {"type": "image", "data": data, "mime_type": mime_type}
+    if uri:
+        payload["uri"] = uri
+    return payload
+
+
 def test_normalize_mode_defaults_and_known_values() -> None:
     assert normalize_mode(None) == "LUTZ"
     assert normalize_mode("") == "LUTZ"
@@ -615,6 +622,9 @@ async def test_prompt_standard_flow_calls_submit_job_and_streams_tokens(tmp_path
     async def send_update(session_id: str, update: dict[str, str]) -> None:
         updates.append((session_id, update))
 
+    def update_agent_message(content: Any) -> dict[str, Any]:
+        return {"sessionUpdate": "agent_message_chunk", "content": content}
+
     def update_agent_message_text(text: str) -> dict[str, str]:
         return {"sessionUpdate": "agent_message_chunk", "text": text}
 
@@ -628,7 +638,13 @@ async def test_prompt_standard_flow_calls_submit_job_and_streams_tokens(tmp_path
         reasoning_level="low",
         reasoning_level_code="disable",
         send_update=send_update,
+        update_agent_message=update_agent_message,
         update_agent_message_text=update_agent_message_text,
+        update_agent_thought_text=_thought_block,
+        image_block=_image_block_helper,
+        start_tool_call=_start_tool_call,
+        update_tool_call=_update_tool_call,
+        tool_content=_tool_content,
     )
 
     assert job_submitted
@@ -638,7 +654,7 @@ async def test_prompt_standard_flow_calls_submit_job_and_streams_tokens(tmp_path
 
 
 async def test_prompt_context_command_renders_snapshot_without_job(tmp_path: Path) -> None:
-    updates: list[tuple[str, dict[str, str]]] = []
+    updates: list[tuple[str, dict[str, Any]]] = []
     job_submitted = False
 
     class StubExecutor:
@@ -657,8 +673,12 @@ async def test_prompt_context_command_renders_snapshot_without_job(tmp_path: Pat
         async def get_context(self) -> dict[str, Any]:
             return {
                 "fragments": [
-                    {"shortDescription": "file.py", "pinned": True},
-                    {"shortDescription": "other.txt", "readonly": True},
+                    {"shortDescription": "file.py", "tokens": 1500, "pinned": True},
+                    {"shortDescription": "other.txt", "tokens": 500, "readonly": True},
+                    {"shortDescription": "a.md", "tokens": 400},
+                    {"shortDescription": "b.md", "tokens": 300},
+                    {"shortDescription": "c.md", "tokens": 200},
+                    {"shortDescription": "d.md", "tokens": 100},
                 ],
                 "usedTokens": 1234,
                 "maxTokens": 200000,
@@ -671,8 +691,11 @@ async def test_prompt_context_command_renders_snapshot_without_job(tmp_path: Pat
             job_submitted = True
             return "job-1"
 
-    async def send_update(session_id: str, update: dict[str, str]) -> None:
+    async def send_update(session_id: str, update: dict[str, Any]) -> None:
         updates.append((session_id, update))
+
+    def update_agent_message(content: Any) -> dict[str, Any]:
+        return {"sessionUpdate": "agent_message_chunk", "content": content}
 
     def update_agent_message_text(text: str) -> dict[str, str]:
         return {"sessionUpdate": "agent_message_chunk", "text": text}
@@ -687,15 +710,28 @@ async def test_prompt_context_command_renders_snapshot_without_job(tmp_path: Pat
         reasoning_level=None,
         reasoning_level_code=None,
         send_update=send_update,
+        update_agent_message=update_agent_message,
         update_agent_message_text=update_agent_message_text,
+        update_agent_thought_text=_thought_block,
+        image_block=_image_block_helper,
+        start_tool_call=_start_tool_call,
+        update_tool_call=_update_tool_call,
+        tool_content=_tool_content,
     )
 
     assert not job_submitted
     assert len(updates) == 1
-    text = updates[0][1]["text"]
-    assert "### Context Snapshot" in text
-    assert "**Branch**: `main`" in text
-    assert "1,234 / 200,000" in text
-    assert "$0.0567" in text
-    assert "- file.py (pinned)" in text
-    assert "- other.txt (readonly)" in text
+    assert updates[0][1]["sessionUpdate"] == "agent_message_chunk"
+    table = updates[0][1]["text"]
+    assert "| Fragment | Tokens | % Context |" in table
+    assert "|---|---:|---:|" in table
+    assert "| file.py | 1,500 | 0.75% |" in table
+    assert "| other.txt | 500 | 0.25% |" in table
+    assert "| a.md | 400 | 0.20% |" in table
+    assert "| b.md | 300 | 0.15% |" in table
+    assert "| (other) | 300 | 0.15% |" in table
+    assert "| c.md |" not in table
+    assert "| d.md |" not in table
+    assert table.index("| file.py |") < table.index("| other.txt |")
+    assert "**Total Tokens:** 1,234 / 200,000" in table
+    assert "![Token usage](data:image/png;base64," in table
