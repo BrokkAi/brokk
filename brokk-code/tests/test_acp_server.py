@@ -280,95 +280,60 @@ def test_extract_resource_file_paths_ignores_relative_links_without_cwd() -> Non
 
 def test_map_executor_token_event() -> None:
     event = {"type": "LLM_TOKEN", "data": {"token": "abc"}}
-    assert map_executor_event_to_session_update(event, _text_block) == {
+    assert map_executor_event_to_session_update(event, _text_block, _thought_block) == {
         "sessionUpdate": "agent_message_chunk",
         "text": "abc",
     }
 
 
-def test_map_executor_reasoning_token_event_is_passthrough() -> None:
-    # Under passthrough, reasoning flag is ignored by the mapper; it just emits the token.
+def test_map_executor_reasoning_token_event_uses_thought_block() -> None:
     event = {"type": "LLM_TOKEN", "data": {"token": "thinking", "isReasoning": True}}
-    assert map_executor_event_to_session_update(event, _text_block) == {
-        "sessionUpdate": "agent_message_chunk",
+    assert map_executor_event_to_session_update(event, _text_block, _thought_block) == {
+        "sessionUpdate": "agent_thought_chunk",
         "text": "thinking",
     }
 
 
 def test_map_executor_error_event() -> None:
     event = {"type": "ERROR", "data": {"message": "boom"}}
-    assert map_executor_event_to_session_update(event, _text_block) == {
-        "sessionUpdate": "agent_message_chunk",
-        "text": "\n[ERROR] boom\n",
-    }
+    update = map_executor_event_to_session_update(event, _text_block)
+    assert update is not None
+    assert "Error:" in update["text"]
+    assert "boom" in update["text"]
 
 
-def test_map_executor_info_notification_event_is_passthrough() -> None:
+def test_map_executor_info_notification_event_is_clean() -> None:
     event = {"type": "NOTIFICATION", "data": {"level": "INFO", "message": "planning"}}
-    assert map_executor_event_to_session_update(event, _text_block) == {
-        "sessionUpdate": "agent_message_chunk",
-        "text": "\n\n[INFO] planning\n",
-    }
+    update = map_executor_event_to_session_update(event, _text_block)
+    assert update is not None
+    assert "planning" in update["text"]
+    # Verify no passthrough brackets
+    assert "[INFO]" not in update["text"]
 
 
-def test_map_executor_state_hint_surfaces_as_passthrough() -> None:
-    event = {"type": "STATE_HINT", "data": {"message": "indexing workspace"}}
-    assert map_executor_event_to_session_update(event, _text_block) == {
-        "sessionUpdate": "agent_message_chunk",
-        "text": "\n[STATE] indexing workspace\n",
-    }
+def test_map_executor_state_and_cost_events_are_suppressed() -> None:
+    state_event = {"type": "STATE_HINT", "data": {"message": "indexing"}}
+    assert map_executor_event_to_session_update(state_event, _text_block) is None
 
-
-def test_map_executor_cost_notification_event_is_passthrough() -> None:
-    event = {"type": "NOTIFICATION", "data": {"level": "COST", "message": "$0.0012 for gpt"}}
-    assert map_executor_event_to_session_update(event, _text_block) == {
-        "sessionUpdate": "agent_message_chunk",
-        "text": "\n\n[COST] $0.0012 for gpt\n",
-    }
+    cost_event = {"type": "NOTIFICATION", "data": {"level": "COST", "message": "$0.01"}}
+    assert map_executor_event_to_session_update(cost_event, _text_block) is None
 
 
 def test_map_executor_status_token_mojibake_is_minimally_normalized() -> None:
-    token = "\n**Brokk** performing initial workspace reviewâ€¦"
+    token = "reviewingâ€¦"
     event = {"type": "LLM_TOKEN", "data": {"token": token}}
     assert map_executor_event_to_session_update(event, _text_block) == {
         "sessionUpdate": "agent_message_chunk",
-        "text": "\n**Brokk** performing initial workspace review...",
+        "text": "reviewing...",
     }
 
 
-def test_map_executor_tool_call_is_passthrough() -> None:
-    event = {
-        "type": "TOOL_CALL",
-        "data": {"name": "read_file", "arguments": '{"path": "foo.py"}', "id": "call-1"},
-    }
-    update = map_executor_event_to_session_update(event, _text_block)
-    # Note: implementation uses \n[TOOL CALL] {name}({args})\n
-    assert update == {
-        "sessionUpdate": "agent_message_chunk",
-        "text": '\n[TOOL CALL] read_file({"path": "foo.py"})\n',
-    }
+def test_map_executor_tool_events_are_suppressed() -> None:
+    call_event = {"type": "TOOL_CALL", "data": {"name": "read"}}
+    assert map_executor_event_to_session_update(call_event, _text_block) is None
 
-
-def test_map_executor_tool_output_is_passthrough() -> None:
-    event = {
-        "type": "TOOL_OUTPUT",
-        "data": {"status": "SUCCESS", "id": "call-1", "result": "done"},
-    }
-    update = map_executor_event_to_session_update(event, _text_block)
-    # Note: implementation checks for output, result, or message
-    assert update == {
-        "sessionUpdate": "agent_message_chunk",
-        "text": "\n[TOOL OUTPUT] SUCCESS: done\n",
-    }
-
-
-def test_map_executor_unknown_event_type_is_passthrough() -> None:
-    event = {"type": "MY_NEW_EVENT", "data": {"foo": "bar"}}
-    update = map_executor_event_to_session_update(event, _text_block)
-    assert update == {
-        "sessionUpdate": "agent_message_chunk",
-        "text": '\n[EVENT: MY_NEW_EVENT] {"foo": "bar"}\n',
-    }
+    out_event = {"type": "TOOL_OUTPUT", "data": {"result": "ok"}}
+    assert map_executor_event_to_session_update(out_event, _text_block) is None
 
 
 def test_conversation_payload_to_session_updates_replays_user_assistant_and_reasoning() -> None:

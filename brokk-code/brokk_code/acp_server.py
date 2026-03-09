@@ -456,8 +456,9 @@ def _extract_fragment_ids(resp: Any) -> list[str]:
 def map_executor_event_to_session_update(
     event: dict[str, Any],
     update_agent_message_text: Callable[[str], Any],
+    update_agent_thought_text: Optional[Callable[[str], Any]] = None,
 ) -> Optional[Any]:
-    """Map any executor event into a passthrough ACP message update."""
+    """Map executor events into clean ACP message or thought updates."""
     event_type = event.get("type")
     data = event.get("data", {})
     if not isinstance(data, dict):
@@ -465,29 +466,33 @@ def map_executor_event_to_session_update(
 
     match event_type:
         case "LLM_TOKEN":
-            token = data.get("token", "")
-            # Pass tokens through with minimal normalization for known mojibake.
-            return update_agent_message_text(str(token).replace("â€¦", "...")) if token else None
+            token = str(data.get("token", "")).replace("â€¦", "...")
+            if not token:
+                return None
+
+            is_reasoning = bool(data.get("isReasoning", False))
+            if is_reasoning and update_agent_thought_text:
+                return update_agent_thought_text(token)
+            return update_agent_message_text(token)
+
         case "ERROR":
-            return update_agent_message_text(f"\n[ERROR] {data.get('message', 'Unknown error')}\n")
+            msg = data.get("message", "Unknown error")
+            return update_agent_message_text(f"\n\n**Error:** {msg}\n\n")
+
         case "NOTIFICATION":
             level = data.get("level", "INFO")
             msg = data.get("message", "")
-            return update_agent_message_text(f"\n\n[{level}] {msg}\n") if msg else None
-        case "STATE_HINT":
-            msg = data.get("message", "")
-            return update_agent_message_text(f"\n[STATE] {msg}\n") if msg else None
-        case "TOOL_CALL":
-            return update_agent_message_text(
-                f"\n[TOOL CALL] {data.get('name', 'tool')}({data.get('arguments', '')})\n"
-            )
-        case "TOOL_OUTPUT":
-            status = data.get("status", "SUCCESS")
-            res = data.get("output") or data.get("result") or data.get("message") or ""
-            return update_agent_message_text(f"\n[TOOL OUTPUT] {status}: {res}\n")
+            if not msg or level in ("STATE", "COST"):
+                return None
+            # Only surface critical or high-level notifications to ACP users.
+            if level == "ERROR":
+                return update_agent_message_text(f"\n\n**Error:** {msg}\n\n")
+            return update_agent_message_text(f"\n\n_{msg}_\n\n")
+
         case _:
-            # Passthrough for unknown event types
-            return update_agent_message_text(f"\n[EVENT: {event_type}] {json.dumps(data)}\n")
+            # Suppress internal TOOL_CALL, TOOL_OUTPUT, and STATE_HINT events for ACP.
+            # These are noisy and usually handled via LLM tokens or final output.
+            return None
 
 
 def conversation_payload_to_session_updates(
@@ -802,8 +807,14 @@ class BrokkAcpBridge:
         self._active_job_by_session[session_id] = job_id
 
         try:
+            from acp import update_agent_thought_text
+
             async for event in self.executor.stream_events(job_id):
-                update = map_executor_event_to_session_update(event, update_agent_message_text)
+                update = map_executor_event_to_session_update(
+                    event,
+                    update_agent_message_text,
+                    update_agent_thought_text=update_agent_thought_text,
+                )
                 if update:
                     await send_update(session_id, update)
         finally:
