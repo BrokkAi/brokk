@@ -63,6 +63,7 @@ class ContextModalScreen(ModalScreen[None]):
             if self._easter_egg_buf == list("!-!-!"):
                 self._easter_egg_buf.clear()
                 from brokk_code.widgets.brokk_defense import BrokkDefenseScreen
+
                 self.app.push_screen(BrokkDefenseScreen())
 
     def action_close_context(self) -> None:

@@ -20,8 +20,8 @@ from textual.widgets import Static
 # ---------------------------------------------------------------------------
 # Game constants
 # ---------------------------------------------------------------------------
-GAME_W: int = 80          # canvas width in characters
-GAME_H: int = 22          # canvas rows (game area, excluding header/footer)
+GAME_W: int = 80  # canvas width in characters
+GAME_H: int = 22  # canvas rows (game area, excluding header/footer)
 CITY_ROW: int = GAME_H - 1  # 0-indexed row where cities/bases live
 
 # 6 cities: 3 left of centre, 3 right (leaving room for missile bases)
@@ -35,20 +35,21 @@ EXPLOSION_MAX_R: float = 4.5
 EXPLOSION_GROW: float = 0.4
 EXPLOSION_SHRINK: float = 0.25
 
-BASE_AMMO: int = 10       # starting missiles per base
-CURSOR_STEP: int = 2      # cells moved per key press
+BASE_AMMO: int = 10  # starting missiles per base
+CURSOR_STEP: int = 2  # cells moved per key press
 
 
 # ---------------------------------------------------------------------------
 # Entity dataclasses
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class EnemyMissile:
-    ox: float              # spawn x (for trail rendering)
+    ox: float  # spawn x (for trail rendering)
     x: float
     y: float = 0.0
-    tx: float = 0.0        # target x
+    tx: float = 0.0  # target x
     ty: float = float(CITY_ROW)
     speed: float = 0.15
     alive: bool = True
@@ -119,6 +120,7 @@ class Explosion:
 # ---------------------------------------------------------------------------
 # Game state
 # ---------------------------------------------------------------------------
+
 
 class BrokkDefenseState:
     def __init__(self) -> None:
@@ -245,6 +247,7 @@ class BrokkDefenseState:
 # Textual screen
 # ---------------------------------------------------------------------------
 
+
 class BrokkDefenseScreen(ModalScreen[None]):
     """Full-screen BROKK DEFENSE easter egg.
 
@@ -301,20 +304,17 @@ class BrokkDefenseScreen(ModalScreen[None]):
 
     def _build_frame(self) -> Text:
         state = self._state
-        W, H = GAME_W, GAME_H
+        w, h = GAME_W, GAME_H
 
         # 2-D grid: each cell is (char, style_str)
-        grid: List[List[Tuple[str, str]]] = [
-            [(" ", "") for _ in range(W)]
-            for _ in range(H)
-        ]
+        grid: List[List[Tuple[str, str]]] = [[(" ", "") for _ in range(w)] for _ in range(h)]
 
         def put(x: int, y: int, ch: str, st: str) -> None:
-            if 0 <= x < W and 0 <= y < H:
+            if 0 <= x < w and 0 <= y < h:
                 grid[y][x] = (ch, st)
 
         # Ground line
-        for x in range(W):
+        for x in range(w):
             put(x, CITY_ROW, "─", "bright_black")
 
         # Cities
@@ -374,7 +374,7 @@ class BrokkDefenseScreen(ModalScreen[None]):
 
         # Header
         header = f"  ★ BROKK DEFENSE ★    Score: {state.score:07d}    Wave: {state.wave}  "
-        out.append(header.ljust(W), style="bold white on dark_blue")
+        out.append(header.ljust(w), style="bold white on dark_blue")
         out.append("\n")
 
         # Game rows
@@ -386,11 +386,11 @@ class BrokkDefenseScreen(ModalScreen[None]):
         # Footer
         if state.game_over:
             footer = "  ★ GAME OVER ★  Your cities are dust.  Press Esc to exit  "
-            out.append(footer.center(W), style="bold bright_red on black")
+            out.append(footer.center(w), style="bold bright_red on black")
         elif state.wave_clear:
             next_wave = state.wave + 1
             footer = f"  ★ WAVE {state.wave} CLEAR! ★  Preparing wave {next_wave}...  "
-            out.append(footer.center(W), style="bold bright_green on black")
+            out.append(footer.center(w), style="bold bright_green on black")
         else:
             ammo_parts = []
             for i in range(3):
@@ -398,7 +398,7 @@ class BrokkDefenseScreen(ModalScreen[None]):
                 bar = "▪" * ammo + "·" * (BASE_AMMO - ammo)
                 ammo_parts.append(f"[{i + 1}]{bar}")
             footer = "  ".join(ammo_parts) + "   ↑↓←→ Aim  Space Fire  Esc Quit"
-            out.append(footer[:W].ljust(W), style="cyan")
+            out.append(footer[:w].ljust(w), style="cyan")
 
         return out
 
@@ -432,6 +432,7 @@ class BrokkDefenseScreen(ModalScreen[None]):
 # ---------------------------------------------------------------------------
 # Bresenham line helper
 # ---------------------------------------------------------------------------
+
 
 def _bresenham(x0: int, y0: int, x1: int, y1: int) -> List[Tuple[int, int]]:
     """Return integer (x, y) points on the line from (x0, y0) to (x1, y1)."""
