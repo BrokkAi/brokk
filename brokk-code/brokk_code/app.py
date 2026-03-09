@@ -425,10 +425,12 @@ class PrCreateModalScreen(ModalScreen[Optional[tuple[str, str]]]):
         self._do_submit()
 
     def _do_submit(self) -> None:
+        title_label = self.query_one("#pr-title-label", Static)
+        title_label.update("Title:")
         title = self.query_one("#pr-title-input", Input).value.strip()
         body = self.query_one("#pr-body-input", TextArea).text.strip()
         if not title:
-            self.query_one("#pr-title-label", Static).update("[bold red]Title is required[/]")
+            title_label.update("[bold red]Title is required[/]")
             return
         self.dismiss((title, body))
 
