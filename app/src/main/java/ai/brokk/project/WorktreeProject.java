@@ -34,7 +34,8 @@ public final class WorktreeProject extends AbstractProject {
      * already exist. This allows the worktree to start with a warm analyzer state.
      */
     private void copyAnalyzerCachesFromParent() {
-        Set<Language> effectiveLanguages = parent.getAnalyzerLanguages().stream()
+        Set<Language> languages = parent.getAnalyzerLanguages();
+        Set<Language> effectiveLanguages = languages.stream()
                 .flatMap(l -> l instanceof Language.MultiLanguage ml ? ml.getLanguages().stream() : Stream.of(l))
                 .filter(l -> l != Languages.NONE)
                 .collect(Collectors.toSet());
