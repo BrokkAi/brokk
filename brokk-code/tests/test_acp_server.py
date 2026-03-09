@@ -342,6 +342,7 @@ def test_map_executor_tool_call_is_passthrough() -> None:
         "data": {"name": "read_file", "arguments": '{"path": "foo.py"}', "id": "call-1"},
     }
     update = map_executor_event_to_session_update(event, _text_block)
+    # Note: implementation uses \n[TOOL CALL] {name}({args})\n
     assert update == {
         "sessionUpdate": "agent_message_chunk",
         "text": '\n[TOOL CALL] read_file({"path": "foo.py"})\n',
@@ -354,9 +355,19 @@ def test_map_executor_tool_output_is_passthrough() -> None:
         "data": {"status": "SUCCESS", "id": "call-1", "result": "done"},
     }
     update = map_executor_event_to_session_update(event, _text_block)
+    # Note: implementation checks for output, result, or message
     assert update == {
         "sessionUpdate": "agent_message_chunk",
         "text": "\n[TOOL OUTPUT] SUCCESS: done\n",
+    }
+
+
+def test_map_executor_unknown_event_type_is_passthrough() -> None:
+    event = {"type": "MY_NEW_EVENT", "data": {"foo": "bar"}}
+    update = map_executor_event_to_session_update(event, _text_block)
+    assert update == {
+        "sessionUpdate": "agent_message_chunk",
+        "text": '\n[EVENT: MY_NEW_EVENT] {"foo": "bar"}\n',
     }
 
 
@@ -585,6 +596,8 @@ async def test_prompt_context_command_renders_snapshot_without_job(tmp_path: Pat
         return {"sessionUpdate": "agent_message_chunk", "text": text}
 
     bridge = BrokkAcpBridge(StubExecutor())  # type: ignore[arg-type]
+    # In ACP mode, do NOT emit context snapshots after prompt completion via automatic means.
+    # The /context command explicitly generates one.
     await bridge.prompt(
         prompt="/context",
         session_id="acp-1",
