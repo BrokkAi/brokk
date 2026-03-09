@@ -36,29 +36,6 @@ def _thought_block(value: str) -> dict[str, str]:
     return {"sessionUpdate": "agent_thought_chunk", "text": value}
 
 
-def _start_tool_call(**kwargs: Any) -> dict[str, Any]:
-    return {"sessionUpdate": "tool_call", **kwargs}
-
-
-def _update_tool_call(**kwargs: Any) -> dict[str, Any]:
-    return {"sessionUpdate": "tool_call_update", **kwargs}
-
-
-def _tool_content(block: Any) -> dict[str, Any]:
-    return {"type": "content", "content": block}
-
-
-def _text_block_helper(text: str) -> dict[str, str]:
-    return {"type": "text", "text": text}
-
-
-def _image_block_helper(data: str, mime_type: str, *, uri: str | None = None) -> dict[str, str]:
-    payload: dict[str, str] = {"type": "image", "data": data, "mime_type": mime_type}
-    if uri:
-        payload["uri"] = uri
-    return payload
-
-
 def test_normalize_mode_defaults_and_known_values() -> None:
     assert normalize_mode(None) == "LUTZ"
     assert normalize_mode("") == "LUTZ"
@@ -75,7 +52,7 @@ def test_model_and_reasoning_constants() -> None:
 
 def test_resolve_model_selection_variant_and_plain() -> None:
     assert resolve_model_selection(DEFAULT_MODEL_SELECTION) == (DEFAULT_MODEL_SELECTION, None)
-    assert resolve_model_selection("gpt-5.2#r=low") == ("gpt-5.2", "low")
+    assert resolve_model_selection("gpt-5.3-codex#r=low") == ("gpt-5.3-codex", "low")
     assert resolve_model_selection("gemini-3-flash-preview") == ("gemini-3-flash-preview", None)
 
 
@@ -84,8 +61,8 @@ def test_normalize_model_catalog_and_reasoning_options() -> None:
         {
             "models": [
                 {
-                    "name": "gpt-5.2",
-                    "location": "openai/gpt-5.2",
+                    "name": "gpt-5.3-codex",
+                    "location": "openai/gpt-5.3-codex",
                     "supportsReasoningEffort": True,
                     "supportsReasoningDisable": True,
                 },
@@ -98,8 +75,8 @@ def test_normalize_model_catalog_and_reasoning_options() -> None:
             ]
         }
     )
-    assert [m["name"] for m in catalog] == ["gpt-5.2", "gemini-3-flash-preview"]
-    assert _reasoning_options_for_model("gpt-5.2", catalog) == [
+    assert [m["name"] for m in catalog] == ["gpt-5.3-codex", "gemini-3-flash-preview"]
+    assert _reasoning_options_for_model("gpt-5.3-codex", catalog) == [
         "default",
         "low",
         "medium",
@@ -123,7 +100,7 @@ def test_build_available_models_includes_model_variants_with_conditional_disable
         {
             "models": [
                 {
-                    "name": "gpt-5.2",
+                    "name": "gpt-5.3-codex",
                     "supportsReasoningEffort": True,
                     "supportsReasoningDisable": True,
                 },
@@ -135,23 +112,28 @@ def test_build_available_models_includes_model_variants_with_conditional_disable
             ]
         }
     )
-    assert _model_variants_for_model("gpt-5.2", catalog) == ["low", "medium", "high", "disable"]
+    assert _model_variants_for_model("gpt-5.3-codex", catalog) == [
+        "low",
+        "medium",
+        "high",
+        "disable",
+    ]
     assert _model_variants_for_model("gemini-3-flash-preview", catalog) == []
     options = _build_available_models(catalog)
     assert [value for value, _ in options] == [
-        "gpt-5.2",
-        "gpt-5.2/low",
-        "gpt-5.2/medium",
-        "gpt-5.2/high",
-        "gpt-5.2/disable",
+        "gpt-5.3-codex",
+        "gpt-5.3-codex/low",
+        "gpt-5.3-codex/medium",
+        "gpt-5.3-codex/high",
+        "gpt-5.3-codex/disable",
         "gemini-3-flash-preview",
     ]
     assert [name for _, name in options] == [
-        "gpt-5.2",
-        "gpt-5.2 (low)",
-        "gpt-5.2 (medium)",
-        "gpt-5.2 (high)",
-        "gpt-5.2 (disable)",
+        "gpt-5.3-codex",
+        "gpt-5.3-codex (low)",
+        "gpt-5.3-codex (medium)",
+        "gpt-5.3-codex (high)",
+        "gpt-5.3-codex (disable)",
         "gemini-3-flash-preview",
     ]
     assert all("#r=" not in value for value, _ in options)
@@ -162,17 +144,20 @@ def test_parse_model_selection_routes_model_and_variant() -> None:
         {
             "models": [
                 {
-                    "name": "gpt-5.2",
+                    "name": "gpt-5.3-codex",
                     "supportsReasoningEffort": True,
                     "supportsReasoningDisable": True,
                 },
             ]
         }
     )
-    assert _parse_model_selection("gpt-5.2", catalog) == ("gpt-5.2", None)
-    assert _parse_model_selection("gpt-5.2/high", catalog) == ("gpt-5.2", "high")
-    assert _parse_model_selection("gpt-5.2/default", catalog) == ("gpt-5.2/default", None)
-    assert _parse_model_selection("model/gpt-5.2", catalog) == ("gpt-5.2", None)
+    assert _parse_model_selection("gpt-5.3-codex", catalog) == ("gpt-5.3-codex", None)
+    assert _parse_model_selection("gpt-5.3-codex/high", catalog) == ("gpt-5.3-codex", "high")
+    assert _parse_model_selection("gpt-5.3-codex/default", catalog) == (
+        "gpt-5.3-codex/default",
+        None,
+    )
+    assert _parse_model_selection("model/gpt-5.3-codex", catalog) == ("gpt-5.3-codex", None)
 
 
 def test_available_model_names_filters_invalid_entries_and_preserves_order() -> None:
@@ -189,10 +174,10 @@ def test_available_model_names_filters_invalid_entries_and_preserves_order() -> 
 
 
 def test_parse_model_selection_ignores_none_model_name() -> None:
-    catalog = [{"name": None}, {"name": "gpt-5.2"}]
+    catalog = [{"name": None}, {"name": "gpt-5.3-codex"}]
 
     assert _parse_model_selection("None", catalog) == ("None", None)
-    assert _parse_model_selection("gpt-5.2", catalog) == ("gpt-5.2", None)
+    assert _parse_model_selection("gpt-5.3-codex", catalog) == ("gpt-5.3-codex", None)
 
 
 async def test_fetch_normalized_catalog_with_retries_recovers_after_transient_failures() -> None:
@@ -202,7 +187,7 @@ async def test_fetch_normalized_catalog_with_retries_recovers_after_transient_fa
         calls["count"] += 1
         if calls["count"] < 3:
             raise RuntimeError("executor not ready")
-        return {"models": [{"name": "gpt-5.2"}]}
+        return {"models": [{"name": "gpt-5.3-codex"}]}
 
     catalog = await _fetch_normalized_catalog_with_retries(
         fetch_payload,
@@ -212,8 +197,8 @@ async def test_fetch_normalized_catalog_with_retries_recovers_after_transient_fa
 
     assert catalog == [
         {
-            "name": "gpt-5.2",
-            "location": "gpt-5.2",
+            "name": "gpt-5.3-codex",
+            "location": "gpt-5.3-codex",
             "supportsReasoningEffort": False,
             "supportsReasoningDisable": False,
         }
@@ -303,165 +288,99 @@ def test_extract_resource_file_paths_ignores_relative_links_without_cwd() -> Non
 
 def test_map_executor_token_event() -> None:
     event = {"type": "LLM_TOKEN", "data": {"token": "abc"}}
-    assert map_executor_event_to_session_update(event, _text_block) == {
+    assert map_executor_event_to_session_update(event, _text_block, _thought_block) == {
         "sessionUpdate": "agent_message_chunk",
         "text": "abc",
     }
 
 
-def test_map_executor_reasoning_token_event() -> None:
+def test_map_executor_reasoning_token_event_uses_thought_block() -> None:
+    # Boolean True
     event = {"type": "LLM_TOKEN", "data": {"token": "thinking", "isReasoning": True}}
-    # Should use thought block when isReasoning is True
     assert map_executor_event_to_session_update(event, _text_block, _thought_block) == {
         "sessionUpdate": "agent_thought_chunk",
         "text": "thinking",
     }
 
+    # Boolean False
+    event = {"type": "LLM_TOKEN", "data": {"token": "not thinking", "isReasoning": False}}
+    assert map_executor_event_to_session_update(event, _text_block, _thought_block) == {
+        "sessionUpdate": "agent_message_chunk",
+        "text": "not thinking",
+    }
 
-def test_map_executor_reasoning_token_event_strict_parsing() -> None:
-    # Truthy strings
-    for val in ["true", "True", " 1 ", "yes"]:
-        event = {"type": "LLM_TOKEN", "data": {"token": "t", "isReasoning": val}}
+    # String Truthy
+    for val in ["true", "1", "yes", " TRUE "]:
+        event = {"type": "LLM_TOKEN", "data": {"token": "thinking", "isReasoning": val}}
         assert map_executor_event_to_session_update(event, _text_block, _thought_block) == {
             "sessionUpdate": "agent_thought_chunk",
-            "text": "t",
-        }
+            "text": "thinking",
+        }, f"Failed for truthy value: {val}"
 
-    # Falsy strings (previously incorrectly treated as True by bool())
-    for val in ["false", "0", "no", ""]:
-        event = {"type": "LLM_TOKEN", "data": {"token": "t", "isReasoning": val}}
+    # String Falsy (which would be truthy via naive bool())
+    for val in ["false", "0", "no", "anything else"]:
+        event = {"type": "LLM_TOKEN", "data": {"token": "not thinking", "isReasoning": val}}
         assert map_executor_event_to_session_update(event, _text_block, _thought_block) == {
             "sessionUpdate": "agent_message_chunk",
-            "text": "t",
-        }
+            "text": "not thinking",
+        }, f"Failed for falsy value: {val}"
 
-    # Booleans
-    event_true = {"type": "LLM_TOKEN", "data": {"token": "t", "isReasoning": True}}
-    assert map_executor_event_to_session_update(event_true, _text_block, _thought_block) == {
-        "sessionUpdate": "agent_thought_chunk",
-        "text": "t",
-    }
+    # Non-string payloads keep sensible bool behavior.
+    for val in [1, [1], {"a": 1}]:
+        event = {"type": "LLM_TOKEN", "data": {"token": "thinking", "isReasoning": val}}
+        assert map_executor_event_to_session_update(event, _text_block, _thought_block) == {
+            "sessionUpdate": "agent_thought_chunk",
+            "text": "thinking",
+        }, f"Failed for truthy non-string value: {val}"
 
-    event_false = {"type": "LLM_TOKEN", "data": {"token": "t", "isReasoning": False}}
-    assert map_executor_event_to_session_update(event_false, _text_block, _thought_block) == {
-        "sessionUpdate": "agent_message_chunk",
-        "text": "t",
-    }
+    for val in [0, None, [], {}]:
+        event = {"type": "LLM_TOKEN", "data": {"token": "not thinking", "isReasoning": val}}
+        assert map_executor_event_to_session_update(event, _text_block, _thought_block) == {
+            "sessionUpdate": "agent_message_chunk",
+            "text": "not thinking",
+        }, f"Failed for falsy non-string value: {val}"
 
 
 def test_map_executor_error_event() -> None:
     event = {"type": "ERROR", "data": {"message": "boom"}}
-    assert map_executor_event_to_session_update(event, _text_block) == {
-        "sessionUpdate": "agent_message_chunk",
-        "text": "\n[ERROR] boom\n",
-    }
+    update = map_executor_event_to_session_update(event, _text_block)
+    assert update is not None
+    assert "Error:" in update["text"]
+    assert "boom" in update["text"]
 
 
-def test_map_executor_unknown_event() -> None:
-    event = {"type": "STATE_HINT", "data": {"name": "workspaceUpdated"}}
-    assert map_executor_event_to_session_update(event, _text_block) is None
-
-
-def test_map_executor_info_notification_event_is_suppressed() -> None:
+def test_map_executor_info_notification_event_is_clean() -> None:
     event = {"type": "NOTIFICATION", "data": {"level": "INFO", "message": "planning"}}
-    assert map_executor_event_to_session_update(event, _text_block, _thought_block) is None
+    update = map_executor_event_to_session_update(event, _text_block)
+    assert update is not None
+    assert "planning" in update["text"]
+    # Verify no passthrough brackets
+    assert "[INFO]" not in update["text"]
 
 
-def test_map_executor_error_notification_event_surfaces_as_message() -> None:
-    event = {"type": "NOTIFICATION", "data": {"level": "ERROR", "message": "critical failure"}}
-    assert map_executor_event_to_session_update(event, _text_block, _thought_block) == {
-        "sessionUpdate": "agent_message_chunk",
-        "text": "\n\n[ERROR] critical failure\n",
-    }
+def test_map_executor_state_and_cost_events_are_suppressed() -> None:
+    state_event = {"type": "STATE_HINT", "data": {"message": "indexing"}}
+    assert map_executor_event_to_session_update(state_event, _text_block) is None
 
-
-def test_map_executor_state_hint_surfaces_as_message() -> None:
-    event = {"type": "STATE_HINT", "data": {"message": "indexing workspace"}}
-    assert map_executor_event_to_session_update(event, _text_block, _thought_block) is None
-
-
-def test_map_executor_warning_notification_event_surfaces_as_message() -> None:
-    event = {"type": "NOTIFICATION", "data": {"level": "WARN", "message": "slow network"}}
-    assert map_executor_event_to_session_update(event, _text_block, _thought_block) == {
-        "sessionUpdate": "agent_message_chunk",
-        "text": "\n\n[WARN] slow network\n",
-    }
-
-
-def test_map_executor_cost_notification_event_is_suppressed() -> None:
-    event = {"type": "NOTIFICATION", "data": {"level": "COST", "message": "$0.0012 for gpt"}}
-    assert map_executor_event_to_session_update(event, _text_block, _thought_block) is None
-
-
-def test_map_executor_status_token_is_passed_through() -> None:
-    token = "\n**Brokk** performing initial workspace review..."
-    event = {"type": "LLM_TOKEN", "data": {"token": token}}
-    assert map_executor_event_to_session_update(event, _text_block, _thought_block) == {
-        "sessionUpdate": "agent_message_chunk",
-        "text": token,
-    }
+    cost_event = {"type": "NOTIFICATION", "data": {"level": "COST", "message": "$0.01"}}
+    assert map_executor_event_to_session_update(cost_event, _text_block) is None
 
 
 def test_map_executor_status_token_mojibake_is_minimally_normalized() -> None:
-    token = "\n**Brokk** performing initial workspace reviewâ€¦"
+    token = "reviewingâ€¦"
     event = {"type": "LLM_TOKEN", "data": {"token": token}}
-    assert map_executor_event_to_session_update(event, _text_block, _thought_block) == {
+    assert map_executor_event_to_session_update(event, _text_block) == {
         "sessionUpdate": "agent_message_chunk",
-        "text": "\n**Brokk** performing initial workspace review...",
+        "text": "reviewing...",
     }
 
 
-def test_map_executor_tool_call_structured() -> None:
-    event = {
-        "type": "TOOL_CALL",
-        "data": {"name": "read_file", "arguments": '{"path": "foo.py"}', "id": "call-1"},
-    }
-    update = map_executor_event_to_session_update(
-        event,
-        _text_block,
-        _thought_block,
-        _start_tool_call,
-        _update_tool_call,
-        _tool_content,
-        _text_block_helper,
-    )
-    assert update["sessionUpdate"] == "tool_call"
-    assert update["tool_call_id"] == "call-1"
-    assert update["title"] == "read_file"
-    assert update["content"][0]["content"]["text"] == '{"path": "foo.py"}'
+def test_map_executor_tool_events_are_suppressed() -> None:
+    call_event = {"type": "TOOL_CALL", "data": {"name": "read"}}
+    assert map_executor_event_to_session_update(call_event, _text_block) is None
 
-
-def test_map_executor_tool_call_fallback() -> None:
-    # No ID or no callbacks -> now returns None instead of a text prefix
-    event = {"type": "TOOL_CALL", "data": {"name": "read_file", "arguments": "{}"}}
-    update = map_executor_event_to_session_update(event, _text_block)
-    assert update is None
-
-
-def test_map_executor_tool_output_structured() -> None:
-    event = {
-        "type": "TOOL_OUTPUT",
-        "data": {"status": "SUCCESS", "id": "call-1", "result": "done"},
-    }
-    update = map_executor_event_to_session_update(
-        event,
-        _text_block,
-        _thought_block,
-        _start_tool_call,
-        _update_tool_call,
-        _tool_content,
-        _text_block_helper,
-    )
-    assert update["sessionUpdate"] == "tool_call_update"
-    assert update["tool_call_id"] == "call-1"
-    assert update["status"] == "completed"
-    assert update["content"][0]["content"]["text"] == "done"
-
-
-def test_map_executor_tool_output_fallback() -> None:
-    event = {"type": "TOOL_OUTPUT", "data": {"status": "ERROR"}}
-    update = map_executor_event_to_session_update(event, _text_block)
-    assert update is None
+    out_event = {"type": "TOOL_OUTPUT", "data": {"result": "ok"}}
+    assert map_executor_event_to_session_update(out_event, _text_block) is None
 
 
 def test_conversation_payload_to_session_updates_replays_user_assistant_and_reasoning() -> None:
@@ -622,9 +541,6 @@ async def test_prompt_standard_flow_calls_submit_job_and_streams_tokens(tmp_path
     async def send_update(session_id: str, update: dict[str, str]) -> None:
         updates.append((session_id, update))
 
-    def update_agent_message(content: Any) -> dict[str, Any]:
-        return {"sessionUpdate": "agent_message_chunk", "content": content}
-
     def update_agent_message_text(text: str) -> dict[str, str]:
         return {"sessionUpdate": "agent_message_chunk", "text": text}
 
@@ -633,18 +549,12 @@ async def test_prompt_standard_flow_calls_submit_job_and_streams_tokens(tmp_path
         prompt=[{"type": "text", "text": "hello"}],
         session_id="acp-session-1",
         mode="LUTZ",
-        planner_model="gpt-5.2",
+        planner_model="gpt-5.3-codex",
         code_model="gemini-3-flash-preview",
         reasoning_level="low",
         reasoning_level_code="disable",
         send_update=send_update,
-        update_agent_message=update_agent_message,
         update_agent_message_text=update_agent_message_text,
-        update_agent_thought_text=_thought_block,
-        image_block=_image_block_helper,
-        start_tool_call=_start_tool_call,
-        update_tool_call=_update_tool_call,
-        tool_content=_tool_content,
     )
 
     assert job_submitted
@@ -694,29 +604,22 @@ async def test_prompt_context_command_renders_snapshot_without_job(tmp_path: Pat
     async def send_update(session_id: str, update: dict[str, Any]) -> None:
         updates.append((session_id, update))
 
-    def update_agent_message(content: Any) -> dict[str, Any]:
-        return {"sessionUpdate": "agent_message_chunk", "content": content}
-
     def update_agent_message_text(text: str) -> dict[str, str]:
         return {"sessionUpdate": "agent_message_chunk", "text": text}
 
     bridge = BrokkAcpBridge(StubExecutor())  # type: ignore[arg-type]
+    # In ACP mode, do NOT emit context snapshots after prompt completion via automatic means.
+    # The /context command explicitly generates one.
     await bridge.prompt(
         prompt="/context",
         session_id="acp-1",
         mode="LUTZ",
-        planner_model="gpt-5.2",
+        planner_model="gpt-5.3-codex",
         code_model=None,
         reasoning_level=None,
         reasoning_level_code=None,
         send_update=send_update,
-        update_agent_message=update_agent_message,
         update_agent_message_text=update_agent_message_text,
-        update_agent_thought_text=_thought_block,
-        image_block=_image_block_helper,
-        start_tool_call=_start_tool_call,
-        update_tool_call=_update_tool_call,
-        tool_content=_tool_content,
     )
 
     assert not job_submitted

@@ -17,9 +17,9 @@ logger = logging.getLogger(__name__)
 
 VALID_MODES = {"LUTZ", "ASK", "CODE", "PLAN"}
 MODE_OPTIONS = ("LUTZ", "CODE", "ASK", "PLAN")
-BASE_MODEL_IDS = ("gpt-5.2", "gemini-3-flash-preview")
+BASE_MODEL_IDS = ("gpt-5.3-codex", "gemini-3-flash-preview")
 REASONING_LEVEL_IDS = ("low", "medium", "high", "disable", "default")
-DEFAULT_MODEL_SELECTION = "gpt-5.2"
+DEFAULT_MODEL_SELECTION = "gpt-5.3-codex"
 DEFAULT_REASONING_LEVEL = "medium"
 THOUGHT_LEVEL_CONFIG_ID = "thought_level"
 DEFAULT_VARIANT_VALUE = "default"
@@ -143,14 +143,14 @@ def normalize_mode(mode: Optional[str]) -> str:
 def resolve_model_selection(model_selection: Optional[str]) -> tuple[str, Optional[str]]:
     raw = (model_selection or "").strip()
     if not raw:
-        return "gpt-5.2", None
+        return DEFAULT_MODEL_SELECTION, None
     if "#r=" not in raw:
         return raw, None
     model_id, reasoning = raw.split("#r=", 1)
     normalized_reasoning = reasoning.strip().lower()
     if normalized_reasoning not in REASONING_LEVEL_IDS:
-        return model_id.strip() or "gpt-5.2", None
-    return model_id.strip() or "gpt-5.2", normalized_reasoning
+        return model_id.strip() or DEFAULT_MODEL_SELECTION, None
+    return model_id.strip() or DEFAULT_MODEL_SELECTION, normalized_reasoning
 
 
 def _fallback_model_catalog() -> list[dict[str, Any]]:
@@ -453,104 +453,62 @@ def _extract_fragment_ids(resp: Any) -> list[str]:
     return list(dict.fromkeys(ids))
 
 
+def _is_truthy(value: Any) -> bool:
+    """Robustly normalize truthiness for string and boolean payloads."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"true", "1", "yes"}
+    return bool(value)
+
+
 def map_executor_event_to_session_update(
     event: dict[str, Any],
     update_agent_message_text: Callable[[str], Any],
     update_agent_thought_text: Optional[Callable[[str], Any]] = None,
-    start_tool_call: Optional[Callable[..., Any]] = None,
-    update_tool_call: Optional[Callable[..., Any]] = None,
-    tool_content: Optional[Callable[[Any], Any]] = None,
-    text_block: Optional[Callable[[str], Any]] = None,
 ) -> Optional[Any]:
+    """Map executor events into clean ACP message or thought updates."""
     event_type = event.get("type")
     data = event.get("data", {})
-
-    if event_type == "LLM_TOKEN":
-        token = data.get("token", "")
-        if not token:
-            return None
-        token = _normalize_status_token(token)
-        is_reasoning_raw = data.get("isReasoning", False)
-        if isinstance(is_reasoning_raw, str):
-            is_reasoning = is_reasoning_raw.strip().lower() in ("true", "1", "yes")
-        else:
-            is_reasoning = bool(is_reasoning_raw)
-
-        if is_reasoning and update_agent_thought_text:
-            return update_agent_thought_text(token)
-        return update_agent_message_text(token)
-
-    if event_type == "ERROR":
-        msg = data.get("message", "Unknown error")
-        return update_agent_message_text(f"\n[ERROR] {msg}\n")
-
-    if event_type == "NOTIFICATION":
-        level = data.get("level", "INFO")
-        msg = data.get("message", "")
-        if not msg:
-            return None
-        normalized_level = str(level).strip().upper()
-        # INFO/COST/CONFIRM are internal or high-volume and should not be
-        # appended to persistent chat output.
-        if normalized_level in {"COST", "CONFIRM", "INFO"}:
-            return None
-        return update_agent_message_text(_format_notification_line(level, msg))
-
-    if event_type == "STATE_HINT":
-        # These are transient UI state updates and should not be appended to
-        # persistent chat output.
+    if not isinstance(data, dict):
         return None
 
-    if event_type == "TOOL_CALL":
-        name = data.get("name", "tool")
-        args = data.get("arguments", "")
-        tool_call_id = (
-            data.get("toolCallId")
-            or data.get("tool_call_id")
-            or data.get("id")
-            or data.get("callId")
-        )
+    match event_type:
+        case "LLM_TOKEN":
+            token = str(data.get("token", "")).replace("â€¦", "...")
+            if not token:
+                return None
 
-        if start_tool_call and tool_call_id:
-            content = None
-            if args and text_block and tool_content:
-                content = [tool_content(text_block(str(args)))]
-            return start_tool_call(
-                tool_call_id=str(tool_call_id),
-                title=name,
-                status="in_progress",
-                content=content,
-            )
+            raw_is_reasoning = data.get("isReasoning", False)
+            if isinstance(raw_is_reasoning, str):
+                is_reasoning = raw_is_reasoning.strip().lower() in {"true", "1", "yes"}
+            elif isinstance(raw_is_reasoning, bool):
+                is_reasoning = raw_is_reasoning
+            else:
+                is_reasoning = bool(raw_is_reasoning)
 
-        return None
+            if is_reasoning and update_agent_thought_text:
+                return update_agent_thought_text(token)
+            return update_agent_message_text(token)
 
-    if event_type == "TOOL_OUTPUT":
-        status_raw = str(data.get("status", "SUCCESS")).upper()
-        # Map executor status to ACP ToolCallStatus: "pending", "in_progress", "completed", "failed"
-        acp_status = "completed" if status_raw == "SUCCESS" else "failed"
+        case "ERROR":
+            msg = data.get("message", "Unknown error")
+            return update_agent_message_text(f"\n\n**Error:** {msg}\n\n")
 
-        tool_call_id = (
-            data.get("toolCallId")
-            or data.get("tool_call_id")
-            or data.get("id")
-            or data.get("callId")
-        )
+        case "NOTIFICATION":
+            level = data.get("level", "INFO")
+            msg = data.get("message", "")
+            if not msg or level in ("STATE", "COST"):
+                return None
+            # Only surface critical or high-level notifications to ACP users.
+            if level == "ERROR":
+                return update_agent_message_text(f"\n\n**Error:** {msg}\n\n")
+            return update_agent_message_text(f"\n\n_{msg}_\n\n")
 
-        if update_tool_call and tool_call_id:
-            content = None
-            output_payload = data.get("output") or data.get("result") or data.get("message")
-            if output_payload and text_block and tool_content:
-                content = [tool_content(text_block(str(output_payload)))]
-
-            return update_tool_call(
-                tool_call_id=str(tool_call_id),
-                status=acp_status,
-                content=content,
-            )
-
-        return None
-
-    return None
+        case _:
+            # Suppress internal TOOL_CALL, TOOL_OUTPUT, and STATE_HINT events for ACP.
+            # These are noisy and usually handled via LLM tokens or final output.
+            return None
 
 
 def conversation_payload_to_session_updates(
@@ -599,17 +557,6 @@ def conversation_payload_to_session_updates(
             updates.append(update_agent_message_text(summary))
 
     return updates
-
-
-def _normalize_status_token(token: str) -> str:
-    # Pass tokens through as-is, with only minimal normalization for known mojibake.
-    return token.replace("â€¦", "...")
-
-
-def _format_notification_line(level: Any, msg: Any) -> str:
-    level_text = str(level)
-    msg_text = str(msg)
-    return f"\n\n[{level_text}] {msg_text}\n"
 
 
 def _extract_session_id_for_cancel(args: tuple[Any, ...], kwargs: dict[str, Any]) -> Optional[str]:
@@ -737,14 +684,7 @@ class BrokkAcpBridge:
         reasoning_level: Optional[str],
         reasoning_level_code: Optional[str],
         send_update: Callable[[str, Any], Awaitable[Any]],
-        update_agent_message: Callable[[Any], Any],
         update_agent_message_text: Callable[[str], Any],
-        image_block: Callable[..., Any],
-        start_tool_call: Callable[..., Any],
-        update_tool_call: Callable[..., Any],
-        tool_content: Callable[[Any], Any],
-        update_agent_thought_text: Optional[Callable[[str], Any]] = None,
-        text_block: Optional[Callable[[str], Any]] = None,
         cwd: str = "",
     ) -> None:
         await self.ensure_ready()
@@ -777,11 +717,6 @@ class BrokkAcpBridge:
             reasoning_level_code=reasoning_level_code,
             send_update=send_update,
             update_agent_message_text=update_agent_message_text,
-            update_agent_thought_text=update_agent_thought_text,
-            start_tool_call=start_tool_call,
-            update_tool_call=update_tool_call,
-            tool_content=tool_content,
-            text_block=text_block,
             cwd=cwd,
         )
 
@@ -854,11 +789,6 @@ class BrokkAcpBridge:
         reasoning_level_code: Optional[str],
         send_update: Callable[[str, Any], Awaitable[Any]],
         update_agent_message_text: Callable[[str], Any],
-        update_agent_thought_text: Optional[Callable[[str], Any]] = None,
-        start_tool_call: Optional[Callable[..., Any]] = None,
-        update_tool_call: Optional[Callable[..., Any]] = None,
-        tool_content: Optional[Callable[[Any], Any]] = None,
-        text_block: Optional[Callable[[str], Any]] = None,
         cwd: str = "",
     ) -> None:
         # Add any @-mentioned files from ACP embedded/linked resource blocks to context.
@@ -893,15 +823,13 @@ class BrokkAcpBridge:
         self._active_job_by_session[session_id] = job_id
 
         try:
+            from acp import update_agent_thought_text
+
             async for event in self.executor.stream_events(job_id):
                 update = map_executor_event_to_session_update(
                     event,
                     update_agent_message_text,
-                    update_agent_thought_text,
-                    start_tool_call=start_tool_call,
-                    update_tool_call=update_tool_call,
-                    tool_content=tool_content,
-                    text_block=text_block,
+                    update_agent_thought_text=update_agent_thought_text,
                 )
                 if update:
                     await send_update(session_id, update)
@@ -936,15 +864,9 @@ async def run_acp_server(
             PromptResponse,
             SetSessionModelResponse,
             SetSessionModeResponse,
-            image_block,
             run_agent,
-            start_tool_call,
-            text_block,
-            tool_content,
-            update_agent_message,
             update_agent_message_text,
             update_agent_thought_text,
-            update_tool_call,
             update_user_message_text,
         )
         from acp.agent import connection as acp_agent_connection
@@ -1653,14 +1575,7 @@ async def run_acp_server(
                 reasoning_level=reasoning_level,
                 reasoning_level_code=reasoning_level_code,
                 send_update=self.client.session_update,
-                update_agent_message=update_agent_message,
                 update_agent_message_text=update_agent_message_text,
-                update_agent_thought_text=update_agent_thought_text,
-                start_tool_call=start_tool_call,
-                update_tool_call=update_tool_call,
-                tool_content=tool_content,
-                text_block=text_block,
-                image_block=image_block,
             )
             return PromptResponse(stop_reason="end_turn")
 
