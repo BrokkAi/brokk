@@ -506,7 +506,7 @@ public class SearchAgent {
                             c.contextAfterTurn(),
                             c.sessionMessagesAfterTurn(),
                             stateAtTurnStart.context(),
-                            stateAtTurnStart.presentedRelatedFiles());
+                            c.presentedRelatedFiles());
                     currentState = nextState;
 
                     // if we just ran a drop-only turn, reset checkpoint to current state: this means that if we
@@ -519,12 +519,11 @@ public class SearchAgent {
                 }
                 case TurnOutcome.ForceFinalTurn fft -> {
                     assert dropMode != DropMode.DROP_ONLY;
-                    SearchState nextState = new SearchState(
+                    currentState = new SearchState(
                             fft.contextAfterTurn(),
                             fft.sessionMessagesAfterTurn(),
                             stateAtTurnStart.context(),
-                            stateAtTurnStart.presentedRelatedFiles());
-                    currentState = nextState;
+                            fft.presentedRelatedFiles());
 
                     checkpointState = stateAtTurnStart;
                     dropMode = calculateDropMode(fft.contextAfterTurn());
@@ -537,7 +536,7 @@ public class SearchAgent {
                             pt.contextAfterTurn(),
                             pt.sessionMessagesAfterTurn(),
                             stateAtTurnStart.lastTurnContext(),
-                            stateAtTurnStart.presentedRelatedFiles());
+                            pt.presentedRelatedFiles());
                     pendingTerminal = pt.pendingTerminal();
                     overflowNormalReplayPendingResult = false;
                     dropMode = DropMode.DROP_ONLY;
@@ -867,7 +866,8 @@ public class SearchAgent {
                 boolean shouldForceFinalTurn = agent.recordTurnForStagnation(
                         contextAtTurnStartForStagnation, c.contextAfterTurn(), researchTokensThisTurn);
                 if (shouldForceFinalTurn) {
-                    return new TurnOutcome.ForceFinalTurn(c.contextAfterTurn(), c.sessionMessagesAfterTurn());
+                    return new TurnOutcome.ForceFinalTurn(
+                            c.contextAfterTurn(), c.sessionMessagesAfterTurn(), c.presentedRelatedFiles());
                 }
             }
 
@@ -1130,7 +1130,8 @@ public class SearchAgent {
                         && (primaryCalls.isEmpty()
                                 || !"dropWorkspaceFragments"
                                         .equals(primaryCalls.getFirst().name()))) {
-                    return new TurnOutcome.PendingTerminal(context, List.copyOf(sessionMessages), pending);
+                    return new TurnOutcome.PendingTerminal(
+                            context, List.copyOf(sessionMessages), agent.currentState.presentedRelatedFiles(), pending);
                 }
                 return new TurnOutcome.Final(agent.finalizePendingTerminal(pending, context));
             }
@@ -1153,7 +1154,8 @@ public class SearchAgent {
                 agent.scope.publish(context);
             }
 
-            return new TurnOutcome.Continue(context, List.copyOf(sessionMessages));
+            return new TurnOutcome.Continue(
+                    context, List.copyOf(sessionMessages), agent.currentState.presentedRelatedFiles());
         }
 
         private TurnPrompt preparePrompt(boolean workspaceOnlyNoHistory) throws InterruptedException {
@@ -1789,14 +1791,22 @@ public class SearchAgent {
     }
 
     private sealed interface TurnOutcome {
-        record Continue(Context contextAfterTurn, List<ChatMessage> sessionMessagesAfterTurn) implements TurnOutcome {}
+        record Continue(
+                Context contextAfterTurn,
+                List<ChatMessage> sessionMessagesAfterTurn,
+                Set<ProjectFile> presentedRelatedFiles)
+                implements TurnOutcome {}
 
-        record ForceFinalTurn(Context contextAfterTurn, List<ChatMessage> sessionMessagesAfterTurn)
+        record ForceFinalTurn(
+                Context contextAfterTurn,
+                List<ChatMessage> sessionMessagesAfterTurn,
+                Set<ProjectFile> presentedRelatedFiles)
                 implements TurnOutcome {}
 
         record PendingTerminal(
                 Context contextAfterTurn,
                 List<ChatMessage> sessionMessagesAfterTurn,
+                Set<ProjectFile> presentedRelatedFiles,
                 SearchAgent.PendingTerminal pendingTerminal)
                 implements TurnOutcome {}
 
