@@ -333,7 +333,6 @@ public class Llm {
         // latch for awaiting any response from llm
         var tick = new Semaphore(0);
         var firstToken = new AtomicBoolean(true);
-        var hasEmittedStreamStart = new AtomicBoolean(false);
         var completed = new AtomicBoolean(false);
         var cancelled = new AtomicBoolean(false);
         var lock = new ReentrantLock(); // Used by ifNotCancelled
@@ -373,6 +372,8 @@ public class Llm {
             }
         };
         var rawHandler = new StreamingChatResponseHandler() {
+            private final AtomicBoolean hasEmittedStreamStart = new AtomicBoolean(false);
+
             @Override
             public void onPartialResponse(String token) {
                 ifNotCancelled.accept(() -> {
@@ -676,7 +677,7 @@ public class Llm {
                 io.llmOutput(
                         "\nTool contract errors:\n- " + String.join("\n- ", check.errors()),
                         ChatMessageType.CUSTOM,
-                        LlmOutputMeta.DEFAULT.withReasoning(forceReasoningEcho));
+                        LlmOutputMeta.newMessage());
             }
 
             // Create a new list for the next attempt. We replace the last user message
@@ -854,7 +855,9 @@ public class Llm {
                 .collect(Collectors.joining("\n\n"));
         if (!rendered.isBlank()) {
             io.llmOutput(
-                    "\n\n" + rendered, ChatMessageType.AI, LlmOutputMeta.DEFAULT.withReasoning(forceReasoningEcho));
+                    "\n\n" + rendered,
+                    ChatMessageType.AI,
+                    LlmOutputMeta.DEFAULT.withNewMessage(false).withReasoning(forceReasoningEcho));
         }
     }
 
