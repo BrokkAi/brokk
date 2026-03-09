@@ -20,10 +20,10 @@ from brokk_code.acp_server import (
     conversation_payload_to_session_updates,
     extract_prompt_text,
     extract_resource_file_paths,
+    format_context_snapshot,
     map_executor_event_to_session_update,
     normalize_mode,
     resolve_model_selection,
-    format_context_snapshot,
 )
 
 
@@ -607,7 +607,7 @@ async def test_prompt_emits_tokens_but_no_snapshot(tmp_path: Path) -> None:
 
 
 async def test_acp_agent_prompt_routes_non_command_to_bridge() -> None:
-    from unittest.mock import AsyncMock
+    from unittest.mock import MagicMock
 
     class StubExecutor:
         def __init__(self):
@@ -645,7 +645,7 @@ async def test_acp_agent_prompt_routes_non_command_to_bridge() -> None:
         code_model=None,
         reasoning_level=None,
         reasoning_level_code=None,
-        send_update=AsyncMock(),
+        send_update=MagicMock(),
         update_agent_message_text=lambda x: {"text": x},
     )
 
@@ -658,8 +658,6 @@ async def test_acp_agent_prompt_routes_non_command_to_bridge() -> None:
 
 async def test_acp_bridge_context_command_success() -> None:
     """Test /context command success path through BrokkAcpBridge."""
-    from unittest.mock import AsyncMock
-
     class StubExecutor:
         async def start(self):
             pass
@@ -705,8 +703,6 @@ async def test_acp_bridge_context_command_success() -> None:
 
 async def test_acp_bridge_context_command_failure() -> None:
     """Test /context command failure handling."""
-    from unittest.mock import AsyncMock
-
     class StubExecutor:
         async def start(self):
             pass
