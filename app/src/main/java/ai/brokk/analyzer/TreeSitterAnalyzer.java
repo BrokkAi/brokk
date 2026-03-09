@@ -915,40 +915,81 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             return cached;
         }
 
-        Optional<String> content = file.read();
-        Set<String> identifiers =
-                content.map(this::extractTypeIdentifiers).map(Set::copyOf).orElseGet(Set::of);
-        cache.typeIdentifiers().put(file, identifiers);
-        return identifiers;
+        return withSource(
+                file,
+                sc -> {
+                    Set<String> identifiers = Set.copyOf(extractTypeIdentifiers(sc.text()));
+                    cache.typeIdentifiers().put(file, identifiers);
+                    return identifiers;
+                },
+                Set.of());
     }
 
-    protected @Nullable TSTree treeOf(ProjectFile file) {
-        // SourceContent is cached across snapshots, but TSTree is recreated as needed.
+    /**
+     * Executes the provided function with the {@link SourceContent} for the given file.
+     * Uses the internal cache to avoid redundant reads.
+     */
+    protected <R> R withSource(ProjectFile file, Function<SourceContent, R> fn, R defaultValue) {
         SourceContent sc = cache.sources().get(file);
         if (sc == null) {
             if (Files.exists(file.absPath())) {
                 try {
                     byte[] bytes = readFileBytes(file, null);
                     if (bytes.length == 0) {
-                        return null;
+                        return defaultValue;
                     }
                     sc = SourceContent.of(new String(TextCanonicalizer.stripUtf8Bom(bytes), StandardCharsets.UTF_8));
                     cache.sources().put(file, sc);
                 } catch (Exception e) {
                     log.debug("Failed to read source on-demand for {}: {}", file, e.getMessage());
-                    return null;
+                    return defaultValue;
                 }
             } else {
-                return null;
+                return defaultValue;
             }
         }
+        return fn.apply(sc);
+    }
 
-        try {
-            return getTSParser().parseString(null, sc.text());
-        } catch (Exception e) {
-            log.debug("Failed to parse tree for {}: {}", file, e.getMessage());
-            return null;
-        }
+    /**
+     * Parses a fresh {@link TSTree} for the given file and executes the provided function.
+     * The tree is automatically closed via try-with-resources after the function returns.
+     */
+    protected <R> R withTreeOf(ProjectFile file, Function<TSTree, R> fn, R defaultValue) {
+        return withSource(
+                file,
+                sc -> {
+                    try (TSTree tree = getTSParser().parseString(null, sc.text())) {
+                        if (tree == null) {
+                            return defaultValue;
+                        }
+                        return fn.apply(tree);
+                    } catch (Exception e) {
+                        log.debug("Failed to parse tree for {}: {}", file, e.getMessage());
+                        return defaultValue;
+                    }
+                },
+                defaultValue);
+    }
+
+    /**
+     * Returns a fresh, unclosed {@link TSTree} for the given file.
+     *
+     * <p>Prefer {@link #withTreeOf(ProjectFile, Function, Object)} to ensure the tree is closed
+     * deterministically. Callers of this method are responsible for closing the returned tree.
+     */
+    protected @Nullable TSTree treeOf(ProjectFile file) {
+        return withSource(
+                file,
+                sc -> {
+                    try {
+                        return getTSParser().parseString(null, sc.text());
+                    } catch (Exception e) {
+                        log.debug("Failed to parse tree for {}: {}", file, e.getMessage());
+                        return null;
+                    }
+                },
+                null);
     }
 
     // ---------- IAnalyzer ----------

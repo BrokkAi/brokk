@@ -22,11 +22,13 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
 import net.jpountz.lz4.LZ4FrameOutputStream;
+import org.jetbrains.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.DisabledOnOs;
 import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
 import org.pcollections.HashTreePMap;
+import org.treesitter.TSTree;
 
 public class TreeSitterStateIOTest {
 
@@ -855,6 +857,33 @@ public class TreeSitterStateIOTest {
 
         assertTrue(
                 TreeSitterStateIO.load(v100).isEmpty(), "All languages should reject legacy major schemaVersion 1.0.0");
+    }
+
+    @Test
+    void withTreeOfClosesTreeDeterministically() throws Exception {
+        var builder = InlineTestProjectCreator.code("class A {}", "A.java");
+        try (var project = builder.build()) {
+            JavaAnalyzer analyzer = new JavaAnalyzer(project);
+            ProjectFile file = new ProjectFile(project.getRoot(), "A.java");
+
+            class Captor {
+                @Nullable
+                TSTree tree;
+            }
+            Captor captor = new Captor();
+
+            analyzer.withTreeOf(
+                    file,
+                    tree -> {
+                        captor.tree = tree;
+                        assertNotNull(tree.getRootNode());
+                        return null;
+                    },
+                    null);
+
+            assertNotNull(captor.tree);
+            assertThrows(IllegalStateException.class, () -> captor.tree.getRootNode(), "Tree should be closed");
+        }
     }
 
     @Test
