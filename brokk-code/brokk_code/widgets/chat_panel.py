@@ -1,6 +1,10 @@
 import asyncio
 import time
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple
+
+if TYPE_CHECKING:
+    from textual.selection import Selection
+    from textual.strip import Strip
 
 from rich.markdown import ListItem as RichMarkdownListItem
 from rich.markdown import Markdown, Segment, loop_first
@@ -305,6 +309,83 @@ class MentionSuggestions(ListView):
             self.display = False
             if value:
                 self.post_message(self.MentionSelected(value))
+
+
+class ChatLog(RichLog):
+    """A RichLog subclass that supports Textual's built-in text selection.
+
+    Implements get_selection() and selection_updated() so that click-drag
+    highlighting and Ctrl+C copy work via Textual's Screen-level selection
+    system. Overrides _render_line() to apply selection highlighting to
+    the pre-rendered Strip objects that RichLog produces.
+    """
+
+    def get_selection(self, selection: "Selection") -> tuple[str, str] | None:
+        text = "\n".join(strip.text for strip in self.lines)
+        return selection.extract(text), "\n"
+
+    def selection_updated(self, selection: "Selection | None") -> None:
+        # Uses private _line_cache; see _render_line compatibility block
+        self._line_cache.clear()
+        self.refresh()
+
+    def _render_line(self, y: int, scroll_x: int, width: int) -> "Strip":
+        from textual.strip import Strip
+
+        if y >= len(self.lines):
+            return Strip.blank(width, self.rich_style)
+
+        # =========================================================================
+        # TEXTUAL 8.0.0 COMPATIBILITY BLOCK (private API usage)
+        #
+        # This block accesses private RichLog/Strip internals that have no public API.
+        # If Textual upgrades break this, update the version comment and adjust accordingly.
+        # Private attributes used:
+        #   - self._start_line: offset for cache key after max_lines trimming
+        #   - self._widest_line_width: part of cache key scheme
+        #   - self._line_cache: dict cache for rendered Strip objects
+        #   - strip._segments: list of Rich Segments inside a Strip (no public accessor)
+        # =========================================================================
+        cache_key = (y + self._start_line, scroll_x, width, self._widest_line_width)
+        line_cache = self._line_cache
+
+        def extract_segments_from_strip(strip: Strip) -> list[Segment]:
+            """Extract segments from Strip using private _segments attribute."""
+            return list(strip._segments)
+
+        # End of compatibility block declarations
+        # =========================================================================
+
+        selection = self.text_selection
+
+        # Use cache when no selection active
+        if selection is None and cache_key in line_cache:
+            return line_cache[cache_key]
+
+        line = self.lines[y].crop_extend(scroll_x, scroll_x + width, self.rich_style)
+
+        if selection is not None:
+            span = selection.get_span(y)
+            if span is not None:
+                start, end = span
+                text = Text()
+                # Use compatibility helper to access private segments
+                for segment in extract_segments_from_strip(line):
+                    text.append(segment.text, style=segment.style)
+                text_len = len(text)
+                if end == -1:
+                    end = text_len + scroll_x
+                # Convert from full-line coordinates to viewport coordinates
+                adj_start = max(0, start - scroll_x)
+                adj_end = min(text_len, end - scroll_x)
+                if adj_start < adj_end:
+                    selection_style = self.screen.get_component_rich_style("screen--selection")
+                    text.stylize(selection_style, adj_start, adj_end)
+                line = Strip(text.render(self.app.console), line.cell_length)
+
+        line = line.apply_offsets(scroll_x, y)
+        line_cache[cache_key] = line
+        return line
 
 
 class ChatInput(TextArea):
@@ -724,7 +805,7 @@ class ChatPanel(Vertical):
         self._draft_buffer: str = ""  # Stores text before history navigation started
 
     def compose(self) -> ComposeResult:
-        yield RichLog(highlight=True, markup=True, id="chat-log")
+        yield ChatLog(highlight=True, markup=True, id="chat-log")
         yield TokenBar(id="chat-token-bar", classes="hidden")
         yield StatusLine(id="status-line")
         with Vertical(id="chat-input-container"):

@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+#
+# Launch the brokk-code TUI in dev mode.
+# Rebuilds the shadowJar only when source files are newer than the existing jar.
+
+set -euo pipefail
+
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+LIB_DIR="$SCRIPT_DIR/app/build/libs"
+
+needs_build() {
+    # Build if no jar exists
+    local jar
+    jar="$(ls -t "$LIB_DIR"/brokk-*.jar 2>/dev/null | head -n 1)" || true
+    if [[ -z "$jar" ]]; then
+        return 0
+    fi
+
+    # Build if any source file is newer than the jar
+    local newer_files
+    if command -v fd &>/dev/null; then
+        newer_files="$(fd -e java -e scala -e kts --newer "$jar" "$SCRIPT_DIR/app/src" 2>/dev/null | head -n 1)" || true
+        if [[ -z "$newer_files" ]]; then
+            # Also check root build.gradle.kts
+            if [[ "$SCRIPT_DIR/build.gradle.kts" -nt "$jar" ]]; then
+                return 0
+            fi
+            return 1
+        fi
+    else
+        newer_files="$(find "$SCRIPT_DIR/app/src" \( -name '*.java' -o -name '*.scala' -o -name '*.kts' \) -newer "$jar" -print -quit 2>/dev/null)" || true
+        if [[ -z "$newer_files" ]]; then
+            if [[ "$SCRIPT_DIR/build.gradle.kts" -nt "$jar" ]]; then
+                return 0
+            fi
+            return 1
+        fi
+    fi
+    return 0
+}
+
+if needs_build; then
+    echo "Building shadowJar..." >&2
+    "$SCRIPT_DIR/gradlew" -p "$SCRIPT_DIR" shadowJar
+fi
+
+cd "$SCRIPT_DIR/brokk-code"
+exec uv run brokk "$@"
