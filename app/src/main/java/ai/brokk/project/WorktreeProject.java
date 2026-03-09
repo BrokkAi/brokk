@@ -18,6 +18,8 @@ import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import javax.swing.SwingUtilities;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
 public final class WorktreeProject extends AbstractProject {
@@ -26,14 +28,18 @@ public final class WorktreeProject extends AbstractProject {
     public WorktreeProject(Path root, MainProject parent) {
         super(root, parent.getMasterRootPathForConfig());
         this.parent = parent;
-        copyAnalyzerCachesFromParent();
     }
 
     /**
      * Copies analyzer cache files from the parent's storage locations to the worktree if they don't
      * already exist. This allows the worktree to start with a warm analyzer state.
+     *
+     * <p>This must be called off the EDT after project instantiation.
      */
-    private void copyAnalyzerCachesFromParent() {
+    @Blocking
+    public void warmStartAnalyzerCachesFromParent() {
+        assert !SwingUtilities.isEventDispatchThread() : "warmStartAnalyzerCachesFromParent called on EDT";
+
         Set<Language> languages = parent.getAnalyzerLanguages();
         Set<Language> effectiveLanguages = languages.stream()
                 .flatMap(l -> l instanceof Language.MultiLanguage ml ? ml.getLanguages().stream() : Stream.of(l))

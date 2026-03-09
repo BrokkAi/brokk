@@ -108,6 +108,10 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
      */
     private void submitInitialAnalyzerBuild() {
         analyzerExecutor.submit(() -> {
+            if (project instanceof ai.brokk.project.WorktreeProject wp) {
+                wp.warmStartAnalyzerCachesFromParent();
+            }
+
             long start = System.currentTimeMillis();
             IAnalyzer analyzer = loadOrCreateAnalyzer();
             long durationMs = System.currentTimeMillis() - start;
