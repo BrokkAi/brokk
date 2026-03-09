@@ -1236,23 +1236,34 @@ async def test_autoscroll_and_button_toggle_on_scroll():
 
         for i in range(20):
             panel.add_system_message(f"Message {i}")
-        await pilot.pause()
 
+        # Wait for scroll state to settle after rapid writes;
+        # on Windows CI the scroll position may lag behind content height.
+        for _ in range(10):
+            await pilot.pause()
+            if log.auto_scroll and log.max_scroll_y > 0:
+                break
         assert log.auto_scroll is True
         assert log.max_scroll_y > 0, "Log must be scrollable for this test"
 
         # Scroll up
         log.scroll_to(y=0, animate=False)
-        await pilot.pause()
-        panel._sync_autoscroll()
+        for _ in range(10):
+            await pilot.pause()
+            panel._sync_autoscroll()
+            if not log.auto_scroll:
+                break
 
         assert log.auto_scroll is False, "auto_scroll should be disabled when scrolled up"
         assert not scroll_btn.has_class("hidden"), "Button should be visible when scrolled up"
 
         # Scroll back to bottom
         log.scroll_end(animate=False)
-        await pilot.pause()
-        panel._sync_autoscroll()
+        for _ in range(10):
+            await pilot.pause()
+            panel._sync_autoscroll()
+            if log.auto_scroll:
+                break
 
         assert log.auto_scroll is True, "auto_scroll should be re-enabled at bottom"
         assert scroll_btn.has_class("hidden"), "Button should be hidden at bottom"
@@ -1289,8 +1300,11 @@ async def test_autoscroll_reset_on_submission():
 
         # Scroll up to disable auto_scroll
         log.scroll_to(y=0, animate=False)
-        await pilot.pause()
-        panel._sync_autoscroll()
+        for _ in range(10):
+            await pilot.pause()
+            panel._sync_autoscroll()
+            if not log.auto_scroll:
+                break
         assert log.auto_scroll is False
 
         # Type and submit a message
