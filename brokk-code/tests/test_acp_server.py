@@ -617,3 +617,67 @@ async def test_prompt_emits_tokens_but_no_snapshot(tmp_path: Path) -> None:
     # Only one update for the token "abc" - no snapshot blocks
     assert len(updates) == 1
     assert updates[0][1]["text"] == "abc"
+
+
+async def test_prompt_context_command_renders_snapshot_without_job(tmp_path: Path) -> None:
+    updates: list[tuple[str, dict[str, str]]] = []
+    job_submitted = False
+
+    class StubExecutor:
+        async def start(self) -> None:
+            pass
+
+        async def create_session(self, name: str) -> str:
+            return "session-1"
+
+        async def wait_ready(self) -> bool:
+            return True
+
+        async def switch_session(self, sid: str) -> bool:
+            return True
+
+        async def get_context(self) -> dict[str, Any]:
+            return {
+                "fragments": [
+                    {"shortDescription": "file.py", "pinned": True},
+                    {"shortDescription": "other.txt", "readonly": True},
+                ],
+                "usedTokens": 1234,
+                "maxTokens": 200000,
+                "branch": "main",
+                "totalCost": 0.0567,
+            }
+
+        async def submit_job(self, **kwargs: Any) -> str:
+            nonlocal job_submitted
+            job_submitted = True
+            return "job-1"
+
+    async def send_update(session_id: str, update: dict[str, str]) -> None:
+        updates.append((session_id, update))
+
+    def update_agent_message_text(text: str) -> dict[str, str]:
+        return {"sessionUpdate": "agent_message_chunk", "text": text}
+
+    bridge = BrokkAcpBridge(StubExecutor())  # type: ignore[arg-type]
+    await bridge.prompt(
+        prompt="/context",
+        session_id="acp-1",
+        mode="LUTZ",
+        planner_model="gpt-5.2",
+        code_model=None,
+        reasoning_level=None,
+        reasoning_level_code=None,
+        send_update=send_update,
+        update_agent_message_text=update_agent_message_text,
+    )
+
+    assert not job_submitted
+    assert len(updates) == 1
+    text = updates[0][1]["text"]
+    assert "### Context Snapshot" in text
+    assert "**Branch**: `main`" in text
+    assert "1,234 / 200,000" in text
+    assert "$0.0567" in text
+    assert "- file.py (pinned)" in text
+    assert "- other.txt (readonly)" in text

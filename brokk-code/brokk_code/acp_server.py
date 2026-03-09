@@ -743,10 +743,30 @@ class BrokkAcpBridge:
         if command == "/context":
             ctx = await self.executor.get_context()
             fragments = ctx.get("fragments", [])
-            lines = [f"### Current Context ({len(fragments)} fragments)"]
+            used = ctx.get("usedTokens", 0)
+            max_tokens = ctx.get("maxTokens", 0)
+            branch = ctx.get("branch", "unknown")
+            cost = ctx.get("totalCost", 0.0)
+
+            lines = [
+                f"### Context Snapshot",
+                f"- **Branch**: `{branch}`",
+                f"- **Tokens**: {used:,} / {max_tokens:,}",
+                f"- **Session Cost**: ${cost:.4f}",
+                "",
+                f"#### Fragments ({len(fragments)})",
+            ]
             for f in fragments:
-                pinned = " [PINNED]" if f.get("pinned") else ""
-                lines.append(f"- {f.get('shortDescription') or f.get('id')}{pinned}")
+                status = []
+                if f.get("pinned"):
+                    status.append("pinned")
+                if f.get("readonly"):
+                    status.append("readonly")
+                status_str = f" ({', '.join(status)})" if status else ""
+
+                desc = f.get("shortDescription") or f.get("id")
+                lines.append(f"- {desc}{status_str}")
+
             await send_update(session_id, update_agent_message_text("\n".join(lines)))
             return
 
