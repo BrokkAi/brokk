@@ -829,13 +829,12 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
                     // Read the file and determine its package name
                     Optional<SourceContent> content = SourceContent.read(pf);
                     if (content.isPresent()) {
-                        TSTree tree = treeOf(pf);
-                        if (tree != null) {
-                            String pkgName =
-                                    determinePackageName(pf, tree.getRootNode(), tree.getRootNode(), content.get());
-                            if (!pkgName.isEmpty()) {
-                                return pkgName;
-                            }
+                        String pkgName = withTreeOf(
+                                pf,
+                                tree -> determinePackageName(pf, tree.getRootNode(), tree.getRootNode(), content.get()),
+                                "");
+                        if (!pkgName.isEmpty()) {
+                            return pkgName;
                         }
                     }
                 }

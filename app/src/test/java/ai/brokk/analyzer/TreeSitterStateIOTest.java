@@ -872,7 +872,7 @@ public class TreeSitterStateIOTest {
             }
             Captor captor = new Captor();
 
-            analyzer.withTreeOf(
+            analyzer.withTreeOfNullable(
                     file,
                     tree -> {
                         captor.tree = tree;

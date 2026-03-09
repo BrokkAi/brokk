@@ -196,21 +196,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     }
 
     /**
-     * Creates a new DEFINITIONS query instance.
-     * The caller is responsible for closing the returned query.
-     *
-     * @return the definitions query instance
-     * @throws IllegalStateException if the definitions query source is missing
-     */
-    protected TSQuery createQuery() {
-        TSQuery query = createQuery(QueryType.DEFINITIONS);
-        if (query == null) {
-            throw new IllegalStateException("Required DEFINITIONS query source is missing for " + language);
-        }
-        return query;
-    }
-
-    /**
      * Checks if a query source is available for the given type.
      */
     protected boolean hasQuery(QueryType type) {
@@ -508,14 +493,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                                     return readFileBytes(pf, timing);
                                 },
                                 ioExecutor)
-                        .thenApplyAsync(
-                                fileBytes -> {
-                                    // Cache the source content during initial project-wide analysis
-                                    cache.sources()
-                                            .put(pf, SourceContent.of(new String(fileBytes, StandardCharsets.UTF_8)));
-                                    return analyzeFile(pf, fileBytes, timing);
-                                },
-                                parseExecutor)
+                        .thenApplyAsync(fileBytes -> analyzeFile(pf, fileBytes, timing), parseExecutor)
                         .thenAcceptAsync(
                                 analysisResult -> mergeAnalysisResultIntoMaps(
                                         pf,
@@ -970,26 +948,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                     }
                 },
                 defaultValue);
-    }
-
-    /**
-     * Returns a fresh, unclosed {@link TSTree} for the given file.
-     *
-     * <p>Prefer {@link #withTreeOf(ProjectFile, Function, Object)} to ensure the tree is closed
-     * deterministically. Callers of this method are responsible for closing the returned tree.
-     */
-    protected @Nullable TSTree treeOf(ProjectFile file) {
-        return withSource(
-                file,
-                sc -> {
-                    try {
-                        return getTSParser().parseString(null, sc.text());
-                    } catch (Exception e) {
-                        log.debug("Failed to parse tree for {}: {}", file, e.getMessage());
-                        return null;
-                    }
-                },
-                null);
     }
 
     // ---------- IAnalyzer ----------
@@ -2612,31 +2570,31 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             return cached;
         }
 
-        TSTree tree = treeOf(cu.source());
-        if (tree == null) {
-            return List.of();
-        }
+        return withTreeOf(
+                cu.source(),
+                tree -> {
+                    SourceContent sc = SourceContent.read(cu.source()).orElse(null);
+                    if (sc == null) {
+                        return List.of();
+                    }
 
-        SourceContent sc = SourceContent.read(cu.source()).orElse(null);
-        if (sc == null) {
-            return List.of();
-        }
+                    List<Range> ranges = rangesOf(cu);
+                    if (ranges.isEmpty()) {
+                        return List.of();
+                    }
 
-        List<Range> ranges = rangesOf(cu);
-        if (ranges.isEmpty()) {
-            return List.of();
-        }
+                    Range primary = ranges.getFirst();
+                    TSNode node = tree.getRootNode().getDescendantForByteRange(primary.startByte(), primary.endByte());
+                    if (node == null || node.isNull()) {
+                        return List.of();
+                    }
 
-        Range primary = ranges.getFirst();
-        TSNode node = tree.getRootNode().getDescendantForByteRange(primary.startByte(), primary.endByte());
-        if (node == null || node.isNull()) {
-            return List.of();
-        }
-
-        List<String> extracted =
-                extractRawSupertypesForClassLike(cu, node, cu.signature() != null ? cu.signature() : "", sc);
-        cache.rawSupertypes().put(cu, extracted);
-        return extracted;
+                    List<String> extracted = extractRawSupertypesForClassLike(
+                            cu, node, cu.signature() != null ? cu.signature() : "", sc);
+                    cache.rawSupertypes().put(cu, extracted);
+                    return extracted;
+                },
+                List.of());
     }
 
     /**
