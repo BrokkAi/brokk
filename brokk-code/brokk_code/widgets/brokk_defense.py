@@ -318,28 +318,28 @@ class BrokkDefenseScreen(ModalScreen[None]):
             put(x, CITY_ROW, "─", "bright_black")
 
         # Cities (mini Brokk braille helmets, styled after welcome.py icon)
-        _H = "#D04040"  # Brokk red, same as welcome icon
+        _h = "#D04040"  # Brokk red, same as welcome icon
         for i, (alive, cx) in enumerate(zip(state.cities, CITY_X)):
             if alive:
                 # Row -3: horn tips rising outward
-                put(cx - 2, CITY_ROW - 3, "⣷", _H)
-                put(cx + 2, CITY_ROW - 3, "⣾", _H)
+                put(cx - 2, CITY_ROW - 3, "⣷", _h)
+                put(cx + 2, CITY_ROW - 3, "⣾", _h)
                 # Row -2: horns + dome emerging
-                put(cx - 2, CITY_ROW - 2, "⣿", _H)
-                put(cx - 1, CITY_ROW - 2, "⡀", _H)
-                put(cx, CITY_ROW - 2, "⣤", _H)
-                put(cx + 1, CITY_ROW - 2, "⢀", _H)
-                put(cx + 2, CITY_ROW - 2, "⣿", _H)
+                put(cx - 2, CITY_ROW - 2, "⣿", _h)
+                put(cx - 1, CITY_ROW - 2, "⡀", _h)
+                put(cx, CITY_ROW - 2, "⣤", _h)
+                put(cx + 1, CITY_ROW - 2, "⢀", _h)
+                put(cx + 2, CITY_ROW - 2, "⣿", _h)
                 # Row -1: dome widens
-                put(cx - 2, CITY_ROW - 1, "⠘", _H)
-                put(cx - 1, CITY_ROW - 1, "⣿", _H)
-                put(cx, CITY_ROW - 1, "⣿", _H)
-                put(cx + 1, CITY_ROW - 1, "⣿", _H)
-                put(cx + 2, CITY_ROW - 1, "⠃", _H)
+                put(cx - 2, CITY_ROW - 1, "⠘", _h)
+                put(cx - 1, CITY_ROW - 1, "⣿", _h)
+                put(cx, CITY_ROW - 1, "⣿", _h)
+                put(cx + 1, CITY_ROW - 1, "⣿", _h)
+                put(cx + 2, CITY_ROW - 1, "⠃", _h)
                 # Row 0: visor / base
-                put(cx - 1, CITY_ROW, "⠈", _H)
-                put(cx, CITY_ROW, "⠛", _H)
-                put(cx + 1, CITY_ROW, "⠁", _H)
+                put(cx - 1, CITY_ROW, "⠈", _h)
+                put(cx, CITY_ROW, "⠛", _h)
+                put(cx + 1, CITY_ROW, "⠁", _h)
             else:
                 put(cx, CITY_ROW, "☠", "bright_black")
 
