@@ -117,8 +117,6 @@ public final class RepoRouter implements SimpleHttpServer.CheckedHttpHandler {
         var request = RouterUtil.parseJsonOr400(exchange, PrSuggestRequest.class, "/v1/repo/pr/suggest");
         if (request == null) return;
 
-        var githubToken = exchange.getRequestHeaders().getFirst("X-Github-Token");
-
         try {
             var repo = project.getRepo();
             String source = resolveSourceBranch(request.sourceBranch(), repo);
