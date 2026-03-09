@@ -317,9 +317,31 @@ class BrokkDefenseScreen(ModalScreen[None]):
         for x in range(w):
             put(x, CITY_ROW, "─", "bright_black")
 
-        # Cities
+        # Cities (mini Brokk braille helmets, styled after welcome.py icon)
+        _H = "#D04040"  # Brokk red, same as welcome icon
         for i, (alive, cx) in enumerate(zip(state.cities, CITY_X)):
-            put(cx, CITY_ROW, "▲" if alive else "☠", "bright_green" if alive else "bright_black")
+            if alive:
+                # Row -3: horn tips rising outward
+                put(cx - 2, CITY_ROW - 3, "⣷", _H)
+                put(cx + 2, CITY_ROW - 3, "⣾", _H)
+                # Row -2: horns + dome emerging
+                put(cx - 2, CITY_ROW - 2, "⣿", _H)
+                put(cx - 1, CITY_ROW - 2, "⡀", _H)
+                put(cx,     CITY_ROW - 2, "⣤", _H)
+                put(cx + 1, CITY_ROW - 2, "⢀", _H)
+                put(cx + 2, CITY_ROW - 2, "⣿", _H)
+                # Row -1: dome widens
+                put(cx - 2, CITY_ROW - 1, "⠘", _H)
+                put(cx - 1, CITY_ROW - 1, "⣿", _H)
+                put(cx,     CITY_ROW - 1, "⣿", _H)
+                put(cx + 1, CITY_ROW - 1, "⣿", _H)
+                put(cx + 2, CITY_ROW - 1, "⠃", _H)
+                # Row 0: visor / base
+                put(cx - 1, CITY_ROW, "⠈", _H)
+                put(cx,     CITY_ROW, "⠛", _H)
+                put(cx + 1, CITY_ROW, "⠁", _H)
+            else:
+                put(cx, CITY_ROW, "☠", "bright_black")
 
         # Missile bases
         for i, bx in enumerate(BASE_X):
