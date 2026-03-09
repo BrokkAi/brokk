@@ -43,7 +43,7 @@ public final class WorktreeProject extends AbstractProject {
         try {
             try (var stream = Files.list(parentBrokkDir)) {
                 List<Path> cachesToCopy = stream.filter(
-                                p -> p.getFileName().toString().endsWith(".bin.lz4"))
+                                p -> p.getFileName().toString().endsWith(Language.ANALYZER_STATE_SUFFIX))
                         .toList();
 
                 if (cachesToCopy.isEmpty()) {

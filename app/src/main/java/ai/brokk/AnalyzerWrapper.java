@@ -613,7 +613,7 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
         try {
             Path storage = lang.getStoragePath(project);
 
-            // Primary (current) file: .bin.lz4
+            // Primary (current) file
             try {
                 if (Files.deleteIfExists(storage)) {
                     logger.info("Deleted persisted analyzer state: {}", storage);
@@ -631,7 +631,9 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
             }
 
             String name = fileNamePath.toString();
-            String base = name.endsWith(".lz4") ? name.substring(0, name.length() - 4) : name;
+            String base = name.endsWith(Language.ANALYZER_STATE_SUFFIX)
+                    ? name.substring(0, name.length() - Language.ANALYZER_STATE_SUFFIX.length())
+                    : name;
 
             Path parent = storage.getParent();
             if (parent == null) {

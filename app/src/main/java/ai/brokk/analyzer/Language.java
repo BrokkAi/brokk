@@ -14,6 +14,9 @@ import org.jetbrains.annotations.Nullable;
 public interface Language {
     Logger logger = LogManager.getLogger(Language.class);
 
+    /** Standard suffix for persisted analyzer snapshot files. */
+    String ANALYZER_STATE_SUFFIX = ".bin.lz4";
+
     Set<String> getExtensions();
 
     String name(); // Human-friendly
@@ -65,7 +68,7 @@ public interface Language {
         // Use internalName for stable, filesystem-safe names and LZ4 extension for current format.
         return project.getRoot()
                 .resolve(AbstractProject.BROKK_DIR)
-                .resolve(internalName().toLowerCase(Locale.ROOT) + ".bin.lz4");
+                .resolve(internalName().toLowerCase(Locale.ROOT) + ANALYZER_STATE_SUFFIX);
     }
 
     /**
