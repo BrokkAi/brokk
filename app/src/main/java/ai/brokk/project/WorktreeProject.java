@@ -10,6 +10,8 @@ import ai.brokk.mcpclient.McpConfig;
 import ai.brokk.project.MainProject.DataRetentionPolicy;
 import ai.brokk.util.IStringDiskCache;
 import ai.brokk.util.ShellConfig;
+import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Set;
@@ -22,6 +24,47 @@ public final class WorktreeProject extends AbstractProject {
     public WorktreeProject(Path root, MainProject parent) {
         super(root, parent.getMasterRootPathForConfig());
         this.parent = parent;
+        copyAnalyzerCachesFromParent();
+    }
+
+    /**
+     * Copies analyzer cache files (*.bin.lz4) from the parent's .brokk directory to the worktree's
+     * .brokk directory if they don't already exist. This allows the worktree to start with a
+     * warm analyzer state.
+     */
+    private void copyAnalyzerCachesFromParent() {
+        Path parentBrokkDir = parent.getRoot().resolve(BROKK_DIR);
+        if (!Files.exists(parentBrokkDir)) {
+            return;
+        }
+
+        Path worktreeBrokkDir = root.resolve(BROKK_DIR);
+
+        try {
+            try (var stream = Files.list(parentBrokkDir)) {
+                List<Path> cachesToCopy = stream.filter(
+                                p -> p.getFileName().toString().endsWith(".bin.lz4"))
+                        .toList();
+
+                if (cachesToCopy.isEmpty()) {
+                    return;
+                }
+
+                if (!Files.exists(worktreeBrokkDir)) {
+                    Files.createDirectories(worktreeBrokkDir);
+                }
+
+                for (Path cacheFile : cachesToCopy) {
+                    Path target = worktreeBrokkDir.resolve(cacheFile.getFileName());
+                    if (!Files.exists(target)) {
+                        Files.copy(cacheFile, target);
+                        logger.debug("Copied analyzer cache {} from parent to worktree", cacheFile.getFileName());
+                    }
+                }
+            }
+        } catch (IOException e) {
+            logger.warn("Failed to copy analyzer caches from parent project: {}", e.getMessage());
+        }
     }
 
     @Override
