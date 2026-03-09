@@ -17,6 +17,7 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import org.jetbrains.annotations.Nullable;
 
 public final class WorktreeProject extends AbstractProject {
@@ -33,12 +34,12 @@ public final class WorktreeProject extends AbstractProject {
      * already exist. This allows the worktree to start with a warm analyzer state.
      */
     private void copyAnalyzerCachesFromParent() {
-        Set<Language> languages = parent.getAnalyzerLanguages();
-        for (Language lang : languages) {
-            if (lang == Languages.NONE) {
-                continue;
-            }
+        Set<Language> effectiveLanguages = parent.getAnalyzerLanguages().stream()
+                .flatMap(l -> l instanceof Language.MultiLanguage ml ? ml.getLanguages().stream() : Stream.of(l))
+                .filter(l -> l != Languages.NONE)
+                .collect(Collectors.toSet());
 
+        for (Language lang : effectiveLanguages) {
             try {
                 Path source = lang.getStoragePath(parent);
                 Path target = lang.getStoragePath(this);
@@ -52,7 +53,7 @@ public final class WorktreeProject extends AbstractProject {
                     logger.debug(
                             "Copied analyzer cache for {} from {} to {}", lang.name(), source.getFileName(), target);
                 }
-            } catch (IOException e) {
+            } catch (IOException | RuntimeException e) {
                 logger.warn(
                         "Failed to copy analyzer cache for {} from parent project: {}", lang.name(), e.getMessage());
             }
