@@ -11,6 +11,7 @@ from urllib.parse import unquote, urlparse
 from brokk_code import __version__
 from brokk_code.executor import ExecutorError, ExecutorManager
 from brokk_code.settings import Settings
+from brokk_code.token_format import format_token_count
 
 logger = logging.getLogger(__name__)
 
@@ -424,6 +425,31 @@ def _extract_fragment_ids(resp: Any) -> list[str]:
             if frag_id:
                 ids.append(frag_id)
     return list(dict.fromkeys(ids))
+
+
+def format_context_snapshot(context_data: dict[str, Any]) -> str:
+    """Transforms executor context data into a concise Markdown snapshot."""
+    used = context_data.get("usedTokens", 0)
+    max_tokens = context_data.get("maxTokens")
+    fragments = context_data.get("fragments", [])
+
+    token_str = format_token_count(used)
+    if max_tokens:
+        token_str = f"{token_str} / {format_token_count(max_tokens)}"
+
+    lines = [f"### Context Snapshot ({token_str})"]
+
+    if not fragments:
+        lines.append("_No active context fragments._")
+    else:
+        for f in fragments:
+            kind = str(f.get("chipKind", f.get("kind", "OTHER"))).upper()
+            label = f.get("label", f.get("description", "Unnamed Fragment"))
+            size = f.get("size", 0)
+            pinned = " (pinned)" if f.get("pinned") else ""
+            lines.append(f"- **{kind}**: {label} ({format_token_count(size)}){pinned}")
+
+    return "\n".join(lines)
 
 
 def map_executor_event_to_session_update(

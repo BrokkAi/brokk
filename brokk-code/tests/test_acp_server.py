@@ -23,6 +23,7 @@ from brokk_code.acp_server import (
     map_executor_event_to_session_update,
     normalize_mode,
     resolve_model_selection,
+    format_context_snapshot,
 )
 
 
@@ -603,3 +604,25 @@ async def test_prompt_emits_tokens_but_no_snapshot(tmp_path: Path) -> None:
     # Only one update for the token "abc" - no snapshot blocks
     assert len(updates) == 1
     assert updates[0][1]["text"] == "abc"
+
+
+def test_format_context_snapshot_empty() -> None:
+    data = {"usedTokens": 0, "fragments": []}
+    snapshot = format_context_snapshot(data)
+    assert "Context Snapshot (0)" in snapshot
+    assert "No active context fragments" in snapshot
+
+
+def test_format_context_snapshot_with_data() -> None:
+    data = {
+        "usedTokens": 1500,
+        "maxTokens": 100000,
+        "fragments": [
+            {"chipKind": "FILE", "label": "main.py", "size": 500, "pinned": True},
+            {"kind": "HISTORY", "description": "Previous turns", "size": 1000},
+        ],
+    }
+    snapshot = format_context_snapshot(data)
+    assert "Context Snapshot (1.5k / 100k)" in snapshot
+    assert "- **FILE**: main.py (500) (pinned)" in snapshot
+    assert "- **HISTORY**: Previous turns (1k)" in snapshot
