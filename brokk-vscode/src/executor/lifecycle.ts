@@ -144,28 +144,43 @@ export function detectLaunchMode(extensionDir: string): "local" | "jbang" {
 
 /**
  * Check common locations for the jbang binary.
+ * On Windows, prefers .cmd and .exe wrappers to avoid ENOENT when spawning.
  * Returns the full path if found, null otherwise.
  */
 export function resolveJbangBinary(): string | null {
+  const isWindows = process.platform === "win32";
+
   // Check PATH first
   try {
-    const which = process.platform === "win32" ? "where" : "which";
-    const result = execSync(`${which} jbang`, { stdio: "pipe" }).toString().trim();
-    if (result) return result.split("\n")[0];
+    const which = isWindows ? "where" : "which";
+    const output = execSync(`${which} jbang`, { stdio: "pipe" }).toString().trim();
+    if (output) {
+      // Pick the first non-empty line
+      const firstMatch = output.split(/\r?\n/).map(l => l.trim()).find(l => l.length > 0);
+      if (firstMatch) return firstMatch;
+    }
   } catch {
     // not on PATH
   }
 
   // Check default install location
   const home = os.homedir();
-  const candidates = [
-    path.join(home, ".jbang", "bin", "jbang"),
-    // Homebrew on Apple Silicon / Intel
-    "/opt/homebrew/bin/jbang",
-    "/usr/local/bin/jbang",
-  ];
-  if (process.platform === "win32") {
-    candidates.push(path.join(home, ".jbang", "bin", "jbang.cmd"));
+  const candidates: string[] = [];
+
+  if (isWindows) {
+    // On Windows, prefer executable wrappers
+    candidates.push(
+      path.join(home, ".jbang", "bin", "jbang.cmd"),
+      path.join(home, ".jbang", "bin", "jbang.exe"),
+      path.join(home, ".jbang", "bin", "jbang")
+    );
+  } else {
+    candidates.push(
+      path.join(home, ".jbang", "bin", "jbang"),
+      // Homebrew on Apple Silicon / Intel
+      "/opt/homebrew/bin/jbang",
+      "/usr/local/bin/jbang"
+    );
   }
 
   for (const candidate of candidates) {
