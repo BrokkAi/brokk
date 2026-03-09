@@ -52,7 +52,7 @@ def test_model_and_reasoning_constants() -> None:
 
 def test_resolve_model_selection_variant_and_plain() -> None:
     assert resolve_model_selection(DEFAULT_MODEL_SELECTION) == (DEFAULT_MODEL_SELECTION, None)
-    assert resolve_model_selection("gpt-5.2#r=low") == ("gpt-5.2", "low")
+    assert resolve_model_selection("gpt-5.3-codex#r=low") == ("gpt-5.3-codex", "low")
     assert resolve_model_selection("gemini-3-flash-preview") == ("gemini-3-flash-preview", None)
 
 
@@ -61,8 +61,8 @@ def test_normalize_model_catalog_and_reasoning_options() -> None:
         {
             "models": [
                 {
-                    "name": "gpt-5.2",
-                    "location": "openai/gpt-5.2",
+                    "name": "gpt-5.3-codex",
+                    "location": "openai/gpt-5.3-codex",
                     "supportsReasoningEffort": True,
                     "supportsReasoningDisable": True,
                 },
@@ -75,8 +75,8 @@ def test_normalize_model_catalog_and_reasoning_options() -> None:
             ]
         }
     )
-    assert [m["name"] for m in catalog] == ["gpt-5.2", "gemini-3-flash-preview"]
-    assert _reasoning_options_for_model("gpt-5.2", catalog) == [
+    assert [m["name"] for m in catalog] == ["gpt-5.3-codex", "gemini-3-flash-preview"]
+    assert _reasoning_options_for_model("gpt-5.3-codex", catalog) == [
         "default",
         "low",
         "medium",
@@ -100,7 +100,7 @@ def test_build_available_models_includes_model_variants_with_conditional_disable
         {
             "models": [
                 {
-                    "name": "gpt-5.2",
+                    "name": "gpt-5.3-codex",
                     "supportsReasoningEffort": True,
                     "supportsReasoningDisable": True,
                 },
@@ -112,23 +112,28 @@ def test_build_available_models_includes_model_variants_with_conditional_disable
             ]
         }
     )
-    assert _model_variants_for_model("gpt-5.2", catalog) == ["low", "medium", "high", "disable"]
+    assert _model_variants_for_model("gpt-5.3-codex", catalog) == [
+        "low",
+        "medium",
+        "high",
+        "disable",
+    ]
     assert _model_variants_for_model("gemini-3-flash-preview", catalog) == []
     options = _build_available_models(catalog)
     assert [value for value, _ in options] == [
-        "gpt-5.2",
-        "gpt-5.2/low",
-        "gpt-5.2/medium",
-        "gpt-5.2/high",
-        "gpt-5.2/disable",
+        "gpt-5.3-codex",
+        "gpt-5.3-codex/low",
+        "gpt-5.3-codex/medium",
+        "gpt-5.3-codex/high",
+        "gpt-5.3-codex/disable",
         "gemini-3-flash-preview",
     ]
     assert [name for _, name in options] == [
-        "gpt-5.2",
-        "gpt-5.2 (low)",
-        "gpt-5.2 (medium)",
-        "gpt-5.2 (high)",
-        "gpt-5.2 (disable)",
+        "gpt-5.3-codex",
+        "gpt-5.3-codex (low)",
+        "gpt-5.3-codex (medium)",
+        "gpt-5.3-codex (high)",
+        "gpt-5.3-codex (disable)",
         "gemini-3-flash-preview",
     ]
     assert all("#r=" not in value for value, _ in options)
@@ -139,17 +144,20 @@ def test_parse_model_selection_routes_model_and_variant() -> None:
         {
             "models": [
                 {
-                    "name": "gpt-5.2",
+                    "name": "gpt-5.3-codex",
                     "supportsReasoningEffort": True,
                     "supportsReasoningDisable": True,
                 },
             ]
         }
     )
-    assert _parse_model_selection("gpt-5.2", catalog) == ("gpt-5.2", None)
-    assert _parse_model_selection("gpt-5.2/high", catalog) == ("gpt-5.2", "high")
-    assert _parse_model_selection("gpt-5.2/default", catalog) == ("gpt-5.2/default", None)
-    assert _parse_model_selection("model/gpt-5.2", catalog) == ("gpt-5.2", None)
+    assert _parse_model_selection("gpt-5.3-codex", catalog) == ("gpt-5.3-codex", None)
+    assert _parse_model_selection("gpt-5.3-codex/high", catalog) == ("gpt-5.3-codex", "high")
+    assert _parse_model_selection("gpt-5.3-codex/default", catalog) == (
+        "gpt-5.3-codex/default",
+        None,
+    )
+    assert _parse_model_selection("model/gpt-5.3-codex", catalog) == ("gpt-5.3-codex", None)
 
 
 def test_available_model_names_filters_invalid_entries_and_preserves_order() -> None:
@@ -166,10 +174,10 @@ def test_available_model_names_filters_invalid_entries_and_preserves_order() -> 
 
 
 def test_parse_model_selection_ignores_none_model_name() -> None:
-    catalog = [{"name": None}, {"name": "gpt-5.2"}]
+    catalog = [{"name": None}, {"name": "gpt-5.3-codex"}]
 
     assert _parse_model_selection("None", catalog) == ("None", None)
-    assert _parse_model_selection("gpt-5.2", catalog) == ("gpt-5.2", None)
+    assert _parse_model_selection("gpt-5.3-codex", catalog) == ("gpt-5.3-codex", None)
 
 
 async def test_fetch_normalized_catalog_with_retries_recovers_after_transient_failures() -> None:
@@ -179,7 +187,7 @@ async def test_fetch_normalized_catalog_with_retries_recovers_after_transient_fa
         calls["count"] += 1
         if calls["count"] < 3:
             raise RuntimeError("executor not ready")
-        return {"models": [{"name": "gpt-5.2"}]}
+        return {"models": [{"name": "gpt-5.3-codex"}]}
 
     catalog = await _fetch_normalized_catalog_with_retries(
         fetch_payload,
@@ -189,8 +197,8 @@ async def test_fetch_normalized_catalog_with_retries_recovers_after_transient_fa
 
     assert catalog == [
         {
-            "name": "gpt-5.2",
-            "location": "gpt-5.2",
+            "name": "gpt-5.3-codex",
+            "location": "gpt-5.3-codex",
             "supportsReasoningEffort": False,
             "supportsReasoningDisable": False,
         }
@@ -502,7 +510,7 @@ async def test_prompt_standard_flow_calls_submit_job_and_streams_tokens(tmp_path
         prompt=[{"type": "text", "text": "hello"}],
         session_id="acp-session-1",
         mode="LUTZ",
-        planner_model="gpt-5.2",
+        planner_model="gpt-5.3-codex",
         code_model="gemini-3-flash-preview",
         reasoning_level="low",
         reasoning_level_code="disable",
@@ -567,7 +575,7 @@ async def test_prompt_context_command_renders_snapshot_without_job(tmp_path: Pat
         prompt="/context",
         session_id="acp-1",
         mode="LUTZ",
-        planner_model="gpt-5.2",
+        planner_model="gpt-5.3-codex",
         code_model=None,
         reasoning_level=None,
         reasoning_level_code=None,

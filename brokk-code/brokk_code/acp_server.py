@@ -17,9 +17,9 @@ logger = logging.getLogger(__name__)
 
 VALID_MODES = {"LUTZ", "ASK", "CODE", "PLAN"}
 MODE_OPTIONS = ("LUTZ", "CODE", "ASK", "PLAN")
-BASE_MODEL_IDS = ("gpt-5.2", "gemini-3-flash-preview")
+BASE_MODEL_IDS = ("gpt-5.3-codex", "gemini-3-flash-preview")
 REASONING_LEVEL_IDS = ("low", "medium", "high", "disable", "default")
-DEFAULT_MODEL_SELECTION = "gpt-5.2"
+DEFAULT_MODEL_SELECTION = "gpt-5.3-codex"
 DEFAULT_REASONING_LEVEL = "medium"
 THOUGHT_LEVEL_CONFIG_ID = "thought_level"
 DEFAULT_VARIANT_VALUE = "default"
@@ -143,14 +143,14 @@ def normalize_mode(mode: Optional[str]) -> str:
 def resolve_model_selection(model_selection: Optional[str]) -> tuple[str, Optional[str]]:
     raw = (model_selection or "").strip()
     if not raw:
-        return "gpt-5.2", None
+        return DEFAULT_MODEL_SELECTION, None
     if "#r=" not in raw:
         return raw, None
     model_id, reasoning = raw.split("#r=", 1)
     normalized_reasoning = reasoning.strip().lower()
     if normalized_reasoning not in REASONING_LEVEL_IDS:
-        return model_id.strip() or "gpt-5.2", None
-    return model_id.strip() or "gpt-5.2", normalized_reasoning
+        return model_id.strip() or DEFAULT_MODEL_SELECTION, None
+    return model_id.strip() or DEFAULT_MODEL_SELECTION, normalized_reasoning
 
 
 def _fallback_model_catalog() -> list[dict[str, Any]]:
