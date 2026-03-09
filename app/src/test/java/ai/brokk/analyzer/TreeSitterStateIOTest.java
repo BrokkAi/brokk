@@ -114,8 +114,10 @@ public class TreeSitterStateIOTest {
 
             ProjectFile cppFile = new ProjectFile(project.getRoot(), Path.of("main.cpp"));
             assertFalse(analyzer.getSkeletons(cppFile).isEmpty(), "Expected C++ skeletons before save");
-            assertEquals("Present", analyzer.withTreeOf(cppFile, tsTree -> "Present", "Not present"), "Expected parse tree before save");
-
+            assertEquals(
+                    "Present",
+                    analyzer.withTreeOf(cppFile, tsTree -> "Present", "Not present"),
+                    "Expected parse tree before save");
 
             // Save analyzer state
             Path storage = Languages.C_CPP.getStoragePath(project);
@@ -147,7 +149,10 @@ public class TreeSitterStateIOTest {
             CppAnalyzer updatedCpp = (CppAnalyzer) updated;
 
             // Verify treeOf(...) now returns a non-null parse tree
-            assertEquals("Present", updatedCpp.withTreeOf(cppFile, tsTree -> "Present", "Not present"), "treeOf should return a non-null TSTree after update");
+            assertEquals(
+                    "Present",
+                    updatedCpp.withTreeOf(cppFile, tsTree -> "Present", "Not present"),
+                    "treeOf should return a non-null TSTree after update");
 
             // Also validate we can still get skeletons for the modified file
             assertFalse(updatedCpp.getSkeletons(cppFile).isEmpty(), "Expected C++ skeletons after update");
@@ -407,7 +412,10 @@ public class TreeSitterStateIOTest {
             ProjectFile file = new ProjectFile(project.getRoot(), Path.of("src/main/java/com/example/Lazy.java"));
 
             // Verify the original analyzer has the tree parsed
-            assertEquals("Present", analyzer.withTreeOf(file, tsTree -> "Present", "Not present"), "Original analyzer should have parsed tree");
+            assertEquals(
+                    "Present",
+                    analyzer.withTreeOf(file, tsTree -> "Present", "Not present"),
+                    "Original analyzer should have parsed tree");
 
             // 3. Save state to temp file
             Path stateFile = tempDir.resolve("java.bin.lz4");
@@ -427,8 +435,12 @@ public class TreeSitterStateIOTest {
             var initialFileProps = initialSnapshot.fileState().get(file);
             assertNotNull(initialFileProps, "File properties should exist in loaded state");
 
-            // 7. Call treeOf to trigger lazy parsing and assert the returned tree is not null by checking if default value is triggered
-            assertEquals("Present", analyzer.withTreeOf(file, tsTree -> "Present", "Not present"), "treeOf should return non-null tree after lazy parsing");
+            // 7. Call treeOf to trigger lazy parsing and assert the returned tree is not null by checking if default
+            // value is triggered
+            assertEquals(
+                    "Present",
+                    analyzer.withTreeOf(file, tsTree -> "Present", "Not present"),
+                    "treeOf should return non-null tree after lazy parsing");
         }
     }
 
@@ -869,14 +881,16 @@ public class TreeSitterStateIOTest {
             }
             Captor captor = new Captor();
 
-
-            assertEquals("Present", analyzer.withTreeOf(
-                    file,
-                    tree -> {
-                        captor.tree = tree;
-                        return "Present";
-                    },
-                    "Not present"), "Tree was null");
+            assertEquals(
+                    "Present",
+                    analyzer.withTreeOf(
+                            file,
+                            tree -> {
+                                captor.tree = tree;
+                                return "Present";
+                            },
+                            "Not present"),
+                    "Tree was null");
 
             assertNotNull(captor.tree);
             assertThrows(IllegalStateException.class, () -> captor.tree.getRootNode(), "Tree should be closed");
