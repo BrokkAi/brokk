@@ -1086,9 +1086,6 @@ public class Llm {
                 boolean isLength = originalResponse.finishReason() == FinishReason.LENGTH;
                 if (isLength && nsr.isEmpty()) {
                     error = new OverthinkingException("Model reached max output tokens before generating text");
-                    // If we set error, we must ensure NullSafeResponse doesn't have the originalResponse
-                    // to satisfy the constructor assertion.
-                    nsr = new NullSafeResponse(nsr.text(), nsr.reasoningContent(), nsr.toolRequests(), null);
                 }
             }
             return new StreamingResult(nsr, error, 0, elapsedMs);
@@ -1100,9 +1097,11 @@ public class Llm {
                 assert chatResponse != null;
             } else {
                 // If there is an error, chatResponse may or may not be present.
-                // If chatResponse IS present, its originalResponse MUST be null,
-                // indicating it's a partial/synthetic response accompanying an error.
-                assert chatResponse == null || chatResponse.originalResponse == null;
+                // If chatResponse IS present and originalResponse is NOT null, it MUST be an OverthinkingException.
+                // Other errors (like HTTP hang-ups) use synthetic partial responses with null originalResponse.
+                assert chatResponse == null
+                        || chatResponse.originalResponse == null
+                        || error instanceof OverthinkingException;
             }
         }
 
@@ -1192,6 +1191,9 @@ public class Llm {
         }
 
         public boolean isPartial() {
+            if (error instanceof OverthinkingException) {
+                return true;
+            }
             if (error == null) {
                 return castNonNull(originalResponse()).finishReason() == FinishReason.LENGTH;
             }
