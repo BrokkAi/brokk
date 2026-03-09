@@ -3255,7 +3255,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
         TSNode nameNode = decl.getChildByFieldName(identifierFieldName);
         if (nameNode != null && !nameNode.isNull()) {
-            nameOpt = Optional.of(sourceContent.substringFromBytes(nameNode.getStartByte(), nameNode.getEndByte()));
+            nameOpt = Optional.of(sourceContent.substringFrom(nameNode));
         } else if (!isNullNameExpectedForExtraction(decl.getType())) {
             log.debug(
                     "getChildByFieldName('{}') returned null or isNull for node type {} at line {}",
