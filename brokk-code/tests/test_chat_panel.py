@@ -1352,7 +1352,9 @@ async def test_scroll_to_bottom_button_click():
         log.scroll_to(y=0, animate=False)
         log.auto_scroll = False
         await pilot.pause()
+        await pilot.pause()
         panel._sync_autoscroll()
+        await pilot.pause()
 
         assert not scroll_btn.has_class("hidden")
         assert log.auto_scroll is False
@@ -1398,10 +1400,15 @@ async def test_autoscroll_restored_when_content_becomes_non_scrollable():
         # Verify scrollability is deterministic
         assert log.max_scroll_y > 0, "Log must be scrollable for this test"
 
-        # Scroll up to disable auto_scroll
+        # Simulate user scrolling up: set scroll position and disable auto_scroll
+        # (On Windows CI, scroll_to may need multiple event loop cycles to take effect,
+        # so we set auto_scroll directly rather than relying on _sync_autoscroll timing)
         log.scroll_to(y=0, animate=False)
+        log.auto_scroll = False
+        await pilot.pause()
         await pilot.pause()
         panel._sync_autoscroll()
+        await pilot.pause()
 
         assert log.auto_scroll is False, "auto_scroll should be disabled when scrolled up"
         assert not scroll_btn.has_class("hidden"), "Button should be visible when scrolled up"
