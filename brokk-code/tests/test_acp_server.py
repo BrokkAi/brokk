@@ -613,20 +613,28 @@ async def test_acp_agent_prompt_routes_non_command_to_bridge() -> None:
         def __init__(self):
             self.submit_calls = []
 
-        async def start(self): pass
-        async def create_session(self, name=""): return "acp-sess-1"
-        async def wait_ready(self): return True
-        async def _switch_executor_session(self, sid): return True
-        
+        async def start(self):
+            pass
+
+        async def create_session(self, name=""):
+            return "acp-sess-1"
+
+        async def wait_ready(self):
+            return True
+
+        async def _switch_executor_session(self, sid):
+            return True
+
         async def submit_job(self, **kwargs):
             self.submit_calls.append(kwargs)
             return "job-1"
 
         async def stream_events(self, job_id: str):
-            if False: yield {}
+            if False:
+                yield {}
 
     executor = StubExecutor()
-    bridge = BrokkAcpBridge(executor) # type: ignore
+    bridge = BrokkAcpBridge(executor)  # type: ignore
     bridge._started = True
 
     await bridge.prompt(
@@ -638,7 +646,7 @@ async def test_acp_agent_prompt_routes_non_command_to_bridge() -> None:
         reasoning_level=None,
         reasoning_level_code=None,
         send_update=AsyncMock(),
-        update_agent_message_text=lambda x: {"text": x}
+        update_agent_message_text=lambda x: {"text": x},
     )
 
     assert len(executor.submit_calls) == 1
@@ -653,24 +661,34 @@ async def test_acp_bridge_context_command_success() -> None:
     from unittest.mock import AsyncMock
 
     class StubExecutor:
-        async def start(self): pass
-        async def create_session(self, name=""): return "sess-1"
-        async def wait_ready(self): return True
-        async def _switch_executor_session(self, sid): return True
+        async def start(self):
+            pass
+
+        async def create_session(self, name=""):
+            return "sess-1"
+
+        async def wait_ready(self):
+            return True
+
+        async def _switch_executor_session(self, sid):
+            return True
+
         async def get_context(self):
             return {
                 "usedTokens": 100,
                 "maxTokens": 1000,
                 "fragments": [{"chipKind": "FILE", "label": "test.py", "size": 50}],
             }
+
         async def submit_job(self, **kwargs):
             raise RuntimeError("Should not be called for /context")
 
     executor = StubExecutor()
-    bridge = BrokkAcpBridge(executor) # type: ignore
+    bridge = BrokkAcpBridge(executor)  # type: ignore
     bridge._started = True
 
     updates = []
+
     async def send_update(session_id, update):
         updates.append((session_id, update))
 
@@ -679,7 +697,7 @@ async def test_acp_bridge_context_command_success() -> None:
     # format_context_snapshot and the bridge.
     context_data = await executor.get_context()
     snapshot_md = format_context_snapshot(context_data)
-    
+
     assert "Context Snapshot" in snapshot_md
     assert "test.py" in snapshot_md
     assert "100" in snapshot_md
@@ -690,17 +708,26 @@ async def test_acp_bridge_context_command_failure() -> None:
     from unittest.mock import AsyncMock
 
     class StubExecutor:
-        async def start(self): pass
-        async def create_session(self, name=""): return "sess-1"
-        async def wait_ready(self): return True
-        async def _switch_executor_session(self, sid): return True
+        async def start(self):
+            pass
+
+        async def create_session(self, name=""):
+            return "sess-1"
+
+        async def wait_ready(self):
+            return True
+
+        async def _switch_executor_session(self, sid):
+            return True
+
         async def get_context(self):
             raise RuntimeError("Executor busy")
+
         async def submit_job(self, **kwargs):
             pass
 
     executor = StubExecutor()
-    bridge = BrokkAcpBridge(executor) # type: ignore
+    bridge = BrokkAcpBridge(executor)  # type: ignore
     bridge._started = True
 
     try:
@@ -730,5 +757,3 @@ def test_format_context_snapshot_with_data() -> None:
     assert "Context Snapshot (1.5k / 100k)" in snapshot
     assert "- **FILE**: main.py (500) (pinned)" in snapshot
     assert "- **HISTORY**: Previous turns (1k)" in snapshot
-
-

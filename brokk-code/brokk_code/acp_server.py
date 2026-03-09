@@ -1471,6 +1471,8 @@ async def run_acp_server(
                         raise ExecutorError("ACP client connection not established.")
                     try:
                         await bridge.ensure_ready()
+                        # Ensure the executor is switched to the session mapped to this ACP session
+                        await bridge._ensure_session(session_id)
                         context_data = await bridge.executor.get_context()
                         snapshot_md = format_context_snapshot(context_data)
                         await self.client.session_update(
