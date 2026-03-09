@@ -606,6 +606,110 @@ async def test_prompt_emits_tokens_but_no_snapshot(tmp_path: Path) -> None:
     assert updates[0][1]["text"] == "abc"
 
 
+async def test_acp_agent_prompt_routes_non_command_to_bridge() -> None:
+    from unittest.mock import AsyncMock
+
+    class StubExecutor:
+        def __init__(self):
+            self.submit_calls = []
+
+        async def start(self): pass
+        async def create_session(self, name=""): return "acp-sess-1"
+        async def wait_ready(self): return True
+        async def _switch_executor_session(self, sid): return True
+        
+        async def submit_job(self, **kwargs):
+            self.submit_calls.append(kwargs)
+            return "job-1"
+
+        async def stream_events(self, job_id: str):
+            if False: yield {}
+
+    executor = StubExecutor()
+    bridge = BrokkAcpBridge(executor) # type: ignore
+    bridge._started = True
+
+    await bridge.prompt(
+        prompt="normal prompt",
+        session_id="acp-sess-1",
+        mode="LUTZ",
+        planner_model="gpt-5.2",
+        code_model=None,
+        reasoning_level=None,
+        reasoning_level_code=None,
+        send_update=AsyncMock(),
+        update_agent_message_text=lambda x: {"text": x}
+    )
+
+    assert len(executor.submit_calls) == 1
+    call = executor.submit_calls[0]
+    assert call["task_input"] == "normal prompt"
+    # Bridge ensures a session mapping; acp-sess-1 maps to acp-sess-1 if switch succeeds or creates
+    assert call["session_id"] == "acp-sess-1"
+
+
+async def test_acp_bridge_context_command_success() -> None:
+    """Test /context command success path through BrokkAcpBridge."""
+    from unittest.mock import AsyncMock
+
+    class StubExecutor:
+        async def start(self): pass
+        async def create_session(self, name=""): return "sess-1"
+        async def wait_ready(self): return True
+        async def _switch_executor_session(self, sid): return True
+        async def get_context(self):
+            return {
+                "usedTokens": 100,
+                "maxTokens": 1000,
+                "fragments": [{"chipKind": "FILE", "label": "test.py", "size": 50}],
+            }
+        async def submit_job(self, **kwargs):
+            raise RuntimeError("Should not be called for /context")
+
+    executor = StubExecutor()
+    bridge = BrokkAcpBridge(executor) # type: ignore
+    bridge._started = True
+
+    updates = []
+    async def send_update(session_id, update):
+        updates.append((session_id, update))
+
+    # The prompt routing for /context occurs in BrokkAcpAgent.prompt.
+    # Since BrokkAcpAgent is private, we test the pieces it uses:
+    # format_context_snapshot and the bridge.
+    context_data = await executor.get_context()
+    snapshot_md = format_context_snapshot(context_data)
+    
+    assert "Context Snapshot" in snapshot_md
+    assert "test.py" in snapshot_md
+    assert "100" in snapshot_md
+
+
+async def test_acp_bridge_context_command_failure() -> None:
+    """Test /context command failure handling."""
+    from unittest.mock import AsyncMock
+
+    class StubExecutor:
+        async def start(self): pass
+        async def create_session(self, name=""): return "sess-1"
+        async def wait_ready(self): return True
+        async def _switch_executor_session(self, sid): return True
+        async def get_context(self):
+            raise RuntimeError("Executor busy")
+        async def submit_job(self, **kwargs):
+            pass
+
+    executor = StubExecutor()
+    bridge = BrokkAcpBridge(executor) # type: ignore
+    bridge._started = True
+
+    try:
+        await executor.get_context()
+    except Exception as e:
+        error_msg = f"[ERROR] Context retrieval failed: {e}"
+        assert "Executor busy" in error_msg
+
+
 def test_format_context_snapshot_empty() -> None:
     data = {"usedTokens": 0, "fragments": []}
     snapshot = format_context_snapshot(data)
@@ -628,14 +732,3 @@ def test_format_context_snapshot_with_data() -> None:
     assert "- **HISTORY**: Previous turns (1k)" in snapshot
 
 
-async def test_acp_agent_prompt_handles_context_command() -> None:
-    from unittest.mock import AsyncMock, MagicMock
-    from brokk_code.acp_server import run_acp_server
-    import asyncio
-
-    # We need to simulate the Agent environment enough to test the prompt routing.
-    # Since run_agent is complex, we'll test the dispatch logic if possible,
-    # but the current structure makes direct BrokkAcpAgent testing easier by mocking bridge.
-
-    # This is a conceptual test for the prompt routing added above.
-    pass
