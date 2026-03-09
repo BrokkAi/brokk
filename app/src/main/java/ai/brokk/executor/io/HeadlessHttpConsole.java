@@ -97,16 +97,20 @@ public class HeadlessHttpConsole extends MemoryConsole {
     }
 
     @Override
-    public void showNotification(NotificationRole role, String message, @Nullable Double cost) {
-        if (role == NotificationRole.COST && cost != null && costListener != null) {
+    public void recordCost(double delta) {
+        if (costListener != null) {
             try {
-                costListener.accept(cost);
+                costListener.accept(delta);
             } catch (Exception e) {
                 logger.warn("Cost listener threw exception", e);
             }
         }
+    }
 
+    @Override
+    public void showNotification(NotificationRole role, String message, @Nullable Double cost) {
         if (role == NotificationRole.COST && cost != null) {
+            recordCost(cost);
             // Enriched payload for cost notifications: include structured numeric cost.
             var data = Map.of(
                     "level", role.name(),

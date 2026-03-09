@@ -100,6 +100,17 @@ public interface IConsoleIO {
         showNotification(role, message);
     }
 
+    /**
+     * Records a numeric cost delta for the current session.
+     * This is used for accounting (e.g. updating total session cost) independently of
+     * whether a notification is displayed to the user.
+     *
+     * @param delta The cost to add.
+     */
+    default void recordCost(double delta) {
+        // no-op by default
+    }
+
     default void showOutputSpinner(String message) {}
 
     default void hideOutputSpinner() {}

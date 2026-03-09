@@ -855,6 +855,36 @@ class HeadlessHttpConsoleTest {
     }
 
     @Test
+    void testRecordCost_InvokesListenerWithoutEmittingEvent() throws Exception {
+        java.util.concurrent.atomic.AtomicReference<Double> capturedCost =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        console = new HeadlessHttpConsole(jobStore, jobId, capturedCost::set);
+
+        console.recordCost(0.50);
+
+        assertEquals(0.50, capturedCost.get());
+
+        // recordCost should not emit a JobEvent
+        var events = jobStore.readEvents(jobId, -1, 10);
+        assertTrue(events.isEmpty(), "recordCost should not emit JobEvents");
+    }
+
+    @Test
+    void testShowNotificationWithCost_StillInvokesListenerAndEmitsEvent() throws Exception {
+        java.util.concurrent.atomic.AtomicReference<Double> capturedCost =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        console = new HeadlessHttpConsole(jobStore, jobId, capturedCost::set);
+
+        console.showNotification(IConsoleIO.NotificationRole.COST, "Costing money", 0.75);
+
+        assertEquals(0.75, capturedCost.get());
+
+        var events = awaitEvents(1, 1_000);
+        assertEquals(1, events.size());
+        assertEquals("NOTIFICATION", events.getFirst().type());
+    }
+
+    @Test
     void testGetBlitzForgeListener_ReturnsNoopAndUsesConsole() {
         var cancelRequested = new AtomicBoolean(false);
         Runnable cancelCallback = () -> cancelRequested.set(true);
