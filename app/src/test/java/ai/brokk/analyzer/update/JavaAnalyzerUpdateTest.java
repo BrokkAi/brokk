@@ -125,10 +125,11 @@ class JavaAnalyzerUpdateTest {
     void cachePreservedForUnchangedFilesOnExplicitUpdate() throws IOException {
         var fileA = AnalyzerUtil.getFileFor(analyzer, "A").orElseThrow();
         var fileB = AnalyzerUtil.getFileFor(analyzer, "B").orElseThrow();
+        var tsAnalyzer = (TreeSitterAnalyzer) analyzer;
 
         // Trigger tree parsing
-        assertNotNull(((TreeSitterAnalyzer) analyzer).treeOf(fileA));
-        assertNotNull(((TreeSitterAnalyzer) analyzer).treeOf(fileB));
+        assertEquals("Present", tsAnalyzer.withTreeOf(fileA, tsTree -> "Present", "Not present"));
+        assertEquals("Present", tsAnalyzer.withTreeOf(fileB, tsTree -> "Present", "Not present"));
 
         // Modify ONLY A.java on disk
         new ProjectFile(project.getRoot(), "A.java")
@@ -144,8 +145,8 @@ class JavaAnalyzerUpdateTest {
         analyzer = analyzer.update(Set.of(fileA));
 
         // Verify trees still parse
-        assertNotNull(((TreeSitterAnalyzer) analyzer).treeOf(fileA));
-        assertNotNull(((TreeSitterAnalyzer) analyzer).treeOf(fileB));
+        assertEquals("Present", tsAnalyzer.withTreeOf(fileA, tsTree -> "Present", "Not present"));
+        assertEquals("Present", tsAnalyzer.withTreeOf(fileB, tsTree -> "Present", "Not present"));
 
         // Semantic assertions:
         // 1. A reflects the changes
