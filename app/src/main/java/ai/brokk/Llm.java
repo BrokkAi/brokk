@@ -333,6 +333,7 @@ public class Llm {
         // latch for awaiting any response from llm
         var tick = new Semaphore(0);
         var firstToken = new AtomicBoolean(true);
+        var hasEmittedStreamStart = new AtomicBoolean(false);
         var completed = new AtomicBoolean(false);
         var cancelled = new AtomicBoolean(false);
         var lock = new ReentrantLock(); // Used by ifNotCancelled
@@ -380,8 +381,13 @@ public class Llm {
                     }
                     accumulatedTextBuilder.append(token);
                     if (echo) {
+                        boolean isNewMessage = hasEmittedStreamStart.compareAndSet(false, true);
                         io.llmOutput(
-                                token, ChatMessageType.AI, LlmOutputMeta.DEFAULT.withReasoning(forceReasoningEcho));
+                                token,
+                                ChatMessageType.AI,
+                                LlmOutputMeta.DEFAULT
+                                        .withNewMessage(isNewMessage)
+                                        .withReasoning(forceReasoningEcho));
                     }
                 });
             }
@@ -407,7 +413,11 @@ public class Llm {
 
                     accumulatedReasoningBuilder.append(out);
                     if (echo) {
-                        io.llmOutput(out, ChatMessageType.AI, LlmOutputMeta.reasoning());
+                        boolean isNewMessage = hasEmittedStreamStart.compareAndSet(false, true);
+                        io.llmOutput(
+                                out,
+                                ChatMessageType.AI,
+                                LlmOutputMeta.reasoning().withNewMessage(isNewMessage));
                     }
                 });
             }
