@@ -17,11 +17,12 @@ from brokk_code.acp_server import (
     _parse_model_selection,
     _reasoning_options_for_model,
     _sanitize_reasoning_level_for_model,
+    acp_slash_commands,
     conversation_payload_to_session_updates,
     extract_prompt_text,
     extract_resource_file_paths,
-    map_executor_event_to_session_update,
     get_slash_command,
+    map_executor_event_to_session_update,
     normalize_mode,
     resolve_model_selection,
 )
@@ -256,6 +257,14 @@ def test_get_slash_command_logic() -> None:
     assert get_slash_command("/unknown") is None
     assert get_slash_command("Please /context") is None
     assert get_slash_command("") is None
+
+
+def test_acp_slash_commands_catalog_is_protocol_compatible() -> None:
+    commands = acp_slash_commands()
+    assert {"name": "context", "description": "Show current context snapshot"} in commands
+    assert all(not cmd["name"].startswith("/") for cmd in commands)
+    for cmd in commands:
+        assert get_slash_command(f"/{cmd['name']}") == f"/{cmd['name']}"
 
 
 def test_extract_resource_file_paths_supports_zed_resource_shape_and_relative_links() -> None:

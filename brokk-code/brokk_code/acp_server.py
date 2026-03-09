@@ -359,6 +359,20 @@ def get_slash_command(text: str) -> Optional[str]:
     return None
 
 
+def acp_slash_commands() -> list[dict[str, str]]:
+    """ACP slash command descriptors advertised to clients.
+
+    ACP command names are advertised without the leading slash; clients render
+    and invoke them as `/name` in prompt text.
+    """
+    return [
+        {
+            "name": "context",
+            "description": "Show current context snapshot",
+        }
+    ]
+
+
 def extract_resource_file_paths(prompt: Any, cwd: str) -> list[str]:
     """Extract workspace-relative file paths from EmbeddedResource and ResourceLink blocks."""
     if not prompt or isinstance(prompt, str):
@@ -906,9 +920,11 @@ async def run_acp_server(
         )
         from acp.agent import connection as acp_agent_connection
         from acp.agent import router as acp_agent_router
+        from acp.helpers import update_available_commands
         from acp.meta import AGENT_METHODS
         from acp.schema import (
             AgentCapabilities,
+            AvailableCommand,
             Implementation,
             ListSessionsResponse,
             ModelInfo,
@@ -989,6 +1005,7 @@ async def run_acp_server(
             self._catalog_is_fallback_by_session: dict[str, bool] = {}
             self._profile = resolve_client_profile(None, None)
             self._replay_tasks: set[asyncio.Task[Any]] = set()
+            self._commands_tasks: set[asyncio.Task[Any]] = set()
 
             # Load ACP defaults once on agent init
             acp_defaults = load_acp_defaults()
@@ -1211,6 +1228,34 @@ async def run_acp_server(
 
             task.add_done_callback(_done_callback)
 
+        def _schedule_available_commands_update(self, session_id: str) -> None:
+            async def _run() -> None:
+                # Yield so the session response can be delivered first.
+                await asyncio.sleep(0)
+                if not self.client:
+                    return
+                commands = [
+                    AvailableCommand(name=cmd["name"], description=cmd["description"])
+                    for cmd in acp_slash_commands()
+                ]
+                await self.client.session_update(session_id, update_available_commands(commands))
+
+            task = asyncio.create_task(_run())
+            self._commands_tasks.add(task)
+
+            def _done_callback(done: asyncio.Task[Any]) -> None:
+                self._commands_tasks.discard(done)
+                try:
+                    done.result()
+                except Exception:
+                    logger.warning(
+                        "Command advertisement task failed for session %s",
+                        session_id,
+                        exc_info=True,
+                    )
+
+            task.add_done_callback(_done_callback)
+
         def _ensure_session_defaults(self, session_id: str, cwd: Optional[str] = None) -> None:
             if session_id not in self._mode_by_session:
                 self._mode_by_session[session_id] = "LUTZ"
@@ -1311,6 +1356,7 @@ async def run_acp_server(
                 )
 
             model_state = self._model_state_for_session(session_id)
+            self._schedule_available_commands_update(session_id)
             return NewSessionResponse(
                 session_id=session_id,
                 modes=SessionModeState(
@@ -1345,6 +1391,7 @@ async def run_acp_server(
             self._ensure_session_defaults(requested_session_id, cwd)
             await self._refresh_model_catalog(requested_session_id)
             self._schedule_replay_loaded_session(requested_session_id)
+            self._schedule_available_commands_update(requested_session_id)
             model_state = self._model_state_for_session(requested_session_id)
             return LoadSessionResponse(
                 modes=SessionModeState(
