@@ -11,7 +11,6 @@ import java.util.Set;
 import org.jetbrains.annotations.Nullable;
 import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
-import org.treesitter.TSQuery;
 import org.treesitter.TSQueryCapture;
 import org.treesitter.TSQueryCursor;
 import org.treesitter.TSQueryMatch;
@@ -281,42 +280,43 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected boolean containsTestMarkers(TSTree tree, SourceContent sourceContent) {
-        try (TSQuery query = createQuery(QueryType.DEFINITIONS)) {
-            if (query != null) {
-                try (TSQueryCursor cursor = new TSQueryCursor()) {
-                    cursor.exec(query, tree.getRootNode());
+        return withCachedQuery(
+                QueryType.DEFINITIONS,
+                query -> {
+                    try (TSQueryCursor cursor = new TSQueryCursor()) {
+                        cursor.exec(query, tree.getRootNode());
 
-                    TSQueryMatch match = new TSQueryMatch();
-                    while (cursor.nextMatch(match)) {
-                        for (TSQueryCapture capture : match.getCaptures()) {
-                            TSNode node = capture.getNode();
-                            if (node == null || node.isNull()) continue;
+                        TSQueryMatch match = new TSQueryMatch();
+                        while (cursor.nextMatch(match)) {
+                            for (TSQueryCapture capture : match.getCaptures()) {
+                                TSNode node = capture.getNode();
+                                if (node == null || node.isNull()) continue;
 
-                            String captureName = query.getCaptureNameForId(capture.getIndex());
-                            switch (captureName) {
-                                case "test.import", "test.call" -> {
-                                    return true;
-                                }
-                                case "test.annotation" -> {
-                                    String nodeText =
-                                            sourceContent.substringFromBytes(node.getStartByte(), node.getEndByte());
-                                    if (TEST_ANNOTATIONS.contains(nodeText)) {
+                                String captureName = query.getCaptureNameForId(capture.getIndex());
+                                switch (captureName) {
+                                    case "test.import", "test.call" -> {
                                         return true;
                                     }
-                                }
-                                case "test.infix" -> {
-                                    String nodeText =
-                                            sourceContent.substringFromBytes(node.getStartByte(), node.getEndByte());
-                                    if (TEST_INFIX_KEYWORDS.contains(nodeText)) {
-                                        return true;
+                                    case "test.annotation" -> {
+                                        String nodeText = sourceContent.substringFromBytes(
+                                                node.getStartByte(), node.getEndByte());
+                                        if (TEST_ANNOTATIONS.contains(nodeText)) {
+                                            return true;
+                                        }
+                                    }
+                                    case "test.infix" -> {
+                                        String nodeText = sourceContent.substringFromBytes(
+                                                node.getStartByte(), node.getEndByte());
+                                        if (TEST_INFIX_KEYWORDS.contains(nodeText)) {
+                                            return true;
+                                        }
                                     }
                                 }
                             }
                         }
                     }
-                }
-            }
-        }
-        return false;
+                    return false;
+                },
+                false);
     }
 }
