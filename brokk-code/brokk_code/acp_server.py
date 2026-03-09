@@ -733,6 +733,7 @@ class BrokkAcpBridge:
         code_model: Optional[str],
         reasoning_level: Optional[str],
         reasoning_level_code: Optional[str],
+        full_content: bool,
         send_update: Callable[[str, Any], Awaitable[Any]],
         update_agent_message_text: Callable[[str], Any],
         update_agent_thought_text: Optional[Callable[[str], Any]] = None,
@@ -792,7 +793,7 @@ class BrokkAcpBridge:
                     update_tool_call=update_tool_call,
                     tool_content=tool_content,
                     text_block=text_block,
-                    full_content=kwargs.get("full_content", False),
+                    full_content=full_content,
                 )
                 if update:
                     await send_update(session_id, update)
@@ -914,6 +915,7 @@ async def run_acp_server(
         def __init__(self) -> None:
             self.client: Optional[Any] = None
             self._mode_by_session: dict[str, str] = {}
+            self._visibility_by_session: dict[str, str] = {}
             self._model_by_session: dict[str, str] = {}
             self._reasoning_by_session: dict[str, str] = {}
             self._cwd_by_session: dict[str, str] = {}
@@ -1019,6 +1021,7 @@ async def run_acp_server(
 
         def _config_options_for_session(self, session_id: str) -> list[Any]:
             current_mode = self._mode_by_session.get(session_id, "LUTZ")
+            current_visibility = self._visibility_by_session.get(session_id, "filtered")
             options = [
                 SessionConfigOption.model_validate(
                     {
@@ -1031,6 +1034,20 @@ async def run_acp_server(
                         "options": [
                             SessionConfigSelectOption(value=mode, name=mode)
                             for mode in MODE_OPTIONS
+                        ],
+                    }
+                ),
+                SessionConfigOption.model_validate(
+                    {
+                        "type": "select",
+                        "id": "visibility",
+                        "name": "Event Visibility",
+                        "description": "Control which executor events are shown in chat",
+                        "category": "session",
+                        "currentValue": current_visibility,
+                        "options": [
+                            SessionConfigSelectOption(value="filtered", name="Filtered (Normal)"),
+                            SessionConfigSelectOption(value="all", name="Show All (Debug)"),
                         ],
                     }
                 ),
@@ -1146,6 +1163,8 @@ async def run_acp_server(
         def _ensure_session_defaults(self, session_id: str, cwd: Optional[str] = None) -> None:
             if session_id not in self._mode_by_session:
                 self._mode_by_session[session_id] = "LUTZ"
+            if session_id not in self._visibility_by_session:
+                self._visibility_by_session[session_id] = "filtered"
             if session_id not in self._model_by_session:
                 self._model_by_session[session_id] = (
                     self._default_model_id or DEFAULT_MODEL_SELECTION
@@ -1413,6 +1432,10 @@ async def run_acp_server(
             del kwargs
             if config_id == "mode" and value:
                 self._mode_by_session[session_id] = normalize_mode(value)
+            elif config_id == "visibility" and value:
+                self._visibility_by_session[session_id] = (
+                    "all" if str(value).lower() == "all" else "filtered"
+                )
             elif config_id == "model" and value:
                 await self._refresh_model_catalog_if_fallback(session_id)
                 selected_model, selected_reasoning = resolve_model_selection(value)
@@ -1499,6 +1522,8 @@ async def run_acp_server(
             if not self.client:
                 raise ExecutorError("ACP client connection not established.")
 
+            full_content = self._visibility_by_session.get(session_id) == "all"
+
             await bridge.prompt(
                 prompt=prompt,
                 session_id=session_id,
@@ -1508,6 +1533,7 @@ async def run_acp_server(
                 code_model=code_model,
                 reasoning_level=reasoning_level,
                 reasoning_level_code=reasoning_level_code,
+                full_content=full_content,
                 send_update=self.client.session_update,
                 update_agent_message_text=update_agent_message_text,
                 update_agent_thought_text=update_agent_thought_text,

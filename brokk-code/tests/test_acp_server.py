@@ -692,6 +692,7 @@ async def test_prompt_emits_tokens_but_no_snapshot(tmp_path: Path) -> None:
         code_model="gemini-3-flash-preview",
         reasoning_level="low",
         reasoning_level_code="disable",
+        full_content=False,
         send_update=send_update,
         update_agent_message_text=update_agent_message_text,
     )
@@ -699,3 +700,67 @@ async def test_prompt_emits_tokens_but_no_snapshot(tmp_path: Path) -> None:
     # Only one update for the token "abc" - no snapshot blocks
     assert len(updates) == 1
     assert updates[0][1]["text"] == "abc"
+
+
+async def test_prompt_visibility_policy_honored(tmp_path: Path) -> None:
+    updates: list[dict[str, str]] = []
+
+    class StubExecutor:
+        async def start(self) -> None:
+            pass
+
+        async def create_session(self, name: str = "") -> str:
+            return "s1"
+
+        async def wait_ready(self) -> bool:
+            return True
+
+        async def submit_job(self, **kw) -> str:
+            return "j1"
+
+        async def stream_events(self, job_id: str):
+            # A notification that is normally suppressed (INFO)
+            yield {"type": "NOTIFICATION", "data": {"level": "INFO", "message": "suppress me"}}
+            yield {"type": "LLM_TOKEN", "data": {"token": "visible"}}
+
+    async def send_update(sid: str, update: dict[str, str]) -> None:
+        updates.append(update)
+
+    bridge = BrokkAcpBridge(StubExecutor())  # type: ignore
+
+    # Test filtered (default)
+    await bridge.prompt(
+        prompt="hi",
+        session_id="sid",
+        mode="LUTZ",
+        planner_model="gpt-5.2",
+        code_model=None,
+        reasoning_level=None,
+        reasoning_level_code=None,
+        full_content=False,
+        send_update=send_update,
+        update_agent_message_text=lambda t: {"text": t},
+    )
+    # Should only have the token
+    assert len(updates) == 1
+    assert updates[0]["text"] == "visible"
+
+    updates.clear()
+
+    # Test show all (full_content=True)
+    await bridge.prompt(
+        prompt="hi",
+        session_id="sid",
+        mode="LUTZ",
+        planner_model="gpt-5.2",
+        code_model=None,
+        reasoning_level=None,
+        reasoning_level_code=None,
+        full_content=True,
+        send_update=send_update,
+        update_agent_message_text=lambda t: {"text": t},
+    )
+    # Should have both notification and token
+    assert len(updates) == 2
+    assert "[INFO] suppress me" in updates[0]["text"]
+    assert updates[1]["text"] == "visible"
