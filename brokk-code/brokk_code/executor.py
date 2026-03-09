@@ -1036,6 +1036,88 @@ class ExecutorManager:
             await self._handle_http_error(e, "/v1/repo/commit")
             raise  # Should not be reached
 
+    async def pr_suggest(
+        self,
+        source_branch: Optional[str] = None,
+        target_branch: Optional[str] = None,
+        github_token: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Suggests PR title and description based on branch diff.
+
+        Args:
+            source_branch: Source branch (defaults to current branch on server)
+            target_branch: Target branch (defaults to default branch on server)
+            github_token: Optional GitHub token for authentication
+
+        Returns:
+            Dict with title, description, usedCommitMessages, sourceBranch, targetBranch
+        """
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+
+        payload: Dict[str, Any] = {}
+        if source_branch:
+            payload["sourceBranch"] = source_branch
+        if target_branch:
+            payload["targetBranch"] = target_branch
+
+        headers: Dict[str, str] = {}
+        if github_token:
+            headers["X-Github-Token"] = github_token
+
+        try:
+            resp = await self._http_client.post(
+                "/v1/repo/pr/suggest", json=payload, headers=headers if headers else None
+            )
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            await self._handle_http_error(e, "/v1/repo/pr/suggest")
+            raise  # Should not be reached
+
+    async def pr_create(
+        self,
+        title: str,
+        body: str,
+        source_branch: Optional[str] = None,
+        target_branch: Optional[str] = None,
+        github_token: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Creates a pull request.
+
+        Args:
+            title: PR title (required)
+            body: PR body/description (required)
+            source_branch: Source branch (defaults to current branch on server)
+            target_branch: Target branch (defaults to default branch on server)
+            github_token: Optional GitHub token for authentication
+
+        Returns:
+            Dict with url, sourceBranch, targetBranch
+        """
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+
+        payload: Dict[str, Any] = {"title": title, "body": body}
+        if source_branch:
+            payload["sourceBranch"] = source_branch
+        if target_branch:
+            payload["targetBranch"] = target_branch
+
+        headers: Dict[str, str] = {}
+        if github_token:
+            headers["X-Github-Token"] = github_token
+
+        try:
+            resp = await self._http_client.post(
+                "/v1/repo/pr/create", json=payload, headers=headers if headers else None
+            )
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            await self._handle_http_error(e, "/v1/repo/pr/create")
+            raise  # Should not be reached
+
     async def cancel_job(self, job_id: str):
         """Cancels an active job."""
         if not self._http_client:

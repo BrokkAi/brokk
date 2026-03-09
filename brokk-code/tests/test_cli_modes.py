@@ -1424,6 +1424,267 @@ def test_main_issue_create_invalid_repo_name_exits_nonzero(monkeypatch) -> None:
     assert exc.value.code != 0
 
 
+def test_main_pr_create_routes_correctly(monkeypatch, tmp_path) -> None:
+    captured: dict[str, Any] = {"ran": False}
+
+    async def fake_run_pr_create(**kwargs: Any) -> None:
+        captured["kwargs"] = kwargs
+        captured["ran"] = True
+
+    monkeypatch.setattr(main_module, "run_pr_create", fake_run_pr_create)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "brokk",
+            "pr",
+            "create",
+            "--workspace",
+            str(tmp_path),
+            "--title",
+            "My PR Title",
+            "--body",
+            "PR description here",
+            "--base",
+            "main",
+            "--head",
+            "feature-branch",
+            "--github-token",
+            "ghp_test123",
+        ],
+    )
+
+    main_module.main()
+
+    assert captured["ran"] is True
+    assert captured["kwargs"]["workspace_dir"] == tmp_path.resolve()
+    assert captured["kwargs"]["title"] == "My PR Title"
+    assert captured["kwargs"]["body"] == "PR description here"
+    assert captured["kwargs"]["base_branch"] == "main"
+    assert captured["kwargs"]["head_branch"] == "feature-branch"
+    assert captured["kwargs"]["github_token"] == "ghp_test123"
+
+
+def test_main_pr_create_uses_github_token_env(monkeypatch, tmp_path) -> None:
+    captured: dict[str, Any] = {"ran": False}
+
+    async def fake_run_pr_create(**kwargs: Any) -> None:
+        captured["kwargs"] = kwargs
+        captured["ran"] = True
+
+    monkeypatch.setattr(main_module, "run_pr_create", fake_run_pr_create)
+    monkeypatch.setenv("GITHUB_TOKEN", "env-token-pr")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "brokk",
+            "pr",
+            "create",
+            "--workspace",
+            str(tmp_path),
+            "--title",
+            "Test PR",
+            "--body",
+            "Test body",
+        ],
+    )
+
+    main_module.main()
+
+    assert captured["ran"] is True
+    assert captured["kwargs"]["github_token"] == "env-token-pr"
+
+
+def test_main_pr_create_omitted_title_body_routes_correctly(monkeypatch, tmp_path) -> None:
+    """Verify that omitting title/body still routes to run_pr_create (suggest path)."""
+    captured: dict[str, Any] = {"ran": False}
+
+    async def fake_run_pr_create(**kwargs: Any) -> None:
+        captured["kwargs"] = kwargs
+        captured["ran"] = True
+
+    monkeypatch.setattr(main_module, "run_pr_create", fake_run_pr_create)
+    monkeypatch.setenv("GITHUB_TOKEN", "ghp_test")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "brokk",
+            "pr",
+            "create",
+            "--workspace",
+            str(tmp_path),
+        ],
+    )
+
+    main_module.main()
+
+    assert captured["ran"] is True
+    assert captured["kwargs"]["title"] is None
+    assert captured["kwargs"]["body"] is None
+
+
+def test_main_pr_create_missing_subcommand_exits_nonzero(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["brokk", "pr", "--workspace", str(tmp_path)],
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        main_module.main()
+
+    assert exc.value.code != 0
+
+
+@pytest.mark.asyncio
+@patch("brokk_code.executor.ExecutorManager")
+async def test_run_pr_create_with_explicit_title_body(mock_executor_class, tmp_path) -> None:
+    """Verifies run_pr_create skips suggest when title and body are provided."""
+    from unittest.mock import AsyncMock
+
+    call_order: list[str] = []
+    mock_manager = mock_executor_class.return_value
+
+    async def mock_start():
+        call_order.append("start")
+
+    async def mock_create_session(name: str = ""):
+        call_order.append("create_session")
+        return "session-123"
+
+    async def mock_wait_ready(timeout: float = 30.0):
+        call_order.append("wait_ready")
+        return True
+
+    async def mock_pr_suggest(**kwargs):
+        call_order.append("pr_suggest")
+        return {"title": "Suggested", "description": "Suggested desc"}
+
+    async def mock_pr_create(**kwargs):
+        call_order.append(f"pr_create:title={kwargs.get('title')}")
+        return {"url": "https://github.com/test/repo/pull/42"}
+
+    async def mock_stop():
+        call_order.append("stop")
+
+    mock_manager.start = AsyncMock(side_effect=mock_start)
+    mock_manager.create_session = AsyncMock(side_effect=mock_create_session)
+    mock_manager.wait_ready = AsyncMock(side_effect=mock_wait_ready)
+    mock_manager.pr_suggest = AsyncMock(side_effect=mock_pr_suggest)
+    mock_manager.pr_create = AsyncMock(side_effect=mock_pr_create)
+    mock_manager.stop = AsyncMock(side_effect=mock_stop)
+
+    await main_module.run_pr_create(
+        workspace_dir=tmp_path,
+        title="Explicit Title",
+        body="Explicit Body",
+        github_token="ghp_test",
+    )
+
+    # pr_suggest should NOT be called when title and body are explicit
+    assert "pr_suggest" not in call_order
+    assert "pr_create:title=Explicit Title" in call_order
+    assert "stop" in call_order
+
+
+@pytest.mark.asyncio
+@patch("brokk_code.executor.ExecutorManager")
+async def test_run_pr_create_suggests_when_title_missing(mock_executor_class, tmp_path) -> None:
+    """Verifies run_pr_create calls suggest when title is missing."""
+    from unittest.mock import AsyncMock
+
+    call_order: list[str] = []
+    mock_manager = mock_executor_class.return_value
+
+    mock_manager.start = AsyncMock()
+    mock_manager.create_session = AsyncMock(return_value="session-123")
+    mock_manager.wait_ready = AsyncMock(return_value=True)
+
+    async def mock_pr_suggest(**kwargs):
+        call_order.append("pr_suggest")
+        return {"title": "Suggested Title", "description": "Suggested Desc"}
+
+    async def mock_pr_create(**kwargs):
+        call_order.append(f"pr_create:title={kwargs.get('title')}")
+        return {"url": "https://github.com/test/repo/pull/99"}
+
+    mock_manager.pr_suggest = AsyncMock(side_effect=mock_pr_suggest)
+    mock_manager.pr_create = AsyncMock(side_effect=mock_pr_create)
+    mock_manager.stop = AsyncMock()
+
+    await main_module.run_pr_create(
+        workspace_dir=tmp_path,
+        title=None,
+        body="Explicit Body",
+        github_token="ghp_test",
+    )
+
+    assert "pr_suggest" in call_order
+    # Title should come from suggestion, body was explicit
+    assert "pr_create:title=Suggested Title" in call_order
+
+
+@pytest.mark.asyncio
+@patch("brokk_code.executor.ExecutorManager")
+async def test_run_pr_create_executor_error_exits_nonzero(
+    mock_executor_class, tmp_path, capsys
+) -> None:
+    """Verifies run_pr_create exits non-zero on executor error."""
+    from unittest.mock import AsyncMock
+
+    from brokk_code.executor import ExecutorError
+
+    mock_manager = mock_executor_class.return_value
+    mock_manager.start = AsyncMock()
+    mock_manager.create_session = AsyncMock(return_value="session-123")
+    mock_manager.wait_ready = AsyncMock(return_value=True)
+    mock_manager.pr_create = AsyncMock(side_effect=ExecutorError("GitHub API error"))
+    mock_manager.stop = AsyncMock()
+
+    with pytest.raises(SystemExit) as exc:
+        await main_module.run_pr_create(
+            workspace_dir=tmp_path,
+            title="Test",
+            body="Test body",
+            github_token="ghp_test",
+        )
+
+    assert exc.value.code == 1
+    captured = capsys.readouterr()
+    assert "Executor error" in captured.err
+    assert "GitHub API error" in captured.err
+    mock_manager.stop.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+@patch("brokk_code.executor.ExecutorManager")
+async def test_run_pr_create_prints_url_on_success(mock_executor_class, tmp_path, capsys) -> None:
+    """Verifies run_pr_create prints the PR URL on success."""
+    from unittest.mock import AsyncMock
+
+    mock_manager = mock_executor_class.return_value
+    mock_manager.start = AsyncMock()
+    mock_manager.create_session = AsyncMock(return_value="session-123")
+    mock_manager.wait_ready = AsyncMock(return_value=True)
+    mock_manager.pr_create = AsyncMock(
+        return_value={"url": "https://github.com/owner/repo/pull/123"}
+    )
+    mock_manager.stop = AsyncMock()
+
+    await main_module.run_pr_create(
+        workspace_dir=tmp_path,
+        title="Test PR",
+        body="Test body",
+        github_token="ghp_test",
+    )
+
+    captured = capsys.readouterr()
+    assert "https://github.com/owner/repo/pull/123" in captured.out
+    mock_manager.stop.assert_awaited_once()
+
+
 def test_main_commit_routes_correctly(monkeypatch, tmp_path) -> None:
     captured: dict[str, Any] = {"ran": False}
 
