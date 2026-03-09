@@ -13,7 +13,6 @@ import java.util.stream.Collectors;
 import org.jetbrains.annotations.Nullable;
 import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
-import org.treesitter.TSQuery;
 import org.treesitter.TSQueryCapture;
 import org.treesitter.TSQueryCursor;
 import org.treesitter.TSQueryMatch;
@@ -23,15 +22,6 @@ import org.treesitter.TreeSitterJava;
 public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisProvider, TypeHierarchyProvider {
 
     private static final Pattern LAMBDA_REGEX = Pattern.compile("(\\$anon|\\$\\d+)");
-
-    private static final ThreadLocal<TSQuery> IDENTIFIER_QUERY = ThreadLocal.withInitial(() -> {
-        try {
-            return new TSQuery(
-                    new org.treesitter.TreeSitterJava(), "[(type_identifier) (scoped_type_identifier)] @type");
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to initialize Java identifier query", e);
-        }
-    });
 
     public JavaAnalyzer(IProject project) {
         this(project, ProgressListener.NOOP);
@@ -67,8 +57,12 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
     }
 
     @Override
-    protected String getQueryResource() {
-        return "treesitter/java.scm";
+    protected Optional<String> getQueryResource(QueryType type) {
+        return switch (type) {
+            case DEFINITIONS -> Optional.of("treesitter/java/definitions.scm");
+            case IMPORTS -> Optional.of("treesitter/java/imports.scm");
+            case IDENTIFIERS -> Optional.of("treesitter/java/identifiers.scm");
+        };
     }
 
     private static final LanguageSyntaxProfile JAVA_SYNTAX_PROFILE = new LanguageSyntaxProfile(
@@ -275,12 +269,33 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
             SourceContent sourceContent,
             String exportPrefix,
             String signatureText,
+            String simpleName,
             String baseIndent,
             ProjectFile file) {
-        if (ENUM_CONSTANT.equals(fieldNode.getType())) {
+        String nodeType = fieldNode.getType();
+        if (ENUM_CONSTANT.equals(nodeType)) {
             return formatEnumConstant(fieldNode, signatureText, baseIndent);
         }
-        return super.formatFieldSignature(fieldNode, sourceContent, exportPrefix, signatureText, baseIndent, file);
+
+        if (FIELD_DECLARATION.equals(nodeType) || CONSTANT_DECLARATION.equals(nodeType)) {
+            TSNode typeNode = fieldNode.getChildByFieldName("type");
+            if (typeNode != null && !typeNode.isNull()) {
+                String modifiers = getPrefixText(fieldNode, typeNode, sourceContent, Set.of("modifiers"));
+                String typeStr = sourceContent.substringFrom(typeNode).strip();
+
+                Optional<TSNode> declarator =
+                        findDeclarator(fieldNode, simpleName, sourceContent, VARIABLE_DECLARATOR, "name");
+                if (declarator.isPresent()) {
+                    String declaratorStr =
+                            sourceContent.substringFrom(declarator.get()).strip();
+                    String full = (modifiers + typeStr + " " + declaratorStr + ";").strip();
+                    return baseIndent + full;
+                }
+            }
+        }
+
+        return super.formatFieldSignature(
+                fieldNode, sourceContent, exportPrefix, signatureText, simpleName, baseIndent, file);
     }
 
     private String formatEnumConstant(TSNode fieldNode, String signatureText, String baseIndent) {
@@ -325,30 +340,36 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
 
     @Override
     protected boolean containsTestMarkers(TSTree tree, SourceContent sourceContent) {
-        var query = getThreadLocalQuery();
-        var cursor = new TSQueryCursor();
-        cursor.exec(query, tree.getRootNode());
+        return withCachedQuery(
+                QueryType.DEFINITIONS,
+                query -> {
+                    try (TSQueryCursor cursor = new TSQueryCursor()) {
+                        cursor.exec(query, tree.getRootNode());
 
-        TSQueryMatch match = new TSQueryMatch();
-        while (cursor.nextMatch(match)) {
-            for (TSQueryCapture capture : match.getCaptures()) {
-                String captureName = query.getCaptureNameForId(capture.getIndex());
-                if (TEST_MARKER.equals(captureName)) {
-                    TSNode node = capture.getNode();
-                    String rawName = sourceContent.substringFromBytes(node.getStartByte(), node.getEndByte());
-                    String simpleName = rawName.strip();
-                    int lastDot = simpleName.lastIndexOf('.');
-                    if (lastDot >= 0) {
-                        simpleName = simpleName.substring(lastDot + 1);
-                    }
+                        TSQueryMatch match = new TSQueryMatch();
+                        while (cursor.nextMatch(match)) {
+                            for (TSQueryCapture capture : match.getCaptures()) {
+                                String captureName = query.getCaptureNameForId(capture.getIndex());
+                                if (TEST_MARKER.equals(captureName)) {
+                                    TSNode node = capture.getNode();
+                                    String rawName =
+                                            sourceContent.substringFromBytes(node.getStartByte(), node.getEndByte());
+                                    String simpleName = rawName.strip();
+                                    int lastDot = simpleName.lastIndexOf('.');
+                                    if (lastDot >= 0) {
+                                        simpleName = simpleName.substring(lastDot + 1);
+                                    }
 
-                    if (TEST_ANNOTATIONS.contains(simpleName)) {
-                        return true;
+                                    if (TEST_ANNOTATIONS.contains(simpleName)) {
+                                        return true;
+                                    }
+                                }
+                            }
+                        }
                     }
-                }
-            }
-        }
-        return false;
+                    return false;
+                },
+                false);
     }
 
     @Override
@@ -862,30 +883,37 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
         }
     }
 
-    private Set<String> performIdentifierExtraction(@Nullable TSNode root, String source) {
+    @Override
+    public Set<String> performIdentifierExtraction(@Nullable TSNode root, String source) {
         if (root == null || root.isNull()) {
             return Set.of();
         }
 
-        TSQuery query = IDENTIFIER_QUERY.get();
-        TSQueryCursor cursor = new TSQueryCursor();
-        cursor.exec(query, root);
-
-        SourceContent sourceContent = SourceContent.of(source);
         Set<String> identifiers = new HashSet<>();
-        TSQueryMatch match = new TSQueryMatch();
+        withCachedQuery(
+                QueryType.IDENTIFIERS,
+                query -> {
+                    try (TSQueryCursor cursor = new TSQueryCursor()) {
+                        cursor.exec(query, root);
 
-        while (cursor.nextMatch(match)) {
-            for (TSQueryCapture capture : match.getCaptures()) {
-                TSNode node = capture.getNode();
-                if (node != null && !node.isNull()) {
-                    String text = sourceContent.substringFrom(node);
-                    if (!text.isEmpty()) {
-                        identifiers.add(text);
+                        SourceContent sourceContent = SourceContent.of(source);
+                        TSQueryMatch match = new TSQueryMatch();
+
+                        while (cursor.nextMatch(match)) {
+                            for (TSQueryCapture capture : match.getCaptures()) {
+                                TSNode node = capture.getNode();
+                                if (node != null && !node.isNull()) {
+                                    String text = sourceContent.substringFrom(node);
+                                    if (!text.isEmpty()) {
+                                        identifiers.add(text);
+                                    }
+                                }
+                            }
+                        }
                     }
-                }
-            }
-        }
+                    return true;
+                },
+                false);
         return identifiers;
     }
 
@@ -1446,55 +1474,60 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
     protected List<String> extractRawSupertypesForClassLike(
             CodeUnit cu, TSNode classNode, String signature, SourceContent sourceContent) {
         // Aggregate all @type.super captures for the same @type.decl across all matches.
-        var query = getThreadLocalQuery();
+        return withCachedQuery(
+                QueryType.DEFINITIONS,
+                query -> {
+                    try (TSQueryCursor cursor = new TSQueryCursor()) {
+                        // Ascend to the root node for matching
+                        TSNode root = classNode;
+                        while (root.getParent() != null && !root.getParent().isNull()) {
+                            root = root.getParent();
+                        }
 
-        // Ascend to the root node for matching
-        TSNode root = classNode;
-        while (root.getParent() != null && !root.getParent().isNull()) {
-            root = root.getParent();
-        }
+                        List<TSNode> aggregateSuperNodes = new ArrayList<>();
+                        cursor.exec(query, root);
 
-        var cursor = new TSQueryCursor();
-        cursor.exec(query, root);
+                        TSQueryMatch match = new TSQueryMatch();
+                        final int targetStart = classNode.getStartByte();
+                        final int targetEnd = classNode.getEndByte();
 
-        TSQueryMatch match = new TSQueryMatch();
-        List<TSNode> aggregateSuperNodes = new ArrayList<>();
+                        while (cursor.nextMatch(match)) {
+                            TSNode declNode = null;
+                            List<TSNode> superCapturesThisMatch = new ArrayList<>();
 
-        final int targetStart = classNode.getStartByte();
-        final int targetEnd = classNode.getEndByte();
+                            for (TSQueryCapture cap : match.getCaptures()) {
+                                String capName = query.getCaptureNameForId(cap.getIndex());
+                                TSNode n = cap.getNode();
+                                if (n == null || n.isNull()) continue;
 
-        while (cursor.nextMatch(match)) {
-            TSNode declNode = null;
-            List<TSNode> superCapturesThisMatch = new ArrayList<>();
+                                if ("type.decl".equals(capName)) {
+                                    declNode = n;
+                                } else if ("type.super".equals(capName)) {
+                                    superCapturesThisMatch.add(n);
+                                }
+                            }
 
-            for (TSQueryCapture cap : match.getCaptures()) {
-                String capName = query.getCaptureNameForId(cap.getIndex());
-                TSNode n = cap.getNode();
-                if (n == null || n.isNull()) continue;
+                            if (declNode != null
+                                    && declNode.getStartByte() == targetStart
+                                    && declNode.getEndByte() == targetEnd) {
+                                aggregateSuperNodes.addAll(superCapturesThisMatch);
+                            }
+                        }
 
-                if ("type.decl".equals(capName)) {
-                    declNode = n;
-                } else if ("type.super".equals(capName)) {
-                    superCapturesThisMatch.add(n);
-                }
-            }
+                        aggregateSuperNodes.sort(Comparator.comparingInt(TSNode::getStartByte));
 
-            if (declNode != null && declNode.getStartByte() == targetStart && declNode.getEndByte() == targetEnd) {
-                aggregateSuperNodes.addAll(superCapturesThisMatch);
-            }
-        }
+                        List<String> supers = new ArrayList<>(aggregateSuperNodes.size());
+                        for (TSNode s : aggregateSuperNodes) {
+                            String text = sourceContent.substringFrom(s).strip();
+                            if (!text.isEmpty()) {
+                                supers.add(text);
+                            }
+                        }
 
-        aggregateSuperNodes.sort(Comparator.comparingInt(TSNode::getStartByte));
-
-        List<String> supers = new ArrayList<>(aggregateSuperNodes.size());
-        for (TSNode s : aggregateSuperNodes) {
-            String text = sourceContent.substringFrom(s).strip();
-            if (!text.isEmpty()) {
-                supers.add(text);
-            }
-        }
-
-        LinkedHashSet<String> unique = new LinkedHashSet<>(supers);
-        return List.copyOf(unique);
+                        LinkedHashSet<String> unique = new LinkedHashSet<>(supers);
+                        return List.copyOf(unique);
+                    }
+                },
+                List.of());
     }
 }

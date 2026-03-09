@@ -20,7 +20,7 @@
 (field_declaration
   (variable_declaration
     (variable_declarator
-       name: (identifier) @field.name))) @field.definition
+      name: (identifier) @field.name))) @field.definition
 
 ; Field (Property): Capture node and its name field
 (property_declaration
@@ -31,7 +31,7 @@
   name: (identifier) @constructor.name) @constructor.definition
 
 ; Attributes/Annotations to ignore in skeleton map
-(attribute_list) @annotation
+(attribute_list) @annotation.definition
 
 ; Test detection markers
 ; Filtering for specific test attributes (e.g., [Test], [Fact]) is handled in CSharpAnalyzer.java

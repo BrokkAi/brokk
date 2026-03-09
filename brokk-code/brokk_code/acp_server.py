@@ -11,11 +11,12 @@ from urllib.parse import unquote, urlparse
 from brokk_code import __version__
 from brokk_code.executor import ExecutorError, ExecutorManager
 from brokk_code.settings import Settings
+from brokk_code.widgets.token_bar import get_token_bar_markdown
 
 logger = logging.getLogger(__name__)
 
-VALID_MODES = {"LUTZ", "ASK", "CODE"}
-MODE_OPTIONS = ("LUTZ", "CODE", "ASK")
+VALID_MODES = {"LUTZ", "ASK", "CODE", "PLAN"}
+MODE_OPTIONS = ("LUTZ", "CODE", "ASK", "PLAN")
 BASE_MODEL_IDS = ("gpt-5.2", "gemini-3-flash-preview")
 REASONING_LEVEL_IDS = ("low", "medium", "high", "disable", "default")
 DEFAULT_MODEL_SELECTION = "gpt-5.2"
@@ -347,6 +348,32 @@ def extract_prompt_text(prompt: Any) -> str:
     return "\n".join(parts).strip()
 
 
+def get_slash_command(text: str) -> Optional[str]:
+    """Returns the slash command if the text starts with one (e.g. '/context'), else None."""
+    trimmed = text.strip()
+    if not trimmed.startswith("/"):
+        return None
+    # Match first word: e.g. "/context some args" -> "/context"
+    cmd = trimmed.split(maxsplit=1)[0].lower()
+    if cmd == "/context":
+        return cmd
+    return None
+
+
+def acp_slash_commands() -> list[dict[str, str]]:
+    """ACP slash command descriptors advertised to clients.
+
+    ACP command names are advertised without the leading slash; clients render
+    and invoke them as `/name` in prompt text.
+    """
+    return [
+        {
+            "name": "context",
+            "description": "Show current context snapshot",
+        }
+    ]
+
+
 def extract_resource_file_paths(prompt: Any, cwd: str) -> list[str]:
     """Extract workspace-relative file paths from EmbeddedResource and ResourceLink blocks."""
     if not prompt or isinstance(prompt, str):
@@ -400,9 +427,9 @@ def extract_resource_file_paths(prompt: Any, cwd: str) -> list[str]:
             continue
         try:
             if cwd_path:
-                paths.append(str(file_path.relative_to(cwd_path)))
+                paths.append(file_path.relative_to(cwd_path).as_posix())
             else:
-                paths.append(str(file_path))
+                paths.append(file_path.as_posix())
         except (ValueError, TypeError):
             logger.debug("Could not make %s relative to %s", uri, cwd)
     return list(dict.fromkeys(paths))
@@ -664,6 +691,19 @@ class BrokkAcpBridge:
             raise ExecutorError("Brokk executor failed readiness check")
         self._started = True
 
+    async def start_and_create_session(self, name: str) -> str:
+        """Starts the executor (if needed) and creates the first session to satisfy readiness."""
+        if self._started:
+            return await self.executor.create_session(name=name)
+
+        await self.executor.start()
+        session_id = await self.executor.create_session(name=name)
+        ready = await self.executor.wait_ready()
+        if not ready:
+            raise ExecutorError("Brokk executor failed readiness check")
+        self._started = True
+        return session_id
+
     async def _ensure_session(self, acp_session_id: str) -> str:
         existing = self._acp_to_brokk_session.get(acp_session_id)
         if existing:
@@ -697,14 +737,15 @@ class BrokkAcpBridge:
         reasoning_level: Optional[str],
         reasoning_level_code: Optional[str],
         send_update: Callable[[str, Any], Awaitable[Any]],
+        update_agent_message: Callable[[Any], Any],
         update_agent_message_text: Callable[[str], Any],
+        image_block: Callable[..., Any],
+        start_tool_call: Callable[..., Any],
+        update_tool_call: Callable[..., Any],
+        tool_content: Callable[[Any], Any],
         update_agent_thought_text: Optional[Callable[[str], Any]] = None,
-        start_tool_call: Optional[Callable[..., Any]] = None,
-        update_tool_call: Optional[Callable[..., Any]] = None,
-        tool_content: Optional[Callable[[Any], Any]] = None,
         text_block: Optional[Callable[[str], Any]] = None,
         cwd: str = "",
-        **kwargs: Any,
     ) -> None:
         await self.ensure_ready()
         executor_session_id = await self._ensure_session(session_id)
@@ -714,6 +755,112 @@ class BrokkAcpBridge:
         if not prompt_text:
             raise ExecutorError("Prompt must contain at least one non-empty text block.")
 
+        command = get_slash_command(prompt_text)
+        if command:
+            await self._handle_command(
+                command,
+                session_id,
+                send_update=send_update,
+                update_agent_message_text=update_agent_message_text,
+            )
+            return
+
+        await self._handle_model_job(
+            prompt=prompt,
+            prompt_text=prompt_text,
+            session_id=session_id,
+            executor_session_id=executor_session_id,
+            mode=mode,
+            planner_model=planner_model,
+            code_model=code_model,
+            reasoning_level=reasoning_level,
+            reasoning_level_code=reasoning_level_code,
+            send_update=send_update,
+            update_agent_message_text=update_agent_message_text,
+            update_agent_thought_text=update_agent_thought_text,
+            start_tool_call=start_tool_call,
+            update_tool_call=update_tool_call,
+            tool_content=tool_content,
+            text_block=text_block,
+            cwd=cwd,
+        )
+
+    async def _handle_command(
+        self,
+        command: str,
+        session_id: str,
+        send_update: Callable[[str, Any], Awaitable[Any]],
+        update_agent_message_text: Callable[[str], Any],
+    ) -> None:
+        if command == "/context":
+            ctx = await self.executor.get_context()
+            fragments = ctx.get("fragments", [])
+            used_tokens = int(ctx.get("usedTokens", 0) or 0)
+            max_tokens = ctx.get("maxTokens", 0)
+            fragment_list = fragments if isinstance(fragments, list) else []
+            base_tokens = int(max_tokens or 0)
+            if base_tokens <= 0:
+                base_tokens = sum(int(f.get("tokens", 0) or 0) for f in fragment_list)
+            if base_tokens <= 0:
+                base_tokens = 1
+
+            def _fragment_row(fragment: Any) -> tuple[str, int, float]:
+                if not isinstance(fragment, dict):
+                    return ("Unknown", 0, 0.0)
+                name = str(fragment.get("shortDescription") or fragment.get("id") or "Unknown")
+                tokens = int(fragment.get("tokens", 0) or 0)
+                pct = (tokens / base_tokens) * 100
+                return (name, tokens, pct)
+
+            rows = [_fragment_row(f) for f in fragment_list]
+            rows.sort(key=lambda row: row[2], reverse=True)
+            top_rows = rows[:4]
+            remainder = rows[4:]
+            if remainder:
+                other_tokens = sum(tokens for _name, tokens, _pct in remainder)
+                other_pct = sum(pct for _name, _tokens, pct in remainder)
+                top_rows.append(("(other)", other_tokens, other_pct))
+
+            lines = [
+                "| Fragment | Tokens | % Context |",
+                "|---|---:|---:|",
+            ]
+            lines.extend(f"| {name} | {tokens:,} | {pct:.2f}% |" for name, tokens, pct in top_rows)
+            if not top_rows:
+                lines.append("| (none) | 0 | 0.00% |")
+            token_bar_md = get_token_bar_markdown(
+                used_tokens=used_tokens,
+                max_tokens=int(max_tokens or 0),
+                fragments=fragment_list,
+            )
+            if token_bar_md:
+                lines.append("")
+                lines.append(f"**Total Tokens:** {used_tokens:,} / {int(max_tokens or 0):,}")
+                lines.append("")
+                lines.append(token_bar_md)
+
+            await send_update(session_id, update_agent_message_text("\n".join(lines)))
+
+    async def _handle_model_job(
+        self,
+        prompt: Any,
+        prompt_text: str,
+        session_id: str,
+        executor_session_id: str,
+        mode: str,
+        planner_model: str,
+        code_model: Optional[str],
+        reasoning_level: Optional[str],
+        reasoning_level_code: Optional[str],
+        send_update: Callable[[str, Any], Awaitable[Any]],
+        update_agent_message_text: Callable[[str], Any],
+        update_agent_thought_text: Optional[Callable[[str], Any]] = None,
+        start_tool_call: Optional[Callable[..., Any]] = None,
+        update_tool_call: Optional[Callable[..., Any]] = None,
+        tool_content: Optional[Callable[[Any], Any]] = None,
+        text_block: Optional[Callable[[str], Any]] = None,
+        cwd: str = "",
+    ) -> None:
         # Add any @-mentioned files from ACP embedded/linked resource blocks to context.
         attached_fragment_ids: list[str] = []
         file_paths = extract_resource_file_paths(prompt, cwd)
@@ -789,10 +936,12 @@ async def run_acp_server(
             PromptResponse,
             SetSessionModelResponse,
             SetSessionModeResponse,
+            image_block,
             run_agent,
             start_tool_call,
             text_block,
             tool_content,
+            update_agent_message,
             update_agent_message_text,
             update_agent_thought_text,
             update_tool_call,
@@ -800,9 +949,11 @@ async def run_acp_server(
         )
         from acp.agent import connection as acp_agent_connection
         from acp.agent import router as acp_agent_router
+        from acp.helpers import update_available_commands
         from acp.meta import AGENT_METHODS
         from acp.schema import (
             AgentCapabilities,
+            AvailableCommand,
             Implementation,
             ListSessionsResponse,
             ModelInfo,
@@ -883,6 +1034,7 @@ async def run_acp_server(
             self._catalog_is_fallback_by_session: dict[str, bool] = {}
             self._profile = resolve_client_profile(None, None)
             self._replay_tasks: set[asyncio.Task[Any]] = set()
+            self._commands_tasks: set[asyncio.Task[Any]] = set()
 
             # Load ACP defaults once on agent init
             acp_defaults = load_acp_defaults()
@@ -1105,6 +1257,34 @@ async def run_acp_server(
 
             task.add_done_callback(_done_callback)
 
+        def _schedule_available_commands_update(self, session_id: str) -> None:
+            async def _run() -> None:
+                # Yield so the session response can be delivered first.
+                await asyncio.sleep(0)
+                if not self.client:
+                    return
+                commands = [
+                    AvailableCommand(name=cmd["name"], description=cmd["description"])
+                    for cmd in acp_slash_commands()
+                ]
+                await self.client.session_update(session_id, update_available_commands(commands))
+
+            task = asyncio.create_task(_run())
+            self._commands_tasks.add(task)
+
+            def _done_callback(done: asyncio.Task[Any]) -> None:
+                self._commands_tasks.discard(done)
+                try:
+                    done.result()
+                except Exception:
+                    logger.warning(
+                        "Command advertisement task failed for session %s",
+                        session_id,
+                        exc_info=True,
+                    )
+
+            task.add_done_callback(_done_callback)
+
         def _ensure_session_defaults(self, session_id: str, cwd: Optional[str] = None) -> None:
             if session_id not in self._mode_by_session:
                 self._mode_by_session[session_id] = "LUTZ"
@@ -1154,10 +1334,9 @@ async def run_acp_server(
             **kwargs: Any,
         ) -> NewSessionResponse:
             del mcp_servers
-            await bridge.ensure_ready()
             requested_name = str(kwargs.get("title") or kwargs.get("name") or "ACP Session").strip()
             session_name = requested_name or "ACP Session"
-            session_id = await bridge.executor.create_session(name=session_name)
+            session_id = await bridge.start_and_create_session(name=session_name)
             self._ensure_session_defaults(session_id, cwd)
             await self._refresh_model_catalog(session_id)
 
@@ -1206,6 +1385,7 @@ async def run_acp_server(
                 )
 
             model_state = self._model_state_for_session(session_id)
+            self._schedule_available_commands_update(session_id)
             return NewSessionResponse(
                 session_id=session_id,
                 modes=SessionModeState(
@@ -1213,6 +1393,7 @@ async def run_acp_server(
                         SessionMode(id="LUTZ", name="LUTZ"),
                         SessionMode(id="CODE", name="CODE"),
                         SessionMode(id="ASK", name="ASK"),
+                        SessionMode(id="PLAN", name="PLAN"),
                     ],
                     current_mode_id="LUTZ",
                 ),
@@ -1239,6 +1420,7 @@ async def run_acp_server(
             self._ensure_session_defaults(requested_session_id, cwd)
             await self._refresh_model_catalog(requested_session_id)
             self._schedule_replay_loaded_session(requested_session_id)
+            self._schedule_available_commands_update(requested_session_id)
             model_state = self._model_state_for_session(requested_session_id)
             return LoadSessionResponse(
                 modes=SessionModeState(
@@ -1246,6 +1428,7 @@ async def run_acp_server(
                         SessionMode(id="LUTZ", name="LUTZ"),
                         SessionMode(id="CODE", name="CODE"),
                         SessionMode(id="ASK", name="ASK"),
+                        SessionMode(id="PLAN", name="PLAN"),
                     ],
                     current_mode_id=self._mode_by_session.get(requested_session_id, "LUTZ"),
                 ),
@@ -1470,12 +1653,14 @@ async def run_acp_server(
                 reasoning_level=reasoning_level,
                 reasoning_level_code=reasoning_level_code,
                 send_update=self.client.session_update,
+                update_agent_message=update_agent_message,
                 update_agent_message_text=update_agent_message_text,
                 update_agent_thought_text=update_agent_thought_text,
                 start_tool_call=start_tool_call,
                 update_tool_call=update_tool_call,
                 tool_content=tool_content,
                 text_block=text_block,
+                image_block=image_block,
             )
             return PromptResponse(stop_reason="end_turn")
 

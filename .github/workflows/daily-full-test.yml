@@ -16,8 +16,12 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
-    - name: Set up JBR 21
-      uses: jansorg/github-actions-jbr-setup/setup_jbr21@main
+    - name: Set up Java 21 (JetBrains Runtime)
+      uses: actions/setup-java@v4
+      with:
+        distribution: jetbrains
+        java-package: jdk+jcef
+        java-version: '21'
 
     - name: Set up Node.js
       uses: actions/setup-node@v4
@@ -35,8 +39,8 @@ jobs:
     - name: Check commit
       run: git rev-parse HEAD
 
-    - name: Run full test suite with static analysis
-      run: ./gradlew check
+    - name: Run full test suite with static analysis and integration tests
+      run: ./gradlew check intTest
 
     - name: Build assembly
       run: ./gradlew shadowJar

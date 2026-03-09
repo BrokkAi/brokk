@@ -381,11 +381,11 @@ async def test_executor_start_uses_jbang_when_no_jar(monkeypatch, tmp_path):
 async def test_executor_start_installs_jbang_if_missing(monkeypatch, tmp_path):
     import brokk_code.executor as executor_module
 
-    install_called = False
+    ensure_ready_called = False
 
-    def fake_install():
-        nonlocal install_called
-        install_called = True
+    def fake_ensure_ready():
+        nonlocal ensure_ready_called
+        ensure_ready_called = True
         return "/tmp/jbang"
 
     async def fake_create_subprocess_exec(*cmd, stdin=None, stdout=None, stderr=None, cwd=None):
@@ -408,14 +408,14 @@ async def test_executor_start_installs_jbang_if_missing(monkeypatch, tmp_path):
         return FakeProcess()
 
     monkeypatch.setattr(executor_module, "resolve_jbang_binary", lambda: None)
-    monkeypatch.setattr(executor_module, "install_jbang", fake_install)
+    monkeypatch.setattr(executor_module, "ensure_jbang_ready", fake_ensure_ready)
     monkeypatch.setattr(ExecutorManager, "_find_dev_jar", lambda self: None)
     monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_create_subprocess_exec)
 
     manager = ExecutorManager(workspace_dir=tmp_path)
     await manager.start()
 
-    assert install_called is True
+    assert ensure_ready_called is True
     await manager.stop()
 
 
@@ -423,11 +423,11 @@ async def test_executor_start_installs_jbang_if_missing(monkeypatch, tmp_path):
 async def test_executor_start_propagates_install_failure(monkeypatch, tmp_path):
     import brokk_code.executor as executor_module
 
-    def fake_install_fail():
+    def fake_ensure_ready_fail():
         raise ExecutorError("jbang installation failed (mock)")
 
     monkeypatch.setattr(executor_module, "resolve_jbang_binary", lambda: None)
-    monkeypatch.setattr(executor_module, "install_jbang", fake_install_fail)
+    monkeypatch.setattr(executor_module, "ensure_jbang_ready", fake_ensure_ready_fail)
     monkeypatch.setattr(ExecutorManager, "_find_dev_jar", lambda self: None)
 
     manager = ExecutorManager(workspace_dir=tmp_path)

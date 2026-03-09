@@ -6,7 +6,10 @@ import ai.brokk.analyzer.cache.AnalyzerCache;
 import ai.brokk.project.IProject;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.*;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -70,8 +73,12 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected String getQueryResource() {
-        return "treesitter/rust.scm";
+    protected Optional<String> getQueryResource(QueryType type) {
+        return switch (type) {
+            case DEFINITIONS -> Optional.of("treesitter/rust/definitions.scm");
+            case IMPORTS -> Optional.of("treesitter/rust/imports.scm");
+            case IDENTIFIERS -> Optional.empty();
+        };
     }
 
     @Override
@@ -417,9 +424,19 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
             SourceContent sourceContent,
             String exportPrefix,
             String signatureText,
+            String simpleName,
             String baseIndent,
             ProjectFile file) {
-        String fullSignature = (exportPrefix.stripTrailing() + " " + signatureText.strip()).strip();
+        String sig = signatureText.strip();
+        String pref = exportPrefix.strip();
+
+        String fullSignature;
+        if (!pref.isEmpty() && sig.startsWith(pref)) {
+            fullSignature = sig;
+        } else {
+            fullSignature = (exportPrefix.stripTrailing() + " " + sig).strip();
+        }
+
         // Rust fields like "pub x: i32," and "const ORIGIN: Point = ..." should not have semicolons added in skeleton
         // format
         return baseIndent + fullSignature;
@@ -432,30 +449,37 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected Set<String> getLeadingMetadataNodeTypes() {
-        return Set.of("attribute_item", "inner_attribute");
+        return Set.of(ATTRIBUTE_ITEM, INNER_ATTRIBUTE);
     }
 
     @Override
     protected boolean containsTestMarkers(TSTree tree, SourceContent sourceContent) {
-        TSQueryCursor cursor = new TSQueryCursor();
-        TSQuery rustQuery = getThreadLocalQuery();
-        cursor.exec(rustQuery, tree.getRootNode());
+        return withCachedQuery(
+                QueryType.DEFINITIONS,
+                query -> {
+                    try (TSQueryCursor cursor = new TSQueryCursor()) {
+                        cursor.exec(query, tree.getRootNode());
 
-        TSQueryMatch match = new TSQueryMatch();
-        while (cursor.nextMatch(match)) {
-            for (TSQueryCapture capture : match.getCaptures()) {
-                String captureName = rustQuery.getCaptureNameForId(capture.getIndex());
-                if (TEST_MARKER.equals(captureName)) {
-                    // The capture is now directly on the attribute_item node
-                    TSNode attrItemNode = capture.getNode();
-                    String content = sourceContent.substringFrom(attrItemNode);
-                    // Rust attributes look like #[test] or #[cfg(test)]
-                    if (content.contains("#[test]") || content.contains("#[cfg(test)]")) {
-                        return true;
+                        TSQueryMatch match = new TSQueryMatch();
+                        while (cursor.nextMatch(match)) {
+                            for (TSQueryCapture capture : match.getCaptures()) {
+                                String captureName = query.getCaptureNameForId(capture.getIndex());
+                                if (TEST_MARKER.equals(captureName)) {
+                                    // The capture is now directly on the attribute_item node
+                                    TSNode attrItemNode = capture.getNode();
+                                    if (attrItemNode != null && !attrItemNode.isNull()) {
+                                        String content = sourceContent.substringFrom(attrItemNode);
+                                        // Rust attributes look like #[test] or #[cfg(test)]
+                                        if (content.contains("#[test]") || content.contains("#[cfg(test)]")) {
+                                            return true;
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
-                }
-            }
-        }
-        return false;
+                    return false;
+                },
+                false);
     }
 }

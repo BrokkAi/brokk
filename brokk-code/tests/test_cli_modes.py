@@ -10,7 +10,7 @@ import brokk_code.__main__ as main_module
 
 
 def _stub_install_warmup(monkeypatch) -> None:
-    monkeypatch.setattr(main_module, "_resolve_jbang_for_install", lambda: "/usr/local/bin/jbang")
+    monkeypatch.setattr(main_module, "ensure_jbang_ready", lambda: "/usr/local/bin/jbang")
     monkeypatch.setattr(main_module, "_run_install_prefetch", lambda _commands: None)
 
 
@@ -280,7 +280,7 @@ def test_main_install_mcp_routes_to_installer(monkeypatch, tmp_path, capsys) -> 
         "configure_codex_mcp_settings",
         fake_configure_codex_mcp_settings,
     )
-    monkeypatch.setattr(main_module, "_resolve_jbang_for_install", lambda: "/usr/local/bin/jbang")
+    monkeypatch.setattr(main_module, "ensure_jbang_ready", lambda: "/usr/local/bin/jbang")
     monkeypatch.setattr(main_module, "_run_install_prefetch", fake_run_install_prefetch)
     monkeypatch.setattr(
         sys,
@@ -396,6 +396,60 @@ def test_main_resume_routes_correctly(monkeypatch, tmp_path) -> None:
     assert captured["kwargs"]["resume_session"] is False
     assert captured["kwargs"]["workspace_dir"] == tmp_path.resolve()
     assert captured["kwargs"]["vendor"] == "Anthropic"
+
+
+def test_main_sessions_routes_correctly(monkeypatch, tmp_path) -> None:
+    captured: dict[str, Any] = {"ran": False}
+    fake_app_module = ModuleType("brokk_code.app")
+
+    class FakeApp:
+        def __init__(self, **kwargs: Any):
+            captured["kwargs"] = kwargs
+
+        def run(self) -> None:
+            captured["ran"] = True
+
+    fake_app_module.BrokkApp = FakeApp
+    monkeypatch.setitem(sys.modules, "brokk_code.app", fake_app_module)
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "brokk",
+            "sessions",
+            "--workspace",
+            str(tmp_path),
+            "--vendor",
+            "OpenAI",
+        ],
+    )
+
+    main_module.main()
+
+    assert captured["ran"] is True
+    # pick_session must be True for the sessions command
+    assert captured["kwargs"]["pick_session"] is True
+    # workspace_dir should be resolved
+    assert captured["kwargs"]["workspace_dir"] == tmp_path.resolve()
+    # vendor should be passed through
+    assert captured["kwargs"]["vendor"] == "OpenAI"
+    # sessions command overrides session_id and resume_session
+    assert captured["kwargs"]["session_id"] is None
+    assert captured["kwargs"]["resume_session"] is False
+
+
+def test_main_sessions_rejects_positional_args(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["brokk", "sessions", "unexpected-arg", "--workspace", str(tmp_path)],
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        main_module.main()
+
+    assert exc.value.code == 2
 
 
 def test_main_issue_create_routes_correctly(monkeypatch, tmp_path) -> None:
@@ -1368,3 +1422,216 @@ def test_main_issue_create_invalid_repo_name_exits_nonzero(monkeypatch) -> None:
         main_module.main()
 
     assert exc.value.code != 0
+
+
+def test_main_commit_routes_correctly(monkeypatch, tmp_path) -> None:
+    captured: dict[str, Any] = {"ran": False}
+
+    async def fake_run_commit(**kwargs: Any) -> None:
+        captured["kwargs"] = kwargs
+        captured["ran"] = True
+
+    monkeypatch.setattr(main_module, "run_commit", fake_run_commit)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "brokk",
+            "commit",
+            "Fix the bug",
+            "--workspace",
+            str(tmp_path),
+            "--vendor",
+            "Anthropic",
+        ],
+    )
+
+    main_module.main()
+
+    assert captured["ran"] is True
+    assert captured["kwargs"]["workspace_dir"] == tmp_path.resolve()
+    assert captured["kwargs"]["message"] == "Fix the bug"
+    assert captured["kwargs"]["vendor"] == "Anthropic"
+
+
+def test_main_commit_no_message_routes_correctly(monkeypatch, tmp_path) -> None:
+    captured: dict[str, Any] = {"ran": False}
+
+    async def fake_run_commit(**kwargs: Any) -> None:
+        captured["kwargs"] = kwargs
+        captured["ran"] = True
+
+    monkeypatch.setattr(main_module, "run_commit", fake_run_commit)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "brokk",
+            "commit",
+            "--workspace",
+            str(tmp_path),
+        ],
+    )
+
+    main_module.main()
+
+    assert captured["ran"] is True
+    assert captured["kwargs"]["workspace_dir"] == tmp_path.resolve()
+    assert captured["kwargs"]["message"] is None
+
+
+@pytest.mark.asyncio
+@patch("brokk_code.executor.ExecutorManager")
+async def test_run_commit_calls_lifecycle_in_order(mock_executor_class, tmp_path) -> None:
+    """Verifies that run_commit follows the correct lifecycle order."""
+    from unittest.mock import AsyncMock
+
+    call_order: list[str] = []
+    mock_manager = mock_executor_class.return_value
+
+    async def mock_start():
+        call_order.append("start")
+
+    async def mock_create_session(name: str = ""):
+        call_order.append("create_session")
+        return "session-123"
+
+    async def mock_wait_ready(timeout: float = 30.0):
+        call_order.append("wait_ready")
+        return True
+
+    async def mock_commit_context(message=None):
+        call_order.append(f"commit_context:{message}")
+        return {"commitId": "abc123", "firstLine": "Test commit"}
+
+    async def mock_stop():
+        call_order.append("stop")
+
+    mock_manager.start = AsyncMock(side_effect=mock_start)
+    mock_manager.create_session = AsyncMock(side_effect=mock_create_session)
+    mock_manager.wait_ready = AsyncMock(side_effect=mock_wait_ready)
+    mock_manager.commit_context = AsyncMock(side_effect=mock_commit_context)
+    mock_manager.stop = AsyncMock(side_effect=mock_stop)
+
+    await main_module.run_commit(
+        workspace_dir=tmp_path,
+        message="My commit message",
+    )
+
+    assert "start" in call_order
+    assert "create_session" in call_order
+    assert "wait_ready" in call_order
+    assert "commit_context:My commit message" in call_order
+    assert "stop" in call_order
+
+    start_idx = call_order.index("start")
+    create_session_idx = call_order.index("create_session")
+    wait_ready_idx = call_order.index("wait_ready")
+    commit_idx = call_order.index("commit_context:My commit message")
+    stop_idx = call_order.index("stop")
+
+    assert start_idx < create_session_idx
+    assert create_session_idx < wait_ready_idx
+    assert wait_ready_idx < commit_idx
+    assert commit_idx < stop_idx
+
+
+@pytest.mark.asyncio
+@patch("brokk_code.executor.ExecutorManager")
+async def test_run_commit_no_changes(mock_executor_class, tmp_path, capsys) -> None:
+    """Verifies that run_commit handles no changes case."""
+    from unittest.mock import AsyncMock
+
+    mock_manager = mock_executor_class.return_value
+    mock_manager.start = AsyncMock()
+    mock_manager.create_session = AsyncMock(return_value="session-123")
+    mock_manager.wait_ready = AsyncMock(return_value=True)
+    mock_manager.commit_context = AsyncMock(return_value={"status": "no_changes"})
+    mock_manager.stop = AsyncMock()
+
+    await main_module.run_commit(workspace_dir=tmp_path, message=None)
+
+    captured = capsys.readouterr()
+    assert "No uncommitted changes" in captured.out
+    mock_manager.stop.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+@patch("brokk_code.executor.ExecutorManager")
+async def test_run_commit_success_output(mock_executor_class, tmp_path, capsys) -> None:
+    """Verifies that run_commit prints commit info on success."""
+    from unittest.mock import AsyncMock
+
+    mock_manager = mock_executor_class.return_value
+    mock_manager.start = AsyncMock()
+    mock_manager.create_session = AsyncMock(return_value="session-123")
+    mock_manager.wait_ready = AsyncMock(return_value=True)
+    mock_manager.commit_context = AsyncMock(
+        return_value={"commitId": "abc1234567890", "firstLine": "Fix parser bug"}
+    )
+    mock_manager.stop = AsyncMock()
+
+    await main_module.run_commit(workspace_dir=tmp_path, message="Fix parser bug")
+
+    captured = capsys.readouterr()
+    assert "abc1234" in captured.out
+    assert "Fix parser bug" in captured.out
+    mock_manager.stop.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+@patch("brokk_code.executor.ExecutorManager")
+async def test_run_commit_executor_error_exits_nonzero(
+    mock_executor_class, tmp_path, capsys
+) -> None:
+    """Verifies that run_commit exits non-zero on executor error."""
+    from unittest.mock import AsyncMock
+
+    from brokk_code.executor import ExecutorError
+
+    mock_manager = mock_executor_class.return_value
+    mock_manager.start = AsyncMock()
+    mock_manager.create_session = AsyncMock(return_value="session-123")
+    mock_manager.wait_ready = AsyncMock(return_value=True)
+    mock_manager.commit_context = AsyncMock(side_effect=ExecutorError("Git error"))
+    mock_manager.stop = AsyncMock()
+
+    with pytest.raises(SystemExit) as exc:
+        await main_module.run_commit(workspace_dir=tmp_path, message="test")
+
+    assert exc.value.code == 1
+    captured = capsys.readouterr()
+    assert "Executor error" in captured.err
+    assert "Git error" in captured.err
+    mock_manager.stop.assert_awaited_once()
+
+
+def test_install_calls_ensure_jbang_ready(monkeypatch, tmp_path) -> None:
+    """install command calls ensure_jbang_ready() directly (not _resolve_jbang_for_install)."""
+    ensure_called = {"n": 0}
+
+    def fake_ensure_jbang_ready() -> str:
+        ensure_called["n"] += 1
+        return "/usr/bin/jbang"
+
+    def fake_configure_zed_acp_settings(*, force=False):
+        return tmp_path / "zed.json"
+
+    monkeypatch.setattr(main_module, "ensure_jbang_ready", fake_ensure_jbang_ready)
+    monkeypatch.setattr(main_module, "_run_install_prefetch", lambda _commands: None)
+    monkeypatch.setattr(main_module, "configure_zed_acp_settings", fake_configure_zed_acp_settings)
+    monkeypatch.setattr(
+        main_module,
+        "_build_install_prefetch_commands",
+        lambda **kwargs: [],
+    )
+    monkeypatch.setattr(main_module, "sys", __import__("sys"))
+    monkeypatch.setattr(
+        __import__("sys"),
+        "argv",
+        ["brokk", "install", "zed"],
+    )
+
+    main_module.main()
+
+    assert ensure_called["n"] == 1

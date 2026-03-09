@@ -229,69 +229,6 @@ async def test_combined_modal_checked_marker_is_visible():
 
 
 @pytest.mark.asyncio
-async def test_mode_command_with_arg_sets_directly():
-    """Verify /mode <MODE> updates state immediately without menu."""
-    executor = MagicMock()
-    executor.stop = AsyncMock()
-    app = BrokkApp(executor=executor)
-    app._executor_ready = True
-
-    with (
-        patch.object(BrokkApp, "_start_executor", return_value=None),
-        patch.object(BrokkApp, "_monitor_executor", return_value=None),
-        patch.object(BrokkApp, "_poll_tasklist", return_value=None),
-        patch.object(BrokkApp, "_poll_context", return_value=None),
-    ):
-        async with app.run_test() as pilot:
-            app._handle_command("/mode ASK")
-            await pilot.pause()
-            assert app.agent_mode == "ASK"
-
-
-@pytest.mark.asyncio
-async def test_mode_command_no_arg_opens_menu():
-    executor = MagicMock()
-    executor.stop = AsyncMock()
-    app = BrokkApp(executor=executor)
-    app._executor_ready = True
-
-    with (
-        patch.object(BrokkApp, "_start_executor", return_value=None),
-        patch.object(BrokkApp, "_monitor_executor", return_value=None),
-        patch.object(BrokkApp, "_poll_tasklist", return_value=None),
-        patch.object(BrokkApp, "_poll_context", return_value=None),
-    ):
-        async with app.run_test() as pilot:
-            # We mock ChatPanel to verify the menu is opened
-            chat_panel = app.query_one("ChatPanel")
-            with patch.object(chat_panel, "open_mode_menu") as mock_open:
-                # Simulate typing /mode with no args
-                app._handle_command("/mode")
-                await pilot.pause()
-                mock_open.assert_called_once_with(["CODE", "ASK", "LUTZ"], "LUTZ")
-
-
-@pytest.mark.asyncio
-async def test_reasoning_command_with_arg_sets_directly():
-    executor = MagicMock()
-    executor.stop = AsyncMock()
-    app = BrokkApp(executor=executor)
-    app._executor_ready = True
-
-    with (
-        patch.object(BrokkApp, "_start_executor", return_value=None),
-        patch.object(BrokkApp, "_monitor_executor", return_value=None),
-        patch.object(BrokkApp, "_poll_tasklist", return_value=None),
-        patch.object(BrokkApp, "_poll_context", return_value=None),
-    ):
-        async with app.run_test() as pilot:
-            app._handle_command("/reasoning high")
-            await pilot.pause()
-
-            assert app.reasoning_level == "high"
-
-
-@pytest.mark.asyncio
 async def test_model_code_command_with_arg_sets_directly():
     executor = MagicMock()
     executor.stop = AsyncMock()

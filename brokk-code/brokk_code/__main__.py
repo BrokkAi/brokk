@@ -15,7 +15,7 @@ from typing import Any, Iterator
 from brokk_code.executor import (
     BUNDLED_EXECUTOR_VERSION,
     ExecutorError,
-    install_jbang,
+    ensure_jbang_ready,
     resolve_jbang_binary,
 )
 from brokk_code.intellij_config import configure_intellij_acp_settings
@@ -64,14 +64,6 @@ def _validate_github_params(
             file=sys.stderr,
         )
         sys.exit(1)
-
-
-def _resolve_jbang_for_install() -> str:
-    """Ensure JBang is installed for install-time prefetching."""
-    jbang_path = resolve_jbang_binary()
-    if jbang_path:
-        return jbang_path
-    return install_jbang()
 
 
 def _build_executor_prefetch_command(
@@ -318,6 +310,9 @@ def _build_parser() -> argparse.ArgumentParser:
         help="The ID of the session to resume",
     )
 
+    sessions_parser = subparsers.add_parser("sessions", help="List and switch between sessions")
+    _add_common_runtime_args(sessions_parser)
+
     acp_parser = subparsers.add_parser("acp", help="Run in ACP server mode")
     _add_common_runtime_args(acp_parser)
     acp_parser.add_argument(
@@ -348,6 +343,16 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         default=False,
         help="Print the JBang prefetch command(s) instead of executing them",
+    )
+
+    commit_parser = subparsers.add_parser("commit", help="Commit current changes")
+    _add_common_runtime_args(commit_parser)
+    commit_parser.add_argument(
+        "message",
+        type=str,
+        nargs="?",
+        default=None,
+        help="Commit message (optional; if omitted, a message will be generated)",
     )
 
     issue_parser = subparsers.add_parser("issue", help="Manage GitHub issues")
@@ -469,6 +474,53 @@ def _build_parser() -> argparse.ArgumentParser:
     )
 
     return parser
+
+
+async def run_commit(
+    workspace_dir: Path,
+    message: str | None = None,
+    jar_path: Path | None = None,
+    executor_version: str | None = None,
+    executor_snapshot: bool = True,
+    vendor: str | None = None,
+) -> None:
+    """Commits current changes via ExecutorManager."""
+    from brokk_code.executor import ExecutorError, ExecutorManager
+
+    manager = ExecutorManager(
+        workspace_dir=workspace_dir,
+        jar_path=jar_path,
+        executor_version=executor_version,
+        executor_snapshot=executor_snapshot,
+        vendor=vendor,
+        exit_on_stdin_eof=True,
+    )
+
+    try:
+        await manager.start()
+        await manager.create_session(name="Headless commit")
+        if not await manager.wait_ready():
+            print("Error: executor failed to become ready.", file=sys.stderr)
+            sys.exit(1)
+
+        result = await manager.commit_context(message)
+
+        if result.get("status") == "no_changes":
+            print("No uncommitted changes.")
+        else:
+            commit_id = result.get("commitId", "")
+            first_line = result.get("firstLine", "")
+            short_id = commit_id[:7] if commit_id else ""
+            print(f"Committed {short_id}: {first_line}")
+
+    except ExecutorError as e:
+        print(f"Executor error: {e}", file=sys.stderr)
+        sys.exit(1)
+    except Exception as e:
+        print(f"Unexpected error: {e}", file=sys.stderr)
+        sys.exit(1)
+    finally:
+        await manager.stop()
 
 
 async def run_headless_job(
@@ -733,7 +785,7 @@ def main():
         messages: list[str] = []
         prefetch_commands: list[tuple[str, list[str]]] = []
         try:
-            jbang_binary = resolve_jbang_binary() if args.verbose else _resolve_jbang_for_install()
+            jbang_binary = resolve_jbang_binary() if args.verbose else ensure_jbang_ready()
             if args.verbose and not jbang_binary:
                 jbang_binary = "jbang"
             if args.target == "zed":
@@ -817,10 +869,29 @@ def main():
 
     session_id = getattr(args, "session", None)
     resume_session = getattr(args, "resume_session", False)
+    pick_session = False
 
     if args.command == "resume":
         session_id = args.session_id
         resume_session = False  # Explicitly using the provided ID, not "last session" logic
+    elif args.command == "sessions":
+        # For explicit session picking, ignore any resume hints; the picker should run regardless.
+        pick_session = True
+        session_id = None
+        resume_session = False
+
+    if args.command == "commit":
+        asyncio.run(
+            run_commit(
+                workspace_dir=workspace_path,
+                message=args.message,
+                jar_path=jar_path,
+                executor_version=args.executor_version,
+                executor_snapshot=args.executor_snapshot,
+                vendor=args.vendor,
+            )
+        )
+        return
 
     if args.command == "issue":
         if args.issue_command == "create":
@@ -911,6 +982,7 @@ def main():
         executor_snapshot=args.executor_snapshot,
         session_id=session_id,
         resume_session=resume_session,
+        pick_session=pick_session,
         vendor=args.vendor,
     )
     try:

@@ -17,9 +17,11 @@ from brokk_code.acp_server import (
     _parse_model_selection,
     _reasoning_options_for_model,
     _sanitize_reasoning_level_for_model,
+    acp_slash_commands,
     conversation_payload_to_session_updates,
     extract_prompt_text,
     extract_resource_file_paths,
+    get_slash_command,
     map_executor_event_to_session_update,
     normalize_mode,
     resolve_model_selection,
@@ -48,6 +50,13 @@ def _tool_content(block: Any) -> dict[str, Any]:
 
 def _text_block_helper(text: str) -> dict[str, str]:
     return {"type": "text", "text": text}
+
+
+def _image_block_helper(data: str, mime_type: str, *, uri: str | None = None) -> dict[str, str]:
+    payload: dict[str, str] = {"type": "image", "data": data, "mime_type": mime_type}
+    if uri:
+        payload["uri"] = uri
+    return payload
 
 
 def test_normalize_mode_defaults_and_known_values() -> None:
@@ -242,6 +251,27 @@ def test_extract_prompt_text_from_blocks() -> None:
 
 def test_extract_prompt_text_from_string() -> None:
     assert extract_prompt_text("  direct prompt  ") == "direct prompt"
+
+
+def test_get_slash_command_logic() -> None:
+    # Valid commands
+    assert get_slash_command("/context") == "/context"
+    assert get_slash_command("  /context  ") == "/context"
+    assert get_slash_command("/context list files") == "/context"
+
+    # Invalid or non-commands
+    assert get_slash_command("context") is None
+    assert get_slash_command("/unknown") is None
+    assert get_slash_command("Please /context") is None
+    assert get_slash_command("") is None
+
+
+def test_acp_slash_commands_catalog_is_protocol_compatible() -> None:
+    commands = acp_slash_commands()
+    assert {"name": "context", "description": "Show current context snapshot"} in commands
+    assert all(not cmd["name"].startswith("/") for cmd in commands)
+    for cmd in commands:
+        assert get_slash_command(f"/{cmd['name']}") == f"/{cmd['name']}"
 
 
 def test_extract_resource_file_paths_supports_zed_resource_shape_and_relative_links() -> None:
@@ -527,8 +557,31 @@ async def test_ensure_ready_bootstraps_session_before_wait_ready() -> None:
     assert calls == ["start", "create_session:ACP Bootstrap Session", "wait_ready"]
 
 
-async def test_prompt_emits_tokens_but_no_snapshot(tmp_path: Path) -> None:
+async def test_start_and_create_session_avoids_bootstrap_on_first_call() -> None:
+    calls: list[str] = []
+
+    class StubExecutor:
+        async def start(self) -> None:
+            calls.append("start")
+
+        async def create_session(self, name: str = "ignored") -> str:
+            calls.append(f"create_session:{name}")
+            return "session-real"
+
+        async def wait_ready(self) -> bool:
+            calls.append("wait_ready")
+            return True
+
+    bridge = BrokkAcpBridge(StubExecutor())  # type: ignore[arg-type]
+    session_id = await bridge.start_and_create_session(name="Requested Session")
+
+    assert session_id == "session-real"
+    assert calls == ["start", "create_session:Requested Session", "wait_ready"]
+
+
+async def test_prompt_standard_flow_calls_submit_job_and_streams_tokens(tmp_path: Path) -> None:
     updates: list[tuple[str, dict[str, str]]] = []
+    job_submitted = False
 
     class StubExecutor:
         def __init__(self, workspace_dir: Path):
@@ -543,6 +596,9 @@ async def test_prompt_emits_tokens_but_no_snapshot(tmp_path: Path) -> None:
         async def wait_ready(self) -> bool:
             return True
 
+        async def switch_session(self, sid: str) -> bool:
+            return True
+
         async def submit_job(
             self,
             task_input: str,
@@ -552,8 +608,12 @@ async def test_prompt_emits_tokens_but_no_snapshot(tmp_path: Path) -> None:
             reasoning_level_code: str | None = None,
             mode: str = "LUTZ",
             session_id: str | None = None,
+            **kwargs: Any,
         ) -> str:
-            assert session_id == "session-1"
+            nonlocal job_submitted
+            job_submitted = True
+            assert task_input == "hello"
+            assert session_id == "acp-session-1"
             return "job-1"
 
         async def stream_events(self, job_id: str):
@@ -561,6 +621,9 @@ async def test_prompt_emits_tokens_but_no_snapshot(tmp_path: Path) -> None:
 
     async def send_update(session_id: str, update: dict[str, str]) -> None:
         updates.append((session_id, update))
+
+    def update_agent_message(content: Any) -> dict[str, Any]:
+        return {"sessionUpdate": "agent_message_chunk", "content": content}
 
     def update_agent_message_text(text: str) -> dict[str, str]:
         return {"sessionUpdate": "agent_message_chunk", "text": text}
@@ -575,9 +638,100 @@ async def test_prompt_emits_tokens_but_no_snapshot(tmp_path: Path) -> None:
         reasoning_level="low",
         reasoning_level_code="disable",
         send_update=send_update,
+        update_agent_message=update_agent_message,
         update_agent_message_text=update_agent_message_text,
+        update_agent_thought_text=_thought_block,
+        image_block=_image_block_helper,
+        start_tool_call=_start_tool_call,
+        update_tool_call=_update_tool_call,
+        tool_content=_tool_content,
     )
 
-    # Only one update for the token "abc" - no snapshot blocks
+    assert job_submitted
+    # Only one update for the token "abc"
     assert len(updates) == 1
     assert updates[0][1]["text"] == "abc"
+
+
+async def test_prompt_context_command_renders_snapshot_without_job(tmp_path: Path) -> None:
+    updates: list[tuple[str, dict[str, Any]]] = []
+    job_submitted = False
+
+    class StubExecutor:
+        async def start(self) -> None:
+            pass
+
+        async def create_session(self, name: str) -> str:
+            return "session-1"
+
+        async def wait_ready(self) -> bool:
+            return True
+
+        async def switch_session(self, sid: str) -> bool:
+            return True
+
+        async def get_context(self) -> dict[str, Any]:
+            return {
+                "fragments": [
+                    {"shortDescription": "file.py", "tokens": 1500, "pinned": True},
+                    {"shortDescription": "other.txt", "tokens": 500, "readonly": True},
+                    {"shortDescription": "a.md", "tokens": 400},
+                    {"shortDescription": "b.md", "tokens": 300},
+                    {"shortDescription": "c.md", "tokens": 200},
+                    {"shortDescription": "d.md", "tokens": 100},
+                ],
+                "usedTokens": 1234,
+                "maxTokens": 200000,
+                "branch": "main",
+                "totalCost": 0.0567,
+            }
+
+        async def submit_job(self, **kwargs: Any) -> str:
+            nonlocal job_submitted
+            job_submitted = True
+            return "job-1"
+
+    async def send_update(session_id: str, update: dict[str, Any]) -> None:
+        updates.append((session_id, update))
+
+    def update_agent_message(content: Any) -> dict[str, Any]:
+        return {"sessionUpdate": "agent_message_chunk", "content": content}
+
+    def update_agent_message_text(text: str) -> dict[str, str]:
+        return {"sessionUpdate": "agent_message_chunk", "text": text}
+
+    bridge = BrokkAcpBridge(StubExecutor())  # type: ignore[arg-type]
+    await bridge.prompt(
+        prompt="/context",
+        session_id="acp-1",
+        mode="LUTZ",
+        planner_model="gpt-5.2",
+        code_model=None,
+        reasoning_level=None,
+        reasoning_level_code=None,
+        send_update=send_update,
+        update_agent_message=update_agent_message,
+        update_agent_message_text=update_agent_message_text,
+        update_agent_thought_text=_thought_block,
+        image_block=_image_block_helper,
+        start_tool_call=_start_tool_call,
+        update_tool_call=_update_tool_call,
+        tool_content=_tool_content,
+    )
+
+    assert not job_submitted
+    assert len(updates) == 1
+    assert updates[0][1]["sessionUpdate"] == "agent_message_chunk"
+    table = updates[0][1]["text"]
+    assert "| Fragment | Tokens | % Context |" in table
+    assert "|---|---:|---:|" in table
+    assert "| file.py | 1,500 | 0.75% |" in table
+    assert "| other.txt | 500 | 0.25% |" in table
+    assert "| a.md | 400 | 0.20% |" in table
+    assert "| b.md | 300 | 0.15% |" in table
+    assert "| (other) | 300 | 0.15% |" in table
+    assert "| c.md |" not in table
+    assert "| d.md |" not in table
+    assert table.index("| file.py |") < table.index("| other.txt |")
+    assert "**Total Tokens:** 1,234 / 200,000" in table
+    assert "![Token usage](data:image/png;base64," in table

@@ -15,6 +15,19 @@ _BROKK_MARKER_RE = re.compile(f"^{_BROKK_MARKER}$", re.MULTILINE)
 _BROKK_INSTRUCTIONS = f"""{_BROKK_MARKER}
 Always use the Brokk MCP server tools for syntax-aware code search and callCodeAgent.
 """
+_BROKK_MCP_PERMISSION_ALLOW: list[str] = [
+    "Bash(./gradlew:*)",
+    "mcp__brokk__searchSymbols",
+    "mcp__brokk__getClassSources",
+    "mcp__brokk__getMethodSources",
+    "mcp__brokk__getClassSkeletons",
+    "mcp__brokk__scanUsages",
+    "mcp__brokk__callCodeAgent",
+    "mcp__brokk__scan",
+    "mcp__brokk__getFileSummaries",
+    "mcp__brokk__skimDirectory",
+    "mcp__brokk__runBuild",
+]
 
 
 def _ensure_brokk_instructions(path: Path) -> None:
@@ -123,6 +136,33 @@ def _resolve_effective_jbang(jbang_path: str | None) -> str:
     return jbang_path or resolve_jbang_binary() or "jbang"
 
 
+def _merge_claude_permissions(data: dict[str, Any]) -> None:
+    permissions = data.get("permissions")
+    if permissions is None:
+        permissions = {}
+        data["permissions"] = permissions
+    elif not isinstance(permissions, dict):
+        raise ValueError("Expected 'permissions' to be a JSON object")
+
+    allow_rules = permissions.get("allow")
+    if allow_rules is None:
+        allow_rules = []
+        permissions["allow"] = allow_rules
+    elif not isinstance(allow_rules, list):
+        raise ValueError("Expected 'permissions.allow' to be an array")
+
+    seen: set[str] = set()
+    for existing_rule in allow_rules:
+        if not isinstance(existing_rule, str):
+            raise ValueError("Expected every entry in 'permissions.allow' to be a string")
+        seen.add(existing_rule)
+
+    for rule in _BROKK_MCP_PERMISSION_ALLOW:
+        if rule not in seen:
+            allow_rules.append(rule)
+            seen.add(rule)
+
+
 def _brokk_mcp_config(jbang_path: str) -> dict[str, Any]:
     return {
         "command": jbang_path,
@@ -184,6 +224,7 @@ def configure_claude_code_mcp_settings(
         },
     }
     mcp_servers[_SERVER_NAME] = server_config
+    _merge_claude_permissions(settings)
     path.parent.mkdir(parents=True, exist_ok=True)
     atomic_write_settings(path, settings)
 

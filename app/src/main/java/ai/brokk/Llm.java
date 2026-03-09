@@ -23,6 +23,7 @@ import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.exception.HttpException;
+import dev.langchain4j.exception.LangChain4jException;
 import dev.langchain4j.exception.NonRetriableException;
 import dev.langchain4j.exception.OverthinkingException;
 import dev.langchain4j.exception.PaymentRequiredException;
@@ -353,11 +354,14 @@ public class Llm {
                     r.run();
                 }
             } catch (RuntimeException e) {
-                // litellm is fucking us over again, try to recover
+                // Recover from callback exceptions to prevent thread leakage/hangs
                 logger.error(e);
                 errorRef.set(e);
                 completed.set(true);
-                contextManager.reportException(e);
+                // Only report unexpected internal errors, not expected LLM/network errors
+                if (!(e instanceof LangChain4jException)) {
+                    contextManager.reportException(e);
+                }
             } finally {
                 if (firstToken.get()) {
                     firstToken.set(false);

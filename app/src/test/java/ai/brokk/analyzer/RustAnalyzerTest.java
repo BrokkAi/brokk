@@ -1,8 +1,10 @@
 package ai.brokk.analyzer;
 
+import static ai.brokk.testutil.AssertionHelperUtil.assertCodeContains;
 import static ai.brokk.testutil.AssertionHelperUtil.assertCodeUnitType;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import ai.brokk.AnalyzerUtil;
 import ai.brokk.project.IProject;
 import ai.brokk.testutil.InlineTestProjectCreator;
 import org.junit.jupiter.api.Test;
@@ -293,6 +295,72 @@ public class RustAnalyzerTest {
             // Verify test detection works for nested test
             ProjectFile file = new ProjectFile(project.getRoot(), fileName);
             assertTrue(analyzer.containsTests(file), "File with nested #[test] should be detected as containing tests");
+        }
+    }
+
+    @Test
+    void testFieldSkeletons() throws Exception {
+        String rustCode =
+                """
+            pub struct Point {
+                pub x: i32,
+                y: i32,
+            }
+
+            pub const ORIGIN: i32 = 0;
+            static COUNT: i32 = 1;
+
+            pub enum E {
+                A,
+                B(u32),
+                C { x: i32 },
+            }
+
+            impl Point {
+                pub const ID: i32 = 1;
+            }
+            """;
+
+        try (IProject project =
+                InlineTestProjectCreator.code(rustCode, "lib.rs").build()) {
+            RustAnalyzer analyzer = new RustAnalyzer(project);
+            analyzer.update();
+
+            // 1. Verify struct fields
+            String pointSkeleton = AnalyzerUtil.getSkeleton(analyzer, "Point").orElseThrow();
+            assertCodeContains(pointSkeleton, "pub x: i32");
+            assertCodeContains(pointSkeleton, "y: i32");
+
+            // 2. Verify top-level const and static
+            // Note: RustAnalyzer prefixes top-level fields with "_module_." in createCodeUnit
+            String originSkeleton =
+                    AnalyzerUtil.getSkeleton(analyzer, "_module_.ORIGIN").orElseThrow();
+            assertCodeContains(originSkeleton, "pub const ORIGIN: i32 = 0");
+
+            String countSkeleton =
+                    AnalyzerUtil.getSkeleton(analyzer, "_module_.COUNT").orElseThrow();
+            assertCodeContains(countSkeleton, "static COUNT: i32 = 1");
+
+            // 3. Verify enum variants
+            // We check the enum skeleton exists, and then check each variant's skeleton individually for robustness
+            String enumSkeleton = AnalyzerUtil.getSkeleton(analyzer, "E").orElseThrow();
+            assertCodeContains(enumSkeleton, "enum E");
+
+            String variantASkeleton = AnalyzerUtil.getSkeleton(analyzer, "E.A").orElseThrow();
+            assertCodeContains(variantASkeleton, "A");
+
+            String variantBSkeleton = AnalyzerUtil.getSkeleton(analyzer, "E.B").orElseThrow();
+            assertCodeContains(variantBSkeleton, "B");
+            assertCodeContains(variantBSkeleton, "u32");
+
+            String variantCSkeleton = AnalyzerUtil.getSkeleton(analyzer, "E.C").orElseThrow();
+            assertCodeContains(variantCSkeleton, "C");
+            assertCodeContains(variantCSkeleton, "x: i32");
+
+            // 4. Verify associated const inside impl
+            String associatedConstSkeleton =
+                    AnalyzerUtil.getSkeleton(analyzer, "Point.ID").orElseThrow();
+            assertCodeContains(associatedConstSkeleton, "pub const ID: i32 = 1;");
         }
     }
 }

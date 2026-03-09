@@ -3,14 +3,19 @@ package ai.brokk.agents;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.IContextManager;
+import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.SpecialTextType;
+import ai.brokk.git.GitRepo;
 import ai.brokk.testutil.InlineTestProjectCreator;
 import ai.brokk.testutil.TestContextManager;
+import ai.brokk.testutil.TestProject;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Set;
+import org.eclipse.jgit.api.Git;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.junit.jupiter.api.Test;
 
@@ -128,5 +133,28 @@ class ReviewScopeTest {
 
         assertTrue(results.isEmpty());
         project.close();
+    }
+
+    @Test
+    void testFromBaseline_emptyRepo_throws() throws IOException, GitAPIException {
+        Path tempDir = Files.createTempDirectory("brokk-empty-repo-test-");
+        try (Git git = Git.init().setDirectory(tempDir.toFile()).call()) {
+            var repo = new GitRepo(tempDir);
+            var project = new TestProject(tempDir, Languages.JAVA) {
+                @Override
+                public GitRepo getRepo() {
+                    return repo;
+                }
+            };
+            project.setHasGit(true);
+            IContextManager cm = new TestContextManager(project);
+
+            // On an empty repo (no commits), HEAD cannot be resolved
+            var ex = assertThrows(RuntimeException.class, () -> ReviewScope.fromBaseline(cm, "HEAD", "WORKING"));
+            assertTrue(ex.getMessage().contains("Failed to resolve references"));
+
+            repo.close();
+        }
+        ai.brokk.util.FileUtil.deleteRecursively(tempDir);
     }
 }

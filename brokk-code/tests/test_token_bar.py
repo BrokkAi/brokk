@@ -1,8 +1,11 @@
-import base64
-
 from textual.geometry import Size
 
-from brokk_code.widgets.token_bar import TokenBar, get_token_bar_markdown, get_token_bar_svg
+from brokk_code.widgets.token_bar import (
+    TokenBar,
+    get_token_bar_markdown,
+    get_token_bar_png_bytes,
+    get_token_bar_svg,
+)
 
 
 def test_compute_segments_empty():
@@ -136,8 +139,11 @@ def test_render_percentage_remaining():
     bar._test_size = Size(80, 1)
 
     # 6400 / 200,000 used = 3.2% used = 96.8% remaining
-    bar.update_tokens(used_tokens=6400, max_tokens=200_000)
+    # Verify that session_cost does not appear in the rendered text
+    bar.update_tokens(used_tokens=6400, max_tokens=200_000, session_cost=0.50)
     assert "96.8% context remaining" in bar._rendered_text.plain
+    assert "$" not in bar._rendered_text.plain
+    assert "0.50" not in bar._rendered_text.plain
 
     # Test clamping: used > max
     bar.update_tokens(used_tokens=250_000, max_tokens=200_000)
@@ -153,8 +159,11 @@ def test_render_absolute_fallback():
     bar._test_size = Size(80, 1)
 
     # max_tokens <= 0 should show absolute count
-    bar.update_tokens(used_tokens=5000, max_tokens=0)
+    # Verify that session_cost does not appear in the rendered text
+    bar.update_tokens(used_tokens=5000, max_tokens=0, session_cost=1.23)
     assert "5k tokens" in bar._rendered_text.plain
+    assert "$" not in bar._rendered_text.plain
+    assert "1.23" not in bar._rendered_text.plain
 
 
 def test_get_token_bar_svg_contains_svg_tag():
@@ -162,18 +171,7 @@ def test_get_token_bar_svg_contains_svg_tag():
     assert svg.startswith("<svg")
     assert svg.endswith("</svg>")
     assert 'fill="#4CAF50"' in svg  # EDIT color
-    assert 'fill="#333333"' in svg  # Background track
-
-
-def test_get_token_bar_markdown_format():
-    md = get_token_bar_markdown(500, 1000, [{"chipKind": "EDIT", "tokens": 500}])
-    assert md.startswith("![Token usage](data:image/svg+xml;base64,")
-    assert md.endswith(")")
-
-    # Validate base64 content
-    b64_part = md.split("base64,")[1].rstrip(")")
-    decoded = base64.b64decode(b64_part).decode("ascii")
-    assert decoded.startswith("<svg")
+    assert 'fill="#FFFFFF"' in svg  # Background track
 
 
 def test_get_token_bar_svg_colors_for_multiple_kinds():
@@ -201,5 +199,19 @@ def test_get_token_bar_svg_empty_or_zero_tokens():
     # zero used tokens should result in just the background track (no segments)
     svg = get_token_bar_svg(0, 1000, [], width_px=100)
     assert "<svg" in svg
-    assert 'fill="#333333"' in svg
+    assert 'fill="#FFFFFF"' in svg
     assert '<rect x="' not in svg  # No segments
+
+
+def test_get_token_bar_markdown_uses_data_uri_png():
+    markdown = get_token_bar_markdown(500, 1000, [{"chipKind": "EDIT", "tokens": 500}])
+    assert markdown.startswith("![Token usage](data:image/png;base64,")
+
+
+def test_get_token_bar_png_has_png_signature():
+    png = get_token_bar_png_bytes(500, 1000, [{"chipKind": "EDIT", "tokens": 500}])
+    assert png.startswith(b"\x89PNG\r\n\x1a\n")
+
+
+def test_get_token_bar_png_empty_on_invalid_dimensions():
+    assert get_token_bar_png_bytes(1, 1, [], width_px=0) == b""

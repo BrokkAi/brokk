@@ -1560,6 +1560,40 @@ public final class PythonAnalyzerTest {
     }
 
     @Test
+    void testResolveTestModules() throws Exception {
+        var builder = InlineTestProjectCreator.code("", "pkg/__init__.py")
+                .addFileContents("def test_a(): pass", "pkg/test_a.py")
+                .addFileContents("", "pkg/sub/__init__.py")
+                .addFileContents("def test_b(): pass", "pkg/sub/test_b.py")
+                .addFileContents("def test_root(): pass", "test_root.py")
+                .addFileContents("def test_c(): pass", "scripts/test_c.py");
+
+        try (var testProject = builder.build()) {
+            var testAnalyzer = new PythonAnalyzer(testProject);
+
+            // 1. Standard Package: pkg/test_a.py -> pkg.test_a
+            ProjectFile fileA = new ProjectFile(testProject.getRoot(), "pkg/test_a.py");
+            assertEquals(List.of("pkg.test_a"), testAnalyzer.getTestModules(List.of(fileA)));
+
+            // 2. Nested Package: pkg/sub/test_b.py -> pkg.sub.test_b
+            ProjectFile fileB = new ProjectFile(testProject.getRoot(), "pkg/sub/test_b.py");
+            assertEquals(List.of("pkg.sub.test_b"), testAnalyzer.getTestModules(List.of(fileB)));
+
+            // 3. Root Script: test_root.py -> test_root
+            ProjectFile fileRoot = new ProjectFile(testProject.getRoot(), "test_root.py");
+            assertEquals(List.of("test_root"), testAnalyzer.getTestModules(List.of(fileRoot)));
+
+            // 4. Namespace/No-Init Dir: scripts/test_c.py -> scripts.test_c
+            // getPackageNameForFile falls back to path replacement if no __init__.py is found upstream.
+            ProjectFile fileC = new ProjectFile(testProject.getRoot(), "scripts/test_c.py");
+            assertEquals(List.of("scripts.test_c"), testAnalyzer.getTestModules(List.of(fileC)));
+
+            // Multiple files sorted
+            assertEquals(List.of("pkg.test_a", "test_root"), testAnalyzer.getTestModules(List.of(fileA, fileRoot)));
+        }
+    }
+
+    @Test
     public void getUsesClassComprehensivePatternsTest() throws InterruptedException {
         var finder = newFinder(project, analyzer);
         var symbol = "class_usage_patterns.BaseClass";

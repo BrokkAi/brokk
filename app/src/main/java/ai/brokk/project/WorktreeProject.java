@@ -4,7 +4,6 @@ import ai.brokk.AbstractService;
 import ai.brokk.IssueProvider;
 import ai.brokk.SessionManager;
 import ai.brokk.SessionRegistry;
-import ai.brokk.agents.BuildAgent;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.mcpclient.McpConfig;
@@ -13,11 +12,8 @@ import ai.brokk.util.IStringDiskCache;
 import ai.brokk.util.ShellConfig;
 import java.nio.file.Path;
 import java.util.List;
-import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
-import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
 public final class WorktreeProject extends AbstractProject {
@@ -51,32 +47,6 @@ public final class WorktreeProject extends AbstractProject {
     @Override
     public void invalidateAutoDetectedLanguages() {
         parent.invalidateAutoDetectedLanguages();
-    }
-
-    @Override
-    public Optional<BuildAgent.BuildDetails> loadBuildDetails() {
-        return parent.loadBuildDetails();
-    }
-
-    @Override
-    public void saveBuildDetails(BuildAgent.BuildDetails details) {
-        parent.saveBuildDetails(details);
-    }
-
-    @Override
-    public CompletableFuture<BuildAgent.BuildDetails> getBuildDetailsFuture() {
-        return parent.getBuildDetailsFuture();
-    }
-
-    @Override
-    @Blocking
-    public BuildAgent.BuildDetails awaitBuildDetails() {
-        return parent.awaitBuildDetails();
-    }
-
-    @Override
-    public boolean hasBuildDetails() {
-        return parent.hasBuildDetails();
     }
 
     @Override
@@ -322,5 +292,15 @@ public final class WorktreeProject extends AbstractProject {
     @Override
     public void setGitConfigDeclined(boolean declined) {
         parent.setGitConfigDeclined(declined);
+    }
+
+    @Override
+    public List<String> getSourceRoots(Language language) {
+        return parent.getSourceRoots(language);
+    }
+
+    @Override
+    public void setSourceRoots(Language language, List<String> roots) {
+        parent.setSourceRoots(language, roots);
     }
 }

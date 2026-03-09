@@ -167,10 +167,15 @@ public class BrokkExternalMcpServer {
                             ? new McpSchema.JsonSchema("object", Map.of(), List.of(), false, null, null)
                             : toMcpSchema(spec.parameters());
 
+                    boolean destructive = registry.isToolAnnotated(spec.name(), Destructive.class);
+                    McpSchema.ToolAnnotations toolAnnotations =
+                            new McpSchema.ToolAnnotations(null, !destructive, destructive, null, null, null);
+
                     McpSchema.Tool mcpTool = McpSchema.Tool.builder()
                             .name(spec.name())
                             .description(spec.description())
                             .inputSchema(inputSchema)
+                            .annotations(toolAnnotations)
                             .build();
 
                     return McpServerFeatures.SyncToolSpecification.builder()
@@ -383,6 +388,7 @@ public class BrokkExternalMcpServer {
             Code Agent can ONLY write (and test) code changes (and configuration/fixture files). It cannot call
             other tools or execute cli tasks.
             """)
+    @Destructive
     public String callCodeAgent(
             @P(
                             "Instructions for the changes. If there is context needed outside the files being edited, make sure to include it here.")

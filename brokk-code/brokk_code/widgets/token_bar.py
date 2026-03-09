@@ -1,5 +1,7 @@
 import base64
 import math
+import struct
+import zlib
 from typing import Any, Dict, List, Optional
 
 from rich.console import RenderableType
@@ -10,6 +12,8 @@ from textual.message import Message
 from textual.widgets import Static
 
 from brokk_code.token_format import format_token_count
+
+_TRACK_BG = "#FFFFFF"
 
 
 class TokenBar(Static):
@@ -100,17 +104,13 @@ class TokenBar(Static):
             self._rendered_text = Text(usage_str, style="dim")
             self._emit_hover(None, None)
         else:
-            cost_hint = ""
-            if self._session_cost is not None and self._session_cost > 0:
-                cost_hint = f" (${self._session_cost:.2f})"
-
             if self._max_tokens > 0:
                 # Clamp used_tokens to 0 for percentage display if negative
                 display_used = max(0, self._used_tokens)
                 pct = max(0.0, min(100.0, 100 * (1 - display_used / self._max_tokens)))
-                usage_str = f" {pct:.1f}% context remaining{cost_hint}"
+                usage_str = f" {pct:.1f}% context remaining"
             else:
-                usage_str = f" {format_token_count(self._used_tokens)} tokens{cost_hint}"
+                usage_str = f" {format_token_count(self._used_tokens)} tokens"
 
             # Reserve space for the text at the end
             bar_width = width - len(usage_str)
@@ -464,7 +464,7 @@ def get_token_bar_svg(
     # Track background
     svg_parts = [
         f'<svg width="{width_px}" height="{height_px}" xmlns="http://www.w3.org/2000/svg">',
-        f'<rect width="{width_px}" height="{height_px}" fill="#333333" rx="2" ry="2" />',
+        f'<rect width="{width_px}" height="{height_px}" fill="{_TRACK_BG}" rx="2" ry="2" />',
     ]
 
     x_offset = 0
@@ -489,13 +489,81 @@ def get_token_bar_markdown(
     height_px: int = 16,
 ) -> str:
     """
-    Generate a Markdown image string with a base64-encoded SVG token bar.
+    Generate a Markdown image string with a base64-encoded PNG token bar.
     """
-    svg = get_token_bar_svg(used_tokens, max_tokens, fragments, width_px, height_px)
-    if not svg:
+    png = get_token_bar_png_bytes(used_tokens, max_tokens, fragments, width_px, height_px)
+    if not png:
         return ""
-    b64_svg = base64.b64encode(svg.encode("ascii")).decode("ascii")
-    return f"![Token usage](data:image/svg+xml;base64,{b64_svg})"
+    b64_png = base64.b64encode(png).decode("ascii")
+    return f"![Token usage](data:image/png;base64,{b64_png})"
+
+
+def _hex_to_rgb(value: str) -> tuple[int, int, int]:
+    hex_value = value.lstrip("#")
+    return (int(hex_value[0:2], 16), int(hex_value[2:4], 16), int(hex_value[4:6], 16))
+
+
+def _png_chunk(chunk_type: bytes, data: bytes) -> bytes:
+    length = struct.pack(">I", len(data))
+    crc = struct.pack(">I", zlib.crc32(chunk_type + data) & 0xFFFFFFFF)
+    return length + chunk_type + data + crc
+
+
+def get_token_bar_png_bytes(
+    used_tokens: int,
+    max_tokens: int,
+    fragments: List[Dict[str, Any]],
+    width_px: int = 400,
+    height_px: int = 16,
+) -> bytes:
+    """Generate PNG bytes representing the token usage bar."""
+    if width_px <= 0 or height_px <= 0:
+        return b""
+
+    details = TokenBar.compute_segment_details(width_px, used_tokens, max_tokens, fragments)
+    background = _hex_to_rgb(_TRACK_BG)
+
+    row = bytearray()
+    for _ in range(width_px):
+        row.extend(background)
+    pixels = bytearray(row * height_px)
+
+    x_offset = 0
+    for w, kind, _frags in details:
+        if w <= 0:
+            continue
+        color = _hex_to_rgb(_KIND_TO_HEX.get(kind.upper(), "#757575"))
+        x_start = max(0, x_offset)
+        x_end = min(width_px, x_offset + w)
+        if x_end <= x_start:
+            x_offset += w
+            continue
+        for y in range(height_px):
+            base = y * width_px * 3
+            for x in range(x_start, x_end):
+                idx = base + x * 3
+                pixels[idx] = color[0]
+                pixels[idx + 1] = color[1]
+                pixels[idx + 2] = color[2]
+        x_offset += w
+
+    raw_scanlines = bytearray()
+    row_bytes = width_px * 3
+    for y in range(height_px):
+        raw_scanlines.append(0)  # PNG filter type 0 (None)
+        start = y * row_bytes
+        raw_scanlines.extend(pixels[start : start + row_bytes])
+
+    compressed = zlib.compress(bytes(raw_scanlines), 9)
+
+    signature = b"\x89PNG\r\n\x1a\n"
+    ihdr = _png_chunk(
+        b"IHDR",
+        struct.pack(">IIBBBBB", width_px, height_px, 8, 2, 0, 0, 0),
+    )
+    idat = _png_chunk(b"IDAT", compressed)
+    iend = _png_chunk(b"IEND", b"")
+    return signature + ihdr + idat + iend
 
 
 _KIND_TO_HEX = {

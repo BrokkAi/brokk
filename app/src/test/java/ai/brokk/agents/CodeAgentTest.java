@@ -5,7 +5,9 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.AbstractService;
 import ai.brokk.EditBlock;
+import ai.brokk.IConsoleIO;
 import ai.brokk.Llm;
+import ai.brokk.LlmOutputMeta;
 import ai.brokk.TaskResult;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.JavaAnalyzer;
@@ -1373,6 +1375,40 @@ class CodeAgentTest {
         assertTrue(sysText.contains("<<<<<<< SEARCH"), "System message should contain SEARCH marker");
         assertTrue(sysText.contains(">>>>>>> REPLACE"), "System message should contain REPLACE marker");
         assertTrue(sysText.contains("<rules>"), "System message should contain rules section");
+    }
+
+    @Test
+    void testReportMethodsUseCorrectMetadata() {
+        class MetaCaptureConsole implements IConsoleIO {
+            final List<LlmOutputMeta> capturedMeta = new ArrayList<>();
+            final List<dev.langchain4j.data.message.ChatMessageType> capturedTypes = new ArrayList<>();
+
+            @Override
+            public void llmOutput(String token, dev.langchain4j.data.message.ChatMessageType type, LlmOutputMeta meta) {
+                capturedMeta.add(meta);
+                capturedTypes.add(type);
+            }
+
+            @Override
+            public void toolError(String msg, String title) {}
+        }
+
+        var capture = new MetaCaptureConsole();
+        var agent = new CodeAgent(cm, new AbstractService.OfflineStreamingModel(), capture);
+
+        // Test report
+        agent.report("progress update");
+        assertEquals(1, capture.capturedMeta.size());
+        assertTrue(capture.capturedMeta.get(0).isNewMessage());
+        assertFalse(capture.capturedMeta.get(0).isTerminal());
+        assertEquals(dev.langchain4j.data.message.ChatMessageType.CUSTOM, capture.capturedTypes.get(0));
+
+        // Test reportComplete
+        agent.reportComplete(TaskResult.StopReason.SUCCESS, "finished");
+        assertEquals(2, capture.capturedMeta.size());
+        assertTrue(capture.capturedMeta.get(1).isNewMessage());
+        assertFalse(capture.capturedMeta.get(1).isTerminal());
+        assertEquals(dev.langchain4j.data.message.ChatMessageType.CUSTOM, capture.capturedTypes.get(1));
     }
 
     @Test
