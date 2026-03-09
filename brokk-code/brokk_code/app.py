@@ -2607,32 +2607,32 @@ class BrokkApp(App):
             return
 
         try:
-            chat.add_system_message("Fetching sessions and PR suggestion...")
+            chat.add_system_message("Fetching overlapping sessions and PR suggestion...")
             chat.set_job_running(True)
-
-            # Fetch available sessions
-            sessions_data = await self.executor.list_sessions()
-            sessions = sessions_data.get("sessions", [])
-            current_session_id = sessions_data.get("currentSessionId", "")
-
-            # Default selection: current session if present
-            default_selected_ids: List[str] = []
-            if current_session_id:
-                default_selected_ids = [current_session_id]
 
             # Use current branch as source, optional base branch override or let executor default
             source_branch = self.current_branch if self.current_branch != "unknown" else None
 
-            suggestion = await self.executor.pr_suggest(
+            # Fetch overlapping sessions for this PR's branch diff
+            sessions_data = await self.executor.pr_sessions(
                 source_branch=source_branch,
                 target_branch=base_branch,
+            )
+            sessions = sessions_data.get("sessions", [])
+            resolved_source = sessions_data.get("sourceBranch", source_branch or "")
+            resolved_target = sessions_data.get("targetBranch", base_branch or "")
+
+            # Default selection: ALL overlapping sessions, matching Swing behavior
+            default_selected_ids: List[str] = [str(s.get("id", "")) for s in sessions]
+
+            suggestion = await self.executor.pr_suggest(
+                source_branch=resolved_source,
+                target_branch=resolved_target,
                 session_ids=default_selected_ids if default_selected_ids else None,
             )
 
             suggested_title = suggestion.get("title", "")
             suggested_body = suggestion.get("description", "")
-            resolved_source = suggestion.get("sourceBranch", source_branch or "")
-            resolved_target = suggestion.get("targetBranch", base_branch or "")
 
             chat.set_job_running(False)
 

@@ -1,15 +1,21 @@
 package ai.brokk.executor.routers;
 
 import ai.brokk.ContextManager;
+import ai.brokk.SessionManager;
+import ai.brokk.agents.ReviewScope;
 import ai.brokk.executor.http.SimpleHttpServer;
 import ai.brokk.executor.jobs.ErrorPayload;
+import ai.brokk.git.CommitInfo;
+import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitWorkflow;
 import ai.brokk.git.IGitRepo;
 import com.sun.net.httpserver.HttpExchange;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -45,6 +51,7 @@ public final class RepoRouter implements SimpleHttpServer.CheckedHttpHandler {
             case "/v1/repo/commit" -> handlePostCommit(exchange);
             case "/v1/repo/pr/suggest" -> handlePostPrSuggest(exchange);
             case "/v1/repo/pr/create" -> handlePostPrCreate(exchange);
+            case "/v1/repo/pr/sessions" -> handlePostPrSessions(exchange);
             default ->
                 SimpleHttpServer.sendJsonResponse(
                         exchange, 404, ErrorPayload.of(ErrorPayload.Code.NOT_FOUND, "Not found"));
@@ -55,6 +62,8 @@ public final class RepoRouter implements SimpleHttpServer.CheckedHttpHandler {
 
     private record PrSuggestRequest(
             @Nullable String sourceBranch, @Nullable String targetBranch, @Nullable List<String> sessionIds) {}
+
+    private record PrSessionsRequest(@Nullable String sourceBranch, @Nullable String targetBranch) {}
 
     private record PrCreateRequest(
             @Nullable String sourceBranch,
@@ -225,6 +234,65 @@ public final class RepoRouter implements SimpleHttpServer.CheckedHttpHandler {
             logger.error("Error handling POST /v1/repo/pr/create", e);
             SimpleHttpServer.sendJsonResponse(
                     exchange, 500, ErrorPayload.internalError("Failed to create pull request", e));
+        }
+    }
+
+    private void handlePostPrSessions(HttpExchange exchange) throws IOException {
+        if (!RouterUtil.ensureMethod(exchange, "POST")) return;
+
+        var project = contextManager.getProject();
+        if (!project.hasGit()) {
+            RouterUtil.sendValidationError(exchange, "Project does not have a git repository");
+            return;
+        }
+
+        var request = RouterUtil.parseJsonOr400(exchange, PrSessionsRequest.class, "/v1/repo/pr/sessions");
+        if (request == null) return;
+
+        try {
+            var repo = project.getRepo();
+            String source = resolveSourceBranch(request.sourceBranch(), repo);
+            String target = resolveTargetBranch(request.targetBranch(), repo);
+
+            // Match Swing semantics: listCommitsBetweenBranches(target, source, true)
+            // This requires GitRepo, not IGitRepo
+            List<CommitInfo> commits;
+            if (repo instanceof GitRepo gitRepo) {
+                commits = gitRepo.listCommitsBetweenBranches(target, source, true);
+            } else {
+                commits = List.of();
+            }
+
+            // Find overlapping sessions matching Swing's updateSessionsTab behavior
+            List<UUID> overlappingIds = ReviewScope.findOverlappingSessions(contextManager, commits);
+            Set<UUID> overlappingIdSet = Set.copyOf(overlappingIds);
+
+            // Build session metadata matching Swing: filter listSessions() to overlapping IDs
+            SessionManager sm = project.getSessionManager();
+            var allSessions = sm.listSessions();
+
+            List<Map<String, Object>> sessionList = new ArrayList<>();
+            for (var info : allSessions) {
+                if (overlappingIdSet.contains(info.id())) {
+                    int taskCount = sm.countAiResponses(info.id());
+                    Map<String, Object> sessionData = new HashMap<>();
+                    sessionData.put("id", info.id().toString());
+                    sessionData.put("name", info.name());
+                    sessionData.put("taskCount", taskCount);
+                    sessionList.add(sessionData);
+                }
+            }
+
+            SimpleHttpServer.sendJsonResponse(
+                    exchange,
+                    Map.of(
+                            "sessions", sessionList,
+                            "sourceBranch", source,
+                            "targetBranch", target));
+        } catch (Exception e) {
+            logger.error("Error handling POST /v1/repo/pr/sessions", e);
+            SimpleHttpServer.sendJsonResponse(
+                    exchange, 500, ErrorPayload.internalError("Failed to get PR sessions", e));
         }
     }
 

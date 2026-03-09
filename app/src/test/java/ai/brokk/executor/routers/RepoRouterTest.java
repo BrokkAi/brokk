@@ -343,6 +343,69 @@ class RepoRouterTest {
         assertEquals(405, exchange.responseCode());
     }
 
+    // --- PR Sessions endpoint tests ---
+
+    @Test
+    void handlePostPrSessions_noGitRepo_returns400(@TempDir Path tempDir) throws Exception {
+        // Initialize without git
+        projectRoot = tempDir;
+        var project = new MainProject(projectRoot);
+        contextManager = new ContextManager(project);
+        repoRouter = new RepoRouter(contextManager);
+
+        var exchange = TestHttpExchange.jsonRequest("POST", "/v1/repo/pr/sessions", Map.of());
+        repoRouter.handle(exchange);
+
+        assertEquals(400, exchange.responseCode());
+        Map<String, Object> body = MAPPER.readValue(exchange.responseBodyBytes(), new TypeReference<>() {});
+        assertTrue(body.get("message").toString().contains("git repository"));
+    }
+
+    @Test
+    void handlePostPrSessions_wrongMethod_returns405(@TempDir Path tempDir) throws Exception {
+        initGitRepoWithFeatureBranch(tempDir);
+
+        var exchange = TestHttpExchange.request("GET", "/v1/repo/pr/sessions");
+        repoRouter.handle(exchange);
+
+        assertEquals(405, exchange.responseCode());
+    }
+
+    @Test
+    void handlePostPrSessions_withFeatureBranch_returnsSessionsAndBranches(@TempDir Path tempDir) throws Exception {
+        initGitRepoWithFeatureBranch(tempDir);
+
+        var exchange = TestHttpExchange.jsonRequest(
+                "POST", "/v1/repo/pr/sessions", Map.of("sourceBranch", "feature", "targetBranch", "master"));
+        repoRouter.handle(exchange);
+
+        assertEquals(200, exchange.responseCode());
+        Map<String, Object> body = MAPPER.readValue(exchange.responseBodyBytes(), new TypeReference<>() {});
+
+        // Verify response shape
+        assertNotNull(body.get("sessions"));
+        assertTrue(body.get("sessions") instanceof java.util.List);
+        assertEquals("feature", body.get("sourceBranch"));
+        assertEquals("master", body.get("targetBranch"));
+    }
+
+    @Test
+    void handlePostPrSessions_defaultsBranches(@TempDir Path tempDir) throws Exception {
+        initGitRepoWithFeatureBranch(tempDir);
+
+        // Request without specifying branches - should use current (feature) and default (master)
+        var exchange = TestHttpExchange.jsonRequest("POST", "/v1/repo/pr/sessions", Map.of());
+        repoRouter.handle(exchange);
+
+        assertEquals(200, exchange.responseCode());
+        Map<String, Object> body = MAPPER.readValue(exchange.responseBodyBytes(), new TypeReference<>() {});
+
+        assertNotNull(body.get("sessions"));
+        assertEquals("feature", body.get("sourceBranch"));
+        // Target should be resolved to default branch
+        assertNotNull(body.get("targetBranch"));
+    }
+
     /**
      * Sets up a git repo with a master branch and a feature branch with one additional commit.
      */

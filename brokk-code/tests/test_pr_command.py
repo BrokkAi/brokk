@@ -76,16 +76,17 @@ def test_handle_command_pr_with_base_branch(tmp_path: Path):
 
 @pytest.mark.asyncio
 async def test_create_pull_request_fetches_sessions_and_suggestion(tmp_path: Path):
-    """Verify _create_pull_request fetches sessions and PR suggestion from executor."""
+    """Verify _create_pull_request fetches overlapping sessions and PR suggestion from executor."""
     mock_executor = MagicMock()
     mock_executor.workspace_dir = tmp_path
-    mock_executor.list_sessions = AsyncMock(
+    mock_executor.pr_sessions = AsyncMock(
         return_value={
             "sessions": [
-                {"id": "session-1", "name": "Session One"},
-                {"id": "session-2", "name": "Session Two"},
+                {"id": "session-1", "name": "Session One", "taskCount": 3},
+                {"id": "session-2", "name": "Session Two", "taskCount": 5},
             ],
-            "currentSessionId": "session-1",
+            "sourceBranch": "feature-branch",
+            "targetBranch": "main",
         }
     )
     mock_executor.pr_suggest = AsyncMock(
@@ -117,14 +118,17 @@ async def test_create_pull_request_fetches_sessions_and_suggestion(tmp_path: Pat
 
     await app._create_pull_request(base_branch="main")
 
-    # Verify sessions were fetched
-    mock_executor.list_sessions.assert_called_once()
+    # Verify overlapping sessions were fetched with correct branches
+    mock_executor.pr_sessions.assert_called_once_with(
+        source_branch="feature-branch",
+        target_branch="main",
+    )
 
-    # Verify pr_suggest was called with default selected session IDs
+    # Verify pr_suggest was called with ALL overlapping session IDs (Swing behavior)
     mock_executor.pr_suggest.assert_called_once_with(
         source_branch="feature-branch",
         target_branch="main",
-        session_ids=["session-1"],
+        session_ids=["session-1", "session-2"],
     )
 
     # Verify modal was pushed with correct data including sessions
@@ -136,7 +140,9 @@ async def test_create_pull_request_fetches_sessions_and_suggestion(tmp_path: Pat
     assert screen._source_branch == "feature-branch"
     assert screen._target_branch == "main"
     assert len(screen._sessions) == 2
+    # All overlapping sessions should be pre-selected
     assert "session-1" in screen._selected_session_ids
+    assert "session-2" in screen._selected_session_ids
 
 
 @pytest.mark.asyncio
@@ -252,7 +258,9 @@ async def test_create_pull_request_suggestion_error(tmp_path: Path):
     """Verify _create_pull_request handles suggestion errors gracefully."""
     mock_executor = MagicMock()
     mock_executor.workspace_dir = tmp_path
-    mock_executor.list_sessions = AsyncMock(return_value={"sessions": [], "currentSessionId": ""})
+    mock_executor.pr_sessions = AsyncMock(
+        return_value={"sessions": [], "sourceBranch": "feature-branch", "targetBranch": "main"}
+    )
     mock_executor.pr_suggest = AsyncMock(side_effect=Exception("Network error"))
 
     app = BrokkApp(workspace_dir=tmp_path, executor=mock_executor)
@@ -274,6 +282,33 @@ async def test_create_pull_request_suggestion_error(tmp_path: Path):
     ]
     assert len(error_calls) == 1
     assert "suggestion" in error_calls[0][0][0].lower()
+
+
+@pytest.mark.asyncio
+async def test_create_pull_request_sessions_error(tmp_path: Path):
+    """Verify _create_pull_request handles pr_sessions errors gracefully."""
+    mock_executor = MagicMock()
+    mock_executor.workspace_dir = tmp_path
+    mock_executor.pr_sessions = AsyncMock(side_effect=Exception("Network error"))
+
+    app = BrokkApp(workspace_dir=tmp_path, executor=mock_executor)
+    app._executor_ready = True
+    app.current_branch = "feature-branch"
+
+    mock_chat = MagicMock()
+    mock_chat.add_system_message = MagicMock()
+    mock_chat.set_job_running = MagicMock()
+    app._maybe_chat = MagicMock(return_value=mock_chat)
+
+    await app._create_pull_request()
+
+    # Find the error message call
+    error_calls = [
+        call
+        for call in mock_chat.add_system_message.call_args_list
+        if call[1].get("level") == "ERROR"
+    ]
+    assert len(error_calls) == 1
 
 
 def test_pr_create_modal_screen_with_sessions():

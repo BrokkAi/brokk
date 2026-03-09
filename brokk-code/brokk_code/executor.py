@@ -1071,12 +1071,46 @@ class ExecutorManager:
 
         try:
             resp = await self._http_client.post(
-                "/v1/repo/pr/suggest", json=payload, headers=headers if headers else None, timeout=120.0
+                "/v1/repo/pr/suggest",
+                json=payload,
+                headers=headers if headers else None,
+                timeout=120.0,
             )
             resp.raise_for_status()
             return resp.json()
         except httpx.HTTPError as e:
             await self._handle_http_error(e, "/v1/repo/pr/suggest")
+            raise  # Should not be reached
+
+    async def pr_sessions(
+        self,
+        source_branch: Optional[str] = None,
+        target_branch: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Fetches overlapping sessions for a PR based on branch diff.
+
+        Args:
+            source_branch: Source branch (defaults to current branch on server)
+            target_branch: Target branch (defaults to default branch on server)
+
+        Returns:
+            Dict with sessions (list of {id, name, taskCount}), sourceBranch, targetBranch
+        """
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+
+        payload: Dict[str, Any] = {}
+        if source_branch:
+            payload["sourceBranch"] = source_branch
+        if target_branch:
+            payload["targetBranch"] = target_branch
+
+        try:
+            resp = await self._http_client.post("/v1/repo/pr/sessions", json=payload)
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            await self._handle_http_error(e, "/v1/repo/pr/sessions")
             raise  # Should not be reached
 
     async def pr_create(
