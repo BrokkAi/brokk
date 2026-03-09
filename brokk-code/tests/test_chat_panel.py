@@ -1300,7 +1300,16 @@ async def test_autoscroll_reset_on_submission():
 
         # After submission, auto_scroll should be re-enabled
         assert log.auto_scroll is True
-        # And we should be at the bottom
+
+        # Wait for the call_after_refresh in _reset_to_follow_bottom to complete
+        await pilot.pause()
+
+        # And we should be at the bottom. We check with a small retry loop
+        # to ensure deterministic behavior across refresh cycles.
+        for _ in range(10):
+            if log.is_vertical_scroll_end:
+                break
+            await pilot.pause()
         assert log.is_vertical_scroll_end
 
 
