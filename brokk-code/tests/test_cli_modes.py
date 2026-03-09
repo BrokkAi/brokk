@@ -1628,6 +1628,64 @@ async def test_run_pr_create_suggests_when_title_missing(mock_executor_class, tm
 
 @pytest.mark.asyncio
 @patch("brokk_code.executor.ExecutorManager")
+async def test_run_pr_create_suggests_when_both_title_and_body_omitted(
+    mock_executor_class, tmp_path, capsys
+) -> None:
+    """Verifies run_pr_create calls suggest with branches and token when both fields omitted."""
+    from unittest.mock import AsyncMock
+
+    captured_suggest_args: dict[str, Any] = {}
+    captured_create_args: dict[str, Any] = {}
+    mock_manager = mock_executor_class.return_value
+
+    mock_manager.start = AsyncMock()
+    mock_manager.create_session = AsyncMock(return_value="session-123")
+    mock_manager.wait_ready = AsyncMock(return_value=True)
+
+    async def mock_pr_suggest(**kwargs):
+        captured_suggest_args.update(kwargs)
+        return {"title": "Auto-generated Title", "description": "Auto-generated Body"}
+
+    async def mock_pr_create(**kwargs):
+        captured_create_args.update(kwargs)
+        return {"url": "https://github.com/org/repo/pull/777"}
+
+    mock_manager.pr_suggest = AsyncMock(side_effect=mock_pr_suggest)
+    mock_manager.pr_create = AsyncMock(side_effect=mock_pr_create)
+    mock_manager.stop = AsyncMock()
+
+    await main_module.run_pr_create(
+        workspace_dir=tmp_path,
+        title=None,
+        body=None,
+        base_branch="main",
+        head_branch="feature-xyz",
+        github_token="ghp_both_omitted_token",
+    )
+
+    # Verify pr_suggest was called with resolved branches and token
+    mock_manager.pr_suggest.assert_called_once()
+    assert captured_suggest_args["source_branch"] == "feature-xyz"
+    assert captured_suggest_args["target_branch"] == "main"
+    assert captured_suggest_args["github_token"] == "ghp_both_omitted_token"
+
+    # Verify pr_create received the suggested title and description
+    mock_manager.pr_create.assert_called_once()
+    assert captured_create_args["title"] == "Auto-generated Title"
+    assert captured_create_args["body"] == "Auto-generated Body"
+    assert captured_create_args["source_branch"] == "feature-xyz"
+    assert captured_create_args["target_branch"] == "main"
+    assert captured_create_args["github_token"] == "ghp_both_omitted_token"
+
+    # Verify PR URL is printed
+    captured = capsys.readouterr()
+    assert "https://github.com/org/repo/pull/777" in captured.out
+
+    mock_manager.stop.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+@patch("brokk_code.executor.ExecutorManager")
 async def test_run_pr_create_executor_error_exits_nonzero(
     mock_executor_class, tmp_path, capsys
 ) -> None:
