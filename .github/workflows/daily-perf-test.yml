@@ -65,24 +65,49 @@ jobs:
       - name: Resolve HEAD and BASE commits
         id: resolve_commits
         run: |
+          extract_sha() {
+            # Prefer a strict 40-hex SHA present on its own line (what the script is supposed to emit).
+            # This also protects $GITHUB_ENV from multi-line garbage if stdout ever gets polluted.
+            local sha
+            sha="$(printf '%s\n' "$1" | tr -d '\r' | grep -E '^[0-9a-f]{40}$' | tail -n 1 || true)"
+            if [ -z "$sha" ]; then
+              return 1
+            fi
+            printf '%s' "$sha"
+          }
+
           echo "Resolving HEAD compilable commit starting from ${{ env.HEAD_SHA }}..."
-          if ! RESOLVED_HEAD_SHA=$(${{ env.CI_TOOLS }}/find-compilable-commit.sh ${{ env.HEAD_SHA }} -- ./gradlew compileJava); then
+          if ! RAW_HEAD_OUT=$(${{ env.CI_TOOLS }}/find-compilable-commit.sh ${{ env.HEAD_SHA }} -- ./gradlew compileJava); then
             echo "Failed to resolve a compilable HEAD commit. Skipping performance test."
             echo "should_skip=true" >> $GITHUB_OUTPUT
             exit 0
           fi
-          echo "RESOLVED_HEAD_SHA=$RESOLVED_HEAD_SHA" >> $GITHUB_ENV
-          echo "RESOLVED_HEAD_SHA_SHORT=$(git rev-parse --short $RESOLVED_HEAD_SHA)" >> $GITHUB_ENV
+
+          if ! RESOLVED_HEAD_SHA="$(extract_sha "$RAW_HEAD_OUT")"; then
+            echo "Failed to parse RESOLVED_HEAD_SHA from find-compilable-commit output:"
+            printf '%s\n' "$RAW_HEAD_OUT"
+            exit 1
+          fi
+
+          echo "RESOLVED_HEAD_SHA=$RESOLVED_HEAD_SHA" >> "$GITHUB_ENV"
+          echo "RESOLVED_HEAD_SHA_SHORT=$(git rev-parse --short "$RESOLVED_HEAD_SHA")" >> "$GITHUB_ENV"
 
           if [ -n "${{ env.BASE_SHA }}" ]; then
             echo "Resolving BASE compilable commit starting from ${{ env.BASE_SHA }}..."
-            if ! RESOLVED_BASE_SHA=$(${{ env.CI_TOOLS }}/find-compilable-commit.sh ${{ env.BASE_SHA }} -- ./gradlew compileJava); then
+            if ! RAW_BASE_OUT=$(${{ env.CI_TOOLS }}/find-compilable-commit.sh ${{ env.BASE_SHA }} -- ./gradlew compileJava); then
               echo "Failed to resolve a compilable BASE commit. Skipping performance test."
               echo "should_skip=true" >> $GITHUB_OUTPUT
               exit 0
             fi
-            echo "RESOLVED_BASE_SHA=$RESOLVED_BASE_SHA" >> $GITHUB_ENV
-            echo "RESOLVED_BASE_SHA_SHORT=$(git rev-parse --short $RESOLVED_BASE_SHA)" >> $GITHUB_ENV
+
+            if ! RESOLVED_BASE_SHA="$(extract_sha "$RAW_BASE_OUT")"; then
+              echo "Failed to parse RESOLVED_BASE_SHA from find-compilable-commit output:"
+              printf '%s\n' "$RAW_BASE_OUT"
+              exit 1
+            fi
+
+            echo "RESOLVED_BASE_SHA=$RESOLVED_BASE_SHA" >> "$GITHUB_ENV"
+            echo "RESOLVED_BASE_SHA_SHORT=$(git rev-parse --short "$RESOLVED_BASE_SHA")" >> "$GITHUB_ENV"
           else
             RESOLVED_BASE_SHA=""
           fi
@@ -95,9 +120,13 @@ jobs:
             echo "should_skip=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Set up JBR 21
+      - name: Set up Java 21 (JetBrains Runtime)
         if: steps.resolve_commits.outputs.should_skip == 'false'
-        uses: jansorg/github-actions-jbr-setup/setup_jbr21@main
+        uses: actions/setup-java@v4
+        with:
+          distribution: jetbrains
+          java-package: jdk+jcef
+          java-version: '21'
 
       - name: Set up Python
         if: steps.resolve_commits.outputs.should_skip == 'false'

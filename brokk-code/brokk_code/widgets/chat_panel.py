@@ -14,8 +14,9 @@ from textual import events
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
+from textual.css.query import NoMatches
 from textual.message import Message
-from textual.widgets import ListItem, ListView, LoadingIndicator, RichLog, Static, TextArea
+from textual.widgets import Button, ListItem, ListView, LoadingIndicator, RichLog, Static, TextArea
 
 from brokk_code.widgets.status_line import StatusLine
 from brokk_code.widgets.token_bar import TokenBar
@@ -814,6 +815,7 @@ class ChatPanel(Vertical):
         yield ModeSuggestions(id="mode-suggestions")
         yield ReasoningSuggestions(id="reasoning-suggestions")
         with Horizontal(id="chat-help-row"):
+            yield Button("Scroll to Bottom", id="scroll-to-bottom", classes="hidden")
             yield LoadingIndicator(id="help-spinner", classes="hidden")
             yield Static(id="help-elapsed", classes="hidden")
             yield Static(
@@ -824,6 +826,41 @@ class ChatPanel(Vertical):
     def on_mount(self) -> None:
         """Focus the input when the panel is mounted."""
         self.query_one("#chat-input", ChatInput).focus()
+        log = self.query_one("#chat-log", RichLog)
+        self.watch(log, "scroll_y", self._on_chat_log_scroll_change)
+
+    def _on_chat_log_scroll_change(self, old: float, new: float) -> None:
+        """Called when the chat log's scroll_y changes."""
+        self._sync_autoscroll()
+
+    def _sync_autoscroll(self) -> None:
+        """Update the RichLog's auto_scroll based on whether we're at the bottom.
+
+        This is called after user scroll events. It only DISABLES auto_scroll
+        when the user scrolls away from the bottom. Re-enabling happens when
+        the user scrolls back to the bottom OR submits a new message.
+
+        Also toggles visibility of the scroll-to-bottom button.
+        """
+        try:
+            log = self.query_one("#chat-log", RichLog)
+            scroll_btn = self.query_one("#scroll-to-bottom", Button)
+        except NoMatches:
+            return
+        # Only act when there's actually scrollable content
+        if log.max_scroll_y > 0:
+            # Use is_vertical_scroll_end which properly accounts for scroll position
+            at_bottom = log.is_vertical_scroll_end
+            if at_bottom:
+                log.auto_scroll = True
+                scroll_btn.set_class(True, "hidden")
+            else:
+                log.auto_scroll = False
+                scroll_btn.set_class(False, "hidden")
+        else:
+            # Content fits in view - restore auto_scroll and hide button
+            log.auto_scroll = True
+            scroll_btn.set_class(True, "hidden")
 
     def on_key(self, event: events.Key) -> None:
         """Handle Up/Down arrow keys for prompt history navigation."""
@@ -921,7 +958,26 @@ class ChatPanel(Vertical):
         """Forward submission message from the internal ChatInput."""
         self._history_index = -1
         self._draft_buffer = ""
+        # Reset to follow-bottom mode and scroll to end on new submission
+        self._reset_to_follow_bottom()
         self.post_message(self.Submitted(event.text))
+
+    def _reset_to_follow_bottom(self) -> None:
+        """Re-enable autoscroll and scroll the log to the end."""
+        try:
+            log = self.query_one("#chat-log", RichLog)
+            scroll_btn = self.query_one("#scroll-to-bottom", Button)
+        except NoMatches:
+            return
+        log.auto_scroll = True
+        log.scroll_end(animate=False)
+        scroll_btn.set_class(True, "hidden")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Handle button press events."""
+        if event.button.id == "scroll-to-bottom":
+            self._reset_to_follow_bottom()
+            event.stop()
 
     def open_mode_menu(self, modes: List[str], current: str) -> None:
         """Opens the lightweight mode selection popup."""
@@ -1236,6 +1292,8 @@ class ChatPanel(Vertical):
         """Clears the RichLog and re-renders history based on the verbosity filter."""
         self.show_verbose = show_verbose
         log = self.query_one("#chat-log", RichLog)
+        was_following = log.auto_scroll
+        prior_scroll_y = log.scroll_y
         log.clear()
 
         for entry in self._message_history:
@@ -1244,6 +1302,13 @@ class ChatPanel(Vertical):
                 content=entry["content"],
                 **{k: v for k, v in entry.items() if k not in ("kind", "content")},
             )
+
+        if not was_following:
+            log.auto_scroll = False
+            self.call_later(
+                lambda: log.scroll_to(y=min(prior_scroll_y, log.max_scroll_y), animate=False)
+            )
+        self.call_later(self._sync_autoscroll)
 
     def add_markdown(self, content: str) -> None:
         """Renders a block of Markdown content to the chat log."""
@@ -1306,6 +1371,15 @@ class ChatPanel(Vertical):
         chat_input.text = ""
         self._history_index = -1
         self._draft_buffer = ""
+
+    def clear_transcript(self) -> None:
+        """Clears the rendered chat log and the in-memory transcript history."""
+        self._message_history.clear()
+        self._current_message_buffer = ""
+        self._current_message_type = None
+        self._is_reasoning = False
+        log = self.query_one("#chat-log", RichLog)
+        log.clear()
 
     def set_token_usage(
         self,

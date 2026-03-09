@@ -155,10 +155,6 @@ brokk issue create "Describe the NPE in AuthService" \
 
 | Command | Description |
 |---------|-------------|
-| `/code` | Set mode to CODE (direct implementation) |
-| `/ask` | Set mode to ASK (questions only) |
-| `/lutz` | Set mode to LUTZ (default; full agent access) |
-| `/mode` | Cycle between CODE, ASK, and LUTZ modes |
 | `/model <name>` | Switch the LLM model |
 | `/task` | Open/close the task list |
 | `/help` | Show available commands |
