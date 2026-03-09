@@ -58,6 +58,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -247,51 +248,63 @@ public class SearchAgent {
     }
 
     private Set<ContextFragment> resolveGoalReferences(String goal) throws InterruptedException {
-        Set<ContextFragment> references = new HashSet<>();
-        Set<ProjectFile> filesReferenced = new HashSet<>();
-        Set<CodeUnit> classesReferenced = new HashSet<>();
-        var allDeclarations = cm.getAnalyzer().getAllDeclarations();
+        Set<ContextFragment> references = ConcurrentHashMap.newKeySet();
+        Set<ProjectFile> filesReferenced = ConcurrentHashMap.newKeySet();
+        Set<CodeUnit> classesReferenced = ConcurrentHashMap.newKeySet();
 
-        for (var file : cm.getProject().getAllFiles()) {
+        // filenames even if they're not full paths
+        cm.getProject().getAllFiles().parallelStream().forEach(file -> {
             String fileName = file.getFileName();
             if (Lines.containsBareToken(goal, fileName)) {
                 references.add(new ContextFragments.ProjectPathFragment(file, cm));
                 filesReferenced.add(file);
             }
-        }
+        });
 
-        for (var cu : allDeclarations) {
+        // class names
+        var allDeclarations = cm.getAnalyzer().getAllDeclarations();
+        allDeclarations.parallelStream().forEach(cu -> {
             if (!cu.isClass()) {
-                continue;
+                return;
             }
             if (filesReferenced.contains(cu.source())) {
-                continue;
+                return;
             }
 
             String target = cu.identifier();
             if (target.length() < 3 || !Lines.containsBareToken(goal, target)) {
-                continue;
+                return;
             }
             references.add(new ContextFragments.CodeFragment(cm, cu));
             classesReferenced.add(cu);
-        }
+        });
 
-        for (var cu : allDeclarations) {
+        // methods/fields must be qualified by class
+        allDeclarations.parallelStream().forEach(cu -> {
             if (!(cu.isFunction() || cu.isField())) {
-                continue;
+                return;
             }
             if (filesReferenced.contains(cu.source())) {
-                continue;
+                return;
             }
-            if (cm.getAnalyzer().parentOf(cu).map(classesReferenced::contains).orElse(true)) {
-                continue;
+            boolean isOrphanOrAlreadyHandled;
+            try {
+                isOrphanOrAlreadyHandled = cm.getAnalyzer()
+                        .parentOf(cu)
+                        .map(classesReferenced::contains)
+                        .orElse(true);
+            } catch (InterruptedException e) {
+                throw new AssertionError();
+            }
+            if (isOrphanOrAlreadyHandled) {
+                return;
             }
 
             String target = cu.shortName();
             if (Lines.containsBareToken(goal, target)) {
                 references.add(new ContextFragments.CodeFragment(cm, cu));
             }
-        }
+        });
 
         return references;
     }
