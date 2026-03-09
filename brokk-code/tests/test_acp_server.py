@@ -563,8 +563,9 @@ async def test_start_and_create_session_avoids_bootstrap_on_first_call() -> None
     assert calls == ["start", "create_session:Requested Session", "wait_ready"]
 
 
-async def test_prompt_emits_tokens_but_no_snapshot(tmp_path: Path) -> None:
+async def test_prompt_standard_flow_calls_submit_job_and_streams_tokens(tmp_path: Path) -> None:
     updates: list[tuple[str, dict[str, str]]] = []
+    job_submitted = False
 
     class StubExecutor:
         def __init__(self, workspace_dir: Path):
@@ -579,6 +580,9 @@ async def test_prompt_emits_tokens_but_no_snapshot(tmp_path: Path) -> None:
         async def wait_ready(self) -> bool:
             return True
 
+        async def switch_session(self, sid: str) -> bool:
+            return True
+
         async def submit_job(
             self,
             task_input: str,
@@ -588,8 +592,12 @@ async def test_prompt_emits_tokens_but_no_snapshot(tmp_path: Path) -> None:
             reasoning_level_code: str | None = None,
             mode: str = "LUTZ",
             session_id: str | None = None,
+            **kwargs: Any,
         ) -> str:
-            assert session_id == "session-1"
+            nonlocal job_submitted
+            job_submitted = True
+            assert task_input == "hello"
+            assert session_id == "acp-session-1"
             return "job-1"
 
         async def stream_events(self, job_id: str):
@@ -614,7 +622,8 @@ async def test_prompt_emits_tokens_but_no_snapshot(tmp_path: Path) -> None:
         update_agent_message_text=update_agent_message_text,
     )
 
-    # Only one update for the token "abc" - no snapshot blocks
+    assert job_submitted
+    # Only one update for the token "abc"
     assert len(updates) == 1
     assert updates[0][1]["text"] == "abc"
 

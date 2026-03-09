@@ -740,6 +740,37 @@ class BrokkAcpBridge:
             raise ExecutorError("Prompt must contain at least one non-empty text block.")
 
         command = get_slash_command(prompt_text)
+        if command:
+            await self._handle_command(command, session_id, update_agent_message_text, send_update)
+            return
+
+        await self._handle_model_job(
+            prompt=prompt,
+            prompt_text=prompt_text,
+            session_id=session_id,
+            executor_session_id=executor_session_id,
+            mode=mode,
+            planner_model=planner_model,
+            code_model=code_model,
+            reasoning_level=reasoning_level,
+            reasoning_level_code=reasoning_level_code,
+            send_update=send_update,
+            update_agent_message_text=update_agent_message_text,
+            update_agent_thought_text=update_agent_thought_text,
+            start_tool_call=start_tool_call,
+            update_tool_call=update_tool_call,
+            tool_content=tool_content,
+            text_block=text_block,
+            cwd=cwd,
+        )
+
+    async def _handle_command(
+        self,
+        command: str,
+        session_id: str,
+        update_agent_message_text: Callable[[str], Any],
+        send_update: Callable[[str, Any], Awaitable[Any]],
+    ) -> None:
         if command == "/context":
             ctx = await self.executor.get_context()
             fragments = ctx.get("fragments", [])
@@ -749,7 +780,7 @@ class BrokkAcpBridge:
             cost = ctx.get("totalCost", 0.0)
 
             lines = [
-                f"### Context Snapshot",
+                "### Context Snapshot",
                 f"- **Branch**: `{branch}`",
                 f"- **Tokens**: {used:,} / {max_tokens:,}",
                 f"- **Session Cost**: ${cost:.4f}",
@@ -768,8 +799,27 @@ class BrokkAcpBridge:
                 lines.append(f"- {desc}{status_str}")
 
             await send_update(session_id, update_agent_message_text("\n".join(lines)))
-            return
 
+    async def _handle_model_job(
+        self,
+        prompt: Any,
+        prompt_text: str,
+        session_id: str,
+        executor_session_id: str,
+        mode: str,
+        planner_model: str,
+        code_model: Optional[str],
+        reasoning_level: Optional[str],
+        reasoning_level_code: Optional[str],
+        send_update: Callable[[str, Any], Awaitable[Any]],
+        update_agent_message_text: Callable[[str], Any],
+        update_agent_thought_text: Optional[Callable[[str], Any]] = None,
+        start_tool_call: Optional[Callable[..., Any]] = None,
+        update_tool_call: Optional[Callable[..., Any]] = None,
+        tool_content: Optional[Callable[[Any], Any]] = None,
+        text_block: Optional[Callable[[str], Any]] = None,
+        cwd: str = "",
+    ) -> None:
         # Add any @-mentioned files from ACP embedded/linked resource blocks to context.
         attached_fragment_ids: list[str] = []
         file_paths = extract_resource_file_paths(prompt, cwd)
