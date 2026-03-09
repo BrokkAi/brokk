@@ -36,29 +36,6 @@ def _thought_block(value: str) -> dict[str, str]:
     return {"sessionUpdate": "agent_thought_chunk", "text": value}
 
 
-def _start_tool_call(**kwargs: Any) -> dict[str, Any]:
-    return {"sessionUpdate": "tool_call", **kwargs}
-
-
-def _update_tool_call(**kwargs: Any) -> dict[str, Any]:
-    return {"sessionUpdate": "tool_call_update", **kwargs}
-
-
-def _tool_content(block: Any) -> dict[str, Any]:
-    return {"type": "content", "content": block}
-
-
-def _text_block_helper(text: str) -> dict[str, str]:
-    return {"type": "text", "text": text}
-
-
-def _image_block_helper(data: str, mime_type: str, *, uri: str | None = None) -> dict[str, str]:
-    payload: dict[str, str] = {"type": "image", "data": data, "mime_type": mime_type}
-    if uri:
-        payload["uri"] = uri
-    return payload
-
-
 def test_normalize_mode_defaults_and_known_values() -> None:
     assert normalize_mode(None) == "LUTZ"
     assert normalize_mode("") == "LUTZ"
@@ -541,9 +518,6 @@ async def test_prompt_standard_flow_calls_submit_job_and_streams_tokens(tmp_path
     async def send_update(session_id: str, update: dict[str, str]) -> None:
         updates.append((session_id, update))
 
-    def update_agent_message(content: Any) -> dict[str, Any]:
-        return {"sessionUpdate": "agent_message_chunk", "content": content}
-
     def update_agent_message_text(text: str) -> dict[str, str]:
         return {"sessionUpdate": "agent_message_chunk", "text": text}
 
@@ -606,9 +580,6 @@ async def test_prompt_context_command_renders_snapshot_without_job(tmp_path: Pat
 
     async def send_update(session_id: str, update: dict[str, Any]) -> None:
         updates.append((session_id, update))
-
-    def update_agent_message(content: Any) -> dict[str, Any]:
-        return {"sessionUpdate": "agent_message_chunk", "content": content}
 
     def update_agent_message_text(text: str) -> dict[str, str]:
         return {"sessionUpdate": "agent_message_chunk", "text": text}

@@ -466,7 +466,8 @@ def map_executor_event_to_session_update(
     match event_type:
         case "LLM_TOKEN":
             token = data.get("token", "")
-            return update_agent_message_text(_normalize_status_token(str(token))) if token else None
+            # Pass tokens through with minimal normalization for known mojibake.
+            return update_agent_message_text(str(token).replace("â€¦", "...")) if token else None
         case "ERROR":
             return update_agent_message_text(f"\n[ERROR] {data.get('message', 'Unknown error')}\n")
         case "NOTIFICATION":
@@ -535,11 +536,6 @@ def conversation_payload_to_session_updates(
             updates.append(update_agent_message_text(summary))
 
     return updates
-
-
-def _normalize_status_token(token: str) -> str:
-    # Pass tokens through as-is, with only minimal normalization for known mojibake.
-    return token.replace("â€¦", "...")
 
 
 def _extract_session_id_for_cancel(args: tuple[Any, ...], kwargs: dict[str, Any]) -> Optional[str]:
