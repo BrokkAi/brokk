@@ -766,20 +766,21 @@ class ChatPanel(Vertical):
             scroll_btn = self.query_one("#scroll-to-bottom", Button)
         except NoMatches:
             return
-        # Only act when there's actually scrollable content
+
+        # Only act when there's actually scrollable content.
+        # Note: log.scroll_y and log.max_scroll_y may be slightly out of sync during
+        # rapid updates, so we use a small tolerance or check is_vertical_scroll_end.
         if log.max_scroll_y > 0:
-            # Use is_vertical_scroll_end which properly accounts for scroll position
-            at_bottom = log.is_vertical_scroll_end
-            if at_bottom:
+            if log.is_vertical_scroll_end:
                 log.auto_scroll = True
-                scroll_btn.set_class(True, "hidden")
+                scroll_btn.add_class("hidden")
             else:
                 log.auto_scroll = False
-                scroll_btn.set_class(False, "hidden")
+                scroll_btn.remove_class("hidden")
         else:
             # Content fits in view - restore auto_scroll and hide button
             log.auto_scroll = True
-            scroll_btn.set_class(True, "hidden")
+            scroll_btn.add_class("hidden")
 
     def on_key(self, event: events.Key) -> None:
         """Handle Up/Down arrow keys for prompt history navigation."""
@@ -1141,6 +1142,11 @@ class ChatPanel(Vertical):
         """Visual rendering implementation for a single history entry."""
         log = self.query_one("#chat-log", RichLog)
 
+        # If we are not following the bottom, ensure auto_scroll is disabled
+        # so that log.write() does not jump to the end.
+        if not log.is_vertical_scroll_end:
+            log.auto_scroll = False
+
         if kind == "AI":
             self._render_ai_content(log, content)
         elif kind == "REASONING":
@@ -1213,6 +1219,11 @@ class ChatPanel(Vertical):
         log = self.query_one("#chat-log", RichLog)
         was_following = log.auto_scroll
         prior_scroll_y = log.scroll_y
+
+        # Disable auto_scroll before clearing/writing if we weren't following
+        if not was_following:
+            log.auto_scroll = False
+
         log.clear()
 
         for entry in self._message_history:
@@ -1223,11 +1234,17 @@ class ChatPanel(Vertical):
             )
 
         if not was_following:
+            # Re-verify auto_scroll is still False after writes
             log.auto_scroll = False
-            self.call_later(
-                lambda: log.scroll_to(y=min(prior_scroll_y, log.max_scroll_y), animate=False)
-            )
-        self.call_later(self._sync_autoscroll)
+
+            # Use call_later to ensure the scroll happens after the log's internal state updates
+            def _restore_scroll():
+                log.scroll_to(y=min(prior_scroll_y, log.max_scroll_y), animate=False)
+                self._sync_autoscroll()
+
+            self.call_later(_restore_scroll)
+        else:
+            self.call_later(self._sync_autoscroll)
 
     def add_markdown(self, content: str) -> None:
         """Renders a block of Markdown content to the chat log."""

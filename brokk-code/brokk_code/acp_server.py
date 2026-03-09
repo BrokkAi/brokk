@@ -825,9 +825,7 @@ class BrokkAcpBridge:
                 "| Fragment | Tokens | % Context |",
                 "|---|---:|---:|",
             ]
-            lines.extend(
-                f"| {name} | {tokens:,} | {pct:.2f}% |" for name, tokens, pct in top_rows
-            )
+            lines.extend(f"| {name} | {tokens:,} | {pct:.2f}% |" for name, tokens, pct in top_rows)
             if not top_rows:
                 lines.append("| (none) | 0 | 0.00% |")
             token_bar_md = get_token_bar_markdown(
