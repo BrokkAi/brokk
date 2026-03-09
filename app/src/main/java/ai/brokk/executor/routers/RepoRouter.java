@@ -53,7 +53,10 @@ public final class RepoRouter implements SimpleHttpServer.CheckedHttpHandler {
     private record PrSuggestRequest(@Nullable String sourceBranch, @Nullable String targetBranch) {}
 
     private record PrCreateRequest(
-            @Nullable String sourceBranch, @Nullable String targetBranch, String title, String body) {}
+            @Nullable String sourceBranch,
+            @Nullable String targetBranch,
+            @Nullable String title,
+            @Nullable String body) {}
 
     private void handlePostCommit(HttpExchange exchange) throws IOException {
         if (!RouterUtil.ensureMethod(exchange, "POST")) return;
