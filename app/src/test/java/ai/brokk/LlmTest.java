@@ -4,6 +4,7 @@ import static java.lang.Math.min;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.Llm.ResponseMetadata;
+import ai.brokk.Llm.StreamingResult;
 import ai.brokk.agents.TestScriptedLanguageModel;
 import ai.brokk.project.MainProject;
 import ai.brokk.testutil.NoOpConsoleIO;
@@ -16,8 +17,12 @@ import dev.langchain4j.agent.tool.ToolContext;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.agent.tool.ToolSpecifications;
 import dev.langchain4j.data.message.*;
+import dev.langchain4j.exception.OverthinkingException;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.request.ToolChoice;
+import dev.langchain4j.model.chat.response.ChatResponse;
+import dev.langchain4j.model.openai.OpenAiTokenUsage;
+import dev.langchain4j.model.output.FinishReason;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -458,6 +463,75 @@ public class LlmTest {
         assertEquals("createdB", combined.created(), "created should come from B");
         assertEquals("tierA", combined.serviceTier(), "serviceTier should fall back to A when B is null");
         assertEquals("errorA", combined.error(), "error should fall back to A when B is null");
+    }
+
+    @Test
+    void testOverthinkingPreservesMetadata() {
+        // Mock token usage with reasoning and cached tokens
+        var usage = OpenAiTokenUsage.builder()
+                .inputTokenCount(100)
+                .inputTokensDetails(OpenAiTokenUsage.InputTokensDetails.builder()
+                        .cachedTokens(50)
+                        .build())
+                .outputTokenCount(200)
+                .outputTokensDetails(OpenAiTokenUsage.OutputTokensDetails.builder()
+                        .reasoningTokens(150)
+                        .build())
+                .totalTokenCount(300)
+                .build();
+
+        // Construct a ChatResponse that looks like overthinking (LENGTH reason, no text/tools)
+        var chatResponse = ChatResponse.builder()
+                .aiMessage(new AiMessage(""))
+                .finishReason(FinishReason.LENGTH)
+                .tokenUsage(usage)
+                .modelName("test-reasoning-model")
+                .build();
+
+        // Exercise the conversion logic
+        var result = StreamingResult.fromResponse(chatResponse, null, 1234L);
+
+        // Assert overthinking classification
+        assertNotNull(result.error());
+        assertInstanceOf(OverthinkingException.class, result.error());
+        assertTrue(result.isPartial());
+
+        // Assert metadata preservation for telemetry/costing
+        var meta = result.metadata();
+        assertNotNull(meta);
+        assertEquals(100, meta.inputTokens());
+        assertEquals(50, meta.cachedInputTokens());
+        assertEquals(150, meta.thinkingTokens());
+        assertEquals(200, meta.outputTokens());
+        assertEquals(1234L, meta.elapsedMs());
+        assertEquals("test-reasoning-model", meta.modelName());
+        assertEquals("LENGTH", meta.finishReason());
+    }
+
+    @Test
+    void testStandardResponseMetadata() {
+        var usage = OpenAiTokenUsage.builder()
+                .inputTokenCount(10)
+                .outputTokenCount(20)
+                .totalTokenCount(30)
+                .build();
+
+        var chatResponse = ChatResponse.builder()
+                .aiMessage(new AiMessage("Hello"))
+                .finishReason(FinishReason.STOP)
+                .tokenUsage(usage)
+                .modelName("standard-model")
+                .build();
+
+        var result = StreamingResult.fromResponse(chatResponse, null, 500L);
+
+        assertNull(result.error());
+        var meta = result.metadata();
+        assertNotNull(meta);
+        assertEquals(10, meta.inputTokens());
+        assertEquals(20, meta.outputTokens());
+        assertEquals("STOP", meta.finishReason());
+        assertEquals("standard-model", meta.modelName());
     }
 
     @Test
