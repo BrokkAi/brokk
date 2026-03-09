@@ -459,10 +459,18 @@ def map_executor_event_to_session_update(
         return update_agent_message_text(f"\n[ERROR] {msg}\n")
 
     if event_type == "NOTIFICATION":
-        level = data.get("level", "INFO")
-        msg = data.get("message", "")
+        if isinstance(data, str):
+            level = "INFO"
+            msg = data.strip()
+        elif isinstance(data, dict):
+            level = data.get("level", "INFO")
+            msg = data.get("message", "")
+        else:
+            return None
+
         if not msg:
             return None
+
         normalized_level = str(level).strip().upper()
         # INFO/COST/CONFIRM are internal or high-volume and should typically not be
         # appended to persistent chat output unless full_content mode is requested.

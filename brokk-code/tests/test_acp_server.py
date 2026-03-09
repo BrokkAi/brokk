@@ -348,6 +348,45 @@ def test_map_executor_info_notification_event_surfaces_in_full_content_mode() ->
     }
 
 
+def test_map_executor_string_notification_event_surfaces_in_full_content_mode() -> None:
+    # String form notification data
+    event = {"type": "NOTIFICATION", "data": "Direct notification message"}
+    update = map_executor_event_to_session_update(
+        event, _text_block, _thought_block, full_content=True
+    )
+    assert update == {
+        "sessionUpdate": "agent_message_chunk",
+        "text": "\n\n[INFO] Direct notification message\n",
+    }
+
+
+def test_map_executor_string_notification_event_suppressed_by_default() -> None:
+    event = {"type": "NOTIFICATION", "data": "Direct notification message"}
+    # Should be suppressed by default because implicit level is INFO
+    assert map_executor_event_to_session_update(event, _text_block, _thought_block) is None
+
+
+def test_map_executor_invalid_notification_data_returns_none() -> None:
+    assert (
+        map_executor_event_to_session_update(
+            {"type": "NOTIFICATION", "data": None}, _text_block, _thought_block
+        )
+        is None
+    )
+    assert (
+        map_executor_event_to_session_update(
+            {"type": "NOTIFICATION", "data": []}, _text_block, _thought_block
+        )
+        is None
+    )
+    assert (
+        map_executor_event_to_session_update(
+            {"type": "NOTIFICATION", "data": {"message": ""}}, _text_block, _thought_block
+        )
+        is None
+    )
+
+
 def test_map_executor_error_notification_event_surfaces_as_message() -> None:
     event = {"type": "NOTIFICATION", "data": {"level": "ERROR", "message": "critical failure"}}
     assert map_executor_event_to_session_update(event, _text_block, _thought_block) == {
