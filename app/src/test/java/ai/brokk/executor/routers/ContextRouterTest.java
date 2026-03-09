@@ -213,6 +213,30 @@ class ContextRouterTest {
     }
 
     @Test
+    void handleGetContext_totalCostDrivenByAccountingPathNotJustNotifications() throws Exception {
+        // This test ensures that totalCost in the /v1/context response is driven by the
+        // session's accumulated cost, which is updated via IConsoleIO.recordCost,
+        // even if no visible COST notification was emitted (e.g. suppressed or internal model).
+
+        var sessionManager = contextManager.getProject().getSessionManager();
+        var info = sessionManager.newSession("Accounting Session");
+        contextManager.updateActiveSession(info.id());
+
+        // Simulate cost being recorded via the accounting path (recordCost)
+        // In the executor, HeadlessHttpConsole routes this to sessionManager.addToTotalCost
+        // independently of NOTIFICATION events.
+        sessionManager.addToTotalCost(info.id(), 0.50);
+
+        var exchange = TestHttpExchange.request("GET", "/v1/context");
+        contextRouter.handle(exchange);
+
+        assertEquals(200, exchange.responseCode());
+        Map<String, Object> body = MAPPER.readValue(exchange.responseBodyBytes(), new TypeReference<>() {});
+        double totalCost = ((Number) body.get("totalCost")).doubleValue();
+        assertEquals(0.50, totalCost, 1e-9);
+    }
+
+    @Test
     void handlePostContextFiles_allPathsInvalid_returns400WithDetailedMessage() throws Exception {
         var absoluteOutsideWorkspace =
                 projectRoot.resolveSibling("outside-workspace").toString();

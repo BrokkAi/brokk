@@ -870,6 +870,25 @@ class HeadlessHttpConsoleTest {
     }
 
     @Test
+    void testRecordCost_DrivesAccountingPathWithoutNotification() throws Exception {
+        // This test validates that recordCost specifically triggers the costListener
+        // (which JobRunner wires to SessionManager.addToTotalCost) even in the absence
+        // of any showNotification(COST, ...) call.
+
+        java.util.concurrent.atomic.DoubleAdder totalRecorded = new java.util.concurrent.atomic.DoubleAdder();
+        console = new HeadlessHttpConsole(jobStore, jobId, totalRecorded::add);
+
+        console.recordCost(0.10);
+        console.recordCost(0.25);
+
+        assertEquals(0.35, totalRecorded.doubleValue(), 1e-9);
+
+        // Ensure no notification events were created for these accounting-only calls
+        var events = jobStore.readEvents(jobId, -1, 10);
+        assertTrue(events.stream().noneMatch(e -> "NOTIFICATION".equals(e.type())));
+    }
+
+    @Test
     void testShowNotificationWithCost_StillInvokesListenerAndEmitsEvent() throws Exception {
         java.util.concurrent.atomic.AtomicReference<Double> capturedCost =
                 new java.util.concurrent.atomic.AtomicReference<>();
