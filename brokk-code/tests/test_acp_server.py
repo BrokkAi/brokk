@@ -332,9 +332,20 @@ def test_map_executor_unknown_event() -> None:
     assert map_executor_event_to_session_update(event, _text_block) is None
 
 
-def test_map_executor_info_notification_event_is_suppressed() -> None:
+def test_map_executor_info_notification_event_is_suppressed_by_default() -> None:
     event = {"type": "NOTIFICATION", "data": {"level": "INFO", "message": "planning"}}
     assert map_executor_event_to_session_update(event, _text_block, _thought_block) is None
+
+
+def test_map_executor_info_notification_event_surfaces_in_full_content_mode() -> None:
+    event = {"type": "NOTIFICATION", "data": {"level": "INFO", "message": "planning"}}
+    update = map_executor_event_to_session_update(
+        event, _text_block, _thought_block, full_content=True
+    )
+    assert update == {
+        "sessionUpdate": "agent_message_chunk",
+        "text": "\n\n[INFO] planning\n",
+    }
 
 
 def test_map_executor_error_notification_event_surfaces_as_message() -> None:
@@ -358,9 +369,20 @@ def test_map_executor_warning_notification_event_surfaces_as_message() -> None:
     }
 
 
-def test_map_executor_cost_notification_event_is_suppressed() -> None:
+def test_map_executor_cost_notification_event_is_suppressed_by_default() -> None:
     event = {"type": "NOTIFICATION", "data": {"level": "COST", "message": "$0.0012 for gpt"}}
     assert map_executor_event_to_session_update(event, _text_block, _thought_block) is None
+
+
+def test_map_executor_cost_notification_event_surfaces_in_full_content_mode() -> None:
+    event = {"type": "NOTIFICATION", "data": {"level": "COST", "message": "$0.0012 for gpt"}}
+    update = map_executor_event_to_session_update(
+        event, _text_block, _thought_block, full_content=True
+    )
+    assert update == {
+        "sessionUpdate": "agent_message_chunk",
+        "text": "\n\n[COST] $0.0012 for gpt\n",
+    }
 
 
 def test_map_executor_status_token_is_passed_through() -> None:

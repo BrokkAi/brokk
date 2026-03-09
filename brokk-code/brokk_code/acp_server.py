@@ -434,6 +434,7 @@ def map_executor_event_to_session_update(
     update_tool_call: Optional[Callable[..., Any]] = None,
     tool_content: Optional[Callable[[Any], Any]] = None,
     text_block: Optional[Callable[[str], Any]] = None,
+    full_content: bool = False,
 ) -> Optional[Any]:
     event_type = event.get("type")
     data = event.get("data", {})
@@ -463,9 +464,9 @@ def map_executor_event_to_session_update(
         if not msg:
             return None
         normalized_level = str(level).strip().upper()
-        # INFO/COST/CONFIRM are internal or high-volume and should not be
-        # appended to persistent chat output.
-        if normalized_level in {"COST", "CONFIRM", "INFO"}:
+        # INFO/COST/CONFIRM are internal or high-volume and should typically not be
+        # appended to persistent chat output unless full_content mode is requested.
+        if not full_content and normalized_level in {"COST", "CONFIRM", "INFO"}:
             return None
         return update_agent_message_text(_format_notification_line(level, msg))
 
@@ -768,6 +769,7 @@ class BrokkAcpBridge:
                     update_tool_call=update_tool_call,
                     tool_content=tool_content,
                     text_block=text_block,
+                    full_content=kwargs.get("full_content", False),
                 )
                 if update:
                     await send_update(session_id, update)
