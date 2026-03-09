@@ -5,6 +5,7 @@ import ai.brokk.IssueProvider;
 import ai.brokk.SessionManager;
 import ai.brokk.SessionRegistry;
 import ai.brokk.analyzer.Language;
+import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.mcpclient.McpConfig;
 import ai.brokk.project.MainProject.DataRetentionPolicy;
@@ -34,7 +35,7 @@ public final class WorktreeProject extends AbstractProject {
     private void copyAnalyzerCachesFromParent() {
         Set<Language> languages = parent.getAnalyzerLanguages();
         for (Language lang : languages) {
-            if (lang == ai.brokk.analyzer.Languages.NONE) {
+            if (lang == Languages.NONE) {
                 continue;
             }
 
