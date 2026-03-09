@@ -596,15 +596,6 @@ public class Context {
         return result;
     }
 
-    private static String fragmentsByType(List<ContextFragment> fragments) {
-        return fragments.stream()
-                .collect(Collectors.groupingBy(f -> f.getType().name(), Collectors.counting()))
-                .entrySet()
-                .stream()
-                .map(e -> e.getKey() + "=" + e.getValue())
-                .collect(Collectors.joining(", "));
-    }
-
     /**
      * Creates a Context with explicit control over all fields including description override.
      * Used by DtoMapper during deserialization.

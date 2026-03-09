@@ -979,15 +979,6 @@ class ChatPanel(Vertical):
             self._sync_autoscroll()
 
         self.call_after_refresh(_do_reset)
-        scroll_btn.set_class(True, "hidden")
-
-        # Defer the scroll_end call to ensure it happens after any pending layout updates.
-        # This is necessary because the log content may not be fully laid out yet when
-        # this method is called during message submission.
-        def _do_scroll() -> None:
-            log.scroll_end(animate=False)
-
-        self.call_after_refresh(_do_scroll)
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle button press events."""

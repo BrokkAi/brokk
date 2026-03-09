@@ -282,14 +282,21 @@ async def test_create_pull_request_suggestion_error(tmp_path: Path):
     ]
     assert len(error_calls) == 1
     assert "suggestion" in error_calls[0][0][0].lower()
+    # Ensure "sessions" is NOT in the error message (distinguishing from sessions failure)
+    assert "sessions" not in error_calls[0][0][0].lower()
+
+    # Verify set_job_running(False) was called after the error
+    mock_chat.set_job_running.assert_called()
+    assert mock_chat.set_job_running.call_args_list[-1] == (((False,), {}))
 
 
 @pytest.mark.asyncio
 async def test_create_pull_request_sessions_error(tmp_path: Path):
-    """Verify _create_pull_request handles pr_sessions errors gracefully."""
+    """Verify _create_pull_request handles pr_sessions errors gracefully with specific message."""
     mock_executor = MagicMock()
     mock_executor.workspace_dir = tmp_path
     mock_executor.pr_sessions = AsyncMock(side_effect=Exception("Network error"))
+    mock_executor.pr_suggest = AsyncMock()
 
     app = BrokkApp(workspace_dir=tmp_path, executor=mock_executor)
     app._executor_ready = True
@@ -309,6 +316,16 @@ async def test_create_pull_request_sessions_error(tmp_path: Path):
         if call[1].get("level") == "ERROR"
     ]
     assert len(error_calls) == 1
+    # Error message should mention "sessions", not "suggestion"
+    assert "sessions" in error_calls[0][0][0].lower()
+    assert "suggestion" not in error_calls[0][0][0].lower()
+
+    # pr_suggest should NOT have been called since pr_sessions failed
+    mock_executor.pr_suggest.assert_not_called()
+
+    # Verify set_job_running(False) was called after the error
+    mock_chat.set_job_running.assert_called()
+    assert mock_chat.set_job_running.call_args_list[-1] == (((False,), {}))
 
 
 def test_pr_create_modal_screen_with_sessions():

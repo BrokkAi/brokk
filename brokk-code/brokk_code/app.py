@@ -2606,63 +2606,70 @@ class BrokkApp(App):
         if not chat:
             return
 
+        chat.add_system_message("Fetching overlapping sessions and PR suggestion...")
+        chat.set_job_running(True)
+
+        # Use current branch as source, optional base branch override or let executor default
+        source_branch = self.current_branch if self.current_branch != "unknown" else None
+
+        # Fetch overlapping sessions for this PR's branch diff
         try:
-            chat.add_system_message("Fetching overlapping sessions and PR suggestion...")
-            chat.set_job_running(True)
-
-            # Use current branch as source, optional base branch override or let executor default
-            source_branch = self.current_branch if self.current_branch != "unknown" else None
-
-            # Fetch overlapping sessions for this PR's branch diff
             sessions_data = await self.executor.pr_sessions(
                 source_branch=source_branch,
                 target_branch=base_branch,
             )
-            sessions = sessions_data.get("sessions", [])
-            resolved_source = sessions_data.get("sourceBranch", source_branch or "")
-            resolved_target = sessions_data.get("targetBranch", base_branch or "")
+        except Exception as e:
+            logger.exception("Failed to fetch PR sessions")
+            chat.add_system_message(f"Failed to fetch PR sessions: {e}", level="ERROR")
+            chat.set_job_running(False)
+            return
 
-            # Default selection: ALL overlapping sessions, matching Swing behavior
-            default_selected_ids: List[str] = [str(s.get("id", "")) for s in sessions]
+        sessions = sessions_data.get("sessions", [])
+        resolved_source = sessions_data.get("sourceBranch", source_branch or "")
+        resolved_target = sessions_data.get("targetBranch", base_branch or "")
 
+        # Default selection: ALL overlapping sessions, matching Swing behavior
+        default_selected_ids: List[str] = [str(s.get("id", "")) for s in sessions]
+
+        try:
             suggestion = await self.executor.pr_suggest(
                 source_branch=resolved_source,
                 target_branch=resolved_target,
                 session_ids=default_selected_ids if default_selected_ids else None,
             )
-
-            suggested_title = suggestion.get("title", "")
-            suggested_body = suggestion.get("description", "")
-
-            chat.set_job_running(False)
-
-            def on_pr_result(result: Optional[tuple[str, str, List[str]]]) -> None:
-                if result is None:
-                    chat.add_system_message("PR creation cancelled.")
-                    return
-                title, body, selected_session_ids = result
-                self.run_worker(
-                    self._do_create_pr(
-                        title, body, resolved_source, resolved_target, selected_session_ids
-                    )
-                )
-
-            self.push_screen(
-                PrCreateModalScreen(
-                    suggested_title=suggested_title,
-                    suggested_body=suggested_body,
-                    source_branch=resolved_source,
-                    target_branch=resolved_target,
-                    sessions=sessions,
-                    selected_session_ids=default_selected_ids,
-                ),
-                on_pr_result,
-            )
-
         except Exception as e:
             logger.exception("Failed to fetch PR suggestion")
             chat.add_system_message(f"Failed to fetch PR suggestion: {e}", level="ERROR")
             chat.set_job_running(False)
+            return
+
+        suggested_title = suggestion.get("title", "")
+        suggested_body = suggestion.get("description", "")
+
+        chat.set_job_running(False)
+
+        def on_pr_result(result: Optional[tuple[str, str, List[str]]]) -> None:
+            if result is None:
+                chat.add_system_message("PR creation cancelled.")
+                return
+            title, body, selected_session_ids = result
+            self.run_worker(
+                self._do_create_pr(
+                    title, body, resolved_source, resolved_target, selected_session_ids
+                )
+            )
+
+        self.push_screen(
+            PrCreateModalScreen(
+                suggested_title=suggested_title,
+                suggested_body=suggested_body,
+                source_branch=resolved_source,
+                target_branch=resolved_target,
+                sessions=sessions,
+                selected_session_ids=default_selected_ids,
+            ),
+            on_pr_result,
+        )
 
     async def _do_create_pr(
         self,
