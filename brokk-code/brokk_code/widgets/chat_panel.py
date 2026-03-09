@@ -970,9 +970,15 @@ class ChatPanel(Vertical):
             scroll_btn = self.query_one("#scroll-to-bottom", Button)
         except NoMatches:
             return
+
         log.auto_scroll = True
-        log.scroll_end(animate=False)
-        scroll_btn.set_class(True, "hidden")
+
+        def _do_reset():
+            log.scroll_end(animate=False)
+            scroll_btn.add_class("hidden")
+            self._sync_autoscroll()
+
+        self.call_after_refresh(_do_reset)
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle button press events."""
