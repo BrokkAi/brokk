@@ -347,6 +347,18 @@ def extract_prompt_text(prompt: Any) -> str:
     return "\n".join(parts).strip()
 
 
+def get_slash_command(text: str) -> Optional[str]:
+    """Returns the slash command if the text starts with one (e.g. '/context'), else None."""
+    trimmed = text.strip()
+    if not trimmed.startswith("/"):
+        return None
+    # Match first word: e.g. "/context some args" -> "/context"
+    cmd = trimmed.split(maxsplit=1)[0].lower()
+    if cmd == "/context":
+        return cmd
+    return None
+
+
 def extract_resource_file_paths(prompt: Any, cwd: str) -> list[str]:
     """Extract workspace-relative file paths from EmbeddedResource and ResourceLink blocks."""
     if not prompt or isinstance(prompt, str):
@@ -726,6 +738,17 @@ class BrokkAcpBridge:
         prompt_text = extract_prompt_text(prompt)
         if not prompt_text:
             raise ExecutorError("Prompt must contain at least one non-empty text block.")
+
+        command = get_slash_command(prompt_text)
+        if command == "/context":
+            ctx = await self.executor.get_context()
+            fragments = ctx.get("fragments", [])
+            lines = [f"### Current Context ({len(fragments)} fragments)"]
+            for f in fragments:
+                pinned = " [PINNED]" if f.get("pinned") else ""
+                lines.append(f"- {f.get('shortDescription') or f.get('id')}{pinned}")
+            await send_update(session_id, update_agent_message_text("\n".join(lines)))
+            return
 
         # Add any @-mentioned files from ACP embedded/linked resource blocks to context.
         attached_fragment_ids: list[str] = []

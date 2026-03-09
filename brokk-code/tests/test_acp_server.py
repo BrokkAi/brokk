@@ -21,6 +21,7 @@ from brokk_code.acp_server import (
     extract_prompt_text,
     extract_resource_file_paths,
     map_executor_event_to_session_update,
+    get_slash_command,
     normalize_mode,
     resolve_model_selection,
 )
@@ -242,6 +243,19 @@ def test_extract_prompt_text_from_blocks() -> None:
 
 def test_extract_prompt_text_from_string() -> None:
     assert extract_prompt_text("  direct prompt  ") == "direct prompt"
+
+
+def test_get_slash_command_logic() -> None:
+    # Valid commands
+    assert get_slash_command("/context") == "/context"
+    assert get_slash_command("  /context  ") == "/context"
+    assert get_slash_command("/context list files") == "/context"
+
+    # Invalid or non-commands
+    assert get_slash_command("context") is None
+    assert get_slash_command("/unknown") is None
+    assert get_slash_command("Please /context") is None
+    assert get_slash_command("") is None
 
 
 def test_extract_resource_file_paths_supports_zed_resource_shape_and_relative_links() -> None:
