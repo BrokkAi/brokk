@@ -495,10 +495,8 @@ public class ContextAgent {
         logger.debug("{} group initial token estimate: ~{}", type, initialTokens);
 
         List<ProjectFile> workingFiles = groupFiles;
-
-        // If too large for evaluation, ask for interesting files (files-pruning stage with 100k cap)
         @Nullable Llm.ResponseMetadata usage = null;
-
+        // If too large for evaluation, ask for interesting files (files-pruning stage with 100k cap)
         boolean forcePrune = "true".equalsIgnoreCase(System.getenv("BRK_FORCE_FILENAME_PRUNE"));
         if (forcePrune || initialTokens > evalBudgetRemaining) {
             logger.debug(
@@ -506,7 +504,7 @@ public class ContextAgent {
                     type,
                     initialTokens,
                     evalBudgetRemaining);
-            var filenames = workingFiles.stream().map(ProjectFile::toString).toList();
+            var filenames = groupFiles.stream().map(ProjectFile::toString).toList();
             var pruneRec = askLlmDeepPruneFilenamesWithChunking(
                     filenames, workspaceRepresentation, pruneBudgetRemaining, filesLlm, type == GroupType.ANALYZED);
             usage = Llm.ResponseMetadata.sum(usage, pruneRec.tokenUsage());
@@ -518,8 +516,10 @@ public class ContextAgent {
             }
 
             // Expand to include most-relevant neighbors
-            if (type == GroupType.ANALYZED && workingFiles.size() < DESIRED_CANDIDATES) {
+            if (type == GroupType.ANALYZED && prunedFiles.size() < DESIRED_CANDIDATES) {
                 workingFiles = expandCandidates(prunedFiles, groupFiles);
+            } else {
+                workingFiles = List.copyOf(prunedFiles);
             }
 
             int postExpansionTokens;
