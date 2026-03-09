@@ -14,7 +14,7 @@ from textual.app import App, ComposeResult, ScreenStackError
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
-from textual.widgets import Button, Input, ListItem, ListView, Static
+from textual.widgets import Button, Input, ListItem, ListView, Static, TextArea
 
 from brokk_code.executor import ExecutorError, ExecutorManager
 from brokk_code.prompt_history import append_prompt, load_history
@@ -374,6 +374,63 @@ class ModeSelectModal(ModalScreen[str]):
         mode = self._item_id_to_mode.get(message.item.id)
         if mode:
             self.dismiss(mode)
+
+
+class PrCreateModalScreen(ModalScreen[Optional[tuple[str, str]]]):
+    """Modal for creating a pull request with editable title and body."""
+
+    BINDINGS = [
+        Binding("escape", "dismiss", "Cancel", show=False),
+        Binding("ctrl+enter", "submit_pr", "Create PR", show=False),
+    ]
+
+    def __init__(
+        self,
+        suggested_title: str = "",
+        suggested_body: str = "",
+        source_branch: str = "",
+        target_branch: str = "",
+    ) -> None:
+        super().__init__()
+        self._suggested_title = suggested_title
+        self._suggested_body = suggested_body
+        self._source_branch = source_branch
+        self._target_branch = target_branch
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="pr-create-container"):
+            yield Static("Create Pull Request", id="pr-create-title")
+            yield Static(
+                f"[dim]{self._source_branch} -> {self._target_branch}[/]",
+                id="pr-create-branches",
+            )
+            yield Static("Title:", id="pr-title-label")
+            yield Input(value=self._suggested_title, placeholder="PR title", id="pr-title-input")
+            yield Static("Description:", id="pr-body-label")
+            yield TextArea(text=self._suggested_body, id="pr-body-input")
+            with Horizontal(id="pr-create-actions"):
+                yield Button("Create PR", id="pr-create-submit", variant="primary")
+                yield Button("Cancel", id="pr-create-cancel")
+
+    def on_mount(self) -> None:
+        self.query_one("#pr-title-input", Input).focus()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "pr-create-submit":
+            self._do_submit()
+        elif event.button.id == "pr-create-cancel":
+            self.dismiss(None)
+
+    def action_submit_pr(self) -> None:
+        self._do_submit()
+
+    def _do_submit(self) -> None:
+        title = self.query_one("#pr-title-input", Input).value.strip()
+        body = self.query_one("#pr-body-input", TextArea).text.strip()
+        if not title:
+            self.query_one("#pr-title-label", Static).update("[bold red]Title is required[/]")
+            return
+        self.dismiss((title, body))
 
 
 class SessionSelectModal(ModalScreen[str]):
@@ -1929,6 +1986,7 @@ class BrokkApp(App):
             {"command": "/task", "description": "Open/close the task list"},
             {"command": "/sessions", "description": "List and switch between sessions"},
             {"command": "/commit", "description": "Commit current changes"},
+            {"command": "/pr", "description": "Create a pull request"},
             {"command": "/info", "description": "Show current configuration and status"},
             {"command": "/quit", "description": "Exit the application"},
             {"command": "/exit", "description": "Exit the application"},
@@ -2069,6 +2127,18 @@ class BrokkApp(App):
             self.run_worker(self._commit_changes(commit_message))
         elif base == "/sessions":
             self.run_worker(self._show_sessions())
+        elif base == "/pr":
+            if not self._executor_ready:
+                chat.add_system_message(
+                    "Executor is not ready. Cannot create pull request.",
+                    level="ERROR",
+                )
+                return
+            # Parse optional base branch: /pr [base-branch]
+            base_branch: Optional[str] = None
+            if len(parts) > 1:
+                base_branch = parts[1]
+            self.run_worker(self._create_pull_request(base_branch))
         elif base in ("/quit", "/exit"):
             self.action_quit()
         else:
@@ -2458,6 +2528,87 @@ class BrokkApp(App):
         except Exception as e:
             logger.exception("Commit failed")
             chat.add_system_message(f"Commit failed: {e}", level="ERROR")
+
+    async def _create_pull_request(self, base_branch: Optional[str] = None) -> None:
+        """Async worker to create a pull request."""
+        chat = self._maybe_chat()
+        if not chat:
+            return
+
+        try:
+            chat.add_system_message("Fetching PR suggestion...")
+            chat.set_job_running(True)
+
+            # Use current branch as source, optional base branch override or let executor default
+            source_branch = self.current_branch if self.current_branch != "unknown" else None
+
+            suggestion = await self.executor.pr_suggest(
+                source_branch=source_branch,
+                target_branch=base_branch,
+            )
+
+            suggested_title = suggestion.get("title", "")
+            suggested_body = suggestion.get("description", "")
+            resolved_source = suggestion.get("sourceBranch", source_branch or "")
+            resolved_target = suggestion.get("targetBranch", base_branch or "")
+
+            chat.set_job_running(False)
+
+            def on_pr_result(result: Optional[tuple[str, str]]) -> None:
+                if result is None:
+                    chat.add_system_message("PR creation cancelled.")
+                    return
+                title, body = result
+                self.run_worker(self._do_create_pr(title, body, resolved_source, resolved_target))
+
+            self.push_screen(
+                PrCreateModalScreen(
+                    suggested_title=suggested_title,
+                    suggested_body=suggested_body,
+                    source_branch=resolved_source,
+                    target_branch=resolved_target,
+                ),
+                on_pr_result,
+            )
+
+        except Exception as e:
+            logger.exception("Failed to fetch PR suggestion")
+            chat.add_system_message(f"Failed to fetch PR suggestion: {e}", level="ERROR")
+            chat.set_job_running(False)
+
+    async def _do_create_pr(
+        self, title: str, body: str, source_branch: str, target_branch: str
+    ) -> None:
+        """Async worker to actually create the PR after user confirms."""
+        chat = self._maybe_chat()
+        if not chat:
+            return
+
+        try:
+            chat.add_system_message("Creating pull request...")
+            chat.set_job_running(True)
+
+            result = await self.executor.pr_create(
+                title=title,
+                body=body,
+                source_branch=source_branch,
+                target_branch=target_branch,
+            )
+
+            pr_url = result.get("url", "")
+            if pr_url:
+                chat.add_system_message_markup(f"Pull request created: [bold]{pr_url}[/]")
+            else:
+                chat.add_system_message("Pull request created successfully.")
+
+            # Refresh context to update any UI state
+            await self._refresh_context_panel()
+
+        except Exception as e:
+            logger.exception("PR creation failed")
+            chat.add_system_message(f"PR creation failed: {e}", level="ERROR")
+        finally:
+            chat.set_job_running(False)
 
     async def _show_sessions(self) -> None:
         chat = self._maybe_chat()
