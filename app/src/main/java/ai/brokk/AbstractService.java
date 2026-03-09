@@ -120,7 +120,8 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
             long maxTokensInclusive, // Long.MAX_VALUE means "no upper limit"
             double inputCostPerToken,
             double cachedInputCostPerToken,
-            double outputCostPerToken) {
+            double outputCostPerToken,
+            double cacheCreationCostPerToken) {
         public boolean contains(long tokens) {
             return tokens >= minTokensInclusive && tokens <= maxTokensInclusive;
         }
@@ -145,11 +146,17 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
         }
 
         public double getCostFor(long uncachedInputTokens, long cachedTokens, long outputTokens) {
-            var promptTokens = uncachedInputTokens + cachedTokens;
+            return getCostFor(uncachedInputTokens, cachedTokens, outputTokens, 0);
+        }
+
+        public double getCostFor(
+                long uncachedInputTokens, long cachedTokens, long outputTokens, long cacheCreationTokens) {
+            var promptTokens = uncachedInputTokens + cachedTokens + cacheCreationTokens;
             var band = bandFor(promptTokens);
             return uncachedInputTokens * band.inputCostPerToken()
                     + cachedTokens * band.cachedInputCostPerToken()
-                    + outputTokens * band.outputCostPerToken();
+                    + outputTokens * band.outputCostPerToken()
+                    + cacheCreationTokens * band.cacheCreationCostPerToken();
         }
     }
 
@@ -193,7 +200,14 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record TierPricing(
-            double input_cost_per_token, double output_cost_per_token, double cache_read_input_token_cost) {}
+            double input_cost_per_token,
+            double output_cost_per_token,
+            double cache_read_input_token_cost,
+            @Nullable Double cache_creation_input_token_cost) {
+        public double cacheCreationCost() {
+            return cache_creation_input_token_cost != null ? cache_creation_input_token_cost : input_cost_per_token;
+        }
+    }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record PricingTiers(
@@ -300,23 +314,30 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
         var inputCost = tryDouble.apply(info.get("input_cost_per_token"));
         var cachedInputCost = tryDouble.apply(info.get("cache_read_input_token_cost"));
         var outputCost = tryDouble.apply(info.get("output_cost_per_token"));
+        var cacheCreationCostVal = info.get("cache_creation_input_token_cost");
+        var cacheCreationCost = cacheCreationCostVal == null ? inputCost : tryDouble.apply(cacheCreationCostVal);
 
         var inputAbove200k = info.get("input_cost_per_token_above_200k_tokens");
         var cachedInputAbove200k = info.get("cache_read_input_token_cost_above_200k_tokens");
         var outputAbove200k = info.get("output_cost_per_token_above_200k_tokens");
-        boolean hasAbove200k = inputAbove200k != null || cachedInputAbove200k != null || outputAbove200k != null;
+        var cacheCreationAbove200k = info.get("cache_creation_input_token_cost_above_200k_tokens");
+        boolean hasAbove200k = inputAbove200k != null
+                || cachedInputAbove200k != null
+                || outputAbove200k != null
+                || cacheCreationAbove200k != null;
 
         if (hasAbove200k) {
-            var band1 = new PriceBand(0, 199_999, inputCost, cachedInputCost, outputCost);
+            var band1 = new PriceBand(0, 199_999, inputCost, cachedInputCost, outputCost, cacheCreationCost);
             var band2 = new PriceBand(
                     200_000,
                     Long.MAX_VALUE,
                     inputAbove200k == null ? inputCost : tryDouble.apply(inputAbove200k),
                     cachedInputAbove200k == null ? cachedInputCost : tryDouble.apply(cachedInputAbove200k),
-                    outputAbove200k == null ? outputCost : tryDouble.apply(outputAbove200k));
+                    outputAbove200k == null ? outputCost : tryDouble.apply(outputAbove200k),
+                    cacheCreationAbove200k == null ? cacheCreationCost : tryDouble.apply(cacheCreationAbove200k));
             return new ModelPricing(List.of(band1, band2));
         } else {
-            var band = new PriceBand(0, Long.MAX_VALUE, inputCost, cachedInputCost, outputCost);
+            var band = new PriceBand(0, Long.MAX_VALUE, inputCost, cachedInputCost, outputCost, cacheCreationCost);
             return new ModelPricing(List.of(band));
         }
     }
@@ -333,7 +354,8 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
                         Long.MAX_VALUE,
                         tp.input_cost_per_token(),
                         tp.cache_read_input_token_cost(),
-                        tp.output_cost_per_token());
+                        tp.output_cost_per_token(),
+                        tp.cacheCreationCost());
                 return new ModelPricing(List.of(band));
             }
         }

@@ -919,6 +919,8 @@ public class Llm {
 
                 int input = usage.inputTokens();
                 int cached = usage.cachedInputTokens();
+                // We don't have a reliable way to get cache creation tokens from LC4J/LiteLLM usage yet,
+                // so we treat uncached as input - cached and pass 0 for creation for now.
                 int uncached = Math.max(0, input - cached);
                 int output = usage.outputTokens();
 
@@ -931,7 +933,7 @@ public class Llm {
                     io.showNotification(IConsoleIO.NotificationRole.COST, message);
                     logger.debug("LLM cost: {}", message);
                 } else {
-                    double cost = pricing.getCostFor(uncached, cached, output);
+                    double cost = pricing.getCostFor(uncached, cached, output, 0);
                     DecimalFormat df = (DecimalFormat) NumberFormat.getNumberInstance(Locale.US);
                     df.applyPattern("#,##0.0000");
                     String costStr = df.format(cost);
