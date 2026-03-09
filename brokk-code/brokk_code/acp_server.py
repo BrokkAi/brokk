@@ -453,6 +453,15 @@ def _extract_fragment_ids(resp: Any) -> list[str]:
     return list(dict.fromkeys(ids))
 
 
+def _is_truthy(value: Any) -> bool:
+    """Robustly normalize truthiness for string and boolean payloads."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"true", "1", "yes"}
+    return bool(value)
+
+
 def map_executor_event_to_session_update(
     event: dict[str, Any],
     update_agent_message_text: Callable[[str], Any],
@@ -470,7 +479,14 @@ def map_executor_event_to_session_update(
             if not token:
                 return None
 
-            is_reasoning = bool(data.get("isReasoning", False))
+            raw_is_reasoning = data.get("isReasoning", False)
+            if isinstance(raw_is_reasoning, str):
+                is_reasoning = raw_is_reasoning.strip().lower() in {"true", "1", "yes"}
+            elif isinstance(raw_is_reasoning, bool):
+                is_reasoning = raw_is_reasoning
+            else:
+                is_reasoning = bool(raw_is_reasoning)
+
             if is_reasoning and update_agent_thought_text:
                 return update_agent_thought_text(token)
             return update_agent_message_text(token)

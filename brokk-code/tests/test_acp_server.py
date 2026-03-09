@@ -295,11 +295,50 @@ def test_map_executor_token_event() -> None:
 
 
 def test_map_executor_reasoning_token_event_uses_thought_block() -> None:
+    # Boolean True
     event = {"type": "LLM_TOKEN", "data": {"token": "thinking", "isReasoning": True}}
     assert map_executor_event_to_session_update(event, _text_block, _thought_block) == {
         "sessionUpdate": "agent_thought_chunk",
         "text": "thinking",
     }
+
+    # Boolean False
+    event = {"type": "LLM_TOKEN", "data": {"token": "not thinking", "isReasoning": False}}
+    assert map_executor_event_to_session_update(event, _text_block, _thought_block) == {
+        "sessionUpdate": "agent_message_chunk",
+        "text": "not thinking",
+    }
+
+    # String Truthy
+    for val in ["true", "1", "yes", " TRUE "]:
+        event = {"type": "LLM_TOKEN", "data": {"token": "thinking", "isReasoning": val}}
+        assert map_executor_event_to_session_update(event, _text_block, _thought_block) == {
+            "sessionUpdate": "agent_thought_chunk",
+            "text": "thinking",
+        }, f"Failed for truthy value: {val}"
+
+    # String Falsy (which would be truthy via naive bool())
+    for val in ["false", "0", "no", "anything else"]:
+        event = {"type": "LLM_TOKEN", "data": {"token": "not thinking", "isReasoning": val}}
+        assert map_executor_event_to_session_update(event, _text_block, _thought_block) == {
+            "sessionUpdate": "agent_message_chunk",
+            "text": "not thinking",
+        }, f"Failed for falsy value: {val}"
+
+    # Non-string payloads keep sensible bool behavior.
+    for val in [1, [1], {"a": 1}]:
+        event = {"type": "LLM_TOKEN", "data": {"token": "thinking", "isReasoning": val}}
+        assert map_executor_event_to_session_update(event, _text_block, _thought_block) == {
+            "sessionUpdate": "agent_thought_chunk",
+            "text": "thinking",
+        }, f"Failed for truthy non-string value: {val}"
+
+    for val in [0, None, [], {}]:
+        event = {"type": "LLM_TOKEN", "data": {"token": "not thinking", "isReasoning": val}}
+        assert map_executor_event_to_session_update(event, _text_block, _thought_block) == {
+            "sessionUpdate": "agent_message_chunk",
+            "text": "not thinking",
+        }, f"Failed for falsy non-string value: {val}"
 
 
 def test_map_executor_error_event() -> None:
