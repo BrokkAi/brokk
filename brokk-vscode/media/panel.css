@@ -1921,6 +1921,60 @@ a.file-link:hover {
   background: var(--vscode-button-hoverBackground, #1177bb);
 }
 
+.settings-help {
+  text-align: center;
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground, #888);
+  margin-top: 8px;
+}
+
+.settings-help a {
+  color: var(--vscode-textLink-foreground, #3794ff);
+  text-decoration: none;
+}
+
+.settings-help a:hover {
+  text-decoration: underline;
+}
+
+.settings-help-sep {
+  margin: 0 4px;
+}
+
+.settings-subscription-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.subscription-status {
+  font-size: 12px;
+  color: var(--vscode-descriptionForeground, #888);
+}
+
+.subscription-status.connected {
+  color: var(--vscode-charts-green, #4ec9b0);
+}
+
+.subscription-status.unavailable {
+  color: var(--vscode-descriptionForeground, #888);
+  font-style: italic;
+}
+
+.settings-link-btn {
+  background: none;
+  border: none;
+  color: var(--vscode-textLink-foreground, #3794ff);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 2px 0;
+  text-decoration: underline;
+}
+
+.settings-link-btn:hover {
+  color: var(--vscode-textLink-activeForeground, #3794ff);
+}
+
 /* ── Autocomplete Dropdown ───────────────────────── */
 
 .autocomplete-dropdown {

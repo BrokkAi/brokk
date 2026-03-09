@@ -241,7 +241,7 @@ export async function spawnJbang(workspaceDir: string, jbangBinary?: string): Pr
   const authToken = randomUUID();
   const execId = randomUUID();
 
-  const version = "0.23.0.beta2";
+  const version = "0.23.0";
   const jarUrl = `https://github.com/BrokkAi/brokk-releases/releases/download/${version}/brokk-${version}.jar`;
 
   const child = spawn(

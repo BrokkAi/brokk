@@ -182,28 +182,14 @@ function _populateModelDropdown(select, modelInfos, favorites, isPrimary) {
   const dropdown = select.dropdown;
   dropdown.innerHTML = "";
 
-  if (!isPrimary) {
-    const defaultCode = "gemini-3-flash-preview";
-    const defaultOpt = document.createElement("div");
-    defaultOpt.className = "custom-select-option selected";
-    defaultOpt.dataset.value = defaultCode;
-    defaultOpt.innerHTML = `<span class="option-label">${defaultCode}</span>`;
-    dropdown.appendChild(defaultOpt);
-    select.valueEl.textContent = defaultCode;
-    // Look up reasoning from favorites for the default code model
-    const defaultFav = favorites.find((f) => f.modelName === defaultCode);
-    if (defaultFav) {
-      defaultOpt.dataset.reasoning = defaultFav.reasoning;
-      defaultOpt.dataset.isFavorite = "true";
-    }
-  }
+  const hasOAuthModels = modelInfos.some((m) => m.name.endsWith("-oauth"));
 
   // Favorites
   if (favorites.length > 0) {
     for (const fav of favorites) {
       const opt = document.createElement("div");
       opt.className = "custom-select-option favorite-option";
-      if (isPrimary && dropdown.children.length === 0) opt.classList.add("selected");
+      if (dropdown.children.length === 0) opt.classList.add("selected");
       opt.dataset.value = fav.modelName;
       opt.dataset.reasoning = fav.reasoning;
       opt.dataset.tier = fav.tier;
@@ -241,9 +227,37 @@ function _populateModelDropdown(select, modelInfos, favorites, isPrimary) {
   const allModelsContainer = document.createElement("div");
   allModelsContainer.className = "all-models-container hidden";
 
+  // OpenAI-only filter (only shown when oauth models exist)
+  /** @type {HTMLInputElement | null} */
+  let oauthCheckbox = null;
+  if (hasOAuthModels) {
+    const oauthContainer = document.createElement("div");
+    oauthContainer.className = "show-all-toggle";
+    const oauthLabel = document.createElement("label");
+    oauthLabel.className = "show-all-label";
+    oauthCheckbox = document.createElement("input");
+    oauthCheckbox.type = "checkbox";
+    oauthCheckbox.className = "show-all-checkbox";
+    oauthLabel.appendChild(oauthCheckbox);
+    oauthLabel.appendChild(document.createTextNode(" OpenAI only"));
+    oauthContainer.appendChild(oauthLabel);
+    allModelsContainer.appendChild(oauthContainer);
+
+    oauthCheckbox.addEventListener("click", (e) => e.stopPropagation());
+    oauthCheckbox.addEventListener("change", (e) => {
+      e.stopPropagation();
+      const oauthOnly = oauthCheckbox.checked;
+      for (const opt of allModelsContainer.querySelectorAll(".custom-select-option")) {
+        opt.style.display = oauthOnly && opt.dataset.oauth !== "true" ? "none" : "";
+      }
+    });
+    oauthLabel.addEventListener("click", (e) => e.stopPropagation());
+  }
+
   for (const info of modelInfos) {
     const opt = document.createElement("div");
     opt.className = "custom-select-option";
+    if (info.name.endsWith("-oauth")) opt.dataset.oauth = "true";
     const hasReasoning = info.supportsReasoningEffort || info.supportsReasoningDisable;
     if (hasReasoning) opt.classList.add("has-submenu");
     opt.dataset.value = info.name;
@@ -287,10 +301,36 @@ function _populateModelDropdown(select, modelInfos, favorites, isPrimary) {
       select.reasoning = "DEFAULT";
     }
   } else {
-    // For code select: use the default code model's favorite reasoning if available
-    const defaultCode = "gemini-3-flash-preview";
-    const codeFav = favorites.find((f) => f.modelName === defaultCode);
-    select.reasoning = codeFav ? codeFav.reasoning : "DEFAULT";
+    // Code select defaults — prefer gemini-3-flash-preview from favorites
+    if (favorites.length > 0) {
+      const geminiFav = favorites.find((f) => f.modelName === "gemini-3-flash-preview");
+      const codeFav = geminiFav || favorites[0];
+      // Mark the correct favorite option as selected
+      if (geminiFav) {
+        const allOpts = dropdown.querySelectorAll(".custom-select-option");
+        allOpts.forEach((o) => o.classList.remove("selected"));
+        const match = dropdown.querySelector(`.custom-select-option[data-value="${CSS.escape(geminiFav.modelName)}"]`);
+        if (match) match.classList.add("selected");
+      }
+      select.valueEl.textContent = codeFav.alias;
+      select.reasoning = codeFav.reasoning;
+    } else {
+      const defaultCode = "gemini-3-flash-preview";
+      const match = allModelsContainer.querySelector(`.custom-select-option[data-value="${CSS.escape(defaultCode)}"]`);
+      if (match) {
+        match.classList.add("selected");
+        toggleCheckbox.checked = true;
+        allModelsContainer.classList.remove("hidden");
+        select.valueEl.textContent = defaultCode;
+      } else if (modelInfos.length > 0) {
+        toggleCheckbox.checked = true;
+        allModelsContainer.classList.remove("hidden");
+        const firstAll = allModelsContainer.querySelector(".custom-select-option");
+        if (firstAll) firstAll.classList.add("selected");
+        select.valueEl.textContent = modelInfos[0].name;
+      }
+      select.reasoning = "DEFAULT";
+    }
   }
 
   select.rebind();

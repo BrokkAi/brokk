@@ -16,7 +16,7 @@ const vscode = acquireVsCodeApi();
 initChat();
 initContext(vscode);
 initActivity(vscode);
-const { onSettingsLoaded, onSettingsSaved, onBalanceResult, onSettingsError } = initSettings(vscode);
+const { onSettingsLoaded, onSettingsSaved, onBalanceResult, onSettingsError, onOpenAiStatusResult, onOpenAiConnectStarted } = initSettings(vscode);
 const { handleResults: handleAutocompleteResults } = initAutocomplete(vscode);
 
 // ── Custom Selects ───────────────────────────────────
@@ -239,8 +239,7 @@ window.addEventListener("message", (event) => {
     // Models
     case "modelsUpdate":
       if (msg.models) {
-        const favorites = msg.favorites || [];
-        populateModelSelects(plannerSelect, codeSelect, msg.models, favorites);
+        populateModelSelects(plannerSelect, codeSelect, msg.models, msg.favorites || []);
       }
       break;
 
@@ -256,6 +255,12 @@ window.addEventListener("message", (event) => {
       break;
     case "settingsError":
       onSettingsError(msg);
+      break;
+    case "openAiStatusResult":
+      onOpenAiStatusResult(msg);
+      break;
+    case "openAiConnectStarted":
+      onOpenAiConnectStarted(msg);
       break;
 
     // Autocomplete
