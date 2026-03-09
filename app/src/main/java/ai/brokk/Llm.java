@@ -919,9 +919,8 @@ public class Llm {
 
                 int input = usage.inputTokens();
                 int cached = usage.cachedInputTokens();
-                // We don't have a reliable way to get cache creation tokens from LC4J/LiteLLM usage yet,
-                // so we treat uncached as input - cached and pass 0 for creation for now.
-                int uncached = Math.max(0, input - cached);
+                int cacheCreation = usage.cacheCreationTokens();
+                int uncached = Math.max(0, input - cached - cacheCreation);
                 int output = usage.outputTokens();
 
                 int totalTokens = Math.max(0, input) + Math.max(0, output);
@@ -933,7 +932,7 @@ public class Llm {
                     io.showNotification(IConsoleIO.NotificationRole.COST, message);
                     logger.debug("LLM cost: {}", message);
                 } else {
-                    double cost = pricing.getCostFor(uncached, cached, output, 0);
+                    double cost = pricing.getCostFor(uncached, cached, output, cacheCreation);
                     DecimalFormat df = (DecimalFormat) NumberFormat.getNumberInstance(Locale.US);
                     df.applyPattern("#,##0.0000");
                     String costStr = df.format(cost);
@@ -981,6 +980,7 @@ public class Llm {
     public record ResponseMetadata(
             int inputTokens,
             int cachedInputTokens,
+            int cacheCreationTokens,
             int thinkingTokens,
             int outputTokens,
             long elapsedMs,
@@ -1015,6 +1015,14 @@ public class Llm {
             } catch (ArithmeticException e) {
                 cachedInputTokens = Integer.MAX_VALUE;
                 overflowedFields.add("cachedInputTokens");
+            }
+
+            int cacheCreationTokens;
+            try {
+                cacheCreationTokens = Math.addExact(a.cacheCreationTokens(), b.cacheCreationTokens());
+            } catch (ArithmeticException e) {
+                cacheCreationTokens = Integer.MAX_VALUE;
+                overflowedFields.add("cacheCreationTokens");
             }
 
             int thinkingTokens;
@@ -1055,6 +1063,7 @@ public class Llm {
             return new ResponseMetadata(
                     inputTokens,
                     cachedInputTokens,
+                    cacheCreationTokens,
                     thinkingTokens,
                     outputTokens,
                     elapsedMs,
@@ -1113,7 +1122,7 @@ public class Llm {
             if (response == null) {
                 return error == null
                         ? null
-                        : new ResponseMetadata(0, 0, 0, 0, elapsedMs, null, null, null, null, error.getMessage());
+                        : new ResponseMetadata(0, 0, 0, 0, 0, elapsedMs, null, null, null, null, error.getMessage());
             }
             var usage = (OpenAiTokenUsage) response.tokenUsage();
             if (usage == null) {
@@ -1124,6 +1133,7 @@ public class Llm {
             // always present
             int inputTokens = usage.inputTokenCount();
             int cachedInputTokens = 0;
+            int cacheCreationTokens = 0;
             int thinkingTokens = 0;
             int outputTokens = usage.outputTokenCount();
 
@@ -1157,6 +1167,7 @@ public class Llm {
             return new ResponseMetadata(
                     inputTokens,
                     cachedInputTokens,
+                    cacheCreationTokens,
                     thinkingTokens,
                     outputTokens,
                     elapsedMs,
@@ -1234,6 +1245,7 @@ public class Llm {
                 if (meta != null) {
                     metadata.put("inputTokens", meta.inputTokens());
                     metadata.put("cachedInputTokens", meta.cachedInputTokens());
+                    metadata.put("cacheCreationTokens", meta.cacheCreationTokens());
                     metadata.put("thinkingTokens", meta.thinkingTokens());
                     metadata.put("outputTokens", meta.outputTokens());
                     if (meta.modelName() != null) metadata.put("modelName", meta.modelName());

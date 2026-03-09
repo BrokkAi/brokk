@@ -383,7 +383,7 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
             return new CostEstimate(0, "");
         }
 
-        double cost = pricing.getCostFor(inputTokens, 0, outputTokens);
+        double cost = pricing.getCostFor(inputTokens, 0, outputTokens, 0);
 
         if (isFreeTier(config.name())) {
             return new CostEstimate(0, "$0.00 (Free Tier)");
