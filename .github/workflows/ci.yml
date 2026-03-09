@@ -22,7 +22,7 @@ jobs:
       with:
         distribution: jetbrains
         java-package: jdk+jcef
-        java-version: '21.0.10b1163.108'
+        java-version: '21'
         token: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Set up Node.js
