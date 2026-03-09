@@ -753,8 +753,8 @@ public class SearchAgent {
         return scanConfig.scanModel() == null ? cm.getService().getScanModel() : scanConfig.scanModel();
     }
 
-    private boolean isSearchTool(String toolName) {
-        return toolName.startsWith("search");
+    private boolean toolTriggersScan(String toolName) {
+        return toolName.startsWith("search") || toolName.startsWith("find");
     }
 
     /**
@@ -899,7 +899,7 @@ public class SearchAgent {
                 ai = ToolRegistry.removeDuplicateToolRequests(result.aiMessage());
 
                 if (agent.shouldAutomaticallyScan()
-                        && ai.toolExecutionRequests().stream().anyMatch(req -> agent.isSearchTool(req.name()))) {
+                        && ai.toolExecutionRequests().stream().anyMatch(req -> agent.toolTriggersScan(req.name()))) {
                     assert pendingTerminal == null;
                     return TurnOutcome.AutoScan.INSTANCE;
                 }
