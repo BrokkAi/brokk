@@ -387,6 +387,8 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
                 if (stateMismatch(analyzer).isPresent()) {
                     throw new IllegalStateException("Analyzer state remains corrupt after targeted repair attempt.");
                 }
+                // Persist the repaired state so we don't have to repair it again on next load
+                persistAnalyzerState(analyzer);
             }
         } catch (Throwable th) {
             // cache missing or corrupt, rebuild
