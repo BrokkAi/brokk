@@ -172,6 +172,8 @@ def test_main_prints_exit_transcript_before_resume_hint(tmp_path, capsys):
     import json
     import zipfile
 
+    from rich.text import Text
+
     from brokk_code.__main__ import main
 
     workspace = tmp_path
@@ -186,6 +188,7 @@ def test_main_prints_exit_transcript_before_resume_hint(tmp_path, capsys):
 
     def fake_run(app_self):
         app_self._exit_transcript = "You: hi\n\nBrokk: hello"
+        app_self._exit_transcript_renderables = [Text("You: hi"), Text("Brokk: hello")]
 
     with (
         patch("brokk_code.app.BrokkApp.run", new=fake_run),

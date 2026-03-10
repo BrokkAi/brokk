@@ -12,6 +12,8 @@ import tempfile
 from pathlib import Path
 from typing import Any, Iterator
 
+from rich.console import Console
+
 from brokk_code.executor import (
     BUNDLED_EXECUTOR_VERSION,
     ExecutorError,
@@ -1131,8 +1133,17 @@ def main():
         except Exception:
             pass
 
+    transcript_renderables = app.get_exit_transcript_renderables()
     transcript = app.get_exit_transcript().strip()
-    if transcript:
+    if transcript_renderables:
+        console = Console()
+        for renderable in transcript_renderables:
+            if renderable == "":
+                console.print()
+            else:
+                console.print(renderable)
+        console.print()
+    elif transcript:
         print(transcript)
         print()
 

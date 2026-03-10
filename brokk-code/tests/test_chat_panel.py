@@ -79,6 +79,35 @@ async def test_export_plain_text_transcript_formats_history():
 
 
 @pytest.mark.asyncio
+async def test_export_rich_transcript_renderables_omits_welcome_and_keeps_panels():
+    """Verify exit renderables reuse the live chat presentation primitives."""
+    from textual.app import App, ComposeResult
+
+    from rich.markdown import Markdown
+    from rich.panel import Panel
+    from rich.text import Text
+
+    class TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield ChatPanel(id="chat")
+
+    app = TestApp()
+    async with app.run_test():
+        panel = app.query_one("#chat", ChatPanel)
+        panel.add_welcome("", "Welcome to Brokk")
+        panel.add_user_message("help me")
+        panel.add_markdown("Here is a response")
+        panel.add_system_message("bad news", level="ERROR")
+
+        renderables = [r for r in panel.export_rich_transcript_renderables() if r != ""]
+
+        assert all(not isinstance(r, Markdown) or "Welcome to Brokk" not in str(r) for r in renderables)
+        assert any(isinstance(r, Panel) and r.title == "You" for r in renderables)
+        assert any(isinstance(r, Markdown) for r in renderables)
+        assert any(isinstance(r, Text) and "[ERROR] bad news" in r.plain for r in renderables)
+
+
+@pytest.mark.asyncio
 async def test_job_progress_in_chat_panel():
     """
     Verify that job running state is reflected in ChatPanel's status timer

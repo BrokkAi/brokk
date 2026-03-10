@@ -997,6 +997,7 @@ class BrokkApp(App):
         self._shutdown_completed: bool = False
         self._shutdown_lock = asyncio.Lock()
         self._exit_transcript: str = ""
+        self._exit_transcript_renderables: list[Any] = []
 
     @property
     def current_mode(self) -> str:
@@ -1020,10 +1021,15 @@ class BrokkApp(App):
         if not chat:
             return
         self._exit_transcript = chat.export_plain_text_transcript().strip()
+        self._exit_transcript_renderables = chat.export_rich_transcript_renderables()
 
     def get_exit_transcript(self) -> str:
         """Return the transcript captured during shutdown."""
         return self._exit_transcript
+
+    def get_exit_transcript_renderables(self) -> list[Any]:
+        """Return Rich renderables captured during shutdown."""
+        return list(self._exit_transcript_renderables)
 
     def _show_welcome_message(self) -> None:
         """Constructs and displays the branded welcome message in the ChatPanel."""
