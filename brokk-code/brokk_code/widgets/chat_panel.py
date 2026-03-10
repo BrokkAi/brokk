@@ -330,6 +330,7 @@ class ChatLog(RichLog):
         self.refresh()
 
     def _render_line(self, y: int, scroll_x: int, width: int) -> "Strip":
+        """Render a line of the log, applying wrapping and selection highlighting."""
         from textual.strip import Strip
 
         if y >= len(self.lines):
@@ -346,7 +347,8 @@ class ChatLog(RichLog):
         #   - self._line_cache: dict cache for rendered Strip objects
         #   - strip._segments: list of Rich Segments inside a Strip (no public accessor)
         # =========================================================================
-        cache_key = (y + self._start_line, scroll_x, width, self._widest_line_width)
+        # For wrap-first rendering, we ignore scroll_x in the cache key.
+        cache_key = (y + self._start_line, width, self._widest_line_width)
         line_cache = self._line_cache
 
         def extract_segments_from_strip(strip: Strip) -> list[Segment]:
@@ -362,7 +364,9 @@ class ChatLog(RichLog):
         if selection is None and cache_key in line_cache:
             return line_cache[cache_key]
 
-        line = self.lines[y].crop_extend(scroll_x, scroll_x + width, self.rich_style)
+        # In a wrap-first model, the line is already cropped to the available width
+        # by the Rich wrapping process before being stored in self.lines.
+        line = self.lines[y]
 
         if selection is not None:
             span = selection.get_span(y)
@@ -372,18 +376,19 @@ class ChatLog(RichLog):
                 # Use compatibility helper to access private segments
                 for segment in extract_segments_from_strip(line):
                     text.append(segment.text, style=segment.style)
+
                 text_len = len(text)
                 if end == -1:
-                    end = text_len + scroll_x
-                # Convert from full-line coordinates to viewport coordinates
-                adj_start = max(0, start - scroll_x)
-                adj_end = min(text_len, end - scroll_x)
-                if adj_start < adj_end:
+                    end = text_len
+
+                # Selection coordinates are now native to the wrapped line width
+                if start < end:
                     selection_style = self.screen.get_component_rich_style("screen--selection")
-                    text.stylize(selection_style, adj_start, adj_end)
+                    text.stylize(selection_style, start, min(text_len, end))
                 line = Strip(text.render(self.app.console), line.cell_length)
 
-        line = line.apply_offsets(scroll_x, y)
+        # Apply y offset for rendering, but horizontal offset is always 0
+        line = line.apply_offsets(0, y)
         line_cache[cache_key] = line
         return line
 
@@ -805,7 +810,7 @@ class ChatPanel(Vertical):
         self._draft_buffer: str = ""  # Stores text before history navigation started
 
     def compose(self) -> ComposeResult:
-        yield ChatLog(highlight=True, markup=True, id="chat-log")
+        yield ChatLog(highlight=True, markup=True, wrap=True, id="chat-log")
         yield TokenBar(id="chat-token-bar", classes="hidden")
         yield StatusLine(id="status-line")
         with Vertical(id="chat-input-container"):
