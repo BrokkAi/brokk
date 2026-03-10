@@ -81,11 +81,10 @@ async def test_export_plain_text_transcript_formats_history():
 @pytest.mark.asyncio
 async def test_export_rich_transcript_renderables_omits_welcome_and_keeps_panels():
     """Verify exit renderables reuse the live chat presentation primitives."""
-    from textual.app import App, ComposeResult
-
     from rich.markdown import Markdown
     from rich.panel import Panel
     from rich.text import Text
+    from textual.app import App, ComposeResult
 
     class TestApp(App):
         def compose(self) -> ComposeResult:
@@ -101,7 +100,9 @@ async def test_export_rich_transcript_renderables_omits_welcome_and_keeps_panels
 
         renderables = [r for r in panel.export_rich_transcript_renderables() if r != ""]
 
-        assert all(not isinstance(r, Markdown) or "Welcome to Brokk" not in str(r) for r in renderables)
+        assert all(
+            not isinstance(r, Markdown) or "Welcome to Brokk" not in str(r) for r in renderables
+        )
         assert any(isinstance(r, Panel) and r.title == "You" for r in renderables)
         assert any(isinstance(r, Markdown) for r in renderables)
         assert any(isinstance(r, Text) and "[ERROR] bad news" in r.plain for r in renderables)

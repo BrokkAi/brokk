@@ -1133,8 +1133,10 @@ def main():
         except Exception:
             pass
 
-    transcript_renderables = app.get_exit_transcript_renderables()
-    transcript = app.get_exit_transcript().strip()
+    get_renderables = getattr(app, "get_exit_transcript_renderables", None)
+    transcript_renderables = get_renderables() if callable(get_renderables) else []
+    get_transcript = getattr(app, "get_exit_transcript", None)
+    transcript = get_transcript().strip() if callable(get_transcript) else ""
     if transcript_renderables:
         console = Console()
         for renderable in transcript_renderables:
