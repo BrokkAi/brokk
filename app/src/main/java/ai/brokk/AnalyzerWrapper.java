@@ -392,7 +392,7 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
             }
         } catch (Throwable th) {
             // cache missing or corrupt, rebuild
-            logger.warn("Failed to load or validate cached analyzer: {}", th.getMessage());
+            logger.warn("Failed to load or validate cached analyzer", th);
             analyzer = langHandle.createAnalyzer(project, progressListener);
             logger.info(
                     "Created new analyzer: {} for directory: {}",
