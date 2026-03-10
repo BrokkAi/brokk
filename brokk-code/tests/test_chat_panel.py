@@ -304,6 +304,67 @@ async def test_no_ctrl_u_e_bindings_in_chat_input():
     assert "ctrl+e" not in bindings
 
 
+@pytest.mark.asyncio
+async def test_chat_panel_ctrl_b_f_bindings_scroll_log_with_input_focus():
+    """Verify Ctrl+B/F page the chat log while the input remains focused."""
+    from textual.app import App, ComposeResult
+
+    from brokk_code.widgets.chat_panel import ChatInput, ChatLog
+
+    class TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield ChatPanel(id="chat")
+
+    app = TestApp()
+    async with app.run_test(size=(80, 10)) as pilot:
+        panel = app.query_one("#chat", ChatPanel)
+        log = panel.query_one("#chat-log", ChatLog)
+        chat_input = panel.query_one("#chat-input", ChatInput)
+
+        for i in range(30):
+            panel.add_system_message(f"Message {i}")
+        await pilot.pause()
+
+        assert chat_input.has_focus
+        assert log.max_scroll_y > 0, "Log must be scrollable for this test"
+        assert log.is_vertical_scroll_end
+
+        bottom_y = log.scroll_y
+        await pilot.press("ctrl+b")
+        await pilot.pause()
+
+        assert chat_input.has_focus
+        assert log.scroll_y < bottom_y
+        assert log.auto_scroll is False
+
+        after_page_up = log.scroll_y
+        await pilot.press("ctrl+f")
+        await pilot.pause()
+
+        assert chat_input.has_focus
+        assert log.scroll_y > after_page_up
+
+
+@pytest.mark.asyncio
+async def test_chat_log_hides_horizontal_scrollbar():
+    """Verify the chat log wraps and does not expose a horizontal scrollbar."""
+    from textual.app import App, ComposeResult
+
+    from brokk_code.widgets.chat_panel import ChatLog
+
+    class TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield ChatPanel(id="chat")
+
+    app = TestApp()
+    async with app.run_test():
+        log = app.query_one("#chat-log", ChatLog)
+        assert log.wrap is True
+        assert log.min_width == 0
+        assert log.show_horizontal_scrollbar is False
+        assert log.styles.scrollbar_size_horizontal == 0
+
+
 def _static_rendered_text(widget: Static) -> str:
     rendered = widget.render()
     if isinstance(rendered, Text):

@@ -320,6 +320,9 @@ class ChatLog(RichLog):
     the pre-rendered Strip objects that RichLog produces.
     """
 
+    show_horizontal_scrollbar = False
+    wrap = True
+
     def get_selection(self, selection: "Selection") -> tuple[str, str] | None:
         text = "\n".join(strip.text for strip in self.lines)
         return selection.extract(text), "\n"
@@ -403,6 +406,8 @@ class ChatInput(TextArea):
     _mention_request_id: int = 0
 
     BINDINGS = [
+        Binding("ctrl+b", "page_up_log", "Page Up", show=False),
+        Binding("ctrl+f", "page_down_log", "Page Down", show=False),
         Binding("shift+enter", "insert_newline", "Insert Newline", show=False),
         Binding("ctrl+j", "insert_newline", "Insert Newline", show=False),
         Binding("tab", "accept_suggestion", "Accept Suggestion", show=False),
@@ -433,6 +438,14 @@ class ChatInput(TextArea):
 
     def action_insert_newline(self) -> None:
         self.insert("\n")
+
+    def action_page_up_log(self) -> None:
+        """Delegate page-up scrolling to the chat panel while keeping input focus."""
+        self.app.query_one(ChatPanel).action_page_up()
+
+    def action_page_down_log(self) -> None:
+        """Delegate page-down scrolling to the chat panel while keeping input focus."""
+        self.app.query_one(ChatPanel).action_page_down()
 
     def _set_autocomplete_open(self, is_open: bool) -> None:
         """Synchronizes suggestions visibility and container styling."""
@@ -805,7 +818,7 @@ class ChatPanel(Vertical):
         self._draft_buffer: str = ""  # Stores text before history navigation started
 
     def compose(self) -> ComposeResult:
-        yield ChatLog(highlight=True, markup=True, id="chat-log")
+        yield ChatLog(highlight=True, markup=True, wrap=True, min_width=0, id="chat-log")
         yield TokenBar(id="chat-token-bar", classes="hidden")
         yield StatusLine(id="status-line")
         with Vertical(id="chat-input-container"):
@@ -819,7 +832,8 @@ class ChatPanel(Vertical):
             yield LoadingIndicator(id="help-spinner", classes="hidden")
             yield Static(id="help-elapsed", classes="hidden")
             yield Static(
-                f"Enter: Send  Ctrl+J: Newline  {UP_ARROW}/{DOWN_ARROW}: History  Shift+Tab: Mode",
+                "Enter: Send  Ctrl+J: Newline  Ctrl+B/F: Scroll  "
+                f"{UP_ARROW}/{DOWN_ARROW}: History  Shift+Tab: Mode",
                 id="chat-help",
             )
 
@@ -827,6 +841,8 @@ class ChatPanel(Vertical):
         """Focus the input when the panel is mounted."""
         self.query_one("#chat-input", ChatInput).focus()
         log = self.query_one("#chat-log", RichLog)
+        log.min_width = 0
+        log.styles.scrollbar_size_horizontal = 0
         self.watch(log, "scroll_y", self._on_chat_log_scroll_change)
 
     def _on_chat_log_scroll_change(self, old: float, new: float) -> None:
@@ -862,6 +878,20 @@ class ChatPanel(Vertical):
             # Content fits in view - restore auto_scroll and hide button
             log.auto_scroll = True
             scroll_btn.add_class("hidden")
+
+    def action_page_up(self) -> None:
+        """Scroll the chat log up by one page even while input has focus."""
+        log = self.query_one("#chat-log", RichLog)
+        log.auto_scroll = False
+        log.scroll_page_up(animate=False)
+        self._sync_autoscroll()
+
+    def action_page_down(self) -> None:
+        """Scroll the chat log down by one page even while input has focus."""
+        log = self.query_one("#chat-log", RichLog)
+        log.auto_scroll = False
+        log.scroll_page_down(animate=False)
+        self._sync_autoscroll()
 
     def on_key(self, event: events.Key) -> None:
         """Handle Up/Down arrow keys for prompt history navigation."""
