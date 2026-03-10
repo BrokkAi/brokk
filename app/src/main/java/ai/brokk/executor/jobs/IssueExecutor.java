@@ -18,6 +18,7 @@ import ai.brokk.util.BuildTools;
 import ai.brokk.util.ImageUtil;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import java.io.IOException;
+import java.util.Map;
 import java.net.URI;
 import java.time.Instant;
 import java.util.List;
@@ -681,7 +682,7 @@ public final class IssueExecutor {
 
     private void emitNotification(String message) {
         try {
-            store.appendEvent(jobId, JobEvent.of("NOTIFICATION", message));
+            store.appendEvent(jobId, JobEvent.of("NOTIFICATION", Map.of("message", message)));
         } catch (IOException ioe) {
             logger.warn("Failed to append notification for job {}: {}", jobId, ioe.getMessage(), ioe);
         }

@@ -1008,7 +1008,7 @@ public final class JobRunner {
                                             String msg =
                                                     "ISSUE_WRITER requires a materialized repository in the workspace. Clone/open the repo in the selected workspace directory (e.g., via HeadlessExecCli which clones for ISSUE/REVIEW/ISSUE_WRITER).";
                                             try {
-                                                store.appendEvent(jobId, JobEvent.of("NOTIFICATION", msg));
+                                                store.appendEvent(jobId, JobEvent.of("NOTIFICATION", Map.of("message", msg)));
                                             } catch (IOException ioe) {
                                                 logger.warn(
                                                         "Failed to append ISSUE_WRITER empty-workspace notification for job {}: {}",
@@ -1084,7 +1084,7 @@ public final class JobRunner {
                                         }
 
                                         try {
-                                            store.appendEvent(jobId, JobEvent.of("NOTIFICATION", createdMsg));
+                                            store.appendEvent(jobId, JobEvent.of("NOTIFICATION", Map.of("message", createdMsg)));
 
                                             var issueCreatedData = new LinkedHashMap<String, Object>();
                                             issueCreatedData.put("issueId", created.id());
