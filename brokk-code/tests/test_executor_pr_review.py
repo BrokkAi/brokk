@@ -395,6 +395,166 @@ def test_handle_event_error_with_string_data(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_run_pr_review_job_requires_completed_state_for_success(tmp_path, monkeypatch):
+    """Verify success message is only shown when COMPLETED state is received."""
+    from unittest.mock import AsyncMock
+
+    app = BrokkApp(workspace_dir=tmp_path)
+    app._executor_ready = True
+    app.current_model = "gpt-4"
+
+    messages = []
+
+    class MockChat:
+        def add_system_message(self, msg, level="INFO"):
+            messages.append((msg, level))
+
+        def add_system_message_markup(self, msg, level="INFO"):
+            messages.append((msg, level))
+
+        def set_job_running(self, running):
+            pass
+
+        def set_response_pending(self):
+            pass
+
+        def set_response_finished(self):
+            pass
+
+    monkeypatch.setattr(app, "_maybe_chat", lambda: MockChat())
+
+    # Mock executor that streams events ending without COMPLETED
+    mock_executor = AsyncMock()
+    mock_executor.submit_pr_review_job = AsyncMock(return_value="job-123")
+
+    async def stream_without_completed(job_id):
+        yield {"type": "NOTIFICATION", "data": {"message": "Processing..."}}
+        # Stream ends without COMPLETED state
+
+    mock_executor.stream_events = stream_without_completed
+    app.executor = mock_executor
+
+    await app._run_pr_review_job(
+        pr_number=42,
+        github_token="token",
+        repo_owner="owner",
+        repo_name="repo",
+    )
+
+    # Success message should NOT be shown since COMPLETED was never received
+    success_messages = [m for m in messages if "PR review posted" in m[0]]
+    assert len(success_messages) == 0
+
+
+@pytest.mark.asyncio
+async def test_run_pr_review_job_shows_success_on_completed(tmp_path, monkeypatch):
+    """Verify success message is shown when COMPLETED state is received."""
+    from unittest.mock import AsyncMock
+
+    app = BrokkApp(workspace_dir=tmp_path)
+    app._executor_ready = True
+    app.current_model = "gpt-4"
+
+    messages = []
+
+    class MockChat:
+        def add_system_message(self, msg, level="INFO"):
+            messages.append((msg, level))
+
+        def add_system_message_markup(self, msg, level="INFO"):
+            messages.append((msg, level))
+
+        def set_job_running(self, running):
+            pass
+
+        def set_response_pending(self):
+            pass
+
+        def set_response_finished(self):
+            pass
+
+    monkeypatch.setattr(app, "_maybe_chat", lambda: MockChat())
+
+    mock_executor = AsyncMock()
+    mock_executor.submit_pr_review_job = AsyncMock(return_value="job-123")
+
+    async def stream_with_completed(job_id):
+        yield {"type": "NOTIFICATION", "data": {"message": "Processing..."}}
+        yield {"type": "STATE_CHANGE", "data": {"state": "COMPLETED"}}
+
+    mock_executor.stream_events = stream_with_completed
+    app.executor = mock_executor
+
+    await app._run_pr_review_job(
+        pr_number=42,
+        github_token="token",
+        repo_owner="owner",
+        repo_name="repo",
+    )
+
+    # Success message SHOULD be shown
+    success_messages = [m for m in messages if "PR review posted" in m[0]]
+    assert len(success_messages) == 1
+    assert success_messages[0][1] == "SUCCESS"
+
+
+@pytest.mark.asyncio
+async def test_run_pr_review_job_fails_on_error_event(tmp_path, monkeypatch):
+    """Verify job_failed is set when ERROR event is received."""
+    from unittest.mock import AsyncMock
+
+    app = BrokkApp(workspace_dir=tmp_path)
+    app._executor_ready = True
+    app.current_model = "gpt-4"
+
+    messages = []
+
+    class MockChat:
+        def add_system_message(self, msg, level="INFO"):
+            messages.append((msg, level))
+
+        def add_system_message_markup(self, msg, level="INFO"):
+            messages.append((msg, level))
+
+        def set_job_running(self, running):
+            pass
+
+        def set_response_pending(self):
+            pass
+
+        def set_response_finished(self):
+            pass
+
+    monkeypatch.setattr(app, "_maybe_chat", lambda: MockChat())
+
+    mock_executor = AsyncMock()
+    mock_executor.submit_pr_review_job = AsyncMock(return_value="job-123")
+
+    async def stream_with_error_then_completed(job_id):
+        yield {"type": "ERROR", "data": {"message": "Something went wrong"}}
+        yield {"type": "STATE_CHANGE", "data": {"state": "COMPLETED"}}
+
+    mock_executor.stream_events = stream_with_error_then_completed
+    app.executor = mock_executor
+
+    await app._run_pr_review_job(
+        pr_number=42,
+        github_token="token",
+        repo_owner="owner",
+        repo_name="repo",
+    )
+
+    # Success message should NOT be shown even though COMPLETED was received,
+    # because an ERROR event was received
+    success_messages = [m for m in messages if "PR review posted" in m[0]]
+    assert len(success_messages) == 0
+
+    # Error message should have been shown via _handle_event
+    error_messages = [m for m in messages if m[1] == "ERROR"]
+    assert len(error_messages) >= 1
+
+
+@pytest.mark.asyncio
 async def test_submit_pr_review_job_uses_unique_idempotency_keys(tmp_path):
     """Verify each call generates a unique idempotency key."""
     manager = ExecutorManager(workspace_dir=tmp_path)

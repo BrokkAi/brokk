@@ -1903,6 +1903,7 @@ class BrokkApp(App):
             chat.set_response_pending()
 
         job_failed = False
+        saw_completed = False
         try:
             self.current_job_id = await self.executor.submit_pr_review_job(
                 planner_model=self.current_model,
@@ -1922,9 +1923,13 @@ class BrokkApp(App):
                 if event_type == "STATE_CHANGE":
                     data = event.get("data", {})
                     state = data.get("state") if isinstance(data, dict) else None
-                    if state and is_failure_state(state):
+                    if state == "COMPLETED":
+                        saw_completed = True
+                    elif state and is_failure_state(state):
                         job_failed = True
                     continue
+                if event_type == "ERROR":
+                    job_failed = True
                 self._handle_event(event)
         except Exception as e:
             logger.exception("PR review job failed")
@@ -1937,7 +1942,7 @@ class BrokkApp(App):
                 )
         finally:
             if chat:
-                if not job_failed:
+                if saw_completed and not job_failed:
                     pr_url = f"https://github.com/{repo_owner}/{repo_name}/pull/{pr_number}"
                     chat.add_system_message_markup(
                         f"PR review posted: [link={pr_url}]{pr_url}[/link]",
@@ -2267,7 +2272,6 @@ class BrokkApp(App):
             {"command": "/commit", "description": "Commit current changes"},
             {"command": "/pr", "description": "Create a pull request"},
             {"command": "/info", "description": "Show current configuration and status"},
-            {"command": "/help", "description": "Show help message"},
             {"command": "/review", "description": "Submit a PR review job"},
             {"command": "/quit", "description": "Exit the application"},
             {"command": "/exit", "description": "Exit the application"},
@@ -2420,14 +2424,6 @@ class BrokkApp(App):
             if len(parts) > 1:
                 base_branch = parts[1]
             self.run_worker(self._create_pull_request(base_branch))
-        elif base == "/help":
-            commands = self.get_slash_commands()
-            # Calculate padding based on longest command
-            max_cmd_len = max(len(c["command"]) for c in commands)
-            lines = ["Available commands:"]
-            for c in commands:
-                lines.append(f"  {c['command']: <{max_cmd_len}} - {c['description']}")
-            chat.append_message("System", "\n".join(lines))
         elif base == "/review":
             self._handle_review_command(parts)
         elif base in ("/quit", "/exit"):
