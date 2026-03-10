@@ -75,7 +75,15 @@ public interface IAnalyzer {
     }
 
     /**
-     * @return true if the given file contains test cases according to this analyzer's logic.
+     * Determines if the given file contains tests using semantic analysis.
+     *
+     * <p><b>API Note:</b> This method should only be relied upon if the analyzer exposes the
+     * {@link TestDetectionProvider} capability via {@link #as(Class)}. If the capability is
+     * missing, a {@code false} return value indicates "unknown" or "unsupported" rather than
+     * a definitive "no tests present". Callers should fall back to heuristics (e.g., filename
+     * patterns) in such cases.
+     *
+     * @return true if the analyzer semantically confirms the file contains tests.
      */
     default boolean containsTests(ProjectFile file) {
         return false;
