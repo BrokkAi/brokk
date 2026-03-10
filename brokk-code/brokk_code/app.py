@@ -1937,9 +1937,10 @@ class BrokkApp(App):
         finally:
             if chat:
                 if not job_failed:
-                    chat.add_system_message(
-                        f"PR review for {repo_owner}/{repo_name}#{pr_number} "
-                        "posted to GitHub.",
+                    pr_url = f"https://github.com/{repo_owner}/{repo_name}/pull/{pr_number}"
+                    chat.add_system_message_markup(
+                        f"PR review posted: [link={pr_url}]{pr_url}[/link]",
+                        level="SUCCESS",
                     )
                 chat.set_response_finished()
                 chat.set_job_running(False)
