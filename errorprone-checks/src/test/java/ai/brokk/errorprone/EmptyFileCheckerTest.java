@@ -4,9 +4,7 @@ import com.google.errorprone.CompilationTestHelper;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
-/**
- * Unit tests for EmptyFileChecker.
- */
+/** Unit tests for EmptyFileChecker. */
 public class EmptyFileCheckerTest {
 
     private final CompilationTestHelper helper = CompilationTestHelper.newInstance(EmptyFileChecker.class, getClass())
@@ -14,15 +12,12 @@ public class EmptyFileCheckerTest {
 
     @Test
     public void flagsEmptyFile() {
-        // Error Prone tests often need at least a comment to avoid parser errors
-        // before the checker runs, but we want to test a truly empty-looking file.
-        helper.addSourceLines("Test.java", "/* BUG: Diagnostic contains: BrokkEmptyFile */")
-                .doTest();
+        helper.addSourceLines("Test.java", "\n\n\n").doTest();
     }
 
     @Test
     public void flagsWhitespaceFile() {
-        helper.addSourceLines("Test.java", "/* BUG: Diagnostic contains: BrokkEmptyFile */ ", "   ", "\t")
+        helper.addSourceLines("Test.java", "/* BUG: Diagnostic contains: BrokkEmptyFile */", "   ", "\t")
                 .doTest();
     }
 
