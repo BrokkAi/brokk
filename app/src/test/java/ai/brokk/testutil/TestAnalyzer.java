@@ -56,6 +56,11 @@ public class TestAnalyzer
     }
 
     @Override
+    public Set<ProjectFile> getAnalyzedFiles() {
+        return allClasses.stream().map(CodeUnit::source).collect(Collectors.toSet());
+    }
+
+    @Override
     public List<Range> rangesOf(CodeUnit codeUnit) {
         throw new UnsupportedOperationException();
     }

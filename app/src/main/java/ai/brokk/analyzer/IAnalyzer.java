@@ -68,6 +68,13 @@ public interface IAnalyzer {
     List<CodeUnit> getTopLevelDeclarations(ProjectFile file);
 
     /**
+     * Returns the set of all files currently represented in this analyzer snapshot.
+     */
+    default Set<ProjectFile> getAnalyzedFiles() {
+        return Set.of();
+    }
+
+    /**
      * Determines if the given file contains tests using semantic analysis.
      *
      * <p><b>API Note:</b> This method should only be relied upon if the analyzer exposes the

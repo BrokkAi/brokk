@@ -180,6 +180,13 @@ public class MultiAnalyzer
     }
 
     @Override
+    public Set<ProjectFile> getAnalyzedFiles() {
+        return delegates.values().stream()
+                .flatMap(a -> a.getAnalyzedFiles().stream())
+                .collect(Collectors.toSet());
+    }
+
+    @Override
     public List<CodeUnit> getDirectChildren(CodeUnit cu) {
         return delegateFor(cu).map(delegate -> delegate.getDirectChildren(cu)).orElse(List.of());
     }
