@@ -389,7 +389,7 @@ async def test_chat_panel_ctrl_b_f_bindings_scroll_log_with_input_focus():
 
         # Wait for scroll state to settle after rapid writes;
         # on Windows CI the scroll position may lag behind content height.
-        for _ in range(10):
+        for _ in range(40):
             await pilot.pause()
             if log.max_scroll_y > 0 and log.is_vertical_scroll_end:
                 break
@@ -400,7 +400,7 @@ async def test_chat_panel_ctrl_b_f_bindings_scroll_log_with_input_focus():
 
         bottom_y = log.scroll_y
         await pilot.press("ctrl+b")
-        for _ in range(10):
+        for _ in range(40):
             await pilot.pause()
             if log.scroll_y < bottom_y:
                 break
@@ -411,7 +411,7 @@ async def test_chat_panel_ctrl_b_f_bindings_scroll_log_with_input_focus():
 
         after_page_up = log.scroll_y
         await pilot.press("ctrl+f")
-        for _ in range(10):
+        for _ in range(40):
             await pilot.pause()
             if log.scroll_y > after_page_up:
                 break
@@ -1427,7 +1427,7 @@ async def test_autoscroll_and_button_toggle_on_scroll():
 
         # Wait for scroll state to settle after rapid writes;
         # on Windows CI the scroll position may lag behind content height.
-        for _ in range(10):
+        for _ in range(40):
             await pilot.pause()
             if log.auto_scroll and log.max_scroll_y > 0:
                 break
@@ -1436,7 +1436,7 @@ async def test_autoscroll_and_button_toggle_on_scroll():
 
         # Scroll up
         log.scroll_to(y=0, animate=False)
-        for _ in range(10):
+        for _ in range(40):
             await pilot.pause()
             panel._sync_autoscroll()
             if not log.auto_scroll:
@@ -1447,7 +1447,7 @@ async def test_autoscroll_and_button_toggle_on_scroll():
 
         # Scroll back to bottom
         log.scroll_end(animate=False)
-        for _ in range(10):
+        for _ in range(40):
             await pilot.pause()
             panel._sync_autoscroll()
             if log.auto_scroll:
@@ -1481,14 +1481,18 @@ async def test_autoscroll_reset_on_submission():
         # Add enough content to make the log scrollable in small viewport
         for i in range(20):
             panel.add_system_message(f"Message {i}")
-        await pilot.pause()
+
+        for _ in range(40):
+            await pilot.pause()
+            if log.max_scroll_y > 0:
+                break
 
         # Verify scrollability is deterministic
         assert log.max_scroll_y > 0, "Log must be scrollable for this test"
 
         # Scroll up to disable auto_scroll
         log.scroll_to(y=0, animate=False)
-        for _ in range(10):
+        for _ in range(40):
             await pilot.pause()
             panel._sync_autoscroll()
             if not log.auto_scroll:
@@ -1498,20 +1502,18 @@ async def test_autoscroll_reset_on_submission():
         # Type and submit a message
         chat_input.text = "Hello"
         chat_input.action_submit()
-        # First pause processes the submission and schedules the deferred scroll
-        await pilot.pause()
-        # Second pause allows the call_after_refresh callback to execute
-        await pilot.pause()
+
+        # Wait for submission processing and the deferred scroll callback
+        for _ in range(40):
+            await pilot.pause()
+            if log.auto_scroll:
+                break
 
         # After submission, auto_scroll should be re-enabled
         assert log.auto_scroll is True
 
-        # Wait for the call_after_refresh in _reset_to_follow_bottom to complete
-        await pilot.pause()
-
-        # And we should be at the bottom. We check with a small retry loop
-        # to ensure deterministic behavior across refresh cycles.
-        for _ in range(10):
+        # And we should be at the bottom
+        for _ in range(40):
             if log.is_vertical_scroll_end:
                 break
             await pilot.pause()
@@ -1558,7 +1560,11 @@ async def test_refresh_log_preserves_middle_scroll_position():
         # Add enough content to make the log scrollable in small viewport
         for i in range(20):
             panel.add_system_message(f"Message {i}")
-        await pilot.pause()
+
+        for _ in range(40):
+            await pilot.pause()
+            if log.max_scroll_y > 0:
+                break
 
         # Verify scrollability is deterministic
         assert log.max_scroll_y > 0, "Log must be scrollable for this test"
@@ -1567,11 +1573,9 @@ async def test_refresh_log_preserves_middle_scroll_position():
         mid_y = log.max_scroll_y // 2
         assert mid_y > 0, "mid_y must be positive to test middle scroll"
         log.scroll_to(y=mid_y, animate=False)
-        for _ in range(10):
+        for _ in range(40):
             await pilot.pause()
             panel._sync_autoscroll()
-            if log.scroll_y > 0 and not log.is_vertical_scroll_end:
-                panel._sync_autoscroll()
             if log.scroll_y >= mid_y and not log.auto_scroll:
                 break
 
