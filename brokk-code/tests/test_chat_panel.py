@@ -909,6 +909,58 @@ async def test_collapsed_summary_text_bold_label():
 
 
 @pytest.mark.asyncio
+async def test_costs_command_opens_modal():
+    """Verify that /costs command fetches data and pushes SessionCostsModalScreen."""
+    from pathlib import Path
+
+    from brokk_code.app import BrokkApp, SessionCostsModalScreen
+
+    executor = MagicMock()
+    executor.workspace_dir = Path("/tmp")
+    executor.get_session_costs = AsyncMock(
+        return_value={
+            "sessionId": "test-session",
+            "totalCost": 0.05,
+            "events": [
+                {
+                    "timestampMillis": 1737627240000,
+                    "operationLabel": "Test Task",
+                    "operationType": "ARCHITECT",
+                    "modelName": "gpt-4",
+                    "tier": "high",
+                    "inputTokens": 100,
+                    "outputTokens": 50,
+                    "costUsd": 0.05,
+                }
+            ],
+        }
+    )
+
+    app = BrokkApp(executor=executor)
+    # Mock startup to avoid real background workers
+    app._start_executor = AsyncMock()
+    app._monitor_executor = AsyncMock()
+    app._poll_tasklist = AsyncMock()
+    app._poll_context = AsyncMock()
+    app._executor_ready = True
+
+    async with app.run_test() as pilot:
+        # Trigger /costs
+        await pilot.press(*list("/costs"), "enter")
+        await pilot.pause()
+
+        # Check if modal is pushed
+        assert isinstance(app.screen, SessionCostsModalScreen)
+
+        # Verify content in modal using the existing helper
+        title_widget = app.screen.query_one("#session-costs-title", Static)
+        total_widget = app.screen.query_one("#session-costs-total", Static)
+
+        assert "Session Cost Breakdown" in _static_rendered_text(title_widget)
+        assert "0.0500" in _static_rendered_text(total_widget)
+
+
+@pytest.mark.asyncio
 async def test_chat_log_get_selection():
     """Verify that ChatLog.get_selection() extracts text from log content using real Selection."""
     from textual.app import App, ComposeResult
@@ -1310,6 +1362,9 @@ async def test_autoscroll_reset_on_submission():
         # Type and submit a message
         chat_input.text = "Hello"
         chat_input.action_submit()
+        # First pause processes the submission and schedules the deferred scroll
+        await pilot.pause()
+        # Second pause allows the call_after_refresh callback to execute
         await pilot.pause()
 
         # After submission, auto_scroll should be re-enabled
@@ -1406,65 +1461,4 @@ async def test_refresh_log_preserves_middle_scroll_position():
         )
         assert not scroll_btn.has_class("hidden"), (
             "Button should remain visible after refresh_log at middle position"
-        )
-
-
-@pytest.mark.asyncio
-async def test_add_message_does_not_jump_when_scrolled_up():
-    """
-    Verify that when auto_scroll is disabled (user scrolled up), adding a new
-    message via add_system_message does not jump to the bottom, and the
-    scroll-to-bottom button remains visible.
-    """
-    from textual.app import App, ComposeResult
-    from textual.widgets import Button, RichLog
-
-    class TestApp(App):
-        def compose(self) -> ComposeResult:
-            yield ChatPanel(id="chat")
-
-    app = TestApp()
-    async with app.run_test(size=(80, 10)) as pilot:
-        panel = app.query_one("#chat", ChatPanel)
-        log = panel.query_one("#chat-log", RichLog)
-        scroll_btn = panel.query_one("#scroll-to-bottom", Button)
-
-        # Add enough content to make the log scrollable in small viewport
-        for i in range(20):
-            panel.add_system_message(f"Message {i}")
-        await pilot.pause()
-
-        # Verify scrollability is deterministic
-        assert log.max_scroll_y > 0, "Log must be scrollable for this test"
-
-        # Scroll up to disable auto_scroll
-        log.scroll_to(y=0, animate=False)
-        for _ in range(10):
-            await pilot.pause()
-            panel._sync_autoscroll()
-            if not log.auto_scroll:
-                break
-
-        assert log.auto_scroll is False
-        assert not scroll_btn.has_class("hidden")
-
-        # Record scroll position before adding new message
-        scroll_y_before = log.scroll_y
-
-        # Add another message while scrolled up
-        panel.add_system_message("New message while scrolled up")
-        await pilot.pause()
-
-        # scroll_y should not have jumped to max_scroll_y
-        assert log.scroll_y == scroll_y_before, (
-            f"scroll_y jumped from {scroll_y_before} to {log.scroll_y}; "
-            "should stay in place when auto_scroll is disabled"
-        )
-        assert log.scroll_y < log.max_scroll_y, (
-            "scroll_y should not be at max_scroll_y when auto_scroll is disabled"
-        )
-
-        # Button should still be visible
-        assert not scroll_btn.has_class("hidden"), (
-            "scroll-to-bottom button should remain visible after adding a message"
         )

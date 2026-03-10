@@ -435,7 +435,6 @@ public interface IContextManager {
         return CompletableFuture.completedFuture(taskText);
     }
 
-    @Nullable
     default UUID getCurrentSessionId() {
         throw new UnsupportedOperationException();
     }

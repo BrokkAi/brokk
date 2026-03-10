@@ -9,9 +9,9 @@ import ai.brokk.Llm;
 import ai.brokk.LlmOutputMeta;
 import ai.brokk.Service;
 import ai.brokk.TaskResult;
-import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.concurrent.ComputedValue;
+import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextDelta;
 import ai.brokk.context.ContextFragment;
@@ -33,7 +33,6 @@ import ai.brokk.tools.SearchTools;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
 import ai.brokk.tools.WorkspaceTools;
-import ai.brokk.util.Lines;
 import ai.brokk.util.Messages;
 import com.google.common.collect.Streams;
 import dev.langchain4j.agent.tool.P;
@@ -58,6 +57,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -121,7 +121,7 @@ public class SearchAgent {
     private final List<String> terminalTools;
     private final Set<String> terminalToolNames;
     private final SearchMetrics metrics;
-    private final ScanConfig scanConfig;
+    private ScanConfig scanConfig;
     private boolean scanPerformed;
     private boolean contextPruned;
 
@@ -210,15 +210,7 @@ public class SearchAgent {
         this.scope = scope;
 
         this.io = io;
-
-        Set<ContextFragment> goalReferences = resolveGoalReferences(goal);
-        if (goalReferences.isEmpty()) {
-            this.scanConfig = scanConfig;
-        } else {
-            this.scanConfig =
-                    new ScanConfig(false, scanConfig.scanModel(), scanConfig.appendToScope(), scanConfig.autoPrune());
-            logger.debug("Goal references resolved: {}. Disabling auto-scan.", goalReferences);
-        }
+        this.scanConfig = scanConfig;
 
         var llmOptions = new Llm.Options(model, goal, TaskResult.Type.SEARCH).withEcho();
         this.llm = cm.getLlm(llmOptions);
@@ -232,9 +224,7 @@ public class SearchAgent {
                 : SearchMetrics.noOp();
 
         this.mcpTools = initMcpTools(cm.getProject());
-        this.currentState = goalReferences.isEmpty()
-                ? SearchState.initial(initialContext)
-                : SearchState.initial(initialContext.addFragments(goalReferences));
+        this.currentState = SearchState.initial(initialContext);
         this.checkpointState = currentState;
         this.originalPinnedFragments = initialContext.getPinnedFragments().collect(Collectors.toSet());
         this.objective = objective;
@@ -244,56 +234,6 @@ public class SearchAgent {
 
         this.staticTools = initStaticTools(cm.getProject(), mcpTools);
         this.searchTools = new SearchTools(cm);
-    }
-
-    private Set<ContextFragment> resolveGoalReferences(String goal) throws InterruptedException {
-        Set<ContextFragment> references = new HashSet<>();
-        Set<ProjectFile> filesReferenced = new HashSet<>();
-        Set<CodeUnit> classesReferenced = new HashSet<>();
-        var allDeclarations = cm.getAnalyzer().getAllDeclarations();
-
-        for (var file : cm.getProject().getAllFiles()) {
-            String fileName = file.getFileName();
-            if (Lines.containsBareToken(goal, fileName)) {
-                references.add(new ContextFragments.ProjectPathFragment(file, cm));
-                filesReferenced.add(file);
-            }
-        }
-
-        for (var cu : allDeclarations) {
-            if (!cu.isClass()) {
-                continue;
-            }
-            if (filesReferenced.contains(cu.source())) {
-                continue;
-            }
-
-            String target = cu.identifier();
-            if (target.length() < 3 || !Lines.containsBareToken(goal, target)) {
-                continue;
-            }
-            references.add(new ContextFragments.CodeFragment(cm, cu));
-            classesReferenced.add(cu);
-        }
-
-        for (var cu : allDeclarations) {
-            if (!(cu.isFunction() || cu.isField())) {
-                continue;
-            }
-            if (filesReferenced.contains(cu.source())) {
-                continue;
-            }
-            if (cm.getAnalyzer().parentOf(cu).map(classesReferenced::contains).orElse(true)) {
-                continue;
-            }
-
-            String target = cu.shortName();
-            if (Lines.containsBareToken(goal, target)) {
-                references.add(new ContextFragments.CodeFragment(cm, cu));
-            }
-        }
-
-        return references;
     }
 
     private static List<McpPrompts.McpTool> initMcpTools(IProject project) {
@@ -402,9 +342,8 @@ public class SearchAgent {
     }
 
     private TaskResult executeInternal() throws InterruptedException {
-        if (scanConfig.autoPrune()) {
-            pruneContext();
-        }
+        initializeContextForSearch();
+
         if (shouldAutomaticallyScan() && currentState.context().isFileContentEmpty()) {
             performAutoScan();
         }
@@ -493,7 +432,7 @@ public class SearchAgent {
                             c.contextAfterTurn(),
                             c.sessionMessagesAfterTurn(),
                             stateAtTurnStart.context(),
-                            stateAtTurnStart.presentedRelatedFiles());
+                            c.presentedRelatedFiles());
                     currentState = nextState;
 
                     // if we just ran a drop-only turn, reset checkpoint to current state: this means that if we
@@ -506,12 +445,11 @@ public class SearchAgent {
                 }
                 case TurnOutcome.ForceFinalTurn fft -> {
                     assert dropMode != DropMode.DROP_ONLY;
-                    SearchState nextState = new SearchState(
+                    currentState = new SearchState(
                             fft.contextAfterTurn(),
                             fft.sessionMessagesAfterTurn(),
                             stateAtTurnStart.context(),
-                            stateAtTurnStart.presentedRelatedFiles());
-                    currentState = nextState;
+                            fft.presentedRelatedFiles());
 
                     checkpointState = stateAtTurnStart;
                     dropMode = calculateDropMode(fft.contextAfterTurn());
@@ -524,7 +462,7 @@ public class SearchAgent {
                             pt.contextAfterTurn(),
                             pt.sessionMessagesAfterTurn(),
                             stateAtTurnStart.lastTurnContext(),
-                            stateAtTurnStart.presentedRelatedFiles());
+                            pt.presentedRelatedFiles());
                     pendingTerminal = pt.pendingTerminal();
                     overflowNormalReplayPendingResult = false;
                     dropMode = DropMode.DROP_ONLY;
@@ -535,6 +473,39 @@ public class SearchAgent {
         }
 
         return errorResult(new TaskResult.StopDetails(TaskResult.StopReason.TURN_LIMIT), currentState.context());
+    }
+
+    private void initializeContextForSearch() throws InterruptedException {
+        Context preSearchContext = currentState.context();
+
+        CompletableFuture<Set<ContextFragment>> referencesFuture = LoggingFuture.supplyCallableAsync(() -> {
+            return new ReferenceAgent(cm).resolveReferencedFragments(goal);
+        });
+        CompletableFuture<Void> pruneFuture = scanConfig.autoPrune()
+                ? LoggingFuture.supplyCallableAsync(() -> {
+                    pruneContext();
+                    return null;
+                })
+                : CompletableFuture.completedFuture(null);
+
+        try {
+            LoggingFuture.allOf(pruneFuture, referencesFuture).join();
+        } catch (CompletionException e) {
+            if (e.getCause() instanceof InterruptedException interrupted) {
+                throw interrupted;
+            }
+            throw e;
+        }
+
+        // pruneContext's mutation of currentState is guaranteed to have finished, so we're not racing here
+        Set<ContextFragment> referencedFragments = referencesFuture.join();
+        if (!referencedFragments.isEmpty()) {
+            currentState = currentState.withContext(currentState.context().addFragments(referencedFragments));
+            checkpointState = SearchState.initial(preSearchContext.addFragments(referencedFragments));
+            this.scanConfig =
+                    new ScanConfig(false, scanConfig.scanModel(), scanConfig.appendToScope(), scanConfig.autoPrune());
+            logger.debug("Referenced fragments resolved: {}. Disabling auto-scan.", referencedFragments);
+        }
     }
 
     private ToolRegistry createToolRegistry(WorkspaceTools wst, Object toolProvider) {
@@ -753,8 +724,8 @@ public class SearchAgent {
         return scanConfig.scanModel() == null ? cm.getService().getScanModel() : scanConfig.scanModel();
     }
 
-    private boolean isSearchTool(String toolName) {
-        return toolName.startsWith("search");
+    private boolean toolTriggersScan(String toolName) {
+        return toolName.startsWith("search") || toolName.startsWith("find");
     }
 
     /**
@@ -854,7 +825,8 @@ public class SearchAgent {
                 boolean shouldForceFinalTurn = agent.recordTurnForStagnation(
                         contextAtTurnStartForStagnation, c.contextAfterTurn(), researchTokensThisTurn);
                 if (shouldForceFinalTurn) {
-                    return new TurnOutcome.ForceFinalTurn(c.contextAfterTurn(), c.sessionMessagesAfterTurn());
+                    return new TurnOutcome.ForceFinalTurn(
+                            c.contextAfterTurn(), c.sessionMessagesAfterTurn(), c.presentedRelatedFiles());
                 }
             }
 
@@ -899,7 +871,7 @@ public class SearchAgent {
                 ai = ToolRegistry.removeDuplicateToolRequests(result.aiMessage());
 
                 if (agent.shouldAutomaticallyScan()
-                        && ai.toolExecutionRequests().stream().anyMatch(req -> agent.isSearchTool(req.name()))) {
+                        && ai.toolExecutionRequests().stream().anyMatch(req -> agent.toolTriggersScan(req.name()))) {
                     assert pendingTerminal == null;
                     return TurnOutcome.AutoScan.INSTANCE;
                 }
@@ -1117,7 +1089,8 @@ public class SearchAgent {
                         && (primaryCalls.isEmpty()
                                 || !"dropWorkspaceFragments"
                                         .equals(primaryCalls.getFirst().name()))) {
-                    return new TurnOutcome.PendingTerminal(context, List.copyOf(sessionMessages), pending);
+                    return new TurnOutcome.PendingTerminal(
+                            context, List.copyOf(sessionMessages), agent.currentState.presentedRelatedFiles(), pending);
                 }
                 return new TurnOutcome.Final(agent.finalizePendingTerminal(pending, context));
             }
@@ -1140,7 +1113,8 @@ public class SearchAgent {
                 agent.scope.publish(context);
             }
 
-            return new TurnOutcome.Continue(context, List.copyOf(sessionMessages));
+            return new TurnOutcome.Continue(
+                    context, List.copyOf(sessionMessages), agent.currentState.presentedRelatedFiles());
         }
 
         private TurnPrompt preparePrompt(boolean workspaceOnlyNoHistory) throws InterruptedException {
@@ -1776,14 +1750,22 @@ public class SearchAgent {
     }
 
     private sealed interface TurnOutcome {
-        record Continue(Context contextAfterTurn, List<ChatMessage> sessionMessagesAfterTurn) implements TurnOutcome {}
+        record Continue(
+                Context contextAfterTurn,
+                List<ChatMessage> sessionMessagesAfterTurn,
+                Set<ProjectFile> presentedRelatedFiles)
+                implements TurnOutcome {}
 
-        record ForceFinalTurn(Context contextAfterTurn, List<ChatMessage> sessionMessagesAfterTurn)
+        record ForceFinalTurn(
+                Context contextAfterTurn,
+                List<ChatMessage> sessionMessagesAfterTurn,
+                Set<ProjectFile> presentedRelatedFiles)
                 implements TurnOutcome {}
 
         record PendingTerminal(
                 Context contextAfterTurn,
                 List<ChatMessage> sessionMessagesAfterTurn,
+                Set<ProjectFile> presentedRelatedFiles,
                 SearchAgent.PendingTerminal pendingTerminal)
                 implements TurnOutcome {}
 

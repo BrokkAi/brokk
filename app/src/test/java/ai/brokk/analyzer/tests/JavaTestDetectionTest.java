@@ -5,8 +5,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.ContextManager;
 import ai.brokk.analyzer.JavaAnalyzer;
+import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.analyzer.TestDetectionProvider;
 import ai.brokk.testutil.InlineTestProjectCreator;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 public class JavaTestDetectionTest {
@@ -81,6 +84,85 @@ public class JavaTestDetectionTest {
 
             // @Nullable should NOT be detected as a test marker
             assertFalse(analyzer.containsTests(file), "@Nullable annotation should NOT be detected as test marker");
+        }
+    }
+
+    @Test
+    void testFalsePositiveReduction() throws Exception {
+        // Filename matches TEST_FILE_PATTERN but content has NO tests
+        String fileName = "src/com/example/MyServiceTest.java";
+        String content =
+                """
+            package com.example;
+            public class MyServiceTest {
+                public void notATest() {}
+            }
+            """;
+
+        try (var project = InlineTestProjectCreator.code(content, fileName).build()) {
+            ProjectFile file = new ProjectFile(project.getRoot(), fileName);
+
+            JavaAnalyzer analyzer = new JavaAnalyzer(project);
+            analyzer = (JavaAnalyzer) analyzer.update();
+
+            // Semantic check should be false
+            assertFalse(analyzer.containsTests(file), "Analyzer should report NO tests for plain class");
+
+            // ContextManager check should also be false (ignoring the regex match because analyzer is capable)
+            assertFalse(
+                    ContextManager.isTestFile(file, analyzer),
+                    "ContextManager should report false when semantic analyzer says no tests, even if filename matches regex");
+        }
+    }
+
+    @Test
+    void testMultiAnalyzerHeuristicFallbackForNonCapableLanguage() throws Exception {
+        // GIVEN: A project with a Java test and a SQL file named like a test
+        String javaContent =
+                """
+            package com.example;
+            import org.junit.jupiter.api.Test;
+            public class RealJavaTest {
+                @Test void behavior() {}
+            }
+            """;
+        String sqlContent = "CREATE TABLE my_table (id INT);";
+
+        String javaFileName = "src/com/example/RealJavaTest.java";
+        String sqlFileName = "src/queries/MyQueryTest.sql"; // Matches TEST_FILE_PATTERN
+
+        try (var project = InlineTestProjectCreator.code(javaContent, javaFileName)
+                .addFileContents(sqlContent, sqlFileName)
+                .build()) {
+
+            ProjectFile javaFile = new ProjectFile(project.getRoot(), javaFileName);
+            ProjectFile sqlFile = new ProjectFile(project.getRoot(), sqlFileName);
+
+            // Create delegates
+            var javaAnalyzer = new JavaAnalyzer(project).update();
+            var sqlAnalyzer = new ai.brokk.analyzer.SqlAnalyzer(project);
+
+            // Construct MultiAnalyzer
+            var multiAnalyzer = new ai.brokk.analyzer.MultiAnalyzer(Map.of(
+                    Languages.JAVA, javaAnalyzer,
+                    Languages.SQL, sqlAnalyzer));
+
+            // Verify MultiAnalyzer claims capability because Java delegate has it
+            assertTrue(
+                    multiAnalyzer.as(TestDetectionProvider.class).isPresent(),
+                    "MultiAnalyzer should expose TestDetectionProvider if any delegate supports it");
+
+            // Verify Java file uses semantic detection
+            assertTrue(
+                    ContextManager.isTestFile(javaFile, multiAnalyzer),
+                    "Java file should be detected as test via semantic Java delegate");
+
+            // Verify SQL file falls back to heuristics
+            // Even though multiAnalyzer.as(TestDetectionProvider) is present, the SQL delegate does NOT have it.
+            // ContextManager.isTestFile should recognize this and use TEST_FILE_PATTERN.
+            assertTrue(
+                    ContextManager.isTestFile(sqlFile, multiAnalyzer),
+                    "SQL file should fall back to filename heuristics because SQL delegate lacks TestDetectionProvider capability");
         }
     }
 

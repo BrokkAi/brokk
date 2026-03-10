@@ -820,10 +820,9 @@ public class SearchTools {
 
     @Tool(
             """
-            Search for symbols (class/function/field/module definitions) using static analysis.
-            ONLY returns symbol definitions (declarations).
-            DO NOT use for usages/call sites/instantiation/access patterns — use scanUsages or findFilesContaining.
-            Output is grouped by file, then by symbol kind within each file.
+            Default discovery tool for declarations in analyzed code, even when the exact name is unknown.
+            Searches for symbols (class/function/field/module definitions); ONLY returns symbol definitions/declarations.
+            DO NOT use for usages/call sites/instantiation/access patterns — use scanUsages for that.
 
             - kinds: CLASS, FUNCTION, FIELD, MODULE
             - FUNCTION may represent a member/instance/static method or a free/top-level function (varies by language/analyzer)
@@ -921,7 +920,8 @@ public class SearchTools {
 
     @Tool(
             """
-            Returns the call sites where symbols are used and three examples of full call site source. Use this to discover how classes, methods, or fields are actually used throughout the codebase.
+            Default tool for how known, analyzed symbols are used/wired.
+            Returns the call sites where symbols are used and three examples of full call site source.
             Use this for questions like “how is X used/accessed/obtained/wired”.
             If you don’t know the fully qualified symbol name, call searchSymbols once to get it.
             """)
@@ -1347,8 +1347,9 @@ public class SearchTools {
 
     @Tool(
             """
+                    Use for locating files/assets by name/path, not for primary code discovery in analyzed languages.
                     Returns file names (paths relative to the project root) whose text contents match Java regular expression patterns.
-                    This is slower than searchSymbols but can find references to external dependencies and comment strings.
+                    Faster/cheaper than searchFileContents, since it only returns filenames and can stop as soon as it finds a match.
                     """)
     public String findFilesContaining(
             @P(
@@ -1544,6 +1545,7 @@ public class SearchTools {
 
     @Tool(
             """
+            Fallback for literals, config, comments, external refs, and un-analyzed files; not the first choice for analyzed code entity discovery.
             Searches for a regex pattern within file contents across files matching a glob pattern.
             Provides grep-like output with line numbers and optional context lines.
 
