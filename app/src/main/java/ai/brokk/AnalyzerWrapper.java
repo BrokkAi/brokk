@@ -376,11 +376,19 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
                     project.getRoot());
 
             // Validate the loaded analyzer's state against project files
-            if (stateMismatch(analyzer).isPresent()) {
-                logger.warn("Loaded analyzer state appears corrupt (file mismatch). Attempting fix via update.");
-                analyzer = analyzer.update();
+            Optional<StateMismatch> mismatch = stateMismatch(analyzer);
+            if (mismatch.isPresent()) {
+                StateMismatch delta = mismatch.get();
+                logger.warn(
+                        "Loaded analyzer state appears corrupt (file mismatch). Attempting targeted repair of {} files.",
+                        delta.missing().size() + delta.unexpected().size());
+
+                Set<ProjectFile> deltaFiles = new HashSet<>(delta.missing());
+                deltaFiles.addAll(delta.unexpected());
+
+                analyzer = analyzer.update(deltaFiles);
                 if (stateMismatch(analyzer).isPresent()) {
-                    throw new IllegalStateException("Analyzer state remains corrupt after update attempt.");
+                    throw new IllegalStateException("Analyzer state remains corrupt after targeted repair attempt.");
                 }
             }
         } catch (Throwable th) {
