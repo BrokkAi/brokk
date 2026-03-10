@@ -107,27 +107,47 @@ public class JavaTestDetectionTest {
     }
 
     @Test
-    void testQualifiedAndWhitespaceTestAnnotations() throws Exception {
+    void testQualifiedTestAnnotations() throws Exception {
         String code =
                 """
             package com.example;
-            public class MixedTests {
+            public class QualifiedTests {
                 @org.junit.jupiter.api.Test
                 void qualifiedTest() {}
-
-                @  RepeatedTest(5)
-                void whitespaceTest() {}
             }
             """;
 
-        String fileName = "src/com/example/MixedTests.java";
+        String fileName = "src/com/example/QualifiedTests.java";
 
         try (var project = InlineTestProjectCreator.code(code, fileName).build()) {
             ProjectFile file = new ProjectFile(project.getRoot(), fileName);
             JavaAnalyzer analyzer = new JavaAnalyzer(project);
             analyzer = (JavaAnalyzer) analyzer.update();
 
-            assertTrue(analyzer.containsTests(file), "Should detect qualified and whitespace-padded test annotations");
+            assertTrue(analyzer.containsTests(file), "Should detect fully qualified test annotations");
+        }
+    }
+
+    @Test
+    void testWhitespaceInTestAnnotations() throws Exception {
+        String code =
+                """
+            package com.example;
+            public class WhitespaceTests {
+                @  RepeatedTest(5)
+                void whitespaceTest() {}
+            }
+            """;
+
+        String fileName = "src/com/example/WhitespaceTests.java";
+
+        try (var project = InlineTestProjectCreator.code(code, fileName).build()) {
+            ProjectFile file = new ProjectFile(project.getRoot(), fileName);
+            JavaAnalyzer analyzer = new JavaAnalyzer(project);
+            analyzer = (JavaAnalyzer) analyzer.update();
+
+            assertTrue(
+                    analyzer.containsTests(file), "Should detect test annotations with whitespace between @ and name");
         }
     }
 }
