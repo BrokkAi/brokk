@@ -1619,7 +1619,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
             result = agent.executeWithScan();
 
             if (result.stopDetails().reason() == TaskResult.StopReason.SUCCESS) {
-                new GitWorkflow(this).performAutoCommit(prompt);
+                if (project.hasGit()) {
+                    new GitWorkflow(this).performAutoCommit(prompt);
+                }
                 var ctx = markTaskDone(result.context(), task);
 
                 result = result.withContext(ctx); // result with task done

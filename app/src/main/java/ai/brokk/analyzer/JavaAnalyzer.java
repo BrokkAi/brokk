@@ -13,7 +13,6 @@ import java.util.stream.Collectors;
 import org.jetbrains.annotations.Nullable;
 import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
-import org.treesitter.TSQuery;
 import org.treesitter.TSQueryCapture;
 import org.treesitter.TSQueryCursor;
 import org.treesitter.TSQueryMatch;
@@ -341,33 +340,35 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
 
     @Override
     protected boolean containsTestMarkers(TSTree tree, SourceContent sourceContent) {
-        try (TSQuery query = createQuery(QueryType.DEFINITIONS)) {
-            if (query == null) return false;
-            try (TSQueryCursor cursor = new TSQueryCursor()) {
-                cursor.exec(query, tree.getRootNode());
+        return withCachedQuery(
+                QueryType.DEFINITIONS,
+                query -> {
+                    try (TSQueryCursor cursor = new TSQueryCursor()) {
+                        cursor.exec(query, tree.getRootNode());
 
-                TSQueryMatch match = new TSQueryMatch();
-                while (cursor.nextMatch(match)) {
-                    for (TSQueryCapture capture : match.getCaptures()) {
-                        String captureName = query.getCaptureNameForId(capture.getIndex());
-                        if (TEST_MARKER.equals(captureName)) {
-                            TSNode node = capture.getNode();
-                            String rawName = sourceContent.substringFromBytes(node.getStartByte(), node.getEndByte());
-                            String simpleName = rawName.strip();
-                            int lastDot = simpleName.lastIndexOf('.');
-                            if (lastDot >= 0) {
-                                simpleName = simpleName.substring(lastDot + 1);
-                            }
+                        TSQueryMatch match = new TSQueryMatch();
+                        while (cursor.nextMatch(match)) {
+                            for (TSQueryCapture capture : match.getCaptures()) {
+                                String captureName = query.getCaptureNameForId(capture.getIndex());
+                                if (TEST_MARKER.equals(captureName)) {
+                                    TSNode node = capture.getNode();
+                                    String simpleName =
+                                            sourceContent.substringFrom(node).strip();
+                                    int lastDot = simpleName.lastIndexOf('.');
+                                    if (lastDot >= 0) {
+                                        simpleName = simpleName.substring(lastDot + 1);
+                                    }
 
-                            if (TEST_ANNOTATIONS.contains(simpleName)) {
-                                return true;
+                                    if (TEST_ANNOTATIONS.contains(simpleName)) {
+                                        return true;
+                                    }
+                                }
                             }
                         }
                     }
-                }
-            }
-        }
-        return false;
+                    return false;
+                },
+                false);
     }
 
     @Override
@@ -733,105 +734,113 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
 
     @Override
     public boolean isAccessExpression(ProjectFile file, int startByte, int endByte) {
-        TSTree tree = treeOf(file);
-        if (tree == null) return true;
+        return withTreeOf(
+                file,
+                tree -> {
+                    TSNode root = tree.getRootNode();
+                    if (root.isNull()) return true;
 
-        TSNode root = tree.getRootNode();
-        if (root.isNull()) return true;
+                    TSNode node = root.getDescendantForByteRange(startByte, endByte);
+                    if (node == null || node.isNull()) return true;
 
-        TSNode node = root.getDescendantForByteRange(startByte, endByte);
-        if (node == null || node.isNull()) return true;
-
-        // 1. Check if the node itself or any parent is a comment
-        TSNode walk = node;
-        while (walk != null && !walk.isNull()) {
-            if (isCommentNode(walk)) return false;
-            walk = walk.getParent();
-        }
-
-        // 2. Check if we are in a declaration context (name of a method, field, param, etc.)
-        TSNode current = node;
-        while (current != null && !current.isNull()) {
-            String type = current.getType();
-
-            // If we hit a known reference/usage node type, it's likely a reference
-            if (type.equals(METHOD_INVOCATION)
-                    || type.equals(FIELD_ACCESS)
-                    || type.equals(OBJECT_CREATION_EXPRESSION)
-                    || type.equals(TYPE_IDENTIFIER)
-                    || type.equals(SCOPED_TYPE_IDENTIFIER)
-                    || type.equals(MARKER_ANNOTATION)
-                    || type.equals(ANNOTATION)
-                    || type.equals(CLASS_LITERAL)
-                    || type.equals(IMPORT_DECLARATION)) {
-                break; // Continue to nearest declaration check
-            }
-
-            // If we are the 'name' child of a declaration, it's not a reference
-            TSNode parent = current.getParent();
-            if (parent != null && !parent.isNull()) {
-                String pType = parent.getType();
-                if (pType.equals(METHOD_DECLARATION)
-                        || pType.equals(FIELD_DECLARATION)
-                        || pType.equals(CLASS_DECLARATION)
-                        || pType.equals(INTERFACE_DECLARATION)
-                        || pType.equals(ENUM_DECLARATION)
-                        || pType.equals(RECORD_DECLARATION)
-                        || pType.equals(VARIABLE_DECLARATOR)
-                        || pType.equals(FORMAL_PARAMETER)) {
-
-                    TSNode nameNode = parent.getChildByFieldName("name");
-                    if (nameNode != null && !nameNode.isNull() && nameNode.getStartByte() == startByte) {
-                        return false;
+                    // 1. Check if the node itself or any parent is a comment
+                    TSNode walk = node;
+                    while (walk != null && !walk.isNull()) {
+                        if (isCommentNode(walk)) return false;
+                        walk = walk.getParent();
                     }
-                }
-            }
-            current = current.getParent();
-        }
 
-        // 3. Perform lexical scope analysis to filter out local variables and parameters
-        // Skip this if the current node is explicitly part of a member access (e.g., this.field or obj.field)
-        TSNode parent = node.getParent();
-        if (parent != null && !parent.isNull()) {
-            String pType = parent.getType();
-            if (pType.equals(FIELD_ACCESS)) {
-                // In tree-sitter-java, field_access has a "field" child for the member name
-                TSNode fieldNode = parent.getChildByFieldName("field");
-                if (fieldNode != null && !fieldNode.isNull() && fieldNode.getStartByte() == node.getStartByte()) {
-                    return true;
-                }
-            }
-            if (pType.equals(METHOD_INVOCATION)) {
-                // In tree-sitter-java, method_invocation has a "name" child for the method name
-                TSNode nameNode = parent.getChildByFieldName("name");
-                if (nameNode != null && !nameNode.isNull() && nameNode.getStartByte() == node.getStartByte()) {
-                    return true;
-                }
-            }
-        }
+                    // 2. Check if we are in a declaration context (name of a method, field, param, etc.)
+                    TSNode current = node;
+                    while (current != null && !current.isNull()) {
+                        String type = current.getType();
 
-        var sourceContentOpt = SourceContent.read(file);
-        if (sourceContentOpt.isPresent()) {
-            SourceContent sourceContent = sourceContentOpt.get();
-            String identifierName = sourceContent.substringFrom(node).strip();
-            if (!identifierName.isEmpty()) {
-                var declOpt = findNearestDeclaration(node, identifierName, sourceContent);
-                if (declOpt.isPresent()) {
-                    var kind = declOpt.get().kind();
-                    return switch (kind) {
-                        case PARAMETER,
-                                LOCAL_VARIABLE,
-                                CATCH_PARAMETER,
-                                FOR_LOOP_VARIABLE,
-                                RESOURCE_VARIABLE,
-                                PATTERN_VARIABLE -> false;
-                        default -> true;
-                    };
-                }
-            }
-        }
+                        // If we hit a known reference/usage node type, it's likely a reference
+                        if (type.equals(METHOD_INVOCATION)
+                                || type.equals(FIELD_ACCESS)
+                                || type.equals(OBJECT_CREATION_EXPRESSION)
+                                || type.equals(TYPE_IDENTIFIER)
+                                || type.equals(SCOPED_TYPE_IDENTIFIER)
+                                || type.equals(MARKER_ANNOTATION)
+                                || type.equals(ANNOTATION)
+                                || type.equals(CLASS_LITERAL)
+                                || type.equals(IMPORT_DECLARATION)) {
+                            break; // Continue to nearest declaration check
+                        }
 
-        return true;
+                        // If we are the 'name' child of a declaration, it's not a reference
+                        TSNode parent = current.getParent();
+                        if (parent != null && !parent.isNull()) {
+                            String pType = parent.getType();
+                            if (pType.equals(METHOD_DECLARATION)
+                                    || pType.equals(FIELD_DECLARATION)
+                                    || pType.equals(CLASS_DECLARATION)
+                                    || pType.equals(INTERFACE_DECLARATION)
+                                    || pType.equals(ENUM_DECLARATION)
+                                    || pType.equals(RECORD_DECLARATION)
+                                    || pType.equals(VARIABLE_DECLARATOR)
+                                    || pType.equals(FORMAL_PARAMETER)) {
+
+                                TSNode nameNode = parent.getChildByFieldName("name");
+                                if (nameNode != null && !nameNode.isNull() && nameNode.getStartByte() == startByte) {
+                                    return false;
+                                }
+                            }
+                        }
+                        current = current.getParent();
+                    }
+
+                    // 3. Perform lexical scope analysis to filter out local variables and parameters
+                    // Skip this if the current node is explicitly part of a member access (e.g., this.field or
+                    // obj.field)
+                    TSNode parent = node.getParent();
+                    if (parent != null && !parent.isNull()) {
+                        String pType = parent.getType();
+                        if (pType.equals(FIELD_ACCESS)) {
+                            // In tree-sitter-java, field_access has a "field" child for the member name
+                            TSNode fieldNode = parent.getChildByFieldName("field");
+                            if (fieldNode != null
+                                    && !fieldNode.isNull()
+                                    && fieldNode.getStartByte() == node.getStartByte()) {
+                                return true;
+                            }
+                        }
+                        if (pType.equals(METHOD_INVOCATION)) {
+                            // In tree-sitter-java, method_invocation has a "name" child for the method name
+                            TSNode nameNode = parent.getChildByFieldName("name");
+                            if (nameNode != null
+                                    && !nameNode.isNull()
+                                    && nameNode.getStartByte() == node.getStartByte()) {
+                                return true;
+                            }
+                        }
+                    }
+
+                    return withSource(
+                            file,
+                            sourceContent -> {
+                                String identifierName =
+                                        sourceContent.substringFrom(node).strip();
+                                if (!identifierName.isEmpty()) {
+                                    var declOpt = findNearestDeclaration(node, identifierName, sourceContent);
+                                    if (declOpt.isPresent()) {
+                                        var kind = declOpt.get().kind();
+                                        return switch (kind) {
+                                            case PARAMETER,
+                                                    LOCAL_VARIABLE,
+                                                    CATCH_PARAMETER,
+                                                    FOR_LOOP_VARIABLE,
+                                                    RESOURCE_VARIABLE,
+                                                    PATTERN_VARIABLE -> false;
+                                            default -> true;
+                                        };
+                                    }
+                                }
+                                return true;
+                            },
+                            true);
+                },
+                true);
     }
 
     @Override
@@ -871,8 +880,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
      */
     @Override
     public Set<String> extractTypeIdentifiers(String source) {
-        try {
-            TSTree tree = getTSParser().parseString(null, source);
+        try (TSTree tree = getTSParser().parseString(null, source)) {
             TSNode root = tree.getRootNode();
             return performIdentifierExtraction(root, source);
         } catch (Exception e) {
@@ -881,34 +889,38 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
         }
     }
 
-    private Set<String> performIdentifierExtraction(@Nullable TSNode root, String source) {
+    @Override
+    public Set<String> performIdentifierExtraction(@Nullable TSNode root, String source) {
         if (root == null || root.isNull()) {
             return Set.of();
         }
 
-        try (TSQuery query = createQuery(QueryType.IDENTIFIERS)) {
-            if (query == null) return Set.of();
-            try (TSQueryCursor cursor = new TSQueryCursor()) {
-                cursor.exec(query, root);
+        Set<String> identifiers = new HashSet<>();
+        withCachedQuery(
+                QueryType.IDENTIFIERS,
+                query -> {
+                    try (TSQueryCursor cursor = new TSQueryCursor()) {
+                        cursor.exec(query, root);
 
-                SourceContent sourceContent = SourceContent.of(source);
-                Set<String> identifiers = new HashSet<>();
-                TSQueryMatch match = new TSQueryMatch();
+                        SourceContent sourceContent = SourceContent.of(source);
+                        TSQueryMatch match = new TSQueryMatch();
 
-                while (cursor.nextMatch(match)) {
-                    for (TSQueryCapture capture : match.getCaptures()) {
-                        TSNode node = capture.getNode();
-                        if (node != null && !node.isNull()) {
-                            String text = sourceContent.substringFrom(node);
-                            if (!text.isEmpty()) {
-                                identifiers.add(text);
+                        while (cursor.nextMatch(match)) {
+                            for (TSQueryCapture capture : match.getCaptures()) {
+                                TSNode node = capture.getNode();
+                                if (node != null && !node.isNull()) {
+                                    String text = sourceContent.substringFrom(node);
+                                    if (!text.isEmpty()) {
+                                        identifiers.add(text);
+                                    }
+                                }
                             }
                         }
                     }
-                }
-                return identifiers;
-            }
-        }
+                    return true;
+                },
+                false);
+        return identifiers;
     }
 
     @Override
@@ -1096,17 +1108,21 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
     @Override
     public Optional<DeclarationInfo> findNearestDeclaration(
             ProjectFile file, int startByte, int endByte, String identifierName) {
-        TSTree tree = treeOf(file);
-        if (tree == null) return Optional.empty();
+        return withTreeOf(
+                file,
+                tree -> {
+                    TSNode root = tree.getRootNode();
+                    if (root.isNull()) return Optional.empty();
 
-        TSNode root = tree.getRootNode();
-        if (root.isNull()) return Optional.empty();
+                    TSNode node = root.getDescendantForByteRange(startByte, endByte);
+                    if (node == null || node.isNull()) return Optional.empty();
 
-        TSNode node = root.getDescendantForByteRange(startByte, endByte);
-        if (node == null || node.isNull()) return Optional.empty();
-
-        var sourceContentOpt = SourceContent.read(file);
-        return sourceContentOpt.flatMap(sourceContent -> findNearestDeclaration(node, identifierName, sourceContent));
+                    return withSource(
+                            file,
+                            sourceContent -> findNearestDeclaration(node, identifierName, sourceContent),
+                            Optional.empty());
+                },
+                Optional.empty());
     }
 
     private Optional<DeclarationInfo> findNearestDeclaration(
@@ -1468,55 +1484,60 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
     protected List<String> extractRawSupertypesForClassLike(
             CodeUnit cu, TSNode classNode, String signature, SourceContent sourceContent) {
         // Aggregate all @type.super captures for the same @type.decl across all matches.
-        try (TSQuery query = createQuery(QueryType.DEFINITIONS);
-                TSQueryCursor cursor = new TSQueryCursor()) {
-            if (query == null) return List.of();
-            // Ascend to the root node for matching
-            TSNode root = classNode;
-            while (root.getParent() != null && !root.getParent().isNull()) {
-                root = root.getParent();
-            }
+        return withCachedQuery(
+                QueryType.DEFINITIONS,
+                query -> {
+                    try (TSQueryCursor cursor = new TSQueryCursor()) {
+                        // Ascend to the root node for matching
+                        TSNode root = classNode;
+                        while (root.getParent() != null && !root.getParent().isNull()) {
+                            root = root.getParent();
+                        }
 
-            List<TSNode> aggregateSuperNodes = new ArrayList<>();
-            cursor.exec(query, root);
+                        List<TSNode> aggregateSuperNodes = new ArrayList<>();
+                        cursor.exec(query, root);
 
-            TSQueryMatch match = new TSQueryMatch();
-            final int targetStart = classNode.getStartByte();
-            final int targetEnd = classNode.getEndByte();
+                        TSQueryMatch match = new TSQueryMatch();
+                        final int targetStart = classNode.getStartByte();
+                        final int targetEnd = classNode.getEndByte();
 
-            while (cursor.nextMatch(match)) {
-                TSNode declNode = null;
-                List<TSNode> superCapturesThisMatch = new ArrayList<>();
+                        while (cursor.nextMatch(match)) {
+                            TSNode declNode = null;
+                            List<TSNode> superCapturesThisMatch = new ArrayList<>();
 
-                for (TSQueryCapture cap : match.getCaptures()) {
-                    String capName = query.getCaptureNameForId(cap.getIndex());
-                    TSNode n = cap.getNode();
-                    if (n == null || n.isNull()) continue;
+                            for (TSQueryCapture cap : match.getCaptures()) {
+                                String capName = query.getCaptureNameForId(cap.getIndex());
+                                TSNode n = cap.getNode();
+                                if (n == null || n.isNull()) continue;
 
-                    if ("type.decl".equals(capName)) {
-                        declNode = n;
-                    } else if ("type.super".equals(capName)) {
-                        superCapturesThisMatch.add(n);
+                                if ("type.decl".equals(capName)) {
+                                    declNode = n;
+                                } else if ("type.super".equals(capName)) {
+                                    superCapturesThisMatch.add(n);
+                                }
+                            }
+
+                            if (declNode != null
+                                    && declNode.getStartByte() == targetStart
+                                    && declNode.getEndByte() == targetEnd) {
+                                aggregateSuperNodes.addAll(superCapturesThisMatch);
+                            }
+                        }
+
+                        aggregateSuperNodes.sort(Comparator.comparingInt(TSNode::getStartByte));
+
+                        List<String> supers = new ArrayList<>(aggregateSuperNodes.size());
+                        for (TSNode s : aggregateSuperNodes) {
+                            String text = sourceContent.substringFrom(s).strip();
+                            if (!text.isEmpty()) {
+                                supers.add(text);
+                            }
+                        }
+
+                        LinkedHashSet<String> unique = new LinkedHashSet<>(supers);
+                        return List.copyOf(unique);
                     }
-                }
-
-                if (declNode != null && declNode.getStartByte() == targetStart && declNode.getEndByte() == targetEnd) {
-                    aggregateSuperNodes.addAll(superCapturesThisMatch);
-                }
-            }
-
-            aggregateSuperNodes.sort(Comparator.comparingInt(TSNode::getStartByte));
-
-            List<String> supers = new ArrayList<>(aggregateSuperNodes.size());
-            for (TSNode s : aggregateSuperNodes) {
-                String text = sourceContent.substringFrom(s).strip();
-                if (!text.isEmpty()) {
-                    supers.add(text);
-                }
-            }
-
-            LinkedHashSet<String> unique = new LinkedHashSet<>(supers);
-            return List.copyOf(unique);
-        }
+                },
+                List.of());
     }
 }

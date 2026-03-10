@@ -110,6 +110,10 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
     @Nullable
     private LanguagesTableModel languagesTableModel;
 
+    public Chrome getChrome() {
+        return chrome;
+    }
+
     public SettingsProjectPanel(
             Chrome chrome, SettingsDialog parentDialog, JButton okButton, JButton cancelButton, JButton applyButton) {
         this.chrome = chrome;
@@ -730,11 +734,14 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
 
         // Right detail panel
         var rightPanel = new JPanel(new BorderLayout());
-        rightPanel.setBorder(BorderFactory.createTitledBorder("Language Details"));
+        var rightScrollPane = new JScrollPane(rightPanel);
+        rightScrollPane.setBorder(BorderFactory.createTitledBorder("Language Details"));
+        rightScrollPane.getVerticalScrollBar().setUnitIncrement(16);
+
         var noSelectionLabel = new JLabel("Select a language to view settings.");
         noSelectionLabel.setHorizontalAlignment(SwingConstants.CENTER);
-        noSelectionLabel.setVerticalAlignment(SwingConstants.TOP);
-        rightPanel.add(noSelectionLabel, BorderLayout.NORTH);
+        noSelectionLabel.setVerticalAlignment(SwingConstants.CENTER);
+        rightPanel.add(noSelectionLabel, BorderLayout.CENTER);
 
         // Toolbar with global controls (refresh controls)
         var toolbar = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
@@ -855,8 +862,8 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
             rightPanel.removeAll();
 
             if (sel < 0) {
-                // No selection: show the default text at the top
-                rightPanel.add(noSelectionLabel, BorderLayout.NORTH);
+                // No selection: show the default text
+                rightPanel.add(noSelectionLabel, BorderLayout.CENTER);
                 rightPanel.revalidate();
                 rightPanel.repaint();
                 return;
@@ -889,7 +896,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
             wrapper.setBorder(BorderFactory.createEmptyBorder(0, 8, 0, 8));
             wrapper.add(fileCountLabel, BorderLayout.NORTH);
             wrapper.add(settingsPanel, BorderLayout.CENTER);
-            rightPanel.add(wrapper, BorderLayout.NORTH);
+            rightPanel.add(wrapper, BorderLayout.CENTER);
 
             rightPanel.revalidate();
             rightPanel.repaint();
@@ -899,7 +906,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         var centerPanel = new JPanel(new BorderLayout(8, 0));
         // Let the WEST scroll pane size itself based on the table's preferred size
         centerPanel.add(leftScroll, BorderLayout.WEST);
-        centerPanel.add(rightPanel, BorderLayout.CENTER);
+        centerPanel.add(rightScrollPane, BorderLayout.CENTER);
 
         panel.add(centerPanel, BorderLayout.CENTER);
 

@@ -16,7 +16,7 @@ import type {
 } from "../types";
 import { DiffContentProvider, parseUnifiedDiff } from "./DiffContentProvider";
 import { getPanelHtml } from "./panelHtml";
-import { handleSettingsMessage } from "./settingsManager";
+import { handleSettingsMessage, handleOpenAiSettingsMessage } from "./settingsManager";
 
 export class BrokkPanelProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = "brokk-panel";
@@ -294,6 +294,21 @@ export class BrokkPanelProvider implements vscode.WebviewViewProvider {
     // Settings messages don't require executor client
     if (msg.type === "loadSettings" || msg.type === "saveApiKey" || msg.type === "fetchBalance") {
       await handleSettingsMessage(msg, this.sendToWebview.bind(this));
+      return;
+    }
+
+    // OpenAI OAuth messages require executor client
+    if (msg.type === "checkOpenAiStatus" || msg.type === "connectOpenAi" || msg.type === "pollOpenAiStatus") {
+      if (!this.client) {
+        this.sendToWebview("openAiStatusResult", { connected: false, unavailable: true });
+        return;
+      }
+      await handleOpenAiSettingsMessage(
+        msg,
+        this.client,
+        this.sendToWebview.bind(this),
+        (url) => vscode.env.openExternal(vscode.Uri.parse(url))
+      );
       return;
     }
 

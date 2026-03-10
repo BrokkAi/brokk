@@ -2,9 +2,12 @@ package ai.brokk.analyzer.java;
 
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.CodeUnitType;
+import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.usages.UsageHit;
 import ai.brokk.project.IProject;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.*;
 import java.util.stream.Collectors;
 import org.eclipse.jdt.core.JavaCore;
@@ -48,6 +51,7 @@ public class JdtUsageAnalyzer {
         if (paramTypes.length == 0) {
             return "()";
         }
+        // Use getName() to match the simple name convention used by Tree-sitter signatures.
         return Arrays.stream(paramTypes).map(JdtUsageAnalyzer::getTypeName).collect(Collectors.joining(", ", "(", ")"));
     }
 
@@ -160,28 +164,27 @@ public class JdtUsageAnalyzer {
 
         try {
             parser.createASTs(sourceFiles, null, new String[0], collector, null);
-        } catch (Exception e) {
-            log.error("JDT analysis failed for {}", target.fqName(), e);
+        } catch (AssertionError | Exception t) {
+            log.error("JDT analysis failed for {}", target.fqName(), t);
+            throw new RuntimeException("Failed to analyze usages for " + target.fqName() + " using JDT", t);
         }
 
         return collector.getHits();
     }
 
     private static String[] inferSourceRoots(IProject project) {
-        // We include the project root to ensure we don't filter out any source files or test directories,
-        // regardless of layout.
+        Path projectRoot = project.getRoot();
         Set<String> roots = new HashSet<>();
-        roots.add(project.getRoot().toAbsolutePath().toString());
 
-        // We also add standard directory heuristics. While the root covers everything,
-        // explicitly providing known source roots can help JDT's resolution performance
-        // and package name mapping in some nested scenarios.
-        String[] standardPaths = {"src/main/java", "src/test/java", "src/main/kotlin", "src/test/kotlin"};
-
-        for (String path : standardPaths) {
-            java.nio.file.Path sourcePath = project.getRoot().resolve(path);
-            if (java.nio.file.Files.exists(sourcePath)) {
-                roots.add(sourcePath.toAbsolutePath().toString());
+        for (String rootPathStr : project.getSourceRoots(Languages.JAVA)) {
+            try {
+                Path resolved =
+                        projectRoot.resolve(rootPathStr).toAbsolutePath().normalize();
+                if (Files.exists(resolved) && Files.isDirectory(resolved)) {
+                    roots.add(resolved.toString());
+                }
+            } catch (Exception e) {
+                log.debug("Error resolving source root: {}", rootPathStr, e);
             }
         }
 

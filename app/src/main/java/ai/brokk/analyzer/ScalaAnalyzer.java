@@ -11,7 +11,6 @@ import java.util.Set;
 import org.jetbrains.annotations.Nullable;
 import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
-import org.treesitter.TSQuery;
 import org.treesitter.TSQueryCapture;
 import org.treesitter.TSQueryCursor;
 import org.treesitter.TSQueryMatch;
@@ -123,7 +122,7 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer {
                 sourceContent,
                 PACKAGE_CLAUSE,
                 SCALA_SYNTAX_PROFILE.classLikeNodeTypes(),
-                (node, sourceContent1) -> sourceContent1.substringFromBytes(node.getStartByte(), node.getEndByte()));
+                (node, sourceContent1) -> sourceContent1.substringFrom(node));
     }
 
     @Override
@@ -167,7 +166,7 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer {
             var nodeKind = funcNode.getFieldNameForChild(i);
             var child = funcNode.getChild(i);
             if ("parameters".equals(nodeKind)) {
-                paramSb.append(sourceContent.substringFromBytes(child.getStartByte(), child.getEndByte()));
+                paramSb.append(sourceContent.substringFrom(child));
             }
         }
         var allParamsText = paramSb.toString();
@@ -265,12 +264,12 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer {
 
         TSNode typeNode = fieldNode.getChildByFieldName("type");
         if (typeNode != null && !typeNode.isNull()) {
-            sb.append(": ").append(sourceContent.substringFromBytes(typeNode.getStartByte(), typeNode.getEndByte()));
+            sb.append(": ").append(sourceContent.substringFrom(typeNode));
         }
 
         TSNode valueNode = fieldNode.getChildByFieldName("value");
         if (valueNode != null && !valueNode.isNull()) {
-            sb.append(" = ").append(sourceContent.substringFromBytes(valueNode.getStartByte(), valueNode.getEndByte()));
+            sb.append(" = ").append(sourceContent.substringFrom(valueNode));
         }
 
         return sb.toString();
@@ -281,42 +280,41 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected boolean containsTestMarkers(TSTree tree, SourceContent sourceContent) {
-        try (TSQuery query = createQuery(QueryType.DEFINITIONS)) {
-            if (query != null) {
-                try (TSQueryCursor cursor = new TSQueryCursor()) {
-                    cursor.exec(query, tree.getRootNode());
+        return withCachedQuery(
+                QueryType.DEFINITIONS,
+                query -> {
+                    try (TSQueryCursor cursor = new TSQueryCursor()) {
+                        cursor.exec(query, tree.getRootNode());
 
-                    TSQueryMatch match = new TSQueryMatch();
-                    while (cursor.nextMatch(match)) {
-                        for (TSQueryCapture capture : match.getCaptures()) {
-                            TSNode node = capture.getNode();
-                            if (node == null || node.isNull()) continue;
+                        TSQueryMatch match = new TSQueryMatch();
+                        while (cursor.nextMatch(match)) {
+                            for (TSQueryCapture capture : match.getCaptures()) {
+                                TSNode node = capture.getNode();
+                                if (node == null || node.isNull()) continue;
 
-                            String captureName = query.getCaptureNameForId(capture.getIndex());
-                            switch (captureName) {
-                                case "test.import", "test.call" -> {
-                                    return true;
-                                }
-                                case "test.annotation" -> {
-                                    String nodeText =
-                                            sourceContent.substringFromBytes(node.getStartByte(), node.getEndByte());
-                                    if (TEST_ANNOTATIONS.contains(nodeText)) {
+                                String captureName = query.getCaptureNameForId(capture.getIndex());
+                                switch (captureName) {
+                                    case "test.import", "test.call" -> {
                                         return true;
                                     }
-                                }
-                                case "test.infix" -> {
-                                    String nodeText =
-                                            sourceContent.substringFromBytes(node.getStartByte(), node.getEndByte());
-                                    if (TEST_INFIX_KEYWORDS.contains(nodeText)) {
-                                        return true;
+                                    case "test.annotation" -> {
+                                        String nodeText = sourceContent.substringFrom(node);
+                                        if (TEST_ANNOTATIONS.contains(nodeText)) {
+                                            return true;
+                                        }
+                                    }
+                                    case "test.infix" -> {
+                                        String nodeText = sourceContent.substringFrom(node);
+                                        if (TEST_INFIX_KEYWORDS.contains(nodeText)) {
+                                            return true;
+                                        }
                                     }
                                 }
                             }
                         }
                     }
-                }
-            }
-        }
-        return false;
+                    return false;
+                },
+                false);
     }
 }
