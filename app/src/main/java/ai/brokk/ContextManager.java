@@ -11,6 +11,8 @@ import ai.brokk.agents.BuildAgent.BuildDetails;
 import ai.brokk.analyzer.CallSite;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
+import ai.brokk.analyzer.Languages;
+import ai.brokk.analyzer.MultiAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.TestDetectionProvider;
 import ai.brokk.cli.HeadlessConsole;
@@ -111,8 +113,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
         // 1. Determine if there is an authoritative semantic analyzer for this specific file
         if (analyzer != null && !analyzer.isEmpty()) {
             IAnalyzer effectiveAnalyzer = analyzer;
-            if (analyzer instanceof ai.brokk.analyzer.MultiAnalyzer multi) {
-                var lang = ai.brokk.analyzer.Languages.fromExtension(file.extension());
+            if (analyzer instanceof MultiAnalyzer multi) {
+                var lang = Languages.fromExtension(file.extension());
                 effectiveAnalyzer = multi.getDelegates().get(lang);
             }
 
