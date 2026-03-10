@@ -386,7 +386,13 @@ async def test_chat_panel_ctrl_b_f_bindings_scroll_log_with_input_focus():
 
         for i in range(30):
             panel.add_system_message(f"Message {i}")
-        await pilot.pause()
+
+        # Wait for scroll state to settle after rapid writes;
+        # on Windows CI the scroll position may lag behind content height.
+        for _ in range(10):
+            await pilot.pause()
+            if log.max_scroll_y > 0 and log.is_vertical_scroll_end:
+                break
 
         assert chat_input.has_focus
         assert log.max_scroll_y > 0, "Log must be scrollable for this test"
@@ -394,7 +400,10 @@ async def test_chat_panel_ctrl_b_f_bindings_scroll_log_with_input_focus():
 
         bottom_y = log.scroll_y
         await pilot.press("ctrl+b")
-        await pilot.pause()
+        for _ in range(10):
+            await pilot.pause()
+            if log.scroll_y < bottom_y:
+                break
 
         assert chat_input.has_focus
         assert log.scroll_y < bottom_y
@@ -402,7 +411,10 @@ async def test_chat_panel_ctrl_b_f_bindings_scroll_log_with_input_focus():
 
         after_page_up = log.scroll_y
         await pilot.press("ctrl+f")
-        await pilot.pause()
+        for _ in range(10):
+            await pilot.pause()
+            if log.scroll_y > after_page_up:
+                break
 
         assert chat_input.has_focus
         assert log.scroll_y > after_page_up
