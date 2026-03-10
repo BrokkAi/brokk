@@ -25,7 +25,6 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
@@ -150,9 +149,6 @@ public class ReferenceAgent {
                     .toList();
         }
 
-        Set<String> relevant = new HashSet<>();
-        Set<String> remaining = new LinkedHashSet<>(candidates);
-
         var model = cm.getService().getModel(ModelProperties.ModelType.SUMMARIZE);
         Llm llm = cm.getLlm(new Llm.Options(model, "Classify referenced symbols/files", TaskResult.Type.SCAN));
 
@@ -164,12 +160,7 @@ public class ReferenceAgent {
                                 JsonArraySchema.builder()
                                         .items(new JsonStringSchema())
                                         .build())
-                        .addProperty(
-                                "coincidental",
-                                JsonArraySchema.builder()
-                                        .items(new JsonStringSchema())
-                                        .build())
-                        .required("relevant", "coincidental")
+                        .required("relevant")
                         .additionalProperties(false)
                         .build())
                 .build();
@@ -180,30 +171,15 @@ public class ReferenceAgent {
                         .jsonSchema(schema)
                         .build());
 
-        for (int i = 0; i < 3; i++) {
-            List<String> batch = candidates.stream().filter(remaining::contains).toList();
-            String prompt = buildReferenceClassificationPrompt(goal, batch);
-            var result = llm.sendRequest(List.of(new UserMessage(prompt)), requestOptions);
-            if (result.error() != null || result.text().isBlank()) {
-                continue;
-            }
-
-            ReferenceClassificationResponse parsed = parseReferenceClassification(result.text());
-
-            for (String value : parsed.relevant()) {
-                if (remaining.remove(value)) {
-                    relevant.add(value);
-                }
-            }
-            for (String value : parsed.coincidental()) {
-                remaining.remove(value);
-            }
-
-            if (remaining.isEmpty()) {
-                break;
-            }
+        String prompt = buildReferenceClassificationPrompt(goal, candidates);
+        var result = llm.sendRequest(List.of(new UserMessage(prompt)), requestOptions);
+        if (result.error() != null) {
+            return Set.of();
         }
 
+        Set<String> candidateSet = new HashSet<>(candidates);
+        Set<String> relevant = new HashSet<>(parseRelevantReferences(result.text()));
+        relevant.removeIf(value -> !candidateSet.contains(value));
         return relevant;
     }
 
@@ -214,7 +190,7 @@ public class ReferenceAgent {
 
         return """
                 The following filenames and identifiers were parsed from (partial) matches in the user's instructions.
-                Classify each as relevant or coincidental for the user's goal.
+                Return only the references that are relevant to the user's goal.
 
                 <user_instructions>
                 %s
@@ -223,22 +199,20 @@ public class ReferenceAgent {
                 References:
                 %s
 
-                Every provided reference string must appear in exactly one array: "relevant" or "coincidental".
+                Output JSON with a single field:
+                - "relevant": array of reference strings that are relevant.
+                Include only relevant references in that array.
                 """
                 .formatted(goal, valuesArray);
     }
 
-    private static ReferenceClassificationResponse parseReferenceClassification(String text) {
+    private static Set<String> parseRelevantReferences(String text) {
         try {
             var node = Json.getMapper().readTree(text);
-            Set<String> relevant = Json.stringArrayToSet(node.path("relevant"));
-            Set<String> coincidental = Json.stringArrayToSet(node.path("coincidental"));
-            return new ReferenceClassificationResponse(relevant, coincidental);
+            return Json.stringArrayToSet(node.path("relevant"));
         } catch (IOException e) {
             logger.debug("Failed to parse reference classification response: {}", text, e);
-            return new ReferenceClassificationResponse(Set.of(), Set.of());
+            return Set.of();
         }
     }
-
-    private record ReferenceClassificationResponse(Set<String> relevant, Set<String> coincidental) {}
 }

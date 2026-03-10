@@ -478,16 +478,14 @@ public class SearchAgent {
     private void initializeContextForSearch() throws InterruptedException {
         Context preSearchContext = currentState.context();
 
-        CompletableFuture<Set<ContextFragment>> referencesFuture =
-                LoggingFuture.supplyCallableAsync(() -> {
-                    return new ReferenceAgent(cm).resolveReferencedFragments(goal);
-                });
+        CompletableFuture<Set<ContextFragment>> referencesFuture = LoggingFuture.supplyCallableAsync(() -> {
+            return new ReferenceAgent(cm).resolveReferencedFragments(goal);
+        });
         CompletableFuture<Void> pruneFuture = scanConfig.autoPrune()
-                ? LoggingFuture.supplyCallableAsync(
-                        () -> {
-                            pruneContext();
-                            return null;
-                        })
+                ? LoggingFuture.supplyCallableAsync(() -> {
+                    pruneContext();
+                    return null;
+                })
                 : CompletableFuture.completedFuture(null);
 
         try {
