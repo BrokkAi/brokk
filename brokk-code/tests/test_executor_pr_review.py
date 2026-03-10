@@ -352,6 +352,48 @@ def test_handle_review_command_executor_not_ready(tmp_path, monkeypatch):
     assert messages[0][1] == "ERROR"
 
 
+def test_handle_event_notification_with_string_data(tmp_path, monkeypatch):
+    """Verify _handle_event tolerates NOTIFICATION events with string data payload."""
+    app = BrokkApp(workspace_dir=tmp_path)
+
+    messages = []
+
+    class MockChat:
+        def add_system_message(self, msg, level="INFO"):
+            messages.append((msg, level))
+
+    monkeypatch.setattr(app, "_maybe_chat", lambda: MockChat())
+
+    # Simulate a NOTIFICATION event with string data (as emitted during PR review)
+    event = {"type": "NOTIFICATION", "data": "Fetching PR refs from remote 'origin'..."}
+    app._handle_event(event)
+
+    assert len(messages) == 1
+    assert messages[0][0] == "Fetching PR refs from remote 'origin'..."
+    assert messages[0][1] == "INFO"
+
+
+def test_handle_event_error_with_string_data(tmp_path, monkeypatch):
+    """Verify _handle_event tolerates ERROR events with string data payload."""
+    app = BrokkApp(workspace_dir=tmp_path)
+
+    messages = []
+
+    class MockChat:
+        def add_system_message(self, msg, level="INFO"):
+            messages.append((msg, level))
+
+    monkeypatch.setattr(app, "_maybe_chat", lambda: MockChat())
+
+    # Simulate an ERROR event with string data
+    event = {"type": "ERROR", "data": "Something went wrong"}
+    app._handle_event(event)
+
+    assert len(messages) == 1
+    assert messages[0][0] == "Something went wrong"
+    assert messages[0][1] == "ERROR"
+
+
 @pytest.mark.asyncio
 async def test_submit_pr_review_job_uses_unique_idempotency_keys(tmp_path):
     """Verify each call generates a unique idempotency key."""

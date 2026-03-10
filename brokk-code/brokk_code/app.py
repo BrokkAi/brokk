@@ -2065,8 +2065,16 @@ class BrokkApp(App):
 
     def _handle_event(self, event: Dict[str, Any]) -> None:
         event_type = event.get("type")
-        data = event.get("data", {})
+        raw_data = event.get("data", {})
         chat = self._maybe_chat()
+
+        # Normalize data: if it's a string, wrap it for consistent handling
+        if isinstance(raw_data, dict):
+            data = raw_data
+        elif isinstance(raw_data, str):
+            data = {"message": raw_data}
+        else:
+            data = {}
 
         if event_type == "LLM_TOKEN":
             if chat:
@@ -2097,7 +2105,7 @@ class BrokkApp(App):
             if chat and not is_cost and not is_confirm:
                 chat.add_system_message(msg, level=level)
         elif event_type == "ERROR":
-            msg = data.get("message", "Unknown error")
+            msg = data.get("message", "") or "Unknown error"
             if chat:
                 chat.add_system_message(msg, level="ERROR")
             # Note: set_job_running(False) happens in _run_job finally block
