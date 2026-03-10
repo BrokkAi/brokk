@@ -374,9 +374,18 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
                     "Loaded existing analyzer: {} for directory: {}",
                     analyzer.getClass().getSimpleName(),
                     project.getRoot());
+
+            // Validate the loaded analyzer's state against project files
+            if (isStateCorrupt(analyzer)) {
+                logger.warn("Loaded analyzer state appears corrupt (file mismatch). Attempting fix via update.");
+                analyzer = analyzer.update();
+                if (isStateCorrupt(analyzer)) {
+                    throw new IllegalStateException("Analyzer state remains corrupt after update attempt.");
+                }
+            }
         } catch (Throwable th) {
             // cache missing or corrupt, rebuild
-            logger.warn(th);
+            logger.warn("Failed to load or validate cached analyzer: {}", th.getMessage());
             analyzer = langHandle.createAnalyzer(project, progressListener);
             logger.info(
                     "Created new analyzer: {} for directory: {}",
@@ -399,6 +408,29 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
 
         logger.debug("Analyzer load complete!");
         return analyzer;
+    }
+
+    /**
+     * Checks if the analyzer's tracked file set matches the project's expected analyzable files.
+     */
+    private boolean isStateCorrupt(IAnalyzer analyzer) {
+        Set<Language> langs = analyzer.languages();
+        Set<ProjectFile> expectedFiles = langs.stream()
+                .flatMap(l -> project.getAnalyzableFiles(l).stream())
+                .collect(Collectors.toSet());
+
+        Set<ProjectFile> actualFiles = analyzer.getAnalyzedFiles();
+
+        if (!actualFiles.equals(expectedFiles)) {
+            Set<ProjectFile> missing = new HashSet<>(expectedFiles);
+            missing.removeAll(actualFiles);
+            Set<ProjectFile> unexpected = new HashSet<>(actualFiles);
+            unexpected.removeAll(expectedFiles);
+
+            logger.debug("Analyzer file mismatch detected. Missing: {}, Unexpected: {}", missing, unexpected);
+            return true;
+        }
+        return false;
     }
 
     /** Get a human-readable description of the analyzer languages for logging. */
