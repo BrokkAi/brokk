@@ -100,6 +100,7 @@ ChatPanel {
     height: 1fr;
     border: none;
     background: $surface;
+    /* Guardrail: Chat should wrap content and never scroll horizontally */
     scrollbar-x: hidden;
     overflow-x: hidden;
 }

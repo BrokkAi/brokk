@@ -251,6 +251,17 @@ def test_help_menu_layout_contract():
     )
     assert "show-horizontal-scrollbar" not in css_content
 
+    # Regression check for Issue #3050: Chat surface must enforce no-sideways-scroll
+    chat_log_match = re.search(r"#chat-log\s*\{([^}]*)\}", css_content)
+    assert chat_log_match, "Could not find #chat-log rule in app.tcss"
+    chat_log_body = chat_log_match.group(1)
+    assert "scrollbar-x: hidden;" in chat_log_body, (
+        "#chat-log must have 'scrollbar-x: hidden;' to prevent horizontal scrollbars."
+    )
+    assert "overflow-x: hidden;" in chat_log_body, (
+        "#chat-log must have 'overflow-x: hidden;' to enforce content wrapping."
+    )
+
     # 6. Ensure autocomplete footprint is constrained and prompt visibility is maintained
     # Check both SlashCommandSuggestions and ModeSuggestions (shared rules)
     suggestions_match = re.search(
