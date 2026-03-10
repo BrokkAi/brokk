@@ -383,10 +383,7 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
                         "Loaded analyzer state appears corrupt (file mismatch). Attempting targeted repair of {} files.",
                         delta.missing().size() + delta.unexpected().size());
 
-                Set<ProjectFile> deltaFiles = new HashSet<>(delta.missing());
-                deltaFiles.addAll(delta.unexpected());
-
-                analyzer = analyzer.update(deltaFiles);
+                analyzer = analyzer.update(delta.all());
                 if (stateMismatch(analyzer).isPresent()) {
                     throw new IllegalStateException("Analyzer state remains corrupt after targeted repair attempt.");
                 }
@@ -422,8 +419,14 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
      * Represents a mismatch between the files expected by the project and those actually present in the analyzer.
      */
     private record StateMismatch(Set<ProjectFile> missing, Set<ProjectFile> unexpected) {
-        public boolean isEmpty() {
-            return missing.isEmpty() && unexpected.isEmpty();
+
+        /**
+         * @return a combination of missing and unexpected files.
+         */
+        Set<ProjectFile> all() {
+            Set<ProjectFile> deltaFiles = new HashSet<>(missing);
+            deltaFiles.addAll(unexpected);
+            return Set.copyOf(deltaFiles);
         }
     }
 
