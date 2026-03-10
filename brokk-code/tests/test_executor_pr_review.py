@@ -554,6 +554,101 @@ async def test_run_pr_review_job_fails_on_error_event(tmp_path, monkeypatch):
     assert len(error_messages) >= 1
 
 
+def test_handle_event_notification_dict_preserves_warning_level(tmp_path, monkeypatch):
+    """Verify dict-backed NOTIFICATION events preserve non-default levels like WARNING."""
+    app = BrokkApp(workspace_dir=tmp_path)
+
+    messages = []
+
+    class MockChat:
+        def add_system_message(self, msg, level="INFO"):
+            messages.append((msg, level))
+
+    monkeypatch.setattr(app, "_maybe_chat", lambda: MockChat())
+
+    # Dict payload with explicit WARNING level
+    event = {
+        "type": "NOTIFICATION",
+        "data": {"message": "This is a warning message", "level": "WARNING"},
+    }
+    app._handle_event(event)
+
+    assert len(messages) == 1
+    assert messages[0][0] == "This is a warning message"
+    assert messages[0][1] == "WARNING"
+
+
+def test_handle_event_notification_dict_cost_updates_accumulators(tmp_path, monkeypatch):
+    """Verify dict-backed NOTIFICATION with level=COST updates cost accumulators."""
+    app = BrokkApp(workspace_dir=tmp_path)
+
+    # Initialize cost accumulators
+    app.current_job_cost = 0.0
+    app.session_total_cost = 0.0
+
+    # Mock _update_statusline to avoid UI calls
+    monkeypatch.setattr(app, "_update_statusline", lambda: None)
+    monkeypatch.setattr(app, "_maybe_chat", lambda: None)
+
+    # Dict payload with COST level and numeric cost
+    event = {
+        "type": "NOTIFICATION",
+        "data": {"message": "Cost incurred", "level": "COST", "cost": 0.0025},
+    }
+    app._handle_event(event)
+
+    assert app.current_job_cost == 0.0025
+    assert app.session_total_cost == 0.0025
+
+    # Send another cost event to verify accumulation
+    event2 = {
+        "type": "NOTIFICATION",
+        "data": {"message": "More cost", "level": "COST", "cost": 0.001},
+    }
+    app._handle_event(event2)
+
+    assert app.current_job_cost == 0.0035
+    assert app.session_total_cost == 0.0035
+
+
+def test_handle_event_non_dict_payload_other_types_fail_gracefully(tmp_path, monkeypatch):
+    """Verify non-dict payloads on event types other than NOTIFICATION/ERROR fail gracefully."""
+    app = BrokkApp(workspace_dir=tmp_path)
+
+    messages = []
+
+    class MockChat:
+        def add_system_message(self, msg, level="INFO"):
+            messages.append((msg, level))
+
+        def add_tool_result(self, content):
+            messages.append(("TOOL_RESULT", content))
+
+        def append_token(self, token, message_type, is_new_message, is_reasoning, is_terminal):
+            # Just record that append_token was called; we don't care about content here
+            messages.append(("APPEND_TOKEN", token))
+
+    monkeypatch.setattr(app, "_maybe_chat", lambda: MockChat())
+    monkeypatch.setattr(app, "run_worker", lambda coro: None)
+
+    # COMMAND_RESULT with string data should not raise
+    event_command_result = {"type": "COMMAND_RESULT", "data": "unexpected string payload"}
+    app._handle_event(event_command_result)  # Should not raise
+
+    # STATE_HINT with string data should not raise
+    event_state_hint = {"type": "STATE_HINT", "data": "unexpected string payload"}
+    app._handle_event(event_state_hint)  # Should not raise
+
+    # LLM_TOKEN with string data should not raise
+    event_llm_token = {"type": "LLM_TOKEN", "data": "unexpected string payload"}
+    app._handle_event(event_llm_token)  # Should not raise
+
+    # Verify no misleading error messages were emitted to the user
+    # (no ERROR level messages should appear from graceful handling)
+    error_messages = [m for m in messages if len(m) >= 2 and m[1] == "ERROR"]
+    assert len(error_messages) == 0, f"Unexpected error messages: {error_messages}"
+
+
 @pytest.mark.asyncio
 async def test_submit_pr_review_job_uses_unique_idempotency_keys(tmp_path):
     """Verify each call generates a unique idempotency key."""
