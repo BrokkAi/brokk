@@ -543,7 +543,7 @@ public final class JobRunner {
                                                             jobId,
                                                             JobEvent.of(
                                                                     "NOTIFICATION",
-                                                                    "Brokk Context Engine: analyzing repository context..."));
+                                                                    Map.of("message", "Brokk Context Engine: analyzing repository context...")));
                                                 } catch (IOException ioe) {
                                                     logger.warn(
                                                             "Failed to append pre-scan start notification event for job {}: {}",
@@ -620,7 +620,7 @@ public final class JobRunner {
                                                             jobId,
                                                             JobEvent.of(
                                                                     "NOTIFICATION",
-                                                                    "Brokk Context Engine: complete — contextual insights added to Workspace."));
+                                                                    Map.of("message", "Brokk Context Engine: complete — contextual insights added to Workspace.")));
                                                 } catch (IOException ioe) {
                                                     logger.warn(
                                                             "Failed to append pre-scan completion event for job {}: {}",
@@ -772,8 +772,8 @@ public final class JobRunner {
                                                         jobId,
                                                         JobEvent.of(
                                                                 "NOTIFICATION",
-                                                                "Fetching PR refs from remote '" + remoteName
-                                                                        + "'..."));
+                                                                Map.of("message", "Fetching PR refs from remote '" + remoteName
+                                                                        + "'...")));
                                             } catch (IOException ioe) {
                                                 logger.warn(
                                                         "Failed to append fetch notification event for job {}: {}",
@@ -827,7 +827,7 @@ public final class JobRunner {
                                                         jobId,
                                                         JobEvent.of(
                                                                 "NOTIFICATION",
-                                                                "Brokk Context Engine: analyzing repository context for PR review..."));
+                                                                Map.of("message", "Brokk Context Engine: analyzing repository context for PR review...")));
 
                                                 var scanGoal =
                                                         "Analyzing changes in this PR diff to identify related code context:\n```diff\n"
@@ -847,7 +847,7 @@ public final class JobRunner {
                                                         jobId,
                                                         JobEvent.of(
                                                                 "NOTIFICATION",
-                                                                "Brokk Context Engine: complete — contextual insights added to Workspace."));
+                                                                Map.of("message", "Brokk Context Engine: complete — contextual insights added to Workspace.")));
                                             } catch (InterruptedException ie) {
                                                 Thread.currentThread().interrupt();
                                                 logger.warn(
@@ -1024,7 +1024,7 @@ public final class JobRunner {
                                                     jobId,
                                                     JobEvent.of(
                                                             "NOTIFICATION",
-                                                            "ISSUE_WRITER: starting repository discovery"));
+                                                            Map.of("message", "ISSUE_WRITER: starting repository discovery")));
                                         } catch (IOException ioe) {
                                             logger.warn(
                                                     "Failed to append ISSUE_WRITER start notification for job {}: {}",
@@ -1045,8 +1045,8 @@ public final class JobRunner {
                                                     jobId,
                                                     JobEvent.of(
                                                             "NOTIFICATION",
-                                                            "ISSUE_WRITER: discovery complete (title: " + parsed.title()
-                                                                    + ")"));
+                                                            Map.of("message", "ISSUE_WRITER: discovery complete (title: " + parsed.title()
+                                                                    + ")")));
                                         } catch (IOException ioe) {
                                             logger.warn(
                                                     "Failed to append ISSUE_WRITER discovery-complete notification for job {}: {}",
@@ -2493,9 +2493,9 @@ public final class JobRunner {
                                     jobId,
                                     JobEvent.of(
                                             "NOTIFICATION",
-                                            "Review-bot: generated " + filtered.size()
+                                            Map.of("message", "Review-bot: generated " + filtered.size()
                                                     + " inline comment(s) (severity >= "
-                                                    + DEFAULT_REVIEW_SEVERITY_THRESHOLD + ")"));
+                                                    + DEFAULT_REVIEW_SEVERITY_THRESHOLD + ")")));
                         } catch (IOException e) {
                             logger.warn(
                                     "Failed to append review-bot notification event for job {}: {}",
