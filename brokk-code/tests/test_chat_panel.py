@@ -1434,9 +1434,13 @@ async def test_refresh_log_preserves_middle_scroll_position():
         for _ in range(10):
             await pilot.pause()
             panel._sync_autoscroll()
-            if not log.auto_scroll:
+            if log.scroll_y > 0 and not log.is_vertical_scroll_end:
+                panel._sync_autoscroll()
+            if log.scroll_y >= mid_y and not log.auto_scroll:
                 break
 
+        assert log.scroll_y > 0, "scroll_y should move away from the top after middle scroll"
+        assert not log.is_vertical_scroll_end, "middle scroll should not remain at the bottom"
         assert log.auto_scroll is False, "auto_scroll should be disabled at middle position"
         assert not scroll_btn.has_class("hidden"), "Button should be visible at middle position"
 
