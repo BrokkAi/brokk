@@ -278,11 +278,11 @@ public class SearchAgent {
         }
 
         var allFiles = project.getAllFiles();
-        if (allFiles.stream().anyMatch(f -> f.extension().equals("xml"))) {
-            tools.add("xmlSkim");
-            tools.add("xmlSelect");
+        if (allFiles.stream().anyMatch(f -> SearchTools.isMarkupExtension(f.extension()))) {
+            tools.add("markupSkim");
+            tools.add("markupSelect");
         }
-        if (allFiles.stream().anyMatch(f -> f.extension().equals("json"))) {
+        if (allFiles.stream().anyMatch(f -> "json".equalsIgnoreCase(f.extension()))) {
             tools.add("jq");
         }
 

@@ -325,11 +325,12 @@ public class BrokkExternalMcpServer {
         List<String> toolNames = new ArrayList<>(BASE_TOOL_NAMES);
 
         var allFiles = cm.getProject().getAllFiles();
-        boolean hasXml = allFiles.stream().anyMatch(f -> f.toString().endsWith(".xml"));
-        boolean hasJson = allFiles.stream().anyMatch(f -> f.toString().endsWith(".json"));
+        boolean hasMarkup = allFiles.stream().anyMatch(f -> SearchTools.isMarkupExtension(f.extension()));
+        boolean hasJson = allFiles.stream().anyMatch(f -> "json".equalsIgnoreCase(f.extension()));
 
-        if (hasXml) {
-            toolNames.add("xpathQuery");
+        if (hasMarkup) {
+            toolNames.add("markupSkim");
+            toolNames.add("markupSelect");
         }
 
         if (hasJson && !isJqOnPath()) {

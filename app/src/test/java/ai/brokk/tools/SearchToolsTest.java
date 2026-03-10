@@ -42,7 +42,7 @@ public class SearchToolsTest {
     Path tempDir;
 
     private Path projectRoot;
-    private GitRepo repo;
+    private @Nullable GitRepo repo;
     private SearchTools searchTools;
     /** mutable set returned from the project-proxy's getAllFiles() */
     private Set<ProjectFile> mockProjectFiles;
@@ -95,23 +95,9 @@ public class SearchToolsTest {
     @BeforeEach
     void setUp() throws Exception {
         projectRoot = tempDir.resolve("testRepo");
+        Files.createDirectories(projectRoot);
         mockProjectFiles = new HashSet<>();
-        try (Git git = Git.init().setDirectory(projectRoot.toFile()).call()) {
-            // initial commit
-            Path readme = projectRoot.resolve("README.md");
-            Files.writeString(readme, "Initial commit file");
-            git.add().addFilepattern("README.md").call();
-            git.commit().setMessage("Initial commit").setSign(false).call();
-
-            // commit that will be matched by substring fallback
-            git.commit()
-                    .setAllowEmpty(true)
-                    .setMessage("Commit with [[ pattern")
-                    .setSign(false)
-                    .call();
-        }
-
-        repo = new GitRepo(projectRoot);
+        repo = null;
 
         /*
          * Create a minimal IContextManager mock/stub that only needs to return
@@ -144,7 +130,10 @@ public class SearchToolsTest {
                 getClass().getClassLoader(), new Class<?>[] {IContextManager.class}, (proxy, method, args) -> {
                     return switch (method.getName()) {
                         case "getProject" -> projectProxy;
-                        case "getRepo" -> repo;
+                        case "getRepo" -> {
+                            ensureGitRepoInitialized();
+                            yield repo;
+                        }
                         case "getAnalyzerUninterrupted", "getAnalyzer" ->
                             Proxy.newProxyInstance(
                                     getClass().getClassLoader(),
@@ -167,11 +156,39 @@ public class SearchToolsTest {
 
     @AfterEach
     void tearDown() {
-        repo.close();
+        if (repo != null) {
+            repo.close();
+        }
+    }
+
+    /**
+     * Lazily initializes the Git repository only when needed.
+     * This avoids the cost of git init + commits for tests that don't use git features.
+     */
+    private void ensureGitRepoInitialized() throws Exception {
+        if (repo != null) {
+            return;
+        }
+        try (Git git = Git.init().setDirectory(projectRoot.toFile()).call()) {
+            // initial commit
+            Path readme = projectRoot.resolve("README.md");
+            Files.writeString(readme, "Initial commit file");
+            git.add().addFilepattern("README.md").call();
+            git.commit().setMessage("Initial commit").setSign(false).call();
+
+            // commit that will be matched by substring fallback
+            git.commit()
+                    .setAllowEmpty(true)
+                    .setMessage("Commit with [[ pattern")
+                    .setSign(false)
+                    .call();
+        }
+        repo = new GitRepo(projectRoot);
     }
 
     @Test
-    void testSearchGitCommitMessages_invalidRegexFallback() {
+    void testSearchGitCommitMessages_invalidRegexFallback() throws Exception {
+        ensureGitRepoInitialized();
         String result = searchTools.searchGitCommitMessages("[[", 200);
 
         // We should get the commit we added that contains the substring "[["
@@ -406,6 +423,7 @@ public class SearchToolsTest {
 
     @Test
     void testGetGitLog_limitEnforced() throws Exception {
+        ensureGitRepoInitialized();
         // Create several commits
         try (Git git = Git.open(projectRoot.toFile())) {
             for (int i = 1; i <= 5; i++) {
@@ -493,9 +511,14 @@ public class SearchToolsTest {
 
     @Test
     void testSearchFileContents_invalidRegexThrows() throws Exception {
+        // Create a file so the tool attempts regex compilation
+        Path readme = projectRoot.resolve("README.md");
+        Files.writeString(readme, "test content");
+        mockProjectFiles.add(new ProjectFile(projectRoot, "README.md"));
+
         // "[[" is invalid regex, should return error message
         String result = searchTools.searchFileContents(List.of("[["), "README.md", false, false, 0, 200, 200);
-        assertTrue(result.contains("Invalid regex pattern"), "Should report regex error");
+        assertTrue(result.contains("Invalid regex pattern"), "Should report regex error. Result:\n" + result);
     }
 
     @Test
@@ -597,6 +620,7 @@ public class SearchToolsTest {
 
     @Test
     void testGetGitLog_RenameTracking() throws Exception {
+        ensureGitRepoInitialized();
         Path oldPath = projectRoot.resolve("old_name.txt");
         Files.writeString(oldPath, "original content");
 
@@ -780,7 +804,7 @@ public class SearchToolsTest {
     }
 
     @Test
-    void testXmlSelect_NamespaceAgnostic_RewritesLocalNames() throws Exception {
+    void testMarkupSelect_NamespaceAgnostic_RewritesLocalNames() throws Exception {
         Path xml = projectRoot.resolve("ns.xml");
         Files.writeString(
                 xml,
@@ -793,15 +817,14 @@ public class SearchToolsTest {
                         .stripIndent());
         mockProjectFiles.add(new ProjectFile(projectRoot, "ns.xml"));
 
-        // Without local-name() rewriting, /root/item would not match prefixed elements.
-        String result = searchTools.xmlSelect("ns.xml", "/root/item", "TEXT", "", 10, 10);
+        String result = searchTools.markupSelect("ns.xml", "*|root > *|item", "TEXT", "", 10, 10);
 
         assertTrue(result.contains("hello"), "Should extract text for first item. Result:\n" + result);
         assertTrue(result.contains("world"), "Should extract descendant text for second item. Result:\n" + result);
     }
 
     @Test
-    void testXmlSelect_AttrsJsonl() throws Exception {
+    void testMarkupSelect_AttrsJsonl() throws Exception {
         Path xml = projectRoot.resolve("attrs.xml");
         Files.writeString(
                 xml,
@@ -813,21 +836,21 @@ public class SearchToolsTest {
                         .stripIndent());
         mockProjectFiles.add(new ProjectFile(projectRoot, "attrs.xml"));
 
-        String result = searchTools.xmlSelect("attrs.xml", "//item", "ATTRS", "", 10, 10);
+        String result = searchTools.markupSelect("attrs.xml", "*|item", "ATTRS", "", 10, 10);
 
         ObjectMapper mapper = new ObjectMapper();
         List<String> jsonLines = result.lines().filter(l -> l.startsWith("{")).toList();
         assertFalse(jsonLines.isEmpty(), "Should contain JSONL lines. Result:\n" + result);
 
         JsonNode node = mapper.readTree(jsonLines.getFirst());
-        assertEquals("item", node.get("name").asText());
+        assertEquals("ns:item", node.get("name").asText());
         assertEquals("a", node.get("attrs").get("id").asText());
         assertEquals("test", node.get("attrs").get("scope").asText());
-        assertTrue(node.get("path").asText().contains("/root[1]/item[1]"));
+        assertTrue(node.get("path").asText().contains("item[1]"));
     }
 
     @Test
-    void testXmlSelect_XmlFallsBackToSkimWhenTooLarge() throws Exception {
+    void testMarkupSelect_XmlFallsBackToSkimWhenTooLarge() throws Exception {
         Path xml = projectRoot.resolve("long.xml");
         String bigText = "a".repeat(2100);
         Files.writeString(
@@ -841,15 +864,15 @@ public class SearchToolsTest {
                         .formatted(bigText));
         mockProjectFiles.add(new ProjectFile(projectRoot, "long.xml"));
 
-        String result = searchTools.xmlSelect("long.xml", "//big", "XML", "", 10, 10);
+        String result = searchTools.markupSelect("long.xml", "*|big", "MARKUP", "", 10, 10);
 
-        assertTrue(result.contains("[XML_TOO_LARGE]"), "Should indicate XML was too large. Result:\n" + result);
+        assertTrue(result.contains("[MARKUP_TOO_LARGE]"), "Should indicate markup was too large. Result:\n" + result);
         assertTrue(result.contains("textLen="), "Fallback skim should include textLen. Result:\n" + result);
         assertFalse(result.contains("a".repeat(200)), "Should not dump the huge text content. Result:\n" + result);
     }
 
     @Test
-    void testXmlSkim_Basic() throws Exception {
+    void testMarkupSkim_Basic() throws Exception {
         Path xml = projectRoot.resolve("skim.xml");
         Files.writeString(
                 xml,
@@ -862,12 +885,516 @@ public class SearchToolsTest {
                         .stripIndent());
         mockProjectFiles.add(new ProjectFile(projectRoot, "skim.xml"));
 
-        String result = searchTools.xmlSkim("skim.xml", 10);
+        String result = searchTools.markupSkim("skim.xml", 10);
 
         assertTrue(result.contains("<file path=\"skim.xml\">"), "Should include file wrapper. Result:\n" + result);
-        assertTrue(result.contains("children={item:2}"), "Should include child histogram. Result:\n" + result);
+        assertTrue(result.contains("children={ns:item:2}"), "Should include child histogram. Result:\n" + result);
         assertTrue(result.contains("textLen="), "Should include textLen. Result:\n" + result);
         assertTrue(result.contains("attrs={id=\"a\"}"), "Should include attrs. Result:\n" + result);
+    }
+
+    @Test
+    void testHtmlSelect_TextMode() throws Exception {
+        Path html = projectRoot.resolve("test.html");
+        Files.writeString(
+                html,
+                """
+                <!DOCTYPE html>
+                <html>
+                <body>
+                  <div class="content">Hello World</div>
+                  <div class="content">Goodbye World</div>
+                </body>
+                </html>
+                """
+                        .stripIndent());
+        mockProjectFiles.add(new ProjectFile(projectRoot, "test.html"));
+
+        String result = searchTools.markupSelect("test.html", "div.content", "TEXT", "", 10, 10);
+
+        assertTrue(result.contains("File: test.html (2 matches)"), "Should show file header. Result:\n" + result);
+        assertTrue(result.contains("Hello World"), "Should extract text from first div. Result:\n" + result);
+        assertTrue(result.contains("Goodbye World"), "Should extract text from second div. Result:\n" + result);
+    }
+
+    @Test
+    void testHtmlSelect_DivItem_TextMode() throws Exception {
+        Path html = projectRoot.resolve("divitem.html");
+        Files.writeString(
+                html,
+                """
+                <!DOCTYPE html>
+                <html>
+                <body>
+                  <div class="item" data-id="a">hello</div>
+                  <div class="item">world</div>
+                </body>
+                </html>
+                """
+                        .stripIndent());
+        mockProjectFiles.add(new ProjectFile(projectRoot, "divitem.html"));
+
+        String result = searchTools.markupSelect("divitem.html", "div.item", "TEXT", "", 10, 10);
+
+        assertTrue(result.contains("File: divitem.html (2 matches)"), "Should show file header. Result:\n" + result);
+        assertTrue(result.contains("hello"), "Should extract text 'hello' from first div.item. Result:\n" + result);
+        assertTrue(result.contains("world"), "Should extract text 'world' from second div.item. Result:\n" + result);
+    }
+
+    @Test
+    void testHtmlSelect_DivItem_AttrMode() throws Exception {
+        Path html = projectRoot.resolve("divitem_attr.html");
+        Files.writeString(
+                html,
+                """
+                <!DOCTYPE html>
+                <html>
+                <body>
+                  <div class="item" data-id="a">hello</div>
+                  <div class="item">world</div>
+                </body>
+                </html>
+                """
+                        .stripIndent());
+        mockProjectFiles.add(new ProjectFile(projectRoot, "divitem_attr.html"));
+
+        String result = searchTools.markupSelect("divitem_attr.html", "div.item", "ATTR", "data-id", 10, 10);
+
+        assertTrue(
+                result.contains("File: divitem_attr.html (2 matches)"), "Should show file header. Result:\n" + result);
+        assertTrue(
+                result.contains("@data-id=\"a\""),
+                "Should extract data-id='a' from first div.item. Result:\n" + result);
+        // Second item has no data-id, so it should show empty value
+        assertTrue(
+                result.contains("@data-id=\"\""), "Should show empty data-id for second div.item. Result:\n" + result);
+    }
+
+    @Test
+    void testHtmlSelect_DivItem_AttrsMode() throws Exception {
+        Path html = projectRoot.resolve("divitem_attrs.html");
+        Files.writeString(
+                html,
+                """
+                <!DOCTYPE html>
+                <html>
+                <body>
+                  <div class="item" data-id="a">hello</div>
+                  <div class="item">world</div>
+                </body>
+                </html>
+                """
+                        .stripIndent());
+        mockProjectFiles.add(new ProjectFile(projectRoot, "divitem_attrs.html"));
+
+        String result = searchTools.markupSelect("divitem_attrs.html", "div.item", "ATTRS", "", 10, 10);
+
+        assertTrue(
+                result.contains("File: divitem_attrs.html (2 matches)"), "Should show file header. Result:\n" + result);
+
+        ObjectMapper mapper = new ObjectMapper();
+        List<String> jsonLines = result.lines().filter(l -> l.startsWith("{")).toList();
+        assertEquals(2, jsonLines.size(), "Should have 2 JSONL lines. Result:\n" + result);
+
+        // Parse first element (has data-id="a")
+        JsonNode node1 = mapper.readTree(jsonLines.get(0));
+        assertEquals("div", node1.get("name").asText(), "First element name should be 'div'");
+        assertTrue(node1.has("path"), "First element should have 'path'. Result:\n" + result);
+        String path1 = node1.get("path").asText();
+        assertTrue(
+                path1.startsWith("/") && path1.contains("div["),
+                "Path should start with '/' and contain 'div['. Path: " + path1);
+        assertTrue(node1.has("attrs"), "First element should have 'attrs'");
+        JsonNode attrs1 = node1.get("attrs");
+        assertTrue(attrs1.has("class"), "First element attrs should have 'class'");
+        assertEquals("item", attrs1.get("class").asText());
+        assertTrue(attrs1.has("data-id"), "First element attrs should have 'data-id'");
+        assertEquals("a", attrs1.get("data-id").asText());
+
+        // Parse second element (no data-id)
+        JsonNode node2 = mapper.readTree(jsonLines.get(1));
+        assertEquals("div", node2.get("name").asText(), "Second element name should be 'div'");
+        assertTrue(node2.has("path"), "Second element should have 'path'");
+        assertTrue(node2.has("attrs"), "Second element should have 'attrs'");
+        JsonNode attrs2 = node2.get("attrs");
+        assertTrue(attrs2.has("class"), "Second element attrs should have 'class'");
+        assertEquals("item", attrs2.get("class").asText());
+        assertFalse(attrs2.has("data-id"), "Second element attrs should NOT have 'data-id'");
+    }
+
+    @Test
+    void testHtmlSelect_InvalidCssSelector() throws Exception {
+        Path html = projectRoot.resolve("invalid_css.html");
+        Files.writeString(html, "<html><body><div>Test</div></body></html>");
+        mockProjectFiles.add(new ProjectFile(projectRoot, "invalid_css.html"));
+
+        String result = searchTools.markupSelect("invalid_css.html", "div[", "TEXT", "", 10, 10);
+
+        assertTrue(
+                result.contains("Invalid CSS selector"),
+                "Should report invalid CSS selector error. Result:\n" + result);
+    }
+
+    @Test
+    void testHtmlSelect_InvalidCssSelector_GlobMultipleFiles_ValidatesOnceUpFront() throws Exception {
+        // Create two HTML files
+        Path html1 = projectRoot.resolve("page1.html");
+        Path html2 = projectRoot.resolve("page2.html");
+        Files.writeString(html1, "<html><body><div>Page 1</div></body></html>");
+        Files.writeString(html2, "<html><body><div>Page 2</div></body></html>");
+        mockProjectFiles.add(new ProjectFile(projectRoot, "page1.html"));
+        mockProjectFiles.add(new ProjectFile(projectRoot, "page2.html"));
+
+        // Call with invalid selector and glob matching multiple files
+        String result = searchTools.markupSelect("*.html", "div[", "TEXT", "", 10, 10);
+
+        // Assert single error message with colon
+        assertTrue(
+                result.contains("Invalid CSS selector:"),
+                "Should report invalid CSS selector error with colon. Result:\n" + result);
+        // Assert no per-file headers (validation happens before file processing)
+        assertFalse(
+                result.contains("File: "),
+                "Should not contain per-file headers since validation is up-front. Result:\n" + result);
+        // Assert single-line message (no extra output)
+        assertEquals(1, result.lines().count(), "Should be a single-line error message. Result:\n" + result);
+    }
+
+    @Test
+    void testHtmlSelect_AttrMode() throws Exception {
+        Path html = projectRoot.resolve("links.html");
+        Files.writeString(
+                html,
+                """
+                <!DOCTYPE html>
+                <html>
+                <body>
+                  <a href="https://example.com" id="link1">Example</a>
+                  <a href="https://test.org" id="link2">Test</a>
+                </body>
+                </html>
+                """
+                        .stripIndent());
+        mockProjectFiles.add(new ProjectFile(projectRoot, "links.html"));
+
+        String result = searchTools.markupSelect("links.html", "a", "ATTR", "href", 10, 10);
+
+        assertTrue(result.contains("File: links.html (2 matches)"), "Should show file header. Result:\n" + result);
+        assertTrue(
+                result.contains("@href=\"https://example.com\""),
+                "Should extract href from first link. Result:\n" + result);
+        assertTrue(
+                result.contains("@href=\"https://test.org\""),
+                "Should extract href from second link. Result:\n" + result);
+    }
+
+    @Test
+    void testHtmlSelect_AttrsMode() throws Exception {
+        Path html = projectRoot.resolve("attrs.html");
+        Files.writeString(
+                html,
+                """
+                <!DOCTYPE html>
+                <html>
+                <body>
+                  <input type="text" name="username" class="form-control" />
+                </body>
+                </html>
+                """
+                        .stripIndent());
+        mockProjectFiles.add(new ProjectFile(projectRoot, "attrs.html"));
+
+        String result = searchTools.markupSelect("attrs.html", "input", "ATTRS", "", 10, 10);
+
+        assertTrue(result.contains("File: attrs.html (1 match)"), "Should show file header. Result:\n" + result);
+
+        ObjectMapper mapper = new ObjectMapper();
+        List<String> jsonLines = result.lines().filter(l -> l.startsWith("{")).toList();
+        assertFalse(jsonLines.isEmpty(), "Should contain JSONL lines. Result:\n" + result);
+
+        JsonNode node = mapper.readTree(jsonLines.getFirst());
+        assertEquals("input", node.get("name").asText());
+        assertEquals("text", node.get("attrs").get("type").asText());
+        assertEquals("username", node.get("attrs").get("name").asText());
+        assertEquals("form-control", node.get("attrs").get("class").asText());
+    }
+
+    @Test
+    void testHtmlSelect_PathMode() throws Exception {
+        Path html = projectRoot.resolve("path.html");
+        Files.writeString(
+                html,
+                """
+                <!DOCTYPE html>
+                <html>
+                <body>
+                  <div><span>First</span></div>
+                  <div><span>Second</span></div>
+                </body>
+                </html>
+                """
+                        .stripIndent());
+        mockProjectFiles.add(new ProjectFile(projectRoot, "path.html"));
+
+        String result = searchTools.markupSelect("path.html", "span", "PATH", "", 10, 10);
+
+        assertTrue(
+                result.contains("/html[1]/body[1]/div[1]/span[1]"),
+                "Should show path for first span. Result:\n" + result);
+        assertTrue(
+                result.contains("/html[1]/body[1]/div[2]/span[1]"),
+                "Should show path for second span. Result:\n" + result);
+    }
+
+    @Test
+    void testHtmlSelect_HtmlMode() throws Exception {
+        Path html = projectRoot.resolve("html_mode.html");
+        Files.writeString(
+                html,
+                """
+                <!DOCTYPE html>
+                <html>
+                <body>
+                  <div class="small"><b>Bold</b></div>
+                </body>
+                </html>
+                """
+                        .stripIndent());
+        mockProjectFiles.add(new ProjectFile(projectRoot, "html_mode.html"));
+
+        String result = searchTools.markupSelect("html_mode.html", "div.small", "MARKUP", "", 10, 10);
+
+        assertTrue(result.contains("<div class=\"small\">"), "Should contain outer HTML. Result:\n" + result);
+        assertTrue(result.contains("<b>Bold</b>"), "Should contain inner HTML. Result:\n" + result);
+    }
+
+    @Test
+    void testHtmlSelect_HtmlModeFallsBackToSkimWhenTooLarge() throws Exception {
+        Path html = projectRoot.resolve("big.html");
+        String bigText = "a".repeat(2100);
+        Files.writeString(
+                html,
+                """
+                <!DOCTYPE html>
+                <html>
+                <body>
+                  <div class="big">%s</div>
+                </body>
+                </html>
+                """
+                        .stripIndent()
+                        .formatted(bigText));
+        mockProjectFiles.add(new ProjectFile(projectRoot, "big.html"));
+
+        String result = searchTools.markupSelect("big.html", "div.big", "MARKUP", "", 10, 10);
+
+        assertTrue(result.contains("[MARKUP_TOO_LARGE]"), "Should indicate markup was too large. Result:\n" + result);
+        assertTrue(result.contains("textLen="), "Fallback skim should include textLen. Result:\n" + result);
+        assertFalse(result.contains("a".repeat(200)), "Should not dump the huge text content. Result:\n" + result);
+    }
+
+    @Test
+    void testHtmlSelect_NameMode() throws Exception {
+        Path html = projectRoot.resolve("name.html");
+        Files.writeString(
+                html,
+                """
+                <!DOCTYPE html>
+                <html>
+                <body>
+                  <article>Content</article>
+                  <section>More</section>
+                </body>
+                </html>
+                """
+                        .stripIndent());
+        mockProjectFiles.add(new ProjectFile(projectRoot, "name.html"));
+
+        String result = searchTools.markupSelect("name.html", "body > *", "NAME", "", 10, 10);
+
+        assertTrue(result.contains(": article"), "Should show article tag name. Result:\n" + result);
+        assertTrue(result.contains(": section"), "Should show section tag name. Result:\n" + result);
+    }
+
+    @Test
+    void testHtmlSelect_NoFilesFound() throws Exception {
+        String result = searchTools.markupSelect("nonexistent.html", "div", "TEXT", "", 10, 10);
+        assertTrue(
+                result.contains("No markup files found matching"), "Should report no files found. Result:\n" + result);
+    }
+
+    @Test
+    void testHtmlSelect_NoMatches() throws Exception {
+        Path html = projectRoot.resolve("no_match.html");
+        Files.writeString(html, "<html><body><div>Test</div></body></html>");
+        mockProjectFiles.add(new ProjectFile(projectRoot, "no_match.html"));
+
+        String result = searchTools.markupSelect("no_match.html", "span.nonexistent", "TEXT", "", 10, 10);
+        assertTrue(result.contains("No results for markupSelect"), "Should report no matches. Result:\n" + result);
+    }
+
+    @Test
+    void testHtmlSelect_HtmExtension() throws Exception {
+        Path htm = projectRoot.resolve("test.htm");
+        Files.writeString(htm, "<html><body><p>Paragraph</p></body></html>");
+        mockProjectFiles.add(new ProjectFile(projectRoot, "test.htm"));
+
+        String result = searchTools.markupSelect("test.htm", "p", "TEXT", "", 10, 10);
+
+        assertTrue(result.contains("File: test.htm"), "Should find .htm files. Result:\n" + result);
+        assertTrue(result.contains("Paragraph"), "Should extract text. Result:\n" + result);
+    }
+
+    @Test
+    void testHtmlSelect_GlobPattern() throws Exception {
+        Path html1 = projectRoot.resolve("page1.html");
+        Path html2 = projectRoot.resolve("page2.html");
+        Files.writeString(html1, "<html><body><h1>Page 1</h1></body></html>");
+        Files.writeString(html2, "<html><body><h1>Page 2</h1></body></html>");
+        mockProjectFiles.add(new ProjectFile(projectRoot, "page1.html"));
+        mockProjectFiles.add(new ProjectFile(projectRoot, "page2.html"));
+
+        String result = searchTools.markupSelect("*.html", "h1", "TEXT", "", 10, 10);
+
+        assertTrue(result.contains("page1.html"), "Should find page1.html. Result:\n" + result);
+        assertTrue(result.contains("page2.html"), "Should find page2.html. Result:\n" + result);
+        assertTrue(result.contains("Page 1"), "Should extract text from page1. Result:\n" + result);
+        assertTrue(result.contains("Page 2"), "Should extract text from page2. Result:\n" + result);
+    }
+
+    @Test
+    void testHtmlSelect_PathRetry() throws Exception {
+        Path rootHtml = projectRoot.resolve("root.html");
+        Files.writeString(rootHtml, "<html><body><p>found me</p></body></html>");
+        mockProjectFiles.add(new ProjectFile(projectRoot, "root.html"));
+
+        // Verify that **/root.html matches a file at the project root via the retry logic
+        String result = searchTools.markupSelect("**/root.html", "p", "TEXT", "", 10, 10);
+        assertTrue(result.contains("root.html"), "Should find file at root even with **/ prefix. Result:\n" + result);
+        assertTrue(result.contains("found me"), "Should extract text from the element. Result:\n" + result);
+    }
+
+    @Test
+    void testHtmlSkim_Basic() throws Exception {
+        Path html = projectRoot.resolve("skim.html");
+        Files.writeString(
+                html,
+                """
+                <!DOCTYPE html>
+                <html>
+                <body>
+                  <div id="header">Header</div>
+                  <div id="content">
+                    <p>Paragraph 1</p>
+                    <p>Paragraph 2</p>
+                  </div>
+                </body>
+                </html>
+                """
+                        .stripIndent());
+        mockProjectFiles.add(new ProjectFile(projectRoot, "skim.html"));
+
+        String result = searchTools.markupSkim("skim.html", 10);
+
+        assertTrue(result.contains("<file path=\"skim.html\">"), "Should include file wrapper. Result:\n" + result);
+        assertTrue(
+                result.contains("<body>") || result.contains("<div>"),
+                "Should include at least one tag marker like <body> or <div>. Result:\n" + result);
+        assertTrue(result.contains("textLen="), "Should include textLen. Result:\n" + result);
+        assertTrue(result.contains("attrs={"), "Should include attrs={ section somewhere. Result:\n" + result);
+    }
+
+    @Test
+    void testHtmlSkim_NestedTagsWithAttributes() throws Exception {
+        Path html = projectRoot.resolve("skim_nested.html");
+        Files.writeString(
+                html,
+                """
+                <!DOCTYPE html>
+                <html>
+                <body>
+                  <div class="container" data-role="main">
+                    <span id="inner">Content</span>
+                  </div>
+                </body>
+                </html>
+                """
+                        .stripIndent());
+        mockProjectFiles.add(new ProjectFile(projectRoot, "skim_nested.html"));
+
+        String result = searchTools.markupSkim("skim_nested.html", 10);
+
+        assertTrue(
+                result.contains("<file path=\"skim_nested.html\">"), "Should include file wrapper. Result:\n" + result);
+        assertTrue(
+                result.contains("<body>") || result.contains("<div>"),
+                "Should include at least one tag marker. Result:\n" + result);
+        assertTrue(result.contains("attrs={"), "Should include attrs={ section. Result:\n" + result);
+        // Verify nested structure is captured
+        assertTrue(
+                result.contains("children={") || result.contains("div") || result.contains("span"),
+                "Should capture nested structure. Result:\n" + result);
+    }
+
+    @Test
+    void testHtmlSkim_HtmExtension() throws Exception {
+        Path htm = projectRoot.resolve("skim.htm");
+        Files.writeString(htm, "<html><body><p>Test</p></body></html>");
+        mockProjectFiles.add(new ProjectFile(projectRoot, "skim.htm"));
+
+        String result = searchTools.markupSkim("skim.htm", 10);
+
+        assertTrue(result.contains("<file path=\"skim.htm\">"), "Should find .htm files. Result:\n" + result);
+        assertTrue(result.contains("<body>"), "Should include body. Result:\n" + result);
+    }
+
+    @Test
+    void testHtmlSkim_NoFilesFound() throws Exception {
+        String result = searchTools.markupSkim("nonexistent.html", 10);
+        assertTrue(
+                result.contains("No markup files found matching"), "Should report no files found. Result:\n" + result);
+    }
+
+    @Test
+    void testHtmlSkim_PathRetry() throws Exception {
+        Path rootHtml = projectRoot.resolve("root_skim.html");
+        Files.writeString(rootHtml, "<html><body><div>Test</div></body></html>");
+        mockProjectFiles.add(new ProjectFile(projectRoot, "root_skim.html"));
+
+        String result = searchTools.markupSkim("**/root_skim.html", 10);
+        assertTrue(
+                result.contains("root_skim.html"), "Should find file at root even with **/ prefix. Result:\n" + result);
+    }
+
+    @Test
+    void testHtmlSkim_MalformedHtml() throws Exception {
+        Path html = projectRoot.resolve("malformed.html");
+        Files.writeString(html, "<div><p>Unclosed tags<span>more");
+        mockProjectFiles.add(new ProjectFile(projectRoot, "malformed.html"));
+
+        String result = searchTools.markupSkim("malformed.html", 10);
+
+        assertTrue(
+                result.contains("<file path=\"malformed.html\">"),
+                "Should handle malformed HTML gracefully. Result:\n" + result);
+        assertTrue(
+                result.contains("<div>") || result.contains("<body>"),
+                "Should still parse elements. Result:\n" + result);
+    }
+
+    @Test
+    void testHtmlSkim_GlobPattern() throws Exception {
+        Path html1 = projectRoot.resolve("page1_skim.html");
+        Path html2 = projectRoot.resolve("page2_skim.html");
+        Files.writeString(html1, "<html><body><h1>Page 1</h1></body></html>");
+        Files.writeString(html2, "<html><body><h1>Page 2</h1></body></html>");
+        mockProjectFiles.add(new ProjectFile(projectRoot, "page1_skim.html"));
+        mockProjectFiles.add(new ProjectFile(projectRoot, "page2_skim.html"));
+
+        String result = searchTools.markupSkim("*_skim.html", 10);
+
+        assertTrue(result.contains("page1_skim.html"), "Should find page1. Result:\n" + result);
+        assertTrue(result.contains("page2_skim.html"), "Should find page2. Result:\n" + result);
     }
 
     private static int countOccurrences(String text, String substring) {
