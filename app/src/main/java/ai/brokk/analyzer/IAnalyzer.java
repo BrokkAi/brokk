@@ -654,4 +654,20 @@ public interface IAnalyzer {
      * @return set of source code snippets, empty set if none found
      */
     Set<String> getSources(CodeUnit codeUnit, boolean includeComments);
+
+    /**
+     * Converts a collection of project files (typically test files) into a set of relevant
+     * code units (classes or functions) for analysis or testing purposes.
+     *
+     * @param files the files to extract code units from
+     * @return a set of code units found in the files, with inner classes coalesced
+     */
+    default Set<CodeUnit> testFilesToCodeUnits(Collection<ProjectFile> files) {
+        var unitsInFiles = files.stream()
+                .flatMap(file -> getDeclarations(file).stream())
+                .filter(cu -> cu.isClass() || cu.isFunction())
+                .collect(Collectors.toSet());
+
+        return ai.brokk.AnalyzerUtil.coalesceInnerClasses(unitsInFiles);
+    }
 }

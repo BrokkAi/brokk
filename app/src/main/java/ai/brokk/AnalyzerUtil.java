@@ -68,15 +68,6 @@ public class AnalyzerUtil {
                 .collect(Collectors.toSet());
     }
 
-    public static Set<CodeUnit> testFilesToCodeUnits(IAnalyzer analyzer, Collection<ProjectFile> files) {
-        var unitsInTestFiles = files.stream()
-                .flatMap(testFile -> analyzer.getDeclarations(testFile).stream())
-                .filter(cu -> cu.isClass() || cu.isFunction())
-                .collect(Collectors.toSet());
-
-        return AnalyzerUtil.coalesceInnerClasses(unitsInTestFiles);
-    }
-
     private record StackEntry(String method, int depth) {}
 
     /** Helper method to recursively format the call graph (both callers and callees) */
