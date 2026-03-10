@@ -4,6 +4,7 @@ import ai.brokk.IAnalyzerWrapper;
 import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
 import ai.brokk.Llm;
+import ai.brokk.SessionManager;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
@@ -20,6 +21,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicReference;
@@ -42,6 +44,8 @@ public final class TestContextManager implements IContextManager {
     private final TestService stubService;
     private final ToolRegistry toolRegistry;
     private Context liveContext;
+    private @Nullable UUID sessionId;
+    private @Nullable SessionManager sessionManager;
 
     // Test-friendly AnalyzerWrapper that uses a "quick runner" to return the mockAnalyzer immediately.
     private final IAnalyzerWrapper analyzerWrapper;
@@ -106,7 +110,19 @@ public final class TestContextManager implements IContextManager {
 
     @Override
     public IProject getProject() {
+        if (sessionManager != null) {
+            return new TestProject(project.getRoot(), Languages.JAVA) {
+                @Override
+                public SessionManager getSessionManager() {
+                    return sessionManager;
+                }
+            };
+        }
         return project;
+    }
+
+    public void setSessionManager(SessionManager sessionManager) {
+        this.sessionManager = sessionManager;
     }
 
     @Override
@@ -196,5 +212,14 @@ public final class TestContextManager implements IContextManager {
     @Override
     public Llm getLlm(StreamingChatModel model, String taskDescription, ai.brokk.TaskResult.Type type) {
         return new Llm(model, taskDescription, type, this, false, false, false, false);
+    }
+
+    public void setSessionId(UUID sessionId) {
+        this.sessionId = sessionId;
+    }
+
+    @Override
+    public @Nullable UUID getCurrentSessionId() {
+        return sessionId;
     }
 }

@@ -11,11 +11,14 @@ import org.jetbrains.annotations.Nullable;
  * Mock analyzer implementation for testing that provides minimal functionality to support fragment freezing and linting
  * without requiring a full CPG.
  */
-public class TestAnalyzer implements IAnalyzer, TypeHierarchyProvider, ImportAnalysisProvider, TypeAliasProvider {
+public class TestAnalyzer
+        implements IAnalyzer, TypeHierarchyProvider, ImportAnalysisProvider, TypeAliasProvider, TestDetectionProvider {
     private boolean supportsImportAnalysis = true;
     private boolean supportsTypeHierarchy = true;
     private boolean supportsTypeAlias = true;
+    private boolean supportsTestDetection = true;
 
+    private final Map<ProjectFile, Boolean> fileTestMarkers = new HashMap<>();
     private final List<CodeUnit> allClasses;
     private final Map<String, List<CodeUnit>> methodsMap;
     private final Map<CodeUnit, List<CodeUnit>> ancestorsMap = new HashMap<>();
@@ -240,6 +243,18 @@ public class TestAnalyzer implements IAnalyzer, TypeHierarchyProvider, ImportAna
     }
 
     @Override
+    public boolean containsTests(ProjectFile file) {
+        if (!supportsTestDetection) {
+            throw new UnsupportedOperationException("Test detection capability is disabled in this TestAnalyzer");
+        }
+        return fileTestMarkers.getOrDefault(file, false);
+    }
+
+    public void setContainsTests(ProjectFile file, boolean containsTests) {
+        fileTestMarkers.put(file, containsTests);
+    }
+
+    @Override
     public boolean isTypeAlias(CodeUnit cu) {
         return false;
     }
@@ -256,6 +271,10 @@ public class TestAnalyzer implements IAnalyzer, TypeHierarchyProvider, ImportAna
         this.supportsTypeAlias = supportsTypeAlias;
     }
 
+    public void setSupportsTestDetection(boolean supportsTestDetection) {
+        this.supportsTestDetection = supportsTestDetection;
+    }
+
     @Override
     public <T extends CapabilityProvider> Optional<T> as(Class<T> capability) {
         if (capability == ImportAnalysisProvider.class && !supportsImportAnalysis) {
@@ -265,6 +284,9 @@ public class TestAnalyzer implements IAnalyzer, TypeHierarchyProvider, ImportAna
             return Optional.empty();
         }
         if (capability == TypeAliasProvider.class && !supportsTypeAlias) {
+            return Optional.empty();
+        }
+        if (capability == TestDetectionProvider.class && !supportsTestDetection) {
             return Optional.empty();
         }
         return IAnalyzer.super.as(capability);

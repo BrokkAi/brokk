@@ -2,7 +2,7 @@ Screen {
     background: $surface;
 }
 
-ContextModalScreen, TaskListModalScreen {
+ContextModalScreen, TaskListModalScreen, SessionCostsModalScreen {
     align: center middle;
 }
 
@@ -18,6 +18,13 @@ BrokkApiKeyModalScreen, TaskTitleModalScreen, ModelReasoningSelectModal {
 }
 
 #tasklist-modal-container {
+    width: 100%;
+    height: 100%;
+    padding: 1 2;
+    background: $surface;
+}
+
+#session-costs-container {
     width: 100%;
     height: 100%;
     padding: 1 2;
@@ -98,8 +105,11 @@ ChatPanel {
 
 #chat-log {
     height: 1fr;
+    min-width: 0;
     border: none;
     background: $surface;
+    overflow-x: hidden;
+    scrollbar-size-horizontal: 0;
 }
 
 #scroll-to-bottom {
@@ -476,6 +486,78 @@ SlashCommandSuggestions ListItem, ModeSuggestions ListItem, ReasoningSuggestions
     width: 100%;
     margin-top: 1;
     color: $text-disabled;
+}
+
+#session-costs-help-line {
+    width: 100%;
+    height: 1;
+    color: $text-disabled;
+    background: transparent;
+    margin-top: 1;
+    padding: 0 1;
+}
+
+#session-costs-title {
+    text-align: center;
+    width: 100%;
+    text-style: bold;
+    margin-bottom: 1;
+    color: $text;
+}
+
+#session-costs-list-wrap {
+    height: 1fr;
+    border: tall $primary-darken-1;
+    width: 100%;
+}
+
+#session-costs-list {
+    width: 100%;
+    height: auto;
+}
+
+#session-costs-header {
+    width: 100%;
+    height: 1;
+    background: $primary-darken-2;
+    color: $text;
+    text-style: bold;
+    padding: 0 1;
+}
+
+#session-costs-list > ListItem {
+    width: 100%;
+    height: auto;
+    padding: 0;
+}
+
+#session-costs-list > ListItem:focus {
+    background: $accent 15%;
+}
+
+.session-cost-row {
+    width: 100%;
+    height: auto;
+    padding: 0 1;
+}
+
+.session-cost-row Static {
+    height: auto;
+}
+
+.col-ts { width: 18; }
+.col-type { width: 12; }
+.col-model { width: 1fr; }
+.col-label { width: 2fr; }
+.col-tokens { width: 25; }
+.col-cost { width: 10; content-align: right middle; }
+
+#session-costs-summary {
+    height: auto;
+    margin-top: 1;
+    padding: 1 2;
+    background: $primary-darken-3;
+    border: tall $primary-darken-1;
 }
 
 PrCreateModalScreen {

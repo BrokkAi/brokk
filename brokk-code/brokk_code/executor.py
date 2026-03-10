@@ -18,7 +18,7 @@ from brokk_code.workspace import resolve_workspace_dir
 
 logger = logging.getLogger(__name__)
 
-BUNDLED_EXECUTOR_VERSION = "0.23.1.beta2"
+BUNDLED_EXECUTOR_VERSION = "0.23.1.beta3"
 _EXECUTOR_JAR_BASE_URL = "https://github.com/BrokkAi/brokk-releases/releases/download"
 _EXECUTOR_MAIN_CLASS = "ai.brokk.executor.HeadlessExecutorMain"
 _READY_SENTINEL = "Executor listening on http://"
@@ -819,6 +819,19 @@ class ExecutorManager:
         raise ExecutorError(
             f"Failed {method} {endpoint} (status={status_str}): {type(e).__name__}: {e}"
         ) from e
+
+    async def get_session_costs(self) -> Dict[str, Any]:
+        """Returns the current session's cost breakdown from the ledger."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+
+        try:
+            resp = await self._http_client.get("/v1/session/costs")
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            await self._handle_http_error(e, "/v1/session/costs")
+            raise  # Should not be reached
 
     async def get_context(self) -> Dict[str, Any]:
         """Returns the current session context, including tokens and totalCost."""

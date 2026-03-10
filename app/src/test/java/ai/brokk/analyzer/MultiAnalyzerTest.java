@@ -173,4 +173,18 @@ public class MultiAnalyzerTest {
         assertDoesNotThrow(() -> multiAnalyzer.getDeclarations(unknownFile));
         assertDoesNotThrow(() -> multiAnalyzer.getSkeletons(unknownFile));
     }
+
+    @Test
+    public void testIsTestFile_FallsBackToHeuristicsWhenDelegateLacksCapability() {
+        // GIVEN: A MultiAnalyzer that supports TestDetectionProvider (via Java delegate)
+        // BUT: We check a file whose language (Python) has no delegate (or a delegate without the capability)
+        var pythonTestFile = new ProjectFile(tempDir, "test_script.py");
+
+        // WHEN: Calling ContextManager.isTestFile
+        // THEN: It should return true because "test_script.py" matches TEST_FILE_PATTERN,
+        // even though MultiAnalyzer.as(TestDetectionProvider.class) is present.
+        assertTrue(
+                ai.brokk.ContextManager.isTestFile(pythonTestFile, multiAnalyzer),
+                "Should fall back to pattern matching when specific language delegate lacks capability");
+    }
 }

@@ -298,28 +298,30 @@ public class SearchPrompts {
 
                 Critical rules:
                   1) Use search and inspection tools to discover relevant code, including classes/methods/usages/call graphs.
+                     Prefer syntax-aware tools in {{supportedTypes}} files because they return higher-precision results with less noise.
                      - Search tool selection:
                           Definitions / declarations only?
                           -> searchSymbols
-                          How is something used, accessed, obtained, injected, or called?
+                          How known symbols are used, accessed, obtained, injected, or called?
                           -> scanUsages
-                          Strings, configs, markdown, comments, reflection, or unknown names?
-                          -> findFilesContaining
+                          JSON or XML?
+                          -> jq or xml tools
+                          String literals, config keys, markdown, comments, reflection sites, environment variables, SQL fragments, or other strings that don't show up in searchSymbols?
+                          -> findFilesContaining / searchFileContents
+                     - NB: you can still use searchSymbols with broad regex patterns even if you only know a concept or partial identifier.
                      - Summary limitations: Summaries only include declared symbols (classes, methods, fields).
                        They do NOT surface local variables or hardcoded strings like environment variable names,
                        system properties, or comments. If findFilesContaining finds a hit in a file but the summary
                        doesn't reveal the match, you MUST load the full file or method source to see the actual content.
-                  2) The symbol-based tools only have visibility into the following file types: {{supportedTypes}}
-                     Use text-based tools if you need to search other file types.
-                  3) Group related lookups into a single tool call when possible.
-                  4) Your responsibility is to gather and curate the minimum sufficient context, then take the appropriate next step.
+                  2) Group related lookups into a single tool call when possible.
+                  3) Your responsibility is to gather and curate the minimum sufficient context, then take the appropriate next step.
                      Do not write code, and do not attempt to write the solution or pseudocode for the solution.
                      Your job is to *gather* the materials; the Code Agent's job is to *use* them.
                      Where code changes are needed, add the *target files* to the workspace using `addFilesToWorkspace`
                      and let the Code Agent write the code. (For more localized changes, you can use `addMethodsToWorkspace`
                      or `addClassesToWorkspace`, instead of adding entire files.)
                      Note: Code Agent will also take care of creating new files; you only need to add existing files to the Workspace.
-                  5) When you have enough information to take a final action, do so.
+                  4) When you have enough information to take a final action, do so.
                      There are no bonus points for grooming the perfect Workspace.
 
                 Working efficiently:

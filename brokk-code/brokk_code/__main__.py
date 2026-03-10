@@ -12,6 +12,8 @@ import tempfile
 from pathlib import Path
 from typing import Any, Iterator
 
+from rich.console import Console
+
 from brokk_code.event_utils import is_failure_state, normalize_event_data
 from brokk_code.executor import (
     BUNDLED_EXECUTOR_VERSION,
@@ -1379,6 +1381,22 @@ def main():
                 asyncio.run(app.executor.stop())
         except Exception:
             pass
+
+    get_renderables = getattr(app, "get_exit_transcript_renderables", None)
+    transcript_renderables = get_renderables() if callable(get_renderables) else []
+    get_transcript = getattr(app, "get_exit_transcript", None)
+    transcript = get_transcript().strip() if callable(get_transcript) else ""
+    if transcript_renderables:
+        console = Console()
+        for renderable in transcript_renderables:
+            if renderable == "":
+                console.print()
+            else:
+                console.print(renderable)
+        console.print()
+    elif transcript:
+        print(transcript)
+        print()
 
     # Print resume hint on exit if the session has tasks
     from brokk_code.session_persistence import (
