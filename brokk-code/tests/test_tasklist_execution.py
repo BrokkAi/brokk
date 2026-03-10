@@ -519,3 +519,107 @@ async def test_run_all_incomplete_tasks_no_incomplete(tmp_path: Path) -> None:
 
     # No jobs should be submitted
     assert len(executor.submit_calls) == 0
+
+
+@pytest.mark.asyncio
+async def test_run_all_incomplete_tasks_stops_on_cancellation(tmp_path: Path) -> None:
+    """Verify that run_all stops when a task is cancelled and does not mark it done."""
+
+    class CancellingExecutor(StubExecutor):
+        """Executor that simulates cancellation during the first task."""
+
+        def __init__(self, workspace_dir: Path, app_ref: Optional[Any] = None):
+            super().__init__(workspace_dir)
+            self._app_ref = app_ref
+
+        def set_app(self, app: Any) -> None:
+            self._app_ref = app
+
+        async def stream_events(self, job_id: str) -> AsyncIterator[Dict[str, Any]]:
+            # Simulate some progress, then cancellation is triggered
+            yield {"type": "LLM_TOKEN", "data": {"token": "working", "isTerminal": False}}
+            # Simulate the cancellation flag being set (as if Ctrl+C was pressed)
+            if self._app_ref is not None:
+                self._app_ref._task_run_cancelled = True
+            # Yield terminal event
+            yield {"type": "LLM_TOKEN", "data": {"token": "", "isTerminal": True}}
+
+    executor = CancellingExecutor(tmp_path)
+    executor._tasklist_data = {
+        "bigPicture": "Test goal",
+        "tasks": [
+            {"id": "task-1", "title": "First", "text": "Do first", "done": False},
+            {"id": "task-2", "title": "Second", "text": "Do second", "done": False},
+            {"id": "task-3", "title": "Third", "text": "Do third", "done": False},
+        ],
+    }
+
+    app = BrokkApp(executor=executor)
+    executor.set_app(app)
+    app._executor_ready = True
+    app.current_model = "test-model"
+
+    await app._run_all_incomplete_tasks()
+
+    # Only the first task should have been submitted (cancelled during execution)
+    assert len(executor.submit_calls) == 1
+    assert executor.submit_calls[0]["task_input"] == "Do first"
+
+    # No tasks should be marked done since the first was cancelled
+    final_data = executor._tasklist_data
+    tasks = final_data.get("tasks", [])
+    task_1 = next((t for t in tasks if t.get("id") == "task-1"), None)
+    task_2 = next((t for t in tasks if t.get("id") == "task-2"), None)
+    task_3 = next((t for t in tasks if t.get("id") == "task-3"), None)
+
+    assert task_1 is not None and task_1["done"] is False  # Cancelled, not marked done
+    assert task_2 is not None and task_2["done"] is False  # Never ran
+    assert task_3 is not None and task_3["done"] is False  # Never ran
+
+    # set_tasklist should NOT have been called since no task completed successfully
+    assert len(executor.set_tasklist_calls) == 0
+
+
+@pytest.mark.asyncio
+async def test_run_selected_task_does_not_mark_done_on_cancellation(tmp_path: Path) -> None:
+    """Verify that a single task is NOT marked done if cancelled."""
+
+    class CancellingExecutor(StubExecutor):
+        """Executor that simulates cancellation during task execution."""
+
+        def __init__(self, workspace_dir: Path, app_ref: Optional[Any] = None):
+            super().__init__(workspace_dir)
+            self._app_ref = app_ref
+
+        def set_app(self, app: Any) -> None:
+            self._app_ref = app
+
+        async def stream_events(self, job_id: str) -> AsyncIterator[Dict[str, Any]]:
+            yield {"type": "LLM_TOKEN", "data": {"token": "working", "isTerminal": False}}
+            # Simulate cancellation
+            if self._app_ref is not None:
+                self._app_ref._task_run_cancelled = True
+            yield {"type": "LLM_TOKEN", "data": {"token": "", "isTerminal": True}}
+
+    executor = CancellingExecutor(tmp_path)
+    executor._tasklist_data = {
+        "bigPicture": "Test goal",
+        "tasks": [
+            {"id": "task-1", "title": "First Task", "text": "Do the first thing", "done": False},
+        ],
+    }
+
+    app = BrokkApp(executor=executor)
+    executor.set_app(app)
+    app._executor_ready = True
+    app.current_model = "test-model"
+
+    task = {"id": "task-1", "title": "First Task", "text": "Do the first thing", "done": False}
+
+    await app._run_selected_task(task)
+
+    # Job was submitted
+    assert len(executor.submit_calls) == 1
+
+    # Task should NOT be marked done since it was cancelled
+    assert len(executor.set_tasklist_calls) == 0

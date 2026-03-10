@@ -975,6 +975,7 @@ class BrokkApp(App):
         self._pending_min_wait_until: float = 0.0
         self._resubmit_grace_s: float = 0.2
         self._last_ctrl_c_time: float = 0
+        self._task_run_cancelled: bool = False
         self._executor_started: bool = False
         self._executor_ready: bool = False
         self._refresh_context_lock = asyncio.Lock()
@@ -1701,12 +1702,13 @@ class BrokkApp(App):
                 chat.add_system_message("Task has no text or title to run.", level="ERROR")
             return
 
+        display_name = task_title if task_title else task_input[:50]
         if chat:
-            display_name = task_title if task_title else task_input[:50]
             chat.add_system_message(f"Running task: {display_name}")
 
-        # Reset per-job cost accumulator
+        # Reset per-job cost accumulator and cancellation flag
         self.current_job_cost = 0.0
+        self._task_run_cancelled = False
         self.job_in_progress = True
         if chat:
             chat.set_job_running(True)
@@ -1727,16 +1729,20 @@ class BrokkApp(App):
             async for event in self.executor.stream_events(self.current_job_id):
                 self._handle_event(event)
 
-            job_succeeded = True
+            # Only mark as succeeded if not cancelled
+            if not self._task_run_cancelled:
+                job_succeeded = True
         except Exception as e:
-            if chat:
-                err_type = type(e).__name__
-                chat.add_system_message(
-                    f"Task execution failed ({err_type}): {e}",
-                    level="ERROR",
-                )
-            else:
-                logger.error("Task execution failed (%s): %s", type(e).__name__, e)
+            # Don't report as error if this was a cancellation
+            if not self._task_run_cancelled:
+                if chat:
+                    err_type = type(e).__name__
+                    chat.add_system_message(
+                        f"Task execution failed ({err_type}): {e}",
+                        level="ERROR",
+                    )
+                else:
+                    logger.error("Task execution failed (%s): %s", type(e).__name__, e)
         finally:
             if chat:
                 chat.set_response_finished()
@@ -1744,7 +1750,7 @@ class BrokkApp(App):
             self.job_in_progress = False
             self.current_job_id = None
 
-        # Mark task as done if execution succeeded
+        # Mark task as done if execution succeeded (not cancelled or failed)
         if job_succeeded and task_id:
             try:
                 data = await self._ensure_tasklist_data()
@@ -1755,12 +1761,16 @@ class BrokkApp(App):
                             break
                     await self._persist_tasklist(data)
                     if chat:
-                        chat.add_system_message("Task marked as done.")
+                        chat.add_system_message(
+                            f"Task '{display_name}' completed and marked as done."
+                        )
             except Exception as e:
                 if chat:
                     chat.add_system_message(f"Failed to mark task as done: {e}", level="WARNING")
                 else:
                     logger.warning("Failed to mark task as done: %s", e)
+        elif self._task_run_cancelled and chat:
+            chat.add_system_message(f"Task '{display_name}' was cancelled.")
 
     def on_chat_panel_mode_selected(self, message: ChatPanel.ModeSelected) -> None:
         self._set_mode(message.mode.upper())
@@ -2743,6 +2753,9 @@ class BrokkApp(App):
         """Runs all incomplete tasks sequentially, marking each done on success."""
         chat = self._maybe_chat()
 
+        # Reset cancellation flag at the start of a run-all sequence
+        self._task_run_cancelled = False
+
         # Fetch current task list
         try:
             data = await self._ensure_tasklist_data()
@@ -2768,6 +2781,16 @@ class BrokkApp(App):
             chat.add_system_message(f"Running {len(incomplete_tasks)} incomplete task(s)...")
 
         for i, task in enumerate(incomplete_tasks):
+            # Check for cancellation before starting each task
+            if self._task_run_cancelled:
+                remaining = len(incomplete_tasks) - i
+                if chat:
+                    chat.add_system_message(
+                        f"Task run cancelled. {remaining} task(s) not executed.",
+                        level="WARNING",
+                    )
+                break
+
             task_id = str(task.get("id", "")).strip()
             task_text = str(task.get("text", "")).strip()
             task_title = str(task.get("title", "")).strip()
@@ -2795,6 +2818,7 @@ class BrokkApp(App):
                 chat.set_response_pending()
 
             job_succeeded = False
+            job_cancelled = False
             try:
                 self.current_job_id = await self.executor.submit_job(
                     task_input,
@@ -2808,18 +2832,22 @@ class BrokkApp(App):
                 async for event in self.executor.stream_events(self.current_job_id):
                     self._handle_event(event)
 
-                job_succeeded = True
+                # Check if the job was cancelled during streaming
+                if self._task_run_cancelled:
+                    job_cancelled = True
+                else:
+                    job_succeeded = True
             except Exception as e:
-                if chat:
-                    err_type = type(e).__name__
-                    chat.add_system_message(
-                        f"Task execution failed ({err_type}): {e}",
-                        level="ERROR",
-                    )
-                    chat.add_system_message(
-                        f"Aborting remaining tasks. {len(incomplete_tasks) - i - 1} task(s) not executed.",
-                        level="WARNING",
-                    )
+                # Check if this was due to cancellation
+                if self._task_run_cancelled:
+                    job_cancelled = True
+                else:
+                    if chat:
+                        err_type = type(e).__name__
+                        chat.add_system_message(
+                            f"Task execution failed ({err_type}): {e}",
+                            level="ERROR",
+                        )
             finally:
                 if chat:
                     chat.set_response_finished()
@@ -2827,7 +2855,7 @@ class BrokkApp(App):
                 self.job_in_progress = False
                 self.current_job_id = None
 
-            # Mark task as done if execution succeeded
+            # Mark task as done only if execution succeeded (not cancelled or failed)
             if job_succeeded and task_id:
                 try:
                     # Re-fetch to get latest state
@@ -2846,8 +2874,22 @@ class BrokkApp(App):
                             f"Failed to mark task as done: {e}", level="WARNING"
                         )
 
-            # Abort on failure
+            # Abort on failure or cancellation
             if not job_succeeded:
+                if job_cancelled:
+                    remaining = len(incomplete_tasks) - i - 1
+                    if remaining > 0 and chat:
+                        chat.add_system_message(
+                            f"Task run cancelled. {remaining} remaining task(s) not executed.",
+                            level="WARNING",
+                        )
+                elif chat:
+                    remaining = len(incomplete_tasks) - i - 1
+                    if remaining > 0:
+                        chat.add_system_message(
+                            f"Aborting remaining tasks. {remaining} task(s) not executed.",
+                            level="WARNING",
+                        )
                 return
 
         if chat:
@@ -2909,6 +2951,7 @@ class BrokkApp(App):
             self._pending_updated_at = 0
             self._pending_generation = 0
             self._pending_min_wait_until = 0.0
+            self._task_run_cancelled = True  # Signal to stop run-all sequence
             if chat_panel:
                 chat_panel.add_system_message("Cancelling job...")
             await self.executor.cancel_job(self.current_job_id)
