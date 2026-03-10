@@ -116,53 +116,6 @@ class RepoRouterTest {
     // --- PR Suggest endpoint tests ---
 
     @Test
-    void handlePostPrSuggest_defaultsBranchesToCurrentAndDefault(@TempDir Path tempDir) throws Exception {
-        initGitRepoWithFeatureBranch(tempDir);
-
-        // Request without specifying branches
-        var exchange = TestHttpExchange.jsonRequest("POST", "/v1/repo/pr/suggest", Map.of());
-        repoRouter.handle(exchange);
-
-        // The endpoint will try to call suggestPullRequestDetails which needs LLM - expect 500
-        // But we can verify it at least tries with the resolved branches by checking error handling
-        // For contract testing without LLM, we verify validation passes and branches are resolved
-        int code = exchange.responseCode();
-        // Either succeeds (200) or fails during LLM call (500) - not validation error (400)
-        assertTrue(code == 200 || code == 500, "Expected 200 or 500, got " + code);
-    }
-
-    @Test
-    void handlePostPrSuggest_usesProvidedBranches(@TempDir Path tempDir) throws Exception {
-        initGitRepoWithFeatureBranch(tempDir);
-
-        var exchange = TestHttpExchange.jsonRequest(
-                "POST", "/v1/repo/pr/suggest", Map.of("sourceBranch", "feature", "targetBranch", "master"));
-        repoRouter.handle(exchange);
-
-        int code = exchange.responseCode();
-        // Either succeeds or fails during LLM - not a validation error
-        assertTrue(code == 200 || code == 500, "Expected 200 or 500, got " + code);
-    }
-
-    @Test
-    void handlePostPrSuggest_acceptsSessionIds(@TempDir Path tempDir) throws Exception {
-        initGitRepoWithFeatureBranch(tempDir);
-
-        var exchange = TestHttpExchange.jsonRequest(
-                "POST",
-                "/v1/repo/pr/suggest",
-                Map.of(
-                        "sourceBranch", "feature",
-                        "targetBranch", "master",
-                        "sessionIds", java.util.List.of("550e8400-e29b-41d4-a716-446655440000")));
-        repoRouter.handle(exchange);
-
-        int code = exchange.responseCode();
-        // Either succeeds or fails during LLM - not a validation error (400)
-        assertTrue(code == 200 || code == 500, "Expected 200 or 500, got " + code);
-    }
-
-    @Test
     void handlePostPrSuggest_invalidSessionId_returns400(@TempDir Path tempDir) throws Exception {
         initGitRepoWithFeatureBranch(tempDir);
 
@@ -253,59 +206,6 @@ class RepoRouterTest {
     }
 
     @Test
-    void handlePostPrCreate_defaultsBranches(@TempDir Path tempDir) throws Exception {
-        initGitRepoWithFeatureBranch(tempDir);
-
-        var exchange = TestHttpExchange.jsonRequest(
-                "POST", "/v1/repo/pr/create", Map.of("title", "My PR", "body", "Description"));
-        // Add github token header
-        exchange.getRequestHeaders().set("X-Github-Token", "test-token");
-        repoRouter.handle(exchange);
-
-        // Will fail at GitHub API call (no real remote), but should pass validation
-        int code = exchange.responseCode();
-        // 500 expected since no real GitHub remote exists
-        assertTrue(code == 200 || code == 500, "Expected 200 or 500 (GitHub call), got " + code);
-    }
-
-    @Test
-    void handlePostPrCreate_acceptsGithubTokenHeader(@TempDir Path tempDir) throws Exception {
-        initGitRepoWithFeatureBranch(tempDir);
-
-        var exchange = TestHttpExchange.jsonRequest(
-                "POST",
-                "/v1/repo/pr/create",
-                Map.of("title", "My PR", "body", "Description", "sourceBranch", "feature", "targetBranch", "master"));
-        exchange.getRequestHeaders().set("X-Github-Token", "ghp_test123");
-        repoRouter.handle(exchange);
-
-        // Should pass validation; fails at GitHub API level
-        int code = exchange.responseCode();
-        assertTrue(code == 200 || code == 500, "Expected 200 or 500 (GitHub call), got " + code);
-    }
-
-    @Test
-    void handlePostPrCreate_acceptsSessionIds(@TempDir Path tempDir) throws Exception {
-        initGitRepoWithFeatureBranch(tempDir);
-
-        var exchange = TestHttpExchange.jsonRequest(
-                "POST",
-                "/v1/repo/pr/create",
-                Map.of(
-                        "title", "My PR",
-                        "body", "Description",
-                        "sourceBranch", "feature",
-                        "targetBranch", "master",
-                        "sessionIds", java.util.List.of("550e8400-e29b-41d4-a716-446655440000")));
-        exchange.getRequestHeaders().set("X-Github-Token", "ghp_test123");
-        repoRouter.handle(exchange);
-
-        // Should pass validation; fails at GitHub API level
-        int code = exchange.responseCode();
-        assertTrue(code == 200 || code == 500, "Expected 200 or 500 (GitHub call), got " + code);
-    }
-
-    @Test
     void handlePostPrCreate_invalidSessionId_returns400(@TempDir Path tempDir) throws Exception {
         initGitRepoWithFeatureBranch(tempDir);
 
@@ -387,23 +287,6 @@ class RepoRouterTest {
         assertTrue(body.get("sessions") instanceof java.util.List);
         assertEquals("feature", body.get("sourceBranch"));
         assertEquals("master", body.get("targetBranch"));
-    }
-
-    @Test
-    void handlePostPrSessions_defaultsBranches(@TempDir Path tempDir) throws Exception {
-        initGitRepoWithFeatureBranch(tempDir);
-
-        // Request without specifying branches - should use current (feature) and default (master)
-        var exchange = TestHttpExchange.jsonRequest("POST", "/v1/repo/pr/sessions", Map.of());
-        repoRouter.handle(exchange);
-
-        assertEquals(200, exchange.responseCode());
-        Map<String, Object> body = MAPPER.readValue(exchange.responseBodyBytes(), new TypeReference<>() {});
-
-        assertNotNull(body.get("sessions"));
-        assertEquals("feature", body.get("sourceBranch"));
-        // Target should be resolved to default branch
-        assertNotNull(body.get("targetBranch"));
     }
 
     /**

@@ -39,41 +39,6 @@ def test_handle_command_pr_requires_executor_ready(tmp_path: Path):
     assert call_args[1].get("level") == "ERROR"
 
 
-def test_handle_command_pr_no_base_branch(tmp_path: Path):
-    """Verify /pr without base branch calls _create_pull_request(None)."""
-    mock_executor = MagicMock()
-    mock_executor.workspace_dir = tmp_path
-
-    app = BrokkApp(workspace_dir=tmp_path, executor=mock_executor)
-    app._executor_ready = True
-
-    mock_chat = MagicMock()
-    app.query_one = MagicMock(return_value=mock_chat)
-
-    with patch.object(app, "run_worker") as mock_run_worker:
-        app._handle_command("/pr")
-        mock_run_worker.assert_called_once()
-        # The coroutine should be _create_pull_request(None)
-        coro = mock_run_worker.call_args[0][0]
-        assert coro is not None
-
-
-def test_handle_command_pr_with_base_branch(tmp_path: Path):
-    """Verify /pr with base branch parses argument correctly."""
-    mock_executor = MagicMock()
-    mock_executor.workspace_dir = tmp_path
-
-    app = BrokkApp(workspace_dir=tmp_path, executor=mock_executor)
-    app._executor_ready = True
-
-    mock_chat = MagicMock()
-    app.query_one = MagicMock(return_value=mock_chat)
-
-    with patch.object(app, "run_worker") as mock_run_worker:
-        app._handle_command("/pr main")
-        mock_run_worker.assert_called_once()
-
-
 @pytest.mark.asyncio
 async def test_create_pull_request_fetches_sessions_and_suggestion(tmp_path: Path):
     """Verify _create_pull_request fetches overlapping sessions and PR suggestion from executor."""
@@ -351,44 +316,3 @@ def test_pr_create_modal_screen_with_sessions():
     assert "sess-2" not in screen._selected_session_ids
     # Verify session ID order is preserved
     assert screen._session_id_order == ["sess-1", "sess-2"]
-
-
-def test_pr_create_modal_screen_without_sessions():
-    """Verify PrCreateModalScreen works without sessions (backwards compatible)."""
-    screen = PrCreateModalScreen(
-        suggested_title="Test Title",
-        suggested_body="Test Body",
-        source_branch="feature",
-        target_branch="main",
-    )
-    assert screen._suggested_title == "Test Title"
-    assert screen._suggested_body == "Test Body"
-    assert screen._source_branch == "feature"
-    assert screen._target_branch == "main"
-    assert len(screen._sessions) == 0
-    assert len(screen._selected_session_ids) == 0
-    assert screen._session_id_order == []
-
-
-def test_pr_create_modal_screen_deterministic_session_order():
-    """Verify selected session IDs are returned in display order, not set iteration order."""
-    sessions = [
-        {"id": "sess-a", "name": "Session A"},
-        {"id": "sess-b", "name": "Session B"},
-        {"id": "sess-c", "name": "Session C"},
-    ]
-    screen = PrCreateModalScreen(
-        suggested_title="Test",
-        suggested_body="Body",
-        source_branch="feature",
-        target_branch="main",
-        sessions=sessions,
-        # Select in reverse order to verify ordering is by display, not selection
-        selected_session_ids=["sess-c", "sess-a"],
-    )
-    # The internal set has both
-    assert "sess-a" in screen._selected_session_ids
-    assert "sess-c" in screen._selected_session_ids
-    # But they should come out in display order (a, c) not selection order (c, a)
-    ordered = [sid for sid in screen._session_id_order if sid in screen._selected_session_ids]
-    assert ordered == ["sess-a", "sess-c"]

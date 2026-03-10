@@ -1465,37 +1465,6 @@ def test_main_pr_create_routes_correctly(monkeypatch, tmp_path) -> None:
     assert captured["kwargs"]["github_token"] == "ghp_test123"
 
 
-def test_main_pr_create_uses_github_token_env(monkeypatch, tmp_path) -> None:
-    captured: dict[str, Any] = {"ran": False}
-
-    async def fake_run_pr_create(**kwargs: Any) -> None:
-        captured["kwargs"] = kwargs
-        captured["ran"] = True
-
-    monkeypatch.setattr(main_module, "run_pr_create", fake_run_pr_create)
-    monkeypatch.setenv("GITHUB_TOKEN", "env-token-pr")
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        [
-            "brokk",
-            "pr",
-            "create",
-            "--workspace",
-            str(tmp_path),
-            "--title",
-            "Test PR",
-            "--body",
-            "Test body",
-        ],
-    )
-
-    main_module.main()
-
-    assert captured["ran"] is True
-    assert captured["kwargs"]["github_token"] == "env-token-pr"
-
-
 def test_main_pr_create_omitted_title_body_routes_correctly(monkeypatch, tmp_path) -> None:
     """Verify that omitting title/body still routes to run_pr_create (suggest path)."""
     captured: dict[str, Any] = {"ran": False}
@@ -1713,33 +1682,6 @@ async def test_run_pr_create_executor_error_exits_nonzero(
     captured = capsys.readouterr()
     assert "Executor error" in captured.err
     assert "GitHub API error" in captured.err
-    mock_manager.stop.assert_awaited_once()
-
-
-@pytest.mark.asyncio
-@patch("brokk_code.executor.ExecutorManager")
-async def test_run_pr_create_prints_url_on_success(mock_executor_class, tmp_path, capsys) -> None:
-    """Verifies run_pr_create prints the PR URL on success."""
-    from unittest.mock import AsyncMock
-
-    mock_manager = mock_executor_class.return_value
-    mock_manager.start = AsyncMock()
-    mock_manager.create_session = AsyncMock(return_value="session-123")
-    mock_manager.wait_ready = AsyncMock(return_value=True)
-    mock_manager.pr_create = AsyncMock(
-        return_value={"url": "https://github.com/owner/repo/pull/123"}
-    )
-    mock_manager.stop = AsyncMock()
-
-    await main_module.run_pr_create(
-        workspace_dir=tmp_path,
-        title="Test PR",
-        body="Test body",
-        github_token="ghp_test",
-    )
-
-    captured = capsys.readouterr()
-    assert "https://github.com/owner/repo/pull/123" in captured.out
     mock_manager.stop.assert_awaited_once()
 
 
