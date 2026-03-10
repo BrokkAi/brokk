@@ -754,6 +754,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     }
 
     @Override
+    public Set<ProjectFile> getAnalyzedFiles() {
+        return this.state.fileState().keySet();
+    }
+
+    @Override
     public boolean containsTests(ProjectFile file) {
         return fileProperties(file).containsTests();
     }
