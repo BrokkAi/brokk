@@ -348,7 +348,13 @@ class ChatLog(RichLog):
         #   - strip._segments: list of Rich Segments inside a Strip (no public accessor)
         # =========================================================================
         # For wrap-first rendering, we ignore scroll_x in the cache key.
-        cache_key = (y + self._start_line, width, self._widest_line_width)
+        # Otherwise, we must include it to avoid collisions across horizontal offsets.
+        cache_key = (
+            y + self._start_line,
+            scroll_x if not self.wrap else 0,
+            width,
+            self._widest_line_width,
+        )
         line_cache = self._line_cache
 
         def extract_segments_from_strip(strip: Strip) -> list[Segment]:
@@ -366,7 +372,10 @@ class ChatLog(RichLog):
 
         # In a wrap-first model, the line is already cropped to the available width
         # by the Rich wrapping process before being stored in self.lines.
+        # For non-wrapped logs, we must crop to the viewport manually.
         line = self.lines[y]
+        if not self.wrap:
+            line = line.crop(scroll_x, scroll_x + width)
 
         if selection is not None:
             span = selection.get_span(y)
@@ -387,8 +396,9 @@ class ChatLog(RichLog):
                     text.stylize(selection_style, start, min(text_len, end))
                 line = Strip(text.render(self.app.console), line.cell_length)
 
-        # Apply y offset for rendering, but horizontal offset is always 0
-        line = line.apply_offsets(0, y)
+        # Apply y offset for rendering. Horizontal offset is 0 for wrapped
+        # lines (viewport-native) but remains scroll_x for non-wrapped lines.
+        line = line.apply_offsets(0 if self.wrap else scroll_x, y)
         line_cache[cache_key] = line
         return line
 
