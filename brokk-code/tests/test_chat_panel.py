@@ -46,6 +46,69 @@ async def test_token_usage_update():
 
 
 @pytest.mark.asyncio
+async def test_export_plain_text_transcript_formats_history():
+    """Verify the plain-text transcript export uses readable labels."""
+    from textual.app import App, ComposeResult
+
+    class TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield ChatPanel(id="chat")
+
+    app = TestApp()
+    async with app.run_test():
+        panel = app.query_one("#chat", ChatPanel)
+        panel.add_welcome("", "Welcome to Brokk")
+        panel.add_system_message("Starting Brokk executor...")
+        panel.add_system_message("Connected to executor abc (version: 1, protocol: 1)")
+        panel.add_user_message("help me")
+        panel.add_markdown("Here is a response")
+        panel.add_system_message("plain info")
+        panel.add_system_message("bad news", level="ERROR")
+        panel.add_tool_result("command output")
+
+        transcript = panel.export_plain_text_transcript()
+
+        assert "Welcome to Brokk" not in transcript
+        assert "Starting Brokk executor..." not in transcript
+        assert "Connected to executor" not in transcript
+        assert "You: help me" in transcript
+        assert "Brokk: Here is a response" in transcript
+        assert "[System] plain info" in transcript
+        assert "[ERROR] bad news" in transcript
+        assert "[Command Output]\ncommand output" in transcript
+
+
+@pytest.mark.asyncio
+async def test_export_rich_transcript_renderables_omits_welcome_and_keeps_panels():
+    """Verify exit renderables reuse the live chat presentation primitives."""
+    from rich.markdown import Markdown
+    from rich.panel import Panel
+    from rich.text import Text
+    from textual.app import App, ComposeResult
+
+    class TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield ChatPanel(id="chat")
+
+    app = TestApp()
+    async with app.run_test():
+        panel = app.query_one("#chat", ChatPanel)
+        panel.add_welcome("", "Welcome to Brokk")
+        panel.add_user_message("help me")
+        panel.add_markdown("Here is a response")
+        panel.add_system_message("bad news", level="ERROR")
+
+        renderables = [r for r in panel.export_rich_transcript_renderables() if r != ""]
+
+        assert all(
+            not isinstance(r, Markdown) or "Welcome to Brokk" not in str(r) for r in renderables
+        )
+        assert any(isinstance(r, Panel) and r.title == "You" for r in renderables)
+        assert any(isinstance(r, Markdown) for r in renderables)
+        assert any(isinstance(r, Text) and "[ERROR] bad news" in r.plain for r in renderables)
+
+
+@pytest.mark.asyncio
 async def test_job_progress_in_chat_panel():
     """
     Verify that job running state is reflected in ChatPanel's status timer
@@ -302,6 +365,67 @@ async def test_no_ctrl_u_e_bindings_in_chat_input():
     bindings = {b.key for b in ChatInput.BINDINGS}
     assert "ctrl+u" not in bindings
     assert "ctrl+e" not in bindings
+
+
+@pytest.mark.asyncio
+async def test_chat_panel_ctrl_b_f_bindings_scroll_log_with_input_focus():
+    """Verify Ctrl+B/F page the chat log while the input remains focused."""
+    from textual.app import App, ComposeResult
+
+    from brokk_code.widgets.chat_panel import ChatInput, ChatLog
+
+    class TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield ChatPanel(id="chat")
+
+    app = TestApp()
+    async with app.run_test(size=(80, 10)) as pilot:
+        panel = app.query_one("#chat", ChatPanel)
+        log = panel.query_one("#chat-log", ChatLog)
+        chat_input = panel.query_one("#chat-input", ChatInput)
+
+        for i in range(30):
+            panel.add_system_message(f"Message {i}")
+        await pilot.pause()
+
+        assert chat_input.has_focus
+        assert log.max_scroll_y > 0, "Log must be scrollable for this test"
+        assert log.is_vertical_scroll_end
+
+        bottom_y = log.scroll_y
+        await pilot.press("ctrl+b")
+        await pilot.pause()
+
+        assert chat_input.has_focus
+        assert log.scroll_y < bottom_y
+        assert log.auto_scroll is False
+
+        after_page_up = log.scroll_y
+        await pilot.press("ctrl+f")
+        await pilot.pause()
+
+        assert chat_input.has_focus
+        assert log.scroll_y > after_page_up
+
+
+@pytest.mark.asyncio
+async def test_chat_log_hides_horizontal_scrollbar():
+    """Verify the chat log wraps and does not expose a horizontal scrollbar."""
+    from textual.app import App, ComposeResult
+
+    from brokk_code.widgets.chat_panel import ChatLog
+
+    class TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield ChatPanel(id="chat")
+
+    app = TestApp()
+    async with app.run_test():
+        log = app.query_one("#chat-log", ChatLog)
+        assert log.wrap is True
+        assert log.min_width == 0
+        assert log.show_horizontal_scrollbar is False
+        assert log.styles.scrollbar_size_horizontal == 0
 
 
 def _static_rendered_text(widget: Static) -> str:
