@@ -239,6 +239,9 @@ public class TestAnalyzer
 
     @Override
     public boolean containsTests(ProjectFile file) {
+        if (!supportsTestDetection) {
+            throw new UnsupportedOperationException("Test detection capability is disabled in this TestAnalyzer");
+        }
         return fileTestMarkers.getOrDefault(file, false);
     }
 
