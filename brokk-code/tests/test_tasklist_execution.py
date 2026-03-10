@@ -331,3 +331,191 @@ def test_action_task_run_blocked_when_executor_not_ready() -> None:
     call_args = mock_chat.add_system_message.call_args
     assert "not ready" in call_args.args[0]
     app.run_worker.assert_not_called()
+
+
+def test_action_task_run_all_dispatches_worker() -> None:
+    """Verify that action_task_run_all dispatches the worker when ready."""
+    app = BrokkApp(executor=MagicMock())
+    app._executor_ready = True
+    app.job_in_progress = False
+
+    mock_chat = MagicMock(spec=ChatPanel)
+
+    def query_one(target, *args, **kwargs):
+        if target is ChatPanel:
+            return mock_chat
+        raise AssertionError(f"Unexpected query target: {target}")
+
+    app.query_one = MagicMock(side_effect=query_one)
+    app.run_worker = MagicMock(side_effect=_close_coro)
+
+    app.action_task_run_all()
+
+    assert app.run_worker.call_count == 1
+    worker_coro = app.run_worker.call_args.args[0]
+    assert worker_coro.__name__ == "_run_all_incomplete_tasks"
+
+
+def test_action_task_run_all_blocked_when_job_in_progress() -> None:
+    """Verify that action_task_run_all is blocked when a job is running."""
+    app = BrokkApp(executor=MagicMock())
+    app._executor_ready = True
+    app.job_in_progress = True
+
+    mock_chat = MagicMock(spec=ChatPanel)
+
+    def query_one(target, *args, **kwargs):
+        if target is ChatPanel:
+            return mock_chat
+        raise AssertionError(f"Unexpected query target: {target}")
+
+    app.query_one = MagicMock(side_effect=query_one)
+    app.run_worker = MagicMock(side_effect=_close_coro)
+
+    app.action_task_run_all()
+
+    mock_chat.add_system_message.assert_called_once()
+    call_args = mock_chat.add_system_message.call_args
+    assert "already in progress" in call_args.args[0]
+    app.run_worker.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_run_all_incomplete_tasks_executes_in_order(tmp_path: Path) -> None:
+    """Verify that run_all executes tasks in order and marks each done."""
+    executor = StubExecutor(tmp_path)
+    executor._tasklist_data = {
+        "bigPicture": "Test goal",
+        "tasks": [
+            {"id": "task-1", "title": "First", "text": "Do first", "done": False},
+            {"id": "task-2", "title": "Second", "text": "Do second", "done": False},
+            {"id": "task-3", "title": "Third", "text": "Do third", "done": True},  # Already done
+        ],
+    }
+
+    app = BrokkApp(executor=executor)
+    app._executor_ready = True
+    app.current_model = "test-model"
+
+    await app._run_all_incomplete_tasks()
+
+    # Should have submitted 2 jobs (skipping the done task)
+    assert len(executor.submit_calls) == 2
+    assert executor.submit_calls[0]["task_input"] == "Do first"
+    assert executor.submit_calls[1]["task_input"] == "Do second"
+
+    # Both incomplete tasks should now be marked done
+    final_data = executor._tasklist_data
+    tasks = final_data.get("tasks", [])
+    task_1 = next((t for t in tasks if t.get("id") == "task-1"), None)
+    task_2 = next((t for t in tasks if t.get("id") == "task-2"), None)
+    task_3 = next((t for t in tasks if t.get("id") == "task-3"), None)
+
+    assert task_1 is not None and task_1["done"] is True
+    assert task_2 is not None and task_2["done"] is True
+    assert task_3 is not None and task_3["done"] is True  # Was already done
+
+
+@pytest.mark.asyncio
+async def test_run_all_incomplete_tasks_stops_on_failure(tmp_path: Path) -> None:
+    """Verify that run_all stops on first failure and leaves remaining tasks unchanged."""
+
+    class FailingOnSecondExecutor(StubExecutor):
+        def __init__(self, workspace_dir: Path):
+            super().__init__(workspace_dir)
+            self._job_count = 0
+
+        async def stream_events(self, job_id: str) -> AsyncIterator[Dict[str, Any]]:
+            self._job_count += 1
+            if self._job_count == 2:
+                raise RuntimeError("Simulated failure on second task")
+            yield {"type": "LLM_TOKEN", "data": {"token": "done", "isTerminal": True}}
+
+    executor = FailingOnSecondExecutor(tmp_path)
+    executor._tasklist_data = {
+        "bigPicture": "Test goal",
+        "tasks": [
+            {"id": "task-1", "title": "First", "text": "Do first", "done": False},
+            {"id": "task-2", "title": "Second", "text": "Do second", "done": False},
+            {"id": "task-3", "title": "Third", "text": "Do third", "done": False},
+        ],
+    }
+
+    app = BrokkApp(executor=executor)
+    app._executor_ready = True
+    app.current_model = "test-model"
+
+    await app._run_all_incomplete_tasks()
+
+    # Should have submitted 2 jobs (first succeeds, second fails, third never runs)
+    assert len(executor.submit_calls) == 2
+
+    # Only the first task should be marked done
+    final_data = executor._tasklist_data
+    tasks = final_data.get("tasks", [])
+    task_1 = next((t for t in tasks if t.get("id") == "task-1"), None)
+    task_2 = next((t for t in tasks if t.get("id") == "task-2"), None)
+    task_3 = next((t for t in tasks if t.get("id") == "task-3"), None)
+
+    assert task_1 is not None and task_1["done"] is True  # Succeeded
+    assert task_2 is not None and task_2["done"] is False  # Failed
+    assert task_3 is not None and task_3["done"] is False  # Never ran
+
+
+@pytest.mark.asyncio
+async def test_run_all_incomplete_tasks_persists_after_each_success(tmp_path: Path) -> None:
+    """Verify that set_tasklist is called after each successful task."""
+    executor = StubExecutor(tmp_path)
+    executor._tasklist_data = {
+        "bigPicture": "Test goal",
+        "tasks": [
+            {"id": "task-1", "title": "First", "text": "Do first", "done": False},
+            {"id": "task-2", "title": "Second", "text": "Do second", "done": False},
+        ],
+    }
+
+    app = BrokkApp(executor=executor)
+    app._executor_ready = True
+    app.current_model = "test-model"
+
+    await app._run_all_incomplete_tasks()
+
+    # set_tasklist should be called twice (once after each task)
+    assert len(executor.set_tasklist_calls) == 2
+
+    # First call should have task-1 done, task-2 not done
+    first_save = executor.set_tasklist_calls[0]
+    first_tasks = first_save.get("tasks", [])
+    first_task_1 = next((t for t in first_tasks if t.get("id") == "task-1"), None)
+    first_task_2 = next((t for t in first_tasks if t.get("id") == "task-2"), None)
+    assert first_task_1 is not None and first_task_1["done"] is True
+    assert first_task_2 is not None and first_task_2["done"] is False
+
+    # Second call should have both done
+    second_save = executor.set_tasklist_calls[1]
+    second_tasks = second_save.get("tasks", [])
+    second_task_1 = next((t for t in second_tasks if t.get("id") == "task-1"), None)
+    second_task_2 = next((t for t in second_tasks if t.get("id") == "task-2"), None)
+    assert second_task_1 is not None and second_task_1["done"] is True
+    assert second_task_2 is not None and second_task_2["done"] is True
+
+
+@pytest.mark.asyncio
+async def test_run_all_incomplete_tasks_no_incomplete(tmp_path: Path) -> None:
+    """Verify that run_all handles no incomplete tasks gracefully."""
+    executor = StubExecutor(tmp_path)
+    executor._tasklist_data = {
+        "bigPicture": "Test goal",
+        "tasks": [
+            {"id": "task-1", "title": "First", "text": "Do first", "done": True},
+        ],
+    }
+
+    app = BrokkApp(executor=executor)
+    app._executor_ready = True
+    app.current_model = "test-model"
+
+    await app._run_all_incomplete_tasks()
+
+    # No jobs should be submitted
+    assert len(executor.submit_calls) == 0

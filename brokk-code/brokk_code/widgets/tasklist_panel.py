@@ -29,6 +29,7 @@ class TaskListPanel(Vertical):
         Binding("e", "task_edit", "Edit", show=False),
         Binding("d", "task_delete", "Delete", show=False),
         Binding("r", "task_run", "Run", show=False),
+        Binding("shift+r", "task_run_all", "Run All", show=False),
     ]
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
@@ -103,6 +104,7 @@ class TaskListPanel(Vertical):
             "[b]Space[/b] Toggle",
             "[b]Enter[/b] Toggle",
             "[b]R[/b] Run",
+            "[b]Shift+R[/b] Run All",
         ]
         return "  ".join(manual + shortcuts)
 
@@ -139,6 +141,11 @@ class TaskListPanel(Vertical):
         app = self.app
         if app is not None and hasattr(app, "action_task_run"):
             app.action_task_run()
+
+    def action_task_run_all(self) -> None:
+        app = self.app
+        if app is not None and hasattr(app, "action_task_run_all"):
+            app.action_task_run_all()
 
     def refresh_tasklist(self, context_data: Dict[str, Any]) -> None:
         """Finds the TASK_LIST fragment and updates the display using context overview."""

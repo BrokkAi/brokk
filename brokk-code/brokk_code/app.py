@@ -1541,6 +1541,13 @@ class BrokkApp(App):
             panel.update_tasklist_details(tasklist_data)
 
     async def _ensure_tasklist_data(self) -> Optional[Dict[str, Any]]:
+        """Returns a mutable copy of the current tasklist data suitable for updates.
+
+        Callers may freely modify the returned dict without affecting previously
+        persisted snapshots or the panel's internal state.
+        """
+        from copy import deepcopy
+
         panel: Optional[TaskListPanel]
         try:
             panel = self._active_tasklist_panel()
@@ -1560,7 +1567,9 @@ class BrokkApp(App):
             if updated is not None:
                 return updated
 
-        return data
+        # Return a deep copy so callers can mutate without affecting the executor's
+        # internal state or previously persisted snapshots.
+        return deepcopy(data)
 
     async def _persist_tasklist(self, data: Dict[str, Any]) -> Dict[str, Any]:
         saved = await self.executor.set_tasklist(data)
@@ -2710,6 +2719,139 @@ class BrokkApp(App):
             return
 
         self.run_worker(self._run_selected_task(selected))
+
+    def action_task_run_all(self) -> None:
+        """Runs all incomplete tasks in order via the executor."""
+        chat = self._maybe_chat()
+
+        if not self._executor_ready:
+            if chat:
+                chat.add_system_message("Executor is not ready. Cannot run tasks.", level="ERROR")
+            return
+
+        if self.job_in_progress:
+            if chat:
+                chat.add_system_message(
+                    "A job is already in progress. Please wait or cancel it first.",
+                    level="WARNING",
+                )
+            return
+
+        self.run_worker(self._run_all_incomplete_tasks())
+
+    async def _run_all_incomplete_tasks(self) -> None:
+        """Runs all incomplete tasks sequentially, marking each done on success."""
+        chat = self._maybe_chat()
+
+        # Fetch current task list
+        try:
+            data = await self._ensure_tasklist_data()
+        except Exception as e:
+            if chat:
+                chat.add_system_message(f"Failed to fetch task list: {e}", level="ERROR")
+            return
+
+        if not data:
+            if chat:
+                chat.add_system_message("No task list active.")
+            return
+
+        tasks = data.get("tasks", [])
+        incomplete_tasks = [t for t in tasks if not t.get("done", False)]
+
+        if not incomplete_tasks:
+            if chat:
+                chat.add_system_message("No incomplete tasks to run.")
+            return
+
+        if chat:
+            chat.add_system_message(f"Running {len(incomplete_tasks)} incomplete task(s)...")
+
+        for i, task in enumerate(incomplete_tasks):
+            task_id = str(task.get("id", "")).strip()
+            task_text = str(task.get("text", "")).strip()
+            task_title = str(task.get("title", "")).strip()
+
+            # Prefer text, fall back to title
+            task_input = task_text if task_text else task_title
+            if not task_input:
+                if chat:
+                    chat.add_system_message(
+                        f"Task {i + 1} has no text or title, skipping.", level="WARNING"
+                    )
+                continue
+
+            display_name = task_title if task_title else task_input[:50]
+            if chat:
+                chat.add_system_message(
+                    f"Running task {i + 1}/{len(incomplete_tasks)}: {display_name}"
+                )
+
+            # Reset per-job cost accumulator
+            self.current_job_cost = 0.0
+            self.job_in_progress = True
+            if chat:
+                chat.set_job_running(True)
+                chat.set_response_pending()
+
+            job_succeeded = False
+            try:
+                self.current_job_id = await self.executor.submit_job(
+                    task_input,
+                    self.current_model,
+                    code_model=self.code_model,
+                    reasoning_level=self.reasoning_level,
+                    reasoning_level_code=self.reasoning_level_code,
+                    mode="CODE",
+                    auto_commit=self.auto_commit,
+                )
+                async for event in self.executor.stream_events(self.current_job_id):
+                    self._handle_event(event)
+
+                job_succeeded = True
+            except Exception as e:
+                if chat:
+                    err_type = type(e).__name__
+                    chat.add_system_message(
+                        f"Task execution failed ({err_type}): {e}",
+                        level="ERROR",
+                    )
+                    chat.add_system_message(
+                        f"Aborting remaining tasks. {len(incomplete_tasks) - i - 1} task(s) not executed.",
+                        level="WARNING",
+                    )
+            finally:
+                if chat:
+                    chat.set_response_finished()
+                    chat.set_job_running(False)
+                self.job_in_progress = False
+                self.current_job_id = None
+
+            # Mark task as done if execution succeeded
+            if job_succeeded and task_id:
+                try:
+                    # Re-fetch to get latest state
+                    current_data = await self._ensure_tasklist_data()
+                    if current_data:
+                        for t in current_data.get("tasks", []):
+                            if str(t.get("id", "")).strip() == task_id:
+                                t["done"] = True
+                                break
+                        await self._persist_tasklist(current_data)
+                        if chat:
+                            chat.add_system_message(f"Task '{display_name}' marked as done.")
+                except Exception as e:
+                    if chat:
+                        chat.add_system_message(
+                            f"Failed to mark task as done: {e}", level="WARNING"
+                        )
+
+            # Abort on failure
+            if not job_succeeded:
+                return
+
+        if chat:
+            chat.add_system_message(f"Completed all {len(incomplete_tasks)} task(s) successfully.")
 
     def action_toggle_output(self) -> None:
         """Toggles visibility of reasoning and tool output."""
