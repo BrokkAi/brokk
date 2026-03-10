@@ -15,6 +15,51 @@ export interface ExecutorHandle {
   process: ChildProcess | null;
 }
 
+function pickPreferredJbangPath(candidates: string[]): string | null {
+  if (candidates.length === 0) return null;
+  if (process.platform !== "win32") return candidates[0];
+
+  const cleaned = candidates.map((value) => value.trim()).filter(Boolean);
+  const preferredOrder = [".exe", ".cmd", ".bat", "", ".ps1"];
+
+  for (const ext of preferredOrder) {
+    const match = cleaned.find((candidate) => {
+      const lower = candidate.toLowerCase();
+      if (ext === "") {
+        return !lower.endsWith(".exe")
+          && !lower.endsWith(".cmd")
+          && !lower.endsWith(".bat")
+          && !lower.endsWith(".ps1");
+      }
+      return lower.endsWith(ext);
+    });
+    if (match) return match;
+  }
+
+  return cleaned[0];
+}
+
+function spawnCommandOnWindows(command: string, args: string[], cwd: string): ChildProcess {
+  const lower = command.toLowerCase();
+  if (lower.endsWith(".ps1")) {
+    return spawn(
+      "powershell.exe",
+      ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", command, ...args],
+      { stdio: ["pipe", "pipe", "pipe"], cwd }
+    );
+  }
+
+  if (lower.endsWith(".cmd") || lower.endsWith(".bat")) {
+    return spawn(command, args, {
+      stdio: ["pipe", "pipe", "pipe"],
+      cwd,
+      shell: true,
+    });
+  }
+
+  return spawn(command, args, { stdio: ["pipe", "pipe", "pipe"], cwd });
+}
+
 /**
  * Find the newest brokk JAR in app/build/libs/, filtering out -sources JARs.
  * If explicitJar is provided and exists, use it directly.
@@ -150,25 +195,37 @@ export function detectLaunchMode(extensionDir: string): "local" | "jbang" {
  * Returns the full path if found, null otherwise.
  */
 export function resolveJbangBinary(): string | null {
+  const isWindows = process.platform === "win32";
+
   // Check PATH first
   try {
-    const which = process.platform === "win32" ? "where" : "which";
+    const which = isWindows ? "where" : "which";
     const result = execSync(`${which} jbang`, { stdio: "pipe" }).toString().trim();
-    if (result) return result.split("\n")[0];
+    if (result) {
+      const firstMatch = pickPreferredJbangPath(result.split(/\r?\n/));
+      if (firstMatch) return firstMatch;
+    }
   } catch {
     // not on PATH
   }
 
-  // Check default install location
+  // Check default install locations
   const home = os.homedir();
-  const candidates = [
-    path.join(home, ".jbang", "bin", "jbang"),
-    // Homebrew on Apple Silicon / Intel
-    "/opt/homebrew/bin/jbang",
-    "/usr/local/bin/jbang",
-  ];
-  if (process.platform === "win32") {
-    candidates.push(path.join(home, ".jbang", "bin", "jbang.cmd"));
+  const candidates: string[] = [];
+
+  if (isWindows) {
+    // On Windows, prioritize .cmd or .ps1 in the standard location
+    candidates.push(
+      path.join(home, ".jbang", "bin", "jbang.cmd"),
+      path.join(home, ".jbang", "bin", "jbang.ps1"),
+      path.join(home, ".jbang", "bin", "jbang")
+    );
+  } else {
+    candidates.push(
+      path.join(home, ".jbang", "bin", "jbang"),
+      "/opt/homebrew/bin/jbang",
+      "/usr/local/bin/jbang"
+    );
   }
 
   for (const candidate of candidates) {
@@ -244,30 +301,30 @@ export async function spawnJbang(workspaceDir: string, jbangBinary?: string): Pr
   const authToken = randomUUID();
   const execId = randomUUID();
 
-  const version = "0.23.0.beta2";
+  const version = "0.23.0";
   const jarUrl = `https://github.com/BrokkAi/brokk-releases/releases/download/${version}/brokk-${version}.jar`;
 
-  const child = spawn(
-    jbang,
-    [
-      "--java", "21",
-      "-R", "-Dbrokk.vscode=true -Djava.awt.headless=true -Dapple.awt.UIElement=true --enable-native-access=ALL-UNNAMED",
-      "--main", "ai.brokk.executor.HeadlessExecutorMain",
-      jarUrl,
-      "--listen-addr",
-      "127.0.0.1:0",
-      "--auth-token",
-      authToken,
-      "--workspace-dir",
-      workspaceDir,
-      "--exec-id",
-      execId,
-    ],
-    {
-      stdio: ["pipe", "pipe", "pipe"],
-      cwd: workspaceDir,
-    }
-  );
+  const jbangArgs = [
+    "--java", "21",
+    "--runtime-option=-Dbrokk.vscode=true",
+    "--runtime-option=-Djava.awt.headless=true",
+    "--runtime-option=-Dapple.awt.UIElement=true",
+    "--runtime-option=--enable-native-access=ALL-UNNAMED",
+    "--main", "ai.brokk.executor.HeadlessExecutorMain",
+    jarUrl,
+    "--listen-addr",
+    "127.0.0.1:0",
+    "--auth-token",
+    authToken,
+    "--workspace-dir",
+    workspaceDir,
+    "--exec-id",
+    execId,
+  ];
+
+  const child = process.platform === "win32"
+    ? spawnCommandOnWindows(jbang, jbangArgs, workspaceDir)
+    : spawn(jbang, jbangArgs, { stdio: ["pipe", "pipe", "pipe"], cwd: workspaceDir });
 
   const port = await waitForPort(child);
   return { port, authToken, process: child };
@@ -309,7 +366,16 @@ function waitForPort(child: ChildProcess): Promise<number> {
 
     child.on("error", (err) => {
       clearTimeout(timeout);
-      reject(new Error(`Executor process error: ${err.message}`));
+      const spawnErr = err as NodeJS.ErrnoException;
+      const details = [
+        `message=${spawnErr.message}`,
+        spawnErr.code ? `code=${spawnErr.code}` : "",
+        spawnErr.errno ? `errno=${String(spawnErr.errno)}` : "",
+        spawnErr.syscall ? `syscall=${spawnErr.syscall}` : "",
+        spawnErr.path ? `path=${spawnErr.path}` : "",
+        Array.isArray(spawnErr.spawnargs) ? `spawnargs=${JSON.stringify(spawnErr.spawnargs)}` : "",
+      ].filter(Boolean).join(", ");
+      reject(new Error(`Executor process error: ${details}`));
     });
 
     child.on("exit", (code) => {

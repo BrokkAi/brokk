@@ -102,6 +102,42 @@ export async function fetchBalanceFromApi(key: string): Promise<number> {
 }
 
 /**
+ * Handle OpenAI-related webview messages.
+ * @param openExternalUrl Callback to open a URL in the user's browser (injected from the panel provider)
+ */
+export async function handleOpenAiSettingsMessage(
+  msg: { type: string; [key: string]: unknown },
+  client: { startOpenAiOAuth: () => Promise<{ status: string; url?: string }>; getOpenAiOAuthStatus: () => Promise<{ connected: boolean }> },
+  sendFn: (type: string, data: Record<string, unknown>) => void,
+  openExternalUrl: (url: string) => void
+): Promise<void> {
+  try {
+    switch (msg.type) {
+      case "checkOpenAiStatus":
+      case "pollOpenAiStatus": {
+        const result = await client.getOpenAiOAuthStatus();
+        sendFn("openAiStatusResult", { connected: result.connected });
+        break;
+      }
+
+      case "connectOpenAi": {
+        const result = await client.startOpenAiOAuth();
+        if (result.url) {
+          openExternalUrl(result.url);
+          sendFn("openAiConnectStarted", { status: result.status });
+        } else {
+          sendFn("openAiStatusResult", { connected: false, error: "No authorization URL returned" });
+        }
+        break;
+      }
+    }
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    sendFn("openAiStatusResult", { connected: false, error: message });
+  }
+}
+
+/**
  * Handle all settings-related webview messages.
  * @param sendFn  Function to send a message back to the webview (replaces this.sendToWebview)
  */

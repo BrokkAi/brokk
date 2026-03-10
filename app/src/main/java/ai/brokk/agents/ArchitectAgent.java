@@ -3,13 +3,14 @@ package ai.brokk.agents;
 import static java.util.Objects.requireNonNull;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
-import ai.brokk.AbstractService.ModelConfig;
+import ai.brokk.AbstractService;
 import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
 import ai.brokk.Llm;
 import ai.brokk.LlmOutputMeta;
 import ai.brokk.MutedConsoleIO;
+import ai.brokk.TaskEntry;
 import ai.brokk.TaskResult;
 import ai.brokk.TaskResult.StopReason;
 import ai.brokk.analyzer.ProjectFile;
@@ -17,6 +18,7 @@ import ai.brokk.context.Context;
 import ai.brokk.context.ContextDelta;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.SpecialTextType;
+import ai.brokk.exception.GlobalExceptionHandler;
 import ai.brokk.prompts.ArchitectPrompts;
 import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.prompts.WorkspacePrompts;
@@ -55,6 +57,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -144,6 +147,9 @@ public class ArchitectAgent {
     private boolean deferBuildForInitialCodeAgentCall = false;
 
     @Nullable
+    private CompletableFuture<List<TaskEntry>> compressedHistoryFuture;
+
+    @Nullable
     private String verifyCommand;
 
     private static final ThreadLocal<SearchAgentOutput> threadlocalSearchResult = new ThreadLocal<>();
@@ -167,7 +173,9 @@ public class ArchitectAgent {
             StreamingChatModel codeModel,
             String goal,
             ContextManager.TaskScope scope) {
-        this(contextManager, planningModel, codeModel, goal, scope, contextManager.liveContext());
+        this(contextManager, planningModel, codeModel, goal, scope, contextManager.liveContext(), (CompletableFuture<
+                        List<TaskEntry>>)
+                null);
     }
 
     /**
@@ -181,7 +189,26 @@ public class ArchitectAgent {
             String goal,
             ContextManager.TaskScope scope,
             Context initialContext) {
-        this(contextManager, planningModel, codeModel, goal, scope, initialContext, contextManager.getIo());
+        this(contextManager, planningModel, codeModel, goal, scope, initialContext, null, contextManager.getIo());
+    }
+
+    public ArchitectAgent(
+            IContextManager contextManager,
+            StreamingChatModel planningModel,
+            StreamingChatModel codeModel,
+            String goal,
+            ContextManager.TaskScope scope,
+            Context initialContext,
+            @Nullable CompletableFuture<List<TaskEntry>> compressedHistoryFuture) {
+        this(
+                contextManager,
+                planningModel,
+                codeModel,
+                goal,
+                scope,
+                initialContext,
+                compressedHistoryFuture,
+                contextManager.getIo());
     }
 
     /**
@@ -195,6 +222,18 @@ public class ArchitectAgent {
             ContextManager.TaskScope scope,
             Context initialContext,
             IConsoleIO io) {
+        this(contextManager, planningModel, codeModel, goal, scope, initialContext, null, io);
+    }
+
+    public ArchitectAgent(
+            IContextManager contextManager,
+            StreamingChatModel planningModel,
+            StreamingChatModel codeModel,
+            String goal,
+            ContextManager.TaskScope scope,
+            Context initialContext,
+            @Nullable CompletableFuture<List<TaskEntry>> compressedHistoryFuture,
+            IConsoleIO io) {
         this.cm = contextManager;
         this.planningModel = planningModel;
         this.codeModel = codeModel;
@@ -202,6 +241,7 @@ public class ArchitectAgent {
         this.io = io;
         this.scope = scope;
         this.context = initialContext;
+        this.compressedHistoryFuture = compressedHistoryFuture;
         this.verifyCommand = null;
     }
 
@@ -257,6 +297,8 @@ public class ArchitectAgent {
             throws ToolRegistry.FatalLlmException, InterruptedException {
         logger.debug("callCodeAgent invoked with instructions: {}, deferBuild={}", instructions, deferBuild);
 
+        addPlanningToHistory();
+
         // Remove any stale diff from a previous failed CodeAgent attempt
         var existingChanges = context.getSpecial(SpecialTextType.CODE_AGENT_CHANGES);
         if (existingChanges.isPresent()) {
@@ -264,8 +306,12 @@ public class ArchitectAgent {
         }
 
         // Record planning history before invoking CodeAgent
-        context = cm.compressHistory(context);
-        addPlanningToHistory();
+        var initialContext = context;
+        // no-op if we haven't consumed compressedHistoryFuture yet -- there is nothing to compress
+        // except what it's already compressing
+        var historyFuture = compressedHistoryFuture == null
+                ? cm.compressHistoryAsync(context)
+                : CompletableFuture.completedFuture(context.getTaskHistory());
 
         io.llmOutput("**Code Agent** engaged:\n" + instructions, ChatMessageType.CUSTOM, LlmOutputMeta.newMessage());
         var agent = new CodeAgent(cm, codeModel);
@@ -273,7 +319,6 @@ public class ArchitectAgent {
         if (deferBuild) {
             opts.add(CodeAgent.Option.DEFER_BUILD);
         }
-        var initialContext = context;
         var result = agent.executeWithoutHistory(context, instructions, opts);
         var stopDetails = result.stopDetails();
         var reason = stopDetails.reason();
@@ -281,16 +326,18 @@ public class ArchitectAgent {
         // Update architect context with the CodeAgent's fragments, preserving the Architect history
         var codeContext = result.context();
         context = codeContext
-                .withHistory(context.getTaskHistory())
+                .withTaskHistory(historyFuture.join())
                 .addHistoryEntry(codeContext.getTaskHistory().getLast());
-        scope.append(codeContext);
+
         var changedFragments =
                 ContextDelta.between(initialContext, context).join().getChangedFragments();
         // we're done with the original result now, make sure we don't reuse it by accident instead of the
         // post-verifyCommand results
         result = null;
 
-        if (reason == StopReason.SUCCESS) {
+        // SUCCESS can also mean "Code Agent threw it back to us to add missing context";
+        // checking for changes de-risks that
+        if (reason == StopReason.SUCCESS && !changedFragments.isEmpty()) {
             logger.debug("callCodeAgent finished successfully");
             if (!deferBuild && !changedFragments.isEmpty()) {
                 codeAgentJustSucceeded = true;
@@ -317,7 +364,8 @@ public class ArchitectAgent {
                         .map(cf -> cf.shortDescription().join())
                         .sorted()
                         .collect(Collectors.joining(", "));
-
+                context = context.withAppendedMopMessagesToLastEntry(io.getLlmRawMessages());
+                scope.append(context);
                 return """
             # Status
             %s
@@ -339,9 +387,13 @@ public class ArchitectAgent {
 
         // Throw errors that should halt the architect
         if (reason == StopReason.INTERRUPTED) {
+            context = context.withAppendedMopMessagesToLastEntry(io.getLlmRawMessages());
+            scope.append(context);
             throw new InterruptedException();
         }
         if (reason == StopReason.LLM_ERROR || reason == StopReason.IO_ERROR) {
+            context = context.withAppendedMopMessagesToLastEntry(io.getLlmRawMessages());
+            scope.append(context);
             this.lastFatalReason = reason;
             logger.error("Fatal {} during CodeAgent execution: {}", reason, stopDetails.explanation());
             throw new ToolRegistry.FatalLlmException(stopDetails.explanation());
@@ -362,11 +414,11 @@ public class ArchitectAgent {
             String combinedDiffText = CodeAgent.cumulativeDiffForChanges(initialContext, context);
             // FIXME the if here is working around a bug, ContextDelta should not return
             // changed fragments with an empty diff
-            if (!combinedDiffText.isBlank()) {
+            if (combinedDiffText.isBlank()) {
+                context = context.withSpecial(SpecialTextType.CODE_AGENT_CHANGES, "Code Agent made no changes");
+            } else {
                 this.offerUndoToolNext = true;
                 context = context.withSpecial(SpecialTextType.CODE_AGENT_CHANGES, combinedDiffText);
-            } else {
-                context = context.withSpecial(SpecialTextType.CODE_AGENT_CHANGES, "Code Agent made no changes");
             }
         }
 
@@ -380,6 +432,8 @@ public class ArchitectAgent {
                         + reasoningSummarySuffix;
         logger.debug("CodeAgent failed with reason {}: {}", reason, stopDetails.explanation());
 
+        context = context.withAppendedMopMessagesToLastEntry(io.getLlmRawMessages());
+        scope.append(context);
         return resultString;
     }
 
@@ -583,6 +637,13 @@ public class ArchitectAgent {
             tr = executeInternal();
         } catch (InterruptedException e) {
             tr = resultWithMessages(StopReason.INTERRUPTED);
+        } catch (Throwable th) {
+            // FIXME this should not be fucking necessary
+            GlobalExceptionHandler.handle(th, st -> io.showNotification(IConsoleIO.NotificationRole.ERROR, st));
+            logger.error("Unexpected exception in ArchitectAgent.execute()", th);
+            tr = resultWithMessages(
+                    StopReason.LLM_ERROR,
+                    "Architect execution failed: " + Objects.toString(th.getMessage(), "unknown error"));
         }
 
         if (!terminalCompletionReported) {
@@ -597,6 +658,11 @@ public class ArchitectAgent {
             reportComplete(details.reason(), "Architect finished", message);
         }
 
+        var finalMessages = io.getLlmRawMessages();
+        if (!finalMessages.isEmpty()) {
+            tr = tr.withAppendedMopMessagesToLastEntry(finalMessages);
+        }
+
         return tr;
     }
 
@@ -605,19 +671,8 @@ public class ArchitectAgent {
      * results are appended to the provided scope.
      */
     public TaskResult executeWithScan() throws InterruptedException {
-        return executeWithScan(
-                Messages.getApproximateTokens(context) > cm.getService().getMaxInputTokens(planningModel) * 0.2);
-    }
-
-    public TaskResult executeWithScan(boolean pruneFirst) throws InterruptedException {
-        // ContextAgent Scan
-        var scanModel = cm.getService().getScanModel();
-        var searchAgent = new SearchAgent(context, goal, scanModel, this.scope);
-        if (pruneFirst) {
-            searchAgent.pruneContext();
-        }
-        // (appends prune + scan results to scope)
-        context = searchAgent.scanContext();
+        var prune = Messages.getApproximateTokens(context) > cm.getService().getMaxInputTokens(planningModel) * 0.2;
+        context = SearchAgent.setupContext(context, goal, prune).context();
 
         // Run Architect proper
         TaskResult archResult = this.execute();
@@ -660,8 +715,14 @@ public class ArchitectAgent {
             var fatalReason = this.lastFatalReason != null ? this.lastFatalReason : StopReason.LLM_ERROR;
             this.lastFatalReason = null;
             var errorMessage = "Fatal error executing initial Code Agent: %s".formatted(e.getMessage());
+            logger.warn(errorMessage, e);
             io.showNotification(IConsoleIO.NotificationRole.INFO, errorMessage);
             return resultWithMessages(fatalReason);
+        }
+
+        if (compressedHistoryFuture != null) {
+            context = IContextManager.mergeCompressedHistory(context, compressedHistoryFuture.join());
+            compressedHistoryFuture = null;
         }
 
         if (codeAgentJustSucceeded) {
@@ -1128,12 +1189,15 @@ public class ArchitectAgent {
     }
 
     private TaskResult codeAgentSuccessResult() {
-        // messages are alerady appended to context by callCodeaAgent
+        // Capture any Architect planning output
+        var messages = io.getLlmRawMessages();
+        context = context.addHistoryEntry(messages, TaskResult.Type.ARCHITECT, planningModel, goal);
         return new TaskResult(context, new TaskResult.StopDetails(StopReason.SUCCESS));
     }
 
     private TaskResult.TaskMeta taskMeta() {
-        return new TaskResult.TaskMeta(TaskResult.Type.ARCHITECT, ModelConfig.from(planningModel, cm.getService()));
+        return new TaskResult.TaskMeta(
+                TaskResult.Type.ARCHITECT, AbstractService.ModelConfig.from(planningModel, cm.getService()));
     }
 
     private TaskResult resultWithMessages(StopReason reason, String message) {

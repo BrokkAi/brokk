@@ -52,6 +52,11 @@ public class DisabledAnalyzer implements IAnalyzer {
     }
 
     @Override
+    public Set<ProjectFile> getAnalyzedFiles() {
+        return Collections.emptySet();
+    }
+
+    @Override
     public List<String> importStatementsOf(ProjectFile file) {
         return List.of();
     }

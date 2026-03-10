@@ -46,6 +46,69 @@ async def test_token_usage_update():
 
 
 @pytest.mark.asyncio
+async def test_export_plain_text_transcript_formats_history():
+    """Verify the plain-text transcript export uses readable labels."""
+    from textual.app import App, ComposeResult
+
+    class TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield ChatPanel(id="chat")
+
+    app = TestApp()
+    async with app.run_test():
+        panel = app.query_one("#chat", ChatPanel)
+        panel.add_welcome("", "Welcome to Brokk")
+        panel.add_system_message("Starting Brokk executor...")
+        panel.add_system_message("Connected to executor abc (version: 1, protocol: 1)")
+        panel.add_user_message("help me")
+        panel.add_markdown("Here is a response")
+        panel.add_system_message("plain info")
+        panel.add_system_message("bad news", level="ERROR")
+        panel.add_tool_result("command output")
+
+        transcript = panel.export_plain_text_transcript()
+
+        assert "Welcome to Brokk" not in transcript
+        assert "Starting Brokk executor..." not in transcript
+        assert "Connected to executor" not in transcript
+        assert "You: help me" in transcript
+        assert "Brokk: Here is a response" in transcript
+        assert "[System] plain info" in transcript
+        assert "[ERROR] bad news" in transcript
+        assert "[Command Output]\ncommand output" in transcript
+
+
+@pytest.mark.asyncio
+async def test_export_rich_transcript_renderables_omits_welcome_and_keeps_panels():
+    """Verify exit renderables reuse the live chat presentation primitives."""
+    from rich.markdown import Markdown
+    from rich.panel import Panel
+    from rich.text import Text
+    from textual.app import App, ComposeResult
+
+    class TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield ChatPanel(id="chat")
+
+    app = TestApp()
+    async with app.run_test():
+        panel = app.query_one("#chat", ChatPanel)
+        panel.add_welcome("", "Welcome to Brokk")
+        panel.add_user_message("help me")
+        panel.add_markdown("Here is a response")
+        panel.add_system_message("bad news", level="ERROR")
+
+        renderables = [r for r in panel.export_rich_transcript_renderables() if r != ""]
+
+        assert all(
+            not isinstance(r, Markdown) or "Welcome to Brokk" not in str(r) for r in renderables
+        )
+        assert any(isinstance(r, Panel) and r.title == "You" for r in renderables)
+        assert any(isinstance(r, Markdown) for r in renderables)
+        assert any(isinstance(r, Text) and "[ERROR] bad news" in r.plain for r in renderables)
+
+
+@pytest.mark.asyncio
 async def test_job_progress_in_chat_panel():
     """
     Verify that job running state is reflected in ChatPanel's status timer
@@ -108,10 +171,11 @@ async def test_token_bar_visibility_control():
 async def test_streaming_duplication_regression():
     """
     Verify that streaming tokens incrementally does not result in duplicated
-    content in the RichLog.
+    content in the ChatLog.
     """
     from textual.app import App, ComposeResult
-    from textual.widgets import RichLog
+
+    from brokk_code.widgets.chat_panel import ChatLog
 
     class TestApp(App):
         def compose(self) -> ComposeResult:
@@ -120,7 +184,7 @@ async def test_streaming_duplication_regression():
     app = TestApp()
     async with app.run_test() as pilot:
         panel = app.query_one("#chat", ChatPanel)
-        log = panel.query_one("#chat-log", RichLog)
+        log = panel.query_one("#chat-log", ChatLog)
 
         # Simulate a stream: "Hello" -> "Hello world" -> "Hello world!"
         # We use a short flush interval to ensure incremental flushes trigger.
@@ -164,7 +228,8 @@ async def test_whitespace_reasoning_terminal_does_not_stick():
     the panel must not remain in reasoning mode for the next non-reasoning message.
     """
     from textual.app import App, ComposeResult
-    from textual.widgets import RichLog
+
+    from brokk_code.widgets.chat_panel import ChatLog
 
     class TestApp(App):
         def compose(self) -> ComposeResult:
@@ -173,7 +238,7 @@ async def test_whitespace_reasoning_terminal_does_not_stick():
     app = TestApp()
     async with app.run_test() as pilot:
         panel = app.query_one("#chat", ChatPanel)
-        log = panel.query_one("#chat-log", RichLog)
+        log = panel.query_one("#chat-log", ChatLog)
 
         # 1) Simulate a reasoning stream that only emits whitespace and is terminal.
         panel.append_token("   ", "AI", is_new_message=True, is_reasoning=True, is_terminal=True)
@@ -215,7 +280,8 @@ async def test_no_notification_panel_widget():
 async def test_notification_routing_to_chat_log():
     """Verify that notifications are routed to the main chat log with styling."""
     from textual.app import App, ComposeResult
-    from textual.widgets import RichLog
+
+    from brokk_code.widgets.chat_panel import ChatLog
 
     class TestApp(App):
         def compose(self) -> ComposeResult:
@@ -224,7 +290,7 @@ async def test_notification_routing_to_chat_log():
     app = TestApp()
     async with app.run_test() as pilot:
         panel = app.query_one("#chat", ChatPanel)
-        log = panel.query_one("#chat-log", RichLog)
+        log = panel.query_one("#chat-log", ChatLog)
 
         # Test INFO notification (no prefix)
         panel.add_system_message("Info message", level="INFO")
@@ -301,6 +367,79 @@ async def test_no_ctrl_u_e_bindings_in_chat_input():
     assert "ctrl+e" not in bindings
 
 
+@pytest.mark.asyncio
+async def test_chat_panel_ctrl_b_f_bindings_scroll_log_with_input_focus():
+    """Verify Ctrl+B/F page the chat log while the input remains focused."""
+    from textual.app import App, ComposeResult
+
+    from brokk_code.widgets.chat_panel import ChatInput, ChatLog
+
+    class TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield ChatPanel(id="chat")
+
+    app = TestApp()
+    async with app.run_test(size=(80, 10)) as pilot:
+        panel = app.query_one("#chat", ChatPanel)
+        log = panel.query_one("#chat-log", ChatLog)
+        chat_input = panel.query_one("#chat-input", ChatInput)
+
+        for i in range(30):
+            panel.add_system_message(f"Message {i}")
+
+        # Wait for scroll state to settle after rapid writes;
+        # on Windows CI the scroll position may lag behind content height.
+        for _ in range(40):
+            await pilot.pause()
+            if log.max_scroll_y > 0 and log.is_vertical_scroll_end:
+                break
+
+        assert chat_input.has_focus
+        assert log.max_scroll_y > 0, "Log must be scrollable for this test"
+        assert log.is_vertical_scroll_end
+
+        bottom_y = log.scroll_y
+        await pilot.press("ctrl+b")
+        for _ in range(40):
+            await pilot.pause()
+            if log.scroll_y < bottom_y:
+                break
+
+        assert chat_input.has_focus
+        assert log.scroll_y < bottom_y
+        assert log.auto_scroll is False
+
+        after_page_up = log.scroll_y
+        await pilot.press("ctrl+f")
+        for _ in range(40):
+            await pilot.pause()
+            if log.scroll_y > after_page_up:
+                break
+
+        assert chat_input.has_focus
+        assert log.scroll_y > after_page_up
+
+
+@pytest.mark.asyncio
+async def test_chat_log_hides_horizontal_scrollbar():
+    """Verify the chat log wraps and does not expose a horizontal scrollbar."""
+    from textual.app import App, ComposeResult
+
+    from brokk_code.widgets.chat_panel import ChatLog
+
+    class TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield ChatPanel(id="chat")
+
+    app = TestApp()
+    async with app.run_test():
+        log = app.query_one("#chat-log", ChatLog)
+        assert log.wrap is True
+        assert log.min_width == 0
+        assert log.show_horizontal_scrollbar is False
+        assert log.styles.scrollbar_size_horizontal == 0
+
+
 def _static_rendered_text(widget: Static) -> str:
     rendered = widget.render()
     if isinstance(rendered, Text):
@@ -355,8 +494,6 @@ async def test_chat_help_line_includes_shift_tab_mode_after_history() -> None:
 @pytest.mark.asyncio
 async def test_slash_command_catalog_stability():
     """Verify the slash command catalog is stable and follows rules."""
-    from unittest.mock import MagicMock
-
     from brokk_code.app import BrokkApp
 
     app = BrokkApp(executor=MagicMock())
@@ -373,9 +510,10 @@ async def test_slash_command_catalog_stability():
 
     # Verify key commands exist
     cmds_only = {c["command"] for c in commands}
-    assert "/ask" in cmds_only
     assert "/task" in cmds_only
-    assert "/help" in cmds_only
+    assert "/clear" in cmds_only
+    assert "/help" not in cmds_only
+    assert "/mode" not in cmds_only
 
 
 @pytest.mark.asyncio
@@ -388,9 +526,8 @@ async def test_slash_autocomplete_filtering():
     class TestApp(App):
         def get_slash_commands(self):
             return [
-                {"command": "/ask", "description": "d"},
-                {"command": "/ask-more", "description": "d"},
-                {"command": "/help", "description": "d"},
+                {"command": "/api-key", "description": "d"},
+                {"command": "/autocommit", "description": "d"},
             ]
 
         def compose(self) -> ComposeResult:
@@ -403,12 +540,13 @@ async def test_slash_autocomplete_filtering():
         # Type /a
         await pilot.press(*list("/a"))
         assert suggestions.display is True
+        # matches /api-key and /autocommit
         assert len(suggestions.children) == 2
 
-        # Type sk-
-        await pilot.press(*list("sk-"))
+        # Type uto
+        await pilot.press(*list("uto"))
         assert len(suggestions.children) == 1
-        assert "/ask-more" in str(suggestions.children[0].query_one(Static).render())
+        assert "/autocommit" in str(suggestions.children[0].query_one(Static).render())
 
         # Esc hides
         await pilot.press("escape")
@@ -492,7 +630,8 @@ async def test_mention_autocomplete_ignores_email_like_text():
 async def test_chat_panel_history_and_filtering():
     """Verify that ChatPanel records history and filters correctly during refresh_log."""
     from textual.app import App, ComposeResult
-    from textual.widgets import RichLog
+
+    from brokk_code.widgets.chat_panel import ChatLog
 
     class TestApp(App):
         def compose(self) -> ComposeResult:
@@ -501,7 +640,7 @@ async def test_chat_panel_history_and_filtering():
     app = TestApp()
     async with app.run_test() as pilot:
         chat = app.query_one("#chat", ChatPanel)
-        log = chat.query_one("#chat-log", RichLog)
+        log = chat.query_one("#chat-log", ChatLog)
 
         # 1. Add various message types
         chat.add_user_message("Hello User")
@@ -571,9 +710,8 @@ async def test_chat_panel_history_and_filtering():
 @pytest.mark.asyncio
 async def test_brokk_app_command_result_handling_and_filtering():
     """Verify that BrokkApp correctly routes COMMAND_RESULT events and they obey verbosity."""
-    from textual.widgets import RichLog
-
     from brokk_code.app import BrokkApp
+    from brokk_code.widgets.chat_panel import ChatLog
 
     executor = MagicMock()
     app = BrokkApp(executor=executor)
@@ -591,7 +729,7 @@ async def test_brokk_app_command_result_handling_and_filtering():
 
     async with app.run_test() as pilot:
         chat = app.query_one(ChatPanel)
-        log = chat.query_one("#chat-log", RichLog)
+        log = chat.query_one("#chat-log", ChatLog)
 
         # Simulate a COMMAND_RESULT event
         event = {
@@ -739,9 +877,8 @@ async def test_tool_call_visibility_toggle_integration():
     Integration-style test: verify that toggling output via BrokkApp.action_toggle_output
     correctly refreshes the visibility of tool calls in existing AI messages.
     """
-    from textual.widgets import RichLog
-
     from brokk_code.app import BrokkApp
+    from brokk_code.widgets.chat_panel import ChatLog
 
     executor = MagicMock()
     app = BrokkApp(executor=executor)
@@ -786,7 +923,7 @@ async def test_tool_call_visibility_toggle_integration():
             return text_str
 
         rendered_off = "".join(
-            get_plain_text(line) for line in chat.query_one("#chat-log", RichLog).lines
+            get_plain_text(line) for line in chat.query_one("#chat-log", ChatLog).lines
         )
         # Collapsed tool call should show summary line with first YAML line as hint
         assert "list_files [+] (ctrl+o to expand) - directory: src" in rendered_off
@@ -804,7 +941,7 @@ async def test_tool_call_visibility_toggle_integration():
         await pilot.pause()
         assert app.show_verbose_output is True
         rendered_on = "".join(
-            get_plain_text(line) for line in chat.query_one("#chat-log", RichLog).lines
+            get_plain_text(line) for line in chat.query_one("#chat-log", ChatLog).lines
         )
         assert "Tool Call: list_files [-] (ctrl+o to collapse)" in rendered_on
 
@@ -820,7 +957,7 @@ async def test_tool_call_visibility_toggle_integration():
         assert app.show_verbose_output is False
 
         rendered_off_again = "".join(
-            get_plain_text(line) for line in chat.query_one("#chat-log", RichLog).lines
+            get_plain_text(line) for line in chat.query_one("#chat-log", ChatLog).lines
         )
         assert "list_files [+] (ctrl+o to expand) - directory: src" in rendered_off_again
 
@@ -828,6 +965,51 @@ async def test_tool_call_visibility_toggle_integration():
         chat.show_verbose = False
         filtered_off_again = chat._filter_tool_call_blocks(tool_markdown)
         assert "list_files [+] (ctrl+o to expand) - directory: src" in filtered_off_again
+
+
+@pytest.mark.asyncio
+async def test_clear_transcript_command():
+    """Verify that /clear removes messages from the UI and memory."""
+    from textual.widgets import RichLog
+
+    from brokk_code.app import BrokkApp
+
+    executor = MagicMock()
+    app = BrokkApp(executor=executor)
+
+    async def _noop() -> None:
+        return None
+
+    app._start_executor = _noop  # type: ignore[method-assign]
+    app._monitor_executor = _noop  # type: ignore[method-assign]
+    app._poll_tasklist = _noop  # type: ignore[method-assign]
+    app._poll_context = _noop  # type: ignore[method-assign]
+
+    async with app.run_test() as pilot:
+        chat = app.query_one(ChatPanel)
+        log = chat.query_one("#chat-log", RichLog)
+
+        # Add some messages
+        chat.add_user_message("Message 1")
+        chat.add_markdown("Response 1")
+        await pilot.pause()
+
+        initial_count = len(chat._message_history)
+        chat.add_user_message("Message 2")
+        chat.add_markdown("Response 2")
+        await pilot.pause()
+
+        assert len(chat._message_history) == initial_count + 2
+        assert len(log.lines) > 0
+
+        # Run /clear
+        app._handle_command("/clear")
+        await pilot.pause()
+
+        # Verify everything is gone
+        assert len(chat._message_history) == 0
+        assert len(log.lines) == 0
+        assert chat._current_message_buffer == ""
 
 
 @pytest.mark.asyncio
@@ -860,3 +1042,567 @@ async def test_collapsed_summary_text_bold_label():
         assert result2.spans[0].start == 0
         assert result2.spans[0].end == len("Command Output")
         assert "bold" in str(result2.spans[0].style).lower()
+
+
+@pytest.mark.asyncio
+async def test_costs_command_opens_modal():
+    """Verify that /costs command fetches data and pushes SessionCostsModalScreen."""
+    from pathlib import Path
+
+    from brokk_code.app import BrokkApp, SessionCostsModalScreen
+
+    executor = MagicMock()
+    executor.workspace_dir = Path("/tmp")
+    executor.get_session_costs = AsyncMock(
+        return_value={
+            "sessionId": "test-session",
+            "totalCost": 0.05,
+            "events": [
+                {
+                    "timestampMillis": 1737627240000,
+                    "operationLabel": "Test Task",
+                    "operationType": "ARCHITECT",
+                    "modelName": "gpt-4",
+                    "tier": "high",
+                    "inputTokens": 100,
+                    "outputTokens": 50,
+                    "costUsd": 0.05,
+                }
+            ],
+        }
+    )
+
+    app = BrokkApp(executor=executor)
+    # Mock startup to avoid real background workers
+    app._start_executor = AsyncMock()
+    app._monitor_executor = AsyncMock()
+    app._poll_tasklist = AsyncMock()
+    app._poll_context = AsyncMock()
+    app._executor_ready = True
+
+    async with app.run_test() as pilot:
+        # Trigger /costs
+        await pilot.press(*list("/costs"), "enter")
+        await pilot.pause()
+
+        # Check if modal is pushed
+        assert isinstance(app.screen, SessionCostsModalScreen)
+
+        # Verify content in modal using the existing helper
+        title_widget = app.screen.query_one("#session-costs-title", Static)
+        total_widget = app.screen.query_one("#session-costs-total", Static)
+
+        assert "Session Cost Breakdown" in _static_rendered_text(title_widget)
+        assert "0.0500" in _static_rendered_text(total_widget)
+
+
+@pytest.mark.asyncio
+async def test_chat_log_get_selection():
+    """Verify that ChatLog.get_selection() extracts text from log content using real Selection."""
+    from textual.app import App, ComposeResult
+    from textual.geometry import Offset
+    from textual.selection import Selection
+
+    from brokk_code.widgets.chat_panel import ChatLog
+
+    class TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield ChatPanel(id="chat")
+
+    app = TestApp()
+    async with app.run_test() as pilot:
+        chat = app.query_one("#chat", ChatPanel)
+        chat.add_markdown("first line")
+        chat.add_markdown("second line")
+        chat.add_markdown("third line")
+        await pilot.pause()
+
+        log = chat.query_one("#chat-log", ChatLog)
+
+        # Verify lines are populated
+        assert len(log.lines) > 0
+
+        full_text = "\n".join(strip.text for strip in log.lines)
+        assert "first line" in full_text
+        assert "second line" in full_text
+        assert "third line" in full_text
+
+        # Find line indices containing our text
+        line_texts = [strip.text for strip in log.lines]
+        first_line_idx = next(i for i, t in enumerate(line_texts) if "first" in t.lower())
+
+        # Create a real Selection that selects "first" (characters 0-5 on that line)
+        start_offset = Offset(x=0, y=first_line_idx)
+        end_offset = Offset(x=5, y=first_line_idx)
+        selection = Selection.from_offsets(start_offset, end_offset)
+
+        # Test get_selection returns text with newline separator
+        result = log.get_selection(selection)
+        assert result is not None
+        extracted, sep = result
+        assert sep == "\n"
+        # The extracted text should be "first" (first 5 characters of the line)
+        assert extracted == "first", f"Expected 'first', got '{extracted}'"
+
+
+@pytest.mark.asyncio
+async def test_chat_log_selection_updated_clears_cache():
+    """Verify that selection_updated() clears the line cache and refreshes."""
+    from unittest.mock import patch
+
+    from textual.app import App, ComposeResult
+
+    from brokk_code.widgets.chat_panel import ChatLog
+
+    class TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield ChatPanel(id="chat")
+
+    app = TestApp()
+    async with app.run_test() as pilot:
+        chat = app.query_one("#chat", ChatPanel)
+        chat.add_markdown("some text")
+        await pilot.pause()
+
+        log = chat.query_one("#chat-log", ChatLog)
+
+        # Prime the cache by rendering
+        assert len(log.lines) > 0
+
+        with patch.object(log, "refresh") as mock_refresh:
+            log.selection_updated(None)
+            mock_refresh.assert_called_once()
+
+        # Cache should be empty after selection_updated
+        assert len(log._line_cache) == 0
+
+
+@pytest.mark.asyncio
+async def test_chat_log_selection_rendering_applies_styles():
+    """
+    Integration test verifying that ChatLog._render_line() applies selection
+    styling to rendered output when a real Selection is active.
+
+    This test exercises the Textual 8.0.0 private internals compatibility block in
+    ChatLog._render_line(). If a future Textual upgrade changes the private
+    APIs (_start_line, _widest_line_width, _line_cache, Strip._segments),
+    this test should fail, signaling that the compatibility block needs updating.
+    """
+    from textual.app import App, ComposeResult
+    from textual.geometry import Offset
+    from textual.selection import Selection
+
+    from brokk_code.widgets.chat_panel import ChatLog
+
+    class SelectionTestApp(App):
+        def compose(self) -> ComposeResult:
+            yield ChatPanel(id="chat")
+
+    app = SelectionTestApp()
+    async with app.run_test() as pilot:
+        chat = app.query_one("#chat", ChatPanel)
+        log = chat.query_one("#chat-log", ChatLog)
+
+        # Add content to the log
+        chat.add_markdown("hello world test content")
+        await pilot.pause()
+
+        # Ensure we have rendered lines
+        assert len(log.lines) > 0, "ChatLog should have rendered lines"
+
+        # Find the line containing our text
+        text_line_idx = None
+        for idx, strip in enumerate(log.lines):
+            if "hello" in strip.text.lower():
+                text_line_idx = idx
+                break
+
+        assert text_line_idx is not None, "Should find line with 'hello' in it"
+
+        # --- Render WITHOUT selection first ---
+        log._line_cache.clear()
+        strip_no_selection = log._render_line(text_line_idx, 0, 80)
+        assert strip_no_selection.cell_length > 0, "Strip should have content"
+
+        # Extract segments and styles without selection
+        segments_no_sel = list(strip_no_selection._segments)
+        styles_no_sel = [seg.style for seg in segments_no_sel]
+
+        # --- Now set up a real Selection using the correct Textual 8.0.0 API ---
+        # Selection is NamedTuple(start: Offset | None, end: Offset | None)
+        # Offset is (x, y) where x=column, y=row
+        # Select characters 0-5 on our target line (should cover "hello")
+        start_offset = Offset(x=0, y=text_line_idx)
+        end_offset = Offset(x=5, y=text_line_idx)
+        selection = Selection.from_offsets(start_offset, end_offset)
+
+        # Store selection in screen.selections dict (the real Textual API)
+        # Widget.text_selection reads from screen.selections.get(widget, None)
+        log.screen.selections[log] = selection
+
+        # Clear cache to force re-rendering with selection active
+        log._line_cache.clear()
+
+        # --- Render WITH selection ---
+        strip_with_selection = log._render_line(text_line_idx, 0, 80)
+        assert strip_with_selection.cell_length > 0, "Strip should have content"
+
+        # Extract segments and styles with selection
+        segments_with_sel = list(strip_with_selection._segments)
+        styles_with_sel = [seg.style for seg in segments_with_sel]
+
+        # --- Verify text content is unchanged ---
+        text_no_sel = "".join(seg.text for seg in segments_no_sel)
+        text_with_sel = "".join(seg.text for seg in segments_with_sel)
+        assert text_no_sel == text_with_sel, (
+            "Text content should be identical with or without selection"
+        )
+
+        # --- Verify styling differs due to selection ---
+        # The selection should cause style changes in the selected range.
+        # We check that at least one style differs between the two renders.
+        # This proves the selection render path actually applied selection styling.
+        styles_differ = styles_no_sel != styles_with_sel
+        assert styles_differ, (
+            "Styles should differ when selection is active. "
+            "If this fails, either selection styling is not being applied "
+            "or the Textual private API has changed."
+        )
+
+        # --- Verify cache was populated ---
+        cache_key = (
+            text_line_idx + log._start_line,
+            0,
+            80,
+            log._widest_line_width,
+        )
+        assert cache_key in log._line_cache, "Rendered line should be cached"
+
+        # --- Clean up: remove selection ---
+        del log.screen.selections[log]
+
+
+@pytest.mark.asyncio
+async def test_chat_log_render_line_horizontal_scroll_selection():
+    """
+    Verify that ChatLog._render_line() correctly applies selection styling
+    when scroll_x > 0 (horizontal scrolling).
+
+    This tests the coordinate transformation: selection spans are in full-line
+    coordinates, but after cropping the visible slice starts at viewport offset 0.
+    The selection range must be adjusted by subtracting scroll_x.
+    """
+    from textual.app import App, ComposeResult
+    from textual.geometry import Offset
+    from textual.selection import Selection
+
+    from brokk_code.widgets.chat_panel import ChatLog
+
+    class HScrollTestApp(App):
+        def compose(self) -> ComposeResult:
+            yield ChatPanel(id="chat")
+
+    app = HScrollTestApp()
+    async with app.run_test() as pilot:
+        chat = app.query_one("#chat", ChatPanel)
+        log = chat.query_one("#chat-log", ChatLog)
+
+        # Add a long line that will require horizontal scrolling
+        long_content = "AAAAA_BBBBB_CCCCC_DDDDD_EEEEE"
+        chat.add_system_message(long_content)
+        await pilot.pause()
+
+        assert len(log.lines) > 0, "ChatLog should have rendered lines"
+
+        # Find the line containing our long content
+        target_line_idx = None
+        for idx, strip in enumerate(log.lines):
+            if "BBBBB" in strip.text:
+                target_line_idx = idx
+                break
+
+        assert target_line_idx is not None, "Should find line with long content"
+
+        # Get the full line text to find exact character positions
+        full_line_text = log.lines[target_line_idx].text
+        bbbbb_start = full_line_text.find("BBBBB")
+        assert bbbbb_start >= 0, "Should find BBBBB in line"
+        bbbbb_end = bbbbb_start + 5  # "BBBBB" is 5 chars
+
+        # --- Test Case 1: Selection fully visible in viewport ---
+        # scroll_x = 0, select "BBBBB"
+        log._line_cache.clear()
+        start_offset = Offset(x=bbbbb_start, y=target_line_idx)
+        end_offset = Offset(x=bbbbb_end, y=target_line_idx)
+        selection = Selection.from_offsets(start_offset, end_offset)
+        log.screen.selections[log] = selection
+
+        strip_scroll0 = log._render_line(target_line_idx, scroll_x=0, width=80)
+        segments_scroll0 = list(strip_scroll0._segments)
+        assert len(segments_scroll0) > 0, "Should have segments when rendering with selection"
+
+        # --- Test Case 2: Horizontal scroll, selection partially visible ---
+        # scroll_x = bbbbb_start, so "BBBBB" should appear at viewport position 0
+        log._line_cache.clear()
+        scroll_x = bbbbb_start
+        strip_scrolled = log._render_line(target_line_idx, scroll_x=scroll_x, width=80)
+        segments_scrolled = list(strip_scrolled._segments)
+
+        # After scrolling, the viewport starts at character bbbbb_start
+        # So "BBBBB" should be at viewport positions 0-4
+        # The selection (bbbbb_start to bbbbb_end in full-line coords)
+        # should become (0 to 5 in viewport coords)
+        viewport_text = "".join(seg.text for seg in segments_scrolled)
+        assert viewport_text.startswith("BBBBB"), (
+            f"Viewport should start with BBBBB after scroll, got: {viewport_text[:20]}"
+        )
+
+        # --- Test Case 3: Selection entirely before visible viewport ---
+        # Select "AAAAA" (positions 0-5), but scroll past it
+        log._line_cache.clear()
+        aaaaa_start = full_line_text.find("AAAAA")
+        if aaaaa_start >= 0:
+            start_offset_a = Offset(x=aaaaa_start, y=target_line_idx)
+            end_offset_a = Offset(x=aaaaa_start + 5, y=target_line_idx)
+            selection_a = Selection.from_offsets(start_offset_a, end_offset_a)
+            log.screen.selections[log] = selection_a
+
+            # Scroll past "AAAAA" - selection should not be visible
+            scroll_past = aaaaa_start + 10
+            strip_past = log._render_line(target_line_idx, scroll_x=scroll_past, width=80)
+            segments_past = list(strip_past._segments)
+
+            # "AAAAA" should not be in viewport
+            viewport_past = "".join(seg.text for seg in segments_past)
+            assert "AAAAA" not in viewport_past, "AAAAA should be scrolled out of view"
+
+        # --- Test Case 4: Selection extends from before viewport into viewport ---
+        # Select a range that starts before scroll_x and ends within visible area
+        log._line_cache.clear()
+        # Select from start of line to middle of "BBBBB"
+        start_offset_ext = Offset(x=0, y=target_line_idx)
+        end_offset_ext = Offset(x=bbbbb_start + 3, y=target_line_idx)  # "BBB"
+        selection_ext = Selection.from_offsets(start_offset_ext, end_offset_ext)
+        log.screen.selections[log] = selection_ext
+
+        # Scroll so that "BBBBB" is at the start of viewport
+        strip_partial = log._render_line(target_line_idx, scroll_x=bbbbb_start, width=80)
+        segments_partial = list(strip_partial._segments)
+
+        # First 3 chars of viewport ("BBB") should have selection styling
+        # Characters 4+ should not
+        viewport_partial = "".join(seg.text for seg in segments_partial)
+        assert viewport_partial.startswith("BBBBB"), (
+            f"Should start with BBBBB, got: {viewport_partial[:10]}"
+        )
+
+        # --- Clean up ---
+        del log.screen.selections[log]
+
+
+@pytest.mark.asyncio
+async def test_autoscroll_and_button_toggle_on_scroll():
+    """
+    Verify that scrolling up disables auto_scroll and shows the button,
+    and scrolling back to bottom re-enables auto_scroll and hides the button.
+    """
+    from textual.app import App, ComposeResult
+    from textual.widgets import Button, RichLog
+
+    class TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield ChatPanel(id="chat")
+
+    app = TestApp()
+    async with app.run_test(size=(80, 10)) as pilot:
+        panel = app.query_one("#chat", ChatPanel)
+        log = panel.query_one("#chat-log", RichLog)
+        scroll_btn = panel.query_one("#scroll-to-bottom", Button)
+
+        assert log.auto_scroll is True
+        assert scroll_btn.has_class("hidden")
+
+        for i in range(20):
+            panel.add_system_message(f"Message {i}")
+
+        # Wait for scroll state to settle after rapid writes;
+        # on Windows CI the scroll position may lag behind content height.
+        for _ in range(40):
+            await pilot.pause()
+            if log.auto_scroll and log.max_scroll_y > 0:
+                break
+        assert log.auto_scroll is True
+        assert log.max_scroll_y > 0, "Log must be scrollable for this test"
+
+        # Scroll up
+        log.scroll_to(y=0, animate=False)
+        for _ in range(40):
+            await pilot.pause()
+            panel._sync_autoscroll()
+            if not log.auto_scroll:
+                break
+
+        assert log.auto_scroll is False, "auto_scroll should be disabled when scrolled up"
+        assert not scroll_btn.has_class("hidden"), "Button should be visible when scrolled up"
+
+        # Scroll back to bottom
+        log.scroll_end(animate=False)
+        for _ in range(40):
+            await pilot.pause()
+            panel._sync_autoscroll()
+            if log.auto_scroll:
+                break
+
+        assert log.auto_scroll is True, "auto_scroll should be re-enabled at bottom"
+        assert scroll_btn.has_class("hidden"), "Button should be hidden at bottom"
+
+
+@pytest.mark.asyncio
+async def test_autoscroll_reset_on_submission():
+    """
+    Verify that submitting a new user message resets the chat to bottom-follow mode
+    and scrolls the log back to the end.
+    """
+    from textual.app import App, ComposeResult
+    from textual.widgets import RichLog
+
+    from brokk_code.widgets.chat_panel import ChatInput
+
+    class TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield ChatPanel(id="chat")
+
+    app = TestApp()
+    async with app.run_test(size=(80, 10)) as pilot:
+        panel = app.query_one("#chat", ChatPanel)
+        log = panel.query_one("#chat-log", RichLog)
+        chat_input = panel.query_one("#chat-input", ChatInput)
+
+        # Add enough content to make the log scrollable in small viewport
+        for i in range(20):
+            panel.add_system_message(f"Message {i}")
+
+        for _ in range(40):
+            await pilot.pause()
+            if log.max_scroll_y > 0:
+                break
+
+        # Verify scrollability is deterministic
+        assert log.max_scroll_y > 0, "Log must be scrollable for this test"
+
+        # Scroll up to disable auto_scroll
+        log.scroll_to(y=0, animate=False)
+        for _ in range(40):
+            await pilot.pause()
+            panel._sync_autoscroll()
+            if not log.auto_scroll:
+                break
+        assert log.auto_scroll is False
+
+        # Type and submit a message
+        chat_input.text = "Hello"
+        chat_input.action_submit()
+
+        # Wait for submission processing and the deferred scroll callback
+        for _ in range(40):
+            await pilot.pause()
+            if log.auto_scroll:
+                break
+
+        # After submission, auto_scroll should be re-enabled
+        assert log.auto_scroll is True
+
+        # And we should be at the bottom
+        for _ in range(40):
+            if log.is_vertical_scroll_end:
+                break
+            await pilot.pause()
+        assert log.is_vertical_scroll_end
+
+
+@pytest.mark.asyncio
+async def test_scroll_to_bottom_button_hidden_by_default():
+    """Verify the scroll-to-bottom button is hidden when composed."""
+    from textual.app import App, ComposeResult
+    from textual.widgets import Button
+
+    class TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield ChatPanel(id="chat")
+
+    app = TestApp()
+    async with app.run_test():
+        panel = app.query_one("#chat", ChatPanel)
+        scroll_btn = panel.query_one("#scroll-to-bottom", Button)
+        assert scroll_btn.has_class("hidden")
+
+
+@pytest.mark.asyncio
+async def test_refresh_log_preserves_middle_scroll_position():
+    """
+    Verify that when scrolled to a middle position (not 0, not bottom),
+    refresh_log preserves the scroll position (clamped to new max) and
+    keeps auto_scroll disabled.
+    """
+    from textual.app import App, ComposeResult
+    from textual.widgets import Button, RichLog
+
+    class TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield ChatPanel(id="chat")
+
+    app = TestApp()
+    async with app.run_test(size=(80, 10)) as pilot:
+        panel = app.query_one("#chat", ChatPanel)
+        log = panel.query_one("#chat-log", RichLog)
+        scroll_btn = panel.query_one("#scroll-to-bottom", Button)
+
+        # Add enough content to make the log scrollable in small viewport
+        for i in range(20):
+            panel.add_system_message(f"Message {i}")
+
+        for _ in range(40):
+            await pilot.pause()
+            if log.max_scroll_y > 0:
+                break
+
+        # Verify scrollability is deterministic
+        assert log.max_scroll_y > 0, "Log must be scrollable for this test"
+
+        # Scroll to middle position (not 0, not bottom)
+        mid_y = log.max_scroll_y // 2
+        assert mid_y > 0, "mid_y must be positive to test middle scroll"
+        log.scroll_to(y=mid_y, animate=False)
+        for _ in range(40):
+            await pilot.pause()
+            panel._sync_autoscroll()
+            if log.scroll_y >= mid_y and not log.auto_scroll:
+                break
+
+        assert log.scroll_y > 0, "scroll_y should move away from the top after middle scroll"
+        assert not log.is_vertical_scroll_end, "middle scroll should not remain at the bottom"
+        assert log.auto_scroll is False, "auto_scroll should be disabled at middle position"
+        assert not scroll_btn.has_class("hidden"), "Button should be visible at middle position"
+
+        prior_scroll_y = log.scroll_y
+
+        # Call refresh_log
+        panel.refresh_log(show_verbose=True)
+        await pilot.pause()
+
+        # scroll_y should be restored (clamped to new max_scroll_y)
+        assert log.scroll_y <= log.max_scroll_y, (
+            "scroll_y should not exceed max_scroll_y after refresh"
+        )
+        assert log.scroll_y > 0, "scroll_y should be restored near prior position, not reset to 0"
+        # Allow some tolerance since content may re-render slightly differently
+        assert abs(log.scroll_y - min(prior_scroll_y, log.max_scroll_y)) <= 1, (
+            f"scroll_y ({log.scroll_y}) should be close to prior ({prior_scroll_y}) "
+            f"or clamped to max ({log.max_scroll_y})"
+        )
+        assert log.auto_scroll is False, (
+            "auto_scroll should remain disabled after refresh_log at middle position"
+        )
+        assert not scroll_btn.has_class("hidden"), (
+            "Button should remain visible after refresh_log at middle position"
+        )

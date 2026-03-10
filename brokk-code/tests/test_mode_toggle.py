@@ -1,3 +1,5 @@
+import signal
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
@@ -39,52 +41,16 @@ def test_action_toggle_mode_cycles_correctly():
     mock_chat.add_system_message_markup.assert_called_with("Mode changed to: [bold]LUTZ[/]")
 
 
-def test_handle_command_updates_agent_mode():
+def test_handle_command_modes_removed():
+    """Verify that mode slash commands are now treated as unknown."""
     app = BrokkApp(executor=MagicMock())
     mock_chat = MagicMock(spec=ChatPanel)
     app.query_one = MagicMock(return_value=mock_chat)
 
-    # Test /code
-    app._handle_command("/code")
-    assert app.agent_mode == "CODE"
-    mock_chat.add_system_message_markup.assert_called_with("Mode changed to: [bold]CODE[/]")
-
-    # Test /ask
-    app._handle_command("/ask")
-    assert app.agent_mode == "ASK"
-    mock_chat.add_system_message_markup.assert_called_with("Mode changed to: [bold]ASK[/]")
-
-    # Test /lutz
-    app._handle_command("/lutz")
-    assert app.agent_mode == "LUTZ"
-    mock_chat.add_system_message_markup.assert_called_with("Mode changed to: [bold]LUTZ[/]")
-
-    # Test /plan
-    app._handle_command("/plan")
-    assert app.agent_mode == "PLAN"
-    mock_chat.add_system_message_markup.assert_called_with("Mode changed to: [bold]PLAN[/]")
-
-
-def test_handle_command_plan_sets_plan_mode():
-    app = BrokkApp(executor=MagicMock())
-    mock_chat = MagicMock(spec=ChatPanel)
-    app.query_one = MagicMock(return_value=mock_chat)
-
-    app._handle_command("/plan")
-    assert app.agent_mode == "PLAN"
-
-
-def test_mode_command_no_arg_opens_menu():
-    app = BrokkApp(executor=MagicMock())
-    mock_chat = MagicMock(spec=ChatPanel)
-    app.query_one = MagicMock(return_value=mock_chat)
-
-    # Initial state
-    assert app.agent_mode == "LUTZ"
-
-    # Test /mode opens menu
-    app._handle_command("/mode")
-    mock_chat.open_mode_menu.assert_called_once_with(["CODE", "ASK", "LUTZ", "PLAN"], "LUTZ")
+    for cmd in ["/code", "/ask", "/lutz", "/plan", "/mode"]:
+        app._handle_command(cmd)
+        args, _ = mock_chat.append_message.call_args
+        assert f"Unknown command: {cmd}" in args[1]
 
 
 def test_no_f2_settings_binding():
@@ -102,6 +68,59 @@ def test_ctrl_p_binding_is_settings():
     app = BrokkApp(executor=MagicMock())
     bindings = {b.key: (b.action, b.description, b.show) for b in app.BINDINGS}
     assert bindings["ctrl+p"] == ("command_palette", "Settings", True)
+
+
+def test_ctrl_z_binding_is_suspend():
+    app = BrokkApp(executor=MagicMock())
+    bindings = {b.key: (b.action, b.show, b.priority) for b in app.BINDINGS}
+    assert bindings["ctrl+z"] == ("suspend_process", False, True)
+
+
+def test_action_suspend_process_suspends_executor_and_calls_textual_suspend(monkeypatch):
+    app = BrokkApp(executor=MagicMock())
+    app.executor._process = SimpleNamespace(pid=4321, returncode=None)
+
+    called: dict[str, tuple[int, int]] = {}
+
+    def _fake_kill(pid: int, sig: int) -> None:
+        called["kill"] = (pid, sig)
+
+    monkeypatch.setattr("brokk_code.app.os.kill", _fake_kill)
+
+    suspend_called = {"value": False}
+
+    def _fake_textual_suspend(self) -> None:  # noqa: ANN001
+        suspend_called["value"] = True
+
+    monkeypatch.setattr("textual.app.App.action_suspend_process", _fake_textual_suspend)
+
+    app.action_suspend_process()
+
+    if hasattr(signal, "SIGTSTP"):
+        assert called["kill"] == (4321, signal.SIGTSTP)
+    else:
+        assert "kill" not in called
+
+    assert suspend_called["value"] is True
+
+
+def test_on_app_resume_sends_sigcont_to_executor(monkeypatch):
+    app = BrokkApp(executor=MagicMock())
+    app.executor._process = SimpleNamespace(pid=9876, returncode=None)
+
+    called: dict[str, tuple[int, int]] = {}
+
+    def _fake_kill(pid: int, sig: int) -> None:
+        called["kill"] = (pid, sig)
+
+    monkeypatch.setattr("brokk_code.app.os.kill", _fake_kill)
+
+    app._on_app_resume(app)
+
+    if hasattr(signal, "SIGCONT"):
+        assert called["kill"] == (9876, signal.SIGCONT)
+    else:
+        assert "kill" not in called
 
 
 def test_no_notification_binding():

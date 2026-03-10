@@ -75,8 +75,8 @@ public final class HistoryIo {
     /** Holds total and incomplete task counts for a session. */
     public record TaskCounts(int total, int incomplete) {}
 
-    /** Holds combined session statistics: AI response count and task counts. */
-    public record SessionCounts(int aiResponses, TaskCounts tasks) {}
+    /** Holds combined session statistics: AI response count, task counts, and total cost. */
+    public record SessionCounts(int aiResponses, TaskCounts tasks, double totalCostUsd) {}
 
     private static final String LEGACY_TASKLIST_FILENAME = "tasklist.json";
 
@@ -94,12 +94,13 @@ public final class HistoryIo {
     @Blocking
     public static SessionCounts countSessionStats(Path zip) throws IOException {
         if (!Files.exists(zip)) {
-            return new SessionCounts(0, new TaskCounts(0, 0));
+            return new SessionCounts(0, new TaskCounts(0, 0), 0.0);
         }
 
         String lastContextLine = null;
         byte[] fragmentsBytes = null;
         var distinctSequences = new HashSet<Integer>();
+        double totalCost = 0.0;
 
         try (var zipFile = new ZipFile(zip.toFile())) {
             // Read contexts.jsonl: count AI responses (distinct sequences with TaskMeta)
@@ -146,6 +147,27 @@ public final class HistoryIo {
                 }
             }
 
+            // Read cost ledger for total cost
+            var ledgerEntry = zipFile.getEntry("cost_ledger.jsonl");
+            if (ledgerEntry != null) {
+                try (var reader = new BufferedReader(
+                        new InputStreamReader(zipFile.getInputStream(ledgerEntry), StandardCharsets.UTF_8))) {
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        if (line.isBlank()) continue;
+                        try {
+                            var node = objectMapper.readTree(line);
+                            var costNode = node.get("costUsd");
+                            if (costNode != null && costNode.isNumber()) {
+                                totalCost += costNode.asDouble();
+                            }
+                        } catch (Exception e) {
+                            // Skip malformed ledger lines or non-JSON content
+                        }
+                    }
+                }
+            }
+
             // Read fragments (try v4 first, then v3)
             var fragEntry = zipFile.getEntry(V4_FRAGMENTS_FILENAME);
             if (fragEntry == null) {
@@ -180,7 +202,7 @@ public final class HistoryIo {
                 taskCounts = readLegacyTaskCounts(zipFile);
             }
 
-            return new SessionCounts(distinctSequences.size(), taskCounts);
+            return new SessionCounts(distinctSequences.size(), taskCounts, totalCost);
         }
     }
 

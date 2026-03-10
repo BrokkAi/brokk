@@ -1,6 +1,10 @@
 import asyncio
 import time
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple
+
+if TYPE_CHECKING:
+    from textual.selection import Selection
+    from textual.strip import Strip
 
 from rich.markdown import ListItem as RichMarkdownListItem
 from rich.markdown import Markdown, Segment, loop_first
@@ -10,8 +14,9 @@ from textual import events
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
+from textual.css.query import NoMatches
 from textual.message import Message
-from textual.widgets import ListItem, ListView, LoadingIndicator, RichLog, Static, TextArea
+from textual.widgets import Button, ListItem, ListView, LoadingIndicator, RichLog, Static, TextArea
 
 from brokk_code.widgets.status_line import StatusLine
 from brokk_code.widgets.token_bar import TokenBar
@@ -306,6 +311,86 @@ class MentionSuggestions(ListView):
                 self.post_message(self.MentionSelected(value))
 
 
+class ChatLog(RichLog):
+    """A RichLog subclass that supports Textual's built-in text selection.
+
+    Implements get_selection() and selection_updated() so that click-drag
+    highlighting and Ctrl+C copy work via Textual's Screen-level selection
+    system. Overrides _render_line() to apply selection highlighting to
+    the pre-rendered Strip objects that RichLog produces.
+    """
+
+    show_horizontal_scrollbar = False
+    wrap = True
+
+    def get_selection(self, selection: "Selection") -> tuple[str, str] | None:
+        text = "\n".join(strip.text for strip in self.lines)
+        return selection.extract(text), "\n"
+
+    def selection_updated(self, selection: "Selection | None") -> None:
+        # Uses private _line_cache; see _render_line compatibility block
+        self._line_cache.clear()
+        self.refresh()
+
+    def _render_line(self, y: int, scroll_x: int, width: int) -> "Strip":
+        from textual.strip import Strip
+
+        if y >= len(self.lines):
+            return Strip.blank(width, self.rich_style)
+
+        # =========================================================================
+        # TEXTUAL 8.0.0 COMPATIBILITY BLOCK (private API usage)
+        #
+        # This block accesses private RichLog/Strip internals that have no public API.
+        # If Textual upgrades break this, update the version comment and adjust accordingly.
+        # Private attributes used:
+        #   - self._start_line: offset for cache key after max_lines trimming
+        #   - self._widest_line_width: part of cache key scheme
+        #   - self._line_cache: dict cache for rendered Strip objects
+        #   - strip._segments: list of Rich Segments inside a Strip (no public accessor)
+        # =========================================================================
+        cache_key = (y + self._start_line, scroll_x, width, self._widest_line_width)
+        line_cache = self._line_cache
+
+        def extract_segments_from_strip(strip: Strip) -> list[Segment]:
+            """Extract segments from Strip using private _segments attribute."""
+            return list(strip._segments)
+
+        # End of compatibility block declarations
+        # =========================================================================
+
+        selection = self.text_selection
+
+        # Use cache when no selection active
+        if selection is None and cache_key in line_cache:
+            return line_cache[cache_key]
+
+        line = self.lines[y].crop_extend(scroll_x, scroll_x + width, self.rich_style)
+
+        if selection is not None:
+            span = selection.get_span(y)
+            if span is not None:
+                start, end = span
+                text = Text()
+                # Use compatibility helper to access private segments
+                for segment in extract_segments_from_strip(line):
+                    text.append(segment.text, style=segment.style)
+                text_len = len(text)
+                if end == -1:
+                    end = text_len + scroll_x
+                # Convert from full-line coordinates to viewport coordinates
+                adj_start = max(0, start - scroll_x)
+                adj_end = min(text_len, end - scroll_x)
+                if adj_start < adj_end:
+                    selection_style = self.screen.get_component_rich_style("screen--selection")
+                    text.stylize(selection_style, adj_start, adj_end)
+                line = Strip(text.render(self.app.console), line.cell_length)
+
+        line = line.apply_offsets(scroll_x, y)
+        line_cache[cache_key] = line
+        return line
+
+
 class ChatInput(TextArea):
     """A multiline text area for chat input that submits on Enter."""
 
@@ -321,6 +406,8 @@ class ChatInput(TextArea):
     _mention_request_id: int = 0
 
     BINDINGS = [
+        Binding("ctrl+b", "page_up_log", "Page Up", show=False),
+        Binding("ctrl+f", "page_down_log", "Page Down", show=False),
         Binding("shift+enter", "insert_newline", "Insert Newline", show=False),
         Binding("ctrl+j", "insert_newline", "Insert Newline", show=False),
         Binding("tab", "accept_suggestion", "Accept Suggestion", show=False),
@@ -351,6 +438,14 @@ class ChatInput(TextArea):
 
     def action_insert_newline(self) -> None:
         self.insert("\n")
+
+    def action_page_up_log(self) -> None:
+        """Delegate page-up scrolling to the chat panel while keeping input focus."""
+        self.app.query_one(ChatPanel).action_page_up()
+
+    def action_page_down_log(self) -> None:
+        """Delegate page-down scrolling to the chat panel while keeping input focus."""
+        self.app.query_one(ChatPanel).action_page_down()
 
     def _set_autocomplete_open(self, is_open: bool) -> None:
         """Synchronizes suggestions visibility and container styling."""
@@ -723,7 +818,7 @@ class ChatPanel(Vertical):
         self._draft_buffer: str = ""  # Stores text before history navigation started
 
     def compose(self) -> ComposeResult:
-        yield RichLog(highlight=True, markup=True, id="chat-log")
+        yield ChatLog(highlight=True, markup=True, wrap=True, min_width=0, id="chat-log")
         yield TokenBar(id="chat-token-bar", classes="hidden")
         yield StatusLine(id="status-line")
         with Vertical(id="chat-input-container"):
@@ -733,16 +828,70 @@ class ChatPanel(Vertical):
         yield ModeSuggestions(id="mode-suggestions")
         yield ReasoningSuggestions(id="reasoning-suggestions")
         with Horizontal(id="chat-help-row"):
+            yield Button("Scroll to Bottom", id="scroll-to-bottom", classes="hidden")
             yield LoadingIndicator(id="help-spinner", classes="hidden")
             yield Static(id="help-elapsed", classes="hidden")
             yield Static(
-                f"Enter: Send  Ctrl+J: Newline  {UP_ARROW}/{DOWN_ARROW}: History  Shift+Tab: Mode",
+                "Enter: Send  Ctrl+J: Newline  Ctrl+B/F: Scroll  "
+                f"{UP_ARROW}/{DOWN_ARROW}: History  Shift+Tab: Mode",
                 id="chat-help",
             )
 
     def on_mount(self) -> None:
         """Focus the input when the panel is mounted."""
         self.query_one("#chat-input", ChatInput).focus()
+        log = self.query_one("#chat-log", RichLog)
+        log.min_width = 0
+        log.styles.scrollbar_size_horizontal = 0
+        self.watch(log, "scroll_y", self._on_chat_log_scroll_change)
+
+    def _on_chat_log_scroll_change(self, old: float, new: float) -> None:
+        """Called when the chat log's scroll_y changes."""
+        self._sync_autoscroll()
+
+    def _sync_autoscroll(self) -> None:
+        """Update the RichLog's auto_scroll based on whether we're at the bottom.
+
+        This is called after user scroll events. It only DISABLES auto_scroll
+        when the user scrolls away from the bottom. Re-enabling happens when
+        the user scrolls back to the bottom OR submits a new message.
+
+        Also toggles visibility of the scroll-to-bottom button.
+        """
+        try:
+            log = self.query_one("#chat-log", RichLog)
+            scroll_btn = self.query_one("#scroll-to-bottom", Button)
+        except NoMatches:
+            return
+
+        # Only act when there's actually scrollable content.
+        # Note: log.scroll_y and log.max_scroll_y may be slightly out of sync during
+        # rapid updates, so we use a small tolerance or check is_vertical_scroll_end.
+        if log.max_scroll_y > 0:
+            if log.is_vertical_scroll_end:
+                log.auto_scroll = True
+                scroll_btn.add_class("hidden")
+            else:
+                log.auto_scroll = False
+                scroll_btn.remove_class("hidden")
+        else:
+            # Content fits in view - restore auto_scroll and hide button
+            log.auto_scroll = True
+            scroll_btn.add_class("hidden")
+
+    def action_page_up(self) -> None:
+        """Scroll the chat log up by one page even while input has focus."""
+        log = self.query_one("#chat-log", RichLog)
+        log.auto_scroll = False
+        log.scroll_page_up(animate=False)
+        self._sync_autoscroll()
+
+    def action_page_down(self) -> None:
+        """Scroll the chat log down by one page even while input has focus."""
+        log = self.query_one("#chat-log", RichLog)
+        log.auto_scroll = False
+        log.scroll_page_down(animate=False)
+        self._sync_autoscroll()
 
     def on_key(self, event: events.Key) -> None:
         """Handle Up/Down arrow keys for prompt history navigation."""
@@ -840,7 +989,32 @@ class ChatPanel(Vertical):
         """Forward submission message from the internal ChatInput."""
         self._history_index = -1
         self._draft_buffer = ""
+        # Reset to follow-bottom mode and scroll to end on new submission
+        self._reset_to_follow_bottom()
         self.post_message(self.Submitted(event.text))
+
+    def _reset_to_follow_bottom(self) -> None:
+        """Re-enable autoscroll and scroll the log to the end."""
+        try:
+            log = self.query_one("#chat-log", RichLog)
+            scroll_btn = self.query_one("#scroll-to-bottom", Button)
+        except NoMatches:
+            return
+
+        log.auto_scroll = True
+
+        def _do_reset():
+            log.scroll_end(animate=False)
+            scroll_btn.add_class("hidden")
+            self._sync_autoscroll()
+
+        self.call_after_refresh(_do_reset)
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Handle button press events."""
+        if event.button.id == "scroll-to-bottom":
+            self._reset_to_follow_bottom()
+            event.stop()
 
     def open_mode_menu(self, modes: List[str], current: str) -> None:
         """Opens the lightweight mode selection popup."""
@@ -1046,8 +1220,8 @@ class ChatPanel(Vertical):
         else:
             return self._collapsed_summary_text(name, yaml_body)
 
-    def _render_ai_content(self, log: RichLog, content: str) -> None:
-        """Renders AI markdown and tool-call YAML blocks with consistent formatting."""
+    def _ai_renderables(self, content: str) -> List[Any]:
+        """Build Rich renderables for AI markdown and tool-call YAML blocks."""
         import re
 
         pattern = re.compile(
@@ -1055,39 +1229,44 @@ class ChatPanel(Vertical):
             flags=re.DOTALL,
         )
 
+        renderables: List[Any] = []
         position = 0
         matched_tool_call = False
         for match in pattern.finditer(content):
             matched_tool_call = True
             before = content[position : match.start()]
             if before.strip():
-                log.write(DotMarkdown(before))
-                log.write("")
+                renderables.append(DotMarkdown(before))
+                renderables.append("")
 
             tool_name = match.group(1)
             yaml_body = match.group(3)
-            log.write(self._render_tool_call_panel(tool_name, yaml_body))
-            log.write("")
+            renderables.append(self._render_tool_call_panel(tool_name, yaml_body))
+            renderables.append("")
             position = match.end()
 
         if not matched_tool_call:
             filtered_content = self._filter_tool_call_blocks(content)
-            log.write(DotMarkdown(filtered_content))
-            log.write("")
-            return
+            renderables.append(DotMarkdown(filtered_content))
+            renderables.append("")
+            return renderables
 
         after = content[position:]
         if after.strip():
-            log.write(DotMarkdown(after))
-            log.write("")
+            renderables.append(DotMarkdown(after))
+            renderables.append("")
+        return renderables
 
-    def _render_message_entry(self, kind: str, content: str, **kwargs: Any) -> None:
-        """Visual rendering implementation for a single history entry."""
-        log = self.query_one("#chat-log", RichLog)
+    def _render_ai_content(self, log: RichLog, content: str) -> None:
+        """Renders AI markdown and tool-call YAML blocks with consistent formatting."""
+        for renderable in self._ai_renderables(content):
+            log.write(renderable)
 
+    def _message_entry_renderables(self, kind: str, content: str, **kwargs: Any) -> List[Any]:
+        """Build the renderables used for both live chat and exit transcript output."""
         if kind == "AI":
-            self._render_ai_content(log, content)
-        elif kind == "REASONING":
+            return self._ai_renderables(content)
+        if kind == "REASONING":
             if self.show_verbose:
                 panel_content = DotMarkdown(content, style="grey50")
                 panel = Panel(
@@ -1096,21 +1275,19 @@ class ChatPanel(Vertical):
                     title_align="center",
                     border_style="grey37",
                 )
-                log.write(panel)
-            else:
-                log.write(self._collapsed_summary_text("Thinking", content))
-            log.write("")
-        elif kind == "USER":
-            log.write(
+                return [panel, ""]
+            return [self._collapsed_summary_text("Thinking", content)]
+        if kind == "USER":
+            return [
                 Panel(
                     Text(content, justify="left"),
                     title="You",
                     title_align="right",
                     border_style="blue",
-                )
-            )
-            log.write("")
-        elif kind == "SYSTEM":
+                ),
+                "",
+            ]
+        if kind == "SYSTEM":
             level = kwargs.get("level", "INFO")
             markup = kwargs.get("markup", False)
             style_map = {
@@ -1121,12 +1298,10 @@ class ChatPanel(Vertical):
             }
             style = style_map.get(level.upper(), "italic grey50")
             prefix = f"[{level}] " if level != "INFO" else ""
-
             if markup:
-                log.write(f"[{style}]{prefix}{content}[/]")
-            else:
-                log.write(Text(f"{prefix}{content}", style=style))
-        elif kind == "TOOL_RESULT":
+                return [f"[{style}]{prefix}{content}[/]"]
+            return [Text(f"{prefix}{content}", style=style)]
+        if kind == "TOOL_RESULT":
             if self.show_verbose:
                 panel_content = DotMarkdown(content)
                 panel = Panel(
@@ -1135,26 +1310,41 @@ class ChatPanel(Vertical):
                     title_align="center",
                     border_style="grey37",
                 )
-                log.write(panel)
-            else:
-                log.write(self._collapsed_summary_text("Command Output", content))
-            log.write("")
-        elif kind == "WELCOME":
+                return [panel, ""]
+            return [self._collapsed_summary_text("Command Output", content), ""]
+        if kind == "WELCOME":
             icon = kwargs.get("icon", "")
-            log.write(Text(icon, style="#D04040"))
-            log.write(DotMarkdown(content))
-            log.write("")
-        elif kind == "LEGACY_AUTHOR":
+            return [Text(icon, style="#D04040"), DotMarkdown(content), ""]
+        if kind == "LEGACY_AUTHOR":
             author = kwargs.get("author", "System")
             output = Text()
             output.append(f"{author}: ", style="bold green")
             output.append(content)
-            log.write(output)
+            return [output]
+        return [Text(content)]
+
+    def _render_message_entry(self, kind: str, content: str, **kwargs: Any) -> None:
+        """Visual rendering implementation for a single history entry."""
+        log = self.query_one("#chat-log", RichLog)
+
+        # If we are not following the bottom, ensure auto_scroll is disabled
+        # so that log.write() does not jump to the end.
+        if not log.is_vertical_scroll_end:
+            log.auto_scroll = False
+        for renderable in self._message_entry_renderables(kind, content, **kwargs):
+            log.write(renderable)
 
     def refresh_log(self, show_verbose: bool) -> None:
         """Clears the RichLog and re-renders history based on the verbosity filter."""
         self.show_verbose = show_verbose
         log = self.query_one("#chat-log", RichLog)
+        was_following = log.auto_scroll
+        prior_scroll_y = log.scroll_y
+
+        # Disable auto_scroll before clearing/writing if we weren't following
+        if not was_following:
+            log.auto_scroll = False
+
         log.clear()
 
         for entry in self._message_history:
@@ -1163,6 +1353,19 @@ class ChatPanel(Vertical):
                 content=entry["content"],
                 **{k: v for k, v in entry.items() if k not in ("kind", "content")},
             )
+
+        if not was_following:
+            # Re-verify auto_scroll is still False after writes
+            log.auto_scroll = False
+
+            # Use call_later to ensure the scroll happens after the log's internal state updates
+            def _restore_scroll():
+                log.scroll_to(y=min(prior_scroll_y, log.max_scroll_y), animate=False)
+                self._sync_autoscroll()
+
+            self.call_later(_restore_scroll)
+        else:
+            self.call_later(self._sync_autoscroll)
 
     def add_markdown(self, content: str) -> None:
         """Renders a block of Markdown content to the chat log."""
@@ -1225,6 +1428,116 @@ class ChatPanel(Vertical):
         chat_input.text = ""
         self._history_index = -1
         self._draft_buffer = ""
+
+    def clear_transcript(self) -> None:
+        """Clears the rendered chat log and the in-memory transcript history."""
+        self._message_history.clear()
+        self._current_message_buffer = ""
+        self._current_message_type = None
+        self._is_reasoning = False
+        log = self.query_one("#chat-log", RichLog)
+        log.clear()
+
+    def export_plain_text_transcript(self) -> str:
+        """Return a plain-text transcript derived from the in-memory message history."""
+
+        skipped_system_messages = {
+            "API key saved. Starting Brokk executor...",
+            "Starting Brokk executor...",
+            "Shutting down...",
+        }
+
+        def should_include_entry(entry: Dict[str, Any]) -> bool:
+            kind = entry["kind"]
+            if kind == "WELCOME":
+                return False
+            if kind != "SYSTEM":
+                return True
+
+            content = str(entry.get("content", "")).strip()
+            level = str(entry.get("level", "INFO")).upper()
+            if level != "INFO":
+                return True
+            if content in skipped_system_messages:
+                return False
+            if content.startswith("Connected to executor "):
+                return False
+            if content.startswith("Resuming session "):
+                return False
+            if content.startswith("Press Ctrl+C or Ctrl+D again to quit."):
+                return False
+            return True
+
+        def format_entry(entry: Dict[str, Any]) -> str:
+            kind = entry["kind"]
+            content = str(entry.get("content", "")).strip()
+
+            if kind == "USER":
+                return f"You: {content}"
+            if kind == "AI":
+                return f"Brokk: {content}"
+            if kind == "REASONING":
+                return f"[Thinking]\n{content}"
+            if kind == "SYSTEM":
+                level = str(entry.get("level", "INFO")).upper()
+                prefix = "System" if level == "INFO" else level
+                return f"[{prefix}] {content}"
+            if kind == "TOOL_RESULT":
+                return f"[Command Output]\n{content}"
+            if kind == "LEGACY_AUTHOR":
+                author = str(entry.get("author", "System")).strip() or "System"
+                return f"{author}: {content}"
+            return content
+
+        blocks = []
+        for entry in self._message_history:
+            if not should_include_entry(entry):
+                continue
+            block = format_entry(entry).strip()
+            if block:
+                blocks.append(block)
+        return "\n\n".join(blocks)
+
+    def export_rich_transcript_renderables(self) -> List[Any]:
+        """Return filtered Rich renderables for printing after the TUI exits."""
+
+        def should_include_entry(entry: Dict[str, Any]) -> bool:
+            kind = entry["kind"]
+            if kind == "WELCOME":
+                return False
+            if kind != "SYSTEM":
+                return True
+
+            content = str(entry.get("content", "")).strip()
+            level = str(entry.get("level", "INFO")).upper()
+            if level != "INFO":
+                return True
+            if content in {
+                "API key saved. Starting Brokk executor...",
+                "Starting Brokk executor...",
+                "Shutting down...",
+            }:
+                return False
+            if content.startswith("Connected to executor "):
+                return False
+            if content.startswith("Resuming session "):
+                return False
+            if content.startswith("Press Ctrl+C or Ctrl+D again to quit."):
+                return False
+            return True
+
+        renderables: List[Any] = []
+        for entry in self._message_history:
+            if not should_include_entry(entry):
+                continue
+            renderables.extend(
+                self._message_entry_renderables(
+                    entry["kind"],
+                    entry["content"],
+                    **{k: v for k, v in entry.items() if k not in ("kind", "content")},
+                )
+            )
+        return renderables
 
     def set_token_usage(
         self,

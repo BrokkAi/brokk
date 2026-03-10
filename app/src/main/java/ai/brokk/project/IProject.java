@@ -9,6 +9,7 @@ import ai.brokk.agents.BuildAgent;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.analyzer.SourceRootScanner;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.mcpclient.McpConfig;
 import ai.brokk.project.ModelProperties.ModelType;
@@ -586,6 +587,25 @@ public interface IProject extends AutoCloseable {
     default long getTestCommandTimeoutSeconds() {
         return Environment.DEFAULT_TEST_COMMAND_TIMEOUT_SECONDS;
     }
+
+    /**
+     * Returns the list of source roots configured for this project for the given language.
+     *
+     * @param language the language to get source roots for.
+     * @return a list of relative or absolute paths as strings.
+     */
+    @Blocking
+    default List<String> getSourceRoots(Language language) {
+        return SourceRootScanner.scan(this, language);
+    }
+
+    /**
+     * Configures the source roots for this project for the given language.
+     *
+     * @param language the language to set source roots for.
+     * @param roots the list of source root paths.
+     */
+    default void setSourceRoots(Language language, List<String> roots) {}
 
     enum CodeAgentTestScope {
         ALL,

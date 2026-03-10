@@ -131,6 +131,33 @@ public final class Lines {
         return HeadTail.truncated(promptText, totalLines, topShown, bottomShown);
     }
 
+    public static boolean containsBareToken(String text, String token) {
+        int tokenLength = token.length();
+        if (tokenLength == 0) {
+            return false;
+        }
+
+        int index = text.indexOf(token);
+        while (index >= 0) {
+            int tokenStart = index;
+            int tokenEnd = index + tokenLength;
+
+            boolean leftBoundary = tokenStart == 0 || !isBareTokenChar(text.charAt(tokenStart - 1));
+            boolean rightBoundary = tokenEnd >= text.length() || !isBareTokenChar(text.charAt(tokenEnd));
+
+            if (leftBoundary && rightBoundary) {
+                return true;
+            }
+
+            index = text.indexOf(token, tokenStart + 1);
+        }
+        return false;
+    }
+
+    private static boolean isBareTokenChar(char c) {
+        return Character.isLetterOrDigit(c) || c == '_' || c == '$';
+    }
+
     public record RangeResult(String text, int lineCount) {}
 
     public static RangeResult range(String content, int oneBasedStartInclusive, int oneBasedEndInclusive) {

@@ -58,7 +58,10 @@
 
 ; Field declarations in classes and structs
 (field_declaration
-  declarator: (field_identifier) @field.name) @field.definition
+  declarator: [
+                (pointer_declarator (field_identifier) @field.name)
+                (field_identifier) @field.name
+                ]) @field.definition
 
 ; Method declarations within classes - field_declaration with function_declarator
 (field_declaration

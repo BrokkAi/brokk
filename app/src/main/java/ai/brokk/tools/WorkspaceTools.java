@@ -585,8 +585,10 @@ public class WorkspaceTools {
             - Scope: one coherent goal; avoid multi-goal items joined by 'and/then'.
             - Size target: ~2 hours for an experienced contributor across < 10 files.
             - Tests: prefer adding or updating automated tests (unit/integration) to prove the behavior;
-              if automation is not a good fit, you may omit tests rather than prescribe manual steps. Tests should
-              be completed as part of each task, not bolted on separately at the end.
+              if automation is not a good fit, you may omit tests rather than prescribe manual steps.
+              DO NOT CREATE ANY STANDALONE “TESTING / RUN TESTS / STABILIZATION / VERIFICATION” TASKS.
+              Any testing must be included in the Acceptance (and/or instructions) of the task that introduces the behavior.
+              Tasks structured this way fulfil any explicit directives to run tests.
             - Independence: runnable/reviewable on its own; at most one explicit dependency on a previous task.
             - Flexibility: the executing agent may adjust scope and ordering based on more up-to-date context discovered during implementation.
             - Incremental additions: when adding a task to an existing list, copy all existing incomplete tasks verbatim (preserving their exact wording and order) and insert the new task at the appropriate position based on dependencies.

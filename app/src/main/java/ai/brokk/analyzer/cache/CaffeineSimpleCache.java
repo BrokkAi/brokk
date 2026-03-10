@@ -27,6 +27,16 @@ public final class CaffeineSimpleCache<K, V> implements SimpleCache<K, V> {
     }
 
     @Override
+    public void remove(K key) {
+        cache.invalidate(key);
+    }
+
+    @Override
+    public void removeAll(Iterable<? extends K> keys) {
+        cache.invalidateAll(keys);
+    }
+
+    @Override
     public void putAll(SimpleCache<K, V> source) {
         cache.invalidateAll();
         source.forEach(this::put);

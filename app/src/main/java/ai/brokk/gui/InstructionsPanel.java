@@ -1941,9 +1941,15 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     boolean hadIncomplete = hasIncomplete(beforeTasks);
 
                     // SearchAgent now handles scanning internally via execute()
-                    var agent = new SearchAgent(context, query, modelToUse, objective, scope);
+                    TaskResult result;
+                    try {
+                        var agent = new SearchAgent(context, query, modelToUse, objective, scope);
+                        result = agent.execute();
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        return TaskResult.from(context, TaskResult.StopReason.INTERRUPTED);
+                    }
 
-                    var result = agent.execute();
                     // Apply results to context
                     context = result.context();
                     var agentTasks = context.getTaskListDataOrEmpty();
@@ -2468,73 +2474,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     }
 
     /**
-     * Accepts an externally provided status strip and places it immediately next to the ModelSelector
-     * in the bottom toolbar. Safe to call from any thread.
-     * <p>
-     * If a strip was previously installed, it is removed first. The provided component is detached
-     * from any prior parent before insertion (Swing components can only have one parent).
-     */
-    public void setStatusStrip(@Nullable JComponent comp) {
-        Runnable r = () -> {
-            try {
-                // Remove existing strip from its current parent (if any)
-                if (statusStripComponent != null) {
-                    Container p = statusStripComponent.getParent();
-                    if (p != null) {
-                        p.remove(statusStripComponent);
-                        p.revalidate();
-                        p.repaint();
-                    }
-                }
-
-                statusStripComponent = comp;
-
-                if (selectorStripPanel == null) {
-                    // Not built yet; will be placed when buildBottomPanel is called
-                    return;
-                }
-
-                // Rebuild the selector strip panel with model selector and optional status strip
-                selectorStripPanel.removeAll();
-
-                var modelComp = modelSelector.getComponent();
-                Container currentParent = modelComp.getParent();
-                if (currentParent != null) {
-                    currentParent.remove(modelComp);
-                    currentParent.revalidate();
-                    currentParent.repaint();
-                }
-                modelComp.setAlignmentY(Component.CENTER_ALIGNMENT);
-                selectorStripPanel.add(modelComp);
-
-                if (statusStripComponent != null) {
-                    // Ensure provided component has no parent
-                    Container stripParent = statusStripComponent.getParent();
-                    if (stripParent != null) {
-                        stripParent.remove(statusStripComponent);
-                        stripParent.revalidate();
-                        stripParent.repaint();
-                    }
-                    selectorStripPanel.add(Box.createHorizontalStrut(Math.max(1, H_GAP / 2)));
-                    statusStripComponent.setAlignmentY(Component.CENTER_ALIGNMENT);
-                    selectorStripPanel.add(statusStripComponent);
-                }
-
-                selectorStripPanel.revalidate();
-                selectorStripPanel.repaint();
-                if (bottomToolbarPanel != null) {
-                    bottomToolbarPanel.revalidate();
-                    bottomToolbarPanel.repaint();
-                }
-            } catch (Exception ex) {
-                logger.debug("setStatusStrip: non-fatal error while installing status strip", ex);
-            }
-        };
-        if (SwingUtilities.isEventDispatchThread()) r.run();
-        else SwingUtilities.invokeLater(r);
-    }
-
-    /**
      * Returns the mode toggle panel component so it can be moved between panels
      * (Instructions <-> Tasks) as a single shared component.
      */
@@ -2642,10 +2581,6 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
     public SplitButton getHistoryDropdown() {
         return historyDropdown;
-    }
-
-    public ActionSplitButton getActionButton() {
-        return actionButton;
     }
 
     /**

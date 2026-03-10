@@ -18,12 +18,15 @@ import java.util.Set;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 import org.jetbrains.annotations.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * A usage finder facade that delegates to language-specific strategies (e.g., JDT for Java, LLM/Fuzzy for others).
  */
 public final class UsageFinder {
 
+    private static final Logger log = LoggerFactory.getLogger(UsageFinder.class);
     private static final boolean FUZZY_USAGES_ONLY = System.getenv("BRK_FUZZY_USAGES_ONLY") != null;
     public static final int DEFAULT_MAX_FILES = 1000;
     public static final int DEFAULT_MAX_USAGES = 1000;
@@ -115,7 +118,31 @@ public final class UsageFinder {
             return new FuzzyResult.TooManyCallsites(target.shortName(), candidateFiles.size(), maxFiles);
         }
 
-        return config.usageAnalyzer().findUsages(overloads, candidateFiles, maxUsages);
+        FuzzyResult result = config.usageAnalyzer().findUsages(overloads, candidateFiles, maxUsages);
+
+        // Fallback if primary analysis fails or returns suspiciously empty results
+        boolean suspiciouslyEmpty =
+                result instanceof FuzzyResult.Success success && success.hits().isEmpty() && !candidateFiles.isEmpty();
+
+        if ((result instanceof FuzzyResult.Failure || suspiciouslyEmpty)
+                && config.usageAnalyzer().getClass() != fallbackUsageAnalyzer.getClass()) {
+            log.warn(
+                    "Primary usage analysis {} for {}, falling back to fuzzy analyzer",
+                    suspiciouslyEmpty ? "returned no hits" : "failed",
+                    target.fqName());
+            config = new Configuration(fallbackCandidateProvider, fallbackUsageAnalyzer);
+            candidateFiles = config.candidateProvider().findCandidates(target, analyzer);
+            if (fileFilter != null) {
+                candidateFiles = candidateFiles.stream().filter(fileFilter).collect(Collectors.toSet());
+            }
+
+            if (maxFiles < candidateFiles.size()) {
+                return new FuzzyResult.TooManyCallsites(target.shortName(), candidateFiles.size(), maxFiles);
+            }
+            return config.usageAnalyzer().findUsages(overloads, candidateFiles, maxUsages);
+        }
+
+        return result;
     }
 
     public FuzzyResult findUsages(String fqName, int maxFiles, int maxUsages) throws InterruptedException {
@@ -130,16 +157,17 @@ public final class UsageFinder {
         var overloads = List.copyOf(definitions);
         var result = findUsages(overloads, maxFiles, maxUsages);
 
-        Map<CodeUnit, Set<UsageHit>> allHitsByOverload =
-                switch (result) {
-                    case FuzzyResult.Success success -> success.hitsByOverload();
-                    case FuzzyResult.Ambiguous ambiguous -> ambiguous.hitsByOverload();
-                    case FuzzyResult.TooManyCallsites tooMany -> Map.of();
-                    case FuzzyResult.Failure failure -> Map.of();
-                };
-
-        var filteredHitsByOverload = LlmUsageAnalyzer.filterByConfidence(allHitsByOverload);
-        return new FuzzyResult.Success(filteredHitsByOverload);
+        return switch (result) {
+            case FuzzyResult.Success success ->
+                new FuzzyResult.Success(LlmUsageAnalyzer.filterByConfidence(success.hitsByOverload()));
+            case FuzzyResult.Ambiguous ambiguous ->
+                new FuzzyResult.Ambiguous(
+                        ambiguous.shortName(),
+                        ambiguous.candidateTargets(),
+                        LlmUsageAnalyzer.filterByConfidence(ambiguous.hitsByOverload()));
+            case FuzzyResult.TooManyCallsites tooMany -> tooMany;
+            case FuzzyResult.Failure failure -> failure;
+        };
     }
 
     public FuzzyResult findUsages(String fqName) throws InterruptedException {

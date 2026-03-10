@@ -307,6 +307,90 @@ def test_help_menu_layout_contract():
     # 9. Ensure notification panel CSS is removed from main rules
     assert "#notification-panel" not in css_content
 
+    # 10. Ensure costs modal help line matches parity
+    costs_help_match = re.search(r"#session-costs-help-line\s*\{([^}]*)\}", css_content)
+    assert costs_help_match, "Could not find #session-costs-help-line rule in app.tcss"
+    costs_help_body = costs_help_match.group(1)
+    assert "background: transparent;" in costs_help_body
+    assert "color: $text-disabled;" in costs_help_body
+    assert "height: 1;" in costs_help_body
+
+
+def test_session_costs_table_layout():
+    """
+    Ensure the session costs list uses a column-based table layout.
+    """
+    css_content = importlib.resources.files("brokk_code.styles").joinpath("app.tcss").read_text()
+
+    # Verify header existence and styling
+    header_match = re.search(r"#session-costs-header\s*\{([^}]*)\}", css_content)
+    assert header_match, "Could not find #session-costs-header rule in app.tcss"
+    header_body = header_match.group(1)
+    assert "text-style: bold;" in header_body
+    assert "background:" in header_body
+
+    # Verify column widths are defined
+    for col in [".col-ts", ".col-type", ".col-model", ".col-tokens", ".col-cost"]:
+        assert f"{col} {{ width:" in css_content, f"Missing width definition for {col}"
+
+    # Verify cost column alignment
+    cost_match = re.search(r"\.col-cost\s*\{([^}]*)\}", css_content)
+    assert "content-align: right middle;" in cost_match.group(1)
+
+    # ListView container width expansion
+    wrap_match = re.search(r"#session-costs-list-wrap\s*\{([^}]*)\}", css_content)
+    assert "width: 100%;" in wrap_match.group(1)
+
+    # Row widget width expansion
+    row_match = re.search(r"\.session-cost-row\s*\{([^}]*)\}", css_content)
+    assert "width: 100%;" in row_match.group(1)
+
+
+def test_session_costs_modal_dimensions_regression():
+    """
+    Ensure the session costs modal uses full-screen dimensions.
+    """
+    css_content = importlib.resources.files("brokk_code.styles").joinpath("app.tcss").read_text()
+
+    modal_match = re.search(r"#session-costs-container\s*\{([^}]*)\}", css_content)
+    assert modal_match, "Could not find #session-costs-container rule in app.tcss"
+    modal_body = modal_match.group(1)
+
+    assert "width: 100%" in modal_body, "#session-costs-container should use full width"
+    assert "height: 100%" in modal_body, "#session-costs-container should use full height"
+
+    # Verify centering rule exists
+    centering_match = re.search(r"SessionCostsModalScreen\s*\{([^}]*)\}", css_content)
+    assert centering_match, "Could not find SessionCostsModalScreen rule in app.tcss"
+    assert "align: center middle;" in centering_match.group(1)
+
+
+def test_scroll_to_bottom_button_styling():
+    """
+    Regression test to ensure #scroll-to-bottom button has proper styling
+    and the .hidden class continues to work for it.
+    """
+    css_content = importlib.resources.files("brokk_code.styles").joinpath("app.tcss").read_text()
+
+    # Check that #scroll-to-bottom rule exists
+    scroll_btn_match = re.search(r"#scroll-to-bottom\s*\{([^}]*)\}", css_content)
+    assert scroll_btn_match, "Could not find #scroll-to-bottom rule in app.tcss"
+    scroll_btn_body = scroll_btn_match.group(1)
+
+    # Verify it has height: 1 for inline positioning in help row
+    assert "height: 1" in scroll_btn_body, (
+        "#scroll-to-bottom should use 'height: 1' for inline positioning"
+    )
+
+    # Verify it has width styling
+    assert "width:" in scroll_btn_body, "#scroll-to-bottom should have width defined"
+
+    # Verify .hidden class still exists and hides elements
+    hidden_match = re.search(r"\.hidden\s*\{([^}]*)\}", css_content)
+    assert hidden_match, "Could not find .hidden rule in app.tcss"
+    hidden_body = hidden_match.group(1)
+    assert "display: none" in hidden_body, ".hidden should set display: none"
+
 
 def test_api_key_modal_dimensions_regression():
     """

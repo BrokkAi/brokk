@@ -2,6 +2,8 @@ package ai.brokk.gui.dialogs;
 
 import ai.brokk.IConsoleIO;
 import ai.brokk.analyzer.Language;
+import ai.brokk.analyzer.Languages;
+import ai.brokk.project.IProject;
 import java.awt.*;
 import java.nio.file.Path;
 import javax.swing.*;
@@ -26,6 +28,10 @@ public abstract class AnalyzerSettingsPanel extends JPanel {
 
     public static AnalyzerSettingsPanel createAnalyzersPanel(
             SettingsProjectPanel parent, Language language, Path projectRoot, IConsoleIO io) {
+        IProject project = parent.getChrome().getProject();
+        if (language == Languages.JAVA || language.internalName().equals("JAVA")) {
+            return new JavaAnalyzerSettingsPanel(language, project, io);
+        }
         return new EmptyAnalyzerSettingsPanel(language, projectRoot, io);
     }
 

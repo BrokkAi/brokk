@@ -9,6 +9,7 @@ import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ExternalFile;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.concurrent.ComputedValue;
+import ai.brokk.util.Lines;
 import java.io.IOException;
 import java.time.Duration;
 import java.util.*;
@@ -106,7 +107,7 @@ public interface ContextFragment {
      */
     static Set<ProjectFile> extractFilesFromText(String text, IContextManager contextManager) {
         return contextManager.getProject().getAllFiles().parallelStream()
-                .filter(f -> text.contains(f.toString()))
+                .filter(f -> Lines.containsBareToken(text, f.toString()))
                 .collect(Collectors.toSet());
     }
 
