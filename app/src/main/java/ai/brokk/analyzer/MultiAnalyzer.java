@@ -348,6 +348,13 @@ public class MultiAnalyzer
                 .orElse(List.of());
     }
 
+    /**
+     * Delegates test detection to the language-specific analyzer.
+     *
+     * <p>Returns {@code false} if no delegate exists for the file's language. This is consistent
+     * with {@link IAnalyzer#containsTests} semantics where a negative result from an unsupported
+     * analyzer is treated as "unknown" semantic detection.
+     */
     @Override
     public boolean containsTests(ProjectFile file) {
         return delegateFor(file).map(delegate -> delegate.containsTests(file)).orElse(false);
