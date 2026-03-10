@@ -2,8 +2,9 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from brokk_code.app import BrokkApp, _infer_github_repo_from_remote
+from brokk_code.app import BrokkApp
 from brokk_code.executor import ExecutorError, ExecutorManager
+from brokk_code.git_utils import infer_github_repo_from_remote
 
 
 @pytest.mark.asyncio
@@ -145,9 +146,9 @@ def test_infer_github_repo_from_remote_https(tmp_path, monkeypatch):
     def fake_run(cmd, **kwargs):
         return FakeResult()
 
-    monkeypatch.setattr("brokk_code.app.subprocess.run", fake_run)
+    monkeypatch.setattr("brokk_code.git_utils.subprocess.run", fake_run)
 
-    owner, repo = _infer_github_repo_from_remote(tmp_path)
+    owner, repo = infer_github_repo_from_remote(tmp_path)
     assert owner == "test-owner"
     assert repo == "test-repo"
 
@@ -163,9 +164,9 @@ def test_infer_github_repo_from_remote_ssh(tmp_path, monkeypatch):
     def fake_run(cmd, **kwargs):
         return FakeResult()
 
-    monkeypatch.setattr("brokk_code.app.subprocess.run", fake_run)
+    monkeypatch.setattr("brokk_code.git_utils.subprocess.run", fake_run)
 
-    owner, repo = _infer_github_repo_from_remote(tmp_path)
+    owner, repo = infer_github_repo_from_remote(tmp_path)
     assert owner == "ssh-owner"
     assert repo == "ssh-repo"
 
@@ -181,9 +182,9 @@ def test_infer_github_repo_from_remote_failure(tmp_path, monkeypatch):
     def fake_run(cmd, **kwargs):
         return FakeResult()
 
-    monkeypatch.setattr("brokk_code.app.subprocess.run", fake_run)
+    monkeypatch.setattr("brokk_code.git_utils.subprocess.run", fake_run)
 
-    owner, repo = _infer_github_repo_from_remote(tmp_path)
+    owner, repo = infer_github_repo_from_remote(tmp_path)
     assert owner is None
     assert repo is None
 
@@ -206,7 +207,7 @@ def test_handle_review_command_missing_token(tmp_path, monkeypatch):
 
     # Mock remote inference to succeed
     monkeypatch.setattr(
-        "brokk_code.app._infer_github_repo_from_remote",
+        "brokk_code.app.infer_github_repo_from_remote",
         lambda _: ("owner", "repo"),
     )
 
@@ -234,7 +235,7 @@ def test_handle_review_command_missing_remote(tmp_path, monkeypatch):
 
     # Mock remote inference to fail
     monkeypatch.setattr(
-        "brokk_code.app._infer_github_repo_from_remote",
+        "brokk_code.app.infer_github_repo_from_remote",
         lambda _: (None, None),
     )
 
@@ -262,7 +263,7 @@ def test_handle_review_command_submits_job(tmp_path, monkeypatch):
 
     monkeypatch.setattr(app, "_maybe_chat", lambda: MockChat())
     monkeypatch.setattr(
-        "brokk_code.app._infer_github_repo_from_remote",
+        "brokk_code.app.infer_github_repo_from_remote",
         lambda _: ("inferred-owner", "inferred-repo"),
     )
 

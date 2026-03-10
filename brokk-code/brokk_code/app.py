@@ -4,12 +4,11 @@ import os
 import random
 import re
 import signal
-import subprocess
 import time
 import webbrowser
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
+from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from textual import events
 from textual.app import App, ComposeResult, ScreenStackError
@@ -20,6 +19,7 @@ from textual.widgets import Button, Input, ListItem, ListView, Static, TextArea
 
 from brokk_code.event_utils import is_failure_state, normalize_event_data
 from brokk_code.executor import ExecutorError, ExecutorManager
+from brokk_code.git_utils import infer_github_repo_from_remote
 from brokk_code.prompt_history import append_prompt, load_history
 from brokk_code.settings import (
     DEFAULT_THEME,
@@ -35,45 +35,6 @@ from brokk_code.widgets.tasklist_panel import TaskListPanel
 from brokk_code.workspace import resolve_workspace_dir
 
 logger = logging.getLogger(__name__)
-
-_GITHUB_HTTPS_REGEX = r"^https://github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(?:\.git)?$"
-_GITHUB_SSH_REGEX = r"^git@github\.com:([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(?:\.git)?$"
-
-
-def _infer_github_repo_from_remote(workspace_dir: Path) -> Tuple[Optional[str], Optional[str]]:
-    """Infers GitHub owner and repo from the git remote 'origin' URL.
-
-    Returns (owner, repo) if successfully parsed, otherwise (None, None).
-    Supports HTTPS and SSH GitHub remote URL formats.
-    """
-    try:
-        result = subprocess.run(
-            ["git", "remote", "get-url", "origin"],
-            capture_output=True,
-            text=True,
-            timeout=10.0,
-            cwd=str(workspace_dir),
-        )
-        if result.returncode != 0:
-            return (None, None)
-
-        remote_url = result.stdout.strip()
-        if not remote_url:
-            return (None, None)
-
-        # Try HTTPS format: https://github.com/owner/repo.git
-        https_match = re.match(_GITHUB_HTTPS_REGEX, remote_url)
-        if https_match:
-            return (https_match.group(1), https_match.group(2))
-
-        # Try SSH format: git@github.com:owner/repo.git
-        ssh_match = re.match(_GITHUB_SSH_REGEX, remote_url)
-        if ssh_match:
-            return (ssh_match.group(1), ssh_match.group(2))
-
-        return (None, None)
-    except Exception:
-        return (None, None)
 
 
 class ContextModalScreen(ModalScreen[None]):
@@ -1840,7 +1801,7 @@ class BrokkApp(App):
                     level="ERROR",
                 )
                 return
-            owner, repo = _infer_github_repo_from_remote(self.executor.workspace_dir)
+            owner, repo = infer_github_repo_from_remote(self.executor.workspace_dir)
             if not owner or not repo:
                 chat.add_system_message(
                     "Could not infer GitHub owner/repo from git remote. "
