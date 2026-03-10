@@ -13,7 +13,6 @@ import ai.brokk.testutil.InlineTestProjectCreator;
 import ai.brokk.testutil.NoOpConsoleIO;
 import ai.brokk.testutil.TestAnalyzer;
 import ai.brokk.testutil.TestContextManager;
-import java.io.IOException;
 import java.nio.file.Path;
 import java.util.HashSet;
 import java.util.List;
@@ -33,14 +32,10 @@ public class AnalyzerUtilSelectionTest {
 
     @BeforeEach
     void setup() {
-        try {
-            project = InlineTestProjectCreator.code("class A {}\n", "src/main/java/A.java")
-                    .addFileContents("class B {}\n", "src/main/java/sub/B.java")
-                    .addFileContents("readme\n", "README.md")
-                    .build();
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        }
+        project = InlineTestProjectCreator.code("class A {}\n", "src/main/java/A.java")
+                .addFileContents("class B {}\n", "src/main/java/sub/B.java")
+                .addFileContents("readme\n", "README.md")
+                .build();
         projectRoot = project.getRoot();
 
         pfA = new ProjectFile(projectRoot, "src/main/java/A.java");

@@ -56,7 +56,7 @@ class ReviewAgentTest {
     void testComputeCumulativeDiff_betweenCommits() throws IOException, GitAPIException {
         // Create project with initial commit
         var project = InlineTestProjectCreator.code("line1\n", "file.txt")
-                .withGit()
+                .withMockGit()
                 .addCommit("file.txt", "file.txt")
                 .build();
 
@@ -86,7 +86,7 @@ class ReviewAgentTest {
     void testComputeCumulativeDiff_noChanges() throws IOException, GitAPIException {
         // Create project with initial commit
         var project = InlineTestProjectCreator.code("line1\n", "file.txt")
-                .withGit()
+                .withMockGit()
                 .addCommit("file.txt", "file.txt")
                 .build();
 
@@ -106,7 +106,7 @@ class ReviewAgentTest {
     @Test
     void testFromBaseline_simpleRef() throws IOException {
         var project = InlineTestProjectCreator.code("line1\n", "file.txt")
-                .withGit()
+                .withMockGit()
                 .addCommit("file.txt", "file.txt")
                 .build();
         IContextManager cm = new TestContextManager(project);

@@ -7,9 +7,10 @@ import static org.junit.jupiter.api.Assertions.*;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitRepoFactory;
+import ai.brokk.git.IGitRepo;
 import ai.brokk.project.IProject;
+import ai.brokk.testutil.TestProject;
 import java.io.IOException;
-import java.lang.reflect.Proxy;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -34,17 +35,13 @@ public class NonTextHeuristicResolverTest {
         repo = new GitRepo(tempRepoDir);
     }
 
-    private IProject projectProxy(GitRepo r, Path root) {
-        return (IProject) Proxy.newProxyInstance(
-                IProject.class.getClassLoader(), new Class<?>[] {IProject.class}, (proxy, method, args) -> {
-                    String name = method.getName();
-                    if (name.equals("getRepo")) {
-                        return r;
-                    } else if (name.equals("getRoot")) {
-                        return root;
-                    }
-                    throw new UnsupportedOperationException("Not implemented: " + name);
-                });
+    private IProject testProject(GitRepo r) {
+        return new TestProject(r.getWorkTreeRoot()) {
+            @Override
+            public IGitRepo getRepo() {
+                return r;
+            }
+        };
     }
 
     @Test
@@ -75,7 +72,7 @@ public class NonTextHeuristicResolverTest {
         assertTrue(GitRepo.hasConflicts(mergeResult), "Expected conflicts during merge");
 
         // 5) Inspect conflicts using ConflictInspector
-        var project = projectProxy(repo, tempRepoDir);
+        var project = testProject(repo);
         var mergeConflict = ConflictInspector.inspectFromProject(project);
 
         // Find DELETE_MODIFY entry

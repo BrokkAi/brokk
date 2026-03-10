@@ -96,7 +96,7 @@ class AnalyzerWrapperCorruptionTest {
 
             @Override
             public Set<String> getExtensions() {
-                return Set.of(".java");
+                return Set.of("java");
             }
 
             @Override
@@ -117,23 +117,8 @@ class AnalyzerWrapperCorruptionTest {
         };
         customJavaRef.set(customJava);
 
-        // Override the project's language handle to use our test instrumentation
-        TestProject instrumentedProject = new TestProject(tempDir, Languages.JAVA) {
-            @Override
-            public Language getLanguageHandle() {
-                return customJava;
-            }
-
-            @Override
-            public Set<Language> getAnalyzerLanguages() {
-                return Set.of(customJava);
-            }
-
-            @Override
-            public Set<ProjectFile> getAnalyzableFiles(Language lang) {
-                return lang == customJava ? Set.of(fileA) : Set.of();
-            }
-        };
+        TestProject instrumentedProject = new TestProject(tempDir, Languages.JAVA).withAllFiles(Set.of(fileA));
+        instrumentedProject.setAnalyzerLanguages(Set.of(customJava));
 
         AnalyzerListener listener = new AnalyzerListener() {
             @Override

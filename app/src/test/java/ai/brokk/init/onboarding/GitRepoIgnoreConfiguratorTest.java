@@ -8,15 +8,13 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitTestCleanupUtil;
 import ai.brokk.init.onboarding.GitIgnoreConfigurator.SetupResult;
-import ai.brokk.project.IProject;
+import ai.brokk.testutil.TestProject;
 import dev.langchain4j.data.message.ChatMessageType;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.List;
 import org.eclipse.jgit.api.Git;
-import org.eclipse.jgit.api.errors.GitAPIException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -33,44 +31,6 @@ class GitRepoIgnoreConfiguratorTest {
 
     private Path projectRoot;
     private GitRepo gitRepo;
-
-    /**
-     * Minimal test implementation of IProject.
-     */
-    private static class TestProject implements IProject {
-        private final Path root;
-        private final GitRepo repo;
-
-        TestProject(Path root, GitRepo repo) {
-            this.root = root;
-            this.repo = repo;
-        }
-
-        @Override
-        public Path getRoot() {
-            return root;
-        }
-
-        @Override
-        public Path getMasterRootPathForConfig() {
-            return root;
-        }
-
-        @Override
-        public GitRepo getRepo() {
-            return repo;
-        }
-
-        @Override
-        public boolean hasGit() {
-            return repo != null;
-        }
-
-        @Override
-        public void close() {
-            // No-op for tests
-        }
-    }
 
     /**
      * Test implementation of IConsoleIO that captures notifications.
@@ -128,7 +88,7 @@ class GitRepoIgnoreConfiguratorTest {
 
     @Test
     void testFreshProject_CreatesGitignore() throws Exception {
-        var project = new TestProject(projectRoot, gitRepo);
+        var project = new TestProject(projectRoot).withRepo(gitRepo);
         var consoleIO = new TestConsoleIO();
 
         // Verify no .gitignore exists
@@ -162,7 +122,7 @@ class GitRepoIgnoreConfiguratorTest {
         // Create existing .gitignore without Brokk patterns
         Files.writeString(projectRoot.resolve(".gitignore"), "node_modules/\n*.log\n");
 
-        var project = new TestProject(projectRoot, gitRepo);
+        var project = new TestProject(projectRoot).withRepo(gitRepo);
         var consoleIO = new TestConsoleIO();
 
         // Execute
@@ -181,7 +141,7 @@ class GitRepoIgnoreConfiguratorTest {
         // Create .gitignore with comprehensive pattern
         Files.writeString(projectRoot.resolve(".gitignore"), "node_modules/\n**/.brokk/**\n");
 
-        var project = new TestProject(projectRoot, gitRepo);
+        var project = new TestProject(projectRoot).withRepo(gitRepo);
         var consoleIO = new TestConsoleIO();
 
         // Execute
@@ -201,7 +161,7 @@ class GitRepoIgnoreConfiguratorTest {
         // Create .gitignore with **/.brokk/ pattern
         Files.writeString(projectRoot.resolve(".gitignore"), "**/.brokk/\n");
 
-        var project = new TestProject(projectRoot, gitRepo);
+        var project = new TestProject(projectRoot).withRepo(gitRepo);
         var consoleIO = new TestConsoleIO();
 
         // Execute
@@ -216,7 +176,7 @@ class GitRepoIgnoreConfiguratorTest {
         // Create .gitignore with only partial patterns (not comprehensive)
         Files.writeString(projectRoot.resolve(".gitignore"), ".brokk/workspace.properties\n.brokk/sessions/\n");
 
-        var project = new TestProject(projectRoot, gitRepo);
+        var project = new TestProject(projectRoot).withRepo(gitRepo);
 
         // Execute
         SetupResult result = GitIgnoreConfigurator.setupGitIgnoreAndStageFiles(project, null);
@@ -234,7 +194,7 @@ class GitRepoIgnoreConfiguratorTest {
         // Create .gitignore with wildcard patterns
         Files.writeString(projectRoot.resolve(".gitignore"), "**/node_modules/\n**/.brokk/**\n");
 
-        var project = new TestProject(projectRoot, gitRepo);
+        var project = new TestProject(projectRoot).withRepo(gitRepo);
 
         // Execute
         SetupResult result = GitIgnoreConfigurator.setupGitIgnoreAndStageFiles(project, null);
@@ -248,7 +208,7 @@ class GitRepoIgnoreConfiguratorTest {
         // Create .gitignore with leading slash pattern
         Files.writeString(projectRoot.resolve(".gitignore"), "/**/.brokk/**\n");
 
-        var project = new TestProject(projectRoot, gitRepo);
+        var project = new TestProject(projectRoot).withRepo(gitRepo);
 
         // Execute
         SetupResult result = GitIgnoreConfigurator.setupGitIgnoreAndStageFiles(project, null);
@@ -262,7 +222,7 @@ class GitRepoIgnoreConfiguratorTest {
         // Create .gitignore with recursive directory pattern
         Files.writeString(projectRoot.resolve(".gitignore"), "**/.brokk/\n");
 
-        var project = new TestProject(projectRoot, gitRepo);
+        var project = new TestProject(projectRoot).withRepo(gitRepo);
 
         // Execute
         SetupResult result = GitIgnoreConfigurator.setupGitIgnoreAndStageFiles(project, null);
@@ -276,7 +236,7 @@ class GitRepoIgnoreConfiguratorTest {
         // Create .gitignore with a specific file pattern inside .brokk
         Files.writeString(projectRoot.resolve(".gitignore"), "**/.brokk/workspace.properties\n**/.brokk/**\n");
 
-        var project = new TestProject(projectRoot, gitRepo);
+        var project = new TestProject(projectRoot).withRepo(gitRepo);
 
         // Execute
         SetupResult result = GitIgnoreConfigurator.setupGitIgnoreAndStageFiles(project, null);
@@ -290,7 +250,7 @@ class GitRepoIgnoreConfiguratorTest {
         // Create .gitignore with pattern followed by comment
         Files.writeString(projectRoot.resolve(".gitignore"), "**/.brokk/** # Brokk configuration files\n");
 
-        var project = new TestProject(projectRoot, gitRepo);
+        var project = new TestProject(projectRoot).withRepo(gitRepo);
 
         // Execute
         SetupResult result = GitIgnoreConfigurator.setupGitIgnoreAndStageFiles(project, null);
@@ -301,7 +261,7 @@ class GitRepoIgnoreConfiguratorTest {
 
     @Test
     void testStubFiles_AreCreated() throws Exception {
-        var project = new TestProject(projectRoot, gitRepo);
+        var project = new TestProject(projectRoot).withRepo(gitRepo);
 
         // Execute
         GitIgnoreConfigurator.setupGitIgnoreAndStageFiles(project, null);
@@ -317,7 +277,7 @@ class GitRepoIgnoreConfiguratorTest {
 
     @Test
     void testSharedFiles_AreStaged() throws Exception {
-        var project = new TestProject(projectRoot, gitRepo);
+        var project = new TestProject(projectRoot).withRepo(gitRepo);
 
         // Execute
         SetupResult result = GitIgnoreConfigurator.setupGitIgnoreAndStageFiles(project, null);
@@ -337,7 +297,7 @@ class GitRepoIgnoreConfiguratorTest {
         Files.createDirectories(projectRoot.resolve(".brokk"));
         Files.writeString(projectRoot.resolve(".brokk/style.md"), "# Legacy Style Guide\nOld content here");
 
-        var project = new TestProject(projectRoot, gitRepo);
+        var project = new TestProject(projectRoot).withRepo(gitRepo);
 
         // Execute
         SetupResult result = GitIgnoreConfigurator.setupGitIgnoreAndStageFiles(project, null);
@@ -361,27 +321,7 @@ class GitRepoIgnoreConfiguratorTest {
     @Test
     void testNonGitProject_ReturnsError() throws Exception {
         // Create project without GitRepo
-        var nonGitProject =
-                new TestProject(projectRoot, new GitRepo(projectRoot) {
-                    @Override
-                    public synchronized void add(ProjectFile file) throws GitAPIException {}
-
-                    @Override
-                    public synchronized void add(Collection<ProjectFile> files) throws GitAPIException {}
-
-                    @Override
-                    public synchronized void remove(ProjectFile file) throws GitAPIException {}
-                }) {
-                    @Override
-                    public GitRepo getRepo() {
-                        return null;
-                    }
-
-                    @Override
-                    public boolean hasGit() {
-                        return false;
-                    }
-                };
+        var nonGitProject = new TestProject(projectRoot).withoutRepo();
 
         // Execute
         SetupResult result = GitIgnoreConfigurator.setupGitIgnoreAndStageFiles(nonGitProject, null);
@@ -402,7 +342,7 @@ class GitRepoIgnoreConfiguratorTest {
         // Create .gitignore with pattern that has whitespace
         Files.writeString(projectRoot.resolve(".gitignore"), "  **/.brokk/**  \n");
 
-        var project = new TestProject(projectRoot, gitRepo);
+        var project = new TestProject(projectRoot).withRepo(gitRepo);
 
         // Execute
         SetupResult result = GitIgnoreConfigurator.setupGitIgnoreAndStageFiles(project, null);
@@ -416,7 +356,7 @@ class GitRepoIgnoreConfiguratorTest {
         // Create .gitignore without trailing newline
         Files.writeString(projectRoot.resolve(".gitignore"), "node_modules/");
 
-        var project = new TestProject(projectRoot, gitRepo);
+        var project = new TestProject(projectRoot).withRepo(gitRepo);
 
         // Execute
         GitIgnoreConfigurator.setupGitIgnoreAndStageFiles(project, null);

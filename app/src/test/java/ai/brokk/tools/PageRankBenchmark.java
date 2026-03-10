@@ -151,7 +151,7 @@ public class PageRankBenchmark implements Callable<Integer> {
         String firstFile = String.format("File%05d.java", 0);
         var builder = InlineTestProjectCreator.code(
                         generateFileContent(0, fileNames, adjacencyList.getOrDefault(0, List.of())), firstFile)
-                .withGit();
+                .withMockGit();
 
         for (int i = 1; i < nodeCount; i++) {
             builder.addFileContents(
