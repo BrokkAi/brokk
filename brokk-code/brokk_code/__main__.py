@@ -35,7 +35,6 @@ _MCP_JBANG_PACKAGE = "brokk-headless@brokkai/brokk-releases"
 _JBANG_PREFETCH_TIMEOUT_SECONDS = 120.0
 
 
-
 def _validate_github_params(
     github_token: str | None,
     repo_owner: str | None,

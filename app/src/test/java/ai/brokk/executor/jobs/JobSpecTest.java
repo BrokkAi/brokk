@@ -24,6 +24,7 @@ class JobSpecTest {
         assertNull(spec.sourceBranch());
         assertNull(spec.targetBranch());
 
+        assertEquals("REVIEW", spec.tags().get("mode"));
         assertEquals("ghp_token123", spec.tags().get("github_token"));
         assertEquals("octocat", spec.tags().get("repo_owner"));
         assertEquals("hello-world", spec.tags().get("repo_name"));
@@ -97,7 +98,8 @@ class JobSpecTest {
 
         // Verify tags map is immutable by attempting to retrieve it
         var tags = spec.tags();
-        assertEquals(4, tags.size());
+        assertEquals(5, tags.size());
+        assertTrue(tags.containsKey("mode"));
         assertTrue(tags.containsKey("github_token"));
         assertTrue(tags.containsKey("repo_owner"));
         assertTrue(tags.containsKey("repo_name"));

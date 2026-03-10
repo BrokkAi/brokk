@@ -137,6 +137,7 @@ public record JobSpec(
                 null,
                 false,
                 Map.of(
+                        "mode", "REVIEW",
                         "github_token", githubToken,
                         "repo_owner", owner,
                         "repo_name", repo,

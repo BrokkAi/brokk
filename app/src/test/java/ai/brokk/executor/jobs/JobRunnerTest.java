@@ -73,6 +73,14 @@ class JobRunnerTest {
     }
 
     @Test
+    void testParseModeRecognizesPrReviewSpec() {
+        var spec = JobSpec.ofPrReview("gpt-4", "token", "owner", "repo", 42);
+
+        var mode = JobRunner.parseMode(spec);
+        assertEquals(JobRunner.Mode.REVIEW, mode);
+    }
+
+    @Test
     void maybeAnnotateDiffBlocks_rewritesDiffFence_whenClosingFenceOnOwnLine() {
         String body = "Before\n```diff\n@@ -1,0 +1,1 @@\n+foo\n```\nAfter\n";
         String result = IssueRewriterAgent.maybeAnnotateDiffBlocks(body);
