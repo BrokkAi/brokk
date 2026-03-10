@@ -59,6 +59,33 @@ async def test_show_sessions_flow(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_show_sessions_cancel_is_noop(tmp_path):
+    """Verify canceling the session picker (Esc => None) does not crash or trigger actions."""
+    app = BrokkApp(workspace_dir=tmp_path)
+    app.executor = MagicMock()
+    app.executor.workspace_dir = tmp_path
+    app._executor_ready = True
+
+    sessions_data = {
+        "sessions": [{"id": "s1", "name": "Session 1", "aiResponses": 0}],
+        "currentSessionId": "s1",
+    }
+    app.executor.list_sessions = AsyncMock(return_value=sessions_data)
+
+    chat = MagicMock()
+    app._maybe_chat = MagicMock(return_value=chat)
+    app.push_screen = MagicMock()
+    app.run_worker = MagicMock()
+
+    await app._show_sessions()
+
+    callback = app.push_screen.call_args[0][1]
+    callback(None)
+
+    app.run_worker.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_switch_to_session_concurrency_blocking(tmp_path):
     """Verify that concurrent switch attempts are blocked by session_switch_in_progress."""
     app = BrokkApp(workspace_dir=tmp_path)

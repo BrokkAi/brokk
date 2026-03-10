@@ -11,7 +11,10 @@ import ai.brokk.agents.BuildAgent.BuildDetails;
 import ai.brokk.analyzer.CallSite;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
+import ai.brokk.analyzer.Languages;
+import ai.brokk.analyzer.MultiAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.analyzer.TestDetectionProvider;
 import ai.brokk.cli.HeadlessConsole;
 import ai.brokk.concurrent.ExecutorsUtil;
 import ai.brokk.concurrent.LoggingExecutorService;
@@ -107,16 +110,21 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * otherwise falls back to filename-based heuristics.
      */
     public static boolean isTestFile(ProjectFile file, @Nullable IAnalyzer analyzer) {
-        // 1. If analyzer knows, trust it
+        // 1. Determine if there is an authoritative semantic analyzer for this specific file
         if (analyzer != null && !analyzer.isEmpty()) {
-            if (analyzer.containsTests(file)) {
-                return true;
+            IAnalyzer effectiveAnalyzer = analyzer;
+            if (analyzer instanceof MultiAnalyzer multi) {
+                var lang = Languages.fromExtension(file.extension());
+                effectiveAnalyzer = multi.getDelegates().get(lang);
             }
-            // Analyzer exists but says no tests — could still fall through
-            // to heuristics for languages where analyzer doesn't implement this
+
+            if (effectiveAnalyzer != null
+                    && effectiveAnalyzer.as(TestDetectionProvider.class).isPresent()) {
+                return effectiveAnalyzer.containsTests(file);
+            }
         }
 
-        // 2. Filename/path heuristics as fallback
+        // 2. Filename/path heuristics as fallback for when analyzer is null or doesn't support detection for this file
         return TEST_FILE_PATTERN.matcher(file.toString()).matches();
     }
 
@@ -1619,7 +1627,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
             result = agent.executeWithScan();
 
             if (result.stopDetails().reason() == TaskResult.StopReason.SUCCESS) {
-                new GitWorkflow(this).performAutoCommit(prompt);
+                if (project.hasGit()) {
+                    new GitWorkflow(this).performAutoCommit(prompt);
+                }
                 var ctx = markTaskDone(result.context(), task);
 
                 result = result.withContext(ctx); // result with task done

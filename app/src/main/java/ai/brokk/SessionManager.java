@@ -1,5 +1,7 @@
 package ai.brokk;
 
+import static java.util.Objects.requireNonNull;
+
 import ai.brokk.concurrent.AtomicWrites;
 import ai.brokk.concurrent.LoggingExecutorService;
 import ai.brokk.concurrent.LoggingFuture;
@@ -17,8 +19,10 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.github.f4b6a3.uuid.UuidCreator;
 import com.github.f4b6a3.uuid.util.UuidUtil;
 import com.google.common.base.Splitter;
+import java.io.BufferedReader;
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.io.StringReader;
 import java.io.UncheckedIOException;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
@@ -38,6 +42,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -54,6 +59,11 @@ import org.jetbrains.annotations.Nullable;
 
 public class SessionManager implements AutoCloseable {
     private static final String SESSIONS_FORMAT_VERSION = "4.0";
+    private static final String LEGACY_MIGRATION_OPERATION_TYPE = "LEGACY_MIGRATION";
+    private static final String LEGACY_MIGRATION_MODEL_NAME = "legacy";
+    private static final String LEGACY_MIGRATION_TIER = "legacy";
+    private static final double COST_EPSILON = 1.0e-9;
+    private static final String COST_LEDGER_FILENAME = "cost_ledger.jsonl";
 
     /** Record representing session metadata for the sessions management system. */
     @JsonIgnoreProperties(ignoreUnknown = true)
@@ -84,6 +94,20 @@ public class SessionManager implements AutoCloseable {
     }
 
     public record MinimalSessionInfo(UUID id, Instant createdAt, Instant lastModified) {}
+
+    public record CostEvent(
+            String eventId,
+            long timestampMillis,
+            UUID sessionId,
+            @Nullable String operationLabel,
+            @Nullable String operationType, // e.g., TaskResult.Type name or "INTERNAL"
+            String modelName,
+            String tier,
+            int inputTokens,
+            int cachedInputTokens,
+            int thinkingTokens,
+            int outputTokens,
+            double costUsd) {}
 
     private static final Logger logger = LogManager.getLogger(SessionManager.class);
 
@@ -144,6 +168,8 @@ public class SessionManager implements AutoCloseable {
     private final SerialByKeyExecutor sessionExecutorByKey;
     private final Path sessionsDir;
     private final Map<UUID, SessionInfo> sessionsCache;
+    private final Map<UUID, CopyOnWriteArrayList<CostEvent>> costLedgerCache = new ConcurrentHashMap<>();
+    private final Set<UUID> legacyMigrationRecorded = ConcurrentHashMap.newKeySet();
 
     private final Set<CompletableFuture<?>> inFlightForeignDownloads = ConcurrentHashMap.newKeySet();
 
@@ -361,6 +387,195 @@ public class SessionManager implements AutoCloseable {
         });
     }
 
+    /**
+     * Calculates the total cost for a session by summing all events in the cost ledger.
+     * The ledger is the canonical source of truth.
+     *
+     * @return Sum of costs from the ledger, or 0.0 if the ledger is missing.
+     */
+    @Blocking
+    public double totalCostFromLedger(UUID sessionId) {
+        try {
+            return readCostEvents(sessionId).stream()
+                    .mapToDouble(CostEvent::costUsd)
+                    .sum();
+        } catch (Exception e) {
+            logger.error("Error calculating total cost from ledger for session {}", sessionId, e);
+            return 0.0;
+        }
+    }
+
+    /**
+     * Returns the total session cost.
+     * For sessions with a cost ledger, returns the sum of ledger events.
+     * For legacy sessions without a ledger, falls back to the cached 'totalCost' from SessionInfo.
+     */
+    /**
+     * Returns the total session cost.
+     * The cost ledger is the canonical source of truth for sessions that have one.
+     * For legacy sessions without a ledger, falls back to the 'totalCost' field in the manifest.
+     */
+    @Blocking
+    public double getTotalSessionCost(UUID sessionId) {
+        // First check ledger (canonical)
+        List<CostEvent> events = readCostEvents(sessionId);
+        if (!events.isEmpty()) {
+            return events.stream().mapToDouble(CostEvent::costUsd).sum();
+        }
+
+        // Fallback for legacy sessions or sessions where ledger hasn't been created yet
+        SessionInfo info = sessionsCache.get(sessionId);
+        return (info != null && info.totalCost() != null) ? info.totalCost() : 0.0;
+    }
+
+    /**
+     * Returns the cached totalCost stored in SessionInfo without disk IO.
+     * Intended for frequently polled endpoints that need a fast snapshot.
+     */
+    public double getCachedSessionCost(UUID sessionId) {
+        SessionInfo info = sessionsCache.get(sessionId);
+        return (info != null && info.totalCost() != null) ? info.totalCost() : 0.0;
+    }
+
+    public void recordCostEvent(UUID sessionId, CostEvent event) {
+        costLedgerCache
+                .computeIfAbsent(sessionId, k -> new CopyOnWriteArrayList<>())
+                .add(event);
+
+        sessionExecutorByKey.submit(sessionId.toString(), () -> {
+            try {
+                Path sessionHistoryPath = getSessionHistoryPath(sessionId);
+                // Ensure zip exists before trying to open it as a filesystem
+                if (!Files.exists(sessionHistoryPath)) {
+                    logger.debug(
+                            "Deferring cost ledger persistence for session {} until history zip exists", sessionId);
+                    return null;
+                }
+                try (var fs = FileSystems.newFileSystem(sessionHistoryPath, Map.of("create", "false"))) {
+                    Path ledgerPath = fs.getPath(COST_LEDGER_FILENAME);
+                    String json = AbstractProject.objectMapper.writeValueAsString(event) + "\n";
+                    Files.writeString(ledgerPath, json, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+                }
+            } catch (IOException e) {
+                logger.error("Error recording cost event for session {}: {}", sessionId, e.getMessage());
+            }
+            return null;
+        });
+    }
+
+    @Blocking
+    public List<CostEvent> readCostEvents(UUID sessionId) {
+        List<CostEvent> persistedEvents;
+        try {
+            Path zipPath = resolveSessionHistoryZipPath(sessionId);
+            persistedEvents = sessionExecutorByKey
+                    .submit(sessionId.toString(), () -> {
+                        List<CostEvent> events = new ArrayList<>();
+                        try (var fs = FileSystems.newFileSystem(zipPath, Map.of())) {
+                            Path ledgerPath = fs.getPath(COST_LEDGER_FILENAME);
+                            if (Files.exists(ledgerPath)) {
+                                try (var reader = Files.newBufferedReader(ledgerPath)) {
+                                    String line;
+                                    while ((line = reader.readLine()) != null) {
+                                        if (line.isBlank()) continue;
+                                        try {
+                                            events.add(AbstractProject.objectMapper.readValue(line, CostEvent.class));
+                                        } catch (IOException e) {
+                                            logger.warn(
+                                                    "Skipping malformed cost ledger line for session {}: {}",
+                                                    sessionId,
+                                                    e.getMessage());
+                                        }
+                                    }
+                                }
+                            }
+                        } catch (IOException e) {
+                            logger.warn("Error reading cost ledger for session {}: {}", sessionId, e.getMessage());
+                        }
+                        return List.copyOf(events);
+                    })
+                    .get();
+        } catch (FileNotFoundException e) {
+            persistedEvents = List.of();
+        } catch (InterruptedException | ExecutionException e) {
+            logger.error("Error awaiting cost ledger read for session {}: {}", sessionId, e.getMessage());
+            if (e instanceof InterruptedException) {
+                Thread.currentThread().interrupt();
+            }
+            persistedEvents = List.of();
+        }
+
+        var cached = costLedgerCache.get(sessionId);
+        // Merge persisted and cached events, removing duplicates while preserving order.
+        // Persisted events come first (historical), followed by any cached events not yet on disk.
+        List<CostEvent> merged = new ArrayList<>();
+        Set<String> seenEventIds = new HashSet<>();
+        for (CostEvent event : persistedEvents) {
+            if (seenEventIds.add(event.eventId())) {
+                merged.add(event);
+            }
+        }
+        if (cached != null) {
+            for (CostEvent event : cached) {
+                if (seenEventIds.add(event.eventId())) {
+                    merged.add(event);
+                }
+            }
+        }
+
+        var sessionInfo = sessionsCache.get(sessionId);
+        double legacyCarryover = computeLegacyCarryover(sessionInfo);
+        if (shouldInjectLegacyMigrationEvent(sessionInfo, merged, legacyCarryover)) {
+            CostEvent legacyEvent = createLegacyMigrationEvent(sessionId, requireNonNull(sessionInfo), legacyCarryover);
+            merged.addFirst(legacyEvent);
+            if (legacyMigrationRecorded.add(sessionId)) {
+                recordCostEvent(sessionId, legacyEvent);
+            }
+        }
+
+        return List.copyOf(merged);
+    }
+
+    private static boolean shouldInjectLegacyMigrationEvent(
+            @Nullable SessionInfo sessionInfo, List<CostEvent> events, double legacyCarryover) {
+        if (sessionInfo == null
+                || sessionInfo.totalCost() == null
+                || sessionInfo.totalCost() <= 0.0
+                || legacyCarryover <= COST_EPSILON) {
+            return false;
+        }
+        return events.stream().noneMatch(SessionManager::isLegacyMigrationEvent);
+    }
+
+    private static double computeLegacyCarryover(@Nullable SessionInfo sessionInfo) {
+        if (sessionInfo == null || sessionInfo.totalCost() == null || sessionInfo.totalCost() <= 0.0) {
+            return 0.0;
+        }
+        return sessionInfo.totalCost();
+    }
+
+    private static boolean isLegacyMigrationEvent(CostEvent event) {
+        return LEGACY_MIGRATION_OPERATION_TYPE.equals(event.operationType());
+    }
+
+    private static CostEvent createLegacyMigrationEvent(UUID sessionId, SessionInfo sessionInfo, double carryoverCost) {
+        assert carryoverCost > COST_EPSILON;
+        requireNonNull(sessionInfo.totalCost(), "totalCost must not be null for legacy migration");
+        return new CostEvent(
+                UUID.randomUUID().toString(),
+                sessionInfo.created(),
+                sessionId,
+                "Legacy session cost carryover",
+                LEGACY_MIGRATION_OPERATION_TYPE,
+                LEGACY_MIGRATION_MODEL_NAME,
+                LEGACY_MIGRATION_TIER,
+                0,
+                0,
+                0,
+                0,
+                carryoverCost);
+    }
+
     public void deleteSession(UUID sessionId) {
         sessionsCache.remove(sessionId);
         sessionExecutorByKey.submit(sessionId.toString(), () -> {
@@ -543,6 +758,7 @@ public class SessionManager implements AutoCloseable {
         sessionExecutorByKey.submit(newSessionId.toString(), () -> {
             try {
                 Path newHistoryPath = getSessionHistoryPath(newSessionId);
+                deleteCostLedgerFromZip(newHistoryPath);
                 writeSessionInfoToZip(newHistoryPath, newSessionInfo);
                 logger.info(
                         "Updated manifest.json in new session zip {} for session ID {}",
@@ -554,6 +770,15 @@ public class SessionManager implements AutoCloseable {
             }
         });
         return newSessionInfo;
+    }
+
+    private void deleteCostLedgerFromZip(Path zipPath) throws IOException {
+        if (!Files.exists(zipPath)) {
+            return;
+        }
+        try (var fs = FileSystems.newFileSystem(zipPath, Map.of("create", "false"))) {
+            Files.deleteIfExists(fs.getPath(COST_LEDGER_FILENAME));
+        }
     }
 
     Path getSessionHistoryPath(UUID sessionId) {
@@ -633,13 +858,15 @@ public class SessionManager implements AutoCloseable {
         SessionInfo currentInfo = sessionsCache.get(sessionId);
         if (currentInfo != null) {
             if (!isSessionEmpty(currentInfo, contextHistory)) {
+                // Keep saveHistory non-blocking by using cached manifest totalCost.
+                double cost = getCachedSessionCost(sessionId);
                 infoToSave = new SessionInfo(
                         currentInfo.id(),
                         currentInfo.name(),
                         currentInfo.created(),
                         System.currentTimeMillis(),
                         currentInfo.version(),
-                        currentInfo.totalCost());
+                        cost);
                 sessionsCache.put(sessionId, infoToSave); // Update cache before async task
             } // else, session info is not modified, we are just adding an empty initial context (e.g. welcome message)
             // to the session
@@ -653,9 +880,12 @@ public class SessionManager implements AutoCloseable {
         sessionExecutorByKey.submit(sessionId.toString(), () -> {
             try {
                 Path sessionHistoryPath = getSessionHistoryPath(sessionId);
+                String persistedCostLedgerJsonl = readCostLedgerJsonl(sessionHistoryPath);
+                String mergedCostLedgerJsonl = buildMergedCostLedgerJsonl(sessionId, persistedCostLedgerJsonl);
 
                 // Rewrite history zip
                 HistoryIo.writeZip(contextHistory, sessionHistoryPath);
+                writeCostLedgerJsonl(sessionHistoryPath, mergedCostLedgerJsonl);
 
                 // Write manifest after the rewrite
                 if (finalInfoToSave != null) {
@@ -668,6 +898,82 @@ public class SessionManager implements AutoCloseable {
                         e.getMessage());
             }
         });
+    }
+
+    private @Nullable String readCostLedgerJsonl(Path zipPath) throws IOException {
+        if (!Files.exists(zipPath)) {
+            return null;
+        }
+        try (var fs = FileSystems.newFileSystem(zipPath, Map.of())) {
+            Path ledgerPath = fs.getPath(COST_LEDGER_FILENAME);
+            if (!Files.exists(ledgerPath)) {
+                return null;
+            }
+            return Files.readString(ledgerPath);
+        }
+    }
+
+    private void writeCostLedgerJsonl(Path zipPath, @Nullable String costLedgerJsonl) throws IOException {
+        if (costLedgerJsonl == null) {
+            return;
+        }
+        try (var fs = FileSystems.newFileSystem(zipPath, Map.of("create", "false"))) {
+            Path ledgerPath = fs.getPath(COST_LEDGER_FILENAME);
+            Files.writeString(
+                    ledgerPath, costLedgerJsonl, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+        }
+    }
+
+    private @Nullable String buildMergedCostLedgerJsonl(UUID sessionId, @Nullable String persistedCostLedgerJsonl)
+            throws IOException {
+        var mergedEvents = new ArrayList<CostEvent>();
+        var seenEventIds = new HashSet<String>();
+
+        if (persistedCostLedgerJsonl != null) {
+            for (CostEvent event : parseCostLedgerJsonl(persistedCostLedgerJsonl)) {
+                if (seenEventIds.add(event.eventId())) {
+                    mergedEvents.add(event);
+                }
+            }
+        }
+
+        var cachedEvents = costLedgerCache.get(sessionId);
+        if (cachedEvents != null) {
+            for (CostEvent event : cachedEvents) {
+                if (seenEventIds.add(event.eventId())) {
+                    mergedEvents.add(event);
+                }
+            }
+        }
+
+        if (mergedEvents.isEmpty()) {
+            return null;
+        }
+
+        var jsonLines = new ArrayList<String>();
+        for (CostEvent event : mergedEvents) {
+            jsonLines.add(AbstractProject.objectMapper.writeValueAsString(event));
+        }
+        return String.join("\n", jsonLines) + "\n";
+    }
+
+    private List<CostEvent> parseCostLedgerJsonl(String jsonl) throws IOException {
+        var events = new ArrayList<CostEvent>();
+        try (var reader = new StringReader(jsonl);
+                var buffered = new BufferedReader(reader)) {
+            String line;
+            while ((line = buffered.readLine()) != null) {
+                if (line.isBlank()) {
+                    continue;
+                }
+                try {
+                    events.add(AbstractProject.objectMapper.readValue(line, CostEvent.class));
+                } catch (IOException e) {
+                    logger.warn("Skipping malformed cost ledger line while preserving history: {}", e.getMessage());
+                }
+            }
+        }
+        return events;
     }
 
     /**
@@ -756,7 +1062,7 @@ public class SessionManager implements AutoCloseable {
             return HistoryIo.countSessionStats(zipPath);
         } catch (IOException e) {
             logger.warn("Failed to count session stats for session {}", sessionId, e);
-            return new HistoryIo.SessionCounts(0, new HistoryIo.TaskCounts(0, 0));
+            return new HistoryIo.SessionCounts(0, new HistoryIo.TaskCounts(0, 0), 0.0);
         }
     }
 

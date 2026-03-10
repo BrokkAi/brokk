@@ -8,8 +8,16 @@ import java.util.stream.Stream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class MultiAnalyzer implements IAnalyzer, TypeAliasProvider, ImportAnalysisProvider, TypeHierarchyProvider {
+public class MultiAnalyzer
+        implements IAnalyzer, TypeAliasProvider, ImportAnalysisProvider, TypeHierarchyProvider, TestDetectionProvider {
     private static final Logger log = LoggerFactory.getLogger(MultiAnalyzer.class);
+
+    private static final Set<Class<? extends CapabilityProvider>> SUPPORTED_CAPABILITIES = Set.of(
+            ImportAnalysisProvider.class,
+            TypeHierarchyProvider.class,
+            TypeAliasProvider.class,
+            TestDetectionProvider.class);
+
     private final Map<Language, IAnalyzer> delegates;
 
     public MultiAnalyzer(Map<Language, IAnalyzer> delegates) {
@@ -72,11 +80,8 @@ public class MultiAnalyzer implements IAnalyzer, TypeAliasProvider, ImportAnalys
 
     @Override
     public <T extends CapabilityProvider> Optional<T> as(Class<T> capability) {
-        // We only return 'this' for these specific capabilities if at least one delegate supports them.
-        // Otherwise, we throw an AssertionError
-        if (capability == ImportAnalysisProvider.class
-                || capability == TypeHierarchyProvider.class
-                || capability == TypeAliasProvider.class) {
+        if (SUPPORTED_CAPABILITIES.contains(capability)) {
+            // We only return 'this' for these specific capabilities if at least one delegate supports them.
             boolean anyDelegateSupports =
                     delegates.values().stream().anyMatch(d -> d.as(capability).isPresent());
             return anyDelegateSupports ? Optional.of(capability.cast(this)) : Optional.empty();
@@ -172,6 +177,13 @@ public class MultiAnalyzer implements IAnalyzer, TypeAliasProvider, ImportAnalys
         return delegateFor(file)
                 .map(delegate -> delegate.getTopLevelDeclarations(file))
                 .orElse(List.of());
+    }
+
+    @Override
+    public Set<ProjectFile> getAnalyzedFiles() {
+        return delegates.values().stream()
+                .flatMap(a -> a.getAnalyzedFiles().stream())
+                .collect(Collectors.toSet());
     }
 
     @Override
@@ -343,6 +355,13 @@ public class MultiAnalyzer implements IAnalyzer, TypeAliasProvider, ImportAnalys
                 .orElse(List.of());
     }
 
+    /**
+     * Delegates test detection to the language-specific analyzer.
+     *
+     * <p>Returns {@code false} if no delegate exists for the file's language. This is consistent
+     * with {@link IAnalyzer#containsTests} semantics where a negative result from an unsupported
+     * analyzer is treated as "unknown" semantic detection.
+     */
     @Override
     public boolean containsTests(ProjectFile file) {
         return delegateFor(file).map(delegate -> delegate.containsTests(file)).orElse(false);

@@ -38,6 +38,7 @@ import java.util.TreeSet;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -56,7 +57,7 @@ import org.treesitter.*;
  * <p>Subclasses provide the language–specific bits: which Tree-sitter grammar, which file extensions, which query, and
  * how to map a capture to a {@link CodeUnit}.
  */
-public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider {
+public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider, TestDetectionProvider {
 
     protected static final Logger log = LoggerFactory.getLogger(TreeSitterAnalyzer.class);
     // Native library loading is assumed automatic by the io.github.bonede.tree_sitter library.
@@ -91,14 +92,12 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             .thenComparing(CodeUnit::fqName, String.CASE_INSENSITIVE_ORDER)
             .thenComparing(cu -> cu.kind().name());
 
-    // ephemeral instance state
+    /* ephemeral instance state */
     private final ThreadLocal<TSLanguage> threadLocalLanguage = ThreadLocal.withInitial(this::createTSLanguage);
     private final ThreadLocal<TSParser> threadLocalParser = ThreadLocal.withInitial(() -> {
         var parser = new TSParser();
         if (!parser.setLanguage(getTSLanguage())) {
-            log.error(
-                    "Failed to set language on TSParser for {}",
-                    getTSLanguage().getClass().getSimpleName());
+            log.error("Failed to set language on TSParser");
         }
         return parser;
     });
@@ -110,6 +109,76 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     }
 
     private final Map<QueryType, String> querySources;
+
+    /*
+     * Per-thread cache for compiled queries. Since parsing runs on a fixed thread pool,
+     * this keeps native allocations bounded and avoids recompilation overhead.
+     */
+    private final ThreadLocal<Map<QueryType, TSQuery>> threadLocalQueries =
+            ThreadLocal.withInitial(() -> new EnumMap<>(QueryType.class));
+
+    /* Test-only hook to count query compilations. */
+    private final AtomicInteger queryCompilationCount = new AtomicInteger(0);
+
+    protected int getQueryCompilationCount() {
+        return queryCompilationCount.get();
+    }
+
+    /**
+     * Provides borrowed access to a cached compiled query for the duration of the provided function.
+     *
+     * <p>Queries are reused per thread and are scoped to the lifetime of this analyzer snapshot.
+     * Callers <b>must not</b> close the query passed to the function.
+     *
+     * @param type the type of query to access
+     * @param fn the function to execute with the cached query
+     */
+    protected final void withCachedQuery(QueryType type, Consumer<TSQuery> fn) {
+        Map<QueryType, TSQuery> cache = threadLocalQueries.get();
+        TSQuery query = cache.get(type);
+
+        if (query == null) {
+            String source = querySources.get(type);
+            if (source == null) {
+                return;
+            }
+            query = new TSQuery(getTSLanguage(), source);
+            queryCompilationCount.incrementAndGet();
+            cache.put(type, query);
+        }
+
+        fn.accept(query);
+    }
+
+    /**
+     * Provides borrowed access to a cached compiled query for the duration of the provided function.
+     *
+     * <p>Queries are reused per thread and are scoped to the lifetime of this analyzer snapshot.
+     * Callers <b>must not</b> close the query passed to the function.
+     *
+     * @param type the type of query to access
+     * @param fn the function to execute with the cached query
+     * @param defaultValue the default value if the query source cannot be found.
+     * @param <T> the return type of the function
+     * @return the result of the function, or {@code defaultValue} if the query source is missing
+     */
+    protected final <T> T withCachedQuery(QueryType type, Function<TSQuery, T> fn, T defaultValue) {
+        Map<QueryType, TSQuery> cache = threadLocalQueries.get();
+        TSQuery query = cache.get(type);
+
+        if (query == null) {
+            String source = querySources.get(type);
+            if (source == null) {
+                log.warn("Unable to resolve a Tree Sitter query source for {}", type.name());
+                return defaultValue;
+            }
+            query = new TSQuery(getTSLanguage(), source);
+            queryCompilationCount.incrementAndGet();
+            cache.put(type, query);
+        }
+
+        return fn.apply(query);
+    }
 
     /**
      * Creates a new query instance for the specified type.
@@ -124,21 +193,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             return null;
         }
         return new TSQuery(getTSLanguage(), source);
-    }
-
-    /**
-     * Creates a new DEFINITIONS query instance.
-     * The caller is responsible for closing the returned query.
-     *
-     * @return the definitions query instance
-     * @throws IllegalStateException if the definitions query source is missing
-     */
-    protected TSQuery createQuery() {
-        TSQuery query = createQuery(QueryType.DEFINITIONS);
-        if (query == null) {
-            throw new IllegalStateException("Required DEFINITIONS query source is missing for " + language);
-        }
-        return query;
     }
 
     /**
@@ -377,7 +431,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         }
     }
 
-    /* ---------- constructor ---------- */
+    // ---------- constructor ----------
     protected TreeSitterAnalyzer(IProject project, Language language) {
         this(project, language, ProgressListener.NOOP);
     }
@@ -439,7 +493,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                                     return readFileBytes(pf, timing);
                                 },
                                 ioExecutor)
-                        .thenApplyAsync(fileBytes -> analyzeFile(pf, fileBytes, timing), parseExecutor)
+                        .thenApplyAsync(fileBytes -> analyzeFileContent(pf, fileBytes, timing), parseExecutor)
                         .thenAcceptAsync(
                                 analysisResult -> mergeAnalysisResultIntoMaps(
                                         pf,
@@ -700,6 +754,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     }
 
     @Override
+    public Set<ProjectFile> getAnalyzedFiles() {
+        return Set.copyOf(this.state.fileState().keySet());
+    }
+
+    @Override
     public boolean containsTests(ProjectFile file) {
         return fileProperties(file).containsTests();
     }
@@ -839,44 +898,74 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             return cached;
         }
 
-        Optional<String> content = file.read();
-        Set<String> identifiers =
-                content.map(this::extractTypeIdentifiers).map(Set::copyOf).orElseGet(Set::of);
-        cache.typeIdentifiers().put(file, identifiers);
-        return identifiers;
+        return withSource(
+                file,
+                sc -> {
+                    Set<String> identifiers = Set.copyOf(extractTypeIdentifiers(sc.text()));
+                    cache.typeIdentifiers().put(file, identifiers);
+                    return identifiers;
+                },
+                Set.of());
     }
 
-    protected @Nullable TSTree treeOf(ProjectFile file) {
-        // 1. Check lazy cache first
-        TSTree cached = cache.trees().get(file);
-        if (cached != null) {
-            return cached;
-        }
-
-        // 2. Parse on-demand if file exists and cache result
-        if (Files.exists(file.absPath())) {
-            try {
-                byte[] bytes = readFileBytes(file, null);
-                if (bytes.length == 0) {
-                    return null;
+    /**
+     * Executes the provided function with the {@link SourceContent} for the given file.
+     * Uses the internal cache to avoid redundant reads. Exposes seedBytes as a means to give bytes if the file has
+     * already been parsed.
+     */
+    protected <R> R withSource(
+            ProjectFile file, Function<SourceContent, R> fn, R defaultValue, byte @Nullable [] seedBytes) {
+        SourceContent sc = cache.sources().get(file);
+        if (sc == null) {
+            if (Files.exists(file.absPath())) {
+                try {
+                    byte[] bytes = seedBytes == null ? readFileBytes(file, null) : seedBytes;
+                    if (bytes.length == 0) {
+                        return defaultValue;
+                    }
+                    sc = SourceContent.of(new String(TextCanonicalizer.stripUtf8Bom(bytes), StandardCharsets.UTF_8));
+                    cache.sources().put(file, sc);
+                } catch (Exception e) {
+                    log.debug("Failed to read source on-demand for {}: {}", file, e.getMessage());
+                    return defaultValue;
                 }
-                bytes = TextCanonicalizer.stripUtf8Bom(bytes);
-                String src = new String(bytes, StandardCharsets.UTF_8);
-                TSTree tree = getTSParser().parseString(null, src);
-                if (tree != null) {
-                    cache.trees().put(file, tree);
-                }
-                return tree;
-            } catch (Exception e) {
-                log.debug("Failed to parse tree on-demand for {}: {}", file, e.getMessage());
-                return null;
+            } else {
+                return defaultValue;
             }
         }
-
-        return null;
+        return fn.apply(sc);
     }
 
-    /* ---------- IAnalyzer ---------- */
+    /**
+     * Executes the provided function with the {@link SourceContent} for the given file.
+     * Uses the internal cache to avoid redundant reads.
+     */
+    protected <R> R withSource(ProjectFile file, Function<SourceContent, R> fn, R defaultValue) {
+        return withSource(file, fn, defaultValue, null);
+    }
+
+    /**
+     * Parses a fresh {@link TSTree} for the given file and executes the provided function.
+     * The tree is automatically closed via try-with-resources after the function returns.
+     */
+    protected <R> R withTreeOf(ProjectFile file, Function<TSTree, R> fn, R defaultValue) {
+        return withSource(
+                file,
+                sc -> {
+                    try (TSTree tree = getTSParser().parseString(null, sc.text())) {
+                        if (tree == null) {
+                            return defaultValue;
+                        }
+                        return fn.apply(tree);
+                    } catch (Exception e) {
+                        log.debug("Failed to parse tree for {}: {}", file, e.getMessage());
+                        return defaultValue;
+                    }
+                },
+                defaultValue);
+    }
+
+    // ---------- IAnalyzer ----------
     @Override
     public Set<Language> languages() {
         return Set.of(language);
@@ -1495,7 +1584,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             @Nullable TSNode definitionNode,
             SkeletonType skeletonType);
 
-    /* ---------- Signature Building Logic ---------- */
+    // ---------- Signature Building Logic ----------
 
     /**
      * Hook for subclasses to enhance the FQN before CodeUnit creation.
@@ -1961,6 +2050,46 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     }
 
     /**
+     * Finds a specific declarator node matching simpleName among children of parent.
+     */
+    protected Optional<TSNode> findDeclarator(
+            TSNode parent, String simpleName, SourceContent sourceContent, String declaratorType, String nameField) {
+        if (parent.isNull()) return Optional.empty();
+        for (int i = 0; i < parent.getChildCount(); i++) {
+            TSNode child = parent.getChild(i);
+            if (child == null || child.isNull()) continue;
+            if (declaratorType.equals(child.getType())) {
+                TSNode nameNode = child.getChildByFieldName(nameField);
+                if (nameNode != null && !nameNode.isNull()) {
+                    if (simpleName.equals(sourceContent.substringFrom(nameNode).strip())) {
+                        return Optional.of(child);
+                    }
+                }
+            }
+        }
+        return Optional.empty();
+    }
+
+    /**
+     * Builds a space-separated prefix string from nodes appearing before the target node.
+     */
+    protected String getPrefixText(
+            TSNode parent, TSNode target, SourceContent sourceContent, Set<String> acceptedNodeTypes) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < parent.getChildCount(); i++) {
+            TSNode child = parent.getChild(i);
+            if (child == null || child.isNull() || child.getEndByte() > target.getStartByte()) break;
+            if (acceptedNodeTypes.contains(child.getType())) {
+                String text = sourceContent.substringFrom(child).strip();
+                if (!text.isEmpty()) {
+                    sb.append(text).append(" ");
+                }
+            }
+        }
+        return sb.toString();
+    }
+
+    /**
      * Language-specific closing token for a class or namespace (e.g., "}"). Empty if none.
      */
     protected abstract String getLanguageSpecificCloser(CodeUnit cu);
@@ -1974,322 +2103,352 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     }
 
     private FileAnalysisResult analyzeFileContent(
-            ProjectFile file,
-            byte[] fileBytes,
-            TSParser localParser,
-            @Nullable TreeSitterAnalyzer.ConstructionTiming timing) {
+            ProjectFile file, byte[] fileBytes, @Nullable TreeSitterAnalyzer.ConstructionTiming timing) {
         log.trace("analyzeFileContent: Parsing file: {}", file);
+        final var defaultResult = new FileAnalysisResult(List.of(), Map.of(), Map.of(), List.of(), false);
         if (fileBytes.length == 0) {
             log.trace("Skipping binary/empty file: {}", file);
-            return new FileAnalysisResult(List.of(), Map.of(), Map.of(), List.of(), false);
+            return defaultResult;
         }
 
-        fileBytes = TextCanonicalizer.stripUtf8Bom(fileBytes);
-        String src = new String(fileBytes, StandardCharsets.UTF_8);
-        SourceContent sourceContent = SourceContent.of(src);
+        SourceContent sourceContent = withSource(file, Function.identity(), SourceContent.of(""), fileBytes);
+        if (sourceContent.text().isBlank()) {
+            log.warn(
+                    "Unable to create source content from {} although it was originally non-blank. Returning empty result",
+                    file);
+            return defaultResult;
+        }
 
         FileAnalysisAccumulator acc = new FileAnalysisAccumulator();
         Map<CodeUnit, String> cuToCaptureName = new HashMap<>();
         List<ImportInfo> localImportInfos = new ArrayList<>();
 
         long __parseStart = System.nanoTime();
-        TSTree tree = localParser.parseString(null, src);
-        long __parseEnd = System.nanoTime();
-        if (timing != null) {
-            timing.parseStageNanos().addAndGet(__parseEnd - __parseStart);
-            timing.parseStageFirstStartNanos().accumulateAndGet(__parseStart, Math::min);
-            timing.parseStageLastEndNanos().accumulateAndGet(__parseEnd, Math::max);
-        }
-        TSNode rootNode = tree.getRootNode();
-        long __processStart = System.nanoTime();
-        if (rootNode.isNull()) {
-            log.warn("Parsing failed or produced null root node for {}", file);
-            long __processEnd = System.nanoTime();
-            if (timing != null) {
-                timing.processStageNanos().addAndGet(__processEnd - __processStart);
-                timing.processStageFirstStartNanos().accumulateAndGet(__processStart, Math::min);
-                timing.processStageLastEndNanos().accumulateAndGet(__processEnd, Math::max);
-            }
-            return new FileAnalysisResult(List.of(), Map.of(), Map.of(), List.of(), false);
-        }
-        log.trace("Root node type for {}: {}", file, rootNode.getType());
+        return withTreeOf(
+                file,
+                tree -> {
+                    long __parseEnd = System.nanoTime();
+                    if (timing != null) {
+                        timing.parseStageNanos().addAndGet(__parseEnd - __parseStart);
+                        timing.parseStageFirstStartNanos().accumulateAndGet(__parseStart, Math::min);
+                        timing.parseStageLastEndNanos().accumulateAndGet(__parseEnd, Math::max);
+                    }
+                    TSNode rootNode = tree.getRootNode();
+                    long __processStart = System.nanoTime();
+                    if (rootNode.isNull()) {
+                        log.warn("Parsing failed or produced null root node for {}", file);
+                        long __processEnd = System.nanoTime();
+                        if (timing != null) {
+                            timing.processStageNanos().addAndGet(__processEnd - __processStart);
+                            timing.processStageFirstStartNanos().accumulateAndGet(__processStart, Math::min);
+                            timing.processStageLastEndNanos().accumulateAndGet(__processEnd, Math::max);
+                        }
+                        return new FileAnalysisResult(List.of(), Map.of(), Map.of(), List.of(), false);
+                    }
+                    log.trace("Root node type for {}: {}", file, rootNode.getType());
 
-        // Phase 1: Explicit Imports Pass (New Multi-Query Architecture)
-        if (hasQuery(QueryType.IMPORTS)) {
-            try (TSQuery importsQuery = createQuery(QueryType.IMPORTS)) {
-                if (importsQuery != null) {
-                    try (TSQueryCursor cursor = new TSQueryCursor()) {
-                        cursor.exec(importsQuery, rootNode);
-                        TSQueryMatch match = new TSQueryMatch();
-                        while (cursor.nextMatch(match)) {
-                            Map<String, TSNode> capturedNodesForMatch = new HashMap<>();
-                            for (TSQueryCapture capture : match.getCaptures()) {
-                                String captureName = importsQuery.getCaptureNameForId(capture.getIndex());
-                                TSNode node = capture.getNode();
-                                if (node != null && !node.isNull()) {
-                                    capturedNodesForMatch.putIfAbsent(captureName, node);
+                    // Phase 1: Explicit Imports Pass (New Multi-Query Architecture)
+                    withCachedQuery(
+                            QueryType.IMPORTS,
+                            importsQuery -> {
+                                try (TSQueryCursor cursor = new TSQueryCursor()) {
+                                    cursor.exec(importsQuery, rootNode);
+                                    TSQueryMatch match = new TSQueryMatch();
+                                    while (cursor.nextMatch(match)) {
+                                        Map<String, TSNode> capturedNodesForMatch = new HashMap<>();
+                                        for (TSQueryCapture capture : match.getCaptures()) {
+                                            String captureName = importsQuery.getCaptureNameForId(capture.getIndex());
+                                            TSNode node = capture.getNode();
+                                            if (node != null && !node.isNull()) {
+                                                capturedNodesForMatch.putIfAbsent(captureName, node);
+                                            }
+                                        }
+                                        extractImports(capturedNodesForMatch, sourceContent, localImportInfos);
+                                    }
+                                }
+                                return true;
+                            },
+                            false);
+
+                    // Phase 2: Definitions Pass (Includes legacy imports pass if QueryType.IMPORTS is missing)
+                    List<Map.Entry<TSNode, DefinitionInfoRecord>> declarationNodes =
+                            collectDefinitions(rootNode, sourceContent, localImportInfos, file);
+
+                    List<Map.Entry<TSNode, DefinitionInfoRecord>> sortedDeclarationEntries = declarationNodes.stream()
+                            .sorted(Comparator.comparingInt(
+                                    entry -> entry.getKey().getStartByte()))
+                            .toList();
+
+                    for (var entry : sortedDeclarationEntries) {
+                        TSNode node = entry.getKey();
+                        DefinitionInfoRecord defInfo = entry.getValue();
+                        String primaryCaptureName = defInfo.primaryCaptureName();
+                        String simpleName = defInfo.simpleName();
+
+                        if (isClassLike(node)) {
+                            simpleName = determineClassName(node.getType(), simpleName);
+                        }
+
+                        if (simpleName.isBlank()) {
+                            log.warn(
+                                    "Simple name was null/blank for node type {} (capture: {}) in file {}. Skipping.",
+                                    node.getType(),
+                                    primaryCaptureName,
+                                    file);
+                            continue;
+                        }
+
+                        log.trace(
+                                "Processing definition: Name='{}', Capture='{}', Node Type='{}'",
+                                simpleName,
+                                primaryCaptureName,
+                                node.getType());
+
+                        SkeletonType skeletonType =
+                                refineSkeletonType(primaryCaptureName, node, getLanguageSyntaxProfile());
+                        String packageName = determinePackageName(file, node, rootNode, sourceContent);
+                        List<ScopeSegment> scopeChain = buildScopeChain(node, rootNode, sourceContent);
+                        String classChain = buildClassChain(node, rootNode, sourceContent);
+
+                        Optional<String> receiverType = extractReceiverType(node, primaryCaptureName, sourceContent);
+                        if (receiverType.isPresent()) {
+                            String receiverTypeText = receiverType.get();
+                            simpleName = receiverTypeText + "." + simpleName;
+                            classChain = receiverTypeText;
+                            scopeChain = List.of(new ScopeSegment(receiverTypeText, ScopeType.CLASS));
+                            log.trace(
+                                    "Adjusted method with receiver: simpleName='{}', classChain='{}'",
+                                    simpleName,
+                                    classChain);
+                        }
+
+                        if (shouldSkipNode(node, primaryCaptureName, sourceContent)) {
+                            log.trace(
+                                    "Skipping node {} ({}) in file {} due to language-specific filtering",
+                                    simpleName,
+                                    primaryCaptureName,
+                                    file.getFileName());
+                            continue;
+                        }
+
+                        CodeUnit cu = createCodeUnit(
+                                file,
+                                primaryCaptureName,
+                                simpleName,
+                                packageName,
+                                classChain,
+                                scopeChain,
+                                node,
+                                skeletonType);
+                        if (cu == null) {
+                            log.trace(
+                                    "createCodeUnit returned null for node {} ({}) in file {}",
+                                    simpleName,
+                                    primaryCaptureName,
+                                    file.getFileName());
+                            continue;
+                        }
+
+                        String enhancedFqName = enhanceFqName(cu.fqName(), primaryCaptureName, node, sourceContent);
+                        @Nullable String codeUnitSignature = extractSignature(primaryCaptureName, node, sourceContent);
+
+                        String cuLookupKey = (codeUnitSignature != null)
+                                ? enhancedFqName + "(" + codeUnitSignature + ")@" + node.getStartByte()
+                                : enhancedFqName;
+
+                        CodeUnit existingCUforKeyLookup = acc.getByFqName(cuLookupKey);
+                        if (existingCUforKeyLookup != null && cu.isFunction() && existingCUforKeyLookup.isFunction()) {
+                            cu = existingCUforKeyLookup;
+                        }
+
+                        if (!enhancedFqName.equals(cu.fqName()) || !Objects.equals(codeUnitSignature, cu.signature())) {
+                            String enhancedShortName = enhancedFqName;
+                            if (!cu.packageName().isEmpty() && enhancedFqName.startsWith(cu.packageName() + ".")) {
+                                enhancedShortName = enhancedFqName.substring(
+                                        cu.packageName().length() + 1);
+                            }
+                            cu = new CodeUnit(
+                                    cu.source(), cu.kind(), cu.packageName(), enhancedShortName, codeUnitSignature);
+                        }
+
+                        String signature = buildSignatureString(
+                                node, simpleName, sourceContent, primaryCaptureName, defInfo.modifierKeywords(), file);
+
+                        // Use the already-resolved content node (from signature building) for hasBody computation
+                        SkeletonType refined = refineSkeletonType(primaryCaptureName, node, getLanguageSyntaxProfile());
+                        ResolvedNodes resolved = resolveSignatureNodes(node, simpleName, refined, sourceContent);
+                        acc.setHasBody(cu, computeHasBody(resolved.contentNode(), primaryCaptureName, sourceContent));
+
+                        if (existingCUforKeyLookup != null
+                                && !existingCUforKeyLookup.equals(cu)
+                                && shouldMergeSignaturesForSameFqn()) {
+                            List<String> existingSignatures = acc.getSignatures(existingCUforKeyLookup);
+                            boolean newIsExported = signature.trim().startsWith("export");
+                            boolean oldIsExported = !existingSignatures.isEmpty()
+                                    && existingSignatures.get(0).trim().startsWith("export");
+
+                            if (newIsExported && !oldIsExported) {
+                                acc.remove(existingCUforKeyLookup);
+                            } else if (!newIsExported && oldIsExported) {
+                                continue;
+                            }
+                        }
+
+                        if (!signature.isBlank()) {
+                            acc.addSignature(cu, signature);
+                        }
+
+                        cuToCaptureName.put(cu, primaryCaptureName);
+
+                        if (shouldAttachToParent(cu, node, primaryCaptureName, classChain, scopeChain)) {
+                            CodeUnit parentCu = findParentForCodeUnit(
+                                    cu, node, primaryCaptureName, classChain, scopeChain, acc, sourceContent);
+                            if (parentCu != null) {
+                                addChildCodeUnit(cu, parentCu, acc);
+                            } else {
+                                addTopLevelCodeUnit(cu, acc, file);
+                            }
+                        } else {
+                            addTopLevelCodeUnit(cu, acc, file);
+                        }
+
+                        var rangeNode = adjustSourceRangeNode(node, primaryCaptureName);
+                        var finalRange = (cu.isClass() || cu.isFunction())
+                                ? expandRangeWithComments(rangeNode, sourceContent)
+                                : new Range(
+                                        rangeNode.getStartByte(),
+                                        rangeNode.getEndByte(),
+                                        rangeNode.getStartPoint().getRow(),
+                                        rangeNode.getEndPoint().getRow(),
+                                        rangeNode.getStartByte());
+
+                        acc.addRange(cu, finalRange);
+                        acc.addLookupKey(cuLookupKey, cu);
+                    }
+
+                    List<String> localImportStatements = localImportInfos.stream()
+                            .map(ImportInfo::rawSnippet)
+                            .toList();
+
+                    // Register modules from imports
+                    wrapModulesFromImports(file, localImportStatements, rootNode, sourceContent, acc);
+
+                    // Synthesize implicit constructors
+                    for (CodeUnit cu : List.copyOf(acc.cuByFqName().values())) {
+                        if (cu.isClass()) {
+                            List<CodeUnit> kids = acc.getChildren(cu);
+                            boolean hasExplicitConstructor = kids.stream().anyMatch(k -> {
+                                String capture = cuToCaptureName.getOrDefault(k, "");
+                                return isConstructor(k, cu, capture);
+                            });
+
+                            if (!hasExplicitConstructor) {
+                                String classCaptureName = cuToCaptureName.getOrDefault(cu, "");
+                                CodeUnit implicit = createImplicitConstructor(cu, classCaptureName);
+                                if (implicit != null) {
+                                    acc.registerCodeUnit(implicit);
+                                    acc.setHasBody(implicit, true);
+                                    acc.addChild(cu, implicit);
                                 }
                             }
-                            extractImports(capturedNodesForMatch, sourceContent, localImportInfos);
                         }
                     }
-                }
-            }
-        }
 
-        // Phase 2: Definitions Pass (Includes legacy imports pass if QueryType.IMPORTS is missing)
-        List<Map.Entry<TSNode, DefinitionInfoRecord>> declarationNodes =
-                collectDefinitions(file, rootNode, sourceContent, localImportInfos);
+                    boolean containsTests = containsTestMarkers(tree, sourceContent);
+                    Map<CodeUnit, CodeUnitProperties> localStates = acc.toCodeUnitProperties();
 
-        List<Map.Entry<TSNode, DefinitionInfoRecord>> sortedDeclarationEntries = declarationNodes.stream()
-                .sorted(Comparator.comparingInt(entry -> entry.getKey().getStartByte()))
-                .toList();
-
-        for (var entry : sortedDeclarationEntries) {
-            TSNode node = entry.getKey();
-            DefinitionInfoRecord defInfo = entry.getValue();
-            String primaryCaptureName = defInfo.primaryCaptureName();
-            String simpleName = defInfo.simpleName();
-
-            if (isClassLike(node)) {
-                simpleName = determineClassName(node.getType(), simpleName);
-            }
-
-            if (simpleName.isBlank()) {
-                log.warn(
-                        "Simple name was null/blank for node type {} (capture: {}) in file {}. Skipping.",
-                        node.getType(),
-                        primaryCaptureName,
-                        file);
-                continue;
-            }
-
-            log.trace(
-                    "Processing definition: Name='{}', Capture='{}', Node Type='{}'",
-                    simpleName,
-                    primaryCaptureName,
-                    node.getType());
-
-            SkeletonType skeletonType = refineSkeletonType(primaryCaptureName, node, getLanguageSyntaxProfile());
-            String packageName = determinePackageName(file, node, rootNode, sourceContent);
-            List<ScopeSegment> scopeChain = buildScopeChain(node, rootNode, sourceContent);
-            String classChain = buildClassChain(node, rootNode, sourceContent);
-
-            Optional<String> receiverType = extractReceiverType(node, primaryCaptureName, sourceContent);
-            if (receiverType.isPresent()) {
-                String receiverTypeText = receiverType.get();
-                simpleName = receiverTypeText + "." + simpleName;
-                classChain = receiverTypeText;
-                scopeChain = List.of(new ScopeSegment(receiverTypeText, ScopeType.CLASS));
-                log.trace("Adjusted method with receiver: simpleName='{}', classChain='{}'", simpleName, classChain);
-            }
-
-            if (shouldSkipNode(node, primaryCaptureName, sourceContent)) {
-                log.trace(
-                        "Skipping node {} ({}) in file {} due to language-specific filtering",
-                        simpleName,
-                        primaryCaptureName,
-                        file.getFileName());
-                continue;
-            }
-
-            CodeUnit cu = createCodeUnit(
-                    file, primaryCaptureName, simpleName, packageName, classChain, scopeChain, node, skeletonType);
-            if (cu == null) {
-                log.trace(
-                        "createCodeUnit returned null for node {} ({}) in file {}",
-                        simpleName,
-                        primaryCaptureName,
-                        file.getFileName());
-                continue;
-            }
-
-            String enhancedFqName = enhanceFqName(cu.fqName(), primaryCaptureName, node, sourceContent);
-            @Nullable String codeUnitSignature = extractSignature(primaryCaptureName, node, sourceContent);
-
-            String cuLookupKey = (codeUnitSignature != null)
-                    ? enhancedFqName + "(" + codeUnitSignature + ")@" + node.getStartByte()
-                    : enhancedFqName;
-
-            CodeUnit existingCUforKeyLookup = acc.getByFqName(cuLookupKey);
-            if (existingCUforKeyLookup != null && cu.isFunction() && existingCUforKeyLookup.isFunction()) {
-                cu = existingCUforKeyLookup;
-            }
-
-            if (!enhancedFqName.equals(cu.fqName()) || !Objects.equals(codeUnitSignature, cu.signature())) {
-                String enhancedShortName = enhancedFqName;
-                if (!cu.packageName().isEmpty() && enhancedFqName.startsWith(cu.packageName() + ".")) {
-                    enhancedShortName =
-                            enhancedFqName.substring(cu.packageName().length() + 1);
-                }
-                cu = new CodeUnit(cu.source(), cu.kind(), cu.packageName(), enhancedShortName, codeUnitSignature);
-            }
-
-            String signature = buildSignatureString(
-                    node, simpleName, sourceContent, primaryCaptureName, defInfo.modifierKeywords(), file);
-
-            // Use the already-resolved content node (from signature building) for hasBody computation
-            SkeletonType refined = refineSkeletonType(primaryCaptureName, node, getLanguageSyntaxProfile());
-            ResolvedNodes resolved = resolveSignatureNodes(node, simpleName, refined, sourceContent);
-            acc.setHasBody(cu, computeHasBody(resolved.contentNode(), primaryCaptureName, sourceContent));
-
-            if (existingCUforKeyLookup != null
-                    && !existingCUforKeyLookup.equals(cu)
-                    && shouldMergeSignaturesForSameFqn()) {
-                List<String> existingSignatures = acc.getSignatures(existingCUforKeyLookup);
-                boolean newIsExported = signature.trim().startsWith("export");
-                boolean oldIsExported = !existingSignatures.isEmpty()
-                        && existingSignatures.get(0).trim().startsWith("export");
-
-                if (newIsExported && !oldIsExported) {
-                    acc.remove(existingCUforKeyLookup);
-                } else if (!newIsExported && oldIsExported) {
-                    continue;
-                }
-            }
-
-            if (!signature.isBlank()) {
-                acc.addSignature(cu, signature);
-            }
-
-            cuToCaptureName.put(cu, primaryCaptureName);
-
-            if (shouldAttachToParent(cu, node, primaryCaptureName, classChain, scopeChain)) {
-                CodeUnit parentCu =
-                        findParentForCodeUnit(cu, node, primaryCaptureName, classChain, scopeChain, acc, sourceContent);
-                if (parentCu != null) {
-                    addChildCodeUnit(cu, parentCu, acc);
-                } else {
-                    addTopLevelCodeUnit(cu, acc, file);
-                }
-            } else {
-                addTopLevelCodeUnit(cu, acc, file);
-            }
-
-            var rangeNode = adjustSourceRangeNode(node, primaryCaptureName);
-            var finalRange = (cu.isClass() || cu.isFunction())
-                    ? expandRangeWithComments(rangeNode, sourceContent)
-                    : new Range(
-                            rangeNode.getStartByte(),
-                            rangeNode.getEndByte(),
-                            rangeNode.getStartPoint().getRow(),
-                            rangeNode.getEndPoint().getRow(),
-                            rangeNode.getStartByte());
-
-            acc.addRange(cu, finalRange);
-            acc.addLookupKey(cuLookupKey, cu);
-        }
-
-        List<String> localImportStatements =
-                localImportInfos.stream().map(ImportInfo::rawSnippet).toList();
-
-        // Register modules from imports
-        wrapModulesFromImports(file, localImportStatements, rootNode, sourceContent, acc);
-
-        // Synthesize implicit constructors
-        for (CodeUnit cu : List.copyOf(acc.cuByFqName().values())) {
-            if (cu.isClass()) {
-                List<CodeUnit> kids = acc.getChildren(cu);
-                boolean hasExplicitConstructor = kids.stream().anyMatch(k -> {
-                    String capture = cuToCaptureName.getOrDefault(k, "");
-                    return isConstructor(k, cu, capture);
-                });
-
-                if (!hasExplicitConstructor) {
-                    String classCaptureName = cuToCaptureName.getOrDefault(cu, "");
-                    CodeUnit implicit = createImplicitConstructor(cu, classCaptureName);
-                    if (implicit != null) {
-                        acc.registerCodeUnit(implicit);
-                        acc.setHasBody(implicit, true);
-                        acc.addChild(cu, implicit);
+                    long __processEnd = System.nanoTime();
+                    if (timing != null) {
+                        timing.processStageNanos().addAndGet(__processEnd - __processStart);
+                        timing.processStageFirstStartNanos().accumulateAndGet(__processStart, Math::min);
+                        timing.processStageLastEndNanos().accumulateAndGet(__processEnd, Math::max);
                     }
-                }
-            }
-        }
-
-        boolean containsTests = containsTestMarkers(tree, sourceContent);
-        Map<CodeUnit, CodeUnitProperties> localStates = acc.toCodeUnitProperties();
-
-        long __processEnd = System.nanoTime();
-        if (timing != null) {
-            timing.processStageNanos().addAndGet(__processEnd - __processStart);
-            timing.processStageFirstStartNanos().accumulateAndGet(__processStart, Math::min);
-            timing.processStageLastEndNanos().accumulateAndGet(__processEnd, Math::max);
-        }
-        return new FileAnalysisResult(
-                acc.topLevelCUs().stream().distinct().toList(),
-                Collections.unmodifiableMap(localStates),
-                acc.codeUnitsBySymbol().entrySet().stream()
-                        .collect(Collectors.toMap(Map.Entry::getKey, e -> new HashSet<>(e.getValue()))),
-                Collections.unmodifiableList(localImportInfos),
-                containsTests);
+                    return new FileAnalysisResult(
+                            acc.topLevelCUs().stream().distinct().toList(),
+                            Collections.unmodifiableMap(localStates),
+                            acc.codeUnitsBySymbol().entrySet().stream()
+                                    .collect(Collectors.toMap(Map.Entry::getKey, e -> new HashSet<>(e.getValue()))),
+                            Collections.unmodifiableList(localImportInfos),
+                            containsTests);
+                },
+                defaultResult);
     }
 
     private List<Map.Entry<TSNode, DefinitionInfoRecord>> collectDefinitions(
-            ProjectFile file, TSNode rootNode, SourceContent sourceContent, List<ImportInfo> localImportInfos) {
-        List<Map.Entry<TSNode, DefinitionInfoRecord>> declarationNodes = new ArrayList<>();
-        try (TSQuery currentThreadQuery = createQuery();
-                TSQueryCursor cursor = new TSQueryCursor()) {
-            cursor.exec(currentThreadQuery, rootNode);
-
-            TSQueryMatch match = new TSQueryMatch();
-            while (cursor.nextMatch(match)) {
-                Map<String, TSNode> capturedNodesForMatch = new HashMap<>();
-                List<TSNode> modifierNodesForMatch = new ArrayList<>();
-                List<TSNode> decoratorNodesForMatch = new ArrayList<>();
-
-                for (TSQueryCapture capture : match.getCaptures()) {
-                    String captureName = currentThreadQuery.getCaptureNameForId(capture.getIndex());
-                    if (getIgnoredCaptures().contains(captureName)) continue;
-
-                    TSNode node = capture.getNode();
-                    if (node != null && !node.isNull()) {
-                        if ("keyword.modifier".equals(captureName)) {
-                            modifierNodesForMatch.add(node);
-                        } else if (CaptureNames.DECORATOR_DEFINITION.equals(captureName)) {
-                            decoratorNodesForMatch.add(node);
-                        } else {
-                            capturedNodesForMatch.putIfAbsent(captureName, node);
-                        }
-                    }
-                }
-
-                modifierNodesForMatch.sort(Comparator.comparingInt(TSNode::getStartByte));
-                List<String> sortedModifierStrings = modifierNodesForMatch.stream()
-                        .map(modNode -> sourceContent.substringFrom(modNode).strip())
-                        .toList();
-
-                decoratorNodesForMatch.sort(Comparator.comparingInt(TSNode::getStartByte));
-
-                // Backward Compatibility: Only run extractImports during definition pass
-                // if a dedicated IMPORTS query is NOT provided.
-                if (!hasQuery(QueryType.IMPORTS)) {
-                    extractImports(capturedNodesForMatch, sourceContent, localImportInfos);
-                }
-
-                for (var captureEntry : capturedNodesForMatch.entrySet()) {
-                    String captureName = captureEntry.getKey();
-                    TSNode definitionNode = captureEntry.getValue();
-
-                    if (captureName.endsWith(".definition")) {
-                        Optional<String> simpleNameOpt = resolveSimpleName(
-                                captureName, definitionNode, capturedNodesForMatch, sourceContent, file);
-                        if (simpleNameOpt.isPresent() && !simpleNameOpt.get().isBlank()) {
-                            String simpleName = simpleNameOpt.get();
-                            declarationNodes.add(Map.entry(
-                                    definitionNode,
-                                    new DefinitionInfoRecord(
-                                            captureName,
-                                            simpleName,
-                                            sortedModifierStrings,
-                                            decoratorNodesForMatch,
-                                            definitionNode.getParent())));
-                        }
-                    }
-                }
-            }
+            TSNode rootNode, SourceContent sourceContent, List<ImportInfo> localImportInfos, ProjectFile file) {
+        if (!hasQuery(QueryType.DEFINITIONS)) {
+            throw new IllegalStateException("Required DEFINITIONS query source is missing for " + language);
         }
-        return declarationNodes;
+
+        return withCachedQuery(
+                QueryType.DEFINITIONS,
+                query -> {
+                    List<Map.Entry<TSNode, DefinitionInfoRecord>> declarationNodes = new ArrayList<>();
+                    try (TSQueryCursor cursor = new TSQueryCursor()) {
+                        cursor.exec(query, rootNode);
+
+                        TSQueryMatch match = new TSQueryMatch();
+                        while (cursor.nextMatch(match)) {
+                            Map<String, TSNode> capturedNodesForMatch = new HashMap<>();
+                            List<TSNode> modifierNodesForMatch = new ArrayList<>();
+                            List<TSNode> decoratorNodesForMatch = new ArrayList<>();
+
+                            for (TSQueryCapture capture : match.getCaptures()) {
+                                String captureName = query.getCaptureNameForId(capture.getIndex());
+                                if (getIgnoredCaptures().contains(captureName)) continue;
+
+                                TSNode node = capture.getNode();
+                                if (node != null && !node.isNull()) {
+                                    if ("keyword.modifier".equals(captureName)) {
+                                        modifierNodesForMatch.add(node);
+                                    } else if (CaptureNames.DECORATOR_DEFINITION.equals(captureName)) {
+                                        decoratorNodesForMatch.add(node);
+                                    } else {
+                                        capturedNodesForMatch.putIfAbsent(captureName, node);
+                                    }
+                                }
+                            }
+
+                            modifierNodesForMatch.sort(Comparator.comparingInt(TSNode::getStartByte));
+                            List<String> sortedModifierStrings = modifierNodesForMatch.stream()
+                                    .map(modNode ->
+                                            sourceContent.substringFrom(modNode).strip())
+                                    .toList();
+
+                            decoratorNodesForMatch.sort(Comparator.comparingInt(TSNode::getStartByte));
+
+                            // Backward Compatibility: Only run extractImports during definition pass
+                            // if a dedicated IMPORTS query is NOT provided.
+                            if (!hasQuery(QueryType.IMPORTS)) {
+                                extractImports(capturedNodesForMatch, sourceContent, localImportInfos);
+                            }
+
+                            for (var captureEntry : capturedNodesForMatch.entrySet()) {
+                                String captureName = captureEntry.getKey();
+                                TSNode definitionNode = captureEntry.getValue();
+
+                                if (captureName.endsWith(".definition")) {
+                                    Optional<String> simpleNameOpt = resolveSimpleName(
+                                            captureName, definitionNode, capturedNodesForMatch, sourceContent, file);
+                                    if (simpleNameOpt.isPresent()
+                                            && !simpleNameOpt.get().isBlank()) {
+                                        String simpleName = simpleNameOpt.get();
+                                        declarationNodes.add(Map.entry(
+                                                definitionNode,
+                                                new DefinitionInfoRecord(
+                                                        captureName,
+                                                        simpleName,
+                                                        sortedModifierStrings,
+                                                        decoratorNodesForMatch,
+                                                        definitionNode.getParent())));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    return declarationNodes;
+                },
+                List.of());
     }
 
     private Optional<String> resolveSimpleName(
@@ -2446,31 +2605,30 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             return cached;
         }
 
-        TSTree tree = treeOf(cu.source());
-        if (tree == null) {
-            return List.of();
-        }
+        return withTreeOf(
+                cu.source(),
+                tree -> withSource(
+                        cu.source(),
+                        sc -> {
+                            List<Range> ranges = rangesOf(cu);
+                            if (ranges.isEmpty()) {
+                                return List.of();
+                            }
 
-        SourceContent sc = SourceContent.read(cu.source()).orElse(null);
-        if (sc == null) {
-            return List.of();
-        }
+                            Range primary = ranges.getFirst();
+                            TSNode node = tree.getRootNode()
+                                    .getDescendantForByteRange(primary.startByte(), primary.endByte());
+                            if (node == null || node.isNull()) {
+                                return List.of();
+                            }
 
-        List<Range> ranges = rangesOf(cu);
-        if (ranges.isEmpty()) {
-            return List.of();
-        }
-
-        Range primary = ranges.getFirst();
-        TSNode node = tree.getRootNode().getDescendantForByteRange(primary.startByte(), primary.endByte());
-        if (node == null || node.isNull()) {
-            return List.of();
-        }
-
-        List<String> extracted =
-                extractRawSupertypesForClassLike(cu, node, cu.signature() != null ? cu.signature() : "", sc);
-        cache.rawSupertypes().put(cu, extracted);
-        return extracted;
+                            List<String> extracted = extractRawSupertypesForClassLike(
+                                    cu, node, cu.signature() != null ? cu.signature() : "", sc);
+                            cache.rawSupertypes().put(cu, extracted);
+                            return extracted;
+                        },
+                        List.of()),
+                List.of());
     }
 
     /**
@@ -2523,7 +2681,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             String signatureText,
             String baseIndent);
 
-    /* ---------- Granular Signature Rendering Callbacks (Formatting) ---------- */
+    // ---------- Granular Signature Rendering Callbacks (Formatting) ----------
 
     /**
      * Formats the parameter list for a function. Subclasses may override to provide language-specific formatting using
@@ -2555,7 +2713,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         return signatureText;
     }
 
-    /* ---------- Granular Signature Rendering Callbacks (Assembly) ---------- */
+    // ---------- Granular Signature Rendering Callbacks (Assembly) ----------
     protected String assembleFunctionSignature(
             TSNode funcNode,
             SourceContent sourceContent,
@@ -2605,6 +2763,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             SourceContent sourceContent,
             String exportPrefix,
             String signatureText,
+            String simpleName,
             String baseIndent,
             ProjectFile file) {
         var fullSignature = (exportPrefix.stripTrailing() + " " + signatureText.strip()).strip();
@@ -2780,7 +2939,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                     }
                 }
 
-                String line = formatFieldSignature(nodeForContent, sourceContent, exportPrefix, fieldText, "", file);
+                String line = formatFieldSignature(
+                        nodeForContent, sourceContent, exportPrefix, fieldText, simpleName, "", file);
                 if (!line.isBlank()) signatureLines.add(line);
                 break;
             }
@@ -3066,7 +3226,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         return decorators;
     }
 
-    /* ---------- helpers ---------- */
+    // ---------- helpers ----------
 
     private static String formatSecondsMillis(long nanos) {
         long seconds = nanos / 1_000_000_000L;
@@ -3099,7 +3259,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
         TSNode nameNode = decl.getChildByFieldName(identifierFieldName);
         if (nameNode != null && !nameNode.isNull()) {
-            nameOpt = Optional.of(sourceContent.substringFromBytes(nameNode.getStartByte(), nameNode.getEndByte()));
+            nameOpt = Optional.of(sourceContent.substringFrom(nameNode));
         } else if (!isNullNameExpectedForExtraction(decl.getType())) {
             log.debug(
                     "getChildByFieldName('{}') returned null or isNull for node type {} at line {}",
@@ -3218,7 +3378,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         return result != null ? Set.copyOf(result) : Set.of();
     }
 
-    /* ---------- file filtering helpers ---------- */
+    // ---------- file filtering helpers ----------
 
     /**
      * Checks if a file is relevant to this analyzer based on its language extensions.
@@ -3241,7 +3401,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         return files.stream().filter(this::isRelevantFile).collect(Collectors.toSet());
     }
 
-    /* ---------- async stage helpers ---------- */
+    // ---------- async stage helpers ----------
 
     private byte[] readFileBytes(ProjectFile pf, @Nullable ConstructionTiming timing) {
         long __readStart = System.nanoTime();
@@ -3325,12 +3485,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         }
     }
 
-    private FileAnalysisResult analyzeFile(ProjectFile pf, byte[] fileBytes, ConstructionTiming timing) {
-        log.trace("Processing file: {}", pf);
-        var parser = getTSParser();
-        return analyzeFileContent(pf, fileBytes, parser, timing);
-    }
-
     private void mergeAnalysisResultIntoMaps(
             ProjectFile pf,
             FileAnalysisResult analysisResult,
@@ -3339,11 +3493,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             Map<CodeUnit, CodeUnitProperties> targetCodeUnitState,
             Map<ProjectFile, FileProperties> targetFileState,
             Cache<String, CodeUnit> moduleKeyCache) {
-        if (analysisResult.topLevelCUs().isEmpty()
-                && analysisResult.codeUnitState().isEmpty()) {
-            log.trace("analyzeFileDeclarations returned empty result for file: {}", pf);
-            return;
-        }
         long __mergeStart = System.nanoTime();
 
         // Merge symbol index
@@ -3418,7 +3567,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         }
     }
 
-    /* ---------- incremental updates ---------- */
+    // ---------- incremental updates ----------
 
     /**
      * Given a new state, construct a new immutable snapshot of the analyzer using this state.
@@ -3490,6 +3639,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
         long cleanupNanos = System.nanoTime() - cleanupStart;
 
+        // Evict old source content entries to ensure re-analysis uses fresh data
+        cache.sources().removeAll(relevantFiles);
+
         // 3. Re-analyze changed files in parallel
         int total = relevantFiles.size();
         var reanalyzedCount = new AtomicInteger(0);
@@ -3507,9 +3659,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                                     if (Files.exists(file.absPath())) {
                                         long reanStart = System.nanoTime();
                                         try {
-                                            var parser = getTSParser();
                                             byte[] bytes = readFileBytes(file, null);
-                                            var analysisResult = analyzeFileContent(file, bytes, parser, null);
+                                            var analysisResult = analyzeFileContent(file, bytes, null);
                                             mergeAnalysisResultIntoMaps(
                                                     file,
                                                     analysisResult,
@@ -3675,7 +3826,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         return analyzer;
     }
 
-    /* ---------- type analysis (supertypes/basetypes) ---------- */
+    // ---------- type analysis (supertypes/basetypes) ----------
 
     /**
      * Overridable hook to compute direct supertypes/basetypes for a given CodeUnit. Default implementation returns an
@@ -3750,7 +3901,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         return true;
     }
 
-    /* ---------- comment detection for source expansion ---------- */
+    // ---------- comment detection for source expansion ----------
 
     /**
      * Checks if a Tree-Sitter node represents a comment. Supports common comment node types across languages.
@@ -3760,11 +3911,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             return false;
         }
         String nodeType = node.getType();
-        return nodeType.equals("comment")
-                || nodeType.equals("line_comment")
-                || nodeType.equals("block_comment")
-                || nodeType.equals("doc_comment")
-                || nodeType.equals("documentation_comment");
+        return nodeType.equals(CommonTreeSitterNodeTypes.COMMENT)
+                || nodeType.equals(CommonTreeSitterNodeTypes.LINE_COMMENT)
+                || nodeType.equals(CommonTreeSitterNodeTypes.BLOCK_COMMENT)
+                || nodeType.equals(CommonTreeSitterNodeTypes.DOC_COMMENT)
+                || nodeType.equals(CommonTreeSitterNodeTypes.DOCUMENTATION_COMMENT);
     }
 
     /**
@@ -3818,8 +3969,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         }
         // Common whitespace node types in Tree-Sitter grammars
         String nodeType = node.getType();
-        return nodeType.equals("whitespace")
-                || nodeType.equals("newline")
+        return nodeType.equals(CommonTreeSitterNodeTypes.WHITESPACE)
+                || nodeType.equals(CommonTreeSitterNodeTypes.NEWLINE)
                 || nodeType.equals("\n")
                 || nodeType.equals(" ");
     }
@@ -4068,5 +4219,42 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
      */
     protected @Nullable CodeUnit createImplicitConstructor(CodeUnit enclosingClass, String classCaptureName) {
         return null;
+    }
+
+    /**
+     * Extracts potential type identifiers from source code.
+     */
+    public Set<String> performIdentifierExtraction(@Nullable TSNode root, String source) {
+        if (root == null || root.isNull()) {
+            return Set.of();
+        }
+
+        Set<String> identifiers = new HashSet<>();
+        withCachedQuery(
+                QueryType.IDENTIFIERS,
+                query -> {
+                    try (TSQueryCursor cursor = new TSQueryCursor()) {
+                        cursor.exec(query, root);
+
+                        SourceContent sourceContent = SourceContent.of(source);
+                        TSQueryMatch match = new TSQueryMatch();
+
+                        while (cursor.nextMatch(match)) {
+                            for (TSQueryCapture capture : match.getCaptures()) {
+                                TSNode node = capture.getNode();
+                                if (node != null && !node.isNull()) {
+                                    String text =
+                                            sourceContent.substringFrom(node).strip();
+                                    if (!text.isEmpty()) {
+                                        identifiers.add(text);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    return true;
+                },
+                false);
+        return identifiers;
     }
 }

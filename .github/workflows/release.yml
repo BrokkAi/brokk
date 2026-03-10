@@ -11,6 +11,7 @@ concurrency:
 
 jobs:
   build-and-release:
+    if: "!startsWith(github.ref_name, 'brokk-code-')"
     runs-on: ubuntu-latest
 
     permissions:
@@ -22,8 +23,12 @@ jobs:
         with:
           fetch-depth: 0  # Fetch all history for git describe to work
 
-      - name: Set up JBR 21
-        uses: jansorg/github-actions-jbr-setup/setup_jbr21@main
+      - name: Set up Java 21 (JetBrains Runtime)
+        uses: actions/setup-java@v4
+        with:
+          distribution: jetbrains
+          java-package: jdk+jcef
+          java-version: '21'
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4

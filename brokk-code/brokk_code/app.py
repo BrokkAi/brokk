@@ -10,14 +10,15 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
+from textual import events
 from textual.app import App, ComposeResult, ScreenStackError
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
-from textual.widgets import Button, Input, ListItem, ListView, Static
+from textual.widgets import Button, Input, ListItem, ListView, Static, TextArea
 
 from brokk_code.executor import ExecutorError, ExecutorManager
-from brokk_code.prompt_history import append_prompt, clear_history, load_history
+from brokk_code.prompt_history import append_prompt, load_history
 from brokk_code.settings import (
     DEFAULT_THEME,
     Settings,
@@ -44,6 +45,7 @@ class ContextModalScreen(ModalScreen[None]):
     def __init__(self, on_close: Callable[[], None]) -> None:
         super().__init__()
         self._on_close = on_close
+        self._easter_egg_buf: list[str] = []
 
     def compose(self) -> ComposeResult:
         with Vertical(id="context-modal-container"):
@@ -51,6 +53,18 @@ class ContextModalScreen(ModalScreen[None]):
 
     def on_mount(self) -> None:
         self.query_one(ContextPanel).focus()
+
+    def on_key(self, event: events.Key) -> None:
+        char = event.character
+        if char:
+            self._easter_egg_buf.append(char)
+            if len(self._easter_egg_buf) > 5:
+                self._easter_egg_buf.pop(0)
+            if self._easter_egg_buf == list("!-!-!"):
+                self._easter_egg_buf.clear()
+                from brokk_code.widgets.brokk_defense import BrokkDefenseScreen
+
+                self.app.push_screen(BrokkDefenseScreen())
 
     def action_close_context(self) -> None:
         self._on_close()
@@ -376,6 +390,234 @@ class ModeSelectModal(ModalScreen[str]):
             self.dismiss(mode)
 
 
+class SessionCostsModalScreen(ModalScreen[None]):
+    """Modal showing per-session cost line items and aggregates."""
+
+    BINDINGS = [
+        Binding("escape", "dismiss", "Close", show=False),
+        Binding("q", "dismiss", "Close", show=False),
+        Binding("enter", "dismiss", "Close", show=False),
+    ]
+
+    def __init__(self, cost_data: Dict[str, Any]) -> None:
+        super().__init__()
+        self.cost_data = cost_data
+
+    def compose(self) -> ComposeResult:
+        events = self.cost_data.get("events", [])
+        total_cost = self.cost_data.get("totalCost", 0.0)
+
+        with Vertical(id="session-costs-container"):
+            yield Static("Session Cost Breakdown", id="session-costs-title")
+
+            if not events:
+                with VerticalScroll(id="session-costs-list-wrap"):
+                    yield Static(
+                        "No cost data available for this session.", id="session-costs-empty"
+                    )
+            else:
+                with Horizontal(id="session-costs-header"):
+                    yield Static("Timestamp", classes="col-ts")
+                    yield Static("Type", classes="col-type")
+                    yield Static("Model (Tier)", classes="col-model")
+                    yield Static("Operation", classes="col-label")
+                    yield Static("Tokens", classes="col-tokens")
+                    yield Static("Cost", classes="col-cost")
+
+                with VerticalScroll(id="session-costs-list-wrap"):
+                    # Aggregates by (model, tier)
+                    aggregates: Dict[tuple[str, str], float] = {}
+                    list_items = []
+
+                    for event in events:
+                        ts = event.get("timestampMillis", 0)
+                        dt = datetime.fromtimestamp(ts / 1000).strftime("%Y-%m-%d %H:%M")
+                        label = event.get("operationLabel") or "Internal"
+                        op_type = event.get("operationType") or "OTHER"
+                        model = event.get("modelName", "unknown")
+                        tier = event.get("tier", "default")
+                        cost = event.get("costUsd", 0.0)
+
+                        in_t = event.get("inputTokens", 0)
+                        cache_t = event.get("cachedInputTokens", 0)
+                        think_t = event.get("thinkingTokens", 0)
+                        out_t = event.get("outputTokens", 0)
+
+                        token_str = f"in:{in_t}"
+                        if cache_t:
+                            token_str += f" c:{cache_t}"
+                        if think_t:
+                            token_str += f" t:{think_t}"
+                        token_str += f" out:{out_t}"
+
+                        list_items.append(
+                            ListItem(
+                                Horizontal(
+                                    Static(dt, classes="col-ts"),
+                                    Static(op_type, classes="col-type"),
+                                    Static(f"{model} ({tier})", classes="col-model"),
+                                    Static(label, classes="col-label"),
+                                    Static(token_str, classes="col-tokens"),
+                                    Static(f"[bold green]${cost:.4f}[/]", classes="col-cost"),
+                                    classes="session-cost-row",
+                                )
+                            )
+                        )
+
+                        key = (model, tier)
+                        aggregates[key] = aggregates.get(key, 0.0) + cost
+
+                    yield ListView(*list_items, id="session-costs-list")
+
+            # Summary Section
+            with Vertical(id="session-costs-summary"):
+                if events:
+                    summary_lines = ["[bold]Aggregates by Model:[/]\n"]
+                    for (model, tier), agg_cost in sorted(aggregates.items()):
+                        summary_lines.append(f"  {model} ({tier}): ${agg_cost:.4f}")
+                    yield Static("\n".join(summary_lines), id="session-costs-aggregates")
+
+                yield Static(
+                    f"[bold]Total Session Cost: ${total_cost:.4f}[/]", id="session-costs-total"
+                )
+
+            yield Static("Esc: Close", id="session-costs-help-line")
+
+    def on_mount(self) -> None:
+        if self.query(ListView):
+            self.query_one(ListView).focus()
+        else:
+            self.query_one("#session-costs-help-line").focus()
+
+
+class PrCreateModalScreen(ModalScreen[Optional[tuple[str, str, List[str]]]]):
+    """Modal for creating a pull request with editable title, body, and session selection."""
+
+    BINDINGS = [
+        Binding("escape", "dismiss", "Cancel", show=False),
+        Binding("ctrl+enter", "submit_pr", "Create PR", show=False),
+    ]
+
+    def __init__(
+        self,
+        suggested_title: str = "",
+        suggested_body: str = "",
+        source_branch: str = "",
+        target_branch: str = "",
+        sessions: Optional[List[Dict[str, Any]]] = None,
+        selected_session_ids: Optional[List[str]] = None,
+    ) -> None:
+        super().__init__()
+        self._suggested_title = suggested_title
+        self._suggested_body = suggested_body
+        self._source_branch = source_branch
+        self._target_branch = target_branch
+        self._sessions = sessions or []
+        self._selected_session_ids = set(selected_session_ids or [])
+        # Build ordered list of session IDs to preserve display order in result
+        self._session_id_order = [str(s.get("id", "")) for s in self._sessions]
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="pr-create-container"):
+            yield Static("Create Pull Request", id="pr-create-title")
+            yield Static(
+                f"[dim]{self._source_branch} -> {self._target_branch}[/]",
+                id="pr-create-branches",
+            )
+            yield Static("Title:", id="pr-title-label")
+            yield Input(value=self._suggested_title, placeholder="PR title", id="pr-title-input")
+            yield Static("Description:", id="pr-body-label")
+            yield TextArea(text=self._suggested_body, id="pr-body-input")
+            if self._sessions:
+                yield Static("Sessions (Space/Enter to toggle):", id="pr-sessions-label")
+                with VerticalScroll(id="pr-sessions-scroll"):
+                    items = []
+                    for session in self._sessions:
+                        session_id = str(session.get("id", ""))
+                        session_name = session.get("name") or session_id[:8]
+                        is_selected = session_id in self._selected_session_ids
+                        marker = "[x]" if is_selected else "[ ]"
+                        item = ListItem(
+                            Static(f"{marker} {session_name}", markup=False),
+                            id=f"pr-session-{session_id}",
+                        )
+                        item.session_id = session_id
+                        items.append(item)
+                    yield ListView(*items, id="pr-sessions-list")
+            with Horizontal(id="pr-create-actions"):
+                yield Button("Create PR", id="pr-create-submit", variant="primary")
+                yield Button("Cancel", id="pr-create-cancel")
+
+    def on_mount(self) -> None:
+        self.query_one("#pr-title-input", Input).focus()
+
+    def on_list_view_selected(self, event: ListView.Selected) -> None:
+        """Toggle session selection when Enter is pressed on a list item."""
+        if event.item and hasattr(event.item, "session_id"):
+            self._toggle_session(event.item.session_id)
+            event.stop()
+
+    def on_key(self, event) -> None:
+        """Handle Space key to toggle selection in the sessions list."""
+        if event.key == "space":
+            try:
+                sessions_list = self.query_one("#pr-sessions-list", ListView)
+                if sessions_list.has_focus or (
+                    sessions_list.highlighted_child and sessions_list.highlighted_child.has_focus
+                ):
+                    item = sessions_list.highlighted_child
+                    if item and hasattr(item, "session_id"):
+                        self._toggle_session(item.session_id)
+                        event.stop()
+                        event.prevent_default()
+            except Exception:
+                pass
+
+    def _toggle_session(self, session_id: str) -> None:
+        """Toggle selection state for a session."""
+        if session_id in self._selected_session_ids:
+            self._selected_session_ids.discard(session_id)
+            is_selected = False
+        else:
+            self._selected_session_ids.add(session_id)
+            is_selected = True
+
+        # Update the visual state
+        try:
+            item = self.query_one(f"#pr-session-{session_id}", ListItem)
+            session_name = None
+            for s in self._sessions:
+                if str(s.get("id", "")) == session_id:
+                    session_name = s.get("name") or session_id[:8]
+                    break
+            if session_name:
+                marker = "[x]" if is_selected else "[ ]"
+                item.query_one(Static).update(f"{marker} {session_name}")
+        except Exception:
+            pass
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "pr-create-submit":
+            self._do_submit()
+        elif event.button.id == "pr-create-cancel":
+            self.dismiss(None)
+
+    def action_submit_pr(self) -> None:
+        self._do_submit()
+
+    def _do_submit(self) -> None:
+        title_label = self.query_one("#pr-title-label", Static)
+        title_label.update("Title:")
+        title = self.query_one("#pr-title-input", Input).value.strip()
+        body = self.query_one("#pr-body-input", TextArea).text.strip()
+        if not title:
+            title_label.update("[bold red]Title is required[/]")
+            return
+        # Return selected IDs in display order (deterministic)
+        selected_ids = [sid for sid in self._session_id_order if sid in self._selected_session_ids]
+        self.dismiss((title, body, selected_ids))
+
+
 class SessionSelectModal(ModalScreen[str]):
     """A modal for selecting and switching between sessions."""
 
@@ -662,6 +904,7 @@ class BrokkApp(App):
         executor: Optional[ExecutorManager] = None,
         session_id: Optional[str] = None,
         resume_session: bool = False,
+        pick_session: bool = False,
         vendor: Optional[str] = None,
     ) -> None:
         super().__init__()
@@ -684,6 +927,7 @@ class BrokkApp(App):
             )
         self.requested_session_id = session_id
         self.resume_session = resume_session
+        self.pick_session = pick_session
         self._set_theme(self.settings.theme)
         self.agent_mode = "LUTZ"
         self.show_verbose_output: bool = False
@@ -721,6 +965,7 @@ class BrokkApp(App):
         self.current_branch = "unknown"
         self.job_in_progress = False
         self.session_switch_in_progress = False
+        self._current_switch_target_session_id: Optional[str] = None
         self.current_job_id: Optional[str] = None
         self._pending_prompt: Optional[str] = None
         self._pending_switch_prompt: Optional[tuple[str, str]] = None
@@ -940,6 +1185,10 @@ class BrokkApp(App):
                 self._executor_ready = True
                 # Initial context load
                 self.run_worker(self._refresh_context_panel())
+
+                if self.pick_session:
+                    self.pick_session = False
+                    self.run_worker(self._show_sessions())
 
                 if resumed:
                     try:
@@ -1912,23 +2161,19 @@ class BrokkApp(App):
         """Returns the structured catalog of supported slash commands."""
         return [
             {"command": "/api-key", "description": "Update your Brokk API key"},
+            {"command": "/costs", "description": "Show session cost breakdown"},
             {"command": "/login-openai", "description": "Connect your OpenAI ChatGPT subscription"},
+            {"command": "/clear", "description": "Clear the chat transcript"},
             {"command": "/context", "description": "Toggle and focus context panel"},
-            {"command": "/code", "description": "Set mode to CODE (direct implementation)"},
-            {"command": "/ask", "description": "Set mode to ASK (questions only)"},
-            {"command": "/lutz", "description": "Set mode to LUTZ (default; full agent access)"},
-            {"command": "/mode", "description": "Open mode selection menu"},
             {"command": "/model", "description": "Change the planner LLM model"},
             {"command": "/model-code", "description": "Change the code LLM model"},
             {"command": "/autocommit", "description": "Toggle auto-commit for submitted jobs"},
             {"command": "/settings", "description": "Open settings"},
-            {"command": "/history", "description": "Show recent prompt history"},
-            {"command": "/history-clear", "description": "Clear prompt history"},
             {"command": "/task", "description": "Open/close the task list"},
             {"command": "/sessions", "description": "List and switch between sessions"},
             {"command": "/commit", "description": "Commit current changes"},
+            {"command": "/pr", "description": "Create a pull request"},
             {"command": "/info", "description": "Show current configuration and status"},
-            {"command": "/help", "description": "Show help message"},
             {"command": "/quit", "description": "Exit the application"},
             {"command": "/exit", "description": "Exit the application"},
         ]
@@ -2014,26 +2259,10 @@ class BrokkApp(App):
             if len(parts) > 1:
                 chat.add_system_message("Settings opens from /settings with no arguments.")
             self.action_command_palette()
-        elif base in ("/code", "/ask", "/lutz", "/plan"):
-            self._set_mode(base[1:].upper())
-        elif base == "/mode":
-            if len(parts) > 1:
-                self._set_mode(parts[1].upper())
-            else:
-                self.action_select_mode()
         elif base == "/info":
             self._render_info()
-        elif base == "/history":
-            history = load_history(self.executor.workspace_dir)
-            if not history:
-                chat.add_system_message("Prompt history is empty.")
-            else:
-                formatted = "\n".join(f"{i + 1}. {p}" for i, p in enumerate(history))
-                chat.append_message("System", f"Recent Prompts:\n{formatted}")
-        elif base == "/history-clear":
-            clear_history(self.executor.workspace_dir)
-            chat.set_history([])
-            chat.add_system_message("Prompt history cleared.")
+        elif base == "/clear":
+            chat.clear_transcript()
         elif base == "/login-openai":
             if len(parts) > 1:
                 chat.add_system_message(
@@ -2084,18 +2313,29 @@ class BrokkApp(App):
             self.run_worker(self._commit_changes(commit_message))
         elif base == "/sessions":
             self.run_worker(self._show_sessions())
-        elif base == "/help":
-            commands = self.get_slash_commands()
-            # Calculate padding based on longest command
-            max_cmd_len = max(len(c["command"]) for c in commands)
-            lines = ["Available commands:"]
-            for c in commands:
-                lines.append(f"  {c['command']: <{max_cmd_len}} - {c['description']}")
-            chat.append_message("System", "\n".join(lines))
+        elif base == "/costs":
+            if not self._executor_ready:
+                chat.add_system_message(
+                    "Executor is not ready. Cannot fetch costs.", level="WARNING"
+                )
+                return
+            self.run_worker(self._show_costs())
+        elif base == "/pr":
+            if not self._executor_ready:
+                chat.add_system_message(
+                    "Executor is not ready. Cannot create pull request.",
+                    level="ERROR",
+                )
+                return
+            # Parse optional base branch: /pr [base-branch]
+            base_branch: Optional[str] = None
+            if len(parts) > 1:
+                base_branch = parts[1]
+            self.run_worker(self._create_pull_request(base_branch))
         elif base in ("/quit", "/exit"):
             self.action_quit()
         else:
-            chat.append_message("System", f"Unknown command: {base}. Type /help for assistance.")
+            chat.append_message("System", f"Unknown command: {base}.")
 
     async def action_select_model(self) -> None:
         chat = self._maybe_chat()
@@ -2451,6 +2691,16 @@ class BrokkApp(App):
             # exit() may raise in some test harnesses; ignore to avoid double-shutdown.
             pass
 
+    async def _show_costs(self) -> None:
+        chat = self._maybe_chat()
+        try:
+            cost_data = await self.executor.get_session_costs()
+            self.push_screen(SessionCostsModalScreen(cost_data))
+        except Exception as e:
+            logger.exception("Failed to fetch session costs")
+            if chat:
+                chat.add_system_message(f"Failed to fetch session costs: {e}", level="ERROR")
+
     async def _commit_changes(self, message: Optional[str] = None) -> None:
         """Async worker to commit current changes."""
         chat = self._maybe_chat()
@@ -2482,6 +2732,117 @@ class BrokkApp(App):
             logger.exception("Commit failed")
             chat.add_system_message(f"Commit failed: {e}", level="ERROR")
 
+    async def _create_pull_request(self, base_branch: Optional[str] = None) -> None:
+        """Async worker to create a pull request."""
+        chat = self._maybe_chat()
+        if not chat:
+            return
+
+        chat.add_system_message("Fetching overlapping sessions and PR suggestion...")
+        chat.set_job_running(True)
+
+        # Use current branch as source, optional base branch override or let executor default
+        source_branch = self.current_branch if self.current_branch != "unknown" else None
+
+        # Fetch overlapping sessions for this PR's branch diff
+        try:
+            sessions_data = await self.executor.pr_sessions(
+                source_branch=source_branch,
+                target_branch=base_branch,
+            )
+        except Exception as e:
+            logger.exception("Failed to fetch PR sessions")
+            chat.add_system_message(f"Failed to fetch PR sessions: {e}", level="ERROR")
+            chat.set_job_running(False)
+            return
+
+        sessions = sessions_data.get("sessions", [])
+        resolved_source = sessions_data.get("sourceBranch", source_branch or "")
+        resolved_target = sessions_data.get("targetBranch", base_branch or "")
+
+        # Default selection: ALL overlapping sessions, matching Swing behavior
+        default_selected_ids: List[str] = [str(s.get("id", "")) for s in sessions]
+
+        try:
+            suggestion = await self.executor.pr_suggest(
+                source_branch=resolved_source,
+                target_branch=resolved_target,
+                session_ids=default_selected_ids if default_selected_ids else None,
+            )
+        except Exception as e:
+            logger.exception("Failed to fetch PR suggestion")
+            chat.add_system_message(f"Failed to fetch PR suggestion: {e}", level="ERROR")
+            chat.set_job_running(False)
+            return
+
+        suggested_title = suggestion.get("title", "")
+        suggested_body = suggestion.get("description", "")
+
+        chat.set_job_running(False)
+
+        def on_pr_result(result: Optional[tuple[str, str, List[str]]]) -> None:
+            if result is None:
+                chat.add_system_message("PR creation cancelled.")
+                return
+            title, body, selected_session_ids = result
+            self.run_worker(
+                self._do_create_pr(
+                    title, body, resolved_source, resolved_target, selected_session_ids
+                )
+            )
+
+        self.push_screen(
+            PrCreateModalScreen(
+                suggested_title=suggested_title,
+                suggested_body=suggested_body,
+                source_branch=resolved_source,
+                target_branch=resolved_target,
+                sessions=sessions,
+                selected_session_ids=default_selected_ids,
+            ),
+            on_pr_result,
+        )
+
+    async def _do_create_pr(
+        self,
+        title: str,
+        body: str,
+        source_branch: str,
+        target_branch: str,
+        session_ids: Optional[List[str]] = None,
+    ) -> None:
+        """Async worker to actually create the PR after user confirms."""
+        chat = self._maybe_chat()
+        if not chat:
+            return
+
+        try:
+            chat.add_system_message("Creating pull request...")
+            chat.set_job_running(True)
+
+            result = await self.executor.pr_create(
+                title=title,
+                body=body,
+                source_branch=source_branch,
+                target_branch=target_branch,
+                session_ids=session_ids if session_ids else None,
+            )
+
+            pr_url = result.get("url", "")
+            if pr_url:
+                chat.add_system_message_markup(f"Pull request created: [bold]{pr_url}[/]")
+            else:
+                chat.add_system_message("Pull request created successfully.")
+
+            # Refresh context to update any UI state
+            await self._refresh_context_panel()
+
+        except Exception as e:
+            logger.exception("PR creation failed")
+            chat.add_system_message(f"PR creation failed: {e}", level="ERROR")
+        finally:
+            chat.set_job_running(False)
+
     async def _show_sessions(self) -> None:
         chat = self._maybe_chat()
         if not self._executor_ready:
@@ -2502,7 +2863,8 @@ class BrokkApp(App):
                 return
 
             def on_selected(selected_id: str | None) -> None:
-                if not selected_id:
+                if selected_id is None:
+                    # User canceled the modal (Esc); continue with current session.
                     return
                 if selected_id == "new":
                     self.run_worker(self._create_session_from_menu())

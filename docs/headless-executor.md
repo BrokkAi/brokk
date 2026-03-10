@@ -364,6 +364,29 @@ Once running, the executor exposes the following endpoints:
 
 - **`GET /v1/context/conversation`** - Get conversation/task-history entries
 
+- **`GET /v1/session/costs`** - Get per-session cost breakdown
+  - Returns:
+    ```json
+    {
+      "sessionId": "<uuid>",
+      "totalCost": 1.2345,
+      "events": [
+        {
+          "timestampMillis": 1730000000000,
+          "operationLabel": "Task: Fix bug",
+          "operationType": "ARCHITECT",
+          "modelName": "gpt-4o",
+          "tier": "DEFAULT",
+          "inputTokens": 1000,
+          "cachedInputTokens": 0,
+          "thinkingTokens": 0,
+          "outputTokens": 200,
+          "costUsd": 0.01
+        }
+      ]
+    }
+    ```
+
 - **`POST /v1/context/drop`** - Drop fragments by ID
   - Body: `{ "fragmentIds": ["..."] }`
 

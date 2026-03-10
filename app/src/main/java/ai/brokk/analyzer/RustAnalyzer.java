@@ -243,9 +243,7 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
         for (int i = 0; i < node.getChildCount(); i++) {
             TSNode child = node.getChild(i);
             if (!child.isNull() && VISIBILITY_MODIFIER.equals(child.getType())) {
-                String text = sourceContent
-                        .substringFromBytes(child.getStartByte(), child.getEndByte())
-                        .strip();
+                String text = sourceContent.substringFrom(child).strip();
                 return text + " ";
             }
         }
@@ -321,29 +319,25 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
 
         String nodeType = typeNode.getType();
         return switch (nodeType) {
-            case TYPE_IDENTIFIER ->
-                Optional.of(sourceContent.substringFromBytes(typeNode.getStartByte(), typeNode.getEndByte()));
+            case TYPE_IDENTIFIER -> Optional.of(sourceContent.substringFrom(typeNode));
 
             case SCOPED_TYPE_IDENTIFIER -> {
                 TSNode nameNode = typeNode.getChildByFieldName("name");
                 yield extractCoreTypeName(nameNode, sourceContent)
-                        .or(() -> Optional.of(
-                                sourceContent.substringFromBytes(typeNode.getStartByte(), typeNode.getEndByte())));
+                        .or(() -> Optional.of(sourceContent.substringFrom(typeNode)));
             }
 
             case GENERIC_TYPE, REFERENCE_TYPE, POINTER_TYPE -> {
                 TSNode innerType = typeNode.getChildByFieldName("type");
                 yield extractCoreTypeName(innerType, sourceContent)
-                        .or(() -> Optional.of(
-                                sourceContent.substringFromBytes(typeNode.getStartByte(), typeNode.getEndByte())));
+                        .or(() -> Optional.of(sourceContent.substringFrom(typeNode)));
             }
 
             case ARRAY_TYPE -> {
                 // Array/slice types like [T] or [T; N] have "element" field for the inner type
                 TSNode elementType = typeNode.getChildByFieldName("element");
                 yield extractCoreTypeName(elementType, sourceContent)
-                        .or(() -> Optional.of(
-                                sourceContent.substringFromBytes(typeNode.getStartByte(), typeNode.getEndByte())));
+                        .or(() -> Optional.of(sourceContent.substringFrom(typeNode)));
             }
 
             case TUPLE_TYPE -> {
@@ -364,11 +358,11 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
                         }
                     }
                 }
-                yield Optional.of(sourceContent.substringFromBytes(typeNode.getStartByte(), typeNode.getEndByte()));
+                yield Optional.of(sourceContent.substringFrom(typeNode));
             }
 
             default -> {
-                String text = sourceContent.substringFromBytes(typeNode.getStartByte(), typeNode.getEndByte());
+                String text = sourceContent.substringFrom(typeNode);
                 log.debug("extractCoreTypeName: unhandled node type '{}', using full text '{}'", nodeType, text);
                 yield Optional.of(text);
             }
@@ -389,7 +383,7 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
                     "Node type %s (text: '%s')",
                     decl.getType(),
                     sourceContent
-                            .substringFromBytes(decl.getStartByte(), decl.getEndByte())
+                            .substringFrom(decl)
                             .lines()
                             .findFirst()
                             .orElse("")
@@ -407,7 +401,7 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
                     "Node type %s (text: '%s')",
                     decl.getType(),
                     sourceContent
-                            .substringFromBytes(decl.getStartByte(), decl.getEndByte())
+                            .substringFrom(decl)
                             .lines()
                             .findFirst()
                             .orElse("")
@@ -424,9 +418,19 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
             SourceContent sourceContent,
             String exportPrefix,
             String signatureText,
+            String simpleName,
             String baseIndent,
             ProjectFile file) {
-        String fullSignature = (exportPrefix.stripTrailing() + " " + signatureText.strip()).strip();
+        String sig = signatureText.strip();
+        String pref = exportPrefix.strip();
+
+        String fullSignature;
+        if (!pref.isEmpty() && sig.startsWith(pref)) {
+            fullSignature = sig;
+        } else {
+            fullSignature = (exportPrefix.stripTrailing() + " " + sig).strip();
+        }
+
         // Rust fields like "pub x: i32," and "const ORIGIN: Point = ..." should not have semicolons added in skeleton
         // format
         return baseIndent + fullSignature;
@@ -439,36 +443,37 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected Set<String> getLeadingMetadataNodeTypes() {
-        return Set.of("attribute_item", "inner_attribute");
+        return Set.of(ATTRIBUTE_ITEM, INNER_ATTRIBUTE);
     }
 
     @Override
     protected boolean containsTestMarkers(TSTree tree, SourceContent sourceContent) {
-        try (TSQuery query = createQuery(QueryType.DEFINITIONS)) {
-            if (query != null) {
-                try (TSQueryCursor cursor = new TSQueryCursor()) {
-                    cursor.exec(query, tree.getRootNode());
+        return withCachedQuery(
+                QueryType.DEFINITIONS,
+                query -> {
+                    try (TSQueryCursor cursor = new TSQueryCursor()) {
+                        cursor.exec(query, tree.getRootNode());
 
-                    TSQueryMatch match = new TSQueryMatch();
-                    while (cursor.nextMatch(match)) {
-                        for (TSQueryCapture capture : match.getCaptures()) {
-                            String captureName = query.getCaptureNameForId(capture.getIndex());
-                            if (TEST_MARKER.equals(captureName)) {
-                                // The capture is now directly on the attribute_item node
-                                TSNode attrItemNode = capture.getNode();
-                                if (attrItemNode != null && !attrItemNode.isNull()) {
-                                    String content = sourceContent.substringFrom(attrItemNode);
-                                    // Rust attributes look like #[test] or #[cfg(test)]
-                                    if (content.contains("#[test]") || content.contains("#[cfg(test)]")) {
-                                        return true;
+                        TSQueryMatch match = new TSQueryMatch();
+                        while (cursor.nextMatch(match)) {
+                            for (TSQueryCapture capture : match.getCaptures()) {
+                                String captureName = query.getCaptureNameForId(capture.getIndex());
+                                if (TEST_MARKER.equals(captureName)) {
+                                    // The capture is now directly on the attribute_item node
+                                    TSNode attrItemNode = capture.getNode();
+                                    if (attrItemNode != null && !attrItemNode.isNull()) {
+                                        String content = sourceContent.substringFrom(attrItemNode);
+                                        // Rust attributes look like #[test] or #[cfg(test)]
+                                        if (content.contains("#[test]") || content.contains("#[cfg(test)]")) {
+                                            return true;
+                                        }
                                     }
                                 }
                             }
                         }
                     }
-                }
-            }
-        }
-        return false;
+                    return false;
+                },
+                false);
     }
 }

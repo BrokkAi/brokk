@@ -16,9 +16,7 @@ import ai.brokk.testutil.TestContextManager;
 import ai.brokk.util.HistoryIo;
 import ai.brokk.util.Messages;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
-import dev.langchain4j.data.message.UserMessage;
 import java.awt.Graphics2D;
 import java.awt.Image;
 import java.awt.image.BufferedImage;
@@ -435,33 +433,6 @@ public class SessionManagerTest {
 
         assertTrue(copiedSessionInfo.created() <= copiedSessionInfo.modified());
         assertTrue(copiedSessionInfo.created() >= originalSessionInfo.modified()); // Copied time is 'now'
-
-        project.close();
-    }
-
-    @Test
-    void testCountAiResponses_sessionWithKnownAiCount() throws Exception {
-        MainProject project = new MainProject(tempDir);
-        var sessionManager = project.getSessionManager();
-        SessionInfo sessionInfo = sessionManager.newSession("AI Count Test Session");
-        UUID sessionId = sessionInfo.id();
-
-        // Create history with exactly 3 AI responses
-        var history = new ContextHistory(new Context(mockContextManager));
-        Context context = new Context(mockContextManager);
-        for (int i = 0; i < 3; i++) {
-            var msgs = List.<ChatMessage>of(UserMessage.from("Query " + i), AiMessage.from("Response " + i));
-            var tf = new ContextFragments.TaskFragment(msgs, "Task " + i);
-            var meta = new TaskResult.TaskMeta(TaskResult.Type.ASK, new AbstractService.ModelConfig("test-model"));
-            context = context.addHistoryEntry(tf, meta);
-            history.pushContext(context);
-        }
-
-        sessionManager.saveHistory(history, sessionId);
-
-        // saveHistory is async; wait for the count to update
-        assertEventually(() ->
-                assertEquals(3, sessionManager.countAiResponses(sessionId), "Should count exactly 3 AI responses"));
 
         project.close();
     }

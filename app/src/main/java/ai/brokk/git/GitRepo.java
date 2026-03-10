@@ -26,9 +26,11 @@ import org.eclipse.jgit.api.errors.TransportException;
 import org.eclipse.jgit.diff.DiffConfig;
 import org.eclipse.jgit.diff.DiffEntry;
 import org.eclipse.jgit.diff.DiffFormatter;
+import org.eclipse.jgit.dircache.DirCache;
 import org.eclipse.jgit.errors.IncorrectObjectTypeException;
 import org.eclipse.jgit.errors.MissingObjectException;
 import org.eclipse.jgit.gpg.bc.internal.BouncyCastleGpgSignerFactory;
+import org.eclipse.jgit.lib.FileMode;
 import org.eclipse.jgit.lib.ObjectId;
 import org.eclipse.jgit.lib.Repository;
 import org.eclipse.jgit.revwalk.*;
@@ -592,6 +594,10 @@ public class GitRepo implements Closeable, IGitRepo {
                     treeWalk.addTree(headTree);
                     treeWalk.setRecursive(true);
                     while (treeWalk.next()) {
+                        if (!isFileMode(treeWalk.getRawMode(0))) {
+                            continue;
+                        }
+
                         String gitPath = treeWalk.getPathString();
                         // Only add paths that are under the projectRoot
                         Path workingTreeRoot = repository.getWorkTree().toPath().normalize();
@@ -604,12 +610,17 @@ public class GitRepo implements Closeable, IGitRepo {
             }
             // Staged/modified/added/removed
             var status = git.status().call();
+            DirCache index = repository.readDirCache();
             Path workingTreeRoot = repository.getWorkTree().toPath().normalize();
             Stream.of(status.getChanged(), status.getModified(), status.getAdded(), status.getRemoved())
                     .flatMap(Collection::stream)
                     .filter(gitPath -> {
                         Path absoluteFilePathInWorktree = workingTreeRoot.resolve(gitPath);
-                        return absoluteFilePathInWorktree.startsWith(projectRoot);
+                        if (!absoluteFilePathInWorktree.startsWith(projectRoot)) {
+                            return false;
+                        }
+                        var entry = index.getEntry(gitPath);
+                        return entry != null && isFileMode(entry.getRawMode());
                     })
                     .forEach(trackedPaths::add);
         } catch (IOException | GitAPIException e) {
@@ -2623,6 +2634,10 @@ public class GitRepo implements Closeable, IGitRepo {
     public static String createTempRebaseBranchName(String sourceBranchName) {
         String sanitized = sourceBranchName.replaceAll("[^a-zA-Z0-9-_]", "_");
         return createTempBranchName("brokk_temp_rebase_" + sanitized);
+    }
+
+    private static boolean isFileMode(int rawMode) {
+        return (rawMode & FileMode.TYPE_MASK) == FileMode.TYPE_FILE;
     }
 
     /**

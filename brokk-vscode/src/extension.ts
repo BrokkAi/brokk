@@ -98,6 +98,25 @@ export async function activate(context: vscode.ExtensionContext) {
   connectOrSpawn(context);
 }
 
+async function ensureJbangInstalled(): Promise<string | null> {
+  const choice = await vscode.window.showInformationMessage(
+    "Brokk requires jbang to run. Would you like to install it now?",
+    "Install jbang",
+    "Cancel"
+  );
+  if (choice !== "Install jbang") {
+    statusBarItem.text = "$(circle-slash) Brokk: Not connected";
+    statusBarItem.tooltip = "jbang is required. Click to retry.";
+    return null;
+  }
+
+  log("Installing jbang...");
+  statusBarItem.text = "$(sync~spin) Brokk: Installing jbang...";
+  const installedPath = await installJbang();
+  log(`jbang installed at ${installedPath}`);
+  return installedPath;
+}
+
 async function connectOrSpawn(context: vscode.ExtensionContext) {
   const config = vscode.workspace.getConfiguration("brokk");
 
@@ -174,25 +193,35 @@ async function connectOrSpawn(context: vscode.ExtensionContext) {
       let jbangBinary = resolveJbangBinary();
 
       if (!jbangBinary) {
-        const choice = await vscode.window.showInformationMessage(
-          "Brokk requires jbang to run. Would you like to install it now?",
-          "Install jbang",
-          "Cancel"
-        );
-        if (choice !== "Install jbang") {
-          statusBarItem.text = "$(circle-slash) Brokk: Not connected";
-          statusBarItem.tooltip = "jbang is required. Click to retry.";
-          return;
-        }
-
-        log("Installing jbang...");
-        statusBarItem.text = "$(sync~spin) Brokk: Installing jbang...";
-        jbangBinary = await installJbang();
-        log(`jbang installed at ${jbangBinary}`);
+        jbangBinary = await ensureJbangInstalled();
+        if (!jbangBinary) return;
       }
 
+      log(`Using jbang binary: ${jbangBinary}`);
       log("Launching executor via jbang...");
-      handle = await spawnJbang(workspaceDir, jbangBinary);
+      try {
+        handle = await spawnJbang(workspaceDir, jbangBinary);
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        const isSpawnError = message.includes("Executor process error") || message.includes("ENOENT");
+
+        if (isSpawnError) {
+          log(`Initial JBang launch failed (${message}). Attempting recovery...`);
+          statusBarItem.text = "$(sync~spin) Brokk: Recovering JBang...";
+          
+          // Re-resolve or re-install
+          jbangBinary = resolveJbangBinary() || await ensureJbangInstalled();
+          
+          if (jbangBinary) {
+            log("Retrying JBang launch...");
+            handle = await spawnJbang(workspaceDir, jbangBinary);
+          } else {
+            throw err;
+          }
+        } else {
+          throw err;
+        }
+      }
     } else {
       // local mode
       const explicitJar = config.get<string>("localJarPath", "") || undefined;

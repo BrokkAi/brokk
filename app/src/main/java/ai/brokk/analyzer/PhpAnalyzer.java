@@ -164,9 +164,7 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
                     if ("nsname".equals(query.getCaptureNameForId(capture.getIndex()))) {
                         TSNode nameNode = capture.getNode();
                         if (nameNode != null) {
-                            return sourceContent
-                                    .substringFromBytes(nameNode.getStartByte(), nameNode.getEndByte())
-                                    .replace('\\', '.');
+                            return sourceContent.substringFrom(nameNode).replace('\\', '.');
                         }
                     }
                 }
@@ -178,9 +176,7 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
             if (current != null && NAMESPACE_DEFINITION.equals(current.getType())) {
                 TSNode nameNode = current.getChildByFieldName("name");
                 if (nameNode != null) {
-                    return sourceContent
-                            .substringFromBytes(nameNode.getStartByte(), nameNode.getEndByte())
-                            .replace('\\', '.');
+                    return sourceContent.substringFrom(nameNode).replace('\\', '.');
                 }
             }
             if (current != null
@@ -239,11 +235,9 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
             String type = child.getType();
 
             if (PHP_SYNTAX_PROFILE.decoratorNodeTypes().contains(type)) { // This is an attribute
-                sb.append(sourceContent.substringFromBytes(child.getStartByte(), child.getEndByte()))
-                        .append("\n");
+                sb.append(sourceContent.substringFrom(child)).append("\n");
             } else if (PHP_SYNTAX_PROFILE.modifierNodeTypes().contains(type)) { // This is a keyword modifier
-                sb.append(sourceContent.substringFromBytes(child.getStartByte(), child.getEndByte()))
-                        .append(" ");
+                sb.append(sourceContent.substringFrom(child)).append(" ");
             } else if (type.equals("function")) { // Stop when the 'function' keyword token itself is encountered
                 break;
             }
@@ -296,9 +290,7 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
         }
 
         if (referenceModifierNode != null) { // No need for !referenceModifierNode.isNull()
-            ampersand = sourceContent
-                    .substringFromBytes(referenceModifierNode.getStartByte(), referenceModifierNode.getEndByte())
-                    .trim();
+            ampersand = sourceContent.substringFrom(referenceModifierNode).trim();
         }
 
         String formattedReturnType = "";
@@ -342,77 +334,76 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected boolean containsTestMarkers(TSTree tree, SourceContent sourceContent) {
-        try (TSQuery query = createQuery(QueryType.DEFINITIONS)) {
-            if (query != null) {
-                try (TSQueryCursor cursor = new TSQueryCursor()) {
-                    cursor.exec(query, tree.getRootNode());
-                    TSQueryMatch match = new TSQueryMatch();
+        return withCachedQuery(
+                QueryType.DEFINITIONS,
+                query -> {
+                    try (TSQueryCursor cursor = new TSQueryCursor()) {
+                        cursor.exec(query, tree.getRootNode());
+                        TSQueryMatch match = new TSQueryMatch();
 
-                    while (cursor.nextMatch(match)) {
-                        for (TSQueryCapture capture : match.getCaptures()) {
-                            String captureName = query.getCaptureNameForId(capture.getIndex());
-                            if (!TEST_MARKER.equals(captureName)) {
-                                continue;
-                            }
-
-                            TSNode node = capture.getNode();
-                            if (node == null || node.isNull()) {
-                                continue;
-                            }
-
-                            String nodeType = node.getType();
-
-                            // Name-based detection: @test_marker is captured on the function/method name node.
-                            if (NAME.equals(nodeType)) {
-                                TSNode parent = node.getParent();
-                                if (parent == null || parent.isNull()) {
+                        while (cursor.nextMatch(match)) {
+                            for (TSQueryCapture capture : match.getCaptures()) {
+                                String captureName = query.getCaptureNameForId(capture.getIndex());
+                                if (!TEST_MARKER.equals(captureName)) {
                                     continue;
                                 }
 
-                                String parentType = parent.getType();
-                                if (!FUNCTION_DEFINITION.equals(parentType) && !METHOD_DECLARATION.equals(parentType)) {
+                                TSNode node = capture.getNode();
+                                if (node == null || node.isNull()) {
                                     continue;
                                 }
 
-                                String nameText =
-                                        sourceContent.substringFromBytes(node.getStartByte(), node.getEndByte());
-                                if (nameText.toLowerCase(Locale.ROOT).startsWith("test")) {
-                                    return true;
-                                }
-                                continue;
-                            }
+                                String nodeType = node.getType();
 
-                            // Docblock/Comment-based detection: @test_marker is also captured on comment nodes.
-                            if (COMMENT.equals(nodeType)) {
-                                String commentText =
-                                        sourceContent.substringFromBytes(node.getStartByte(), node.getEndByte());
-                                if (!commentText.contains(TEST_TAG_AT_TEST)) {
+                                // Name-based detection: @test_marker is captured on the function/method name node.
+                                if (NAME.equals(nodeType)) {
+                                    TSNode parent = node.getParent();
+                                    if (parent == null || parent.isNull()) {
+                                        continue;
+                                    }
+
+                                    String parentType = parent.getType();
+                                    if (!FUNCTION_DEFINITION.equals(parentType)
+                                            && !METHOD_DECLARATION.equals(parentType)) {
+                                        continue;
+                                    }
+
+                                    String nameText = sourceContent.substringFrom(node);
+                                    if (nameText.toLowerCase(Locale.ROOT).startsWith("test")) {
+                                        return true;
+                                    }
                                     continue;
                                 }
 
-                                // Prefer AST adjacency: treat the comment as "belonging to" the next declaration
-                                // sibling.
-                                TSNode next = node.getNextSibling();
-                                while (next != null && !next.isNull() && isWhitespaceOnlyNode(next)) {
-                                    next = next.getNextSibling();
-                                }
+                                // Docblock/Comment-based detection: @test_marker is also captured on comment nodes.
+                                if (COMMENT.equals(nodeType)) {
+                                    String commentText = sourceContent.substringFrom(node);
+                                    if (!commentText.contains(TEST_TAG_AT_TEST)) {
+                                        continue;
+                                    }
 
-                                if (next == null || next.isNull()) {
-                                    continue;
-                                }
+                                    // Prefer AST adjacency: treat the comment as "belonging to" the next declaration
+                                    // sibling.
+                                    TSNode next = node.getNextSibling();
+                                    while (next != null && !next.isNull() && isWhitespaceOnlyNode(next)) {
+                                        next = next.getNextSibling();
+                                    }
 
-                                String nextType = next.getType();
-                                if (FUNCTION_DEFINITION.equals(nextType) || METHOD_DECLARATION.equals(nextType)) {
-                                    return true;
+                                    if (next == null || next.isNull()) {
+                                        continue;
+                                    }
+
+                                    String nextType = next.getType();
+                                    if (FUNCTION_DEFINITION.equals(nextType) || METHOD_DECLARATION.equals(nextType)) {
+                                        return true;
+                                    }
                                 }
                             }
                         }
                     }
-                }
-            }
-        }
-
-        return false;
+                    return false;
+                },
+                false);
     }
 
     @Override

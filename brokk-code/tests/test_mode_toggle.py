@@ -41,52 +41,16 @@ def test_action_toggle_mode_cycles_correctly():
     mock_chat.add_system_message_markup.assert_called_with("Mode changed to: [bold]LUTZ[/]")
 
 
-def test_handle_command_updates_agent_mode():
+def test_handle_command_modes_removed():
+    """Verify that mode slash commands are now treated as unknown."""
     app = BrokkApp(executor=MagicMock())
     mock_chat = MagicMock(spec=ChatPanel)
     app.query_one = MagicMock(return_value=mock_chat)
 
-    # Test /code
-    app._handle_command("/code")
-    assert app.agent_mode == "CODE"
-    mock_chat.add_system_message_markup.assert_called_with("Mode changed to: [bold]CODE[/]")
-
-    # Test /ask
-    app._handle_command("/ask")
-    assert app.agent_mode == "ASK"
-    mock_chat.add_system_message_markup.assert_called_with("Mode changed to: [bold]ASK[/]")
-
-    # Test /lutz
-    app._handle_command("/lutz")
-    assert app.agent_mode == "LUTZ"
-    mock_chat.add_system_message_markup.assert_called_with("Mode changed to: [bold]LUTZ[/]")
-
-    # Test /plan
-    app._handle_command("/plan")
-    assert app.agent_mode == "PLAN"
-    mock_chat.add_system_message_markup.assert_called_with("Mode changed to: [bold]PLAN[/]")
-
-
-def test_handle_command_plan_sets_plan_mode():
-    app = BrokkApp(executor=MagicMock())
-    mock_chat = MagicMock(spec=ChatPanel)
-    app.query_one = MagicMock(return_value=mock_chat)
-
-    app._handle_command("/plan")
-    assert app.agent_mode == "PLAN"
-
-
-def test_mode_command_no_arg_opens_menu():
-    app = BrokkApp(executor=MagicMock())
-    mock_chat = MagicMock(spec=ChatPanel)
-    app.query_one = MagicMock(return_value=mock_chat)
-
-    # Initial state
-    assert app.agent_mode == "LUTZ"
-
-    # Test /mode opens menu
-    app._handle_command("/mode")
-    mock_chat.open_mode_menu.assert_called_once_with(["CODE", "ASK", "LUTZ", "PLAN"], "LUTZ")
+    for cmd in ["/code", "/ask", "/lutz", "/plan", "/mode"]:
+        app._handle_command(cmd)
+        args, _ = mock_chat.append_message.call_args
+        assert f"Unknown command: {cmd}" in args[1]
 
 
 def test_no_f2_settings_binding():

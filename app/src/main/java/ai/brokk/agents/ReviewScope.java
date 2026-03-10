@@ -76,6 +76,9 @@ public record ReviewScope(DiffService.CumulativeChanges changes, ReviewScope.Met
      */
     @Blocking
     public static ReviewScope fromBaseline(IContextManager cm, String fromRef, String endRef) {
+        if (!cm.getProject().hasGit()) {
+            throw new IllegalStateException("ReviewScope requires a git repository");
+        }
         var repo = (GitRepo) cm.getProject().getRepo();
 
         String resolvedFrom;
@@ -146,6 +149,9 @@ public record ReviewScope(DiffService.CumulativeChanges changes, ReviewScope.Met
             throw new ReviewLoadContextException("Failed to parse review diff from context");
         }
 
+        if (!cm.getProject().hasGit()) {
+            throw new ReviewLoadContextException("ReviewScope requires a git repository");
+        }
         var repo = (GitRepo) cm.getProject().getRepo();
         List<FileDiff> fileDiffs = new ArrayList<>();
 

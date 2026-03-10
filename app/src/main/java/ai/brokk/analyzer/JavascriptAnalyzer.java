@@ -321,8 +321,7 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
                     String captureName = mutationQuery.getCaptureNameForId(capture.getIndex());
                     if ("mutated.id".equals(captureName)) {
                         TSNode node = capture.getNode();
-                        mutatedIdentifiers.add(
-                                sourceContent.substringFromBytes(node.getStartByte(), node.getEndByte()));
+                        mutatedIdentifiers.add(sourceContent.substringFrom(node));
                     }
                 }
             }
@@ -353,8 +352,7 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
                 // The first child of lexical/variable_declaration is the keyword (const, let, var)
                 TSNode keywordNode = declarationNode.getChild(0);
                 if (keywordNode != null && !keywordNode.isNull()) {
-                    keyword = sourceContent.substringFromBytes(
-                            keywordNode.getStartByte(), keywordNode.getEndByte()); // "const", "let", or "var"
+                    keyword = sourceContent.substringFrom(keywordNode); // "const", "let", or "var"
                 }
 
                 String exportStr = "";
@@ -453,9 +451,18 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
             SourceContent sourceContent,
             String exportPrefix,
             String signatureText,
+            String simpleName,
             String baseIndent,
             ProjectFile file) {
-        // JavaScript field signatures shouldn't have semicolons
+        // JavaScript field signatures shouldn't have semicolons.
+        // If fieldNode is a variable_declarator, we want to render just that declarator
+        // prefixed by the export/declaration keyword found in exportPrefix.
+        if (VARIABLE_DECLARATOR.equals(fieldNode.getType())) {
+            return baseIndent
+                    + (exportPrefix.stripTrailing() + " "
+                                    + sourceContent.substringFrom(fieldNode).strip())
+                            .strip();
+        }
         var fullSignature = (exportPrefix.stripTrailing() + " " + signatureText.strip()).strip();
         return baseIndent + fullSignature;
     }
