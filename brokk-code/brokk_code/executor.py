@@ -717,7 +717,8 @@ class ExecutorManager:
                 status_resp = await self._http_client.get(f"/v1/jobs/{job_id}")
                 status_resp.raise_for_status()
                 status_data = status_resp.json()
-                state = status_data.get("state", "QUEUED")
+                if isinstance(status_data, dict):
+                    state = status_data.get("state", "QUEUED")
                 last_status_check = now
 
             # 2. Fetch events
@@ -725,6 +726,10 @@ class ExecutorManager:
             events_resp = await self._http_client.get(events_url)
             events_resp.raise_for_status()
             events_data = events_resp.json()
+
+            if not isinstance(events_data, dict):
+                await asyncio.sleep(current_sleep)
+                continue
 
             events = events_data.get("events", [])
             after_seq = events_data.get("nextAfter", after_seq)

@@ -1901,6 +1901,7 @@ class BrokkApp(App):
             chat.set_job_running(True)
             chat.set_response_pending()
 
+        job_failed = False
         try:
             self.current_job_id = await self.executor.submit_pr_review_job(
                 planner_model=self.current_model,
@@ -1910,18 +1911,36 @@ class BrokkApp(App):
                 pr_number=pr_number,
             )
             async for event in self.executor.stream_events(self.current_job_id):
+                if not isinstance(event, dict):
+                    continue
+                event_type = event.get("type")
+                # Skip raw LLM token stream — it contains the review JSON,
+                # not user-facing content
+                if event_type in ("LLM_TOKEN", "TOKEN"):
+                    continue
+                if event_type == "STATE_CHANGE":
+                    data = event.get("data", {})
+                    state = data.get("state") if isinstance(data, dict) else None
+                    if state in ("FAILED", "CANCELLED"):
+                        job_failed = True
+                    continue
                 self._handle_event(event)
         except Exception as e:
+            logger.exception("PR review job failed")
+            job_failed = True
             if chat:
                 err_type = type(e).__name__
                 chat.add_system_message(
                     f"PR review job failed ({err_type}): {e}",
                     level="ERROR",
                 )
-            else:
-                logger.error("PR review job failed (%s): %s", type(e).__name__, e)
         finally:
             if chat:
+                if not job_failed:
+                    chat.add_system_message(
+                        f"PR review for {repo_owner}/{repo_name}#{pr_number} "
+                        "posted to GitHub.",
+                    )
                 chat.set_response_finished()
                 chat.set_job_running(False)
             self.job_in_progress = False
@@ -2064,6 +2083,9 @@ class BrokkApp(App):
                 self.current_job_id = None
 
     def _handle_event(self, event: Dict[str, Any]) -> None:
+        if not isinstance(event, dict):
+            logger.warning("Ignoring non-dict event: %s", type(event).__name__)
+            return
         event_type = event.get("type")
         raw_data = event.get("data", {})
         chat = self._maybe_chat()
