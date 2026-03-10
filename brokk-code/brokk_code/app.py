@@ -489,6 +489,7 @@ class SessionCostsModalScreen(ModalScreen[None]):
         else:
             self.query_one("#session-costs-help-line").focus()
 
+
 class PrCreateModalScreen(ModalScreen[Optional[tuple[str, str, List[str]]]]):
     """Modal for creating a pull request with editable title, body, and session selection."""
 
