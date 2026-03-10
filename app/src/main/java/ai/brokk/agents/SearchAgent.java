@@ -11,6 +11,7 @@ import ai.brokk.Service;
 import ai.brokk.TaskResult;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.concurrent.ComputedValue;
+import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextDelta;
 import ai.brokk.context.ContextFragment;
@@ -56,6 +57,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -119,7 +121,7 @@ public class SearchAgent {
     private final List<String> terminalTools;
     private final Set<String> terminalToolNames;
     private final SearchMetrics metrics;
-    private final ScanConfig scanConfig;
+    private ScanConfig scanConfig;
     private boolean scanPerformed;
     private boolean contextPruned;
 
@@ -208,15 +210,7 @@ public class SearchAgent {
         this.scope = scope;
 
         this.io = io;
-
-        Set<ContextFragment> referencedFragments = new ReferenceAgent(cm).resolveReferencedFragments(goal);
-        if (referencedFragments.isEmpty()) {
-            this.scanConfig = scanConfig;
-        } else {
-            this.scanConfig =
-                    new ScanConfig(false, scanConfig.scanModel(), scanConfig.appendToScope(), scanConfig.autoPrune());
-            logger.debug("Referenced fragments resolved: {}. Disabling auto-scan.", referencedFragments);
-        }
+        this.scanConfig = scanConfig;
 
         var llmOptions = new Llm.Options(model, goal, TaskResult.Type.SEARCH).withEcho();
         this.llm = cm.getLlm(llmOptions);
@@ -230,9 +224,7 @@ public class SearchAgent {
                 : SearchMetrics.noOp();
 
         this.mcpTools = initMcpTools(cm.getProject());
-        this.currentState = referencedFragments.isEmpty()
-                ? SearchState.initial(initialContext)
-                : SearchState.initial(initialContext.addFragments(referencedFragments));
+        this.currentState = SearchState.initial(initialContext);
         this.checkpointState = currentState;
         this.originalPinnedFragments = initialContext.getPinnedFragments().collect(Collectors.toSet());
         this.objective = objective;
@@ -350,9 +342,8 @@ public class SearchAgent {
     }
 
     private TaskResult executeInternal() throws InterruptedException {
-        if (scanConfig.autoPrune()) {
-            pruneContext();
-        }
+        initializeContextForSearch();
+
         if (shouldAutomaticallyScan() && currentState.context().isFileContentEmpty()) {
             performAutoScan();
         }
@@ -482,6 +473,41 @@ public class SearchAgent {
         }
 
         return errorResult(new TaskResult.StopDetails(TaskResult.StopReason.TURN_LIMIT), currentState.context());
+    }
+
+    private void initializeContextForSearch() throws InterruptedException {
+        Context preSearchContext = currentState.context();
+
+        CompletableFuture<Set<ContextFragment>> referencesFuture =
+                LoggingFuture.supplyCallableAsync(() -> {
+                    return new ReferenceAgent(cm).resolveReferencedFragments(goal);
+                });
+        CompletableFuture<Void> pruneFuture = scanConfig.autoPrune()
+                ? LoggingFuture.supplyCallableAsync(
+                        () -> {
+                            pruneContext();
+                            return null;
+                        })
+                : CompletableFuture.completedFuture(null);
+
+        try {
+            LoggingFuture.allOf(pruneFuture, referencesFuture).join();
+        } catch (CompletionException e) {
+            if (e.getCause() instanceof InterruptedException interrupted) {
+                throw interrupted;
+            }
+            throw e;
+        }
+
+        // pruneContext's mutation of currentState is guaranteed to have finished, so we're not racing here
+        Set<ContextFragment> referencedFragments = referencesFuture.join();
+        if (!referencedFragments.isEmpty()) {
+            currentState = currentState.withContext(currentState.context().addFragments(referencedFragments));
+            checkpointState = SearchState.initial(preSearchContext.addFragments(referencedFragments));
+            this.scanConfig =
+                    new ScanConfig(false, scanConfig.scanModel(), scanConfig.appendToScope(), scanConfig.autoPrune());
+            logger.debug("Referenced fragments resolved: {}. Disabling auto-scan.", referencedFragments);
+        }
     }
 
     private ToolRegistry createToolRegistry(WorkspaceTools wst, Object toolProvider) {
