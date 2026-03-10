@@ -15,6 +15,8 @@ import java.util.SequencedSet;
 import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+
+import org.apache.commons.lang3.NotImplementedException;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -70,9 +72,7 @@ public interface IAnalyzer {
     /**
      * Returns the set of all files currently represented in this analyzer snapshot.
      */
-    default Set<ProjectFile> getAnalyzedFiles() {
-        return Set.of();
-    }
+    Set<ProjectFile> getAnalyzedFiles();
 
     /**
      * @return true if the given file contains test cases according to this analyzer's logic.
