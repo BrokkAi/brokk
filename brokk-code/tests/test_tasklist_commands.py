@@ -104,6 +104,7 @@ async def test_tasklist_panel_keybindings_call_app_actions() -> None:
             self.action_task_edit = MagicMock()
             self.action_task_delete = MagicMock()
             self.action_task_toggle = MagicMock()
+            self.action_task_run = MagicMock()
 
         def compose(self) -> ComposeResult:
             yield TaskListPanel(id="tl")
@@ -137,6 +138,10 @@ async def test_tasklist_panel_keybindings_call_app_actions() -> None:
         await pilot.press("space")
         await pilot.pause()
         app.action_task_toggle.assert_called_once()
+
+        await pilot.press("r")
+        await pilot.pause()
+        app.action_task_run.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -174,7 +179,9 @@ async def test_tasklist_panel_help_line_contains_expected_keybindings() -> None:
         assert "A" in rendered
         assert "E" in rendered
         assert "D" in rendered
+        assert "R" in rendered
         assert "Toggle" in rendered
+        assert "Run" in rendered
 
 
 def test_app_task_add_opens_modal_and_dispatches_add_worker_on_submit() -> None:
