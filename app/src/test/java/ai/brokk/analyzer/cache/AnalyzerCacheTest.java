@@ -4,14 +4,12 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.analyzer.SourceContent;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.treesitter.TSParser;
-import org.treesitter.TSTree;
-import org.treesitter.TreeSitterJava;
 
 class AnalyzerCacheTest {
 
@@ -45,7 +43,7 @@ class AnalyzerCacheTest {
         AnalyzerCache.CacheSnapshot snapshot = cache.snapshot();
 
         assertNotNull(snapshot);
-        assertSame(cache.trees(), snapshot.trees());
+        assertSame(cache.sources(), snapshot.sources());
         assertSame(cache.rawSupertypes(), snapshot.rawSupertypes());
         assertSame(cache.imports(), snapshot.imports());
         assertSame(cache.typeHierarchy(), snapshot.typeHierarchy());
@@ -62,18 +60,16 @@ class AnalyzerCacheTest {
         CodeUnit cuChanged = CodeUnit.cls(pfChanged, "com.test", "Changed");
         CodeUnit cuAlsoFromChanged = CodeUnit.cls(pfAliasToChanged, "com.test", "AlsoChanged");
 
-        // 2. Create real TSTree objects
-        TSParser parser = new TSParser();
-        parser.setLanguage(new TreeSitterJava());
-        TSTree treeUnchanged = parser.parseString(null, "class Unchanged {}\n");
-        TSTree treeChanged = parser.parseString(null, "class Changed {}\n");
+        // 2. Create SourceContent objects
+        SourceContent sourceUnchanged = SourceContent.of("class Unchanged {}\n");
+        SourceContent sourceChanged = SourceContent.of("class Changed {}\n");
 
         // 3. Populate previous cache
         AnalyzerCache previous = new AnalyzerCache();
 
-        // trees
-        previous.trees().put(pfUnchanged, treeUnchanged);
-        previous.trees().put(pfChanged, treeChanged);
+        // sources
+        previous.sources().put(pfUnchanged, sourceUnchanged);
+        previous.sources().put(pfChanged, sourceChanged);
 
         // rawSupertypes
         previous.rawSupertypes().put(cuUnchanged, List.of("BaseU"));
@@ -94,7 +90,7 @@ class AnalyzerCacheTest {
 
         // 5. Assertions
         // (a) Unchanged entries are preserved
-        assertSame(treeUnchanged, next.trees().get(pfUnchanged), "Unchanged tree should be preserved");
+        assertSame(sourceUnchanged, next.sources().get(pfUnchanged), "Unchanged source should be preserved");
         assertEquals(
                 List.of("BaseU"), next.rawSupertypes().get(cuUnchanged), "Unchanged rawSupertypes should be preserved");
         assertEquals(
@@ -105,7 +101,7 @@ class AnalyzerCacheTest {
                 "Unchanged typeHierarchy should be preserved");
 
         // (b) Changed entries are excluded
-        assertNull(next.trees().get(pfChanged), "Changed tree should be excluded");
+        assertNull(next.sources().get(pfChanged), "Changed source should be excluded");
         assertNull(next.rawSupertypes().get(cuChanged), "Changed rawSupertypes should be excluded");
         assertNull(next.imports().getForward(pfChanged), "Changed imports should be excluded");
         assertNull(next.typeHierarchy().getForward(cuChanged), "Changed typeHierarchy should be excluded");

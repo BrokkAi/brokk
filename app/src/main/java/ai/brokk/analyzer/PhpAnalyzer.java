@@ -164,9 +164,7 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
                     if ("nsname".equals(query.getCaptureNameForId(capture.getIndex()))) {
                         TSNode nameNode = capture.getNode();
                         if (nameNode != null) {
-                            return sourceContent
-                                    .substringFromBytes(nameNode.getStartByte(), nameNode.getEndByte())
-                                    .replace('\\', '.');
+                            return sourceContent.substringFrom(nameNode).replace('\\', '.');
                         }
                     }
                 }
@@ -178,9 +176,7 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
             if (current != null && NAMESPACE_DEFINITION.equals(current.getType())) {
                 TSNode nameNode = current.getChildByFieldName("name");
                 if (nameNode != null) {
-                    return sourceContent
-                            .substringFromBytes(nameNode.getStartByte(), nameNode.getEndByte())
-                            .replace('\\', '.');
+                    return sourceContent.substringFrom(nameNode).replace('\\', '.');
                 }
             }
             if (current != null
@@ -239,11 +235,9 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
             String type = child.getType();
 
             if (PHP_SYNTAX_PROFILE.decoratorNodeTypes().contains(type)) { // This is an attribute
-                sb.append(sourceContent.substringFromBytes(child.getStartByte(), child.getEndByte()))
-                        .append("\n");
+                sb.append(sourceContent.substringFrom(child)).append("\n");
             } else if (PHP_SYNTAX_PROFILE.modifierNodeTypes().contains(type)) { // This is a keyword modifier
-                sb.append(sourceContent.substringFromBytes(child.getStartByte(), child.getEndByte()))
-                        .append(" ");
+                sb.append(sourceContent.substringFrom(child)).append(" ");
             } else if (type.equals("function")) { // Stop when the 'function' keyword token itself is encountered
                 break;
             }
@@ -296,9 +290,7 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
         }
 
         if (referenceModifierNode != null) { // No need for !referenceModifierNode.isNull()
-            ampersand = sourceContent
-                    .substringFromBytes(referenceModifierNode.getStartByte(), referenceModifierNode.getEndByte())
-                    .trim();
+            ampersand = sourceContent.substringFrom(referenceModifierNode).trim();
         }
 
         String formattedReturnType = "";
@@ -376,8 +368,7 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
                                         continue;
                                     }
 
-                                    String nameText =
-                                            sourceContent.substringFromBytes(node.getStartByte(), node.getEndByte());
+                                    String nameText = sourceContent.substringFrom(node);
                                     if (nameText.toLowerCase(Locale.ROOT).startsWith("test")) {
                                         return true;
                                     }
@@ -386,8 +377,7 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
 
                                 // Docblock/Comment-based detection: @test_marker is also captured on comment nodes.
                                 if (COMMENT.equals(nodeType)) {
-                                    String commentText =
-                                            sourceContent.substringFromBytes(node.getStartByte(), node.getEndByte());
+                                    String commentText = sourceContent.substringFrom(node);
                                     if (!commentText.contains(TEST_TAG_AT_TEST)) {
                                         continue;
                                     }

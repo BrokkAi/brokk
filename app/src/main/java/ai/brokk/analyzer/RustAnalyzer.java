@@ -243,9 +243,7 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
         for (int i = 0; i < node.getChildCount(); i++) {
             TSNode child = node.getChild(i);
             if (!child.isNull() && VISIBILITY_MODIFIER.equals(child.getType())) {
-                String text = sourceContent
-                        .substringFromBytes(child.getStartByte(), child.getEndByte())
-                        .strip();
+                String text = sourceContent.substringFrom(child).strip();
                 return text + " ";
             }
         }
@@ -321,29 +319,25 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
 
         String nodeType = typeNode.getType();
         return switch (nodeType) {
-            case TYPE_IDENTIFIER ->
-                Optional.of(sourceContent.substringFromBytes(typeNode.getStartByte(), typeNode.getEndByte()));
+            case TYPE_IDENTIFIER -> Optional.of(sourceContent.substringFrom(typeNode));
 
             case SCOPED_TYPE_IDENTIFIER -> {
                 TSNode nameNode = typeNode.getChildByFieldName("name");
                 yield extractCoreTypeName(nameNode, sourceContent)
-                        .or(() -> Optional.of(
-                                sourceContent.substringFromBytes(typeNode.getStartByte(), typeNode.getEndByte())));
+                        .or(() -> Optional.of(sourceContent.substringFrom(typeNode)));
             }
 
             case GENERIC_TYPE, REFERENCE_TYPE, POINTER_TYPE -> {
                 TSNode innerType = typeNode.getChildByFieldName("type");
                 yield extractCoreTypeName(innerType, sourceContent)
-                        .or(() -> Optional.of(
-                                sourceContent.substringFromBytes(typeNode.getStartByte(), typeNode.getEndByte())));
+                        .or(() -> Optional.of(sourceContent.substringFrom(typeNode)));
             }
 
             case ARRAY_TYPE -> {
                 // Array/slice types like [T] or [T; N] have "element" field for the inner type
                 TSNode elementType = typeNode.getChildByFieldName("element");
                 yield extractCoreTypeName(elementType, sourceContent)
-                        .or(() -> Optional.of(
-                                sourceContent.substringFromBytes(typeNode.getStartByte(), typeNode.getEndByte())));
+                        .or(() -> Optional.of(sourceContent.substringFrom(typeNode)));
             }
 
             case TUPLE_TYPE -> {
@@ -364,11 +358,11 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
                         }
                     }
                 }
-                yield Optional.of(sourceContent.substringFromBytes(typeNode.getStartByte(), typeNode.getEndByte()));
+                yield Optional.of(sourceContent.substringFrom(typeNode));
             }
 
             default -> {
-                String text = sourceContent.substringFromBytes(typeNode.getStartByte(), typeNode.getEndByte());
+                String text = sourceContent.substringFrom(typeNode);
                 log.debug("extractCoreTypeName: unhandled node type '{}', using full text '{}'", nodeType, text);
                 yield Optional.of(text);
             }
@@ -389,7 +383,7 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
                     "Node type %s (text: '%s')",
                     decl.getType(),
                     sourceContent
-                            .substringFromBytes(decl.getStartByte(), decl.getEndByte())
+                            .substringFrom(decl)
                             .lines()
                             .findFirst()
                             .orElse("")
@@ -407,7 +401,7 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
                     "Node type %s (text: '%s')",
                     decl.getType(),
                     sourceContent
-                            .substringFromBytes(decl.getStartByte(), decl.getEndByte())
+                            .substringFrom(decl)
                             .lines()
                             .findFirst()
                             .orElse("")

@@ -122,7 +122,7 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer {
                 sourceContent,
                 PACKAGE_CLAUSE,
                 SCALA_SYNTAX_PROFILE.classLikeNodeTypes(),
-                (node, sourceContent1) -> sourceContent1.substringFromBytes(node.getStartByte(), node.getEndByte()));
+                (node, sourceContent1) -> sourceContent1.substringFrom(node));
     }
 
     @Override
@@ -166,7 +166,7 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer {
             var nodeKind = funcNode.getFieldNameForChild(i);
             var child = funcNode.getChild(i);
             if ("parameters".equals(nodeKind)) {
-                paramSb.append(sourceContent.substringFromBytes(child.getStartByte(), child.getEndByte()));
+                paramSb.append(sourceContent.substringFrom(child));
             }
         }
         var allParamsText = paramSb.toString();
@@ -264,12 +264,12 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer {
 
         TSNode typeNode = fieldNode.getChildByFieldName("type");
         if (typeNode != null && !typeNode.isNull()) {
-            sb.append(": ").append(sourceContent.substringFromBytes(typeNode.getStartByte(), typeNode.getEndByte()));
+            sb.append(": ").append(sourceContent.substringFrom(typeNode));
         }
 
         TSNode valueNode = fieldNode.getChildByFieldName("value");
         if (valueNode != null && !valueNode.isNull()) {
-            sb.append(" = ").append(sourceContent.substringFromBytes(valueNode.getStartByte(), valueNode.getEndByte()));
+            sb.append(" = ").append(sourceContent.substringFrom(valueNode));
         }
 
         return sb.toString();
@@ -298,15 +298,13 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer {
                                         return true;
                                     }
                                     case "test.annotation" -> {
-                                        String nodeText = sourceContent.substringFromBytes(
-                                                node.getStartByte(), node.getEndByte());
+                                        String nodeText = sourceContent.substringFrom(node);
                                         if (TEST_ANNOTATIONS.contains(nodeText)) {
                                             return true;
                                         }
                                     }
                                     case "test.infix" -> {
-                                        String nodeText = sourceContent.substringFromBytes(
-                                                node.getStartByte(), node.getEndByte());
+                                        String nodeText = sourceContent.substringFrom(node);
                                         if (TEST_INFIX_KEYWORDS.contains(nodeText)) {
                                             return true;
                                         }

@@ -277,9 +277,8 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
                     TSNode decoratorChild = child.getNamedChild(0);
                     if (decoratorChild != null && ATTRIBUTE.equals(decoratorChild.getType())) {
                         // Get the decorator text using the inherited textSlice method
-                        String decoratorText = sourceContent
-                                .substringFromBytes(decoratorChild.getStartByte(), decoratorChild.getEndByte())
-                                .trim();
+                        String decoratorText =
+                                sourceContent.substringFrom(decoratorChild).trim();
                         // Skip property setters/deleters: match "<name>.(setter|deleter)" only
                         if (decoratorText.matches("[^.]+\\.(setter|deleter)")) {
                             log.trace("Skipping property setter/deleter with decorator: {}", decoratorText);
@@ -320,9 +319,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
         for (int i = 0; i < decoratedNode.getNamedChildCount(); i++) {
             TSNode child = decoratedNode.getNamedChild(i);
             if (profile.decoratorNodeTypes().contains(child.getType())) {
-                outDecoratorLines.add(sourceContent
-                        .substringFromBytes(child.getStartByte(), child.getEndByte())
-                        .stripLeading());
+                outDecoratorLines.add(sourceContent.substringFrom(child).stripLeading());
             } else if (profile.functionLikeNodeTypes().contains(child.getType())
                     || profile.classLikeNodeTypes().contains(child.getType())) {
                 nodeForContent = child;
@@ -668,9 +665,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
 
                         List<String> supers = new ArrayList<>(aggregateSuperNodes.size());
                         for (var s : aggregateSuperNodes) {
-                            var text = sourceContent
-                                    .substringFromBytes(s.getStartByte(), s.getEndByte())
-                                    .strip();
+                            var text = sourceContent.substringFrom(s).strip();
                             if (!text.isEmpty()) {
                                 supers.add(text);
                             }
@@ -810,7 +805,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
                             var node = cap.getNode();
                             if (node == null || node.isNull()) continue;
 
-                            var text = importSc.substringFromBytes(node.getStartByte(), node.getEndByte());
+                            var text = importSc.substringFrom(node);
 
                             switch (capName) {
                                 case IMPORT_MODULE -> currentModule = text;
@@ -1092,47 +1087,42 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
     @Override
     public Set<String> extractTypeIdentifiers(String source) {
         Set<String> identifiers = new HashSet<>();
-        TSTree tree = treeOf(source);
-        if (tree == null) return identifiers;
-        TSNode rootNode = tree.getRootNode();
+        try (TSTree tree = getTSParser().parseString(null, source)) {
+            if (tree == null) return identifiers;
+            TSNode rootNode = tree.getRootNode();
 
-        if (rootNode.isNull()) {
-            return identifiers;
-        }
+            if (rootNode.isNull()) {
+                return identifiers;
+            }
 
-        withCachedQuery(
-                QueryType.IDENTIFIERS,
-                query -> {
-                    try (TSQueryCursor cursor = new TSQueryCursor()) {
-                        cursor.exec(query, rootNode);
+            withCachedQuery(
+                    QueryType.IDENTIFIERS,
+                    query -> {
+                        try (TSQueryCursor cursor = new TSQueryCursor()) {
+                            cursor.exec(query, rootNode);
 
-                        SourceContent sc = SourceContent.of(source);
-                        TSQueryMatch match = new TSQueryMatch();
-                        while (cursor.nextMatch(match)) {
-                            for (TSQueryCapture capture : match.getCaptures()) {
-                                TSNode node = capture.getNode();
-                                if (node != null && !node.isNull()) {
-                                    String text = sc.substringFrom(node).strip();
-                                    if (!text.isEmpty()) {
-                                        identifiers.add(text);
+                            SourceContent sc = SourceContent.of(source);
+                            TSQueryMatch match = new TSQueryMatch();
+                            while (cursor.nextMatch(match)) {
+                                for (TSQueryCapture capture : match.getCaptures()) {
+                                    TSNode node = capture.getNode();
+                                    if (node != null && !node.isNull()) {
+                                        String text = sc.substringFrom(node).strip();
+                                        if (!text.isEmpty()) {
+                                            identifiers.add(text);
+                                        }
                                     }
                                 }
                             }
                         }
-                    }
-                    return true;
-                },
-                false);
+                        return true;
+                    },
+                    false);
 
-        return identifiers;
-    }
-
-    private @Nullable TSTree treeOf(String source) {
-        try {
-            return getTSParser().parseString(null, source);
+            return identifiers;
         } catch (Exception e) {
             log.debug("Failed to parse ad-hoc source string: {}", e.getMessage());
-            return null;
+            return identifiers;
         }
     }
 
