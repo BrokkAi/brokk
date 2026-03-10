@@ -95,14 +95,86 @@ public class JavaTestDetectionTest {
             }
             """;
 
-        String fileName = "src/com/example/LegacyTest.java";
+        String qualifiedTestContent =
+                """
+            package com.example;
+            public class QualifiedLegacyTest extends junit.framework.TestCase {
+                public void testLegacy() {}
+            }
+            """;
 
-        try (var project = InlineTestProjectCreator.code(testContent, fileName).build()) {
+        try (var project = InlineTestProjectCreator.code(testContent, "src/com/example/LegacyTest.java")
+                .addFileContents(qualifiedTestContent, "src/com/example/QualifiedLegacyTest.java")
+                .build()) {
+            JavaAnalyzer analyzer = new JavaAnalyzer(project);
+            analyzer = (JavaAnalyzer) analyzer.update();
+
+            assertTrue(
+                    analyzer.containsTests(new ProjectFile(project.getRoot(), "src/com/example/LegacyTest.java")),
+                    "Should detect tests in class extending TestCase");
+            assertTrue(
+                    analyzer.containsTests(
+                            new ProjectFile(project.getRoot(), "src/com/example/QualifiedLegacyTest.java")),
+                    "Should detect tests in class extending qualified junit.framework.TestCase");
+        }
+    }
+
+    @Test
+    void testTestWithParametersDetectedAsTest() throws Exception {
+        String code =
+                """
+            package com.example;
+            import org.junit.Test;
+            public class ParamTests {
+                @Test(expected = RuntimeException.class)
+                public void errorTest() {}
+            }
+            """;
+
+        String fileName = "src/com/example/ParamTests.java";
+
+        try (var project = InlineTestProjectCreator.code(code, fileName).build()) {
             ProjectFile file = new ProjectFile(project.getRoot(), fileName);
             JavaAnalyzer analyzer = new JavaAnalyzer(project);
             analyzer = (JavaAnalyzer) analyzer.update();
 
-            assertTrue(analyzer.containsTests(file), "Should detect tests in class extending TestCase");
+            assertTrue(analyzer.containsTests(file), "Should detect @Test with parameters (e.g. expected)");
+        }
+    }
+
+    @Test
+    void testJUnitRulesAndIgnoreDetectedAsTest() throws Exception {
+        String ruleCode =
+                """
+            package com.example;
+            import org.junit.Rule;
+            import org.junit.rules.TemporaryFolder;
+            public class RuleOnlyTest {
+                @Rule
+                public TemporaryFolder folder = new TemporaryFolder();
+            }
+            """;
+
+        String ignoreCode =
+                """
+            package com.example;
+            import org.junit.Ignore;
+            @Ignore
+            public class IgnoredTest {}
+            """;
+
+        try (var project = InlineTestProjectCreator.code(ruleCode, "src/com/example/RuleOnlyTest.java")
+                .addFileContents(ignoreCode, "src/com/example/IgnoredTest.java")
+                .build()) {
+            JavaAnalyzer analyzer = new JavaAnalyzer(project);
+            analyzer = (JavaAnalyzer) analyzer.update();
+
+            assertTrue(
+                    analyzer.containsTests(new ProjectFile(project.getRoot(), "src/com/example/RuleOnlyTest.java")),
+                    "Should detect @Rule as a test marker");
+            assertTrue(
+                    analyzer.containsTests(new ProjectFile(project.getRoot(), "src/com/example/IgnoredTest.java")),
+                    "Should detect @Ignore as a test marker");
         }
     }
 
