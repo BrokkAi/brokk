@@ -1033,7 +1033,8 @@ async def test_chat_log_selection_rendering_applies_styles():
 
         # --- Render WITHOUT selection first ---
         log._line_cache.clear()
-        strip_no_selection = log._render_line(text_line_idx, 0, 80)
+        # Horizontal scroll (scroll_x) is ignored in the new rendering contract
+        strip_no_selection = log._render_line(text_line_idx, scroll_x=0, width=80)
         assert strip_no_selection.cell_length > 0, "Strip should have content"
 
         # Extract segments and styles without selection
@@ -1056,7 +1057,7 @@ async def test_chat_log_selection_rendering_applies_styles():
         log._line_cache.clear()
 
         # --- Render WITH selection ---
-        strip_with_selection = log._render_line(text_line_idx, 0, 80)
+        strip_with_selection = log._render_line(text_line_idx, scroll_x=0, width=80)
         assert strip_with_selection.cell_length > 0, "Strip should have content"
 
         # Extract segments and styles with selection
@@ -1072,8 +1073,6 @@ async def test_chat_log_selection_rendering_applies_styles():
 
         # --- Verify styling differs due to selection ---
         # The selection should cause style changes in the selected range.
-        # We check that at least one style differs between the two renders.
-        # This proves the selection render path actually applied selection styling.
         styles_differ = styles_no_sel != styles_with_sel
         assert styles_differ, (
             "Styles should differ when selection is active. "
@@ -1081,11 +1080,10 @@ async def test_chat_log_selection_rendering_applies_styles():
             "or the Textual private API has changed."
         )
 
-        # --- Verify cache was populated ---
+        # --- Verify cache was populated (note: cache key no longer includes scroll_x) ---
         cache_key = (
             text_line_idx + log._start_line,
-            0,
-            80,
+            80,  # width
             log._widest_line_width,
         )
         assert cache_key in log._line_cache, "Rendered line should be cached"
