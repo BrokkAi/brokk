@@ -490,7 +490,6 @@ class SessionSynchronizer {
     protected Map<UUID, IContextManager> getOpenContextManagers() {
         return Brokk.getProjectAndWorktreeChromes(project).stream()
                 .map(c -> (IContextManager) c.getContextManager())
-                .filter(cm -> cm.getCurrentSessionId() != null)
                 .collect(Collectors.toMap(IContextManager::getCurrentSessionId, Function.identity(), (a, b) -> a));
     }
 

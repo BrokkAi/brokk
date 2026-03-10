@@ -909,6 +909,58 @@ async def test_collapsed_summary_text_bold_label():
 
 
 @pytest.mark.asyncio
+async def test_costs_command_opens_modal():
+    """Verify that /costs command fetches data and pushes SessionCostsModalScreen."""
+    from pathlib import Path
+
+    from brokk_code.app import BrokkApp, SessionCostsModalScreen
+
+    executor = MagicMock()
+    executor.workspace_dir = Path("/tmp")
+    executor.get_session_costs = AsyncMock(
+        return_value={
+            "sessionId": "test-session",
+            "totalCost": 0.05,
+            "events": [
+                {
+                    "timestampMillis": 1737627240000,
+                    "operationLabel": "Test Task",
+                    "operationType": "ARCHITECT",
+                    "modelName": "gpt-4",
+                    "tier": "high",
+                    "inputTokens": 100,
+                    "outputTokens": 50,
+                    "costUsd": 0.05,
+                }
+            ],
+        }
+    )
+
+    app = BrokkApp(executor=executor)
+    # Mock startup to avoid real background workers
+    app._start_executor = AsyncMock()
+    app._monitor_executor = AsyncMock()
+    app._poll_tasklist = AsyncMock()
+    app._poll_context = AsyncMock()
+    app._executor_ready = True
+
+    async with app.run_test() as pilot:
+        # Trigger /costs
+        await pilot.press(*list("/costs"), "enter")
+        await pilot.pause()
+
+        # Check if modal is pushed
+        assert isinstance(app.screen, SessionCostsModalScreen)
+
+        # Verify content in modal using the existing helper
+        title_widget = app.screen.query_one("#session-costs-title", Static)
+        total_widget = app.screen.query_one("#session-costs-total", Static)
+
+        assert "Session Cost Breakdown" in _static_rendered_text(title_widget)
+        assert "0.0500" in _static_rendered_text(total_widget)
+
+
+@pytest.mark.asyncio
 async def test_chat_log_get_selection():
     """Verify that ChatLog.get_selection() extracts text from log content using real Selection."""
     from textual.app import App, ComposeResult
