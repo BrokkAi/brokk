@@ -8,7 +8,8 @@ import java.util.stream.Stream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class MultiAnalyzer implements IAnalyzer, TypeAliasProvider, ImportAnalysisProvider, TypeHierarchyProvider {
+public class MultiAnalyzer
+        implements IAnalyzer, TypeAliasProvider, ImportAnalysisProvider, TypeHierarchyProvider, TestDetectionProvider {
     private static final Logger log = LoggerFactory.getLogger(MultiAnalyzer.class);
     private final Map<Language, IAnalyzer> delegates;
 
@@ -76,7 +77,8 @@ public class MultiAnalyzer implements IAnalyzer, TypeAliasProvider, ImportAnalys
         // Otherwise, we throw an AssertionError
         if (capability == ImportAnalysisProvider.class
                 || capability == TypeHierarchyProvider.class
-                || capability == TypeAliasProvider.class) {
+                || capability == TypeAliasProvider.class
+                || capability == TestDetectionProvider.class) {
             boolean anyDelegateSupports =
                     delegates.values().stream().anyMatch(d -> d.as(capability).isPresent());
             return anyDelegateSupports ? Optional.of(capability.cast(this)) : Optional.empty();
