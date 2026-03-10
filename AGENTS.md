@@ -73,6 +73,6 @@ with try/catch is unnecessary and futile; don't do that.
    Deal with any log-and-ignore subpaths with GlobalExceptionHandler.handle(Throwable) instead of logging manually.
 3. Avoid SwingWorker in favor of virtual threads using ExecutorsUtil.newVirtualThreadExecutor, or LoggingFuture.supplyAsync.
 4. ContextManager.submitBackgroundTask is for tasks that run long enough to be noticeable by the user. For shorter
-   tasks use LoggingFuture.supplyAsync if it is just one, otherwise consider using LoggingExecutorService.newVirtualThreadExecutor.
+   tasks use LoggingFuture.supplyAsync / LoggingFuture.supplyVirtualAsync, depending on whether the task expects to be cpu- or i/o-bound.
 5. Use ai.brokk.concurrent.AtomicWrites.save(Path, XXX) for writing to disk, where XXX may be a byte[], a String,
    or a lambda that takes an OutputStream parameter.
