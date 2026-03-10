@@ -167,6 +167,38 @@ def test_main_prints_resume_hint_on_exit(tmp_path, capsys):
     assert expected_hint in captured.out
 
 
+def test_main_prints_exit_transcript_before_resume_hint(tmp_path, capsys):
+    """Verify main() prints the captured transcript after the TUI exits."""
+    import json
+    import zipfile
+
+    from brokk_code.__main__ import main
+
+    workspace = tmp_path
+    session_id = "transcript-session"
+    save_last_session_id(workspace, session_id)
+
+    zip_path = get_session_zip_path(workspace, session_id)
+    with zipfile.ZipFile(zip_path, "w") as z:
+        z.writestr(
+            "contexts.jsonl", json.dumps({"tasks": [{"sequence": 1, "taskType": "LUTZ"}]}) + "\n"
+        )
+
+    def fake_run(app_self):
+        app_self._exit_transcript = "You: hi\n\nBrokk: hello"
+
+    with (
+        patch("brokk_code.app.BrokkApp.run", new=fake_run),
+        patch("sys.argv", ["brokk", "--workspace", str(workspace)]),
+    ):
+        main()
+
+    captured = capsys.readouterr()
+    assert "You: hi" in captured.out
+    assert "Brokk: hello" in captured.out
+    assert captured.out.index("Brokk: hello") < captured.out.index(f"brokk resume {session_id}")
+
+
 def test_main_omits_resume_hint_when_no_tasks(tmp_path, capsys):
     """
     SPECIFICATION: Resume Hint Behavior (Empty Session)

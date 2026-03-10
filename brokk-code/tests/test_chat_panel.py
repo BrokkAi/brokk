@@ -46,6 +46,39 @@ async def test_token_usage_update():
 
 
 @pytest.mark.asyncio
+async def test_export_plain_text_transcript_formats_history():
+    """Verify the plain-text transcript export uses readable labels."""
+    from textual.app import App, ComposeResult
+
+    class TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield ChatPanel(id="chat")
+
+    app = TestApp()
+    async with app.run_test():
+        panel = app.query_one("#chat", ChatPanel)
+        panel.add_welcome("", "Welcome to Brokk")
+        panel.add_system_message("Starting Brokk executor...")
+        panel.add_system_message("Connected to executor abc (version: 1, protocol: 1)")
+        panel.add_user_message("help me")
+        panel.add_markdown("Here is a response")
+        panel.add_system_message("plain info")
+        panel.add_system_message("bad news", level="ERROR")
+        panel.add_tool_result("command output")
+
+        transcript = panel.export_plain_text_transcript()
+
+        assert "Welcome to Brokk" not in transcript
+        assert "Starting Brokk executor..." not in transcript
+        assert "Connected to executor" not in transcript
+        assert "You: help me" in transcript
+        assert "Brokk: Here is a response" in transcript
+        assert "[System] plain info" in transcript
+        assert "[ERROR] bad news" in transcript
+        assert "[Command Output]\ncommand output" in transcript
+
+
+@pytest.mark.asyncio
 async def test_job_progress_in_chat_panel():
     """
     Verify that job running state is reflected in ChatPanel's status timer

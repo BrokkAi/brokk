@@ -1434,6 +1434,66 @@ class ChatPanel(Vertical):
         log = self.query_one("#chat-log", RichLog)
         log.clear()
 
+    def export_plain_text_transcript(self) -> str:
+        """Return a plain-text transcript derived from the in-memory message history."""
+
+        skipped_system_messages = {
+            "API key saved. Starting Brokk executor...",
+            "Starting Brokk executor...",
+            "Shutting down...",
+        }
+
+        def should_include_entry(entry: Dict[str, Any]) -> bool:
+            kind = entry["kind"]
+            if kind == "WELCOME":
+                return False
+            if kind != "SYSTEM":
+                return True
+
+            content = str(entry.get("content", "")).strip()
+            level = str(entry.get("level", "INFO")).upper()
+            if level != "INFO":
+                return True
+            if content in skipped_system_messages:
+                return False
+            if content.startswith("Connected to executor "):
+                return False
+            if content.startswith("Resuming session "):
+                return False
+            if content.startswith("Press Ctrl+C or Ctrl+D again to quit."):
+                return False
+            return True
+
+        def format_entry(entry: Dict[str, Any]) -> str:
+            kind = entry["kind"]
+            content = str(entry.get("content", "")).strip()
+
+            if kind == "USER":
+                return f"You: {content}"
+            if kind == "AI":
+                return f"Brokk: {content}"
+            if kind == "REASONING":
+                return f"[Thinking]\n{content}"
+            if kind == "SYSTEM":
+                level = str(entry.get("level", "INFO")).upper()
+                prefix = "System" if level == "INFO" else level
+                return f"[{prefix}] {content}"
+            if kind == "TOOL_RESULT":
+                return f"[Command Output]\n{content}"
+            if kind == "LEGACY_AUTHOR":
+                author = str(entry.get("author", "System")).strip() or "System"
+                return f"{author}: {content}"
+            return content
+
+        blocks = []
+        for entry in self._message_history:
+            if not should_include_entry(entry):
+                continue
+            block = format_entry(entry).strip()
+            if block:
+                blocks.append(block)
+        return "\n\n".join(blocks)
+
     def set_token_usage(
         self,
         used: int,

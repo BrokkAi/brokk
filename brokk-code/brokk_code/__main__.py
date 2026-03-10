@@ -1131,6 +1131,11 @@ def main():
         except Exception:
             pass
 
+    transcript = app.get_exit_transcript().strip()
+    if transcript:
+        print(transcript)
+        print()
+
     # Print resume hint on exit if the session has tasks
     from brokk_code.session_persistence import (
         get_session_zip_resume_path,
