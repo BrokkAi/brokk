@@ -2,11 +2,11 @@
 
 from pathlib import Path
 from typing import Any, AsyncIterator, Dict, List, Optional
-from unittest.mock import MagicMock, PropertyMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
-from brokk_code.app import BrokkApp, TaskListModalScreen
+from brokk_code.app import BrokkApp
 from brokk_code.executor import ExecutorManager
 from brokk_code.widgets.chat_panel import ChatPanel
 from brokk_code.widgets.tasklist_panel import TaskListPanel
