@@ -227,9 +227,8 @@ public final class JobDiagnosticsLoader {
             long ts = ev.timestamp();
 
             if ("NOTIFICATION".equalsIgnoreCase(type)) {
-                // data may be String or object; handle common shapes
-                Object data = ev.data();
-                String msg = data == null ? "" : data.toString();
+                var data = ev.data();
+                String msg = data == null ? "" : String.valueOf(data.getOrDefault("message", ""));
 
                 String lower = msg.toLowerCase(Locale.ROOT);
 
@@ -291,15 +290,11 @@ public final class JobDiagnosticsLoader {
                     builders.add(pb);
                 }
             } else if ("COMMAND_RESULT".equalsIgnoreCase(type)) {
-                Object data = ev.data();
+                var data = ev.data();
                 String stage = null;
-                try {
-                    if (data instanceof Map<?, ?> map) {
-                        Object s = map.get("stage");
-                        if (s != null) stage = s.toString();
-                    }
-                } catch (Exception e) {
-                    logger.warn("Failed to extract stage from COMMAND_RESULT event for job: " + jobId, e);
+                if (data != null) {
+                    var s = data.get("stage");
+                    if (s != null) stage = s.toString();
                 }
 
                 if (stage != null) {
