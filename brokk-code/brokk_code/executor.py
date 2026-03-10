@@ -747,19 +747,22 @@ class ExecutorManager:
         if response is not None:
             try:
                 body = response.json()
-                msg = body.get("message", "")
-                details = body.get("details", "")
-                if msg and details:
-                    server_message = f"{msg}: {details}"
-                elif msg:
-                    server_message = msg
-                elif details:
-                    server_message = details
+                if isinstance(body, dict):
+                    msg = body.get("message", "")
+                    details = body.get("details", "")
+                    if isinstance(msg, str) and isinstance(details, str):
+                        if msg and details:
+                            server_message = f"{msg}: {details}"
+                        elif msg:
+                            server_message = msg
+                        elif details:
+                            server_message = details
             except Exception:
                 pass
 
         status_str = str(status) if status is not None else "N/A"
-        method = getattr(getattr(e, "request", None), "method", "?")
+        raw_method = getattr(getattr(e, "request", None), "method", None)
+        method = raw_method if isinstance(raw_method, str) else "?"
         if server_message:
             raise ExecutorError(
                 f"Failed {method} {endpoint} (status={status_str}): {server_message}"
