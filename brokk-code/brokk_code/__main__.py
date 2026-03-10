@@ -18,12 +18,12 @@ from brokk_code.executor import (
     ensure_jbang_ready,
     resolve_jbang_binary,
 )
+from brokk_code.git_utils import infer_github_repo_from_remote
 from brokk_code.intellij_config import configure_intellij_acp_settings
 from brokk_code.mcp_config import (
     configure_claude_code_mcp_settings,
     configure_codex_mcp_settings,
 )
-from brokk_code.git_utils import infer_github_repo_from_remote
 from brokk_code.workspace import resolve_workspace_dir
 from brokk_code.zed_config import ExistingBrokkCodeEntryError, configure_zed_acp_settings
 
@@ -752,7 +752,7 @@ async def run_pr_review_job(
         spinner_active = False
 
     def _update_shutdown_context() -> None:
-        context_parts = [f"mode=REVIEW", f"stage={stage}"]
+        context_parts = ["mode=REVIEW", f"stage={stage}"]
         if job_id:
             context_parts.append(f"job_id={job_id}")
         if last_state:
@@ -846,10 +846,8 @@ async def run_pr_review_job(
             _clear_spinner()
             detail = f" Last error: {error_messages[-1]}"
             observed_state = last_state or "UNKNOWN"
-            print(
-                f"\nPR review job ended with errors (last observed state: {observed_state}).{detail}",
-                file=sys.stderr,
-            )
+            msg = f"\nPR review job ended with errors (last observed state: {observed_state})."
+            print(f"{msg}{detail}", file=sys.stderr)
             sys.exit(1)
 
         _clear_spinner()

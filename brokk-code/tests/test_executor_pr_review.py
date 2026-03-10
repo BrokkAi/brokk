@@ -1,10 +1,9 @@
-import os
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
 
-from brokk_code.executor import ExecutorError, ExecutorManager
 from brokk_code.app import BrokkApp, _infer_github_repo_from_remote
+from brokk_code.executor import ExecutorError, ExecutorManager
 
 
 @pytest.mark.asyncio
@@ -137,7 +136,6 @@ def test_review_command_in_slash_commands():
 
 def test_infer_github_repo_from_remote_https(tmp_path, monkeypatch):
     """Test HTTPS remote URL parsing."""
-    import subprocess as real_subprocess
 
     class FakeResult:
         returncode = 0
@@ -269,8 +267,6 @@ def test_handle_review_command_submits_job(tmp_path, monkeypatch):
     )
 
     # Capture run_worker calls
-    original_run_worker = app.run_worker
-
     def mock_run_worker(coro):
         workers.append(coro)
 
