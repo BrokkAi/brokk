@@ -394,4 +394,22 @@ public class MultiAnalyzer
                 .sorted()
                 .toList();
     }
+
+    @Override
+    public Set<CodeUnit> testFilesToCodeUnits(Collection<ProjectFile> files) {
+        Map<Language, List<ProjectFile>> grouped =
+                files.stream().collect(Collectors.groupingBy(f -> Languages.fromExtension(f.extension())));
+
+        return grouped.entrySet().stream()
+                .flatMap(entry -> {
+                    Language lang = entry.getKey();
+                    List<ProjectFile> groupFiles = entry.getValue();
+                    IAnalyzer delegate = delegates.get(lang);
+                    if (delegate != null) {
+                        return delegate.testFilesToCodeUnits(groupFiles).stream();
+                    }
+                    return IAnalyzer.super.testFilesToCodeUnits(groupFiles).stream();
+                })
+                .collect(Collectors.toSet());
+    }
 }
