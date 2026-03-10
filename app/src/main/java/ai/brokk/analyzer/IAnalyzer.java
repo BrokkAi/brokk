@@ -68,6 +68,13 @@ public interface IAnalyzer {
     List<CodeUnit> getTopLevelDeclarations(ProjectFile file);
 
     /**
+     * Returns the set of all files currently represented in this analyzer snapshot.
+     */
+    default Set<ProjectFile> getAnalyzedFiles() {
+        return Set.of();
+    }
+
+    /**
      * @return true if the given file contains test cases according to this analyzer's logic.
      */
     default boolean containsTests(ProjectFile file) {

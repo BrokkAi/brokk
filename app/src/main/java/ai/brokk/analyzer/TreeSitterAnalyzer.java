@@ -754,6 +754,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     }
 
     @Override
+    public Set<ProjectFile> getAnalyzedFiles() {
+        return Set.copyOf(this.state.fileState().keySet());
+    }
+
+    @Override
     public boolean containsTests(ProjectFile file) {
         return fileProperties(file).containsTests();
     }
@@ -3488,11 +3493,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             Map<CodeUnit, CodeUnitProperties> targetCodeUnitState,
             Map<ProjectFile, FileProperties> targetFileState,
             Cache<String, CodeUnit> moduleKeyCache) {
-        if (analysisResult.topLevelCUs().isEmpty()
-                && analysisResult.codeUnitState().isEmpty()) {
-            log.trace("analyzeFileDeclarations returned empty result for file: {}", pf);
-            return;
-        }
         long __mergeStart = System.nanoTime();
 
         // Merge symbol index
