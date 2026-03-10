@@ -21,13 +21,7 @@ def normalize_event_data(event: dict[str, Any]) -> dict[str, Any]:
     return {}
 
 
-_TERMINAL_STATES = frozenset({"COMPLETED", "FAILED", "CANCELLED"})
 _FAILURE_STATES = frozenset({"FAILED", "CANCELLED"})
-
-
-def is_terminal_state(state: str) -> bool:
-    """Return True if *state* indicates the job will emit no further events."""
-    return state in _TERMINAL_STATES
 
 
 def is_failure_state(state: str) -> bool:
