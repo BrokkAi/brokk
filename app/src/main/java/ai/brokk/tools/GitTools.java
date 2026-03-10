@@ -52,6 +52,9 @@ public class GitTools {
      */
     public static String explainCommitCached(IContextManager cm, String revision, boolean detailed)
             throws InterruptedException {
+        if (!cm.getProject().hasGit()) {
+            return "Git history is not available for this project";
+        }
         var repo = (GitRepo) cm.getProject().getRepo();
         var shortHash = repo.shortHash(revision);
         var cacheKey = (detailed ? "explain-" : "summarize-") + shortHash;

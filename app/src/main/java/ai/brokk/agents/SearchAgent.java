@@ -1370,7 +1370,9 @@ public class SearchAgent {
             context = result.context();
 
             if (reason == TaskResult.StopReason.SUCCESS) {
-                new GitWorkflow(agent.cm).performAutoCommit(instructions);
+                if (agent.cm.getProject().hasGit()) {
+                    new GitWorkflow(agent.cm).performAutoCommit(instructions);
+                }
                 logger.debug("SearchAgent.callCodeAgent finished successfully");
                 return "CodeAgent finished with a successful build!";
             }

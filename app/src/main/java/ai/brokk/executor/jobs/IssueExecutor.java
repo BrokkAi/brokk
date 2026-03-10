@@ -252,6 +252,9 @@ public final class IssueExecutor {
         }
 
         var buildDetailsOverride = JobRunner.resolveIssueBuildDetails(spec, cm.getProject());
+        if (!cm.getProject().hasGit()) {
+            throw new IssueExecutionException("Issue resolution requires a git repository");
+        }
         var gitRepo = (GitRepo) cm.getProject().getRepo();
 
         final String originalBranch;
@@ -478,6 +481,11 @@ public final class IssueExecutor {
 
             String reviewFixTaskDescription = Objects.requireNonNull(lastTaskDescription.get());
 
+            if (!cm.getProject().hasGit()) {
+                logger.warn("ISSUE job {} skipping auto-commit/push: project has no git repo", jobId);
+                return;
+            }
+
             try {
                 new GitWorkflow(cm).performAutoCommit(reviewFixTaskDescription);
             } catch (InterruptedException ie) {
@@ -544,6 +552,11 @@ public final class IssueExecutor {
 
     private void createPullRequest(
             IssuePreparedContext prepared, String issueBranchName, String targetBranch, String githubToken) {
+        if (!cm.getProject().hasGit()) {
+            logger.warn("ISSUE job {} skipping PR creation: project has no git repo", jobId);
+            return;
+        }
+
         try {
             var workflow = new GitWorkflow(cm);
 
