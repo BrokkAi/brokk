@@ -17,7 +17,7 @@ from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import Button, Input, ListItem, ListView, Static, TextArea
 
-from brokk_code.event_utils import is_failure_state, normalize_event_data
+from brokk_code.event_utils import is_failure_state
 from brokk_code.executor import ExecutorError, ExecutorManager
 from brokk_code.git_utils import infer_github_repo_from_remote
 from brokk_code.prompt_history import append_prompt, load_history
@@ -2173,7 +2173,7 @@ class BrokkApp(App):
             logger.warning("Ignoring non-dict event: %s", type(event).__name__)
             return
         event_type = event.get("type")
-        data = normalize_event_data(event)
+        data = event.get("data", {})
         chat = self._maybe_chat()
 
         if event_type == "LLM_TOKEN":

@@ -353,8 +353,8 @@ def test_handle_review_command_executor_not_ready(tmp_path, monkeypatch):
     assert messages[0][1] == "ERROR"
 
 
-def test_handle_event_notification_with_string_data(tmp_path, monkeypatch):
-    """Verify _handle_event tolerates NOTIFICATION events with string data payload."""
+def test_handle_event_notification_with_map_data(tmp_path, monkeypatch):
+    """Verify _handle_event handles NOTIFICATION events with Map payload."""
     app = BrokkApp(workspace_dir=tmp_path)
 
     messages = []
@@ -365,8 +365,7 @@ def test_handle_event_notification_with_string_data(tmp_path, monkeypatch):
 
     monkeypatch.setattr(app, "_maybe_chat", lambda: MockChat())
 
-    # Simulate a NOTIFICATION event with string data (as emitted during PR review)
-    event = {"type": "NOTIFICATION", "data": "Fetching PR refs from remote 'origin'..."}
+    event = {"type": "NOTIFICATION", "data": {"message": "Fetching PR refs from remote 'origin'..."}}
     app._handle_event(event)
 
     assert len(messages) == 1
@@ -374,8 +373,8 @@ def test_handle_event_notification_with_string_data(tmp_path, monkeypatch):
     assert messages[0][1] == "INFO"
 
 
-def test_handle_event_error_with_string_data(tmp_path, monkeypatch):
-    """Verify _handle_event tolerates ERROR events with string data payload."""
+def test_handle_event_error_with_map_data(tmp_path, monkeypatch):
+    """Verify _handle_event handles ERROR events with Map payload."""
     app = BrokkApp(workspace_dir=tmp_path)
 
     messages = []
@@ -386,8 +385,7 @@ def test_handle_event_error_with_string_data(tmp_path, monkeypatch):
 
     monkeypatch.setattr(app, "_maybe_chat", lambda: MockChat())
 
-    # Simulate an ERROR event with string data
-    event = {"type": "ERROR", "data": "Something went wrong"}
+    event = {"type": "ERROR", "data": {"message": "Something went wrong"}}
     app._handle_event(event)
 
     assert len(messages) == 1
@@ -612,8 +610,8 @@ def test_handle_event_notification_dict_cost_updates_accumulators(tmp_path, monk
     assert app.session_total_cost == 0.0035
 
 
-def test_handle_event_non_dict_payload_other_types_fail_gracefully(tmp_path, monkeypatch):
-    """Verify non-dict payloads on event types other than NOTIFICATION/ERROR fail gracefully."""
+def test_handle_event_various_types_with_dict_payload(tmp_path, monkeypatch):
+    """Verify _handle_event processes dict payloads for various event types."""
     app = BrokkApp(workspace_dir=tmp_path)
 
     messages = []
@@ -626,22 +624,21 @@ def test_handle_event_non_dict_payload_other_types_fail_gracefully(tmp_path, mon
             messages.append(("TOOL_RESULT", content))
 
         def append_token(self, token, message_type, is_new_message, is_reasoning, is_terminal):
-            # Just record that append_token was called; we don't care about content here
             messages.append(("APPEND_TOKEN", token))
 
     monkeypatch.setattr(app, "_maybe_chat", lambda: MockChat())
     monkeypatch.setattr(app, "run_worker", lambda coro: None)
 
-    # COMMAND_RESULT with string data should not raise
-    event_command_result = {"type": "COMMAND_RESULT", "data": "unexpected string payload"}
+    # COMMAND_RESULT with dict data should not raise
+    event_command_result = {"type": "COMMAND_RESULT", "data": {"output": "result"}}
     app._handle_event(event_command_result)  # Should not raise
 
-    # STATE_HINT with string data should not raise
-    event_state_hint = {"type": "STATE_HINT", "data": "unexpected string payload"}
+    # STATE_HINT with dict data should not raise
+    event_state_hint = {"type": "STATE_HINT", "data": {"state": "RUNNING"}}
     app._handle_event(event_state_hint)  # Should not raise
 
-    # LLM_TOKEN with string data should not raise
-    event_llm_token = {"type": "LLM_TOKEN", "data": "unexpected string payload"}
+    # LLM_TOKEN with dict data should not raise
+    event_llm_token = {"type": "LLM_TOKEN", "data": {"token": "hello"}}
     app._handle_event(event_llm_token)  # Should not raise
 
     # Verify no misleading error messages were emitted to the user
