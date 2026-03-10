@@ -2602,28 +2602,26 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
         return withTreeOf(
                 cu.source(),
-                tree -> {
-                    SourceContent sc = SourceContent.read(cu.source()).orElse(null);
-                    if (sc == null) {
-                        return List.of();
-                    }
+                tree -> withSource(
+                        cu.source(),
+                        sc -> {
+                            List<Range> ranges = rangesOf(cu);
+                            if (ranges.isEmpty()) {
+                                return List.of();
+                            }
 
-                    List<Range> ranges = rangesOf(cu);
-                    if (ranges.isEmpty()) {
-                        return List.of();
-                    }
+                            Range primary = ranges.getFirst();
+                            TSNode node = tree.getRootNode().getDescendantForByteRange(primary.startByte(), primary.endByte());
+                            if (node == null || node.isNull()) {
+                                return List.of();
+                            }
 
-                    Range primary = ranges.getFirst();
-                    TSNode node = tree.getRootNode().getDescendantForByteRange(primary.startByte(), primary.endByte());
-                    if (node == null || node.isNull()) {
-                        return List.of();
-                    }
-
-                    List<String> extracted = extractRawSupertypesForClassLike(
-                            cu, node, cu.signature() != null ? cu.signature() : "", sc);
-                    cache.rawSupertypes().put(cu, extracted);
-                    return extracted;
-                },
+                            List<String> extracted = extractRawSupertypesForClassLike(
+                                    cu, node, cu.signature() != null ? cu.signature() : "", sc);
+                            cache.rawSupertypes().put(cu, extracted);
+                            return extracted;
+                        },
+                        List.of()),
                 List.of());
     }
 
