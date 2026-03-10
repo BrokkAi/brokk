@@ -12,7 +12,7 @@ import tempfile
 from pathlib import Path
 from typing import Any, Iterator
 
-from brokk_code.event_utils import normalize_event_data
+from brokk_code.event_utils import is_failure_state, normalize_event_data
 from brokk_code.executor import (
     BUNDLED_EXECUTOR_VERSION,
     ExecutorError,
@@ -830,7 +830,7 @@ async def run_pr_review_job(
                     _clear_spinner()
                     print(f"[TOOL_OUTPUT] {data}")
 
-        if last_state in {"FAILED", "CANCELLED"}:
+        if is_failure_state(last_state or ""):
             _clear_spinner()
             detail = f" Last error: {error_messages[-1]}" if error_messages else ""
             print(
@@ -1072,7 +1072,7 @@ async def run_headless_job(
                 _record_issue_url(str(data.get("text", "")))
                 _record_issue_url(str(data.get("resultText", "")))
 
-        if last_state in {"FAILED", "CANCELLED"}:
+        if is_failure_state(last_state or ""):
             _clear_spinner()
             detail = f" Last error: {error_messages[-1]}" if error_messages else ""
             print(

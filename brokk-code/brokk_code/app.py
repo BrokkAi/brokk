@@ -18,7 +18,7 @@ from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import Button, Input, ListItem, ListView, Static, TextArea
 
-from brokk_code.event_utils import normalize_event_data
+from brokk_code.event_utils import is_failure_state, normalize_event_data
 from brokk_code.executor import ExecutorError, ExecutorManager
 from brokk_code.prompt_history import append_prompt, load_history
 from brokk_code.settings import (
@@ -1922,7 +1922,7 @@ class BrokkApp(App):
                 if event_type == "STATE_CHANGE":
                     data = event.get("data", {})
                     state = data.get("state") if isinstance(data, dict) else None
-                    if state in ("FAILED", "CANCELLED"):
+                    if state and is_failure_state(state):
                         job_failed = True
                     continue
                 self._handle_event(event)
