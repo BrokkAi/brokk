@@ -880,8 +880,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
      */
     @Override
     public Set<String> extractTypeIdentifiers(String source) {
-        try {
-            TSTree tree = getTSParser().parseString(null, source);
+        try (TSTree tree = getTSParser().parseString(null, source)) {
             TSNode root = tree.getRootNode();
             return performIdentifierExtraction(root, source);
         } catch (Exception e) {

@@ -2611,7 +2611,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                             }
 
                             Range primary = ranges.getFirst();
-                            TSNode node = tree.getRootNode().getDescendantForByteRange(primary.startByte(), primary.endByte());
+                            TSNode node = tree.getRootNode()
+                                    .getDescendantForByteRange(primary.startByte(), primary.endByte());
                             if (node == null || node.isNull()) {
                                 return List.of();
                             }

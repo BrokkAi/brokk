@@ -1087,47 +1087,42 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
     @Override
     public Set<String> extractTypeIdentifiers(String source) {
         Set<String> identifiers = new HashSet<>();
-        TSTree tree = treeOf(source);
-        if (tree == null) return identifiers;
-        TSNode rootNode = tree.getRootNode();
+        try (TSTree tree = getTSParser().parseString(null, source)) {
+            if (tree == null) return identifiers;
+            TSNode rootNode = tree.getRootNode();
 
-        if (rootNode.isNull()) {
-            return identifiers;
-        }
+            if (rootNode.isNull()) {
+                return identifiers;
+            }
 
-        withCachedQuery(
-                QueryType.IDENTIFIERS,
-                query -> {
-                    try (TSQueryCursor cursor = new TSQueryCursor()) {
-                        cursor.exec(query, rootNode);
+            withCachedQuery(
+                    QueryType.IDENTIFIERS,
+                    query -> {
+                        try (TSQueryCursor cursor = new TSQueryCursor()) {
+                            cursor.exec(query, rootNode);
 
-                        SourceContent sc = SourceContent.of(source);
-                        TSQueryMatch match = new TSQueryMatch();
-                        while (cursor.nextMatch(match)) {
-                            for (TSQueryCapture capture : match.getCaptures()) {
-                                TSNode node = capture.getNode();
-                                if (node != null && !node.isNull()) {
-                                    String text = sc.substringFrom(node).strip();
-                                    if (!text.isEmpty()) {
-                                        identifiers.add(text);
+                            SourceContent sc = SourceContent.of(source);
+                            TSQueryMatch match = new TSQueryMatch();
+                            while (cursor.nextMatch(match)) {
+                                for (TSQueryCapture capture : match.getCaptures()) {
+                                    TSNode node = capture.getNode();
+                                    if (node != null && !node.isNull()) {
+                                        String text = sc.substringFrom(node).strip();
+                                        if (!text.isEmpty()) {
+                                            identifiers.add(text);
+                                        }
                                     }
                                 }
                             }
                         }
-                    }
-                    return true;
-                },
-                false);
+                        return true;
+                    },
+                    false);
 
-        return identifiers;
-    }
-
-    private @Nullable TSTree treeOf(String source) {
-        try {
-            return getTSParser().parseString(null, source);
+            return identifiers;
         } catch (Exception e) {
             log.debug("Failed to parse ad-hoc source string: {}", e.getMessage());
-            return null;
+            return identifiers;
         }
     }
 
