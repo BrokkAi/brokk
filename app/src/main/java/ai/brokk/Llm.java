@@ -31,6 +31,7 @@ import dev.langchain4j.exception.RetriableException;
 import dev.langchain4j.internal.ExceptionMapper;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.request.ChatRequest;
+import dev.langchain4j.model.chat.request.ResponseFormat;
 import dev.langchain4j.model.chat.request.ToolChoice;
 import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
@@ -589,6 +590,29 @@ public class Llm {
     }
 
     /**
+     * Per-call options for a single sendRequest invocation. Controls structured output, tool usage, and retry count.
+     * Build via the static factory methods or the constructor.
+     */
+    public record RequestOptions(@Nullable ResponseFormat responseFormat, ToolContext toolContext, int maxAttempts) {
+
+        public static RequestOptions defaults(int maxAttempts) {
+            return new RequestOptions(null, ToolContext.empty(), maxAttempts);
+        }
+
+        public RequestOptions withResponseFormat(@Nullable ResponseFormat responseFormat) {
+            return new RequestOptions(responseFormat, toolContext, maxAttempts);
+        }
+
+        public RequestOptions withToolContext(ToolContext toolContext) {
+            return new RequestOptions(responseFormat, toolContext, maxAttempts);
+        }
+
+        public RequestOptions withMaxAttempts(int maxAttempts) {
+            return new RequestOptions(responseFormat, toolContext, maxAttempts);
+        }
+    }
+
+    /**
      * Sends a user query to the LLM with streaming. Tools are not used. Writes to conversation history. Responses are
      * echoed to the console if the `echo` field is set to true.
      *
@@ -596,7 +620,7 @@ public class Llm {
      * @return The final response from the LLM as a record containing ChatResponse, errors, etc.
      */
     public StreamingResult sendRequest(List<ChatMessage> messages) throws InterruptedException {
-        return sendMessageWithRetry(messages, ToolContext.empty(), MAX_ATTEMPTS);
+        return sendRequest(messages, RequestOptions.defaults(MAX_ATTEMPTS));
     }
 
     /**
@@ -608,25 +632,34 @@ public class Llm {
      * @return The final response from the LLM
      */
     public StreamingResult sendRequest(List<ChatMessage> messages, int maxAttempts) throws InterruptedException {
-        return sendMessageWithRetry(messages, ToolContext.empty(), maxAttempts);
+        return sendRequest(messages, RequestOptions.defaults(maxAttempts));
     }
 
     /** Sends messages to a model with possible tools and a chosen tool usage policy. */
     public StreamingResult sendRequest(List<ChatMessage> messages, ToolContext toolContext)
             throws InterruptedException {
+        return sendRequest(messages, RequestOptions.defaults(MAX_ATTEMPTS).withToolContext(toolContext));
+    }
+
+    /**
+     * Canonical sendRequest entry point. All other overloads delegate here.
+     * Supports per-call structured output via {@link RequestOptions#withResponseFormat}.
+     */
+    public StreamingResult sendRequest(List<ChatMessage> messages, RequestOptions options) throws InterruptedException {
+        var toolContext = options.toolContext();
 
         if (toolContext.toolSpecifications().isEmpty()) {
-            return sendMessageWithRetry(messages, toolContext, MAX_ATTEMPTS);
+            return sendMessageWithRetry(messages, options);
         }
 
-        int remainingAttempts = MAX_ATTEMPTS;
+        int remainingAttempts = options.maxAttempts();
         int toolContractFailures = 0;
         int totalAttemptsUsed = 0;
 
         var attemptMessages = messages;
 
         while (true) {
-            var rawResult = sendMessageWithRetry(attemptMessages, toolContext, remainingAttempts);
+            var rawResult = sendMessageWithRetry(attemptMessages, options.withMaxAttempts(remainingAttempts));
             int attemptsUsedThisRound = rawResult.retries() + 1;
             totalAttemptsUsed += attemptsUsedThisRound;
             remainingAttempts -= attemptsUsedThisRound;
@@ -713,13 +746,14 @@ public class Llm {
      * Retries a request up to maxAttempts times on connectivity or empty-result errors, using exponential backoff.
      * Responsible for writeToHistory.
      */
-    private StreamingResult sendMessageWithRetry(
-            List<ChatMessage> rawMessages, ToolContext toolContext, int maxAttempts) throws InterruptedException {
+    private StreamingResult sendMessageWithRetry(List<ChatMessage> rawMessages, RequestOptions options)
+            throws InterruptedException {
+        int maxAttempts = options.maxAttempts();
         if (SwingUtilities.isEventDispatchThread() && Boolean.getBoolean("brokk.devmode")) {
             throw new IllegalStateException("LLM calls must not be made from the EDT");
         }
-        if (toolContext.toolChoice().equals(ToolChoice.REQUIRED)
-                && toolContext.toolSpecifications().isEmpty()) {
+        if (options.toolContext().toolChoice().equals(ToolChoice.REQUIRED)
+                && options.toolContext().toolSpecifications().isEmpty()) {
             throw new IllegalArgumentException("REQUIRED tool specifications must not be empty");
         }
 
@@ -739,7 +773,7 @@ public class Llm {
                     attempt,
                     LogDescription.getShortDescription(description, 12));
 
-            response = doSingleSendMessage(model, messages, toolContext);
+            response = doSingleSendMessage(model, messages, options);
             lastError = response.error;
             if (!response.isEmpty() && (lastError == null || allowPartialResponses)) {
                 // Success!
@@ -804,16 +838,17 @@ public class Llm {
      * Sends messages to model in a single attempt.
      */
     private StreamingResult doSingleSendMessage(
-            StreamingChatModel model, List<ChatMessage> messages, ToolContext toolContext) throws InterruptedException {
+            StreamingChatModel model, List<ChatMessage> messages, RequestOptions options) throws InterruptedException {
         // Note: writeRequestToHistory is now called *within* this method,
         // right before doSingleStreamingCall, to ensure it uses the final `messagesToSend`.
 
+        var toolContext = options.toolContext();
         var tools = toolContext.toolSpecifications();
         var toolChoice = toolContext.toolChoice();
 
         // Build request with parameters (always include base params for previousResponseId/metadata)
         var requestBuilder = ChatRequest.builder().messages(messages);
-        var paramsBuilder = getParamsBuilder();
+        var paramsBuilder = getParamsBuilder(options);
 
         if (!tools.isEmpty()) {
             logger.debug("Performing native tool calls");
@@ -848,7 +883,7 @@ public class Llm {
         }
     }
 
-    private OpenAiChatRequestParameters.Builder getParamsBuilder() {
+    private OpenAiChatRequestParameters.Builder getParamsBuilder(RequestOptions options) {
         OpenAiChatRequestParameters.Builder builder = OpenAiChatRequestParameters.builder();
 
         // user opted in to data retention for this request
@@ -858,6 +893,10 @@ public class Llm {
             Map<String, String> newMetadata = new HashMap<>();
             newMetadata.put("tags", "retain");
             builder.metadata(newMetadata);
+        }
+
+        if (options.responseFormat() != null) {
+            builder.responseFormat(options.responseFormat());
         }
 
         return builder;
