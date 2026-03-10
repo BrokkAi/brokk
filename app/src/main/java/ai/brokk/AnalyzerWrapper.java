@@ -376,10 +376,10 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
                     project.getRoot());
 
             // Validate the loaded analyzer's state against project files
-            if (isStateCorrupt(analyzer)) {
+            if (stateMismatch(analyzer).isPresent()) {
                 logger.warn("Loaded analyzer state appears corrupt (file mismatch). Attempting fix via update.");
                 analyzer = analyzer.update();
-                if (isStateCorrupt(analyzer)) {
+                if (stateMismatch(analyzer).isPresent()) {
                     throw new IllegalStateException("Analyzer state remains corrupt after update attempt.");
                 }
             }
@@ -411,9 +411,19 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
     }
 
     /**
-     * Checks if the analyzer's tracked file set matches the project's expected analyzable files.
+     * Represents a mismatch between the files expected by the project and those actually present in the analyzer.
      */
-    private boolean isStateCorrupt(IAnalyzer analyzer) {
+    private record StateMismatch(Set<ProjectFile> missing, Set<ProjectFile> unexpected) {
+        public boolean isEmpty() {
+            return missing.isEmpty() && unexpected.isEmpty();
+        }
+    }
+
+    /**
+     * Checks if the analyzer's tracked file set matches the project's expected analyzable files.
+     * Returns an Optional containing the mismatch details if corruption is detected.
+     */
+    private Optional<StateMismatch> stateMismatch(IAnalyzer analyzer) {
         Set<Language> langs = analyzer.languages();
         Set<ProjectFile> expectedFiles = langs.stream()
                 .flatMap(l -> project.getAnalyzableFiles(l).stream())
@@ -427,10 +437,15 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
             Set<ProjectFile> unexpected = new HashSet<>(actualFiles);
             unexpected.removeAll(expectedFiles);
 
-            logger.debug("Analyzer file mismatch detected. Missing: {}, Unexpected: {}", missing, unexpected);
-            return true;
+            logger.debug(
+                    "Analyzer file mismatch detected. Missing ({}): {}, Unexpected ({}): {}",
+                    missing.size(),
+                    missing,
+                    unexpected.size(),
+                    unexpected);
+            return Optional.of(new StateMismatch(missing, unexpected));
         }
-        return false;
+        return Optional.empty();
     }
 
     /** Get a human-readable description of the analyzer languages for logging. */
