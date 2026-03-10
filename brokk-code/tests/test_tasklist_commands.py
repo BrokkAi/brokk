@@ -1,3 +1,5 @@
+from pathlib import Path
+from typing import Any, AsyncIterator, Dict, List, Optional
 from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 
 import pytest
@@ -6,6 +8,7 @@ from textual.app import App, ComposeResult, ScreenStackError
 from textual.widgets import Static
 
 from brokk_code.app import BrokkApp, TaskListModalScreen, TaskTitleModalScreen
+from brokk_code.executor import ExecutorManager
 from brokk_code.widgets.chat_panel import ChatPanel
 from brokk_code.widgets.tasklist_panel import TaskListPanel
 
