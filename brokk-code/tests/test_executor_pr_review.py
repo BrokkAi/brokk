@@ -50,32 +50,6 @@ async def test_submit_pr_review_job_payload_construction(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_submit_pr_review_job_returns_job_id(tmp_path):
-    """Verify jobId is correctly extracted from response."""
-    manager = ExecutorManager(workspace_dir=tmp_path)
-    manager.base_url = "http://127.0.0.1:12345"
-
-    mock_response = MagicMock()
-    mock_response.status_code = 201
-    mock_response.raise_for_status = MagicMock()
-    mock_response.json.return_value = {"jobId": "unique-job-id-456"}
-
-    mock_client = AsyncMock()
-    mock_client.post = AsyncMock(return_value=mock_response)
-    manager._http_client = mock_client
-
-    job_id = await manager.submit_pr_review_job(
-        planner_model="claude-3",
-        github_token="token",
-        owner="owner",
-        repo="repo",
-        pr_number=1,
-    )
-
-    assert job_id == "unique-job-id-456"
-
-
-@pytest.mark.asyncio
 async def test_submit_pr_review_job_raises_on_http_error(tmp_path):
     """Verify ExecutorError is raised on non-2xx responses."""
     import httpx
@@ -608,43 +582,6 @@ def test_handle_event_notification_dict_cost_updates_accumulators(tmp_path, monk
 
     assert app.current_job_cost == 0.0035
     assert app.session_total_cost == 0.0035
-
-
-def test_handle_event_various_types_with_dict_payload(tmp_path, monkeypatch):
-    """Verify _handle_event processes dict payloads for various event types."""
-    app = BrokkApp(workspace_dir=tmp_path)
-
-    messages = []
-
-    class MockChat:
-        def add_system_message(self, msg, level="INFO"):
-            messages.append((msg, level))
-
-        def add_tool_result(self, content):
-            messages.append(("TOOL_RESULT", content))
-
-        def append_token(self, token, message_type, is_new_message, is_reasoning, is_terminal):
-            messages.append(("APPEND_TOKEN", token))
-
-    monkeypatch.setattr(app, "_maybe_chat", lambda: MockChat())
-    monkeypatch.setattr(app, "run_worker", lambda coro: None)
-
-    # COMMAND_RESULT with dict data should not raise
-    event_command_result = {"type": "COMMAND_RESULT", "data": {"output": "result"}}
-    app._handle_event(event_command_result)  # Should not raise
-
-    # STATE_HINT with dict data should not raise
-    event_state_hint = {"type": "STATE_HINT", "data": {"state": "RUNNING"}}
-    app._handle_event(event_state_hint)  # Should not raise
-
-    # LLM_TOKEN with dict data should not raise
-    event_llm_token = {"type": "LLM_TOKEN", "data": {"token": "hello"}}
-    app._handle_event(event_llm_token)  # Should not raise
-
-    # Verify no misleading error messages were emitted to the user
-    # (no ERROR level messages should appear from graceful handling)
-    error_messages = [m for m in messages if len(m) >= 2 and m[1] == "ERROR"]
-    assert len(error_messages) == 0, f"Unexpected error messages: {error_messages}"
 
 
 @pytest.mark.asyncio

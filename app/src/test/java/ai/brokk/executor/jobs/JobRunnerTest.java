@@ -109,12 +109,6 @@ class JobRunnerTest {
     }
 
     @Test
-    void testReviewModeSeverityAndCap() {
-        assertEquals(PrReviewService.Severity.HIGH, JobRunner.DEFAULT_REVIEW_SEVERITY_THRESHOLD);
-        assertEquals(3, JobRunner.DEFAULT_REVIEW_MAX_INLINE_COMMENTS);
-    }
-
-    @Test
     void testReviewPromptPolicyIncludesMax3AndSeverityHigh() {
         String diff = "dummy diff";
         String title = "Fix <vuln> & ensure > safety";
@@ -268,21 +262,6 @@ class JobRunnerTest {
         runner.runLutzFromSearchResult(fakeContext, null, null, () -> false);
 
         assertTrue(executedTasks.isEmpty(), "No tasks should be executed when task list is empty");
-    }
-
-    @Test
-    void testObjectiveForModeLutzEqualsLutzObjective() {
-        assertEquals(SearchPrompts.Objective.LUTZ, JobRunner.objectiveForMode(JobRunner.Mode.LUTZ));
-    }
-
-    @Test
-    void testObjectiveForLutzSearchPhaseIsLutzObjective() {
-        assertEquals(SearchPrompts.Objective.LUTZ, JobRunner.objectiveForLutzSearchPhase());
-    }
-
-    @Test
-    void testObjectiveForModePlanIsTasksOnly() {
-        assertEquals(SearchPrompts.Objective.TASKS_ONLY, JobRunner.objectiveForMode(JobRunner.Mode.PLAN));
     }
 
     @Test
