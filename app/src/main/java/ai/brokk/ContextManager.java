@@ -107,16 +107,15 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * otherwise falls back to filename-based heuristics.
      */
     public static boolean isTestFile(ProjectFile file, @Nullable IAnalyzer analyzer) {
-        // 1. If analyzer knows, trust it
+        // 1. If analyzer provides semantic test detection, trust its result exclusively
         if (analyzer != null && !analyzer.isEmpty()) {
-            if (analyzer.containsTests(file)) {
-                return true;
+            var provider = analyzer.as(ai.brokk.analyzer.TestDetectionProvider.class);
+            if (provider.isPresent()) {
+                return analyzer.containsTests(file);
             }
-            // Analyzer exists but says no tests — could still fall through
-            // to heuristics for languages where analyzer doesn't implement this
         }
 
-        // 2. Filename/path heuristics as fallback
+        // 2. Filename/path heuristics as fallback for when analyzer is null or doesn't support detection
         return TEST_FILE_PATTERN.matcher(file.toString()).matches();
     }
 

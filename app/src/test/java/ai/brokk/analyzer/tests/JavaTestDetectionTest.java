@@ -87,6 +87,34 @@ public class JavaTestDetectionTest {
     }
 
     @Test
+    void testFalsePositiveReduction() throws Exception {
+        // Filename matches TEST_FILE_PATTERN but content has NO tests
+        String fileName = "src/com/example/MyServiceTest.java";
+        String content =
+                """
+            package com.example;
+            public class MyServiceTest {
+                public void notATest() {}
+            }
+            """;
+
+        try (var project = InlineTestProjectCreator.code(content, fileName).build()) {
+            ProjectFile file = new ProjectFile(project.getRoot(), fileName);
+
+            JavaAnalyzer analyzer = new JavaAnalyzer(project);
+            analyzer = (JavaAnalyzer) analyzer.update();
+
+            // Semantic check should be false
+            assertFalse(analyzer.containsTests(file), "Analyzer should report NO tests for plain class");
+
+            // ContextManager check should also be false (ignoring the regex match because analyzer is capable)
+            assertFalse(
+                    ContextManager.isTestFile(file, analyzer),
+                    "ContextManager should report false when semantic analyzer says no tests, even if filename matches regex");
+        }
+    }
+
+    @Test
     void testQualifiedAndWhitespaceTestAnnotations() throws Exception {
         String code =
                 """
