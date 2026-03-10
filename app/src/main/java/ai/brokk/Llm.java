@@ -589,16 +589,15 @@ public class Llm {
                         : "%,d".formatted(outputDetails.reasoningTokens()));
     }
 
+    public RequestOptions requestOptions() {
+        return new RequestOptions(null, ToolContext.empty(), MAX_ATTEMPTS);
+    }
+
     /**
      * Per-call options for a single sendRequest invocation. Controls structured output, tool usage, and retry count.
      * Build via the static factory methods or the constructor.
      */
     public record RequestOptions(@Nullable ResponseFormat responseFormat, ToolContext toolContext, int maxAttempts) {
-
-        public static RequestOptions defaults(int maxAttempts) {
-            return new RequestOptions(null, ToolContext.empty(), maxAttempts);
-        }
-
         public RequestOptions withResponseFormat(@Nullable ResponseFormat responseFormat) {
             return new RequestOptions(responseFormat, toolContext, maxAttempts);
         }
@@ -620,7 +619,7 @@ public class Llm {
      * @return The final response from the LLM as a record containing ChatResponse, errors, etc.
      */
     public StreamingResult sendRequest(List<ChatMessage> messages) throws InterruptedException {
-        return sendRequest(messages, RequestOptions.defaults(MAX_ATTEMPTS));
+        return sendRequest(messages, requestOptions());
     }
 
     /**
@@ -632,13 +631,13 @@ public class Llm {
      * @return The final response from the LLM
      */
     public StreamingResult sendRequest(List<ChatMessage> messages, int maxAttempts) throws InterruptedException {
-        return sendRequest(messages, RequestOptions.defaults(maxAttempts));
+        return sendRequest(messages, requestOptions().withMaxAttempts(maxAttempts));
     }
 
     /** Sends messages to a model with possible tools and a chosen tool usage policy. */
     public StreamingResult sendRequest(List<ChatMessage> messages, ToolContext toolContext)
             throws InterruptedException {
-        return sendRequest(messages, RequestOptions.defaults(MAX_ATTEMPTS).withToolContext(toolContext));
+        return sendRequest(messages, requestOptions().withToolContext(toolContext));
     }
 
     /**

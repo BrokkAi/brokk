@@ -9,7 +9,6 @@ import ai.brokk.Llm;
 import ai.brokk.LlmOutputMeta;
 import ai.brokk.Service;
 import ai.brokk.TaskResult;
-import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.concurrent.ComputedValue;
 import ai.brokk.context.Context;
@@ -33,7 +32,6 @@ import ai.brokk.tools.SearchTools;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
 import ai.brokk.tools.WorkspaceTools;
-import ai.brokk.util.Lines;
 import ai.brokk.util.Messages;
 import com.google.common.collect.Streams;
 import dev.langchain4j.agent.tool.P;
@@ -58,7 +56,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -212,13 +209,13 @@ public class SearchAgent {
 
         this.io = io;
 
-        Set<ContextFragment> goalReferences = resolveGoalReferences(goal);
-        if (goalReferences.isEmpty()) {
+        Set<ContextFragment> referencedFragments = new ReferenceAgent(cm).resolveReferencedFragments(goal);
+        if (referencedFragments.isEmpty()) {
             this.scanConfig = scanConfig;
         } else {
             this.scanConfig =
                     new ScanConfig(false, scanConfig.scanModel(), scanConfig.appendToScope(), scanConfig.autoPrune());
-            logger.debug("Goal references resolved: {}. Disabling auto-scan.", goalReferences);
+            logger.debug("Referenced fragments resolved: {}. Disabling auto-scan.", referencedFragments);
         }
 
         var llmOptions = new Llm.Options(model, goal, TaskResult.Type.SEARCH).withEcho();
@@ -233,9 +230,9 @@ public class SearchAgent {
                 : SearchMetrics.noOp();
 
         this.mcpTools = initMcpTools(cm.getProject());
-        this.currentState = goalReferences.isEmpty()
+        this.currentState = referencedFragments.isEmpty()
                 ? SearchState.initial(initialContext)
-                : SearchState.initial(initialContext.addFragments(goalReferences));
+                : SearchState.initial(initialContext.addFragments(referencedFragments));
         this.checkpointState = currentState;
         this.originalPinnedFragments = initialContext.getPinnedFragments().collect(Collectors.toSet());
         this.objective = objective;
@@ -245,68 +242,6 @@ public class SearchAgent {
 
         this.staticTools = initStaticTools(cm.getProject(), mcpTools);
         this.searchTools = new SearchTools(cm);
-    }
-
-    private Set<ContextFragment> resolveGoalReferences(String goal) throws InterruptedException {
-        Set<ContextFragment> references = ConcurrentHashMap.newKeySet();
-        Set<ProjectFile> filesReferenced = ConcurrentHashMap.newKeySet();
-        Set<CodeUnit> classesReferenced = ConcurrentHashMap.newKeySet();
-
-        // filenames even if they're not full paths
-        cm.getProject().getAllFiles().parallelStream().forEach(file -> {
-            String fileName = file.getFileName();
-            if (Lines.containsBareToken(goal, fileName)) {
-                references.add(new ContextFragments.ProjectPathFragment(file, cm));
-                filesReferenced.add(file);
-            }
-        });
-
-        // class names
-        var allDeclarations = cm.getAnalyzer().getAllDeclarations();
-        allDeclarations.parallelStream().forEach(cu -> {
-            if (!cu.isClass()) {
-                return;
-            }
-            if (filesReferenced.contains(cu.source())) {
-                return;
-            }
-
-            String target = cu.identifier();
-            if (target.length() < 3 || !Lines.containsBareToken(goal, target)) {
-                return;
-            }
-            references.add(new ContextFragments.CodeFragment(cm, cu));
-            classesReferenced.add(cu);
-        });
-
-        // methods/fields must be qualified by class
-        allDeclarations.parallelStream().forEach(cu -> {
-            if (!(cu.isFunction() || cu.isField())) {
-                return;
-            }
-            if (filesReferenced.contains(cu.source())) {
-                return;
-            }
-            boolean isOrphanOrAlreadyHandled;
-            try {
-                isOrphanOrAlreadyHandled = cm.getAnalyzer()
-                        .parentOf(cu)
-                        .map(classesReferenced::contains)
-                        .orElse(true);
-            } catch (InterruptedException e) {
-                throw new AssertionError();
-            }
-            if (isOrphanOrAlreadyHandled) {
-                return;
-            }
-
-            String target = cu.shortName();
-            if (Lines.containsBareToken(goal, target)) {
-                references.add(new ContextFragments.CodeFragment(cm, cu));
-            }
-        });
-
-        return references;
     }
 
     private static List<McpPrompts.McpTool> initMcpTools(IProject project) {
