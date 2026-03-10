@@ -247,7 +247,7 @@ public class SqlAnalyzer implements IAnalyzer {
 
     @Override
     public Set<ProjectFile> getAnalyzedFiles() {
-        return declarationsByFile.keySet();
+        return Set.copyOf(declarationsByFile.keySet());
     }
 
     @Override
