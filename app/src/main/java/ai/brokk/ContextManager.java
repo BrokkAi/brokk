@@ -12,6 +12,7 @@ import ai.brokk.analyzer.CallSite;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.analyzer.TestDetectionProvider;
 import ai.brokk.cli.HeadlessConsole;
 import ai.brokk.concurrent.ExecutorsUtil;
 import ai.brokk.concurrent.LoggingExecutorService;
@@ -109,7 +110,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     public static boolean isTestFile(ProjectFile file, @Nullable IAnalyzer analyzer) {
         // 1. If analyzer provides semantic test detection, trust its result exclusively
         if (analyzer != null && !analyzer.isEmpty()) {
-            var provider = analyzer.as(ai.brokk.analyzer.TestDetectionProvider.class);
+            var provider = analyzer.as(TestDetectionProvider.class);
             if (provider.isPresent()) {
                 return analyzer.containsTests(file);
             }
