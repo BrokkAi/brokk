@@ -6,6 +6,7 @@ import ai.brokk.analyzer.cache.AnalyzerCache;
 import ai.brokk.project.IProject;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -444,6 +445,16 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
     @Override
     protected Set<String> getLeadingMetadataNodeTypes() {
         return Set.of(ATTRIBUTE_ITEM, INNER_ATTRIBUTE);
+    }
+
+    @Override
+    public Set<CodeUnit> testFilesToCodeUnits(Collection<ProjectFile> files) {
+        var unitsInFiles = files.stream()
+                .flatMap(file -> getDeclarations(file).stream())
+                .filter(cu -> cu.isModule() || cu.isClass() || cu.isFunction())
+                .collect(java.util.stream.Collectors.toSet());
+
+        return ai.brokk.AnalyzerUtil.coalesceInnerClasses(unitsInFiles);
     }
 
     @Override

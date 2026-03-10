@@ -1481,6 +1481,16 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
     }
 
     @Override
+    public Set<CodeUnit> testFilesToCodeUnits(Collection<ProjectFile> files) {
+        var unitsInFiles = files.stream()
+                .flatMap(file -> getDeclarations(file).stream())
+                .filter(CodeUnit::isClass)
+                .collect(Collectors.toSet());
+
+        return ai.brokk.AnalyzerUtil.coalesceInnerClasses(unitsInFiles);
+    }
+
+    @Override
     protected List<String> extractRawSupertypesForClassLike(
             CodeUnit cu, TSNode classNode, String signature, SourceContent sourceContent) {
         // Aggregate all @type.super captures for the same @type.decl across all matches.

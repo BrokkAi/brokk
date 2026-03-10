@@ -6,6 +6,7 @@ import ai.brokk.analyzer.cache.AnalyzerCache;
 import ai.brokk.analyzer.csharp.CSharpTreeSitterNodeTypes;
 import ai.brokk.project.IProject;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -345,6 +346,16 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
     @Override
     protected @Nullable CodeUnit createImplicitConstructor(CodeUnit enclosingClass, String classCaptureName) {
         return null;
+    }
+
+    @Override
+    public Set<CodeUnit> testFilesToCodeUnits(Collection<ProjectFile> files) {
+        var unitsInFiles = files.stream()
+                .flatMap(file -> getDeclarations(file).stream())
+                .filter(CodeUnit::isClass)
+                .collect(java.util.stream.Collectors.toSet());
+
+        return ai.brokk.AnalyzerUtil.coalesceInnerClasses(unitsInFiles);
     }
 
     @Override

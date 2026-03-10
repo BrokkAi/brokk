@@ -858,6 +858,16 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
     }
 
     @Override
+    public Set<CodeUnit> testFilesToCodeUnits(Collection<ProjectFile> files) {
+        var unitsInFiles = files.stream()
+                .flatMap(file -> getDeclarations(file).stream())
+                .filter(cu -> cu.isModule() || cu.isClass() || cu.isFunction())
+                .collect(java.util.stream.Collectors.toSet());
+
+        return ai.brokk.AnalyzerUtil.coalesceInnerClasses(unitsInFiles);
+    }
+
+    @Override
     protected boolean containsTestMarkers(TSTree tree, SourceContent sourceContent) {
         return withCachedQuery(
                 QueryType.DEFINITIONS,
