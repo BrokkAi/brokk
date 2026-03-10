@@ -671,19 +671,8 @@ public class ArchitectAgent {
      * results are appended to the provided scope.
      */
     public TaskResult executeWithScan() throws InterruptedException {
-        return executeWithScan(
-                Messages.getApproximateTokens(context) > cm.getService().getMaxInputTokens(planningModel) * 0.2);
-    }
-
-    public TaskResult executeWithScan(boolean pruneFirst) throws InterruptedException {
-        // ContextAgent Scan
-        var scanModel = cm.getService().getScanModel();
-        var searchAgent = new SearchAgent(context, goal, scanModel, this.scope);
-        if (pruneFirst) {
-            searchAgent.pruneContext();
-        }
-        // (appends prune + scan results to scope)
-        context = searchAgent.scanContext();
+        var prune = Messages.getApproximateTokens(context) > cm.getService().getMaxInputTokens(planningModel) * 0.2;
+        context = SearchAgent.setupContext(context, goal, prune).context();
 
         // Run Architect proper
         TaskResult archResult = this.execute();

@@ -123,7 +123,6 @@ public class SearchAgent {
     private final SearchMetrics metrics;
     private ScanConfig scanConfig;
     private boolean scanPerformed;
-    private boolean contextPruned;
 
     private boolean terminalCompletionReported = false;
 
@@ -341,12 +340,38 @@ public class SearchAgent {
         return scanConfig.autoScan() && !scanPerformed;
     }
 
-    private TaskResult executeInternal() throws InterruptedException {
-        initializeContextForSearch();
+    private void setupContextInternal() throws InterruptedException {
+        Context contextBeforeSetup = currentState.context();
+        boolean shouldPrune = scanConfig.autoPrune()
+                && hasDroppableFragments(contextBeforeSetup)
+                && isPruningWorthwhile(contextBeforeSetup);
+
+        SetupContextResult setupResult = setupContext(contextBeforeSetup, goal, shouldPrune);
+        Context preparedContext = setupResult.context();
+
+        if (shouldPrune) {
+            if (scanConfig.appendToScope() && !contextBeforeSetup.equals(preparedContext)) {
+                scope.append(preparedContext);
+            }
+            recordDropBaseline(preparedContext);
+        }
+
+        if (!setupResult.newFragments().isEmpty()) {
+            checkpointState = SearchState.initial(preparedContext);
+            scanConfig =
+                    new ScanConfig(false, scanConfig.scanModel(), scanConfig.appendToScope(), scanConfig.autoPrune());
+            logger.debug("Referenced fragments resolved: {}. Disabling auto-scan.", setupResult.newFragments());
+        }
+
+        currentState = currentState.withContext(preparedContext);
 
         if (shouldAutomaticallyScan() && currentState.context().isFileContentEmpty()) {
             performAutoScan();
         }
+    }
+
+    private TaskResult executeInternal() throws InterruptedException {
+        setupContextInternal();
 
         @Nullable PendingTerminal pendingTerminal = null;
         DropMode dropMode = calculateDropMode(currentState.context());
@@ -475,21 +500,40 @@ public class SearchAgent {
         return errorResult(new TaskResult.StopDetails(TaskResult.StopReason.TURN_LIMIT), currentState.context());
     }
 
-    private void initializeContextForSearch() throws InterruptedException {
-        Context preSearchContext = currentState.context();
+    public record SetupContextResult(Context context, Set<ContextFragment> newFragments) {}
 
-        CompletableFuture<Set<ContextFragment>> referencesFuture = LoggingFuture.supplyCallableAsync(() -> {
-            return new ReferenceAgent(cm).resolveReferencedFragments(goal);
-        });
-        CompletableFuture<Void> pruneFuture = scanConfig.autoPrune()
-                ? LoggingFuture.supplyCallableAsync(() -> {
-                    pruneContext();
-                    return null;
-                })
-                : CompletableFuture.completedFuture(null);
+    /**
+     * - always resolved references in `goal` and adds to returned Context
+     * - When `prune` is true, also runs JanitorAgent to drop unwanted fragments
+     */
+    public static SetupContextResult setupContext(Context initialContext, String goal, boolean prune)
+            throws InterruptedException {
+        IContextManager cm = initialContext.getContextManager();
 
+        // async referenceagent
+        CompletableFuture<Set<ContextFragment>> referencesFuture = goal.isBlank()
+                ? CompletableFuture.completedFuture(Set.of())
+                : LoggingFuture.supplyCallableAsync(() -> new ReferenceAgent(cm).resolveReferencedFragments(goal));
+
+        // async janitoragent
+        CompletableFuture<Context> pruneFuture;
+        if (prune) {
+            pruneFuture = LoggingFuture.supplyCallableAsync(() -> {
+                IContextManager cm1 = initialContext.getContextManager();
+                var janitor = new JanitorAgent(cm1, cm1.getIo(), goal, initialContext);
+                return janitor.execute().context();
+            });
+        } else {
+            pruneFuture = CompletableFuture.completedFuture(initialContext);
+        }
+
+        // wait for both agents
+        Context preparedContext;
+        Set<ContextFragment> referencedFragments;
         try {
             LoggingFuture.allOf(pruneFuture, referencesFuture).join();
+            preparedContext = pruneFuture.join();
+            referencedFragments = referencesFuture.join();
         } catch (CompletionException e) {
             if (e.getCause() instanceof InterruptedException interrupted) {
                 throw interrupted;
@@ -497,15 +541,11 @@ public class SearchAgent {
             throw e;
         }
 
-        // pruneContext's mutation of currentState is guaranteed to have finished, so we're not racing here
-        Set<ContextFragment> referencedFragments = referencesFuture.join();
         if (!referencedFragments.isEmpty()) {
-            currentState = currentState.withContext(currentState.context().addFragments(referencedFragments));
-            checkpointState = SearchState.initial(preSearchContext.addFragments(referencedFragments));
-            this.scanConfig =
-                    new ScanConfig(false, scanConfig.scanModel(), scanConfig.appendToScope(), scanConfig.autoPrune());
-            logger.debug("Referenced fragments resolved: {}. Disabling auto-scan.", referencedFragments);
+            preparedContext = preparedContext.addFragments(referencedFragments);
         }
+
+        return new SetupContextResult(preparedContext, referencedFragments);
     }
 
     private ToolRegistry createToolRegistry(WorkspaceTools wst, Object toolProvider) {
@@ -636,25 +676,6 @@ public class SearchAgent {
 
     private int priority(ToolExecutionRequest req) {
         return priority(req.name());
-    }
-
-    public Context pruneContext() throws InterruptedException {
-        Context context = currentState.context();
-        if (contextPruned || !hasDroppableFragments(context)) {
-            return context;
-        }
-
-        var janitor = new JanitorAgent(cm, io, goal, context);
-        var result = janitor.execute();
-
-        if (scanConfig.appendToScope) {
-            this.scope.append(result.context());
-        }
-
-        currentState = currentState.withContext(result.context());
-        recordDropBaseline(result.context());
-        contextPruned = true;
-        return currentState.context();
     }
 
     private void performAutoScan() throws InterruptedException {
