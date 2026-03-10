@@ -477,3 +477,86 @@ SlashCommandSuggestions ListItem, ModeSuggestions ListItem, ReasoningSuggestions
     margin-top: 1;
     color: $text-disabled;
 }
+
+PrCreateModalScreen {
+    align: center middle;
+}
+
+#pr-create-container {
+    width: 95%;
+    height: auto;
+    max-height: 95%;
+    border: thick $primary;
+    background: $surface;
+    padding: 1 1;
+}
+
+#pr-create-title {
+    text-align: center;
+    width: 100%;
+    text-style: bold;
+    margin-bottom: 1;
+    color: $text;
+}
+
+#pr-create-branches {
+    text-align: center;
+    width: 100%;
+    margin-bottom: 1;
+}
+
+#pr-title-label, #pr-body-label {
+    width: 100%;
+    margin-top: 1;
+    color: $text;
+}
+
+#pr-title-input {
+    width: 100%;
+    margin-bottom: 1;
+}
+
+#pr-body-input {
+    width: 100%;
+    height: 12;
+    margin-bottom: 1;
+}
+
+#pr-create-actions {
+    width: 100%;
+    height: auto;
+    align: center middle;
+    margin-top: 1;
+}
+
+#pr-create-actions Button {
+    margin: 0 1;
+}
+
+#pr-sessions-label {
+    width: 100%;
+    margin-top: 1;
+    color: $text;
+}
+
+#pr-sessions-scroll {
+    width: 100%;
+    height: 6;
+    max-height: 8;
+    border: tall $primary-darken-1;
+    margin-bottom: 1;
+}
+
+#pr-sessions-list {
+    background: transparent;
+    height: auto;
+}
+
+#pr-sessions-list > ListItem {
+    padding: 0 1;
+}
+
+#pr-sessions-list > ListItem:focus {
+    background: $accent 20%;
+    color: $text;
+}

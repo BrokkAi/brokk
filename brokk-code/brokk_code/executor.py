@@ -742,9 +742,33 @@ class ExecutorManager:
                 f"Your executor version may be too old{diag_info}."
             ) from e
 
+        # Try to extract the server's error message from the response body
+        server_message = ""
+        if response is not None:
+            try:
+                body = response.json()
+                if isinstance(body, dict):
+                    msg = body.get("message", "")
+                    details = body.get("details", "")
+                    if isinstance(msg, str) and isinstance(details, str):
+                        if msg and details:
+                            server_message = f"{msg}: {details}"
+                        elif msg:
+                            server_message = msg
+                        elif details:
+                            server_message = details
+            except Exception:
+                pass
+
         status_str = str(status) if status is not None else "N/A"
+        raw_method = getattr(getattr(e, "request", None), "method", None)
+        method = raw_method if isinstance(raw_method, str) else "?"
+        if server_message:
+            raise ExecutorError(
+                f"Failed {method} {endpoint} (status={status_str}): {server_message}"
+            ) from e
         raise ExecutorError(
-            f"Failed GET {endpoint} (status={status_str}): {type(e).__name__}: {e}"
+            f"Failed {method} {endpoint} (status={status_str}): {type(e).__name__}: {e}"
         ) from e
 
     async def get_context(self) -> Dict[str, Any]:
@@ -1034,6 +1058,133 @@ class ExecutorManager:
             return resp.json()
         except httpx.HTTPError as e:
             await self._handle_http_error(e, "/v1/repo/commit")
+            raise  # Should not be reached
+
+    async def pr_suggest(
+        self,
+        source_branch: Optional[str] = None,
+        target_branch: Optional[str] = None,
+        github_token: Optional[str] = None,
+        session_ids: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        """Suggests PR title and description based on branch diff.
+
+        Args:
+            source_branch: Source branch (defaults to current branch on server)
+            target_branch: Target branch (defaults to default branch on server)
+            github_token: Optional GitHub token for authentication
+            session_ids: Optional list of session UUIDs to include in context
+
+        Returns:
+            Dict with title, description, usedCommitMessages, sourceBranch, targetBranch
+        """
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+
+        payload: Dict[str, Any] = {}
+        if source_branch:
+            payload["sourceBranch"] = source_branch
+        if target_branch:
+            payload["targetBranch"] = target_branch
+        if session_ids:
+            payload["sessionIds"] = session_ids
+
+        headers: Dict[str, str] = {}
+        if github_token:
+            headers["X-Github-Token"] = github_token
+
+        try:
+            resp = await self._http_client.post(
+                "/v1/repo/pr/suggest",
+                json=payload,
+                headers=headers if headers else None,
+                timeout=120.0,
+            )
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            await self._handle_http_error(e, "/v1/repo/pr/suggest")
+            raise  # Should not be reached
+
+    async def pr_sessions(
+        self,
+        source_branch: Optional[str] = None,
+        target_branch: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Fetches overlapping sessions for a PR based on branch diff.
+
+        Args:
+            source_branch: Source branch (defaults to current branch on server)
+            target_branch: Target branch (defaults to default branch on server)
+
+        Returns:
+            Dict with sessions (list of {id, name, taskCount}), sourceBranch, targetBranch
+        """
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+
+        payload: Dict[str, Any] = {}
+        if source_branch:
+            payload["sourceBranch"] = source_branch
+        if target_branch:
+            payload["targetBranch"] = target_branch
+
+        try:
+            resp = await self._http_client.post("/v1/repo/pr/sessions", json=payload)
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            await self._handle_http_error(e, "/v1/repo/pr/sessions")
+            raise  # Should not be reached
+
+    async def pr_create(
+        self,
+        title: str,
+        body: str,
+        source_branch: Optional[str] = None,
+        target_branch: Optional[str] = None,
+        github_token: Optional[str] = None,
+        session_ids: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        """Creates a pull request.
+
+        Args:
+            title: PR title (required)
+            body: PR body/description (required)
+            source_branch: Source branch (defaults to current branch on server)
+            target_branch: Target branch (defaults to default branch on server)
+            github_token: Optional GitHub token for authentication
+            session_ids: Optional list of session UUIDs to embed in PR body
+
+        Returns:
+            Dict with url, sourceBranch, targetBranch
+        """
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+
+        payload: Dict[str, Any] = {"title": title, "body": body}
+        if source_branch:
+            payload["sourceBranch"] = source_branch
+        if target_branch:
+            payload["targetBranch"] = target_branch
+        if session_ids:
+            payload["sessionIds"] = session_ids
+
+        headers: Dict[str, str] = {}
+        if github_token:
+            headers["X-Github-Token"] = github_token
+
+        try:
+            resp = await self._http_client.post(
+                "/v1/repo/pr/create",
+                json=payload,
+                headers=headers if headers else None,
+                timeout=None,
+            )
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            await self._handle_http_error(e, "/v1/repo/pr/create")
             raise  # Should not be reached
 
     async def cancel_job(self, job_id: str):

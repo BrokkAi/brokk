@@ -1310,6 +1310,9 @@ async def test_autoscroll_reset_on_submission():
         # Type and submit a message
         chat_input.text = "Hello"
         chat_input.action_submit()
+        # First pause processes the submission and schedules the deferred scroll
+        await pilot.pause()
+        # Second pause allows the call_after_refresh callback to execute
         await pilot.pause()
 
         # After submission, auto_scroll should be re-enabled
