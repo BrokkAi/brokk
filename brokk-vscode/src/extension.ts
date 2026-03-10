@@ -197,6 +197,7 @@ async function connectOrSpawn(context: vscode.ExtensionContext) {
         if (!jbangBinary) return;
       }
 
+      log(`Using jbang binary: ${jbangBinary}`);
       log("Launching executor via jbang...");
       try {
         handle = await spawnJbang(workspaceDir, jbangBinary);
