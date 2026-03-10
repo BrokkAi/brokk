@@ -336,7 +336,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
         return "}";
     }
 
-    private static final Set<String> TEST_ANNOTATIONS = Set.of("Test", "ParameterizedTest", "RepeatedTest");
+    private static final Set<String> TEST_ANNOTATIONS = Set.of("Test", "ParameterizedTest", "RepeatedTest", "TestCase");
 
     @Override
     protected boolean containsTestMarkers(TSTree tree, SourceContent sourceContent) {

@@ -7,10 +7,8 @@ import ai.brokk.ContextManager;
 import ai.brokk.analyzer.JavaAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.testutil.InlineTestProjectCreator;
-import org.jspecify.annotations.NullMarked;
 import org.junit.jupiter.api.Test;
 
-@NullMarked
 public class JavaTestDetectionTest {
 
     @Test
@@ -83,6 +81,28 @@ public class JavaTestDetectionTest {
 
             // @Nullable should NOT be detected as a test marker
             assertFalse(analyzer.containsTests(file), "@Nullable annotation should NOT be detected as test marker");
+        }
+    }
+
+    @Test
+    void testTestCaseInheritanceDetectedAsTest() throws Exception {
+        String testContent =
+                """
+            package com.example;
+            import junit.framework.TestCase;
+            public class LegacyTest extends TestCase {
+                public void testLegacy() {}
+            }
+            """;
+
+        String fileName = "src/com/example/LegacyTest.java";
+
+        try (var project = InlineTestProjectCreator.code(testContent, fileName).build()) {
+            ProjectFile file = new ProjectFile(project.getRoot(), fileName);
+            JavaAnalyzer analyzer = new JavaAnalyzer(project);
+            analyzer = (JavaAnalyzer) analyzer.update();
+
+            assertTrue(analyzer.containsTests(file), "Should detect tests in class extending TestCase");
         }
     }
 
