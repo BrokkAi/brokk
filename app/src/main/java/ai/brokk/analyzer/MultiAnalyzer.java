@@ -11,6 +11,13 @@ import org.slf4j.LoggerFactory;
 public class MultiAnalyzer
         implements IAnalyzer, TypeAliasProvider, ImportAnalysisProvider, TypeHierarchyProvider, TestDetectionProvider {
     private static final Logger log = LoggerFactory.getLogger(MultiAnalyzer.class);
+
+    private static final Set<Class<? extends CapabilityProvider>> SUPPORTED_CAPABILITIES = Set.of(
+            ImportAnalysisProvider.class,
+            TypeHierarchyProvider.class,
+            TypeAliasProvider.class,
+            TestDetectionProvider.class);
+
     private final Map<Language, IAnalyzer> delegates;
 
     public MultiAnalyzer(Map<Language, IAnalyzer> delegates) {
@@ -73,12 +80,8 @@ public class MultiAnalyzer
 
     @Override
     public <T extends CapabilityProvider> Optional<T> as(Class<T> capability) {
-        // We only return 'this' for these specific capabilities if at least one delegate supports them.
-        // Otherwise, we throw an AssertionError
-        if (capability == ImportAnalysisProvider.class
-                || capability == TypeHierarchyProvider.class
-                || capability == TypeAliasProvider.class
-                || capability == TestDetectionProvider.class) {
+        if (SUPPORTED_CAPABILITIES.contains(capability)) {
+            // We only return 'this' for these specific capabilities if at least one delegate supports them.
             boolean anyDelegateSupports =
                     delegates.values().stream().anyMatch(d -> d.as(capability).isPresent());
             return anyDelegateSupports ? Optional.of(capability.cast(this)) : Optional.empty();
