@@ -18,6 +18,7 @@ public class TestAnalyzer
     private boolean supportsTypeAlias = true;
     private boolean supportsTestDetection = true;
 
+    private final Map<ProjectFile, Boolean> fileTestMarkers = new HashMap<>();
     private final List<CodeUnit> allClasses;
     private final Map<String, List<CodeUnit>> methodsMap;
     private final Map<CodeUnit, List<CodeUnit>> ancestorsMap = new HashMap<>();
@@ -234,6 +235,15 @@ public class TestAnalyzer
     @Override
     public Optional<String> extractCallReceiver(String reference) {
         return Optional.empty();
+    }
+
+    @Override
+    public boolean containsTests(ProjectFile file) {
+        return fileTestMarkers.getOrDefault(file, false);
+    }
+
+    public void setContainsTests(ProjectFile file, boolean containsTests) {
+        fileTestMarkers.put(file, containsTests);
     }
 
     @Override
