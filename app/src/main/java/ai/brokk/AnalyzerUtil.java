@@ -74,7 +74,7 @@ public class AnalyzerUtil {
 
         for (ProjectFile testFile : files) {
             if (!analyzedFiles.contains(testFile)) {
-                logger.error("Test file is missing from analyzer index: {}", testFile);
+                logger.warn("Test file is missing from analyzer index: {}", testFile);
                 continue;
             }
 
