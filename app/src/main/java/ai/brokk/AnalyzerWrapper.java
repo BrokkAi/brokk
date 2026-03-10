@@ -431,29 +431,40 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
     }
 
     /**
-     * Checks if the analyzer's tracked file set matches the project's expected analyzable files.
+     * Checks if the analyzer's tracked file set and languages match the project's configuration.
      * Returns an Optional containing the mismatch details if corruption is detected.
      */
     private Optional<StateMismatch> stateMismatch(IAnalyzer analyzer) {
-        Set<Language> langs = analyzer.languages();
-        Set<ProjectFile> expectedFiles = langs.stream()
+        Set<Language> projectLangs = project.getAnalyzerLanguages().stream()
+                .filter(l -> l != Languages.NONE)
+                .collect(Collectors.toSet());
+        Set<Language> analyzerLangs = analyzer.languages();
+
+        boolean langMismatch = !projectLangs.equals(analyzerLangs);
+        if (langMismatch) {
+            logger.info("Analyzer language mismatch detected. Project: {}, Analyzer: {}", projectLangs, analyzerLangs);
+        }
+
+        Set<ProjectFile> expectedFiles = projectLangs.stream()
                 .flatMap(l -> project.getAnalyzableFiles(l).stream())
                 .collect(Collectors.toSet());
 
         Set<ProjectFile> actualFiles = analyzer.getAnalyzedFiles();
 
-        if (!actualFiles.equals(expectedFiles)) {
+        if (langMismatch || !actualFiles.equals(expectedFiles)) {
             Set<ProjectFile> missing = new HashSet<>(expectedFiles);
             missing.removeAll(actualFiles);
             Set<ProjectFile> unexpected = new HashSet<>(actualFiles);
             unexpected.removeAll(expectedFiles);
 
-            logger.debug(
-                    "Analyzer file mismatch detected. Missing ({}): {}, Unexpected ({}): {}",
-                    missing.size(),
-                    missing,
-                    unexpected.size(),
-                    unexpected);
+            if (!actualFiles.equals(expectedFiles)) {
+                logger.debug(
+                        "Analyzer file mismatch detected. Missing ({}): {}, Unexpected ({}): {}",
+                        missing.size(),
+                        missing,
+                        unexpected.size(),
+                        unexpected);
+            }
             return Optional.of(new StateMismatch(missing, unexpected));
         }
         return Optional.empty();

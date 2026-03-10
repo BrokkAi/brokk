@@ -246,6 +246,11 @@ public class SqlAnalyzer implements IAnalyzer {
     }
 
     @Override
+    public Set<ProjectFile> getAnalyzedFiles() {
+        return declarationsByFile.keySet();
+    }
+
+    @Override
     public IAnalyzer update(Set<ProjectFile> changedFiles) {
         if (changedFiles.isEmpty()) {
             return this;
