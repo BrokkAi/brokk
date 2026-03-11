@@ -59,11 +59,10 @@ public class JavaScriptBuildTest {
     }
 
     @Test
-    @Disabled("Failing multi-function interpolation")
     void testMultipleModulesTemplateInterpolation() throws Exception {
         try (var project = InlineTestProjectCreator.empty()
-                .addFileContents("test('a', () => {})", "a.test.js")
-                .addFileContents("test('b', () => {})", "b.test.js")
+                .addFileContents("import { test } from '@playwright/test'; test('a', () => {})", "a.test.js")
+                .addFileContents("import { test } from '@playwright/test'; test('b', () => {})", "b.test.js")
                 .build()) {
             TestContextManager cm = new TestContextManager(project, new NoOpConsoleIO(), Set.of(), project.getAnalyzer());
             BuildDetails details = new BuildDetails("", "", "jest {{#classes}}{{value}} {{/classes}}", Set.of());
