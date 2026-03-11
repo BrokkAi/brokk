@@ -333,7 +333,7 @@ public final class IssueExecutor {
                         continue;
                     }
 
-                    runPerTaskVerification(buildDetailsOverride, plannerModel, codeModel, generatedTask);
+                    runPerTaskVerification(buildDetailsOverride, plannerModel, codeModel);
                 }
 
                 // Review-bot: compute diff vs default branch and generate inline comments
@@ -377,10 +377,7 @@ public final class IssueExecutor {
     }
 
     private void runPerTaskVerification(
-            BuildAgent.BuildDetails buildDetailsOverride,
-            StreamingChatModel plannerModel,
-            StreamingChatModel codeModel,
-            TaskList.TaskItem generatedTask)
+            BuildAgent.BuildDetails buildDetailsOverride, StreamingChatModel plannerModel, StreamingChatModel codeModel)
             throws InterruptedException {
 
         String verificationCommand = buildDetailsOverride.buildLintCommand();
