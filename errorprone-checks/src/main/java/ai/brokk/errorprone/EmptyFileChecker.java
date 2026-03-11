@@ -48,56 +48,10 @@ public final class EmptyFileChecker extends BugChecker implements BugChecker.Com
             return Description.NO_MATCH;
         }
 
-        String source = stripComments(sourceCode.toString());
-        if (source.isBlank()) {
+        if (sourceCode.toString().isBlank()) {
             return describeMatch(tree);
         }
 
         return Description.NO_MATCH;
-    }
-
-    private static String stripComments(String source) {
-        StringBuilder out = new StringBuilder(source.length());
-
-        boolean inLineComment = false;
-        boolean inBlockComment = false;
-
-        for (int i = 0; i < source.length(); i++) {
-            char c = source.charAt(i);
-
-            if (inLineComment) {
-                if (c == '\n' || c == '\r') {
-                    inLineComment = false;
-                    out.append(c);
-                }
-                continue;
-            }
-
-            if (inBlockComment) {
-                if (c == '*' && i + 1 < source.length() && source.charAt(i + 1) == '/') {
-                    inBlockComment = false;
-                    i++;
-                }
-                continue;
-            }
-
-            if (c == '/' && i + 1 < source.length()) {
-                char next = source.charAt(i + 1);
-                if (next == '/') {
-                    inLineComment = true;
-                    i++;
-                    continue;
-                }
-                if (next == '*') {
-                    inBlockComment = true;
-                    i++;
-                    continue;
-                }
-            }
-
-            out.append(c);
-        }
-
-        return out.toString();
     }
 }
