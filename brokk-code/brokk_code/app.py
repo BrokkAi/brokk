@@ -981,6 +981,7 @@ class BrokkApp(App):
         self._reported_refresh_errors: set[str] = set()
         self._session_switch_lock = asyncio.Lock()
         self._reasoning_target: str = "planner"
+        self.latest_pypi_version: Optional[str] = None
 
         # Accumulators for LLM usage costs (USD).
         # current_job_cost is per-job and resets at the start of each _run_job.
@@ -1031,13 +1032,17 @@ class BrokkApp(App):
         """Return Rich renderables captured during shutdown."""
         return list(self._exit_transcript_renderables)
 
-    def _show_welcome_message(self) -> None:
+    def _show_welcome_message(self, refresh: bool = False) -> None:
         """Constructs and displays the branded welcome message in the ChatPanel."""
         chat = self._maybe_chat()
         if not chat:
             return
 
-        chat.add_welcome(get_braille_icon(), build_welcome_message(self.get_slash_commands()))
+        msg = build_welcome_message(self.get_slash_commands(), self.latest_pypi_version)
+        if refresh:
+            chat.update_welcome(msg)
+        else:
+            chat.add_welcome(get_braille_icon(), msg)
 
     def _maybe_statusline(self) -> Optional[StatusLine]:
         """Safely attempt to get the StatusLine, returning None if the UI isn't mounted."""
@@ -1101,6 +1106,9 @@ class BrokkApp(App):
             chat.set_history(history)
 
             self._show_welcome_message()
+
+        # Check for updates in background
+        self.run_worker(self._check_for_updates())
 
         # Check for API key before starting executor
         if not self.settings.get_brokk_api_key():
@@ -3038,6 +3046,28 @@ class BrokkApp(App):
             self.session_switch_in_progress = False
             self._current_switch_target_session_id = None
             chat.set_job_running(False)
+
+    async def _fetch_latest_pypi_version(self) -> Optional[str]:
+        """Fetches the latest version of 'brokk' from PyPI."""
+        import httpx
+
+        url = "https://pypi.org/pypi/brokk/json"
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(url, timeout=3.0)
+                if response.status_code == 200:
+                    data = response.json()
+                    return data.get("info", {}).get("version")
+        except Exception:
+            logger.debug("Failed to fetch latest version from PyPI", exc_info=True)
+        return None
+
+    async def _check_for_updates(self) -> None:
+        """Background worker to check for PyPI updates and refresh welcome message."""
+        version = await self._fetch_latest_pypi_version()
+        if version:
+            self.latest_pypi_version = version
+            self._show_welcome_message(refresh=True)
 
     async def on_unmount(self) -> None:
         """Ensure cleanup even if app exits via other means."""
