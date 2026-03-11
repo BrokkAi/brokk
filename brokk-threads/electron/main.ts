@@ -10,6 +10,10 @@ import {
   selectThreadMetadataOnly
 } from "./shellController";
 import { LazyThreadWorktreeProvisioningService } from "./worktreeProvisioningService";
+import {
+  InMemoryPerThreadExecutorManager,
+  createMainProcessThreadExecutorManager
+} from "./threadExecutorManager";
 import type {
   ExecutorProvisioning,
   LazyExecutorService,
@@ -17,18 +21,23 @@ import type {
 } from "./types";
 
 class NoopLazyExecutorService implements LazyExecutorService {
-  async startExecutor(): Promise<ExecutorProvisioning> {
+  async startExecutor(thread): Promise<ExecutorProvisioning> {
     return {
-      executorId: "noop-executor",
+      executorId: `noop-executor-${thread.id}`,
       startedAt: new Date().toISOString()
     };
   }
 }
 
 const userDataPath = app.getPath("userData");
+const metadataStore = new FileThreadMetadataStore(join(userDataPath, "thread-metadata.json"));
+const threadExecutorManager = createMainProcessThreadExecutorManager({
+  metadataStore,
+  executorService: new NoopLazyExecutorService()
+});
 
 const deps: ShellControllerDeps = {
-  metadataStore: new FileThreadMetadataStore(join(userDataPath, "thread-metadata.json")),
+  metadataStore,
   executorService: new NoopLazyExecutorService(),
   worktreeService: new LazyThreadWorktreeProvisioningService(
     join(userDataPath, "thread-worktree-map.json"),
@@ -91,6 +100,23 @@ ipcMain.handle("threads:select-thread", async (_event, threadId: string) => {
 
 ipcMain.handle("threads:ensure-thread-provisioned-for-prompt", async (_event, threadId: string) => {
   return provisionThreadForPromptIfNeeded(deps, threadId);
+});
+
+ipcMain.handle("threads:send-prompt", async (_event, threadId: string, prompt: string) => {
+  const state = await metadataStore.loadState();
+  const thread = state.threads.find((item) => item.id === threadId);
+  if (!thread) {
+    throw new Error(`Thread ${threadId} not found`);
+  }
+
+  const executor = await threadExecutorManager.ensureExecutorForThread(thread);
+  await executor.ensureReady();
+  await executor.ensureSessionForThread(thread);
+  await executor.sendPrompt(prompt);
+});
+
+ipcMain.handle("threads:debug-active-executors", () => {
+  return threadExecutorManager.getActiveExecutorThreadIds();
 });
 
 app.whenReady().then(createWindow);

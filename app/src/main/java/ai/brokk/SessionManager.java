@@ -876,7 +876,7 @@ public class SessionManager implements AutoCloseable {
                     sessionId);
         }
 
-        final SessionInfo finalInfoToSave = infoToSave;
+        final SessionInfo manifestToSave = infoToSave != null ? infoToSave : currentInfo;
         sessionExecutorByKey.submit(sessionId.toString(), () -> {
             try {
                 Path sessionHistoryPath = getSessionHistoryPath(sessionId);
@@ -887,9 +887,9 @@ public class SessionManager implements AutoCloseable {
                 HistoryIo.writeZip(contextHistory, sessionHistoryPath);
                 writeCostLedgerJsonl(sessionHistoryPath, mergedCostLedgerJsonl);
 
-                // Write manifest after the rewrite
-                if (finalInfoToSave != null) {
-                    writeSessionInfoToZip(sessionHistoryPath, finalInfoToSave);
+                // Always restore manifest after rewrite when we have one to preserve
+                if (manifestToSave != null) {
+                    writeSessionInfoToZip(sessionHistoryPath, manifestToSave);
                 }
             } catch (IOException e) {
                 logger.error(

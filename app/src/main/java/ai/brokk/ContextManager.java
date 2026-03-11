@@ -2468,26 +2468,35 @@ public class ContextManager implements IContextManager, AutoCloseable {
             switchToSession(sessionInfo.id());
             return;
         }
-        createOrReuseSession(name);
+
+        Optional<SessionInfo> reusableEmptySessionInfo = getEmptySessionToReuseInsteadOfCreatingNew(name);
+        if (reusableEmptySessionInfo.isPresent()) {
+            SessionInfo sessionInfo = reusableEmptySessionInfo.get();
+            logger.info("Reused existing empty session {} with name '{}'", sessionInfo.id(), name);
+            switchToSession(sessionInfo.id());
+            return;
+        }
+
+        SessionInfo sessionInfo = project.getSessionManager().newSession(name);
+        logger.info("Created new session: {} ({})", sessionInfo.name(), sessionInfo.id());
+
+        updateActiveSession(sessionInfo.id());
+
+        var ch = new ContextHistory(new Context(this));
+        contextHistory = ch;
+        project.getSessionManager().saveHistory(ch, currentSessionId);
+
+        notifyContextListeners(liveContext());
+        io.updateContextHistoryTable(liveContext());
+        submitSessionSyncIfActive();
     }
 
     private Optional<SessionInfo> getLatestSessionByName(String name) {
-        var sessionManager = project.getSessionManager();
-        var sessionsByNewest = sessionManager.listSessions().stream()
+        return project.getSessionManager().listSessions().stream()
                 .filter(session -> session.name().equals(name))
                 .filter(session ->
                         !project.getSessionRegistry().isSessionActiveElsewhere(project.getRoot(), session.id()))
-                .sorted(Comparator.comparingLong(SessionInfo::created).reversed())
-                .toList();
-
-        for (var session : sessionsByNewest) {
-            var history = sessionManager.loadHistory(session.id(), this);
-            if (!SessionManager.isSessionEmpty(session, history)) {
-                return Optional.of(session);
-            }
-        }
-
-        return Optional.empty();
+                .max(Comparator.comparingLong(SessionInfo::modified));
     }
 
     private void createOrReuseSession(String name) {

@@ -7,6 +7,8 @@ export type RendererBridge = {
   renameThread(threadId: string, title: string): Promise<ThreadMetadata>;
   selectThread(threadId: string): Promise<void>;
   ensureThreadProvisionedForPrompt(threadId: string): Promise<ProvisionedThreadResult>;
+  sendPrompt(threadId: string, prompt: string): Promise<void>;
+  debugActiveExecutors(): Promise<string[]>;
 };
 
 const bridge: RendererBridge = {
@@ -24,6 +26,12 @@ const bridge: RendererBridge = {
   },
   ensureThreadProvisionedForPrompt(threadId: string) {
     return ipcRenderer.invoke("threads:ensure-thread-provisioned-for-prompt", threadId);
+  },
+  sendPrompt(threadId: string, prompt: string) {
+    return ipcRenderer.invoke("threads:send-prompt", threadId, prompt);
+  },
+  debugActiveExecutors() {
+    return ipcRenderer.invoke("threads:debug-active-executors");
   }
 };
 

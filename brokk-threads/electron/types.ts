@@ -42,8 +42,19 @@ export interface ThreadMetadataStore {
   attachProvisioning(threadId: string, provisioning: ThreadProvisioning): Promise<ThreadMetadata>;
 }
 
+export interface ThreadExecutorClient {
+  ensureReady(): Promise<ExecutorProvisioning>;
+  ensureSessionForThread(thread: ThreadMetadata): Promise<{ sessionId: string | null }>;
+  sendPrompt(prompt: string): Promise<void>;
+}
+
+export interface ThreadExecutorManager {
+  ensureExecutorForThread(thread: ThreadMetadata): Promise<ThreadExecutorClient>;
+  getActiveExecutorThreadIds(): string[];
+}
+
 export interface LazyExecutorService {
-  startExecutor(): Promise<ExecutorProvisioning>;
+  startExecutor(thread: ThreadMetadata): Promise<ExecutorProvisioning>;
 }
 
 export interface LazyWorktreeProvisioningService {
