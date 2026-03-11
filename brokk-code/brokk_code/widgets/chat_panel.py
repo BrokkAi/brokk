@@ -817,6 +817,8 @@ class ChatPanel(Vertical):
         self._history_index: int = -1  # -1 means no history navigation active
         self._draft_buffer: str = ""  # Stores text before history navigation started
 
+        self._suppressing_sync: bool = False
+
     def compose(self) -> ComposeResult:
         yield ChatLog(highlight=True, markup=True, wrap=True, min_width=0, id="chat-log")
         yield TokenBar(id="chat-token-bar", classes="hidden")
@@ -866,6 +868,9 @@ class ChatPanel(Vertical):
 
         Also toggles visibility of the scroll-to-bottom button.
         """
+        if self._suppressing_sync:
+            return
+
         try:
             log = self.query_one("#chat-log", RichLog)
             scroll_btn = self.query_one("#scroll-to-bottom", Button)
@@ -1353,6 +1358,10 @@ class ChatPanel(Vertical):
         if not was_following:
             log.auto_scroll = False
 
+        # Suppress _sync_autoscroll during the clear+re-render cycle so that
+        # reactive scroll_y changes don't override the auto_scroll state.
+        self._suppressing_sync = True
+
         log.clear()
 
         for entry in self._message_history:
@@ -1368,12 +1377,18 @@ class ChatPanel(Vertical):
 
             # Use call_later to ensure the scroll happens after the log's internal state updates
             def _restore_scroll():
+                self._suppressing_sync = False
                 log.scroll_to(y=min(prior_scroll_y, log.max_scroll_y), animate=False)
                 self._sync_autoscroll()
 
             self.call_later(_restore_scroll)
         else:
-            self.call_later(self._sync_autoscroll)
+
+            def _finish_refresh():
+                self._suppressing_sync = False
+                self._sync_autoscroll()
+
+            self.call_later(_finish_refresh)
 
     def add_markdown(self, content: str) -> None:
         """Renders a block of Markdown content to the chat log."""
