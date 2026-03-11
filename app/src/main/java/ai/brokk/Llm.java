@@ -853,7 +853,6 @@ public class Llm {
         var paramsBuilder = getParamsBuilder(options);
 
         if (!tools.isEmpty()) {
-            logger.debug("Performing native tool calls");
             paramsBuilder = paramsBuilder.toolSpecifications(tools);
             if (contextManager.getService().supportsParallelCalls(model)) {
                 // can't just blindly call .parallelToolCalls(boolean), litellm will barf if it sees the option at all
