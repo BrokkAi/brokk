@@ -1,11 +1,20 @@
 package ai.brokk.util;
 
+import ai.brokk.git.GitRepo;
+import ai.brokk.git.GitRepoFactory;
+import ai.brokk.project.FileFilteringService;
 import com.google.common.base.Splitter;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.FileVisitResult;
+import java.nio.file.FileVisitor;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.*;
+import java.nio.file.attribute.BasicFileAttributes;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -272,24 +281,98 @@ public class EnvironmentPython {
                 .collect(Collectors.toList());
     }
 
-    /** Check if any Python source file imports distutils. */
+    /** Check if any Python source file imports distutils, respecting gitignore rules. */
     private boolean repoImportsDistutils() {
-        try (var fileStream = Files.walk(projectRoot)) {
-            return fileStream
-                    .filter(p -> p.getFileName().toString().endsWith(".py"))
-                    .filter(p -> {
-                        String sp = p.toString();
-                        return !sp.contains(".venv") && !sp.contains("/venv") && !sp.contains(".git");
-                    })
-                    .anyMatch(p -> {
-                        String content = readFile(p);
-                        return content != null
-                                && DISTUTILS_PATTERN.matcher(content).find();
-                    });
+        // Try to set up gitignore-aware filtering if we have a git repo
+        @Nullable FileFilteringService filteringService = null;
+        if (GitRepoFactory.hasGitRepo(projectRoot)) {
+            try {
+                var gitRepo = new GitRepo(projectRoot);
+                filteringService = new FileFilteringService(projectRoot, gitRepo);
+            } catch (Exception e) {
+                logger.debug(
+                        "Could not initialize git-aware filtering for distutils check, falling back to basic filtering",
+                        e);
+            }
+        }
+
+        final @Nullable FileFilteringService effectiveFilter = filteringService;
+        final boolean[] found = {false};
+
+        try {
+            Files.walkFileTree(projectRoot, new FileVisitor<Path>() {
+                @Override
+                public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) {
+                    // Always skip .git directory
+                    String dirName =
+                            dir.getFileName() != null ? dir.getFileName().toString() : "";
+                    if (dirName.equals(".git")) {
+                        return FileVisitResult.SKIP_SUBTREE;
+                    }
+
+                    // Skip if directory is gitignored (prunes entire subtree)
+                    if (!dir.equals(projectRoot)) {
+                        Path relPath = projectRoot.relativize(dir);
+                        if (effectiveFilter != null) {
+                            if (effectiveFilter.isGitignored(relPath, true)) {
+                                logger.trace("Skipping gitignored directory: {}", relPath);
+                                return FileVisitResult.SKIP_SUBTREE;
+                            }
+                        } else {
+                            // Fallback: skip common virtual environment directories
+                            if (dirName.equals(".venv") || dirName.equals("venv")) {
+                                return FileVisitResult.SKIP_SUBTREE;
+                            }
+                        }
+                    }
+
+                    return FileVisitResult.CONTINUE;
+                }
+
+                @Override
+                public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
+                    // Only check .py files
+                    String fileName =
+                            file.getFileName() != null ? file.getFileName().toString() : "";
+                    if (!fileName.endsWith(".py")) {
+                        return FileVisitResult.CONTINUE;
+                    }
+
+                    // Skip if file is gitignored
+                    Path relPath = projectRoot.relativize(file);
+                    if (effectiveFilter != null && effectiveFilter.isGitignored(relPath, false)) {
+                        logger.trace("Skipping gitignored file: {}", relPath);
+                        return FileVisitResult.CONTINUE;
+                    }
+
+                    // Check for distutils import
+                    String content = readFile(file);
+                    if (content != null && DISTUTILS_PATTERN.matcher(content).find()) {
+                        logger.debug("Found distutils import in: {}", relPath);
+                        found[0] = true;
+                        return FileVisitResult.TERMINATE;
+                    }
+
+                    return FileVisitResult.CONTINUE;
+                }
+
+                @Override
+                public FileVisitResult visitFileFailed(Path file, IOException exc) {
+                    logger.trace("Failed to visit file {}: {}", file, exc.getMessage());
+                    return FileVisitResult.CONTINUE;
+                }
+
+                @Override
+                public FileVisitResult postVisitDirectory(Path dir, IOException exc) {
+                    return FileVisitResult.CONTINUE;
+                }
+            });
         } catch (IOException e) {
             logger.debug("Error walking project directory for distutils check", e);
             return false;
         }
+
+        return found[0];
     }
 
     /** Parse a PEP 440 version spec like ">=3.8,<4", ">=3.6", or "~=3.6". */
