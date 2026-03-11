@@ -526,8 +526,8 @@ def _build_parser() -> argparse.ArgumentParser:
     pr_review_parser.add_argument(
         "--github-token",
         type=str,
-        default=os.environ.get("GITHUB_TOKEN"),
-        help="GitHub API token (defaults to GITHUB_TOKEN env var)",
+        default=Settings().get_github_token(),
+        help="GitHub API token (from brokk.properties, GITHUB_TOKEN env var, or --github-token)",
     )
     pr_review_parser.add_argument(
         "--repo-owner",
@@ -1282,9 +1282,9 @@ def main():
                 run_pr_review_job(
                     workspace_dir=workspace_path,
                     pr_number=args.pr_number,
-                    github_token=args.github_token or "",
-                    repo_owner=repo_owner or "",
-                    repo_name=repo_name or "",
+                    github_token=args.github_token,
+                    repo_owner=repo_owner,
+                    repo_name=repo_name,
                     planner_model=args.planner_model,
                     severity_threshold=args.severity,
                     verbose=args.verbose,
@@ -1303,15 +1303,15 @@ def main():
             )
             # Handle issue create mode by launching a non-interactive job
             tags = {
-                "github_token": args.github_token or "",
-                "repo_owner": args.repo_owner or "",
-                "repo_name": args.repo_name or "",
+                "github_token": args.github_token,
+                "repo_owner": args.repo_owner,
+                "repo_name": args.repo_name,
             }
 
             with _temporary_issue_repo_checkout(
-                repo_owner=args.repo_owner or "",
-                repo_name=args.repo_name or "",
-                github_token=args.github_token or "",
+                repo_owner=args.repo_owner,
+                repo_name=args.repo_name,
+                github_token=args.github_token,
                 action_label="Issue create",
             ) as issue_workspace_path:
                 asyncio.run(
@@ -1336,9 +1336,9 @@ def main():
                 args.github_token, args.repo_owner, args.repo_name, "issue solve"
             )
             tags = {
-                "github_token": args.github_token or "",
-                "repo_owner": args.repo_owner or "",
-                "repo_name": args.repo_name or "",
+                "github_token": args.github_token,
+                "repo_owner": args.repo_owner,
+                "repo_name": args.repo_name,
                 "issue_number": str(args.issue_number),
             }
             if args.build_settings:
@@ -1347,9 +1347,9 @@ def main():
             task_input = f"Resolve GitHub Issue #{args.issue_number}"
 
             with _temporary_issue_repo_checkout(
-                repo_owner=args.repo_owner or "",
-                repo_name=args.repo_name or "",
-                github_token=args.github_token or "",
+                repo_owner=args.repo_owner,
+                repo_name=args.repo_name,
+                github_token=args.github_token,
                 action_label="Issue solve",
             ) as issue_workspace_path:
                 asyncio.run(
