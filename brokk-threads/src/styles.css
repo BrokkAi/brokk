@@ -1,0 +1,46 @@
+:root {
+  font-family: Arial, sans-serif;
+  color: #1a1a1a;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  height: 100%;
+}
+
+.app-shell {
+  display: grid;
+  grid-template-rows: 140px 1fr;
+  height: 100%;
+}
+
+.top-pane {
+  border-bottom: 1px solid #ddd;
+  padding: 12px;
+  background: #fafafa;
+}
+
+.top-pane textarea {
+  width: 100%;
+  min-height: 72px;
+  box-sizing: border-box;
+}
+
+.main-panes {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  min-height: 0;
+}
+
+.left-pane {
+  border-right: 1px solid #ddd;
+  padding: 12px;
+  overflow: auto;
+}
+
+.right-pane {
+  padding: 12px;
+  overflow: auto;
+}
