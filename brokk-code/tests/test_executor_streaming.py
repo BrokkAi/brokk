@@ -74,9 +74,10 @@ async def test_stream_events_polling_logic():
         async for event in executor.stream_events(job_id):
             collected_events.append(event)
 
-    assert len(collected_events) == 2
+    assert len(collected_events) == 3
     assert collected_events[0]["seq"] == 9
     assert collected_events[1]["seq"] == 10
+    assert collected_events[2] == {"type": "STATE_CHANGE", "data": {"state": "COMPLETED"}}
 
     # Verify calls
     # Call 1: Status
@@ -203,4 +204,5 @@ async def test_stream_events_drains_terminal_race_and_yields_late_notification()
         async for event in executor.stream_events("job"):
             collected.append(event)
 
-    assert [e["seq"] for e in collected] == [11]
+    assert collected[0]["seq"] == 11
+    assert collected[-1] == {"type": "STATE_CHANGE", "data": {"state": "COMPLETED"}}

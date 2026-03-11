@@ -768,6 +768,9 @@ class ExecutorManager:
                 # Force status check on next loop if we are idling
                 last_status_check = 0.0
 
+        # Yield a synthetic STATE_CHANGE so consumers know the final state
+        yield {"type": "STATE_CHANGE", "data": {"state": state}}
+
     async def _handle_http_error(self, e: httpx.HTTPError, endpoint: str) -> None:
         """Centralized error handling for executor HTTP calls."""
         response = getattr(e, "response", None)
