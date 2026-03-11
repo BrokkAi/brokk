@@ -19,7 +19,9 @@ import java.awt.*;
 import java.awt.datatransfer.Clipboard;
 import java.awt.datatransfer.DataFlavor;
 import java.awt.datatransfer.StringSelection;
+import java.awt.datatransfer.UnsupportedFlavorException;
 import java.io.File;
+import java.io.IOException;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
@@ -116,7 +118,7 @@ public interface IContextManager {
                     Thread.currentThread().interrupt();
                     return null;
                 }
-            } catch (java.awt.datatransfer.UnsupportedFlavorException | java.io.IOException e) {
+            } catch (UnsupportedFlavorException | IOException e) {
                 logger.debug("Clipboard does not contain string data", e);
                 return null;
             }

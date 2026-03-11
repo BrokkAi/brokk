@@ -285,5 +285,12 @@ subprojects {
 
     tasks.withType<JavaCompile> {
         options.encoding = "UTF-8"
+        if (project.hasProperty("exhaustiveLint")) {
+            options.compilerArgs.addAll(listOf(
+                "-Xmaxerrs", "10000",
+                "-Xmaxwarns", "10000",
+                "-XepAllErrorsAsWarnings"
+            ))
+        }
     }
 }
