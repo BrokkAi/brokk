@@ -144,22 +144,30 @@ public class BuildTools {
 
         // Always calculate all potential lists to support mixed templates
         // 1. Packages
-        List<String> packages = analyzer.getTestModules(workspaceTestFiles);
+        List<String> packages =
+                analyzer.getTestModules(workspaceTestFiles).stream().distinct().toList();
         context.put("packages", MustacheTemplates.toStringElementList(packages));
 
         // 2. Files
         context.put(
                 "files",
-                MustacheTemplates.toStringElementList(
-                        workspaceTestFiles.stream().map(ProjectFile::toString).toList()));
+                MustacheTemplates.toStringElementList(workspaceTestFiles.stream()
+                        .map(ProjectFile::toString)
+                        .distinct()
+                        .toList()));
 
         // 3. Classes
         List<String> fqClasses = List.of();
         List<String> classes = List.of();
         if (!analyzer.isEmpty()) {
             var codeUnits = analyzer.testFilesToCodeUnits(workspaceTestFiles);
-            fqClasses = codeUnits.stream().map(CodeUnit::fqName).sorted().toList();
-            classes = codeUnits.stream().map(CodeUnit::identifier).sorted().toList();
+            fqClasses =
+                    codeUnits.stream().map(CodeUnit::fqName).distinct().sorted().toList();
+            classes = codeUnits.stream()
+                    .map(CodeUnit::identifier)
+                    .distinct()
+                    .sorted()
+                    .toList();
         }
         context.put("fqclasses", MustacheTemplates.toStringElementList(fqClasses));
         context.put("classes", MustacheTemplates.toStringElementList(classes));

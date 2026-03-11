@@ -843,7 +843,15 @@ class ChatPanel(Vertical):
         log = self.query_one("#chat-log", RichLog)
         log.min_width = 0
         log.styles.scrollbar_size_horizontal = 0
+        self._last_width = self.size.width
         self.watch(log, "scroll_y", self._on_chat_log_scroll_change)
+
+    def on_resize(self, event: events.Resize) -> None:
+        """Handle panel resizing by refreshing the log if width changed."""
+        if event.size.width != self._last_width:
+            self._last_width = event.size.width
+            if self._message_history:
+                self.refresh_log(show_verbose=self.show_verbose)
 
     def _on_chat_log_scroll_change(self, old: float, new: float) -> None:
         """Called when the chat log's scroll_y changes."""
