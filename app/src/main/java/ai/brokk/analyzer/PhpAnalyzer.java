@@ -6,6 +6,7 @@ import ai.brokk.analyzer.cache.AnalyzerCache;
 import ai.brokk.project.IProject;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 import org.jetbrains.annotations.Nullable;
 import org.treesitter.*;
 
@@ -414,5 +415,13 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
     @Override
     protected boolean isConstructor(CodeUnit candidate, @Nullable CodeUnit enclosingClass, String captureName) {
         return "__construct".equals(candidate.identifier());
+    }
+
+    @Override
+    public Set<CodeUnit> testFilesToCodeUnits(Collection<ProjectFile> files) {
+        return files.stream()
+                .flatMap(file -> getDeclarations(file).stream())
+                .filter(cu -> cu.isClass() || cu.isFunction())
+                .collect(Collectors.toSet());
     }
 }
