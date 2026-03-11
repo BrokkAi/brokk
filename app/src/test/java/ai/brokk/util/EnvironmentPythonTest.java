@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import org.eclipse.jgit.api.Git;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -151,6 +152,119 @@ public class EnvironmentPythonTest {
 
         // Should get a version without being capped by the .venv distutils
         assertNotNull(version, "Should return a valid version even without git");
+    }
+
+    /**
+     * Test that distutils under common artifact directories (.gradle, node_modules, etc.)
+     * is ignored in fallback (non-git) mode.
+     */
+    @Test
+    void testArtifactDirectoryDistutilsIgnoredWithoutGitRepo() throws Exception {
+        // Create a directory without git
+        Path projectPath = tempDir.resolve("no-git-artifacts");
+        Files.createDirectories(projectPath);
+
+        // Create various artifact directories with distutils imports
+        for (String artifactDir : List.of(".gradle", "node_modules", "build", "target", "__pycache__", "dist")) {
+            Path dir = projectPath.resolve(artifactDir);
+            Files.createDirectories(dir);
+            Path pyFile = dir.resolve("generated.py");
+            Files.writeString(pyFile, """
+                from distutils.core import setup
+                """);
+        }
+
+        // Create a regular Python file without distutils
+        Path mainPy = projectPath.resolve("main.py");
+        Files.writeString(mainPy, """
+            import os
+            print("Hello")
+            """);
+
+        // Test that EnvironmentPython ignores artifact directories
+        var envPython = new EnvironmentPython(projectPath);
+        String version = envPython.getPythonVersion();
+
+        // Should NOT be capped - artifact directories should be skipped
+        assertNotNull(version, "Should return a valid version");
+        // The version should not be artificially capped by distutils in artifact dirs
+    }
+
+    /**
+     * Regression test: non-git project with distutils in .gradle should not cap version,
+     * but distutils in a normal source file should still cap.
+     */
+    @Test
+    void testGradleDirectorySkippedButRealSourceStillCaps() throws Exception {
+        // Part 1: .gradle distutils should NOT cap
+        Path projectWithGradle = tempDir.resolve("gradle-ignored");
+        Files.createDirectories(projectWithGradle);
+
+        Path gradleDir = projectWithGradle.resolve(".gradle");
+        Files.createDirectories(gradleDir);
+        Files.writeString(
+                gradleDir.resolve("wrapper.py"), """
+            from distutils.core import setup
+            """);
+
+        Path mainPy1 = projectWithGradle.resolve("main.py");
+        Files.writeString(mainPy1, """
+            import os
+            """);
+
+        var envPython1 = new EnvironmentPython(projectWithGradle);
+        String version1 = envPython1.getPythonVersion();
+        assertNotNull(version1, "Should return a valid version");
+
+        // Part 2: Real source distutils SHOULD cap
+        Path projectWithDistutils = tempDir.resolve("real-distutils");
+        Files.createDirectories(projectWithDistutils);
+
+        Path srcDir = projectWithDistutils.resolve("src");
+        Files.createDirectories(srcDir);
+        Files.writeString(
+                srcDir.resolve("setup_helper.py"), """
+            from distutils.core import setup
+            """);
+
+        var envPython2 = new EnvironmentPython(projectWithDistutils);
+        String version2 = envPython2.getPythonVersion();
+
+        int comparison = compareVersions(version2, "3.12");
+        assertTrue(comparison < 0, "Version should be < 3.12 due to distutils in real source, but got: " + version2);
+    }
+
+    /**
+     * Test that deeply nested artifact directories are also skipped in fallback mode.
+     */
+    @Test
+    void testDeeplyNestedArtifactDirectorySkipped() throws Exception {
+        Path projectPath = tempDir.resolve("nested-artifacts");
+        Files.createDirectories(projectPath);
+
+        // Create nested structure: project/subproject/node_modules/deep/file.py
+        Path nestedDir = projectPath
+                .resolve("subproject")
+                .resolve("node_modules")
+                .resolve("some-pkg")
+                .resolve("scripts");
+        Files.createDirectories(nestedDir);
+        Files.writeString(
+                nestedDir.resolve("install.py"), """
+            from distutils.core import setup
+            """);
+
+        // Create normal source
+        Path mainPy = projectPath.resolve("main.py");
+        Files.writeString(mainPy, """
+            print("Hello")
+            """);
+
+        var envPython = new EnvironmentPython(projectPath);
+        String version = envPython.getPythonVersion();
+
+        // Should not be capped by distutils in node_modules
+        assertNotNull(version, "Should return a valid version");
     }
 
     /**

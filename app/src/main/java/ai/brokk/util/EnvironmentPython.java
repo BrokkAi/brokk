@@ -3,6 +3,7 @@ package ai.brokk.util;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitRepoFactory;
 import ai.brokk.project.FileFilteringService;
+import ai.brokk.util.BuildToolConventions.BuildSystem;
 import com.google.common.base.Splitter;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -43,6 +44,34 @@ public class EnvironmentPython {
     private static final Pattern PY_VERSION_PATTERN = Pattern.compile("(\\d+)\\.(\\d+)");
     private static final Pattern DISTUTILS_PATTERN =
             Pattern.compile("^\\s*(from\\s+distutils|import\\s+distutils)\\b", Pattern.MULTILINE);
+
+    /**
+     * Directory names to skip in fallback (non-git) traversal.
+     * Derived from BuildToolConventions default excludes across all build systems,
+     * plus common virtual environment directories.
+     */
+    private static final Set<String> FALLBACK_SKIP_DIRECTORIES = computeFallbackSkipDirectories();
+
+    private static Set<String> computeFallbackSkipDirectories() {
+        Set<String> dirs = new HashSet<>();
+        // Always skip virtual environments
+        dirs.add(".venv");
+        dirs.add("venv");
+        // Collect directory names from all build systems' default excludes
+        for (BuildSystem system : BuildSystem.values()) {
+            for (String exclude : BuildToolConventions.getDefaultExcludes(system)) {
+                // Strip trailing slash to get directory name
+                String dirName = exclude.endsWith("/") ? exclude.substring(0, exclude.length() - 1) : exclude;
+                dirs.add(dirName);
+            }
+        }
+        // Add a few more common ones not covered by BuildToolConventions
+        dirs.add(".gradle");
+        dirs.add("node_modules");
+        dirs.add(".idea");
+        dirs.add(".vscode");
+        return Set.copyOf(dirs);
+    }
 
     /** Represents a Python major.minor version. */
     private record PyVersion(int major, int minor) {
@@ -319,8 +348,9 @@ public class EnvironmentPython {
                                 return FileVisitResult.SKIP_SUBTREE;
                             }
                         } else {
-                            // Fallback: skip common virtual environment directories
-                            if (dirName.equals(".venv") || dirName.equals("venv")) {
+                            // Fallback: skip common artifact/cache/venv directories
+                            if (FALLBACK_SKIP_DIRECTORIES.contains(dirName)) {
+                                logger.trace("Skipping fallback-excluded directory: {}", relPath);
                                 return FileVisitResult.SKIP_SUBTREE;
                             }
                         }
