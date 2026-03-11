@@ -23,7 +23,7 @@ public class PhpBuildTest {
             use PHPUnit\\Framework\\TestCase;
             
             class MyTest extends TestCase {
-                public void test_logic() {
+                public function test_logic() {
                     $this->assertTrue(true);
                 }
             }
