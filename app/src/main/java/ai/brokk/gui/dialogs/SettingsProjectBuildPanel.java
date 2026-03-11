@@ -3,10 +3,14 @@ package ai.brokk.gui.dialogs;
 import ai.brokk.IConsoleIO;
 import ai.brokk.TaskResult;
 import ai.brokk.agents.BuildAgent;
+import ai.brokk.analyzer.IAnalyzer;
+import ai.brokk.analyzer.JvmBasedAnalyzer;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.gui.Chrome;
+import ai.brokk.gui.SwingUtil;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
@@ -885,7 +889,6 @@ public class SettingsProjectBuildPanel extends JPanel {
         var newBuildLint = buildCleanCommandField.getText();
         var newTestAll = allTestsCommandField.getText();
         var newTestSome = someTestsCommandField.getText();
-        var newAfterTaskList = afterTaskListCommandField.getText();
 
         // Primary language
         var selectedPrimaryLang = (Language) primaryLanguageComboBox.getSelectedItem();
@@ -901,13 +904,7 @@ public class SettingsProjectBuildPanel extends JPanel {
 
         // Always use exclusion patterns from disk - Code Intelligence panel is the source of truth
         var newDetails = new BuildAgent.BuildDetails(
-                newBuildLint,
-                newTestAll,
-                newTestSome,
-                diskDetails.exclusionPatterns(),
-                envVars,
-                diskDetails.maxBuildAttempts(),
-                newAfterTaskList);
+                newBuildLint, newTestAll, newTestSome, diskDetails.exclusionPatterns(), envVars);
 
         // Compare against what's currently saved on disk
         var currentDetails = project.awaitBuildDetails();
@@ -1085,16 +1082,34 @@ public class SettingsProjectBuildPanel extends JPanel {
         jdkSelector.loadJdksAsync(effectiveJdk);
     }
 
+    private void scheduleJdkControlsUpdate() {
+        LoggingFuture.supplyAsync(() -> findLanguagesInProject().stream().anyMatch(this::isJvmLanguage))
+                .thenAccept(isJvmVisible -> SwingUtil.runOnEdt(() -> {
+                    setJavaHomeCheckbox.setVisible(isJvmVisible);
+                    jdkSelector.setVisible(isJvmVisible);
+                }));
+    }
+
     private void updateJdkControlsVisibility(@Nullable Language selected) {
-        boolean isJava = selected == Languages.JAVA;
-        setJavaHomeCheckbox.setVisible(isJava);
-        jdkSelector.setVisible(isJava);
+        scheduleJdkControlsUpdate();
+    }
+
+    private boolean isJvmLanguage(Language language) {
+        if (language == Languages.NONE) return false;
+        try {
+            IAnalyzer analyzer = language.createAnalyzer(project);
+            return analyzer instanceof JvmBasedAnalyzer;
+        } catch (Exception e) {
+            logger.debug("Could not instantiate analyzer for {} to check JvmBased capability", language.name(), e);
+            return false;
+        }
     }
 
     private Map<String, String> computeEnvFromUi() {
         var env = new HashMap<String, String>();
         var selected = (Language) primaryLanguageComboBox.getSelectedItem();
-        if (selected == Languages.JAVA) {
+
+        if (isJvmLanguage(selected != null ? selected : Languages.NONE)) {
             if (setJavaHomeCheckbox.isSelected()) {
                 String sel = jdkSelector.getSelectedJdkPath();
                 if (sel != null && !sel.isBlank()) {
@@ -1106,6 +1121,7 @@ public class SettingsProjectBuildPanel extends JPanel {
                 env.put("JAVA_HOME", EnvironmentJava.JAVA_HOME_SENTINEL);
             }
         }
+
         if (selected == Languages.PYTHON) {
             env.put("VIRTUAL_ENV", ".venv");
         }
