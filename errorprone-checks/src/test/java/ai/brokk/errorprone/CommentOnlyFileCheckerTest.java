@@ -4,10 +4,11 @@ import com.google.errorprone.CompilationTestHelper;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
-/** Unit tests for EmptyFileChecker. */
-public class EmptyFileCheckerTest {
+/** Unit tests for CommentOnlyFileChecker. */
+public class CommentOnlyFileCheckerTest {
 
-    private final CompilationTestHelper helper = CompilationTestHelper.newInstance(EmptyFileChecker.class, getClass())
+    private final CompilationTestHelper helper = CompilationTestHelper.newInstance(
+                    CommentOnlyFileChecker.class, getClass())
             .setArgs(List.of("--release", "21"));
 
     @Test

@@ -22,14 +22,14 @@ import com.sun.tools.javac.tree.JCTree.JCCompilationUnit;
  */
 @AutoService(BugChecker.class)
 @BugPattern(
-        name = "BrokkEmptyFile",
+        name = "BrokkCommentOnlyFile",
         summary = "File is empty or contains only whitespace.",
         explanation = "LLMs sometimes truncate files to a blank state instead of deleting them. "
                 + "This checker flags such instances when the compiler provides source text. "
                 + "A Gradle-level scan is also recommended for truly empty files that may not be surfaced to "
                 + "Error Prone.",
         severity = SeverityLevel.WARNING)
-public final class EmptyFileChecker extends BugChecker implements BugChecker.CompilationUnitTreeMatcher {
+public final class CommentOnlyFileChecker extends BugChecker implements BugChecker.CompilationUnitTreeMatcher {
 
     @Override
     public Description matchCompilationUnit(CompilationUnitTree tree, VisitorState state) {
