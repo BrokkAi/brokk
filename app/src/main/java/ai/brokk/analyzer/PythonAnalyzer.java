@@ -2,7 +2,6 @@ package ai.brokk.analyzer;
 
 import static ai.brokk.analyzer.python.PythonTreeSitterNodeTypes.*;
 
-import ai.brokk.AnalyzerUtil;
 import ai.brokk.analyzer.cache.AnalyzerCache;
 import ai.brokk.project.IProject;
 import java.nio.file.Files;
@@ -395,35 +394,46 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
                         while (cursor.nextMatch(match)) {
                             for (var cap : match.getCaptures()) {
                                 String captureName = query.getCaptureNameForId(cap.getIndex());
-                                if (!TEST_MARKER.equals(captureName)) {
-                                    continue;
-                                }
 
                                 TSNode node = cap.getNode();
                                 if (node == null || node.isNull()) {
                                     continue;
                                 }
 
-                                // Case A: Function name starting with test_
-                                if (IDENTIFIER.equals(node.getType())) {
-                                    TSNode parent = node.getParent();
-                                    if (parent != null && FUNCTION_DEFINITION.equals(parent.getType())) {
-                                        TSNode nameNode = parent.getChildByFieldName(FIELD_NAME);
-                                        if (nameNode != null
-                                                && nameNode.getStartByte() == node.getStartByte()
-                                                && nameNode.getEndByte() == node.getEndByte()) {
-                                            String text = sourceContent.substringFrom(node);
-                                            if (text.startsWith("test_")) {
-                                                return true;
+                                if (TEST_MARKER.equals(captureName)) {
+                                    // Case A: Function name starting with test_
+                                    if (IDENTIFIER.equals(node.getType())) {
+                                        TSNode parent = node.getParent();
+                                        if (parent != null && FUNCTION_DEFINITION.equals(parent.getType())) {
+                                            TSNode nameNode = parent.getChildByFieldName(FIELD_NAME);
+                                            if (nameNode != null
+                                                    && nameNode.getStartByte() == node.getStartByte()
+                                                    && nameNode.getEndByte() == node.getEndByte()) {
+                                                String text = sourceContent.substringFrom(node);
+                                                if (text.startsWith("test_")) {
+                                                    return true;
+                                                }
                                             }
+                                        }
+                                    }
+
+                                    // Case B: Pytest marks
+                                    if (DECORATOR.equals(node.getType())) {
+                                        if (isPytestMark(node, sourceContent)) {
+                                            return true;
                                         }
                                     }
                                 }
 
-                                // Case B: Pytest marks
-                                if (DECORATOR.equals(node.getType())) {
-                                    if (isPytestMark(node, sourceContent)) {
-                                        return true;
+                                // Case C: Logic from testFilesToCodeUnits - check for Test prefix on classes/functions
+                                if (CaptureNames.CLASS_DEFINITION.equals(captureName)
+                                        || CaptureNames.FUNCTION_DEFINITION.equals(captureName)) {
+                                    TSNode nameNode = node.getChildByFieldName(FIELD_NAME);
+                                    if (nameNode != null && !nameNode.isNull()) {
+                                        String name = sourceContent.substringFrom(nameNode);
+                                        if (name.startsWith("test_") || name.startsWith("Test")) {
+                                            return true;
+                                        }
                                     }
                                 }
                             }
@@ -1248,20 +1258,5 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
         }
 
         return result;
-    }
-
-    @Override
-    public Set<CodeUnit> testFilesToCodeUnits(Collection<ProjectFile> files) {
-        // Python often uses top-level functions for tests.
-        // We filter for functions/classes that look like tests and exclude the module itself
-        // so that coalesceNestedUnits doesn't swallow specific test classes/functions.
-        var testUnits = AnalyzerUtil.getTestDeclarationsWithLogging(this, files)
-                .filter(cu -> cu.isClass() || cu.isFunction())
-                .filter(cu -> cu.identifier().startsWith("test_")
-                        || cu.identifier().startsWith("Test")
-                        || containsTests(cu.source()))
-                .collect(Collectors.toSet());
-
-        return AnalyzerUtil.coalesceNestedUnits(this, testUnits);
     }
 }

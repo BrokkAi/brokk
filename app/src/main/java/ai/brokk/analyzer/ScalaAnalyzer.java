@@ -2,15 +2,12 @@ package ai.brokk.analyzer;
 
 import static ai.brokk.analyzer.scala.ScalaTreeSitterNodeTypes.*;
 
-import ai.brokk.AnalyzerUtil;
 import ai.brokk.analyzer.cache.AnalyzerCache;
 import ai.brokk.project.IProject;
-import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.stream.Collectors;
 import org.jetbrains.annotations.Nullable;
 import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
@@ -209,15 +206,6 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer {
     @Override
     public Optional<String> extractCallReceiver(String reference) {
         return ClassNameExtractor.extractForScala(reference);
-    }
-
-    @Override
-    public Set<CodeUnit> testFilesToCodeUnits(Collection<ProjectFile> files) {
-        var unitsInFiles = AnalyzerUtil.getTestDeclarationsWithLogging(this, files)
-                .filter(cu -> cu.isClass() || cu.isFunction())
-                .collect(Collectors.toSet());
-
-        return AnalyzerUtil.coalesceNestedUnits(this, unitsInFiles);
     }
 
     @Override

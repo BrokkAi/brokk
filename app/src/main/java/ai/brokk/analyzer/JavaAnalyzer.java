@@ -2,12 +2,10 @@ package ai.brokk.analyzer;
 
 import static ai.brokk.analyzer.java.JavaTreeSitterNodeTypes.*;
 
-import ai.brokk.AnalyzerUtil;
 import ai.brokk.analyzer.cache.AnalyzerCache;
 import ai.brokk.analyzer.java.JavaTypeAnalyzer;
 import ai.brokk.project.IProject;
 import java.util.*;
-import java.util.Collection;
 import java.util.Optional;
 import java.util.function.BiFunction;
 import java.util.regex.Pattern;
@@ -1481,15 +1479,6 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
         String shortName = enclosingClass.shortName() + "." + constructorName;
 
         return new CodeUnit(enclosingClass.source(), CodeUnitType.FUNCTION, enclosingClass.packageName(), shortName);
-    }
-
-    @Override
-    public Set<CodeUnit> testFilesToCodeUnits(Collection<ProjectFile> files) {
-        var unitsInFiles = AnalyzerUtil.getTestDeclarationsWithLogging(this, files)
-                .filter(CodeUnit::isClass)
-                .collect(Collectors.toSet());
-
-        return AnalyzerUtil.coalesceNestedUnits(this, unitsInFiles);
     }
 
     @Override

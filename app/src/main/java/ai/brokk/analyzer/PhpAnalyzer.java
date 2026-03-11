@@ -2,12 +2,10 @@ package ai.brokk.analyzer;
 
 import static ai.brokk.analyzer.php.PhpTreeSitterNodeTypes.*;
 
-import ai.brokk.AnalyzerUtil;
 import ai.brokk.analyzer.cache.AnalyzerCache;
 import ai.brokk.project.IProject;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.stream.Collectors;
 import org.jetbrains.annotations.Nullable;
 import org.treesitter.*;
 
@@ -416,14 +414,5 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
     @Override
     protected boolean isConstructor(CodeUnit candidate, @Nullable CodeUnit enclosingClass, String captureName) {
         return "__construct".equals(candidate.identifier());
-    }
-
-    @Override
-    public Set<CodeUnit> testFilesToCodeUnits(Collection<ProjectFile> files) {
-        var unitsInFiles = AnalyzerUtil.getTestDeclarationsWithLogging(this, files)
-                .filter(cu -> cu.isClass() || cu.isFunction())
-                .collect(Collectors.toSet());
-
-        return AnalyzerUtil.coalesceNestedUnits(this, unitsInFiles);
     }
 }
