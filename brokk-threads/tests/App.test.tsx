@@ -182,6 +182,10 @@ describe("App", () => {
 
     await waitFor(() => expect(sendPrompt).toHaveBeenCalledWith("u", "hello lazy provision"));
     await waitFor(() => expect(screen.getByText("Provisioned")).toBeInTheDocument());
+    
+    // Selecting another thread should NOT trigger provisioning
+    fireEvent.click(screen.getByText("Other Thread"));
+    expect(sendPrompt).toHaveBeenCalledTimes(1); 
   });
 
   it("surfaces send prompt failures", async () => {

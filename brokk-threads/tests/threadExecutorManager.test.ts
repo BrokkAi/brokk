@@ -83,6 +83,11 @@ describe("InMemoryPerThreadExecutorManager", () => {
     expect(startExecutor).toHaveBeenCalledTimes(1);
     expect(manager.getActiveExecutorThreadIds()).toEqual(["a"]);
 
+    // Ensure session retrieval doesn't restart
+    await executorAFirst.ensureSessionForThread(threadA);
+    expect(startExecutor).toHaveBeenCalledTimes(1);
+    expect(manager.getActiveExecutorThreadIds()).toEqual(["a"]);
+
     const executorASecond = await manager.ensureExecutorForThread(threadA);
     await executorASecond.ensureSessionForThread(threadA);
     expect(executorASecond).toBe(executorAFirst);

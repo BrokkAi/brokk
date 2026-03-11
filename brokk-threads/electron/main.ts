@@ -100,18 +100,25 @@ ipcMain.handle("threads:ensure-thread-provisioned-for-prompt", async (_event, th
 });
 
 ipcMain.handle("threads:send-prompt", async (_event, threadId: string, prompt: string) => {
-  // 1. Ensure metadata and worktree/branch provisioning
-  const provisioned = await provisionThreadForPromptIfNeeded(deps, threadId);
+  try {
+    // 1. ensure thread metadata exists & worktree/branch provisioning
+    const provisioned = await provisionThreadForPromptIfNeeded(deps, threadId);
 
-  // 2. Ensure dedicated executor is ready
-  const executor = await threadExecutorManager.ensureExecutorForThread(provisioned.thread);
-  await executor.ensureReady();
+    // 2. ensure dedicated per-thread executor exists
+    const executor = await threadExecutorManager.ensureExecutorForThread(provisioned.thread);
 
-  // 3. Ensure session exists/is active
-  await executor.ensureSessionForThread(provisioned.thread);
+    // 3. ensure executor is ready (lazy start)
+    await executor.ensureReady();
 
-  // 4. Submit prompt
-  await executor.sendPrompt(prompt);
+    // 4. ensure session exists/is active for that thread
+    await executor.ensureSessionForThread(provisioned.thread);
+
+    // 5. submit prompt and stream output
+    await executor.sendPrompt(prompt);
+  } catch (error: any) {
+    console.error(`Failed to send prompt for thread ${threadId}:`, error);
+    throw error; // Propagate to renderer
+  }
 });
 
 ipcMain.handle("threads:subscribe-output", (event) => {
