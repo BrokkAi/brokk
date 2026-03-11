@@ -5,7 +5,6 @@ import ai.brokk.IssueProvider;
 import ai.brokk.agents.BuildAgent.BuildDetails;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
-import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.SwingUtil;
@@ -23,7 +22,6 @@ import ai.brokk.issues.JiraIssueService;
 import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject.DataRetentionPolicy;
 import ai.brokk.util.PathNormalizer;
-import com.google.common.io.Files;
 import java.awt.*;
 import java.io.IOException;
 import java.util.*;
@@ -1294,7 +1292,6 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         // Word wrap not applicable to settings project panel
         SwingUtilities.updateComponentTreeUI(this);
     }
-
 
     // Static inner class DataRetentionPanel (Copied and adapted from SettingsDialog)
     public static class DataRetentionPanel extends JPanel {

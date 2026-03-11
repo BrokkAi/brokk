@@ -3,7 +3,6 @@ package ai.brokk.analyzer.scala;
 import ai.brokk.analyzer.CodeUnitType;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.JvmLanguage;
-import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.ScalaAnalyzer;
 import ai.brokk.analyzer.TreeSitterStateIO;
 import ai.brokk.project.IProject;

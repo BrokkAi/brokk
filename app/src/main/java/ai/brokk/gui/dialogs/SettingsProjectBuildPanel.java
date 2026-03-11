@@ -16,7 +16,6 @@ import ai.brokk.util.BuildVerifier;
 import ai.brokk.util.Environment;
 import ai.brokk.util.EnvironmentJava;
 import ai.brokk.util.ShellConfig;
-import com.google.common.io.Files;
 import java.awt.*;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
