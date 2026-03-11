@@ -282,12 +282,44 @@ public class FileFilteringServiceTest {
 
         assertTrue(hasSharedInfoExclude, "Worktree should include main repo's shared .git/info/exclude");
 
-        // Verify the pattern is actually applied
+        // Verify the pattern is actually applied using the legacy single-arg method (backward compat)
         Files.writeString(worktreePath.resolve("test.local"), "content");
         var filteringService = new FileFilteringService(worktreePath, worktreeRepo);
 
         assertTrue(
                 filteringService.isGitignored(Path.of("test.local")),
-                "*.local pattern from shared info/exclude should be honored in worktree");
+                "*.local pattern from shared info/exclude should be honored in worktree (single-arg)");
+
+        // Also add a worktree-root .gitignore with a directory pattern
+        Path worktreeGitignore = worktreePath.resolve(".gitignore");
+        Files.writeString(worktreeGitignore, "build/\n");
+
+        // Create build directory and a file inside it
+        Path buildDir = worktreePath.resolve("build");
+        Files.createDirectories(buildDir);
+        Files.writeString(buildDir.resolve("output.class"), "bytecode");
+
+        // Invalidate caches after adding new .gitignore
+        filteringService.invalidateCaches();
+
+        // Test the two-arg overload for shared info/exclude pattern (*.local is a file)
+        assertTrue(
+                filteringService.isGitignored(Path.of("test.local"), false),
+                "*.local pattern from shared info/exclude should be honored via two-arg overload");
+
+        // Test the two-arg overload for worktree-root .gitignore directory pattern
+        assertTrue(
+                filteringService.isGitignored(Path.of("build"), true),
+                "build/ pattern from worktree .gitignore should ignore directory via two-arg overload");
+
+        // Test file under ignored directory via two-arg overload
+        assertTrue(
+                filteringService.isGitignored(Path.of("build/output.class"), false),
+                "Files under ignored directory should be ignored via two-arg overload");
+
+        // Verify a non-ignored path still works correctly
+        assertFalse(
+                filteringService.isGitignored(Path.of("README.md"), false),
+                "Non-ignored file should not be ignored via two-arg overload");
     }
 }
