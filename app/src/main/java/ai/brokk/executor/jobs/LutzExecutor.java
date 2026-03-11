@@ -4,9 +4,12 @@ import static java.util.Objects.requireNonNull;
 
 import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
-import ai.brokk.agents.SearchAgent;
+import ai.brokk.context.Context;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.tasks.TaskList;
+import dev.langchain4j.data.message.AiMessage;
+import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import java.util.List;
 import java.util.function.BooleanSupplier;
@@ -15,14 +18,12 @@ import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
-/**
- * Orchestrates LUTZ (Locate, Understand, Transform, Zap) jobs.
- * This includes a search phase to build context and a task list, followed by sequential task execution.
- */
 public final class LutzExecutor {
     private static final Logger logger = LogManager.getLogger(LutzExecutor.class);
+    private static final int LUTZ_RECAP_WORD_BUDGET = 40;
+    private static final String LUTZ_RECAP_DESCRIPTION = "LUTZ run recap";
 
-    private final ContextManager cm;
+    private final @Nullable ContextManager cm;
     private final BooleanSupplier isCancelled;
     private final @Nullable IConsoleIO console;
 
@@ -39,40 +40,39 @@ public final class LutzExecutor {
             @Nullable StreamingChatModel codeModel,
             ContextManager.TaskScope scope)
             throws InterruptedException {
-        // Phase 1: Search
         runSearchPhase(taskInput, plannerModel, scope);
 
-        // Phase 2: Execution Loop
         LutzContext adapter = new LutzContext() {
             @Override
             public List<TaskList.TaskItem> getTasks() {
-                return cm.getTaskList().tasks();
+                return requireNonNull(cm).getTaskList().tasks();
             }
 
             @Override
             @Blocking
             public void executeTask(TaskList.TaskItem task, StreamingChatModel planner, StreamingChatModel code)
                     throws InterruptedException {
-                cm.executeTask(task, planner, code);
+                requireNonNull(cm).executeTask(task, planner, code);
             }
         };
 
         var completedTasks = runLutzFromSearchResult(adapter, plannerModel, codeModel);
+        var contextWithRecap =
+                appendLutzRecapToHistory(requireNonNull(cm).liveContext(), adapter.getTasks(), completedTasks);
+        scope.publish(contextWithRecap);
         emitPostRunSummary(adapter.getTasks(), completedTasks);
     }
 
     @Blocking
     private void runSearchPhase(String taskInput, StreamingChatModel plannerModel, ContextManager.TaskScope scope)
             throws InterruptedException {
-        var context = cm.liveContext();
-        var searchAgent = new SearchAgent(context, taskInput, plannerModel, SearchPrompts.Objective.LUTZ, scope);
+        var context = requireNonNull(cm).liveContext();
+        var searchAgent =
+                new ai.brokk.agents.SearchAgent(context, taskInput, plannerModel, SearchPrompts.Objective.LUTZ, scope);
         var taskListResult = searchAgent.execute();
         scope.append(taskListResult);
     }
 
-    /**
-     * Abstract context for LUTZ task orchestration, used to decouple from SearchAgent/LLM in tests.
-     */
     interface LutzContext {
         List<TaskList.TaskItem> getTasks();
 
@@ -111,15 +111,10 @@ public final class LutzExecutor {
             }
 
             logger.info("LUTZ orchestration: executing generated task: {}", generatedTask.text());
-            try {
-                lutzContext.executeTask(
-                        generatedTask,
-                        plannerModel,
-                        requireNonNull(codeModel, "code model unavailable for LUTZ task execution"));
-            } catch (Exception e) {
-                logger.warn("LUTZ orchestration: generated task execution failed: {}", e.getMessage());
-                throw e;
-            }
+            lutzContext.executeTask(
+                    generatedTask,
+                    plannerModel,
+                    requireNonNull(codeModel, "code model unavailable for LUTZ task execution"));
 
             if (isCancelled.getAsBoolean()) {
                 throw new JobRunner.IssueCancelledException(
@@ -136,18 +131,45 @@ public final class LutzExecutor {
         return incompleteTasks;
     }
 
+    Context appendLutzRecapToHistory(
+            Context context, List<TaskList.TaskItem> generatedTasks, List<TaskList.TaskItem> completedTasks) {
+        if (completedTasks.isEmpty()) {
+            return context;
+        }
+
+        var completedTaskNames = completedTasks.stream()
+                .map(task -> task.title().isBlank() ? task.text() : task.title())
+                .map(String::strip)
+                .filter(s -> !s.isEmpty())
+                .toList();
+
+        var recapText =
+                """
+                LUTZ run recap: completed %d of %d generated tasks.
+                Completed: %s
+                """
+                        .formatted(completedTasks.size(), generatedTasks.size(), String.join("; ", completedTaskNames));
+
+        var summary = context.getContextManager()
+                .summarizeForConversation(recapText, LUTZ_RECAP_WORD_BUDGET)
+                .join();
+
+        var recapMessages = List.of(new SystemMessage("LUTZ recap"), new AiMessage(recapText));
+        var recapLog = new ContextFragments.TaskFragment(recapMessages, LUTZ_RECAP_DESCRIPTION);
+
+        return context.addHistoryEntry(recapLog, summary, null);
+    }
+
     void emitPostRunSummary(List<TaskList.TaskItem> generatedTasks, List<TaskList.TaskItem> completedTasks) {
         if (completedTasks.isEmpty()) {
             return;
         }
 
-        var completedIds = completedTasks.stream().map(TaskList.TaskItem::id).toList();
-        var summary = "LUTZ run complete: executed %d of %d generated task(s). Completed task ids: %s"
-                .formatted(completedTasks.size(), generatedTasks.size(), completedIds);
-
-        logger.info("LUTZ orchestration summary: {}", summary);
+        var message =
+                "LUTZ completed %d of %d generated task(s).".formatted(completedTasks.size(), generatedTasks.size());
+        logger.info(message);
         if (console != null) {
-            console.showNotification(IConsoleIO.NotificationRole.INFO, summary);
+            console.showNotification(IConsoleIO.NotificationRole.INFO, message);
         }
     }
 }

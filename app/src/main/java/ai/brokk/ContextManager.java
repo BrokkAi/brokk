@@ -1801,7 +1801,12 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     @Override
     public CompletableFuture<String> summarizeTaskForConversation(String input) {
-        return summarize(input, SummarizerPrompts.WORD_BUDGET_5);
+        return summarizeForConversation(input, SummarizerPrompts.WORD_BUDGET_5);
+    }
+
+    @Override
+    public CompletableFuture<String> summarizeForConversation(String input, int words) {
+        return summarize(input, words);
     }
 
     public CompletableFuture<String> summarize(String input, int words) {

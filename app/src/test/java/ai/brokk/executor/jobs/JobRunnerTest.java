@@ -5,7 +5,10 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import ai.brokk.IContextManager;
+import ai.brokk.TaskEntry;
 import ai.brokk.agents.IssueRewriterAgent;
+import ai.brokk.context.Context;
 import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.tasks.TaskList;
 import dev.langchain4j.model.chat.StreamingChatModel;
@@ -320,6 +323,21 @@ class JobRunnerTest {
     }
 
     @Test
+    void testLutz_appendRecapToHistory_noCompletedTasks_noHistoryEntryAdded() {
+        var fakeCm = new IContextManager() {};
+        LutzExecutor executor = new LutzExecutor(null, () -> false, null);
+
+        var generated = List.of(
+                new TaskList.TaskItem("1", "title1", "text1", true),
+                new TaskList.TaskItem("2", "title2", "text2", false));
+
+        Context base = new Context(fakeCm);
+        Context updated = executor.appendLutzRecapToHistory(base, generated, List.of());
+
+        assertEquals(0, updated.getTaskHistory().size());
+    }
+
+    @Test
     void testLutz_emitPostRunSummary_completedTasks_basedOnRunState() {
         LutzExecutor executor = new LutzExecutor(null, () -> false, null);
 
@@ -353,6 +371,34 @@ class JobRunnerTest {
         org.junit.jupiter.api.Assertions.assertThrows(JobRunner.IssueCancelledException.class, () -> {
             executor.runLutzFromSearchResult(fakeContext, null, null);
         });
+    }
+
+    @Test
+    void testLutz_appendRecapToHistory_addsSingleHistoryEntryWithSummary() {
+        var fakeCm = new IContextManager() {
+            @Override
+            public java.util.concurrent.CompletableFuture<String> summarizeForConversation(String text, int words) {
+                return java.util.concurrent.CompletableFuture.completedFuture("recap summary");
+            }
+        };
+        LutzExecutor executor = new LutzExecutor(null, () -> false, null);
+
+        var generated = List.of(
+                new TaskList.TaskItem("1", "title1", "text1", true),
+                new TaskList.TaskItem("2", "title2", "text2", false),
+                new TaskList.TaskItem("3", "title3", "text3", false));
+        var completed = List.of(
+                new TaskList.TaskItem("2", "title2", "text2", false),
+                new TaskList.TaskItem("3", "title3", "text3", false));
+
+        Context base = new Context(fakeCm);
+        Context updated = executor.appendLutzRecapToHistory(base, generated, completed);
+
+        assertEquals(1, updated.getTaskHistory().size());
+        TaskEntry entry = updated.getTaskHistory().getFirst();
+        assertEquals("recap summary", entry.summary());
+        assertNotNull(entry.mopLog());
+        assertTrue(entry.mopLog().description().join().contains("LUTZ"));
     }
 
     @Test

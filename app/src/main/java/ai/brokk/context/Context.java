@@ -974,6 +974,11 @@ public class Context {
         return addHistoryEntryInternal(new TaskEntry(getTaskHistory().size(), log, log, null, meta));
     }
 
+    public Context addHistoryEntry(
+            ContextFragments.TaskFragment log, @Nullable String summary, @Nullable TaskResult.TaskMeta meta) {
+        return addHistoryEntryInternal(new TaskEntry(getTaskHistory().size(), log, log, summary, meta));
+    }
+
     @Blocking
     public Context addAsSummaries(List<ContextFragment> fragments) {
         List<ContextFragment> toAdd = fragments.stream()

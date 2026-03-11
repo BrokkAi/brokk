@@ -435,6 +435,11 @@ public interface IContextManager {
         return CompletableFuture.completedFuture(taskText);
     }
 
+    @Blocking
+    default CompletableFuture<String> summarizeForConversation(String text, int words) {
+        return CompletableFuture.completedFuture(text);
+    }
+
     default UUID getCurrentSessionId() {
         throw new UnsupportedOperationException();
     }
