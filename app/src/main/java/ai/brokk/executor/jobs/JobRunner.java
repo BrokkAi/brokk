@@ -48,7 +48,6 @@ import java.util.function.Supplier;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
-import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -478,14 +477,14 @@ public final class JobRunner {
                                     }
                                     case LUTZ -> {
                                         try (var scope = cm.beginTaskUngrouped(spec.taskInput())) {
-                                            runLutzOrchestration(
-                                                    spec.taskInput(),
-                                                    requireNonNull(
-                                                            architectPlannerModel,
-                                                            "plannerModel required for LUTZ jobs"),
-                                                    architectCodeModel,
-                                                    scope,
-                                                    cancelled::get);
+                                            new LutzExecutor(cm, cancelled::get, console)
+                                                    .execute(
+                                                            spec.taskInput(),
+                                                            requireNonNull(
+                                                                    architectPlannerModel,
+                                                                    "plannerModel required for LUTZ jobs"),
+                                                            architectCodeModel,
+                                                            scope);
                                         }
                                     }
                                     case PLAN -> {
@@ -1242,130 +1241,6 @@ public final class JobRunner {
         });
 
         return future;
-    }
-
-    /**
-     * Executes the search phase of a LUTZ job.
-     */
-    @Blocking
-    void runSearchPhase(String taskInput, StreamingChatModel plannerModel, ContextManager.TaskScope scope)
-            throws InterruptedException {
-        var context = cm.liveContext();
-        var searchAgent = new SearchAgent(context, taskInput, plannerModel, objectiveForLutzSearchPhase(), scope);
-        var taskListResult = searchAgent.execute();
-        scope.append(taskListResult);
-    }
-
-    /**
-     * Executes a single task in a LUTZ job.
-     */
-    @Blocking
-    void runTaskExecutionPhase(TaskList.TaskItem task, StreamingChatModel plannerModel, StreamingChatModel codeModel)
-            throws InterruptedException {
-        cm.executeTask(task, plannerModel, codeModel);
-    }
-
-    /**
-     * Abstract context for LUTZ task orchestration, used to decouple from SearchAgent/LLM in tests.
-     */
-    interface LutzContext {
-        List<TaskList.TaskItem> getTasks();
-
-        @Blocking
-        void executeTask(TaskList.TaskItem task, StreamingChatModel planner, StreamingChatModel code)
-                throws InterruptedException;
-    }
-
-    /**
-     * Core LUTZ orchestration loop that processes tasks after the search phase.
-     */
-    @Blocking
-    void runLutzFromSearchResult(
-            LutzContext lutzContext,
-            StreamingChatModel plannerModel,
-            @Nullable StreamingChatModel codeModel,
-            BooleanSupplier isCancelled)
-            throws InterruptedException {
-        var generatedTasks = lutzContext.getTasks();
-        if (generatedTasks.isEmpty()) {
-            var msg = "SearchAgent phase complete; no tasks to execute.";
-            logger.info("LUTZ orchestration: {}", msg);
-            if (console != null) {
-                try {
-                    console.showNotification(IConsoleIO.NotificationRole.INFO, msg);
-                } catch (Throwable ignore) {
-                    // Non-critical: event writing failed
-                }
-            }
-            return;
-        }
-
-        logger.debug("LUTZ orchestration: {} task(s) to execute", generatedTasks.size());
-        var incompleteTasks = generatedTasks.stream().filter(t -> !t.done()).toList();
-        logger.debug("LUTZ orchestration: will execute {} incomplete task(s)", incompleteTasks.size());
-
-        if (isCancelled.getAsBoolean()) {
-            throw new IssueCancelledException("LUTZ orchestration: execution cancelled before task execution");
-        }
-
-        for (TaskList.TaskItem generatedTask : incompleteTasks) {
-            if (isCancelled.getAsBoolean()) {
-                throw new IssueCancelledException("LUTZ orchestration: execution cancelled during task iteration");
-            }
-
-            logger.info("LUTZ orchestration: executing generated task: {}", generatedTask.text());
-            try {
-                lutzContext.executeTask(
-                        generatedTask,
-                        plannerModel,
-                        requireNonNull(codeModel, "code model unavailable for LUTZ task execution"));
-            } catch (Exception e) {
-                logger.warn("LUTZ orchestration: generated task execution failed: {}", e.getMessage());
-                throw e;
-            }
-
-            if (isCancelled.getAsBoolean()) {
-                throw new IssueCancelledException("LUTZ orchestration: execution cancelled during task iteration");
-            }
-        }
-
-        if (isCancelled.getAsBoolean()) {
-            throw new IssueCancelledException("LUTZ orchestration: execution cancelled after final task execution");
-        }
-
-        logger.debug("LUTZ orchestration: all generated tasks executed");
-    }
-
-    /**
-     * High-level LUTZ orchestration seam for testing.
-     */
-    @Blocking
-    void runLutzOrchestration(
-            String taskInput,
-            StreamingChatModel plannerModel,
-            @Nullable StreamingChatModel codeModel,
-            ContextManager.TaskScope scope,
-            BooleanSupplier isCancelled)
-            throws InterruptedException {
-        // Phase 1: Search
-        runSearchPhase(taskInput, plannerModel, scope);
-
-        // Phase 2: Execution Loop
-        LutzContext adapter = new LutzContext() {
-            @Override
-            public List<TaskList.TaskItem> getTasks() {
-                return cm.getTaskList().tasks();
-            }
-
-            @Override
-            @Blocking
-            public void executeTask(TaskList.TaskItem task, StreamingChatModel planner, StreamingChatModel code)
-                    throws InterruptedException {
-                runTaskExecutionPhase(task, planner, code);
-            }
-        };
-
-        runLutzFromSearchResult(adapter, plannerModel, codeModel, isCancelled);
     }
 
     /**
