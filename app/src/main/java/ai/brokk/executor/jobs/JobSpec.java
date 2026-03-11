@@ -133,16 +133,20 @@ public record JobSpec(
             String owner,
             String repo,
             int prNumber,
-            @Nullable String severityThreshold) {
+            PrReviewService.Severity severityThreshold) {
         var tags = new HashMap<>(Map.of(
-                "mode", "REVIEW",
-                "github_token", githubToken,
-                "repo_owner", owner,
-                "repo_name", repo,
-                "pr_number", String.valueOf(prNumber)));
-        if (severityThreshold != null && !severityThreshold.isBlank()) {
-            tags.put("severity_threshold", severityThreshold.trim().toUpperCase(java.util.Locale.ROOT));
-        }
+                "mode",
+                "REVIEW",
+                "github_token",
+                githubToken,
+                "repo_owner",
+                owner,
+                "repo_name",
+                repo,
+                "pr_number",
+                String.valueOf(prNumber),
+                "severity_threshold",
+                severityThreshold.name()));
         return new JobSpec(
                 "",
                 false,
@@ -406,9 +410,8 @@ public record JobSpec(
     }
 
     @JsonIgnore
-    @Nullable
-    public String getSeverityThreshold() {
-        return tags.get("severity_threshold");
+    public PrReviewService.Severity getSeverityThreshold() {
+        return PrReviewService.Severity.normalize(tags.get("severity_threshold"));
     }
 
     @JsonIgnore

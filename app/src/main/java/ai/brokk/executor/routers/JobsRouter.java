@@ -10,6 +10,7 @@ import ai.brokk.executor.jobs.ErrorPayload;
 import ai.brokk.executor.jobs.JobRunner;
 import ai.brokk.executor.jobs.JobSpec;
 import ai.brokk.executor.jobs.JobStore;
+import ai.brokk.executor.jobs.PrReviewService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpExchange;
 import java.io.IOException;
@@ -338,7 +339,7 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
                 request.owner(),
                 request.repo(),
                 request.prNumber(),
-                request.severityThreshold());
+                PrReviewService.Severity.normalize(request.severityThreshold()));
         var createResult = jobStore.createOrGetJob(idempotencyKey, jobSpec);
         var jobId = createResult.jobId();
         if (createResult.isNewJob()) {

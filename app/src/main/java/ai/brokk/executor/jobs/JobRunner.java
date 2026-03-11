@@ -733,11 +733,7 @@ public final class JobRunner {
                                             throw new IllegalArgumentException("REVIEW requires pr_number in tags");
                                         }
 
-                                        // Resolve severity threshold from spec or fall back to default
-                                        var severityStr = spec.getSeverityThreshold();
-                                        var severityThreshold = severityStr != null
-                                                ? PrReviewService.Severity.normalize(severityStr)
-                                                : DEFAULT_REVIEW_SEVERITY_THRESHOLD;
+                                        var severityThreshold = spec.getSeverityThreshold();
 
                                         try (var scope = cm.beginTaskUngrouped("PR Review #" + prNumber)) {
                                             var context = cm.liveContext();
