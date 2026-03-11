@@ -62,22 +62,23 @@ class TestPickSessionStartupFlow:
 
         app.run_worker = MagicMock(side_effect=run_worker_stub)
 
-        await app._start_executor()
+        try:
+            await app._start_executor()
 
-        assert app.pick_session is False, "pick_session should be reset to False after triggering"
+            assert app.pick_session is False, "pick_session should be reset to False after triggering"
 
-        show_sessions_scheduled = [
-            coro
-            for coro in scheduled
-            if hasattr(coro, "cr_code") and coro.cr_code.co_name == "_show_sessions"
-        ]
-        assert len(show_sessions_scheduled) == 1, "_show_sessions should be scheduled exactly once"
-
-        for coro in scheduled:
-            try:
-                coro.close()
-            except Exception:
-                pass
+            show_sessions_scheduled = [
+                coro
+                for coro in scheduled
+                if hasattr(coro, "cr_code") and coro.cr_code.co_name == "_show_sessions"
+            ]
+            assert len(show_sessions_scheduled) == 1, "_show_sessions should be scheduled exactly once"
+        finally:
+            for coro in scheduled:
+                try:
+                    coro.close()
+                except Exception:
+                    pass
 
     @pytest.mark.asyncio
     async def test_pick_session_false_does_not_schedule_show_sessions(self, tmp_path):
@@ -102,20 +103,21 @@ class TestPickSessionStartupFlow:
 
         app.run_worker = MagicMock(side_effect=run_worker_stub)
 
-        await app._start_executor()
+        try:
+            await app._start_executor()
 
-        show_sessions_scheduled = [
-            coro
-            for coro in scheduled
-            if hasattr(coro, "cr_code") and coro.cr_code.co_name == "_show_sessions"
-        ]
-        assert len(show_sessions_scheduled) == 0, "_show_sessions should NOT be scheduled"
-
-        for coro in scheduled:
-            try:
-                coro.close()
-            except Exception:
-                pass
+            show_sessions_scheduled = [
+                coro
+                for coro in scheduled
+                if hasattr(coro, "cr_code") and coro.cr_code.co_name == "_show_sessions"
+            ]
+            assert len(show_sessions_scheduled) == 0, "_show_sessions should NOT be scheduled"
+        finally:
+            for coro in scheduled:
+                try:
+                    coro.close()
+                except Exception:
+                    pass
 
     @pytest.mark.asyncio
     async def test_pick_session_default_does_not_schedule_show_sessions(self, tmp_path):
@@ -140,22 +142,23 @@ class TestPickSessionStartupFlow:
 
         app.run_worker = MagicMock(side_effect=run_worker_stub)
 
-        await app._start_executor()
+        try:
+            await app._start_executor()
 
-        show_sessions_scheduled = [
-            coro
-            for coro in scheduled
-            if hasattr(coro, "cr_code") and coro.cr_code.co_name == "_show_sessions"
-        ]
-        assert len(show_sessions_scheduled) == 0, (
-            "_show_sessions should NOT be scheduled by default"
-        )
-
-        for coro in scheduled:
-            try:
-                coro.close()
-            except Exception:
-                pass
+            show_sessions_scheduled = [
+                coro
+                for coro in scheduled
+                if hasattr(coro, "cr_code") and coro.cr_code.co_name == "_show_sessions"
+            ]
+            assert len(show_sessions_scheduled) == 0, (
+                "_show_sessions should NOT be scheduled by default"
+            )
+        finally:
+            for coro in scheduled:
+                try:
+                    coro.close()
+                except Exception:
+                    pass
 
     @pytest.mark.asyncio
     async def test_show_sessions_callback_switches_session_not_creates(self, tmp_path):
@@ -196,20 +199,21 @@ class TestPickSessionStartupFlow:
 
         app.run_worker = MagicMock(side_effect=run_worker_stub)
 
-        callback("s-other")
+        try:
+            callback("s-other")
 
-        assert len(scheduled_coros) == 1
-        coro = scheduled_coros[0]
-        assert hasattr(coro, "cr_code")
-        assert coro.cr_code.co_name == "_switch_to_session"
+            assert len(scheduled_coros) == 1
+            coro = scheduled_coros[0]
+            assert hasattr(coro, "cr_code")
+            assert coro.cr_code.co_name == "_switch_to_session"
 
-        app.executor.create_session.assert_not_called()
-
-        for c in scheduled_coros:
-            try:
-                c.close()
-            except Exception:
-                pass
+            app.executor.create_session.assert_not_called()
+        finally:
+            for c in scheduled_coros:
+                try:
+                    c.close()
+                except Exception:
+                    pass
 
     @pytest.mark.asyncio
     async def test_pick_session_not_scheduled_when_wait_ready_fails(self, tmp_path):
@@ -238,22 +242,23 @@ class TestPickSessionStartupFlow:
 
         app.run_worker = MagicMock(side_effect=run_worker_stub)
 
-        await app._start_executor()
+        try:
+            await app._start_executor()
 
-        show_sessions_scheduled = [
-            coro
-            for coro in scheduled
-            if hasattr(coro, "cr_code") and coro.cr_code.co_name == "_show_sessions"
-        ]
-        assert len(show_sessions_scheduled) == 0, (
-            "_show_sessions should NOT be scheduled when wait_ready returns False"
-        )
-
-        for coro in scheduled:
-            try:
-                coro.close()
-            except Exception:
-                pass
+            show_sessions_scheduled = [
+                coro
+                for coro in scheduled
+                if hasattr(coro, "cr_code") and coro.cr_code.co_name == "_show_sessions"
+            ]
+            assert len(show_sessions_scheduled) == 0, (
+                "_show_sessions should NOT be scheduled when wait_ready returns False"
+            )
+        finally:
+            for coro in scheduled:
+                try:
+                    coro.close()
+                except Exception:
+                    pass
 
     @pytest.mark.asyncio
     async def test_pick_session_triggers_only_once(self, tmp_path):
@@ -282,33 +287,34 @@ class TestPickSessionStartupFlow:
 
         app.run_worker = MagicMock(side_effect=run_worker_stub)
 
-        await app._start_executor()
+        try:
+            await app._start_executor()
 
-        assert app.pick_session is False
+            assert app.pick_session is False
 
-        for coro in scheduled:
-            try:
-                coro.close()
-            except Exception:
-                pass
-        scheduled.clear()
+            for coro in scheduled:
+                try:
+                    coro.close()
+                except Exception:
+                    pass
+            scheduled.clear()
 
-        app._executor_ready = False
-        app._executor_started = False
+            app._executor_ready = False
+            app._executor_started = False
 
-        await app._start_executor()
+            await app._start_executor()
 
-        show_sessions_scheduled = [
-            coro
-            for coro in scheduled
-            if hasattr(coro, "cr_code") and coro.cr_code.co_name == "_show_sessions"
-        ]
-        assert len(show_sessions_scheduled) == 0, (
-            "_show_sessions should NOT be scheduled on second call"
-        )
-
-        for coro in scheduled:
-            try:
-                coro.close()
-            except Exception:
-                pass
+            show_sessions_scheduled = [
+                coro
+                for coro in scheduled
+                if hasattr(coro, "cr_code") and coro.cr_code.co_name == "_show_sessions"
+            ]
+            assert len(show_sessions_scheduled) == 0, (
+                "_show_sessions should NOT be scheduled on second call"
+            )
+        finally:
+            for coro in scheduled:
+                try:
+                    coro.close()
+                except Exception:
+                    pass
