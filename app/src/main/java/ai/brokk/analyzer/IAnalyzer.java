@@ -162,10 +162,6 @@ public interface IAnalyzer {
      * If cu is a member (function, field), searches for the parent definition.
      */
     default Optional<CodeUnit> parentOf(CodeUnit cu) {
-        if (cu.isClass() || cu.isModule()) {
-            return Optional.of(cu);
-        }
-
         String fqName = cu.fqName();
         int lastIdx = -1;
         // Find the last occurrence among any valid separators
