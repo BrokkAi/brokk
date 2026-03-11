@@ -27,6 +27,7 @@ from brokk_code.mcp_config import (
     configure_claude_code_mcp_settings,
     configure_codex_mcp_settings,
 )
+from brokk_code.settings import Settings
 from brokk_code.workspace import resolve_workspace_dir
 from brokk_code.zed_config import ExistingBrokkCodeEntryError, configure_zed_acp_settings
 
@@ -374,8 +375,8 @@ def _build_parser() -> argparse.ArgumentParser:
     issue_create_parser.add_argument(
         "--github-token",
         type=str,
-        default=os.environ.get("GITHUB_TOKEN"),
-        help="GitHub API token (defaults to GITHUB_TOKEN env var)",
+        default=Settings().get_github_token(),
+        help="GitHub API token (from brokk.properties, GITHUB_TOKEN env var, or --github-token)",
     )
     issue_create_parser.add_argument(
         "--repo-owner",
@@ -414,8 +415,8 @@ def _build_parser() -> argparse.ArgumentParser:
     issue_solve_parser.add_argument(
         "--github-token",
         type=str,
-        default=os.environ.get("GITHUB_TOKEN"),
-        help="GitHub API token (defaults to GITHUB_TOKEN env var)",
+        default=Settings().get_github_token(),
+        help="GitHub API token (from brokk.properties, GITHUB_TOKEN env var, or --github-token)",
     )
     issue_solve_parser.add_argument(
         "--repo-owner",
@@ -510,8 +511,8 @@ def _build_parser() -> argparse.ArgumentParser:
     pr_create_parser.add_argument(
         "--github-token",
         type=str,
-        default=os.environ.get("GITHUB_TOKEN"),
-        help="GitHub API token (defaults to GITHUB_TOKEN env var)",
+        default=Settings().get_github_token(),
+        help="GitHub API token (from brokk.properties, GITHUB_TOKEN env var, or --github-token)",
     )
 
     pr_review_parser = pr_subparsers.add_parser("review", help="Review a pull request")
