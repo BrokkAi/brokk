@@ -32,7 +32,7 @@ public final class ModelProperties {
     private static final String SONNET_4_6 = "claude-sonnet-4-6";
     private static final String HAIKU_4_5 = "claude-haiku-4-5";
     private static final String GPT_5_MINI = "gpt-5-mini";
-    private static final String GPT_5_2 = "gpt-5.2";
+    public static final String GPT_5_3_CODEX = "gpt-5.3-codex";
 
     public static final String GPT_5_1_CODEX_MINI_OAUTH = "gpt-5.1-codex-mini-oauth";
     public static final String GPT_5_3_CODEX_OAUTH = "gpt-5.3-codex-oauth";
@@ -40,10 +40,11 @@ public final class ModelProperties {
     // Common configurations. Note that we override thinking levels in some cases for speed.
     private static final ModelConfig gpt5Nano = new ModelConfig(GPT_5_NANO);
     private static final ModelConfig gpt5Mini = new ModelConfig(GPT_5_MINI, ReasoningLevel.LOW);
-    private static final ModelConfig gpt5_2 = new ModelConfig(GPT_5_2, ReasoningLevel.DISABLE);
+    private static final ModelConfig gpt5_3Codex = new ModelConfig(GPT_5_3_CODEX, ReasoningLevel.DISABLE);
 
-    private static final ModelConfig gpt51CodexMiniOauth =
+    private static final ModelConfig gpt5_1CodexMiniOauth =
             new ModelConfig(GPT_5_1_CODEX_MINI_OAUTH, ReasoningLevel.LOW);
+    private static final ModelConfig gpt5_3CodexOauth = new ModelConfig(GPT_5_3_CODEX_OAUTH, ReasoningLevel.DISABLE);
 
     private static final ModelConfig haiku3 = new ModelConfig(HAIKU_3);
     private static final ModelConfig haiku4_5 = new ModelConfig(HAIKU_4_5);
@@ -53,7 +54,6 @@ public final class ModelProperties {
     private static final ModelConfig flash2Lite = new ModelConfig(FLASH_2_0_LITE);
     private static final ModelConfig flash2 = new ModelConfig(FLASH_2_0);
     private static final ModelConfig flash3 = new ModelConfig(FLASH_3, ReasoningLevel.DISABLE);
-    private static final ModelConfig flash3Low = new ModelConfig(FLASH_3, ReasoningLevel.LOW);
     private static final ModelConfig g31p = new ModelConfig(GEMINI_3_1_PRO, ReasoningLevel.DISABLE);
     private static final ModelConfig flash31liteHigh = new ModelConfig(GEMINI_3_1_FLASH_LITE, ReasoningLevel.HIGH);
     private static final ModelConfig flash31liteLow = new ModelConfig(GEMINI_3_1_FLASH_LITE, ReasoningLevel.LOW);
@@ -83,10 +83,9 @@ public final class ModelProperties {
     static final List<Service.FavoriteModel> DEFAULT_FAVORITE_MODELS = List.of(
             new Service.FavoriteModel("Opus 4.6", opus4_6),
             new Service.FavoriteModel("Sonnet 4.6", sonnet4_6),
-            new Service.FavoriteModel("GPT-5.2", gpt5_2),
+            new Service.FavoriteModel("GPT-5.3 Codex", gpt5_3Codex),
             new Service.FavoriteModel("Flash 3", flash3),
-            new Service.FavoriteModel("Gemini 3.1 Pro", g31p),
-            new Service.FavoriteModel("Haiku 4.5", haiku4_5));
+            new Service.FavoriteModel("Gemini 3.1 Pro", g31p));
 
     /**
      * Enum representing the different model configuration slots persisted in global properties.
@@ -105,7 +104,7 @@ public final class ModelProperties {
         QUICKEST("quickestConfig", flash2Lite),
         COMMIT_MESSAGE("commitMessageConfig", flash3, gcf1),
         SCAN("scanConfig", flash3, gcf1),
-        SEARCH("searchConfig", flash3Low, gcf1),
+        SEARCH("searchConfig", flash31liteHigh, gcf1),
         BUILD_PROCESSOR("buildProcessorConfig", flash31liteHigh, gpt5Nano);
 
         public final String propertyKey;
@@ -158,7 +157,7 @@ public final class ModelProperties {
                             ModelType.QUICKEST, flash2Lite,
                             ModelType.COMMIT_MESSAGE, flash3,
                             ModelType.SCAN, flash3,
-                            ModelType.SEARCH, flash3,
+                            ModelType.SEARCH, flash31liteHigh,
                             ModelType.BUILD_PROCESSOR, flash31liteHigh));
             map.put(
                     "OpenAI",
@@ -168,20 +167,20 @@ public final class ModelProperties {
                             ModelType.QUICK_EDIT, gpt5Mini,
                             ModelType.QUICKEST, gpt5Nano,
                             ModelType.COMMIT_MESSAGE, gpt5Mini,
-                            ModelType.SCAN, gpt5Mini,
-                            ModelType.SEARCH, gpt5Mini,
+                            ModelType.SCAN, gpt5_3Codex,
+                            ModelType.SEARCH, gpt5_3Codex,
                             ModelType.BUILD_PROCESSOR, gpt5Mini));
             map.put(
                     "OpenAI - Codex",
                     Map.of(
-                            ModelType.SUMMARIZE, gpt51CodexMiniOauth,
-                            ModelType.USAGES, gpt51CodexMiniOauth,
-                            ModelType.QUICK_EDIT, gpt51CodexMiniOauth,
-                            ModelType.QUICKEST, gpt51CodexMiniOauth,
-                            ModelType.COMMIT_MESSAGE, gpt51CodexMiniOauth,
-                            ModelType.SCAN, gpt51CodexMiniOauth,
-                            ModelType.SEARCH, gpt51CodexMiniOauth,
-                            ModelType.BUILD_PROCESSOR, gpt51CodexMiniOauth));
+                            ModelType.SUMMARIZE, gpt5_1CodexMiniOauth,
+                            ModelType.USAGES, gpt5_1CodexMiniOauth,
+                            ModelType.QUICK_EDIT, gpt5_1CodexMiniOauth,
+                            ModelType.QUICKEST, gpt5_1CodexMiniOauth,
+                            ModelType.COMMIT_MESSAGE, gpt5_1CodexMiniOauth,
+                            ModelType.SCAN, gpt5_3CodexOauth,
+                            ModelType.SEARCH, gpt5_3CodexOauth,
+                            ModelType.BUILD_PROCESSOR, gpt5_1CodexMiniOauth));
 
             // Validate that all vendors have configurations for all internal ModelTypes
             for (var entry : map.entrySet()) {
