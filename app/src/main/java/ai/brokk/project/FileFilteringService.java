@@ -100,6 +100,23 @@ public final class FileFilteringService {
      * This method calls {@link Files#isDirectory} to determine directory status.
      */
     public boolean isGitignored(Path relPath) {
+        Path absPath = root.resolve(relPath);
+        boolean isDirectory = Files.isDirectory(absPath);
+        return isGitignored(relPath, isDirectory);
+    }
+
+    /**
+     * Determine if a path is ignored by gitignore rules, with an explicit directory flag.
+     * Returns false on error or if no git repo.
+     *
+     * <p>This overload is suitable for filesystem walkers that already know whether
+     * the current path is a directory, avoiding redundant {@link Files#isDirectory} calls.
+     *
+     * @param relPath path relative to the project root
+     * @param isDirectory true if the path is a directory, false if it is a file
+     * @return true if the path is ignored by gitignore rules
+     */
+    public boolean isGitignored(Path relPath, boolean isDirectory) {
         if (!(repo instanceof GitRepo gitRepo)) {
             return false;
         }
@@ -111,10 +128,6 @@ public final class FileFilteringService {
         }
 
         var fixedGitignoreFiles = gitRepo.getFixedGitignoreFiles();
-
-        // Compute isDirectory here since caller didn't provide it
-        Path absPath = root.resolve(relPath);
-        boolean isDirectory = Files.isDirectory(absPath);
 
         return isPathIgnored(gitRepo, relPath, fixedGitignoreFiles, isDirectory);
     }
