@@ -17,7 +17,6 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -47,7 +46,12 @@ class BuildToolsTest {
         ProjectFile testFile =
                 new ProjectFile(tempDir, tempDir.relativize(testFilePath).toString());
 
-        TestAnalyzer testAnalyzer = new TestAnalyzer();
+        TestAnalyzer testAnalyzer = new TestAnalyzer() {
+            @Override
+            public Set<ProjectFile> getAnalyzedFiles() {
+                return Set.of(testFile);
+            }
+        };
         CodeUnit testCu = CodeUnit.cls(testFile, "myapp.tests.test_logic", "TestLogic");
         testAnalyzer.addDeclaration(testCu);
         testAnalyzer.setSource(testCu, testFile.toString());
@@ -70,7 +74,6 @@ class BuildToolsTest {
     }
 
     @Test
-    @Disabled("Failing due to analyzer changes")
     void testGetBuildLintSomeCommand_GoTestFunctions(@TempDir Path tempDir) throws Exception {
         TestProject project = new TestProject(tempDir);
         ProjectFile testFile = new ProjectFile(tempDir, "logic_test.go");
@@ -110,7 +113,6 @@ class BuildToolsTest {
     }
 
     @Test
-    @Disabled("Failing due to analyzer changes")
     void testGetBuildLintSomeCommand_GoMultiAnalyzerRegression(@TempDir Path tempDir) throws Exception {
         TestProject project = new TestProject(tempDir);
         ProjectFile testFile = new ProjectFile(tempDir, "callbacks/logic_test.go");
