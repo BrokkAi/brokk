@@ -113,7 +113,7 @@ public class BuildTools {
     public static String getBuildLintSomeCommand(
             IContextManager cm, BuildDetails details, Collection<ProjectFile> workspaceTestFiles)
             throws InterruptedException {
-        return getBuildLintSomeCommand(cm, details, workspaceTestFiles, null, cm.getProject());
+        return getBuildLintSomeCommand(cm, details, workspaceTestFiles, null);
     }
 
     public static CompletableFuture<@Nullable String> determineVerificationCommandAsync(ContextManager cm) {
@@ -127,16 +127,6 @@ public class BuildTools {
             Collection<ProjectFile> workspaceTestFiles,
             @Nullable String pythonVersionOverride)
             throws InterruptedException {
-        return getBuildLintSomeCommand(cm, details, workspaceTestFiles, pythonVersionOverride, cm.getProject());
-    }
-
-    static String getBuildLintSomeCommand(
-            IContextManager cm,
-            BuildDetails details,
-            Collection<ProjectFile> workspaceTestFiles,
-            @Nullable String pythonVersionOverride,
-            @Nullable IProject project)
-            throws InterruptedException {
 
         String testSomeTemplate = System.getenv("BRK_TESTSOME_CMD") != null
                 ? System.getenv("BRK_TESTSOME_CMD")
@@ -146,7 +136,8 @@ public class BuildTools {
             return details.buildLintCommand();
         }
 
-        final Path projectRoot = cm.getProject().getRoot();
+        var project = cm.getProject();
+        final Path projectRoot = project.getRoot();
         String pythonVersion = pythonVersionOverride != null
                 ? pythonVersionOverride
                 : getPythonVersionForProject(projectRoot, project);
