@@ -42,3 +42,40 @@ describe("LazyThreadWorktreeProvisioningService", () => {
     expect(persisted.mappings[0]?.threadId).toBe("thread-1");
   });
 });
+
+import {
+  loadInitialShellState,
+  provisionThreadForPromptIfNeeded,
+  selectThreadMetadataOnly
+} from "../electron/shellController";
+
+describe("shellController entry points", () => {
+  it("loadInitialShellState reads from metadata store", async () => {
+    const deps = {
+      metadataStore: {
+        loadState: vi.fn().mockResolvedValue({ threads: [], selectedThreadId: "t1" })
+      }
+    } as any;
+    const state = await loadInitialShellState(deps);
+    expect(state.selectedThreadId).toBe("t1");
+  });
+
+  it("provisionThreadForPromptIfNeeded triggers worktree service if unprovisioned", async () => {
+    const thread = { id: "t1", title: "T1" };
+    const provisioning = { branch: "b1", worktreePath: "p1" };
+    const deps = {
+      metadataStore: {
+        loadState: vi.fn().mockResolvedValue({ threads: [thread] }),
+        attachProvisioning: vi.fn().mockResolvedValue({ ...thread, provisioning })
+      },
+      worktreeService: {
+        createWorktreeForThread: vi.fn().mockResolvedValue(provisioning)
+      }
+    } as any;
+
+    const result = await provisionThreadForPromptIfNeeded(deps, "t1");
+    expect(deps.worktreeService.createWorktreeForThread).toHaveBeenCalledWith(thread);
+    expect(result.created).toBe(true);
+    expect(result.thread.provisioning).toEqual(provisioning);
+  });
+});

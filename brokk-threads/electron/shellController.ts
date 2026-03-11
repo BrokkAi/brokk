@@ -1,6 +1,13 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
-import type { LazyWorktreeProvisioningService, ThreadMetadata, ThreadProvisioning } from "./types";
+import type {
+  InitialShellState,
+  LazyWorktreeProvisioningService,
+  ProvisionedThreadResult,
+  ShellControllerDeps,
+  ThreadMetadata,
+  ThreadProvisioning
+} from "./types";
 
 type ProvisioningRecord = {
   threadId: string;
@@ -99,4 +106,50 @@ export class LazyThreadWorktreeProvisioningService implements LazyWorktreeProvis
       brokkSessionId: null
     };
   }
+}
+
+export async function loadInitialShellState(deps: ShellControllerDeps): Promise<InitialShellState> {
+  const state = await deps.metadataStore.loadState();
+  return {
+    threads: state.threads,
+    selectedThreadId: state.selectedThreadId
+  };
+}
+
+export async function createThreadMetadataOnly(
+  deps: ShellControllerDeps,
+  title: string
+): Promise<ThreadMetadata> {
+  return deps.metadataStore.createThread(title);
+}
+
+export async function renameThreadMetadataOnly(
+  deps: ShellControllerDeps,
+  threadId: string,
+  title: string
+): Promise<ThreadMetadata> {
+  return deps.metadataStore.renameThread(threadId, title);
+}
+
+export async function selectThreadMetadataOnly(deps: ShellControllerDeps, threadId: string): Promise<void> {
+  await deps.metadataStore.selectThread(threadId);
+}
+
+export async function provisionThreadForPromptIfNeeded(
+  deps: ShellControllerDeps,
+  threadId: string
+): Promise<ProvisionedThreadResult> {
+  const state = await deps.metadataStore.loadState();
+  const thread = state.threads.find((t) => t.id === threadId);
+  if (!thread) {
+    throw new Error(`Thread ${threadId} not found`);
+  }
+
+  if (thread.provisioning?.branch && thread.provisioning?.worktreePath) {
+    return { thread, created: false };
+  }
+
+  const provisioning = await deps.worktreeService.createWorktreeForThread(thread);
+  const updated = await deps.metadataStore.attachProvisioning(threadId, provisioning);
+  return { thread: updated, created: true };
 }

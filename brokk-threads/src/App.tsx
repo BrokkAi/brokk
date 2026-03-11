@@ -51,12 +51,15 @@ export function App() {
       return;
     }
 
+    const promptToSend = prompt.trim();
+    setPrompt("");
+
     try {
-      await window.brokkThreads.sendPrompt(selectedThread.id, prompt.trim());
-      setPrompt("");
+      await window.brokkThreads.sendPrompt(selectedThread.id, promptToSend);
       const nextState = await window.brokkThreads.getInitialShellState();
       setState(nextState);
     } catch (submitError) {
+      setPrompt(promptToSend); // Restore prompt on error
       setError(submitError instanceof Error ? submitError.message : "Failed to send prompt");
     }
   }

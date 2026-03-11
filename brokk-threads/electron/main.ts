@@ -100,10 +100,17 @@ ipcMain.handle("threads:ensure-thread-provisioned-for-prompt", async (_event, th
 });
 
 ipcMain.handle("threads:send-prompt", async (_event, threadId: string, prompt: string) => {
+  // 1. Ensure metadata and worktree/branch provisioning
   const provisioned = await provisionThreadForPromptIfNeeded(deps, threadId);
+
+  // 2. Ensure dedicated executor is ready
   const executor = await threadExecutorManager.ensureExecutorForThread(provisioned.thread);
   await executor.ensureReady();
+
+  // 3. Ensure session exists/is active
   await executor.ensureSessionForThread(provisioned.thread);
+
+  // 4. Submit prompt
   await executor.sendPrompt(prompt);
 });
 
