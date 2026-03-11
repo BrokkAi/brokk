@@ -104,7 +104,7 @@ public final class ModelProperties {
         QUICKEST("quickestConfig", flash2Lite),
         COMMIT_MESSAGE("commitMessageConfig", flash3, gcf1),
         SCAN("scanConfig", flash3, gcf1),
-        SEARCH("searchConfig", flash31liteHigh, gcf1),
+        SEARCH("searchConfig", flash3, gcf1),
         BUILD_PROCESSOR("buildProcessorConfig", flash31liteHigh, gpt5Nano);
 
         public final String propertyKey;
@@ -157,7 +157,7 @@ public final class ModelProperties {
                             ModelType.QUICKEST, flash2Lite,
                             ModelType.COMMIT_MESSAGE, flash3,
                             ModelType.SCAN, flash3,
-                            ModelType.SEARCH, flash31liteHigh,
+                            ModelType.SEARCH, flash3,
                             ModelType.BUILD_PROCESSOR, flash31liteHigh));
             map.put(
                     "OpenAI",
