@@ -310,7 +310,7 @@ public class EnvironmentPython {
     }
 
     /** Check if any Python source file imports distutils, respecting gitignore rules. */
-    private boolean repoImportsDistutils() {
+    boolean repoImportsDistutils() {
         // Try to set up gitignore-aware filtering if we have a git repo
         @Nullable FileFilteringService filteringService = null;
         @Nullable GitRepo gitRepo = null;
