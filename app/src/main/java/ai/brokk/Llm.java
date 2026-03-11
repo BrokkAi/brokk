@@ -36,6 +36,7 @@ import dev.langchain4j.model.chat.request.ToolChoice;
 import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
 import dev.langchain4j.model.openai.OpenAiChatRequestParameters;
+import dev.langchain4j.model.openai.OpenAiChatResponseMetadata;
 import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
 import dev.langchain4j.model.openai.OpenAiTokenUsage;
 import dev.langchain4j.model.openai.internal.OpenAiUtils;
@@ -48,6 +49,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.text.DecimalFormat;
 import java.text.NumberFormat;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
@@ -1253,10 +1255,9 @@ public class Llm {
             String created = null;
             String serviceTier = null;
 
-            if (response.metadata() instanceof dev.langchain4j.model.openai.OpenAiChatResponseMetadata meta) {
+            if (response.metadata() instanceof OpenAiChatResponseMetadata meta) {
                 if (meta.created() != null) {
-                    created = LocalDateTime.ofInstant(
-                                    java.time.Instant.ofEpochSecond(meta.created()), ZoneId.systemDefault())
+                    created = LocalDateTime.ofInstant(Instant.ofEpochSecond(meta.created()), ZoneId.systemDefault())
                             .format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
                 }
                 serviceTier =

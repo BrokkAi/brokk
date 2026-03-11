@@ -73,7 +73,7 @@ public class ActionGroupPanel extends JPanel {
     public ActionGroupPanel(JLabel codeModeLabel, JLabel answerModeLabel) {
         super(new FlowLayout(FlowLayout.LEFT, 2, 0));
         this.modeSwitch = new JCheckBox();
-        this.modeSwitch.setIcon(new ai.brokk.gui.components.SwitchIcon());
+        this.modeSwitch.setIcon(new SwitchIcon());
 
         // Initial border using UI border color
         Color borderColor = UIManager.getColor("Component.borderColor");
