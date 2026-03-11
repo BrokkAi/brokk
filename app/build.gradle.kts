@@ -95,7 +95,7 @@ val verifyNoEmptyJavaSources = tasks.register("verifyNoEmptyJavaSources") {
         val emptyFiles = sources.files
             .asSequence()
             .filter { it.isFile }
-            .filter { it.readText().isBlank() }
+            .filter { file -> file.useLines { lines -> lines.all { it.isBlank() } } }
             .toList()
 
         if (emptyFiles.isNotEmpty()) {
