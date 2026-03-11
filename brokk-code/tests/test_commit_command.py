@@ -56,6 +56,7 @@ def test_handle_command_commit_no_message(tmp_path: Path):
         # The coroutine should be _commit_changes(None)
         coro = mock_run_worker.call_args[0][0]
         assert coro is not None
+        coro.close()
 
 
 def test_handle_command_commit_with_message(tmp_path: Path):
@@ -72,6 +73,8 @@ def test_handle_command_commit_with_message(tmp_path: Path):
     with patch.object(app, "run_worker") as mock_run_worker:
         app._handle_command("/commit Fix the bug in parser")
         mock_run_worker.assert_called_once()
+        coro = mock_run_worker.call_args[0][0]
+        coro.close()
 
 
 @pytest.mark.asyncio
