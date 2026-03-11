@@ -74,7 +74,7 @@ public class BuildTools {
             return null;
         }
 
-        IProject project = cm.getProject();
+        var project = cm.getProject();
         IProject.CodeAgentTestScope testScope = project.getCodeAgentTestScope();
         if (testScope == IProject.CodeAgentTestScope.ALL) {
             String cmd = System.getenv("BRK_TESTALL_CMD") != null

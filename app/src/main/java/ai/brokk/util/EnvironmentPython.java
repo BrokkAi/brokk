@@ -16,6 +16,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -314,9 +315,10 @@ public class EnvironmentPython {
     private boolean repoImportsDistutils() {
         // Try to set up gitignore-aware filtering if we have a git repo
         @Nullable FileFilteringService filteringService = null;
+        @Nullable GitRepo gitRepo = null;
         if (GitRepoFactory.hasGitRepo(projectRoot)) {
             try {
-                var gitRepo = new GitRepo(projectRoot);
+                gitRepo = new GitRepo(projectRoot);
                 filteringService = new FileFilteringService(projectRoot, gitRepo);
             } catch (Exception e) {
                 logger.debug(
@@ -326,7 +328,7 @@ public class EnvironmentPython {
         }
 
         final @Nullable FileFilteringService effectiveFilter = filteringService;
-        final boolean[] found = {false};
+        var found = new AtomicBoolean(false);
 
         try {
             Files.walkFileTree(projectRoot, new FileVisitor<Path>() {
@@ -379,7 +381,7 @@ public class EnvironmentPython {
                     String content = readFile(file);
                     if (content != null && DISTUTILS_PATTERN.matcher(content).find()) {
                         logger.debug("Found distutils import in: {}", relPath);
-                        found[0] = true;
+                        found.set(true);
                         return FileVisitResult.TERMINATE;
                     }
 
@@ -400,9 +402,13 @@ public class EnvironmentPython {
         } catch (IOException e) {
             logger.debug("Error walking project directory for distutils check", e);
             return false;
+        } finally {
+            if (gitRepo != null) {
+                gitRepo.close();
+            }
         }
 
-        return found[0];
+        return found.get();
     }
 
     /** Parse a PEP 440 version spec like ">=3.8,<4", ">=3.6", or "~=3.6". */
