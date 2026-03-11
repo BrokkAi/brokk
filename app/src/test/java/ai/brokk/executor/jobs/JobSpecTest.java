@@ -130,7 +130,7 @@ class JobSpecTest {
                 JobSpec.DEFAULT_MAX_ISSUE_FIX_ATTEMPTS);
 
         // Should not throw and default to true when no tag is provided.
-        assertTrue(JobRunner.issueDeliveryEnabled(spec));
+        assertTrue(IssueService.issueDeliveryEnabled(spec));
     }
 
     @Test

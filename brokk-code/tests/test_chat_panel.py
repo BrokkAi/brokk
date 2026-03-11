@@ -1606,3 +1606,45 @@ async def test_refresh_log_preserves_middle_scroll_position():
         assert not scroll_btn.has_class("hidden"), (
             "Button should remain visible after refresh_log at middle position"
         )
+
+
+@pytest.mark.asyncio
+async def test_chat_panel_reflow_on_resize():
+    """Verify that chat output reflows when the panel is resized."""
+    from textual.app import App, ComposeResult
+    from textual.widgets import RichLog
+
+    class TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield ChatPanel(id="chat")
+
+    app = TestApp()
+    # Start small so we get wrapping
+    async with app.run_test(size=(30, 20)) as pilot:
+        panel = app.query_one("#chat", ChatPanel)
+        log = panel.query_one("#chat-log", RichLog)
+
+        # Add a message that will definitely wrap at width 30
+        long_message = (
+            "This is a very long message that should wrap multiple times at a small width."
+        )
+        panel.add_user_message(long_message)
+        await pilot.pause()
+
+        lines_small = len(log.lines)
+        # At width 30, this message should take at least 3 lines (including Panel overhead)
+        assert lines_small >= 3
+
+        # Increase width significantly
+        await pilot.resize_terminal(100, 20)
+        await pilot.pause()
+
+        # The message should now take fewer lines at width 100
+        lines_large = len(log.lines)
+        assert lines_large < lines_small, (
+            f"Expected fewer lines after widening ({lines_large}) than before ({lines_small})"
+        )
+
+        # Verify content still exists
+        content = "".join(str(line) for line in log.lines)
+        assert "very long message" in content

@@ -1,4 +1,5 @@
 """Shared event utilities for JobEvent payloads."""
+
 from __future__ import annotations
 
 from typing import Any

@@ -28,6 +28,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
@@ -252,7 +253,7 @@ public final class IssueExecutor {
             emitNotification("ISSUE: status acknowledgment posted to issue #" + prepared.issueNumber());
         }
 
-        var buildDetailsOverride = JobRunner.resolveIssueBuildDetails(spec, cm.getProject());
+        var buildDetailsOverride = IssueService.resolveIssueBuildDetails(spec, cm.getProject());
         if (!cm.getProject().hasGit()) {
             throw new IssueExecutionException("Issue resolution requires a git repository");
         }
@@ -333,12 +334,12 @@ public final class IssueExecutor {
                         continue;
                     }
 
-                    runPerTaskVerification(buildDetailsOverride, plannerModel, codeModel, generatedTask);
+                    runPerTaskVerification(buildDetailsOverride, plannerModel, codeModel);
                 }
 
                 // Review-bot: compute diff vs default branch and generate inline comments
                 String targetBranch = prepared.auth().getDefaultBranch();
-                var inlineComments = JobRunner.issueModeComputeInlineComments(
+                var inlineComments = IssueService.issueModeComputeInlineComments(
                         jobId, store, gitRepo, context, plannerModel, githubToken, targetBranch, cm);
                 logger.info("ISSUE job {} review-bot produced {} inline comment(s)", jobId, inlineComments.size());
 
@@ -362,7 +363,7 @@ public final class IssueExecutor {
                 }
 
                 // Create Pull Request (conditional)
-                if (JobRunner.issueDeliveryEnabled(spec)) {
+                if (IssueService.issueDeliveryEnabled(spec)) {
                     createPullRequest(prepared, issueBranchName, targetBranch, githubToken);
                 } else {
                     emitNotification("PR creation skipped due to issue_delivery policy");
@@ -372,46 +373,48 @@ public final class IssueExecutor {
             }
         } finally {
             boolean forceDelete = "always".equalsIgnoreCase(spec.tags().getOrDefault("issue_branch_cleanup", ""));
-            JobRunner.cleanupIssueBranch(jobId, gitRepo, originalBranch, issueBranchName, forceDelete);
+            IssueService.cleanupIssueBranch(jobId, gitRepo, originalBranch, issueBranchName, forceDelete);
         }
     }
 
     private void runPerTaskVerification(
-            BuildAgent.BuildDetails buildDetailsOverride,
-            StreamingChatModel plannerModel,
-            StreamingChatModel codeModel,
-            TaskList.TaskItem generatedTask)
+            BuildAgent.BuildDetails buildDetailsOverride, StreamingChatModel plannerModel, StreamingChatModel codeModel)
             throws InterruptedException {
 
-        String output = verify(buildDetailsOverride);
-
-        boolean passedFirst = output.isBlank();
-        emitNotification("Verification: " + (passedFirst ? "PASS" : "FAIL"));
-        if (passedFirst) {
-            return;
+        String verificationCommand = buildDetailsOverride.buildLintCommand();
+        if (verificationCommand.isBlank()) {
+            // Fall back to general verification if no specific build/lint command
+            verificationCommand = "verification";
         }
 
-        String taskLabel = Objects.requireNonNullElse(generatedTask.text(), "(unnamed task)");
-        String fixPrompt = "Verification failed for task: " + taskLabel + "\n\nOutput:\n" + output
-                + "\n\nPlease make a single fix attempt to resolve this verification failure.";
-        var fixTask = TaskList.TaskItem.createFixTask(fixPrompt);
-        try {
-            cm.executeTask(fixTask, plannerModel, codeModel);
-        } catch (Exception e) {
-            logger.warn("Fix attempt failed for job {} task {}: {}", jobId, taskLabel, e.getMessage());
+        final var interrupted = new java.util.concurrent.atomic.AtomicReference<InterruptedException>(null);
+
+        IssueService.runSingleFixVerificationGate(
+                jobId,
+                store,
+                console != null ? console : cm.getIo(),
+                verificationCommand,
+                (Supplier<String>) () -> {
+                    try {
+                        return Objects.requireNonNullElse(BuildTools.runVerification(cm, buildDetailsOverride), "");
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        interrupted.set(e);
+                        return "";
+                    }
+                },
+                (Consumer<String>) prompt -> {
+                    try {
+                        cm.executeTask(TaskList.TaskItem.createFixTask(prompt), plannerModel, codeModel);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        interrupted.set(e);
+                    }
+                });
+
+        if (interrupted.get() != null) {
+            throw interrupted.get();
         }
-
-        String outputAfterFix = verify(buildDetailsOverride);
-        boolean passedSecond = outputAfterFix.isBlank();
-        emitNotification("Verification after fix: " + (passedSecond ? "PASS" : "FAIL"));
-
-        if (!passedSecond) {
-            throw new IssueExecutionException("Verification failed after single fix attempt:\n\n" + outputAfterFix);
-        }
-    }
-
-    private String verify(BuildAgent.BuildDetails buildDetailsOverride) throws InterruptedException {
-        return Objects.requireNonNullElse(BuildTools.runVerification(cm, buildDetailsOverride), "");
     }
 
     private void runReviewFixTasks(
@@ -435,7 +438,7 @@ public final class IssueExecutor {
             String reviewFixTaskDescription = "Review-fix " + idx + "/" + total + ": " + path + ":" + line;
             lastTaskDescription.set(reviewFixTaskDescription);
 
-            String prompt = JobRunner.buildInlineCommentFixPrompt(comment);
+            String prompt = IssueService.buildInlineCommentFixPrompt(comment);
 
             try {
                 try (var reviewFixScope = cm.beginTaskUngrouped(reviewFixTaskDescription)) {
@@ -514,7 +517,7 @@ public final class IssueExecutor {
         };
 
         IConsoleIO io = console != null ? console : cm.getIo();
-        JobRunner.runIssueReviewFixAttemptsWithCommandResultEvents(
+        IssueService.runIssueReviewFixAttemptsWithCommandResultEvents(
                 jobId, store, io, isCancelled, inlineComments, reviewFixTaskRunner, branchUpdateHook);
 
         if (isCancelled.getAsBoolean()) {
@@ -532,7 +535,7 @@ public final class IssueExecutor {
             }
         };
 
-        JobRunner.runIssueModeTestLintRetryLoop(
+        IssueService.runIssueModeTestLintRetryLoop(
                 jobId,
                 store,
                 io,

@@ -843,7 +843,15 @@ class ChatPanel(Vertical):
         log = self.query_one("#chat-log", RichLog)
         log.min_width = 0
         log.styles.scrollbar_size_horizontal = 0
+        self._last_width = self.size.width
         self.watch(log, "scroll_y", self._on_chat_log_scroll_change)
+
+    def on_resize(self, event: events.Resize) -> None:
+        """Handle panel resizing by refreshing the log if width changed."""
+        if event.size.width != self._last_width:
+            self._last_width = event.size.width
+            if self._message_history:
+                self.refresh_log(show_verbose=self.show_verbose)
 
     def _on_chat_log_scroll_change(self, old: float, new: float) -> None:
         """Called when the chat log's scroll_y changes."""
@@ -1377,6 +1385,14 @@ class ChatPanel(Vertical):
         """Renders the welcome message: icon in Brokk red, followed by Markdown body."""
         self._message_history.append({"kind": "WELCOME", "content": body, "icon": icon})
         self._render_message_entry("WELCOME", body, icon=icon)
+
+    def update_welcome(self, body: str) -> None:
+        """Updates the most recent welcome message in history and refreshes the log."""
+        for entry in reversed(self._message_history):
+            if entry["kind"] == "WELCOME":
+                entry["content"] = body
+                self.refresh_log(self.show_verbose)
+                break
 
     def add_user_message(self, text: str) -> None:
         """Renders a user message with distinct styling."""

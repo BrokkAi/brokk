@@ -2,8 +2,8 @@ package ai.brokk;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
+import ai.brokk.testutil.TestProject;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
@@ -63,7 +63,7 @@ class ExceptionReporterIntegrationTest {
         MainProject.setBrokkKey(stagingApiKey);
 
         // Create a minimal mock project for testing
-        IProject mockProject = new MinimalMockProject();
+        var mockProject = new TestProject(Path.of(System.getProperty("java.io.tmpdir")));
         service = new Service(mockProject);
 
         System.out.println("✓ Test setup complete");
@@ -80,24 +80,6 @@ class ExceptionReporterIntegrationTest {
         if (originalProxySetting != null) {
             MainProject.setLlmProxySetting(originalProxySetting);
         }
-    }
-
-    /**
-     * Minimal mock implementation of IProject for testing purposes. This provides only the minimal functionality needed
-     * to create a Service instance.
-     */
-    private static class MinimalMockProject implements IProject {
-        @Override
-        public Path getRoot() {
-            return Path.of(System.getProperty("java.io.tmpdir"));
-        }
-
-        @Override
-        public MainProject.DataRetentionPolicy getDataRetentionPolicy() {
-            return MainProject.DataRetentionPolicy.MINIMAL;
-        }
-
-        // All other methods use default implementations from IProject interface
     }
 
     @Test

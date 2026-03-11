@@ -6,8 +6,10 @@ import ai.brokk.agents.BuildAgent;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.git.IGitRepo;
 import ai.brokk.mcpclient.McpConfig;
 import ai.brokk.project.IProject;
+import ai.brokk.project.MainProject;
 import ai.brokk.util.Environment;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -18,6 +20,8 @@ import java.util.Collections;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.function.Predicate;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.jetbrains.annotations.Nullable;
@@ -38,9 +42,16 @@ public class TestProject implements IProject {
     private IProject.CodeAgentTestScope codeAgentTestScope = IProject.CodeAgentTestScope.WORKSPACE;
     private String styleGuide = "";
     private Set<String> exclusionPatterns = Set.of();
-    private boolean hasGit = false;
     private boolean gitConfigDeclined = false;
     private @Nullable String jdk;
+    private @Nullable IGitRepo repo;
+    private boolean repoExplicitlySetToNull = false;
+    private @Nullable Supplier<Set<ProjectFile>> allFilesSupplier;
+    private @Nullable Set<ProjectFile> allFiles;
+    private Set<ProjectFile> allOnDiskDependencies = Set.of();
+    private Set<IProject.Dependency> liveDependencies = Set.of();
+    private @Nullable Predicate<Path> gitignoredPredicate;
+    private MainProject.DataRetentionPolicy dataRetentionPolicy = MainProject.DataRetentionPolicy.MINIMAL;
 
     public TestProject(Path root) {
         this(root, Languages.NONE);
@@ -109,18 +120,70 @@ public class TestProject implements IProject {
         this.exclusionPatterns = patterns;
     }
 
+    public TestProject withAllFilesSupplier(Supplier<Set<ProjectFile>> filesSupplier) {
+        this.allFilesSupplier = filesSupplier;
+        this.allFiles = null;
+        return this;
+    }
+
+    public TestProject withAllFiles(Set<ProjectFile> files) {
+        this.allFiles = Set.copyOf(files);
+        this.allFilesSupplier = null;
+        return this;
+    }
+
+    public TestProject withDependencies(
+            Set<ProjectFile> allOnDiskDependencies, Set<IProject.Dependency> liveDependencies) {
+        this.allOnDiskDependencies = Set.copyOf(allOnDiskDependencies);
+        this.liveDependencies = Set.copyOf(liveDependencies);
+        return this;
+    }
+
+    public TestProject withGitignoredPredicate(Predicate<Path> gitignoredPredicate) {
+        this.gitignoredPredicate = gitignoredPredicate;
+        return this;
+    }
+
     @Override
     public Set<String> getExclusionPatterns() {
         return exclusionPatterns;
     }
 
-    public void setHasGit(boolean hasGit) {
-        this.hasGit = hasGit;
+    @Override
+    public boolean hasGit() {
+        try {
+            return getRepo() != null;
+        } catch (UnsupportedOperationException e) {
+            return false;
+        }
     }
 
     @Override
-    public boolean hasGit() {
-        return hasGit;
+    public @Nullable IGitRepo getRepo() {
+        if (repo == null) {
+            if (repoExplicitlySetToNull) {
+                return null;
+            }
+            throw new UnsupportedOperationException("No repository configured for this TestProject");
+        }
+        return repo;
+    }
+
+    @Override
+    public void setRepo(IGitRepo repo) {
+        this.repo = repo;
+        this.repoExplicitlySetToNull = false;
+    }
+
+    public TestProject withRepo(IGitRepo repo) {
+        setRepo(repo);
+        return this;
+    }
+
+    public TestProject withoutRepo() {
+        this.repo = null;
+        this.repoExplicitlySetToNull = true;
+        return this;
     }
 
     @Override
@@ -223,6 +286,12 @@ public class TestProject implements IProject {
 
     @Override
     public Set<ProjectFile> getAllFiles() {
+        if (allFilesSupplier != null) {
+            return allFilesSupplier.get();
+        }
+        if (allFiles != null) {
+            return allFiles;
+        }
         try (Stream<Path> stream = Files.walk(root)) {
             return stream.filter(p -> Files.isRegularFile(p))
                     .map(p -> new ProjectFile(root, root.relativize(p)))
@@ -237,6 +306,26 @@ public class TestProject implements IProject {
             }
             return Collections.emptySet();
         }
+    }
+
+    @Override
+    public Set<ProjectFile> getAllOnDiskDependencies() {
+        return allOnDiskDependencies;
+    }
+
+    @Override
+    public Set<IProject.Dependency> getLiveDependencies() {
+        return liveDependencies;
+    }
+
+    @Override
+    public boolean isGitignored(Path relPath) {
+        return gitignoredPredicate != null && gitignoredPredicate.test(relPath);
+    }
+
+    @Override
+    public MainProject.DataRetentionPolicy getDataRetentionPolicy() {
+        return dataRetentionPolicy;
     }
 
     /**

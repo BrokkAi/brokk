@@ -42,7 +42,7 @@ public class GitDistanceMostImportantTest {
         testPath = GitDistanceTestSuite.setupGitHistory(testResourcePath);
 
         testRepo = new GitRepo(testPath);
-        testProject = new TestProjectWithRepo(testPath, Languages.JAVA, testRepo);
+        testProject = new TestProject(testPath, Languages.JAVA).withRepo(testRepo);
     }
 
     @AfterAll

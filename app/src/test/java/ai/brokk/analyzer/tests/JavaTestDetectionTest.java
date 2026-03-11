@@ -10,10 +10,8 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.TestDetectionProvider;
 import ai.brokk.testutil.InlineTestProjectCreator;
 import java.util.Map;
-import org.jspecify.annotations.NullMarked;
 import org.junit.jupiter.api.Test;
 
-@NullMarked
 public class JavaTestDetectionTest {
 
     @Test
@@ -169,27 +167,141 @@ public class JavaTestDetectionTest {
     }
 
     @Test
-    void testQualifiedAndWhitespaceTestAnnotations() throws Exception {
-        String code =
+    void testTestCaseInheritanceDetectedAsTest() throws Exception {
+        String testContent =
                 """
             package com.example;
-            public class MixedTests {
-                @org.junit.jupiter.api.Test
-                void qualifiedTest() {}
-
-                @  RepeatedTest(5)
-                void whitespaceTest() {}
+            import junit.framework.TestCase;
+            public class LegacyTest extends TestCase {
+                public void testLegacy() {}
             }
             """;
 
-        String fileName = "src/com/example/MixedTests.java";
+        String qualifiedTestContent =
+                """
+            package com.example;
+            public class QualifiedLegacyTest extends junit.framework.TestCase {
+                public void testLegacy() {}
+            }
+            """;
+
+        try (var project = InlineTestProjectCreator.code(testContent, "src/com/example/LegacyTest.java")
+                .addFileContents(qualifiedTestContent, "src/com/example/QualifiedLegacyTest.java")
+                .build()) {
+            JavaAnalyzer analyzer = new JavaAnalyzer(project);
+            analyzer = (JavaAnalyzer) analyzer.update();
+
+            assertTrue(
+                    analyzer.containsTests(new ProjectFile(project.getRoot(), "src/com/example/LegacyTest.java")),
+                    "Should detect tests in class extending TestCase");
+            assertTrue(
+                    analyzer.containsTests(
+                            new ProjectFile(project.getRoot(), "src/com/example/QualifiedLegacyTest.java")),
+                    "Should detect tests in class extending qualified junit.framework.TestCase");
+        }
+    }
+
+    @Test
+    void testTestWithParametersDetectedAsTest() throws Exception {
+        String code =
+                """
+            package com.example;
+            import org.junit.Test;
+            public class ParamTests {
+                @Test(expected = RuntimeException.class)
+                public void errorTest() {}
+            }
+            """;
+
+        String fileName = "src/com/example/ParamTests.java";
 
         try (var project = InlineTestProjectCreator.code(code, fileName).build()) {
             ProjectFile file = new ProjectFile(project.getRoot(), fileName);
             JavaAnalyzer analyzer = new JavaAnalyzer(project);
             analyzer = (JavaAnalyzer) analyzer.update();
 
-            assertTrue(analyzer.containsTests(file), "Should detect qualified and whitespace-padded test annotations");
+            assertTrue(analyzer.containsTests(file), "Should detect @Test with parameters (e.g. expected)");
+        }
+    }
+
+    @Test
+    void testJUnitRulesAndIgnoreDetectedAsTest() throws Exception {
+        String ruleCode =
+                """
+            package com.example;
+            import org.junit.Rule;
+            import org.junit.rules.TemporaryFolder;
+            public class RuleOnlyTest {
+                @Rule
+                public TemporaryFolder folder = new TemporaryFolder();
+            }
+            """;
+
+        String ignoreCode =
+                """
+            package com.example;
+            import org.junit.Ignore;
+            @Ignore
+            public class IgnoredTest {}
+            """;
+
+        try (var project = InlineTestProjectCreator.code(ruleCode, "src/com/example/RuleOnlyTest.java")
+                .addFileContents(ignoreCode, "src/com/example/IgnoredTest.java")
+                .build()) {
+            JavaAnalyzer analyzer = new JavaAnalyzer(project);
+            analyzer = (JavaAnalyzer) analyzer.update();
+
+            assertTrue(
+                    analyzer.containsTests(new ProjectFile(project.getRoot(), "src/com/example/RuleOnlyTest.java")),
+                    "Should detect @Rule as a test marker");
+            assertTrue(
+                    analyzer.containsTests(new ProjectFile(project.getRoot(), "src/com/example/IgnoredTest.java")),
+                    "Should detect @Ignore as a test marker");
+        }
+    }
+
+    @Test
+    void testQualifiedTestAnnotations() throws Exception {
+        String code =
+                """
+            package com.example;
+            public class QualifiedTests {
+                @org.junit.jupiter.api.Test
+                void qualifiedTest() {}
+            }
+            """;
+
+        String fileName = "src/com/example/QualifiedTests.java";
+
+        try (var project = InlineTestProjectCreator.code(code, fileName).build()) {
+            ProjectFile file = new ProjectFile(project.getRoot(), fileName);
+            JavaAnalyzer analyzer = new JavaAnalyzer(project);
+            analyzer = (JavaAnalyzer) analyzer.update();
+
+            assertTrue(analyzer.containsTests(file), "Should detect fully qualified test annotations");
+        }
+    }
+
+    @Test
+    void testWhitespaceInTestAnnotations() throws Exception {
+        String code =
+                """
+            package com.example;
+            public class WhitespaceTests {
+                @  RepeatedTest(5)
+                void whitespaceTest() {}
+            }
+            """;
+
+        String fileName = "src/com/example/WhitespaceTests.java";
+
+        try (var project = InlineTestProjectCreator.code(code, fileName).build()) {
+            ProjectFile file = new ProjectFile(project.getRoot(), fileName);
+            JavaAnalyzer analyzer = new JavaAnalyzer(project);
+            analyzer = (JavaAnalyzer) analyzer.update();
+
+            assertTrue(
+                    analyzer.containsTests(file), "Should detect test annotations with whitespace between @ and name");
         }
     }
 }

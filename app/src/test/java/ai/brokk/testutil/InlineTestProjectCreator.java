@@ -135,7 +135,96 @@ public class InlineTestProjectCreator {
 
         @Override
         public List<String> getFilesForInitialCommit() {
-            return List.of("."); // Add everything
+            return List.of(".");
+        }
+    }
+
+    private static class DirectoryStrategy implements ProjectContentStrategy {
+        private final Path sourceDir;
+
+        public DirectoryStrategy(Path sourceDir) {
+            this.sourceDir = sourceDir.toAbsolutePath().normalize();
+            if (!Files.isDirectory(this.sourceDir)) {
+                throw new IllegalArgumentException("Directory does not exist: " + sourceDir);
+            }
+        }
+
+        @Override
+        public void populate(Path root) throws IOException {
+            try (var stream = Files.walk(sourceDir)) {
+                for (var sourcePath : stream.toList()) {
+                    if (sourcePath.equals(sourceDir)) {
+                        continue;
+                    }
+                    Path relativePath = sourceDir.relativize(sourcePath);
+                    Path targetPath = root.resolve(relativePath).normalize();
+                    if (!targetPath.startsWith(root)) {
+                        throw new IOException("Path outside of root: " + relativePath);
+                    }
+                    if (Files.isDirectory(sourcePath)) {
+                        Files.createDirectories(targetPath);
+                    } else {
+                        if (targetPath.getParent() != null) {
+                            Files.createDirectories(targetPath.getParent());
+                        }
+                        Files.copy(sourcePath, targetPath);
+                    }
+                }
+            }
+        }
+
+        @Override
+        public Set<Language> detectLanguages() {
+            return Set.of();
+        }
+
+        @Override
+        public List<String> getFilesForInitialCommit() {
+            return List.of(".");
+        }
+
+        @Override
+        public boolean isAlreadyGit() {
+            return Files.isDirectory(sourceDir.resolve(".git"));
+        }
+    }
+
+    private static class ExistingGitRepoStrategy implements ProjectContentStrategy {
+        private final IGitRepo repo;
+        private final Path workTreeRoot;
+
+        ExistingGitRepoStrategy(IGitRepo repo) {
+            this.repo = java.util.Objects.requireNonNull(repo);
+            this.workTreeRoot = repo.getWorkTreeRoot().toAbsolutePath().normalize();
+            if (!Files.isDirectory(this.workTreeRoot)) {
+                throw new IllegalArgumentException("Git repo work tree does not exist: " + this.workTreeRoot);
+            }
+        }
+
+        Path getWorkTreeRoot() {
+            return workTreeRoot;
+        }
+
+        IGitRepo getRepo() {
+            return repo;
+        }
+
+        @Override
+        public void populate(Path root) {}
+
+        @Override
+        public Set<Language> detectLanguages() {
+            return Set.of();
+        }
+
+        @Override
+        public List<String> getFilesForInitialCommit() {
+            return List.of();
+        }
+
+        @Override
+        public boolean isAlreadyGit() {
+            return true;
         }
     }
 
@@ -337,11 +426,15 @@ public class InlineTestProjectCreator {
     }
 
     public static TestProjectBuilder code(String contents, String filename) {
-        return fromInline(contents, filename);
+        return empty().addFileContents(contents, filename);
     }
 
-    public static TestProjectBuilder fromInline(String contents, String filename) {
-        return new TestProjectBuilder(new InlineContentStrategy()).addFileContents(contents, filename);
+    public static TestProjectBuilder empty() {
+        return new TestProjectBuilder(new InlineContentStrategy());
+    }
+
+    public static TestProjectBuilder at(Path dir) {
+        return new TestProjectBuilder(new DirectoryStrategy(dir));
     }
 
     public static TestProjectBuilder fromZip(Path zipPath) {
@@ -349,7 +442,15 @@ public class InlineTestProjectCreator {
     }
 
     public static TestGitProjectBuilder fromGitUrl(String url, String ref) {
-        return new TestProjectBuilder(new GitCloneStrategy(url, ref)).withGit();
+        return new TestProjectBuilder(new GitCloneStrategy(url, ref)).withMockGit();
+    }
+
+    public static TestProjectBuilder fromGit(IGitRepo repo) {
+        return new TestProjectBuilder(new ExistingGitRepoStrategy(repo));
+    }
+
+    public static TestProjectBuilder fromGit(GitRepo repo) {
+        return fromGit((IGitRepo) repo);
     }
 
     public static class TestProjectBuilder {
@@ -368,11 +469,31 @@ public class InlineTestProjectCreator {
             return this;
         }
 
-        public TestGitProjectBuilder withGit() {
+        public TestGitProjectBuilder withMockGit() {
+            if (strategy instanceof ExistingGitRepoStrategy) {
+                throw new UnsupportedOperationException("withMockGit() is not supported for fromGit(repo) projects.");
+            }
             return new TestGitProjectBuilder(this);
         }
 
-        public ITestProject build() throws IOException {
+        public ITestProject build() {
+            try {
+                return buildInternal();
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            }
+        }
+
+        public ITestProject buildInternal() throws IOException {
+            if (strategy instanceof ExistingGitRepoStrategy existingGitRepoStrategy) {
+                Path projectRoot = existingGitRepoStrategy.getWorkTreeRoot();
+                var project = new ExistingRootTestProject(projectRoot);
+                project.setRepo(existingGitRepoStrategy.getRepo());
+                initializeLanguages(project, projectRoot);
+                project.getAnalyzer();
+                return project;
+            }
+
             var newTemporaryDirectory = Files.createTempDirectory("brokk-analyzer-test-");
             strategy.populate(newTemporaryDirectory);
 
@@ -409,7 +530,6 @@ public class InlineTestProjectCreator {
                         }
                     }
                     project = new EphemeralTestGitProject(newTemporaryDirectory, new GitRepo(newTemporaryDirectory));
-                    project.setHasGit(true);
                 } catch (GitAPIException e) {
                     throw new IOException("Failed to initialize git repo for test project", e);
                 }
@@ -417,23 +537,23 @@ public class InlineTestProjectCreator {
                 project = new EphemeralTestProject(newTemporaryDirectory);
             }
 
-            // Ensure languages are set before getting analyzer
+            initializeLanguages(project, newTemporaryDirectory);
+            project.getAnalyzer();
+            return project;
+        }
+
+        private void initializeLanguages(ITestProject project, Path projectRoot) throws IOException {
             Set<Language> detected = new LinkedHashSet<>(strategy.detectLanguages());
-            detected.addAll(scanLanguages(newTemporaryDirectory));
+            detected.addAll(scanLanguages(projectRoot));
             detected.remove(Languages.NONE);
 
             if (!detected.isEmpty()) {
                 project.setAnalyzerLanguages(detected);
-                // Set the first detected language as the primary build language
                 project.setBuildLanguage(detected.iterator().next());
             } else {
                 project.setAnalyzerLanguages(Set.of(Languages.NONE));
                 project.setBuildLanguage(Languages.NONE);
             }
-
-            // Trigger analyzer creation (which now also calls update() internally via AnalyzerCreator)
-            project.getAnalyzer();
-            return project;
         }
 
         private Set<Language> scanLanguages(Path root) throws IOException {
@@ -482,7 +602,7 @@ public class InlineTestProjectCreator {
         }
 
         @Override
-        public TestGitProjectBuilder withGit() {
+        public TestGitProjectBuilder withMockGit() {
             return this;
         }
 
@@ -504,6 +624,26 @@ public class InlineTestProjectCreator {
             if (strategy instanceof InlineContentStrategy inline && !inline.hasFile(filename)) {
                 throw new IllegalArgumentException("File not found in project entries: " + filename);
             }
+        }
+    }
+
+    private static class ExistingRootTestProject extends TestProject implements ITestProject {
+        private volatile IAnalyzer analyzer;
+
+        ExistingRootTestProject(Path root) {
+            super(root);
+        }
+
+        @Override
+        public IAnalyzer getAnalyzer() {
+            if (analyzer == null) {
+                synchronized (this) {
+                    if (analyzer == null) {
+                        analyzer = AnalyzerCreator.createFor(this);
+                    }
+                }
+            }
+            return analyzer;
         }
     }
 
@@ -553,6 +693,11 @@ public class InlineTestProjectCreator {
         @Override
         public IGitRepo getRepo() {
             return repo;
+        }
+
+        @Override
+        public boolean hasGit() {
+            return true;
         }
 
         @Override

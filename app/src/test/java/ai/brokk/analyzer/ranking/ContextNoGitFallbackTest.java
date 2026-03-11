@@ -146,7 +146,7 @@ public class ContextNoGitFallbackTest {
                         public class D { }
                         """,
                         "test/D.java")
-                .withGit()
+                .withMockGit()
                 .addCommit("test/A.java", "test/D.java")
                 .build()) {
 
@@ -194,7 +194,7 @@ public class ContextNoGitFallbackTest {
     public void testWithGitOptionTracksFiles() throws Exception {
         try (var project = InlineTestProjectCreator.code("public class A {}", "A.java")
                 .addFileContents("public class B {}", "B.java")
-                .withGit()
+                .withMockGit()
                 .build()) {
 
             assertTrue(project.hasGit(), "Project should have Git enabled");
@@ -219,7 +219,7 @@ public class ContextNoGitFallbackTest {
         try (var project = InlineTestProjectCreator.code("content a", "A.txt")
                 .addFileContents("content b", "B.txt")
                 .addFileContents("content c", "C.txt")
-                .withGit()
+                .withMockGit()
                 .addCommit("A.txt", "B.txt")
                 .build()) {
 
@@ -243,7 +243,7 @@ public class ContextNoGitFallbackTest {
                         "package test; import test.C; public class A { }", "test/A.java")
                 .addFileContents("package test; public class B { }", "test/B.java")
                 .addFileContents("package test; public class C { }", "test/C.java")
-                .withGit()
+                .withMockGit()
                 .addCommit("test/A.java", "test/B.java")
                 .build()) {
 
@@ -283,7 +283,7 @@ public class ContextNoGitFallbackTest {
                         "package test; import test.B; public class A { }", "test/A.java")
                 .addFileContents("package test; import test.C; public class B { }", "test/B.java")
                 .addFileContents("package test; public class C { }", "test/C.java")
-                .withGit()
+                .withMockGit()
                 .addCommit("test/B.java", "test/C.java")
                 .build()) {
 
@@ -315,7 +315,7 @@ public class ContextNoGitFallbackTest {
     @Test
     public void testGitDistanceFastPathForUntrackedSeeds() throws Exception {
         try (var project = InlineTestProjectCreator.code("public class A {}", "A.java")
-                .withGit()
+                .withMockGit()
                 .build()) {
             ProjectFile a = project.getAllFiles().iterator().next();
 
@@ -340,7 +340,7 @@ public class ContextNoGitFallbackTest {
 
     @Test
     public void testGitBuilderThrowsOnMissingFile() {
-        var builder = InlineTestProjectCreator.code("content a", "A.txt").withGit();
+        var builder = InlineTestProjectCreator.code("content a", "A.txt").withMockGit();
         try {
             builder.addCommit("A.txt", "NonExistent.txt");
             Assertions.fail("Should have thrown IllegalArgumentException");

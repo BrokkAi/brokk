@@ -63,3 +63,45 @@ def test_get_braille_icon_contains_braille():
     # Check for at least one Braille character (U+2800 to U+28FF)
     has_braille = any("\u2800" <= char <= "\u28ff" for char in icon)
     assert has_braille, "Icon should contain Unicode Braille characters"
+
+
+def test_build_welcome_message_with_pypi_version():
+    """Verify welcome message includes latest version notice when provided."""
+    from brokk_code import __version__
+    from brokk_code.welcome import build_welcome_message
+
+    # Same version - no extra notice
+    msg = build_welcome_message([], latest_pypi_version=__version__)
+    assert f"Welcome to Brokk v{__version__}" in msg
+    assert "Latest:" not in msg
+
+    # Newer version available
+    msg = build_welcome_message([], latest_pypi_version="99.9.9")
+    assert f"Welcome to Brokk v{__version__} (Latest: 99.9.9)" in msg
+
+
+@pytest.mark.asyncio
+async def test_welcome_message_updates_after_pypi_fetch(tmp_path: Path):
+    """Verify the app fetches PyPI version and updates the welcome message."""
+    mock_executor = MagicMock()
+    mock_executor.workspace_dir = tmp_path
+    mock_executor.start = AsyncMock()
+    mock_executor.wait_ready = AsyncMock(return_value=True)
+
+    with patch(
+        "brokk_code.app.BrokkApp._fetch_latest_pypi_version", new_callable=AsyncMock
+    ) as mock_fetch:
+        mock_fetch.return_value = "1.2.3"
+        app = BrokkApp(executor=mock_executor)
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            # Wait for background check_for_updates worker
+            for _ in range(10):
+                chat_log = app.query_one("#chat-log")
+                content = "".join(str(line) for line in chat_log.lines)
+                if "(Latest: 1.2.3)" in content:
+                    break
+                await pilot.pause(0.1)
+
+            assert "(Latest: 1.2.3)" in content
