@@ -1485,8 +1485,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
 
     @Override
     public Set<CodeUnit> testFilesToCodeUnits(Collection<ProjectFile> files) {
-        var unitsInFiles = files.stream()
-                .flatMap(file -> getDeclarations(file).stream())
+        var unitsInFiles = AnalyzerUtil.getTestDeclarationsWithLogging(this, files)
                 .filter(CodeUnit::isClass)
                 .collect(Collectors.toSet());
 
