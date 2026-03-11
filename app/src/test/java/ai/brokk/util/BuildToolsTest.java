@@ -126,8 +126,9 @@ class BuildToolsTest {
 
         ProjectFile testFile = new ProjectFile(tempDir, "Test.java");
 
-        // Use the public API - project comes from the context manager
-        String result = BuildTools.getBuildLintSomeCommand(mockCm, details, List.of(testFile), null);
+        // Use the PUBLIC 4-arg API - this exercises the real code path where project
+        // is obtained from the context manager and passed to the private helper
+        String result = BuildTools.getBuildLintSomeCommand(mockCm, details, List.of(testFile));
 
         // Since project is Java-only, pyver should be empty (not "3.11" from distutils detection)
         assertEquals("java -jar test.jar --pyver=", result);
