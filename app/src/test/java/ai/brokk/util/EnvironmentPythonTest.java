@@ -106,19 +106,15 @@ public class EnvironmentPythonTest {
                     .call();
         }
 
-        // Test that EnvironmentPython does NOT detect the distutils import (it's gitignored)
+        writePyprojectToml(repoPath);
+
         var envPython = new EnvironmentPython(repoPath);
         String version = envPython.getPythonVersion();
 
-        // The version should NOT be capped - it can be 3.12 or higher
-        // (Depending on what Python versions are available on the system,
-        // but at minimum it should not be restricted by distutils)
-        // We just verify it's not artificially capped by checking it could be >= 3.12
-        // if the system has it, or that we didn't detect distutils
-        assertNotNull(version, "Should return a valid version");
-        // If 3.12+ is available and no distutils detected, version could be 3.12+
-        // If only older versions available, we can't directly test the cap wasn't applied
-        // So we verify indirectly: create another repo with actual distutils and compare
+        // Compare against a control project where distutils IS in real source (capped)
+        String cappedVersion = getCappedControlVersion("control-gitignored");
+        assertTrue(compareVersions(version, cappedVersion) >= 0,
+                   "Gitignored distutils should not cap version below control (" + cappedVersion + "), but got: " + version);
     }
 
     /**
@@ -146,12 +142,14 @@ public class EnvironmentPythonTest {
             print("Hello")
             """);
 
-        // Test that EnvironmentPython works without git and ignores .venv
+        writePyprojectToml(projectPath);
+
         var envPython = new EnvironmentPython(projectPath);
         String version = envPython.getPythonVersion();
 
-        // Should get a version without being capped by the .venv distutils
-        assertNotNull(version, "Should return a valid version even without git");
+        String cappedVersion = getCappedControlVersion("control-venv");
+        assertTrue(compareVersions(version, cappedVersion) >= 0,
+                   ".venv distutils should not cap version below control (" + cappedVersion + "), but got: " + version);
     }
 
     /**
@@ -181,13 +179,14 @@ public class EnvironmentPythonTest {
             print("Hello")
             """);
 
-        // Test that EnvironmentPython ignores artifact directories
+        writePyprojectToml(projectPath);
+
         var envPython = new EnvironmentPython(projectPath);
         String version = envPython.getPythonVersion();
 
-        // Should NOT be capped - artifact directories should be skipped
-        assertNotNull(version, "Should return a valid version");
-        // The version should not be artificially capped by distutils in artifact dirs
+        String cappedVersion = getCappedControlVersion("control-artifacts");
+        assertTrue(compareVersions(version, cappedVersion) >= 0,
+                   "Artifact dir distutils should not cap version below control (" + cappedVersion + "), but got: " + version);
     }
 
     /**
@@ -199,6 +198,7 @@ public class EnvironmentPythonTest {
         // Part 1: .gradle distutils should NOT cap
         Path projectWithGradle = tempDir.resolve("gradle-ignored");
         Files.createDirectories(projectWithGradle);
+        writePyprojectToml(projectWithGradle);
 
         Path gradleDir = projectWithGradle.resolve(".gradle");
         Files.createDirectories(gradleDir);
@@ -214,11 +214,11 @@ public class EnvironmentPythonTest {
 
         var envPython1 = new EnvironmentPython(projectWithGradle);
         String version1 = envPython1.getPythonVersion();
-        assertNotNull(version1, "Should return a valid version");
 
         // Part 2: Real source distutils SHOULD cap
         Path projectWithDistutils = tempDir.resolve("real-distutils");
         Files.createDirectories(projectWithDistutils);
+        writePyprojectToml(projectWithDistutils);
 
         Path srcDir = projectWithDistutils.resolve("src");
         Files.createDirectories(srcDir);
@@ -232,6 +232,10 @@ public class EnvironmentPythonTest {
 
         int comparison = compareVersions(version2, "3.12");
         assertTrue(comparison < 0, "Version should be < 3.12 due to distutils in real source, but got: " + version2);
+
+        // .gradle distutils should not restrict version more than real distutils does
+        assertTrue(compareVersions(version1, version2) >= 0,
+                   ".gradle distutils should not cap version below real-source cap (" + version2 + "), but got: " + version1);
     }
 
     /**
@@ -260,11 +264,14 @@ public class EnvironmentPythonTest {
             print("Hello")
             """);
 
+        writePyprojectToml(projectPath);
+
         var envPython = new EnvironmentPython(projectPath);
         String version = envPython.getPythonVersion();
 
-        // Should not be capped by distutils in node_modules
-        assertNotNull(version, "Should return a valid version");
+        String cappedVersion = getCappedControlVersion("control-nested");
+        assertTrue(compareVersions(version, cappedVersion) >= 0,
+                   "Nested node_modules distutils should not cap version below control (" + cappedVersion + "), but got: " + version);
     }
 
     /**
@@ -354,12 +361,14 @@ public class EnvironmentPythonTest {
                     .call();
         }
 
+        writePyprojectToml(repoPath);
+
         var envPython = new EnvironmentPython(repoPath);
         String version = envPython.getPythonVersion();
 
-        // The deeply nested ignored file should not trigger distutils cap
-        // Version could be >= 3.12 if available
-        assertNotNull(version, "Should return a valid version");
+        String cappedVersion = getCappedControlVersion("control-nested-gitignored");
+        assertTrue(compareVersions(version, cappedVersion) >= 0,
+                   "Nested gitignored distutils should not cap version below control (" + cappedVersion + "), but got: " + version);
     }
 
     /**
@@ -451,6 +460,8 @@ public class EnvironmentPythonTest {
         Path mainPy = projectPath.resolve("main.py");
         Files.writeString(mainPy, "print('hello')\n");
 
+        writePyprojectToml(projectPath);
+
         // Verify hasGitRepo returns true (the precondition for this test)
         assertTrue(
                 ai.brokk.git.GitRepoFactory.hasGitRepo(projectPath),
@@ -460,12 +471,31 @@ public class EnvironmentPythonTest {
         var envPython = new EnvironmentPython(projectPath);
         String version = envPython.getPythonVersion();
 
-        // Should return a valid version without throwing
-        assertNotNull(version, "Should return a valid version even with malformed git repo");
+        // Verify fallback path was used and .gradle distutils was skipped
+        String cappedVersion = getCappedControlVersion("control-malformed");
+        assertTrue(compareVersions(version, cappedVersion) >= 0,
+                   "Malformed git fallback should not cap version below control (" + cappedVersion + "), but got: " + version);
+    }
 
-        // The distutils in .gradle should have been skipped by fallback logic,
-        // so version should NOT be capped at 3.11
-        // (This verifies the fallback path was actually used)
+    /**
+     * Create a control project with distutils in a real source file and a pyproject.toml
+     * pinning requires-python >= 3.8. Returns the (capped) version from this project.
+     */
+    private String getCappedControlVersion(String label) throws Exception {
+        Path controlPath = tempDir.resolve(label);
+        Files.createDirectories(controlPath);
+        writePyprojectToml(controlPath);
+        Path srcDir = controlPath.resolve("src");
+        Files.createDirectories(srcDir);
+        Files.writeString(srcDir.resolve("legacy_setup.py"),
+                          "from distutils.core import setup\n");
+        var envPython = new EnvironmentPython(controlPath);
+        return envPython.getPythonVersion();
+    }
+
+    private void writePyprojectToml(Path projectRoot) throws Exception {
+        Files.writeString(projectRoot.resolve("pyproject.toml"),
+                          "[project]\nrequires-python = \">=3.8\"\n");
     }
 
     /**
