@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import type { InitialShellState, ThreadMetadata } from "../electron/types";
+import type { InitialShellState, ThreadMetadata } from "../electron/types.js";
 
 const emptyState: InitialShellState = { threads: [], selectedThreadId: null };
 

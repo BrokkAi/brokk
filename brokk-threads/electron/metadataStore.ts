@@ -1,6 +1,6 @@
 import { readFile, writeFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
-import type { ThreadMetadata, ThreadMetadataStore, ThreadProvisioning, ThreadState } from "./types";
+import { resolve } from "node:path";
+import type { ThreadMetadata, ThreadMetadataStore, ThreadProvisioning, ThreadState } from "./types.js";
 
 function nowIso(): string {
   return new Date().toISOString();

@@ -6,7 +6,7 @@ import type {
   ThreadExecutorManager,
   ThreadMetadata,
   ThreadMetadataStore
-} from "./types";
+} from "./types.js";
 
 type ManagerDeps = {
   metadataStore: ThreadMetadataStore;

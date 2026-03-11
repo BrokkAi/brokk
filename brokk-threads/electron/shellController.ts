@@ -7,7 +7,7 @@ import type {
   ShellControllerDeps,
   ThreadMetadata,
   ThreadProvisioning
-} from "./types";
+} from "./types.js";
 
 type ProvisioningRecord = {
   threadId: string;

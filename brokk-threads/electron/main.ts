@@ -1,7 +1,7 @@
 import { app, BrowserWindow, ipcMain } from "electron";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { FileThreadMetadataStore } from "./metadataStore";
+import { FileThreadMetadataStore } from "./metadataStore.js";
 import {
   createThreadMetadataOnly,
   LazyThreadWorktreeProvisioningService,
@@ -9,14 +9,14 @@ import {
   provisionThreadForPromptIfNeeded,
   renameThreadMetadataOnly,
   selectThreadMetadataOnly
-} from "./shellController";
-import { createMainProcessThreadExecutorManager } from "./threadExecutorManager";
+} from "./shellController.js";
+import { createMainProcessThreadExecutorManager } from "./threadExecutorManager.js";
 import type {
   ExecutorProvisioning,
   LazyExecutorService,
   ShellControllerDeps,
   ThreadMetadata
-} from "./types";
+} from "./types.js";
 
 class NoopLazyExecutorService implements LazyExecutorService {
   async startExecutor(thread: ThreadMetadata): Promise<ExecutorProvisioning> {
@@ -116,7 +116,7 @@ ipcMain.handle("threads:send-prompt", async (_event, threadId: string, prompt: s
 
     // 5. submit prompt and stream output
     await executor.sendPrompt(prompt);
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error(`Failed to send prompt for thread ${threadId}:`, error);
     throw error; // Propagate to renderer
   }

@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { InitialShellState, ProvisionedThreadResult, ThreadMetadata } from "./types";
+import type { InitialShellState, ProvisionedThreadResult, ThreadMetadata } from "./types.js";
 
 export type RendererBridge = {
   getInitialShellState(): Promise<InitialShellState>;
