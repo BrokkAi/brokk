@@ -6,6 +6,7 @@ import ai.brokk.analyzer.cache.AnalyzerCache;
 import ai.brokk.analyzer.java.JavaTypeAnalyzer;
 import ai.brokk.project.IProject;
 import java.util.*;
+import java.util.Collection;
 import java.util.Optional;
 import java.util.function.BiFunction;
 import java.util.regex.Pattern;
