@@ -94,4 +94,40 @@ public class FullyQualifiedNameCheckerTest {
                 .addOutputLines("Test.java", "package test;", "", "class Test {", "  String s = \"hi\";", "}")
                 .doTest();
     }
+
+    @Test
+    public void doesNotFlagWhenWildcardImportCollisionExists() {
+        compilationHelper
+                .addSourceLines(
+                        "Test.java",
+                        "package test;",
+                        "import java.util.*;",
+                        "class Test {",
+                        "  private record Theme(List<String> utilBg, test.sub.List subBg) {",
+                        "      static Theme create() {",
+                        "          test.sub.List subBg = null;",
+                        "          return new Theme(null, subBg);",
+                        "      }",
+                        "  }",
+                        "}")
+                .addSourceLines("List.java", "package test.sub;", "public class List {}")
+                .expectNoDiagnostics()
+                .doTest();
+    }
+
+    @Test
+    public void doesNotFlagWhenWildcardImportCollisionExistsWithAwtColor() {
+        compilationHelper
+                .addSourceLines(
+                        "Theme.java",
+                        "package test;",
+                        "import java.awt.*;",
+                        "class Theme {",
+                        "  Color awtBg;",
+                        "  javafx.scene.paint.Color fxBg;",
+                        "}")
+                .addSourceLines("Color.java", "package javafx.scene.paint;", "public class Color {}")
+                .expectNoDiagnostics()
+                .doTest();
+    }
 }

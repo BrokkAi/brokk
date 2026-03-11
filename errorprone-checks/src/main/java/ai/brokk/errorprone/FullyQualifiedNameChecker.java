@@ -59,27 +59,60 @@ public final class FullyQualifiedNameChecker extends BugChecker implements BugCh
 
         // System.err.println("Matching: " + source + " sym: " + classSymbol.getQualifiedName());
 
-        // Collision check: if the simple name is already in scope and refers to something else,
-        // we cannot suggest an import.
         String simpleName = classSymbol.getSimpleName().toString();
-        Symbol existing = state.getSymbolFromString(simpleName);
-        if (existing != null && !existing.equals(classSymbol)) {
-            return Description.NO_MATCH;
-        }
+        String fqcn = classSymbol.getQualifiedName().toString();
 
-        // Check if any existing import matches the simple name but refers to a different FQN.
+        // 1. Check explicit single-type imports.
         boolean importCollision = state.getPath().getCompilationUnit().getImports().stream()
                 .filter(it -> !it.isStatic())
                 .map(ImportTree::getQualifiedIdentifier)
                 .map(Object::toString)
-                .anyMatch(fqn -> fqn.endsWith("." + simpleName)
-                        && !fqn.equals(classSymbol.getQualifiedName().toString()));
+                .filter(fqn -> !fqn.endsWith(".*"))
+                .anyMatch(fqn -> fqn.endsWith("." + simpleName) && !fqn.equals(fqcn));
 
         if (importCollision) {
             return Description.NO_MATCH;
         }
 
-        String fqcn = classSymbol.getQualifiedName().toString();
+        // 2. Check wildcard imports.
+        boolean wildcardCollision = state.getPath().getCompilationUnit().getImports().stream()
+                .filter(it -> !it.isStatic())
+                .map(ImportTree::getQualifiedIdentifier)
+                .map(Object::toString)
+                .filter(fqn -> fqn.endsWith(".*"))
+                .map(fqn -> fqn.substring(0, fqn.length() - 2))
+                .anyMatch(pkg -> {
+                    String possibleFqn = pkg + "." + simpleName;
+                    if (possibleFqn.equals(fqcn)) return false;
+                    Symbol symFromString = state.getSymbolFromString(possibleFqn);
+                    return symFromString instanceof ClassSymbol;
+                });
+
+        if (wildcardCollision) {
+            return Description.NO_MATCH;
+        }
+
+        // 3. Check java.lang (implicitly imported)
+        String javaLangFqn = "java.lang." + simpleName;
+        if (!javaLangFqn.equals(fqcn)) {
+            Symbol javaLangSym = state.getSymbolFromString(javaLangFqn);
+            if (javaLangSym instanceof ClassSymbol) {
+                return Description.NO_MATCH;
+            }
+        }
+
+        // 4. Check same package (implicitly imported)
+        var pkgTree = state.getPath().getCompilationUnit().getPackageName();
+        if (pkgTree != null) {
+            String pkgName = pkgTree.toString();
+            String samePkgFqn = pkgName + "." + simpleName;
+            if (!samePkgFqn.equals(fqcn)) {
+                Symbol samePkgSym = state.getSymbolFromString(samePkgFqn);
+                if (samePkgSym instanceof ClassSymbol) {
+                    return Description.NO_MATCH;
+                }
+            }
+        }
         SuggestedFix.Builder fix = SuggestedFix.builder().replace(tree, simpleName);
 
         // java.lang classes don't need an explicit import, but their sub-packages (e.g. java.lang.reflect) do.
