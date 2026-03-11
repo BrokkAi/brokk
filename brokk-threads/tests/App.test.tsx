@@ -10,8 +10,18 @@ describe("App", () => {
     window.brokkThreads = {
       getInitialShellState: vi.fn().mockResolvedValue({
         threads: [
-          { id: "a", title: "Alpha Thread", updatedAt: "2026-01-01T00:00:00.000Z" },
-          { id: "b", title: "Beta Thread", updatedAt: "2026-01-02T00:00:00.000Z" }
+          {
+            id: "a",
+            title: "Alpha Thread",
+            createdAt: "2026-01-01T00:00:00.000Z",
+            updatedAt: "2026-01-01T00:00:00.000Z"
+          },
+          {
+            id: "b",
+            title: "Beta Thread",
+            createdAt: "2026-01-02T00:00:00.000Z",
+            updatedAt: "2026-01-02T00:00:00.000Z"
+          }
         ],
         selectedThreadId: "b"
       })
@@ -45,6 +55,46 @@ describe("App", () => {
 
     await waitFor(() => {
       expect(screen.getByText("No thread selected")).toBeInTheDocument();
+    });
+  });
+
+  it("renders unprovisioned and provisioned thread states distinctly", async () => {
+    window.brokkThreads = {
+      getInitialShellState: vi.fn().mockResolvedValue({
+        threads: [
+          {
+            id: "u",
+            title: "Unprovisioned Thread",
+            createdAt: "2026-01-01T00:00:00.000Z",
+            updatedAt: "2026-01-01T00:00:00.000Z"
+          },
+          {
+            id: "p",
+            title: "Provisioned Thread",
+            createdAt: "2026-01-02T00:00:00.000Z",
+            updatedAt: "2026-01-02T00:00:00.000Z",
+            provisioning: {
+              branch: "feature/p",
+              worktreePath: "/tmp/wt1",
+              brokkSessionId: "session-1",
+              executor: {
+                executorId: "exec-1",
+                startedAt: "2026-01-02T00:00:00.000Z"
+              }
+            }
+          }
+        ],
+        selectedThreadId: "u"
+      })
+    };
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Unprovisioned Thread")).toBeInTheDocument();
+      expect(screen.getByText("Provisioned Thread")).toBeInTheDocument();
+      expect(screen.getByText("Not provisioned")).toBeInTheDocument();
+      expect(screen.getByText("Provisioned")).toBeInTheDocument();
     });
   });
 });

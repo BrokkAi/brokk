@@ -3,6 +3,16 @@ import type { InitialShellState, ThreadMetadata } from "../electron/types";
 
 const emptyState: InitialShellState = { threads: [], selectedThreadId: null };
 
+function isProvisioned(thread: ThreadMetadata): boolean {
+  const provisioning = thread.provisioning;
+  return Boolean(
+    provisioning?.branch ||
+      provisioning?.worktreePath ||
+      provisioning?.brokkSessionId ||
+      provisioning?.executor
+  );
+}
+
 export function App() {
   const [state, setState] = useState<InitialShellState>(emptyState);
 
@@ -33,7 +43,10 @@ export function App() {
           <h2>Threads</h2>
           <ul>
             {state.threads.map((thread) => (
-              <li key={thread.id}>{thread.title}</li>
+              <li key={thread.id}>
+                <div>{thread.title}</div>
+                <small>{isProvisioned(thread) ? "Provisioned" : "Not provisioned"}</small>
+              </li>
             ))}
           </ul>
         </aside>
