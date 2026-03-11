@@ -65,14 +65,18 @@ class TestPickSessionStartupFlow:
         try:
             await app._start_executor()
 
-            assert app.pick_session is False, "pick_session should be reset to False after triggering"
+            assert app.pick_session is False, (
+                "pick_session should be reset " + "to False after triggering"
+            )
 
             show_sessions_scheduled = [
                 coro
                 for coro in scheduled
                 if hasattr(coro, "cr_code") and coro.cr_code.co_name == "_show_sessions"
             ]
-            assert len(show_sessions_scheduled) == 1, "_show_sessions should be scheduled exactly once"
+            assert len(show_sessions_scheduled) == 1, (
+                "_show_sessions should " + "be scheduled exactly once"
+            )
         finally:
             for coro in scheduled:
                 try:

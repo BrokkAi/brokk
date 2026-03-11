@@ -191,6 +191,7 @@ async def test_polling_triggers_immediately_after_ready(tmp_path):
 
     # Stub chat access to prevent background workers from accessing #chat-log before mount
     from unittest.mock import MagicMock
+
     app._maybe_chat = MagicMock(return_value=None)
 
     with (
