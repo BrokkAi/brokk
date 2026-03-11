@@ -1375,11 +1375,18 @@ class ChatPanel(Vertical):
             # Re-verify auto_scroll is still False after writes
             log.auto_scroll = False
 
-            # Use call_later to ensure the scroll happens after the log's internal state updates
+            # Use call_later to ensure the scroll happens after the log's internal state updates.
+            # Keep sync suppression enabled until the restored middle scroll position has had a
+            # chance to propagate; otherwise transient "at bottom" state can re-enable follow mode.
             def _restore_scroll():
-                self._suppressing_sync = False
                 log.scroll_to(y=min(prior_scroll_y, log.max_scroll_y), animate=False)
-                self._sync_autoscroll()
+                log.auto_scroll = False
+                self.query_one("#scroll-to-bottom", Button).remove_class("hidden")
+
+                def _finish_restore() -> None:
+                    self._suppressing_sync = False
+
+                self.call_later(_finish_restore)
 
             self.call_later(_restore_scroll)
         else:
