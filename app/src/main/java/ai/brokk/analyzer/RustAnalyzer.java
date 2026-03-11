@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -452,7 +453,7 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
         var unitsInFiles = files.stream()
                 .flatMap(file -> getDeclarations(file).stream())
                 .filter(cu -> cu.isModule() || cu.isClass() || cu.isFunction())
-                .collect(java.util.stream.Collectors.toSet());
+                .collect(Collectors.toSet());
 
         return ai.brokk.AnalyzerUtil.coalesceInnerClasses(unitsInFiles);
     }
