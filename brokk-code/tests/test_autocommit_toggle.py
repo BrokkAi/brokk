@@ -34,6 +34,18 @@ def test_handle_command_autocommit_bare_toggles_and_persists(tmp_path):
     assert "Auto-commit mode: [bold]ON[/]" in args[0]
 
 
+def test_handle_command_autocommit_invalid_arg_shows_usage(tmp_path):
+    app = BrokkApp(executor=MagicMock(workspace_dir=tmp_path))
+    mock_chat = MagicMock(spec=ChatPanel)
+    app.query_one = MagicMock(return_value=mock_chat)
+
+    app._handle_command("/autocommit invalid")
+
+    mock_chat.add_system_message.assert_called_once_with(
+        "Usage: /autocommit [on|off]", level="ERROR"
+    )
+
+
 def test_handle_command_autocommit_off_persists_and_announces(tmp_path):
     app = BrokkApp(executor=MagicMock(workspace_dir=tmp_path))
     mock_chat = MagicMock(spec=ChatPanel)
