@@ -885,6 +885,7 @@ public class SettingsProjectBuildPanel extends JPanel {
         var newBuildLint = buildCleanCommandField.getText();
         var newTestAll = allTestsCommandField.getText();
         var newTestSome = someTestsCommandField.getText();
+        var newAfterTaskList = afterTaskListCommandField.getText();
 
         // Primary language
         var selectedPrimaryLang = (Language) primaryLanguageComboBox.getSelectedItem();
@@ -900,7 +901,13 @@ public class SettingsProjectBuildPanel extends JPanel {
 
         // Always use exclusion patterns from disk - Code Intelligence panel is the source of truth
         var newDetails = new BuildAgent.BuildDetails(
-                newBuildLint, newTestAll, newTestSome, diskDetails.exclusionPatterns(), envVars);
+                newBuildLint,
+                newTestAll,
+                newTestSome,
+                diskDetails.exclusionPatterns(),
+                envVars,
+                diskDetails.maxBuildAttempts(),
+                newAfterTaskList);
 
         // Compare against what's currently saved on disk
         var currentDetails = project.awaitBuildDetails();
