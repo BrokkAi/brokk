@@ -286,7 +286,13 @@ class TestPickSessionStartupFlow:
 
         assert app.pick_session is False
 
+        for coro in scheduled:
+            try:
+                coro.close()
+            except Exception:
+                pass
         scheduled.clear()
+
         app._executor_ready = False
         app._executor_started = False
 
