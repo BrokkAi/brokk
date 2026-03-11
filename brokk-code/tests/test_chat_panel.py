@@ -1610,7 +1610,9 @@ async def test_refresh_log_preserves_middle_scroll_position():
             "scroll_y should not exceed max_scroll_y after refresh"
         )
         if scroll_moved:
-            assert log.scroll_y > 0, "scroll_y should be restored near prior position, not reset to 0"
+            assert log.scroll_y > 0, (
+                "scroll_y should be restored " + "near prior position, not reset to 0"
+            )
             # Allow some tolerance since content may re-render slightly differently
             assert abs(log.scroll_y - min(prior_scroll_y, log.max_scroll_y)) <= 1, (
                 f"scroll_y ({log.scroll_y}) should be close to prior ({prior_scroll_y}) "
