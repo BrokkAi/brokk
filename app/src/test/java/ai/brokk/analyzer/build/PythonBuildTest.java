@@ -48,4 +48,22 @@ public class PythonBuildTest {
             assertEquals("pytest test_my_logic", command.trim());
         }
     }
+
+    @Test
+    void testMultipleFunctionsTemplateInterpolation() throws Exception {
+        String code = """
+            def test_one():
+                pass
+            def test_two():
+                pass
+            """;
+
+        try (var project = InlineTestProjectCreator.code(code, "tests/test_multi.py").build()) {
+            TestContextManager cm = new TestContextManager(project, new NoOpConsoleIO(), Set.of(), project.getAnalyzer());
+            BuildDetails details = new BuildDetails("", "", "pytest {{#classes}}{{value}} {{/classes}}", Set.of());
+
+            String command = BuildTools.getBuildLintSomeCommand(cm, details, List.copyOf(project.getAllFiles()));
+            assertEquals("pytest test_one test_two", command.trim());
+        }
+    }
 }

@@ -11,6 +11,7 @@ import ai.brokk.testutil.TestContextManager;
 import ai.brokk.util.BuildTools;
 import java.util.List;
 import java.util.Set;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 public class JavaScriptBuildTest {
@@ -54,6 +55,21 @@ public class JavaScriptBuildTest {
 
             String commandClasses = BuildTools.getBuildLintSomeCommand(cm, detailsClasses, List.of(testFile));
             assertEquals("jest --findRelatedTests logic.test.js", commandClasses.trim());
+        }
+    }
+
+    @Test
+    @Disabled("Failing multi-function interpolation")
+    void testMultipleModulesTemplateInterpolation() throws Exception {
+        try (var project = InlineTestProjectCreator.empty()
+                .addFileContents("test('a', () => {})", "a.test.js")
+                .addFileContents("test('b', () => {})", "b.test.js")
+                .build()) {
+            TestContextManager cm = new TestContextManager(project, new NoOpConsoleIO(), Set.of(), project.getAnalyzer());
+            BuildDetails details = new BuildDetails("", "", "jest {{#classes}}{{value}} {{/classes}}", Set.of());
+
+            String command = BuildTools.getBuildLintSomeCommand(cm, details, List.copyOf(project.getAllFiles()));
+            assertEquals("jest a.test.js b.test.js", command.trim());
         }
     }
 }

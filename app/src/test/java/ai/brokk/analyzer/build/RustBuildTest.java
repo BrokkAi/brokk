@@ -55,4 +55,23 @@ public class RustBuildTest {
             assertEquals("cargo test test_my_logic tests", command);
         }
     }
+
+    @Test
+    @Disabled("Failing multi-function interpolation")
+    void testMultipleFunctionsTemplateInterpolation() throws Exception {
+        String code = """
+                #[test]
+                fn test_a() {}
+                #[test]
+                fn test_b() {}
+                """;
+
+        try (var project = InlineTestProjectCreator.code(code, "src/lib.rs").build()) {
+            TestContextManager cm = new TestContextManager(project, new NoOpConsoleIO(), Set.of(), project.getAnalyzer());
+            BuildDetails details = new BuildDetails("", "", "cargo test {{#classes}}{{value}} {{/classes}}", Set.of());
+
+            String command = BuildTools.getBuildLintSomeCommand(cm, details, List.copyOf(project.getAllFiles()));
+            assertEquals("cargo test test_a test_b", command.trim());
+        }
+    }
 }

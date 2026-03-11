@@ -53,4 +53,22 @@ public class GoBuildTest {
             assertEquals("go test ./mypkg -run '^TestMyLogic$'", command);
         }
     }
+
+    @Test
+    @Disabled("Failing multi-function interpolation")
+    void testMultipleFunctionsTemplateInterpolation() throws Exception {
+        String code = """
+                package mypkg
+                func TestOne(t *testing.T) {}
+                func TestTwo(t *testing.T) {}
+                """;
+
+        try (var project = InlineTestProjectCreator.code(code, "mypkg/multi_test.go").build()) {
+            TestContextManager cm = new TestContextManager(project, new NoOpConsoleIO(), Set.of(), project.getAnalyzer());
+            BuildDetails details = new BuildDetails("", "", "go test ./mypkg -run '^{{#classes}}{{value}}{{^last}}|{{/last}}{{/classes}}$'", Set.of());
+
+            String command = BuildTools.getBuildLintSomeCommand(cm, details, List.copyOf(project.getAllFiles()));
+            assertEquals("go test ./mypkg -run '^TestOne|TestTwo$'", command.trim());
+        }
+    }
 }
