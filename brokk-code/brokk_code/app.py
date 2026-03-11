@@ -2228,35 +2228,22 @@ class BrokkApp(App):
             else:
                 self.run_worker(self.action_select_code_model_and_reasoning())
         elif base == "/autocommit":
+            usage = "Usage: /autocommit [on|off]"
             if len(parts) == 1:
-                state = "ON" if self.auto_commit else "OFF"
-                chat.add_system_message_markup(
-                    f"Auto-commit mode: [bold]{state}[/]\nUsage: /autocommit on|off|toggle",
-                    level="WARNING",
-                )
-                return
-
-            if len(parts) != 2:
-                chat.add_system_message(
-                    "Usage: /autocommit on|off|toggle (or true/false/1/0/yes/no)",
-                    level="ERROR",
-                )
-                return
-
-            arg = parts[1].strip().lower()
-            truthy = {"on", "true", "1", "yes"}
-            falsy = {"off", "false", "0", "no"}
-            if arg in truthy:
-                new_value = True
-            elif arg in falsy:
-                new_value = False
-            elif arg == "toggle":
                 new_value = not self.auto_commit
+            elif len(parts) == 2:
+                arg = parts[1].strip().lower()
+                truthy = {"on", "true", "1", "yes"}
+                falsy = {"off", "false", "0", "no"}
+                if arg in truthy:
+                    new_value = True
+                elif arg in falsy:
+                    new_value = False
+                else:
+                    chat.add_system_message(usage, level="ERROR")
+                    return
             else:
-                chat.add_system_message(
-                    "Usage: /autocommit on|off|toggle (or true/false/1/0/yes/no)",
-                    level="ERROR",
-                )
+                chat.add_system_message(usage, level="ERROR")
                 return
 
             self.auto_commit = new_value
@@ -2270,8 +2257,7 @@ class BrokkApp(App):
                 chat.add_system_message_markup("Auto-commit mode: [bold]ON[/]")
             else:
                 chat.add_system_message_markup(
-                    "Auto-commit mode: [bold]OFF[/] (changes will not be committed automatically)",
-                    level="WARNING",
+                    "Auto-commit mode: [bold]OFF[/] (changes will not be committed automatically)"
                 )
         elif base == "/settings":
             if len(parts) > 1:
