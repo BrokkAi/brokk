@@ -19,7 +19,8 @@ import org.treesitter.TSQueryMatch;
 import org.treesitter.TSTree;
 import org.treesitter.TreeSitterJava;
 
-public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisProvider, TypeHierarchyProvider {
+public class JavaAnalyzer extends TreeSitterAnalyzer
+        implements ImportAnalysisProvider, TypeHierarchyProvider, JvmBasedAnalyzer {
 
     private static final Pattern LAMBDA_REGEX = Pattern.compile("(\\$anon|\\$\\d+)");
 
