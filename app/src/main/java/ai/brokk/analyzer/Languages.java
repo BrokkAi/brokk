@@ -5,7 +5,9 @@ import ai.brokk.gui.Chrome;
 import ai.brokk.gui.dependencies.DependenciesPanel;
 import ai.brokk.project.IProject;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
@@ -476,6 +478,25 @@ public class Languages {
         }
 
         return false;
+    }
+
+    /**
+     * Scans the project files to detect which languages are present based on file extensions.
+     * Uses tracked files if it's a git repo, otherwise scans all project files.
+     */
+    public static List<Language> findLanguagesInProject(IProject project) {
+        Set<Language> langs = new HashSet<>();
+        Set<ProjectFile> filesToScan = project.hasGit() ? project.getRepo().getTrackedFiles() : project.getAllFiles();
+        for (var pf : filesToScan) {
+            String extension = pf.extension();
+            if (!extension.isEmpty()) {
+                var lang = Languages.fromExtension(extension);
+                if (lang != Languages.NONE) {
+                    langs.add(lang);
+                }
+            }
+        }
+        return new ArrayList<>(langs);
     }
 
     /**

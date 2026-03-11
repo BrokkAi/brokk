@@ -1110,7 +1110,7 @@ public class SettingsProjectBuildPanel extends JPanel {
     }
 
     private void populatePrimaryLanguageComboBox() {
-        var detected = findLanguagesInProject();
+        var detected = Languages.findLanguagesInProject(project);
         var configured = project.computedBuildLanguage();
         if (!detected.contains(configured)) {
             detected.add(configured);
@@ -1118,21 +1118,6 @@ public class SettingsProjectBuildPanel extends JPanel {
         // Sort by display name
         detected.sort(Comparator.comparing(Language::name));
         primaryLanguageComboBox.setModel(new DefaultComboBoxModel<>(detected.toArray(Language[]::new)));
-    }
-
-    private List<Language> findLanguagesInProject() {
-        Set<Language> langs = new HashSet<>();
-        Set<ProjectFile> filesToScan = project.hasGit() ? project.getRepo().getTrackedFiles() : project.getAllFiles();
-        for (var pf : filesToScan) {
-            String extension = Files.getFileExtension(pf.absPath().toString());
-            if (!extension.isEmpty()) {
-                var lang = Languages.fromExtension(extension);
-                if (lang != Languages.NONE) {
-                    langs.add(lang);
-                }
-            }
-        }
-        return new ArrayList<>(langs);
     }
 
     private void initializeExecutorUI() {

@@ -685,7 +685,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
 
         // Load languages asynchronously
         LoggingFuture.supplyAsync(() -> {
-                    var detected = findLanguagesInProject(project);
+                    var detected = Languages.findLanguagesInProject(project);
                     var configured = new ArrayList<>(project.getAnalyzerLanguages());
                     var langSet = new HashSet<Language>();
                     langSet.addAll(detected);
@@ -1294,20 +1294,6 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         SwingUtilities.updateComponentTreeUI(this);
     }
 
-    private List<Language> findLanguagesInProject(IProject project) {
-        Set<Language> langs = new HashSet<>();
-        Set<ProjectFile> filesToScan = project.hasGit() ? project.getRepo().getTrackedFiles() : project.getAllFiles();
-        for (var pf : filesToScan) {
-            String extension = Files.getFileExtension(pf.absPath().toString());
-            if (!extension.isEmpty()) {
-                var lang = Languages.fromExtension(extension);
-                if (lang != Languages.NONE) {
-                    langs.add(lang);
-                }
-            }
-        }
-        return new ArrayList<>(langs);
-    }
 
     // Static inner class DataRetentionPanel (Copied and adapted from SettingsDialog)
     public static class DataRetentionPanel extends JPanel {
