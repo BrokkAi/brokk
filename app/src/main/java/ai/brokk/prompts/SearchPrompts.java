@@ -414,9 +414,9 @@ public class SearchPrompts {
 
                 Workspace context guidance:
                   - If you know where to find what you're looking for, just add it, you don't need to keep searching "just in case".
-                  - If you don't know where to find a piece of information, use search tools or skimDirectory to identify specific files/classes/methods instead of guessing.
+                  - If you don't know where to find a piece of information, use search tools or skimFiles to identify specific files/classes/methods instead of guessing.
                   - The add*ToWorkspace tools do not work with directories or globs or wildcards as parameters;
-                    skimDirectory can help you narrow down your search, after which you should add only those specific items to the Workspace.
+                    skimFiles can help you narrow down your search, after which you should add only those specific items to the Workspace.
                 When to prefer the different content types:
                   - Summaries: when you only need API signatures/types/constants.
                   - Method sources: when you need implementation details for specific methods.

@@ -222,14 +222,14 @@ public class SearchToolsTest {
     }
 
     @Test
-    void testSkimDirectory() {
+    void testSkimFiles() {
         TestContextManager ctxWithAnalyzer = new TestContextManager(
                 javaTestProject, new TestConsoleIO(), Set.of(), javaAnalyzer, new TestRepo(javaTestProject.getRoot()));
 
         SearchTools tools = new SearchTools(ctxWithAnalyzer);
 
-        // Test skimming the root directory of the test project
-        String result = tools.skimDirectory(".");
+        // Test skimming the root directory of the test project using glob
+        String result = tools.skimFiles(List.of("*.java"));
         assertFalse(result.isEmpty(), "Result should not be empty");
 
         // Verify it contains file entries in XML-ish format with loc
@@ -241,7 +241,7 @@ public class SearchToolsTest {
     }
 
     @Test
-    void testSkimDirectory_dependenciesNotGitignored() throws IOException {
+    void testSkimFiles_dependenciesNotGitignored() throws IOException {
         Path projectRootCopy = createDisposableTestProjectCopy();
         try (TestProject localProject = new TestProject(projectRootCopy, Languages.JAVA)) {
             JavaAnalyzer localAnalyzer = new JavaAnalyzer(localProject);
@@ -262,10 +262,11 @@ public class SearchToolsTest {
             Files.writeString(testFile, "public class DependencyFile {}");
 
             try {
-                // 2. Call skimDirectory on the dependency path
-                String pathString = Path.of(AbstractProject.BROKK_DIR, AbstractProject.DEPENDENCIES_DIR, "testrepo")
+                // 2. Call skimFiles on the dependency path
+                String pathString = Path.of(
+                                AbstractProject.BROKK_DIR, AbstractProject.DEPENDENCIES_DIR, "testrepo", "*.java")
                         .toString();
-                String result = tools.skimDirectory(pathString);
+                String result = tools.skimFiles(List.of(pathString));
 
                 // 3. Verify that the file IS returned (not filtered out by the .brokk gitignore simulation)
                 assertTrue(

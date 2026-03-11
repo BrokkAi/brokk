@@ -290,7 +290,7 @@ public class SearchAgent {
         names.add("searchSymbols");
         names.add("scanUsages");
         names.add("getSymbolLocations");
-        names.add("skimDirectory");
+        names.add("skimFiles");
         names.add("findFilesContaining");
         names.add("findFilenames");
         names.add("searchFileContents");
