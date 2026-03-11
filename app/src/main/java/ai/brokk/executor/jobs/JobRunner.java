@@ -533,9 +533,7 @@ public final class JobRunner {
                                                             jobId,
                                                             JobEvent.of(
                                                                     "NOTIFICATION",
-                                                                    Map.of(
-                                                                            "message",
-                                                                            "Brokk Context Engine: analyzing repository context...")));
+                                                                    "Brokk Context Engine: analyzing repository context..."));
                                                 } catch (IOException ioe) {
                                                     logger.warn(
                                                             "Failed to append pre-scan start notification event for job {}: {}",
@@ -612,9 +610,7 @@ public final class JobRunner {
                                                             jobId,
                                                             JobEvent.of(
                                                                     "NOTIFICATION",
-                                                                    Map.of(
-                                                                            "message",
-                                                                            "Brokk Context Engine: complete — contextual insights added to Workspace.")));
+                                                                    "Brokk Context Engine: complete — contextual insights added to Workspace."));
                                                 } catch (IOException ioe) {
                                                     logger.warn(
                                                             "Failed to append pre-scan completion event for job {}: {}",
@@ -766,10 +762,8 @@ public final class JobRunner {
                                                         jobId,
                                                         JobEvent.of(
                                                                 "NOTIFICATION",
-                                                                Map.of(
-                                                                        "message",
-                                                                        "Fetching PR refs from remote '" + remoteName
-                                                                                + "'...")));
+                                                                "Fetching PR refs from remote '" + remoteName
+                                                                        + "'..."));
                                             } catch (IOException ioe) {
                                                 logger.warn(
                                                         "Failed to append fetch notification event for job {}: {}",
@@ -823,9 +817,7 @@ public final class JobRunner {
                                                         jobId,
                                                         JobEvent.of(
                                                                 "NOTIFICATION",
-                                                                Map.of(
-                                                                        "message",
-                                                                        "Brokk Context Engine: analyzing repository context for PR review...")));
+                                                                "Brokk Context Engine: analyzing repository context for PR review..."));
 
                                                 var scanGoal =
                                                         "Analyzing changes in this PR diff to identify related code context:\n```diff\n"
@@ -845,9 +837,7 @@ public final class JobRunner {
                                                         jobId,
                                                         JobEvent.of(
                                                                 "NOTIFICATION",
-                                                                Map.of(
-                                                                        "message",
-                                                                        "Brokk Context Engine: complete — contextual insights added to Workspace.")));
+                                                                "Brokk Context Engine: complete — contextual insights added to Workspace."));
                                             } catch (InterruptedException ie) {
                                                 Thread.currentThread().interrupt();
                                                 logger.warn(
@@ -1009,8 +999,7 @@ public final class JobRunner {
                                             String msg =
                                                     "ISSUE_WRITER requires a materialized repository in the workspace. Clone/open the repo in the selected workspace directory (e.g., via HeadlessExecCli which clones for ISSUE/REVIEW/ISSUE_WRITER).";
                                             try {
-                                                store.appendEvent(
-                                                        jobId, JobEvent.of("NOTIFICATION", Map.of("message", msg)));
+                                                store.appendEvent(jobId, JobEvent.of("NOTIFICATION", msg));
                                             } catch (IOException ioe) {
                                                 logger.warn(
                                                         "Failed to append ISSUE_WRITER empty-workspace notification for job {}: {}",
@@ -1026,9 +1015,7 @@ public final class JobRunner {
                                                     jobId,
                                                     JobEvent.of(
                                                             "NOTIFICATION",
-                                                            Map.of(
-                                                                    "message",
-                                                                    "ISSUE_WRITER: starting repository discovery")));
+                                                            "ISSUE_WRITER: starting repository discovery"));
                                         } catch (IOException ioe) {
                                             logger.warn(
                                                     "Failed to append ISSUE_WRITER start notification for job {}: {}",
@@ -1049,10 +1036,8 @@ public final class JobRunner {
                                                     jobId,
                                                     JobEvent.of(
                                                             "NOTIFICATION",
-                                                            Map.of(
-                                                                    "message",
-                                                                    "ISSUE_WRITER: discovery complete (title: "
-                                                                            + parsed.title() + ")")));
+                                                            "ISSUE_WRITER: discovery complete (title: " + parsed.title()
+                                                                    + ")"));
                                         } catch (IOException ioe) {
                                             logger.warn(
                                                     "Failed to append ISSUE_WRITER discovery-complete notification for job {}: {}",
@@ -1090,8 +1075,7 @@ public final class JobRunner {
                                         }
 
                                         try {
-                                            store.appendEvent(
-                                                    jobId, JobEvent.of("NOTIFICATION", Map.of("message", createdMsg)));
+                                            store.appendEvent(jobId, JobEvent.of("NOTIFICATION", createdMsg));
 
                                             var issueCreatedData = new LinkedHashMap<String, Object>();
                                             issueCreatedData.put("issueId", created.id());

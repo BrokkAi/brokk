@@ -21,7 +21,6 @@ import java.io.IOException;
 import java.net.URI;
 import java.time.Instant;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -685,7 +684,7 @@ public final class IssueExecutor {
 
     private void emitNotification(String message) {
         try {
-            store.appendEvent(jobId, JobEvent.of("NOTIFICATION", Map.of("message", message)));
+            store.appendEvent(jobId, JobEvent.of("NOTIFICATION", message));
         } catch (IOException ioe) {
             logger.warn("Failed to append notification for job {}: {}", jobId, ioe.getMessage(), ioe);
         }
