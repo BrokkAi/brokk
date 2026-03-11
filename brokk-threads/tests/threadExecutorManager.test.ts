@@ -73,6 +73,9 @@ describe("InMemoryPerThreadExecutorManager", () => {
     const threadA = createThread("a", "A", true);
     const threadB = createThread("b", "B", true);
 
+    const outputEvents: Array<{ threadId: string; text: string }> = [];
+    const unsubscribe = manager.onOutput((event) => outputEvents.push(event));
+
     const executorAFirst = await manager.ensureExecutorForThread(threadA);
     await executorAFirst.ensureSessionForThread(threadA);
     await executorAFirst.sendPrompt("run A");
@@ -90,5 +93,8 @@ describe("InMemoryPerThreadExecutorManager", () => {
 
     expect(startExecutor).toHaveBeenCalledTimes(2);
     expect(manager.getActiveExecutorThreadIds().sort()).toEqual(["a", "b"]);
+    expect(outputEvents.some((event) => event.threadId === "a")).toBe(true);
+    expect(outputEvents.some((event) => event.threadId === "b")).toBe(true);
+    unsubscribe();
   });
 });

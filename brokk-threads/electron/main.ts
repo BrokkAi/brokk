@@ -10,10 +10,7 @@ import {
   selectThreadMetadataOnly
 } from "./shellController";
 import { LazyThreadWorktreeProvisioningService } from "./worktreeProvisioningService";
-import {
-  InMemoryPerThreadExecutorManager,
-  createMainProcessThreadExecutorManager
-} from "./threadExecutorManager";
+import { createMainProcessThreadExecutorManager } from "./threadExecutorManager";
 import type {
   ExecutorProvisioning,
   LazyExecutorService,
@@ -103,16 +100,18 @@ ipcMain.handle("threads:ensure-thread-provisioned-for-prompt", async (_event, th
 });
 
 ipcMain.handle("threads:send-prompt", async (_event, threadId: string, prompt: string) => {
-  const state = await metadataStore.loadState();
-  const thread = state.threads.find((item) => item.id === threadId);
-  if (!thread) {
-    throw new Error(`Thread ${threadId} not found`);
-  }
-
-  const executor = await threadExecutorManager.ensureExecutorForThread(thread);
+  const provisioned = await provisionThreadForPromptIfNeeded(deps, threadId);
+  const executor = await threadExecutorManager.ensureExecutorForThread(provisioned.thread);
   await executor.ensureReady();
-  await executor.ensureSessionForThread(thread);
+  await executor.ensureSessionForThread(provisioned.thread);
   await executor.sendPrompt(prompt);
+});
+
+ipcMain.handle("threads:subscribe-output", (event) => {
+  const unsubscribe = threadExecutorManager.onOutput((payload) => {
+    event.sender.send("threads:output", payload);
+  });
+  event.sender.once("destroyed", unsubscribe);
 });
 
 ipcMain.handle("threads:debug-active-executors", () => {

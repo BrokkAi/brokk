@@ -1,3 +1,4 @@
+import { EventEmitter } from "node:events";
 import type {
   ExecutorProvisioning,
   LazyExecutorService,
@@ -18,11 +19,18 @@ type ExecutorState = {
   started: boolean;
 };
 
+type OutputEvent = {
+  threadId: string;
+  text: string;
+};
+
 class PerThreadExecutorClient implements ThreadExecutorClient {
   constructor(
     private readonly thread: ThreadMetadata,
     private readonly state: ExecutorState,
-    private readonly executorService: LazyExecutorService
+    private readonly executorService: LazyExecutorService,
+    private readonly metadataStore: ThreadMetadataStore,
+    private readonly outputEmitter: EventEmitter
   ) {}
 
   async ensureReady(): Promise<ExecutorProvisioning> {
@@ -31,6 +39,15 @@ class PerThreadExecutorClient implements ThreadExecutorClient {
     }
     this.state.provisioning = await this.executorService.startExecutor(this.thread);
     this.state.started = true;
+    const mergedProvisioning = {
+      ...(this.thread.provisioning ?? {
+        branch: "",
+        worktreePath: "",
+        brokkSessionId: null
+      }),
+      executor: this.state.provisioning
+    };
+    await this.metadataStore.attachProvisioning(this.thread.id, mergedProvisioning);
     return this.state.provisioning;
   }
 
@@ -38,18 +55,34 @@ class PerThreadExecutorClient implements ThreadExecutorClient {
     if (this.state.sessionId) {
       return { sessionId: this.state.sessionId };
     }
-    this.state.sessionId = thread.provisioning?.brokkSessionId ?? null;
-    return { sessionId: this.state.sessionId };
+    const existing = thread.provisioning?.brokkSessionId ?? null;
+    if (existing) {
+      this.state.sessionId = existing;
+      return { sessionId: existing };
+    }
+    const sessionId = `session-${thread.id}`;
+    this.state.sessionId = sessionId;
+    await this.metadataStore.attachProvisioning(thread.id, {
+      ...(thread.provisioning ?? { branch: "", worktreePath: "", brokkSessionId: null }),
+      brokkSessionId: sessionId,
+      executor: this.state.provisioning ?? undefined
+    });
+    return { sessionId };
   }
 
-  async sendPrompt(_prompt: string): Promise<void> {
+  async sendPrompt(prompt: string): Promise<void> {
     await this.ensureReady();
+    this.outputEmitter.emit("output", {
+      threadId: this.thread.id,
+      text: `> ${prompt}\nAssistant: job submitted`
+    } satisfies OutputEvent);
   }
 }
 
 export class InMemoryPerThreadExecutorManager implements ThreadExecutorManager {
   private readonly executorsByThreadId = new Map<string, PerThreadExecutorClient>();
   private readonly stateByThreadId = new Map<string, ExecutorState>();
+  private readonly outputEmitter = new EventEmitter();
 
   constructor(private readonly deps: ManagerDeps) {}
 
@@ -66,9 +99,20 @@ export class InMemoryPerThreadExecutorManager implements ThreadExecutorManager {
     };
 
     this.stateByThreadId.set(thread.id, state);
-    const client = new PerThreadExecutorClient(thread, state, this.deps.executorService);
+    const client = new PerThreadExecutorClient(
+      thread,
+      state,
+      this.deps.executorService,
+      this.deps.metadataStore,
+      this.outputEmitter
+    );
     this.executorsByThreadId.set(thread.id, client);
     return client;
+  }
+
+  onOutput(listener: (event: OutputEvent) => void): () => void {
+    this.outputEmitter.on("output", listener);
+    return () => this.outputEmitter.off("output", listener);
   }
 
   getActiveExecutorThreadIds(): string[] {
@@ -78,6 +122,6 @@ export class InMemoryPerThreadExecutorManager implements ThreadExecutorManager {
   }
 }
 
-export function createMainProcessThreadExecutorManager(deps: ManagerDeps): ThreadExecutorManager {
+export function createMainProcessThreadExecutorManager(deps: ManagerDeps): InMemoryPerThreadExecutorManager {
   return new InMemoryPerThreadExecutorManager(deps);
 }

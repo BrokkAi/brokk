@@ -1,5 +1,5 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import type { LazyWorktreeProvisioningService, ThreadMetadata, ThreadProvisioning } from "./types";
 
 type ProvisioningRecord = {
@@ -45,7 +45,7 @@ export class LazyThreadWorktreeProvisioningService implements LazyWorktreeProvis
     } catch (error: unknown) {
       const code = (error as { code?: string })?.code;
       if (code === "ENOENT") {
-        await mkdir(resolve(this.mappingFilePath, ".."), { recursive: true });
+        await mkdir(dirname(resolve(this.mappingFilePath)), { recursive: true });
         await writeFile(resolve(this.mappingFilePath), JSON.stringify(defaultState(), null, 2), "utf-8");
         return defaultState();
       }

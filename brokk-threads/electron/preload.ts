@@ -8,6 +8,7 @@ export type RendererBridge = {
   selectThread(threadId: string): Promise<void>;
   ensureThreadProvisionedForPrompt(threadId: string): Promise<ProvisionedThreadResult>;
   sendPrompt(threadId: string, prompt: string): Promise<void>;
+  subscribeOutput(listener: (payload: { threadId: string; text: string }) => void): Promise<void>;
   debugActiveExecutors(): Promise<string[]>;
 };
 
@@ -29,6 +30,10 @@ const bridge: RendererBridge = {
   },
   sendPrompt(threadId: string, prompt: string) {
     return ipcRenderer.invoke("threads:send-prompt", threadId, prompt);
+  },
+  async subscribeOutput(listener: (payload: { threadId: string; text: string }) => void) {
+    ipcRenderer.on("threads:output", (_event, payload) => listener(payload));
+    await ipcRenderer.invoke("threads:subscribe-output");
   },
   debugActiveExecutors() {
     return ipcRenderer.invoke("threads:debug-active-executors");

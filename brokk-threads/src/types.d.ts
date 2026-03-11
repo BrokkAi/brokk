@@ -9,6 +9,7 @@ declare global {
       selectThread(threadId: string): Promise<void>;
       ensureThreadProvisionedForPrompt(threadId: string): Promise<ProvisionedThreadResult>;
       sendPrompt(threadId: string, prompt: string): Promise<void>;
+      subscribeOutput(listener: (payload: { threadId: string; text: string }) => void): Promise<void>;
       debugActiveExecutors(): Promise<string[]>;
     };
   }
