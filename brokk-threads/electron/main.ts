@@ -4,21 +4,22 @@ import { join } from "node:path";
 import { FileThreadMetadataStore } from "./metadataStore";
 import {
   createThreadMetadataOnly,
+  LazyThreadWorktreeProvisioningService,
   loadInitialShellState,
   provisionThreadForPromptIfNeeded,
   renameThreadMetadataOnly,
   selectThreadMetadataOnly
 } from "./shellController";
-import { LazyThreadWorktreeProvisioningService } from "./worktreeProvisioningService";
 import { createMainProcessThreadExecutorManager } from "./threadExecutorManager";
 import type {
   ExecutorProvisioning,
   LazyExecutorService,
-  ShellControllerDeps
+  ShellControllerDeps,
+  ThreadMetadata
 } from "./types";
 
 class NoopLazyExecutorService implements LazyExecutorService {
-  async startExecutor(thread): Promise<ExecutorProvisioning> {
+  async startExecutor(thread: ThreadMetadata): Promise<ExecutorProvisioning> {
     return {
       executorId: `noop-executor-${thread.id}`,
       startedAt: new Date().toISOString()

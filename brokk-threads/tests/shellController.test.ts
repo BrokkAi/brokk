@@ -2,7 +2,7 @@ import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { LazyThreadWorktreeProvisioningService } from "../electron/worktreeProvisioningService";
+import { LazyThreadWorktreeProvisioningService } from "../electron/shellController";
 
 describe("LazyThreadWorktreeProvisioningService", () => {
   it("creates exactly one mapping for first provision and reuses it on second call", async () => {
