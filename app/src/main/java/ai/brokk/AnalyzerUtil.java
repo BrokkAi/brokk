@@ -10,6 +10,7 @@ import ai.brokk.context.ContextFragments;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -66,6 +67,26 @@ public class AnalyzerUtil {
                     return classes.stream().noneMatch(other -> other.fqName().equals(parent));
                 })
                 .collect(Collectors.toSet());
+    }
+
+    /**
+     * Returns a stream of declarations from the given files, logging warnings if files are missing from the analyzer
+     * or contain no code units.
+     */
+    public static Stream<CodeUnit> getTestDeclarationsWithLogging(IAnalyzer analyzer, Collection<ProjectFile> files) {
+        Set<ProjectFile> analyzedFiles = analyzer.getAnalyzedFiles();
+        return files.stream().flatMap(testFile -> {
+            if (!analyzedFiles.contains(testFile)) {
+                logger.warn("Test file is missing from analyzer index: {}", testFile);
+                return Stream.empty();
+            }
+
+            Set<CodeUnit> decls = analyzer.getDeclarations(testFile);
+            if (decls.isEmpty()) {
+                logger.warn("Test file contains no code units: {}", testFile);
+            }
+            return decls.stream();
+        });
     }
 
     private record StackEntry(String method, int depth) {}

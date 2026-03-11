@@ -664,8 +664,7 @@ public interface IAnalyzer {
      * @return a set of code units found in the files, with inner classes coalesced
      */
     default Set<CodeUnit> testFilesToCodeUnits(Collection<ProjectFile> files) {
-        var unitsInFiles = files.stream()
-                .flatMap(file -> getDeclarations(file).stream())
+        var unitsInFiles = AnalyzerUtil.getTestDeclarationsWithLogging(this, files)
                 .filter(cu -> cu.isClass() || cu.isFunction())
                 .collect(Collectors.toSet());
 
