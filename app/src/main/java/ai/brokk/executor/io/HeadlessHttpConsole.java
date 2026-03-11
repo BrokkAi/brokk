@@ -57,7 +57,7 @@ public class HeadlessHttpConsole extends MemoryConsole {
      * @param type The event type
      * @param data The event data (arbitrary JSON-serializable object)
      */
-    private void appendEvent(String type, @Nullable Map<String, Object> data) {
+    private void appendEvent(String type, @Nullable Object data) {
         try {
             long seq = jobStore.appendEvent(jobId, JobEvent.of(type, data));
             logger.trace("Appended event type={} seq={}", type, seq);
@@ -72,7 +72,7 @@ public class HeadlessHttpConsole extends MemoryConsole {
     @Override
     public void llmOutput(String token, ChatMessageType type, LlmOutputMeta meta) {
         super.llmOutput(token, type, meta);
-        var data = Map.<String, Object>of(
+        var data = Map.of(
                 "token", token,
                 "messageType", type.name(),
                 "isNewMessage", meta.isNewMessage(),
@@ -92,7 +92,7 @@ public class HeadlessHttpConsole extends MemoryConsole {
      */
     @Override
     public void showNotification(NotificationRole role, String message) {
-        var data = Map.<String, Object>of("level", role.name(), "message", message);
+        var data = Map.of("level", role.name(), "message", message);
         appendEvent("NOTIFICATION", data);
     }
 
@@ -108,7 +108,7 @@ public class HeadlessHttpConsole extends MemoryConsole {
 
         if (role == NotificationRole.COST && cost != null) {
             // Enriched payload for cost notifications: include structured numeric cost.
-            var data = Map.<String, Object>of(
+            var data = Map.of(
                     "level", role.name(),
                     "message", message,
                     "cost", cost);
@@ -130,7 +130,7 @@ public class HeadlessHttpConsole extends MemoryConsole {
      */
     @Override
     public void systemNotify(String message, String title, int messageType) {
-        var data = Map.<String, Object>of(
+        var data = Map.of(
                 "level", mapMessageTypeToLevel(messageType),
                 "message", message,
                 "title", title);
@@ -160,7 +160,7 @@ public class HeadlessHttpConsole extends MemoryConsole {
      */
     @Override
     public void toolError(String msg, String title) {
-        var data = Map.<String, Object>of(
+        var data = Map.of(
                 "message", msg,
                 "title", title);
         appendEvent("ERROR", data);
@@ -173,7 +173,7 @@ public class HeadlessHttpConsole extends MemoryConsole {
     @Override
     public void prepareOutputForNextStream(List<TaskEntry> history) {
         resetTranscript(); // Mimic GUI clear-before-stream so the next response starts from this baseline.
-        var data = Map.<String, Object>of(
+        var data = Map.of(
                 "count", history.size(),
                 "snippet", formatHistorySnippet(history));
         appendEvent("CONTEXT_BASELINE", data);
@@ -185,7 +185,7 @@ public class HeadlessHttpConsole extends MemoryConsole {
     @Override
     public void setLlmAndHistoryOutput(List<TaskEntry> history, TaskEntry taskEntry) {
         resetTranscript(); // Reset transcript before staging baseline + pending entry, mirroring GUI behavior.
-        var data = Map.<String, Object>of("count", history.size() + 1, "snippet", formatHistorySnippet(history));
+        var data = Map.of("count", history.size() + 1, "snippet", formatHistorySnippet(history));
         appendEvent("CONTEXT_BASELINE", data);
     }
 
@@ -194,7 +194,7 @@ public class HeadlessHttpConsole extends MemoryConsole {
      */
     @Override
     public void backgroundOutput(String taskDescription) {
-        var data = Map.<String, Object>of("name", "backgroundTask", "value", taskDescription);
+        var data = Map.of("name", "backgroundTask", "value", taskDescription);
         appendEvent("STATE_HINT", data);
     }
 
@@ -203,7 +203,7 @@ public class HeadlessHttpConsole extends MemoryConsole {
      */
     @Override
     public void backgroundOutput(String summary, String details) {
-        var data = Map.<String, Object>of(
+        var data = Map.of(
                 "name", "backgroundTask",
                 "value", summary,
                 "details", details);
@@ -215,31 +215,31 @@ public class HeadlessHttpConsole extends MemoryConsole {
      */
     @Override
     public void setTaskInProgress(boolean progress) {
-        var data = Map.<String, Object>of("name", "taskInProgress", "value", progress);
+        var data = Map.of("name", "taskInProgress", "value", progress);
         appendEvent("STATE_HINT", data);
     }
 
     @Override
     public void showOutputSpinner(String message) {
-        var data = Map.<String, Object>of("name", "outputSpinner", "value", true);
+        var data = Map.of("name", "outputSpinner", "value", true);
         appendEvent("STATE_HINT", data);
     }
 
     @Override
     public void hideOutputSpinner() {
-        var data = Map.<String, Object>of("name", "outputSpinner", "value", false);
+        var data = Map.of("name", "outputSpinner", "value", false);
         appendEvent("STATE_HINT", data);
     }
 
     @Override
     public void showSessionSwitchSpinner() {
-        var data = Map.<String, Object>of("name", "sessionSwitchSpinner", "value", true);
+        var data = Map.of("name", "sessionSwitchSpinner", "value", true);
         appendEvent("STATE_HINT", data);
     }
 
     @Override
     public void hideSessionSwitchSpinner() {
-        var data = Map.<String, Object>of("name", "sessionSwitchSpinner", "value", false);
+        var data = Map.of("name", "sessionSwitchSpinner", "value", false);
         appendEvent("STATE_HINT", data);
     }
 
@@ -248,37 +248,37 @@ public class HeadlessHttpConsole extends MemoryConsole {
      */
     @Override
     public void disableActionButtons() {
-        var data = Map.<String, Object>of("name", "actionButtonsEnabled", "value", false);
+        var data = Map.of("name", "actionButtonsEnabled", "value", false);
         appendEvent("STATE_HINT", data);
     }
 
     @Override
     public void enableActionButtons() {
-        var data = Map.<String, Object>of("name", "actionButtonsEnabled", "value", true);
+        var data = Map.of("name", "actionButtonsEnabled", "value", true);
         appendEvent("STATE_HINT", data);
     }
 
     @Override
     public void updateWorkspace() {
-        var data = Map.<String, Object>of("name", "workspaceUpdated", "value", true);
+        var data = Map.of("name", "workspaceUpdated", "value", true);
         appendEvent("STATE_HINT", data);
     }
 
     @Override
     public void updateGitRepo() {
-        var data = Map.<String, Object>of("name", "gitRepoUpdated", "value", true);
+        var data = Map.of("name", "gitRepoUpdated", "value", true);
         appendEvent("STATE_HINT", data);
     }
 
     @Override
     public void updateContextHistoryTable() {
-        var data = Map.<String, Object>of("name", "contextHistoryUpdated", "value", true);
+        var data = Map.of("name", "contextHistoryUpdated", "value", true);
         appendEvent("STATE_HINT", data);
     }
 
     @Override
     public void updateContextHistoryTable(Context context) {
-        var data = Map.<String, Object>of("name", "contextHistoryUpdated", "value", true, "count", 1);
+        var data = Map.of("name", "contextHistoryUpdated", "value", true, "count", 1);
         appendEvent("STATE_HINT", data);
     }
 
@@ -329,7 +329,7 @@ public class HeadlessHttpConsole extends MemoryConsole {
      */
     private void emitConfirmRequestEvent(
             String message, String title, int optionType, int messageType, int defaultDecision) {
-        var data = Map.<String, Object>of(
+        var data = Map.of(
                 "message", message,
                 "title", title,
                 "optionType", optionType,

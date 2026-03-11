@@ -72,9 +72,9 @@ class JobStoreTest {
         var result = store.createOrGetJob("idem-key-1", spec);
         var jobId = result.jobId();
 
-        store.appendEvent(jobId, JobEvent.of("event1", Map.of("value", "data1")));
-        store.appendEvent(jobId, JobEvent.of("event2", Map.of("value", "data2")));
-        store.appendEvent(jobId, JobEvent.of("event3", Map.of("value", "data3")));
+        store.appendEvent(jobId, JobEvent.of("event1", "data1"));
+        store.appendEvent(jobId, JobEvent.of("event2", "data2"));
+        store.appendEvent(jobId, JobEvent.of("event3", "data3"));
 
         // Read all events
         var allEvents = store.readEvents(jobId, -1, 0);
@@ -167,15 +167,15 @@ class JobStoreTest {
         var jobId = result.jobId();
 
         // Append some events
-        store.appendEvent(jobId, JobEvent.of("event1", Map.of("value", "data1")));
-        store.appendEvent(jobId, JobEvent.of("event2", Map.of("value", "data2")));
-        store.appendEvent(jobId, JobEvent.of("event3", Map.of("value", "data3")));
+        store.appendEvent(jobId, JobEvent.of("event1", "data1"));
+        store.appendEvent(jobId, JobEvent.of("event2", "data2"));
+        store.appendEvent(jobId, JobEvent.of("event3", "data3"));
 
         // Create new JobStore instance with same directory (simulates restart)
         var store2 = new JobStore(tempDir);
 
         // Next event should continue from sequence 3
-        var seq = store2.appendEvent(jobId, JobEvent.of("event4", Map.of("value", "data4")));
+        var seq = store2.appendEvent(jobId, JobEvent.of("event4", "data4"));
         assertEquals(4L, seq);
 
         // Verify all events are readable
