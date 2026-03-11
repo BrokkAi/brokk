@@ -12,7 +12,7 @@ class JobSpecTest {
 
     @Test
     void testOfPrReview_CreatesJobWithCorrectTags() {
-        var spec = JobSpec.ofPrReview("gpt-4", "ghp_token123", "octocat", "hello-world", 42);
+        var spec = JobSpec.ofPrReview("gpt-4", "ghp_token123", "octocat", "hello-world", 42, null);
 
         assertEquals("", spec.taskInput());
         assertFalse(spec.autoCommit());

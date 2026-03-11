@@ -593,6 +593,7 @@ class ExecutorManager:
         owner: str,
         repo: str,
         pr_number: int,
+        severity_threshold: str | None = None,
     ) -> str:
         """Submits a PR review job to the executor.
 
@@ -602,6 +603,8 @@ class ExecutorManager:
             owner: GitHub repository owner.
             repo: GitHub repository name.
             pr_number: The pull request number to review.
+            severity_threshold: Minimum severity for inline comments
+                (CRITICAL, HIGH, MEDIUM, LOW). Defaults to HIGH on the server.
 
         Returns:
             The jobId of the created job.
@@ -612,13 +615,15 @@ class ExecutorManager:
         if not self._http_client:
             raise ExecutorError("Executor not started")
 
-        payload = {
+        payload: dict = {
             "plannerModel": planner_model,
             "githubToken": github_token,
             "owner": owner,
             "repo": repo,
             "prNumber": pr_number,
         }
+        if severity_threshold:
+            payload["severityThreshold"] = severity_threshold
 
         headers = {"Idempotency-Key": str(uuid.uuid4())}
 

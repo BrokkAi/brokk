@@ -733,6 +733,12 @@ public final class JobRunner {
                                             throw new IllegalArgumentException("REVIEW requires pr_number in tags");
                                         }
 
+                                        // Resolve severity threshold from spec or fall back to default
+                                        var severityStr = spec.getSeverityThreshold();
+                                        var severityThreshold = severityStr != null
+                                                ? PrReviewService.Severity.normalize(severityStr)
+                                                : DEFAULT_REVIEW_SEVERITY_THRESHOLD;
+
                                         try (var scope = cm.beginTaskUngrouped("PR Review #" + prNumber)) {
                                             var context = cm.liveContext();
 
@@ -861,7 +867,8 @@ public final class JobRunner {
                                                     plannerModel,
                                                     annotatedDiff,
                                                     prDetails.title(),
-                                                    prDetails.body());
+                                                    prDetails.body(),
+                                                    severityThreshold);
                                             TaskResult reviewResult = review.taskResult();
                                             scope.append(reviewResult);
 
@@ -919,7 +926,7 @@ public final class JobRunner {
 
                                             var filteredComments = PrReviewService.filterInlineComments(
                                                     reviewResponse.comments(),
-                                                    DEFAULT_REVIEW_SEVERITY_THRESHOLD,
+                                                    severityThreshold,
                                                     DEFAULT_REVIEW_MAX_INLINE_COMMENTS);
 
                                             for (var comment : filteredComments) {

@@ -548,6 +548,13 @@ def _build_parser() -> argparse.ArgumentParser:
         help="LLM model for the review (default: gpt-5.1)",
     )
     pr_review_parser.add_argument(
+        "--severity",
+        type=str,
+        default=None,
+        choices=["CRITICAL", "HIGH", "MEDIUM", "LOW"],
+        help="Minimum severity threshold for inline comments (default: HIGH)",
+    )
+    pr_review_parser.add_argument(
         "-v",
         "--verbose",
         action="store_true",
@@ -692,6 +699,7 @@ async def run_pr_review_job(
     repo_owner: str,
     repo_name: str,
     planner_model: str,
+    severity_threshold: str | None = None,
     verbose: bool = False,
     jar_path: Path | None = None,
     executor_version: str | None = None,
@@ -791,6 +799,7 @@ async def run_pr_review_job(
             owner=repo_owner,
             repo=repo_name,
             pr_number=pr_number,
+            severity_threshold=severity_threshold,
         )
         _update_shutdown_context()
 
@@ -1277,6 +1286,7 @@ def main():
                     repo_owner=repo_owner or "",
                     repo_name=repo_name or "",
                     planner_model=args.planner_model,
+                    severity_threshold=args.severity,
                     verbose=args.verbose,
                     jar_path=jar_path,
                     executor_version=args.executor_version,

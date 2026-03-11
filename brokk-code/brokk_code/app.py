@@ -1885,12 +1885,16 @@ class BrokkApp(App):
 
         return list(dict.fromkeys(attached_fragment_ids))
 
+    _VALID_SEVERITIES = {"CRITICAL", "HIGH", "MEDIUM", "LOW"}
+
     def _handle_review_command(self, parts: List[str]) -> None:
         """Handle the /review slash command.
 
         Supported syntaxes:
-          /review <pr_number>                     - infer owner/repo from git remote
-          /review <owner> <repo> <pr_number>      - explicit owner/repo
+          /review <pr_number> [--severity LEVEL]
+          /review <owner> <repo> <pr_number> [--severity LEVEL]
+
+        LEVEL is one of CRITICAL, HIGH, MEDIUM, LOW (default: HIGH).
         """
         chat = self._maybe_chat()
         if not chat:
@@ -1903,12 +1907,33 @@ class BrokkApp(App):
             )
             return
 
-        # Parse arguments
-        args = parts[1:] if len(parts) > 1 else []
+        # Extract --severity flag before positional parsing
+        raw_args = parts[1:] if len(parts) > 1 else []
+        severity_threshold: Optional[str] = None
+        positional: List[str] = []
+        i = 0
+        while i < len(raw_args):
+            if raw_args[i] == "--severity" and i + 1 < len(raw_args):
+                val = raw_args[i + 1].upper()
+                if val not in self._VALID_SEVERITIES:
+                    chat.add_system_message(
+                        f"Invalid severity: {raw_args[i + 1]}. "
+                        f"Must be one of: {', '.join(sorted(self._VALID_SEVERITIES))}",
+                        level="ERROR",
+                    )
+                    return
+                severity_threshold = val
+                i += 2
+            else:
+                positional.append(raw_args[i])
+                i += 1
+
+        args = positional
 
         if len(args) == 0:
             chat.add_system_message(
-                "Usage: /review <pr_number> or /review <owner> <repo> <pr_number>",
+                "Usage: /review <pr_number> [--severity LEVEL] "
+                "or /review <owner> <repo> <pr_number> [--severity LEVEL]",
                 level="WARNING",
             )
             return
@@ -1949,7 +1974,8 @@ class BrokkApp(App):
                 return
         else:
             chat.add_system_message(
-                "Usage: /review <pr_number> or /review <owner> <repo> <pr_number>",
+                "Usage: /review <pr_number> [--severity LEVEL] "
+                "or /review <owner> <repo> <pr_number> [--severity LEVEL]",
                 level="WARNING",
             )
             return
@@ -1964,13 +1990,15 @@ class BrokkApp(App):
             )
             return
 
-        chat.add_system_message(f"Submitting PR review for {owner}/{repo}#{pr_number}...")
+        severity_msg = f" (severity>={severity_threshold})" if severity_threshold else ""
+        chat.add_system_message(f"Submitting PR review for {owner}/{repo}#{pr_number}{severity_msg}...")
         self.run_worker(
             self._run_pr_review_job(
                 pr_number=pr_number,
                 github_token=github_token,
                 repo_owner=owner,
                 repo_name=repo,
+                severity_threshold=severity_threshold,
             )
         )
 
@@ -1980,6 +2008,7 @@ class BrokkApp(App):
         github_token: str,
         repo_owner: str,
         repo_name: str,
+        severity_threshold: Optional[str] = None,
     ) -> None:
         """Run a PR review job and stream events to the chat."""
         self.current_job_cost = 0.0
@@ -1998,6 +2027,7 @@ class BrokkApp(App):
                 owner=repo_owner,
                 repo=repo_name,
                 pr_number=pr_number,
+                severity_threshold=severity_threshold,
             )
             async for event in self.executor.stream_events(self.current_job_id):
                 if not isinstance(event, dict):

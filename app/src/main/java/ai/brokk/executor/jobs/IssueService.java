@@ -417,7 +417,8 @@ public final class IssueService {
                     PrReviewExecutor.ReviewDiffResult review;
                     try {
                         try (var reviewScope = cm.beginTaskUngrouped("PR Review")) {
-                            review = new PrReviewExecutor(cm).reviewDiff(ctx, reviewModel, annotatedDiff, "", "");
+                            review = new PrReviewExecutor(cm).reviewDiff(ctx, reviewModel, annotatedDiff, "", "",
+                                                                         JobRunner.DEFAULT_REVIEW_SEVERITY_THRESHOLD);
                         }
                     } catch (InterruptedException e) {
                         Thread.currentThread().interrupt();

@@ -73,7 +73,7 @@ class JobRunnerTest {
 
     @Test
     void testParseModeRecognizesPrReviewSpec() {
-        var spec = JobSpec.ofPrReview("gpt-4", "token", "owner", "repo", 42);
+        var spec = JobSpec.ofPrReview("gpt-4", "token", "owner", "repo", 42, null);
 
         var mode = JobRunner.parseMode(spec);
         assertEquals(JobRunner.Mode.REVIEW, mode);

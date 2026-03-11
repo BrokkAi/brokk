@@ -28,11 +28,13 @@ class PrReviewExecutor {
     /**
      * Perform a diff review using the provided model and context.
      */
-    ReviewDiffResult reviewDiff(
-            Context ctx, StreamingChatModel model, String annotatedDiff, String prTitle, String prDescription) {
+    ReviewDiffResult reviewDiff(Context ctx, StreamingChatModel model, String annotatedDiff,
+                                String prTitle, String prDescription,
+                                PrReviewService.Severity severityThreshold)
+    {
         String prompt = buildReviewPrompt(
                 annotatedDiff,
-                JobRunner.DEFAULT_REVIEW_SEVERITY_THRESHOLD,
+                severityThreshold,
                 JobRunner.DEFAULT_REVIEW_MAX_INLINE_COMMENTS,
                 prTitle,
                 prDescription);

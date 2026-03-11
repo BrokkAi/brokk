@@ -127,7 +127,18 @@ public record JobSpec(
      * <p>This factory creates a job with empty taskInput and stores PR metadata in tags.
      * Auto-commit and auto-compress are disabled for PR review jobs.</p>
      */
-    public static JobSpec ofPrReview(String plannerModel, String githubToken, String owner, String repo, int prNumber) {
+    public static JobSpec ofPrReview(String plannerModel, String githubToken, String owner, String repo, int prNumber,
+                                     @Nullable String severityThreshold)
+    {
+        var tags = new HashMap<>(Map.of(
+                "mode", "REVIEW",
+                "github_token", githubToken,
+                "repo_owner", owner,
+                "repo_name", repo,
+                "pr_number", String.valueOf(prNumber)));
+        if (severityThreshold != null && !severityThreshold.isBlank()) {
+            tags.put("severity_threshold", severityThreshold.trim().toUpperCase(java.util.Locale.ROOT));
+        }
         return new JobSpec(
                 "",
                 false,
@@ -136,12 +147,7 @@ public record JobSpec(
                 null,
                 null,
                 false,
-                Map.of(
-                        "mode", "REVIEW",
-                        "github_token", githubToken,
-                        "repo_owner", owner,
-                        "repo_name", repo,
-                        "pr_number", String.valueOf(prNumber)),
+                tags,
                 null,
                 null,
                 null,
@@ -393,6 +399,12 @@ public record JobSpec(
     @JsonIgnore
     public int effectiveMaxIssueFixAttempts() {
         return Objects.requireNonNullElse(maxIssueFixAttempts, DEFAULT_MAX_ISSUE_FIX_ATTEMPTS);
+    }
+
+    @JsonIgnore
+    @Nullable
+    public String getSeverityThreshold() {
+        return tags.get("severity_threshold");
     }
 
     @JsonIgnore
