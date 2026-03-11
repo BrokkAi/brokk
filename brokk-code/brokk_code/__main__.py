@@ -720,7 +720,7 @@ async def run_pr_review_job(
     spinner_enabled = sys.stdout.isatty() and not verbose
 
     def _extract_message(event: dict[str, Any]) -> str:
-        data = event.get("data", {})
+        data = event.get("data") or {}
         for key in ("message", "text", "detail", "error"):
             value = data.get(key)
             if isinstance(value, str) and value.strip():
@@ -795,7 +795,7 @@ async def run_pr_review_job(
         async for event in manager.stream_events(job_id):
             _render_spinner()
             event_type = event.get("type")
-            data = event.get("data", {})
+            data = event.get("data") or {}
             if event_type == "NOTIFICATION":
                 message = _extract_message(event)
                 if not message:
@@ -910,7 +910,7 @@ async def run_headless_job(
     spinner_enabled = sys.stdout.isatty() and not verbose
 
     def _extract_message(event: dict[str, Any]) -> str:
-        data = event.get("data", {})
+        data = event.get("data") or {}
         for key in ("message", "text", "detail", "error"):
             value = data.get(key)
             if isinstance(value, str) and value.strip():
@@ -943,7 +943,7 @@ async def run_headless_job(
     def _record_issue_url_from_structured_issue_created(event: dict[str, Any]) -> None:
         if created_issue_url:
             return
-        data = event.get("data", {})
+        data = event.get("data") or {}
         issue_url = data.get("issueUrl")
         if isinstance(issue_url, str) and issue_url.strip():
             _record_issue_url(issue_url.strip())
@@ -1019,7 +1019,7 @@ async def run_headless_job(
         async for event in manager.stream_events(job_id):
             _render_spinner()
             event_type = event.get("type")
-            data = event.get("data", {})
+            data = event.get("data") or {}
             if event_type == "NOTIFICATION":
                 message = _extract_message(event)
                 if not message:

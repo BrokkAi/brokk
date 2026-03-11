@@ -2000,7 +2000,7 @@ class BrokkApp(App):
                 if event_type in ("LLM_TOKEN", "TOKEN"):
                     continue
                 if event_type == "STATE_CHANGE":
-                    data = event.get("data", {})
+                    data = event.get("data") or {}
                     state = data.get("state") if isinstance(data, dict) else None
                     if state == "COMPLETED":
                         saw_completed = True
@@ -2173,7 +2173,7 @@ class BrokkApp(App):
             logger.warning("Ignoring non-dict event: %s", type(event).__name__)
             return
         event_type = event.get("type")
-        data = event.get("data", {})
+        data = event.get("data") or {}
         chat = self._maybe_chat()
 
         if event_type == "LLM_TOKEN":

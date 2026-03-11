@@ -469,7 +469,7 @@ def map_executor_event_to_session_update(
 ) -> Optional[Any]:
     """Map executor events into clean ACP message or thought updates."""
     event_type = event.get("type")
-    data = event.get("data", {})
+    data = event.get("data") or {}
     if not isinstance(data, dict):
         return None
 
