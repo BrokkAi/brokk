@@ -68,7 +68,7 @@ import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * SearchAgent:
+ * LutzAgent:
  * - Uses tools to curate Workspace context for follow-on coding.
  * - Starts by calling ContextAgent to add recommended fragments to the Workspace.
  * - Adds every learning step to Context history (no hidden state).
@@ -78,8 +78,8 @@ import org.jetbrains.annotations.Nullable;
  *   Workspace is under the limit.
  * - Never writes code or answers questions itself; it prepares the Workspace for a later Code Agent run.
  */
-public class SearchAgent {
-    private static final Logger logger = LogManager.getLogger(SearchAgent.class);
+public class LutzAgent {
+    private static final Logger logger = LogManager.getLogger(LutzAgent.class);
 
     /**
      * Configuration for automatic context scanning behavior.
@@ -167,7 +167,7 @@ public class SearchAgent {
      */
     private Set<String> fragmentIdsAtLastDrop = Set.of();
 
-    public SearchAgent(
+    public LutzAgent(
             Context initialContext,
             String goal,
             StreamingChatModel model,
@@ -178,7 +178,7 @@ public class SearchAgent {
         this(initialContext, goal, model, Objective.WORKSPACE_ONLY, scope, io, scanConfig);
     }
 
-    public SearchAgent(
+    public LutzAgent(
             Context initialContext,
             String goal,
             StreamingChatModel model,
@@ -195,7 +195,7 @@ public class SearchAgent {
                 ScanConfig.defaults());
     }
 
-    public SearchAgent(
+    public LutzAgent(
             Context initialContext,
             String goal,
             StreamingChatModel model,
@@ -294,7 +294,7 @@ public class SearchAgent {
         return WorkspaceTools.filterByAnalyzerAvailability(tools, project);
     }
 
-    public SearchAgent(Context initialContext, String goal, StreamingChatModel model, ContextManager.TaskScope scope)
+    public LutzAgent(Context initialContext, String goal, StreamingChatModel model, ContextManager.TaskScope scope)
             throws InterruptedException {
         this(
                 initialContext,
@@ -765,7 +765,7 @@ public class SearchAgent {
 
     // public for ToolRegistry
     public static final class SingleTurnAgent {
-        private final SearchAgent agent;
+        private final LutzAgent agent;
         private final DropMode dropMode;
         private final int turnNumber;
         private final int maxTurns;
@@ -778,7 +778,7 @@ public class SearchAgent {
         private final ToolRegistry tr;
 
         private SingleTurnAgent(
-                SearchAgent agent, SearchState stateAtTurnStart, DropMode dropMode, int turnNumber, int maxTurns) {
+                LutzAgent agent, SearchState stateAtTurnStart, DropMode dropMode, int turnNumber, int maxTurns) {
             assert maxTurns > 0;
             assert turnNumber >= 0 && turnNumber < maxTurns;
 

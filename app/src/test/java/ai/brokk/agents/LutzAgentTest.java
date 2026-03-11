@@ -20,23 +20,23 @@ import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-class SearchAgentTest {
+class LutzAgentTest {
 
     @TempDir
     Path tempDir;
 
-    private static SearchAgent newAgent(TestContextManager cm, StreamingChatModel model) throws InterruptedException {
-        return new SearchAgent(cm.liveContext(), "goal", model, null);
+    private static LutzAgent newAgent(TestContextManager cm, StreamingChatModel model) throws InterruptedException {
+        return new LutzAgent(cm.liveContext(), "goal", model, null);
     }
 
-    private SearchAgent newAgent(TestContextManager cm) throws InterruptedException {
-        return new SearchAgent(
+    private LutzAgent newAgent(TestContextManager cm) throws InterruptedException {
+        return new LutzAgent(
                 cm.liveContext(),
                 "goal",
                 new OfflineStreamingModel(),
                 null,
                 new NoOpConsoleIO(),
-                SearchAgent.ScanConfig.disabled());
+                LutzAgent.ScanConfig.disabled());
     }
 
     @Test
@@ -44,7 +44,7 @@ class SearchAgentTest {
         TestConsoleIO io = new TestConsoleIO();
         TestContextManager cm = new TestContextManager(tempDir, io);
 
-        SearchAgent agent = newAgent(cm, new OfflineStreamingModel());
+        LutzAgent agent = newAgent(cm, new OfflineStreamingModel());
 
         // Manually add a fragment to make it droppable (originalPinnedFragments is empty in this test)
         Context context = agent.currentState
@@ -64,7 +64,7 @@ class SearchAgentTest {
         TestConsoleIO io = new TestConsoleIO();
         TestContextManager cm = new TestContextManager(tempDir, io);
 
-        SearchAgent agent = newAgent(cm, new OfflineStreamingModel());
+        LutzAgent agent = newAgent(cm, new OfflineStreamingModel());
         List<String> allowed = agent.calculateAllowedToolNames(cm.liveContext());
 
         assertTrue(allowed.contains("addLineRangeToWorkspace"));
@@ -91,8 +91,8 @@ class SearchAgentTest {
         // f1 is originally pinned
         Context ctx = new Context(cm).addFragments(List.of(f1, f2, f3)).withPinned(f1, true);
 
-        SearchAgent agent = new SearchAgent(
-                ctx, "goal", new OfflineStreamingModel(), null, new NoOpConsoleIO(), SearchAgent.ScanConfig.disabled());
+        LutzAgent agent = new LutzAgent(
+                ctx, "goal", new OfflineStreamingModel(), null, new NoOpConsoleIO(), LutzAgent.ScanConfig.disabled());
 
         // Turn 1: No lastTurnContext means score = 1.0 (cacheWeight = 0). Only original f1 should be pinned.
         Context pinned1 = agent.applyPinning(ctx, null);
@@ -150,8 +150,8 @@ class SearchAgentTest {
 
         Context initialCtx = new Context(cm).addFragments(f1);
         Context ctx = initialCtx.addFragments(f2);
-        SearchAgent agent = new SearchAgent(
-                ctx, "goal", new OfflineStreamingModel(), null, new NoOpConsoleIO(), SearchAgent.ScanConfig.disabled());
+        LutzAgent agent = new LutzAgent(
+                ctx, "goal", new OfflineStreamingModel(), null, new NoOpConsoleIO(), LutzAgent.ScanConfig.disabled());
 
         // f1 is "old" (in both turns), f2 is "new" (added this turn)
         // To ensure cacheWeight > 0, we need some churn.
@@ -169,13 +169,13 @@ class SearchAgentTest {
     void testConvergenceScoreEdgeCases() throws InterruptedException {
         var cm = new TestContextManager(tempDir, new NoOpConsoleIO());
         Context empty = new Context(cm);
-        SearchAgent agent = new SearchAgent(
+        LutzAgent agent = new LutzAgent(
                 empty,
                 "goal",
                 new OfflineStreamingModel(),
                 null,
                 new NoOpConsoleIO(),
-                SearchAgent.ScanConfig.disabled());
+                LutzAgent.ScanConfig.disabled());
 
         // Case 1: No last turn
         assertTrue(agent.calculateConvergenceScore(empty, null) == 0.0);
@@ -202,7 +202,7 @@ class SearchAgentTest {
                 new ContextFragments.StringFragment(cm, "a".repeat(24000), "large-fragment", "text/plain"),
                 new ContextFragments.StringFragment(cm, "b".repeat(12000), "smaller-fragment", "text/plain")));
 
-        SearchAgent.OverflowGrowth growth = agent.computeOverflowGrowth(checkpoint, overflow);
+        LutzAgent.OverflowGrowth growth = agent.computeOverflowGrowth(checkpoint, overflow);
 
         assertTrue(growth.netGrowthTokens() > 0, "Expected positive token growth from checkpoint to overflow");
         assertEquals(2, growth.addedFragments().size(), "Expected two added fragments in delta");
@@ -222,7 +222,7 @@ class SearchAgentTest {
                 new ContextFragments.StringFragment(cm, "x".repeat(16000), "frag-one", "text/plain"),
                 new ContextFragments.StringFragment(cm, "y".repeat(8000), "frag-two", "text/plain")));
 
-        SearchAgent.OverflowGrowth growth = agent.computeOverflowGrowth(checkpoint, overflow);
+        LutzAgent.OverflowGrowth growth = agent.computeOverflowGrowth(checkpoint, overflow);
         String note = agent.buildOverflowRecoveryHarnessNote(growth);
 
         assertTrue(note.startsWith("[HARNESS NOTE:"), "Note should use HARNESS NOTE format");
@@ -234,17 +234,17 @@ class SearchAgentTest {
 
     @Test
     void scanConfig_factoryMethods_produceCorrectConfigurations() {
-        var defaults = SearchAgent.ScanConfig.defaults();
+        var defaults = LutzAgent.ScanConfig.defaults();
         assertTrue(defaults.autoScan(), "defaults() should have autoScan=true");
         assertNull(defaults.scanModel(), "defaults() should have scanModel=null");
         assertTrue(defaults.appendToScope(), "defaults() should have appendToScope=true");
 
-        var disabled = SearchAgent.ScanConfig.disabled();
+        var disabled = LutzAgent.ScanConfig.disabled();
         assertFalse(disabled.autoScan(), "disabled() should have autoScan=false");
         assertNull(disabled.scanModel(), "disabled() should have scanModel=null");
         assertTrue(disabled.appendToScope(), "disabled() should have appendToScope=true");
 
-        var noAppend = SearchAgent.ScanConfig.noAppend();
+        var noAppend = LutzAgent.ScanConfig.noAppend();
         assertTrue(noAppend.autoScan(), "noAppend() should have autoScan=true");
         assertNull(noAppend.scanModel(), "noAppend() should have scanModel=null");
         assertFalse(noAppend.appendToScope(), "noAppend() should have appendToScope=false");

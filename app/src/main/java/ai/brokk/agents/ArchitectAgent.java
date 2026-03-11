@@ -539,7 +539,7 @@ public class ArchitectAgent {
      */
     public TaskResult executeWithScan() throws InterruptedException {
         var prune = Messages.getApproximateTokens(context) > cm.getService().getMaxInputTokens(planningModel) * 0.2;
-        context = SearchAgent.setupContext(context, goal, prune).context();
+        context = LutzAgent.setupContext(context, goal, prune).context();
 
         // Run Architect proper
         TaskResult archResult = this.execute();

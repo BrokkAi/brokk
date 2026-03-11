@@ -7,7 +7,7 @@ import ai.brokk.LlmOutputMeta;
 import ai.brokk.MutedConsoleIO;
 import ai.brokk.TaskResult;
 import ai.brokk.TaskResult.StopReason;
-import ai.brokk.agents.SearchAgent;
+import ai.brokk.agents.LutzAgent;
 import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextDelta;
@@ -180,8 +180,8 @@ public class ParallelSearch {
             logger.debug("callSearchAgent invoked with query: {}, mode: {}", query, mode);
             io.llmOutput("**Search Agent** engaged:\n" + query, ChatMessageType.CUSTOM, LlmOutputMeta.newMessage());
 
-            var searchAgent = new SearchAgent(
-                    searchStartContext, query, planningModel, objective, scope, io, SearchAgent.ScanConfig.noAppend());
+            var searchAgent = new LutzAgent(
+                    searchStartContext, query, planningModel, objective, scope, io, LutzAgent.ScanConfig.noAppend());
             taskResult = searchAgent.execute();
 
             if (!taskResult.context().getTaskHistory().isEmpty()) {

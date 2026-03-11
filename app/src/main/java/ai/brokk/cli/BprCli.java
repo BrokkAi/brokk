@@ -12,8 +12,8 @@ import ai.brokk.agents.BuildAgent;
 import ai.brokk.agents.CodeAgent;
 import ai.brokk.agents.ConflictInspector;
 import ai.brokk.agents.ContextAgent;
+import ai.brokk.agents.LutzAgent;
 import ai.brokk.agents.MergeAgent;
-import ai.brokk.agents.SearchAgent;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
@@ -478,10 +478,10 @@ public final class BprCli implements Callable<Integer> {
                 var searchModel = taskModelOverride == null ? cm.getService().getScanModel() : taskModelOverride;
                 // Honor --disable-context-scan flag via ScanConfig
                 var scanConfig = disableContextScan
-                        ? SearchAgent.ScanConfig.disabled()
-                        : SearchAgent.ScanConfig.withModel(searchModel);
+                        ? LutzAgent.ScanConfig.disabled()
+                        : LutzAgent.ScanConfig.withModel(searchModel);
                 var agent =
-                        new SearchAgent(cm.liveContext(), searchWorkspace, searchModel, scope, cm.getIo(), scanConfig);
+                        new LutzAgent(cm.liveContext(), searchWorkspace, searchModel, scope, cm.getIo(), scanConfig);
                 searchResult = agent.execute();
                 scope.append(searchResult);
                 success = searchResult.stopDetails().reason() == TaskResult.StopReason.SUCCESS;
@@ -758,7 +758,7 @@ public final class BprCli implements Callable<Integer> {
                         return 1;
                     }
                     // SearchAgent now handles scanning internally via execute()
-                    var agent = new SearchAgent(
+                    var agent = new LutzAgent(
                             cm.liveContext(),
                             requireNonNull(searchAnswerPrompt),
                             planModel,
@@ -788,8 +788,8 @@ public final class BprCli implements Callable<Integer> {
                         return 1;
                     }
                     // SearchAgent now handles scanning internally via execute()
-                    var config = new SearchAgent.ScanConfig(true, null, true, false);
-                    var agent = new SearchAgent(
+                    var config = new LutzAgent.ScanConfig(true, null, true, false);
+                    var agent = new LutzAgent(
                             context,
                             requireNonNull(lutzPrompt),
                             planModel,

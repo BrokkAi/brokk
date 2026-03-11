@@ -11,7 +11,7 @@ import ai.brokk.TaskResult;
 import ai.brokk.agents.BuildAgent;
 import ai.brokk.agents.CodeAgent;
 import ai.brokk.agents.IssueRewriterAgent;
-import ai.brokk.agents.SearchAgent;
+import ai.brokk.agents.LutzAgent;
 import ai.brokk.context.Context;
 import ai.brokk.executor.io.HeadlessHttpConsole;
 import ai.brokk.git.GitRepo;
@@ -492,7 +492,7 @@ public final class JobRunner {
                                         // PLAN mode: LUTZ Phase 1+2 only (generate task list, no execution)
                                         try (var scope = cm.beginTaskUngrouped(spec.taskInput())) {
                                             var context = cm.liveContext();
-                                            var searchAgent = new SearchAgent(
+                                            var searchAgent = new LutzAgent(
                                                     context,
                                                     spec.taskInput(),
                                                     Objects.requireNonNull(
@@ -524,7 +524,7 @@ public final class JobRunner {
                                             // Optional pre-scan: resolve scan model similarly to SEARCH mode.
                                             if (spec.preScan()) {
                                                 // Construct agent only for potential pre-scan usage (no execute).
-                                                var searchAgent = new SearchAgent(
+                                                var searchAgent = new LutzAgent(
                                                         context,
                                                         spec.taskInput(),
                                                         requireNonNull(
@@ -709,8 +709,8 @@ public final class JobRunner {
                                                     : defaultScanModel(spec);
 
                                             // SearchAgent now handles scanning internally via execute()
-                                            var scanConfig = SearchAgent.ScanConfig.withModel(scanModelToUse);
-                                            var searchAgent = new SearchAgent(
+                                            var scanConfig = LutzAgent.ScanConfig.withModel(scanModelToUse);
+                                            var searchAgent = new LutzAgent(
                                                     context,
                                                     spec.taskInput(),
                                                     requireNonNull(
@@ -832,7 +832,7 @@ public final class JobRunner {
                                                 var scanGoal =
                                                         "Analyzing changes in this PR diff to identify related code context:\n```diff\n"
                                                                 + annotatedDiff + "\n```";
-                                                var searchAgent = new SearchAgent(
+                                                var searchAgent = new LutzAgent(
                                                         context,
                                                         scanGoal,
                                                         requireNonNull(
@@ -1251,7 +1251,7 @@ public final class JobRunner {
     void runSearchPhase(String taskInput, StreamingChatModel plannerModel, ContextManager.TaskScope scope)
             throws InterruptedException {
         var context = cm.liveContext();
-        var searchAgent = new SearchAgent(context, taskInput, plannerModel, objectiveForLutzSearchPhase(), scope);
+        var searchAgent = new LutzAgent(context, taskInput, plannerModel, objectiveForLutzSearchPhase(), scope);
         var taskListResult = searchAgent.execute();
         scope.append(taskListResult);
     }

@@ -2,6 +2,7 @@ package ai.brokk.prompts;
 
 import ai.brokk.TaskResult;
 import ai.brokk.agents.BuildAgent;
+import ai.brokk.agents.LutzAgent;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
@@ -510,7 +511,7 @@ public class SearchPrompts {
             List<McpPrompts.McpTool> mcpTools,
             List<ChatMessage> sessionMessages,
             Map<ProjectFile, String> relatedSymbols,
-            ai.brokk.agents.SearchAgent.DropMode dropMode,
+            LutzAgent.DropMode dropMode,
             int turnsLeftAfterThisTurn,
             @Nullable SpecialTurnTooling specialTooling) {
 
@@ -625,7 +626,7 @@ public class SearchPrompts {
             String goal,
             SearchPrompts.Objective objective,
             List<McpPrompts.McpTool> mcpTools,
-            ai.brokk.agents.SearchAgent.DropMode dropMode,
+            LutzAgent.DropMode dropMode,
             int turnsLeftAfterThisTurn,
             SpecialTurnTooling specialTooling) {
 
