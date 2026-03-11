@@ -14,6 +14,7 @@ import ai.brokk.concurrent.ExecutorsUtil;
 import ai.brokk.concurrent.LoggingExecutorService;
 import ai.brokk.project.IProject;
 import ai.brokk.project.ModelProperties;
+import ai.brokk.testutil.TestProject;
 import ai.brokk.tools.UsageBenchTypes.*;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
@@ -266,7 +267,7 @@ public class UsageBenchEval implements Callable<Integer> {
                             entry.projectDir(), entry.projectDir().relativize(p)))
                     .toList();
 
-            return new SimpleProject(entry.projectDir(), entry.language(), projectFiles);
+            return createSimpleProject(entry.projectDir(), entry.language(), projectFiles);
         }
     }
 
@@ -544,36 +545,8 @@ public class UsageBenchEval implements Callable<Integer> {
         }
     }
 
-    private static class SimpleProject implements IProject {
-        private final Path root;
-        private final Language language;
-        private final Set<ProjectFile> files;
-
-        SimpleProject(Path root, Language language, List<ProjectFile> files) {
-            this.root = root;
-            this.language = language;
-            this.files = Set.copyOf(files);
-        }
-
-        @Override
-        public Path getRoot() {
-            return root;
-        }
-
-        @Override
-        public Set<Language> getAnalyzerLanguages() {
-            return Set.of(language);
-        }
-
-        @Override
-        public Set<ProjectFile> getAllFiles() {
-            return files;
-        }
-
-        @Override
-        public void close() {
-            // No-op
-        }
+    private static TestProject createSimpleProject(Path root, Language language, List<ProjectFile> files) {
+        return new TestProject(root, language).withAllFiles(Set.copyOf(files));
     }
 
     private record EvaluationData(

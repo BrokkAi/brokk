@@ -42,7 +42,7 @@ public class GitDistanceRelatedFilesTest {
         testPath = GitDistanceTestSuite.setupGitHistory(testResourcePath);
 
         var testRepo = new GitRepo(testPath);
-        testProject = new TestProjectWithRepo(testPath, Languages.JAVA, testRepo);
+        testProject = new TestProject(testPath, Languages.JAVA).withRepo(testRepo);
         logger.debug("Setting up analyzer with test code from {}", testPath);
         analyzer = new JavaAnalyzer(testProject);
     }

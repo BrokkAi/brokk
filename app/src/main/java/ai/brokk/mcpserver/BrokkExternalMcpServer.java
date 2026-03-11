@@ -329,7 +329,8 @@ public class BrokkExternalMcpServer {
         boolean hasJson = allFiles.stream().anyMatch(f -> f.toString().endsWith(".json"));
 
         if (hasXml) {
-            toolNames.add("xpathQuery");
+            toolNames.add("xmlSkim");
+            toolNames.add("xmlSelect");
         }
 
         if (hasJson && !isJqOnPath()) {

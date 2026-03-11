@@ -996,6 +996,8 @@ class BrokkApp(App):
         self._shutting_down: bool = False
         self._shutdown_completed: bool = False
         self._shutdown_lock = asyncio.Lock()
+        self._exit_transcript: str = ""
+        self._exit_transcript_renderables: list[Any] = []
 
     @property
     def current_mode(self) -> str:
@@ -1012,6 +1014,22 @@ class BrokkApp(App):
             return self.query_one(ChatPanel)
         except (ScreenStackError, Exception):
             return None
+
+    def _capture_exit_transcript(self) -> None:
+        """Snapshot the transcript before the TUI unmounts."""
+        chat = self._maybe_chat()
+        if not chat:
+            return
+        self._exit_transcript = chat.export_plain_text_transcript().strip()
+        self._exit_transcript_renderables = chat.export_rich_transcript_renderables()
+
+    def get_exit_transcript(self) -> str:
+        """Return the transcript captured during shutdown."""
+        return self._exit_transcript
+
+    def get_exit_transcript_renderables(self) -> list[Any]:
+        """Return Rich renderables captured during shutdown."""
+        return list(self._exit_transcript_renderables)
 
     def _show_welcome_message(self) -> None:
         """Constructs and displays the branded welcome message in the ChatPanel."""
@@ -2657,6 +2675,7 @@ class BrokkApp(App):
             if self._shutdown_completed or self._shutting_down:
                 return
             self._shutting_down = True
+            self._capture_exit_transcript()
 
             # Notify user once
             if show_message:

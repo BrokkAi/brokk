@@ -105,8 +105,11 @@ ChatPanel {
 
 #chat-log {
     height: 1fr;
+    min-width: 0;
     border: none;
     background: $surface;
+    overflow-x: hidden;
+    scrollbar-size-horizontal: 0;
 }
 
 #scroll-to-bottom {

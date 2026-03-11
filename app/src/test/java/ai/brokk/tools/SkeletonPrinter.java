@@ -12,6 +12,7 @@ import ai.brokk.analyzer.PythonAnalyzer;
 import ai.brokk.analyzer.TreeSitterAnalyzer;
 import ai.brokk.analyzer.TypescriptAnalyzer;
 import ai.brokk.project.IProject;
+import ai.brokk.testutil.TestProject;
 import java.io.IOException;
 import java.lang.reflect.Field;
 import java.nio.file.Files;
@@ -71,49 +72,21 @@ public class SkeletonPrinter {
         };
     }
 
-    private record DirectoryProject(Path root, Language language) implements IProject {
-
-        @Override
-        public Set<Language> getAnalyzerLanguages() {
-            return Set.of(language);
-        }
-
-        @Override
-        public Path getRoot() {
-            return root;
-        }
-
-        @Override
-        public Set<ProjectFile> getAllFiles() {
-            try (Stream<Path> stream = Files.walk(root)) {
-                return stream.filter(Files::isRegularFile)
-                        .filter(p -> matchesLanguage(p, language))
-                        .map(p -> new ProjectFile(root, root.relativize(p)))
-                        .collect(Collectors.toSet());
-            } catch (IOException e) {
-                System.err.println("Error walking directory: " + e.getMessage());
-                return Set.of();
-            }
+    private static TestProject createDirectoryProject(Path root, Language language) {
+        try (Stream<Path> stream = Files.walk(root)) {
+            return new TestProject(root, language)
+                    .withAllFiles(stream.filter(Files::isRegularFile)
+                            .filter(p -> matchesLanguage(p, language))
+                            .map(p -> new ProjectFile(root, root.relativize(p)))
+                            .collect(Collectors.toSet()));
+        } catch (IOException e) {
+            System.err.println("Error walking directory: " + e.getMessage());
+            return new TestProject(root, language).withAllFiles(Set.of());
         }
     }
 
-    private record SingleFileProject(Path root, Path filePath, Language language) implements IProject {
-
-        @Override
-        public Set<Language> getAnalyzerLanguages() {
-            return Set.of(language);
-        }
-
-        @Override
-        public Path getRoot() {
-            return root;
-        }
-
-        @Override
-        public Set<ProjectFile> getAllFiles() {
-            var relativePath = root.relativize(filePath);
-            return Set.of(new ProjectFile(root, relativePath));
-        }
+    private static TestProject createSingleFileProject(Path root, Path filePath, Language language) {
+        return new TestProject(root, language).withAllFiles(Set.of(new ProjectFile(root, root.relativize(filePath))));
     }
 
     public static void main(String[] args) {
@@ -220,7 +193,7 @@ public class SkeletonPrinter {
     }
 
     private static void printDirectorySkeletons(Path directory, Language language) {
-        var project = new DirectoryProject(directory.toAbsolutePath(), language);
+        var project = createDirectoryProject(directory.toAbsolutePath(), language);
         var allFiles = project.getAllFiles();
 
         if (allFiles.isEmpty()) {
@@ -252,7 +225,7 @@ public class SkeletonPrinter {
 
                 // Create a separate analyzer for each file to avoid name collisions
                 var parentDir = file.absPath().getParent();
-                var singleFileProject = new SingleFileProject(parentDir, file.absPath(), language);
+                var singleFileProject = createSingleFileProject(parentDir, file.absPath(), language);
                 var analyzer = createAnalyzer(singleFileProject, language);
 
                 if (analyzer == null) {
@@ -325,7 +298,7 @@ public class SkeletonPrinter {
                 parentDir = Path.of(".");
             }
 
-            var project = new SingleFileProject(parentDir.toAbsolutePath(), filePath.toAbsolutePath(), language);
+            var project = createSingleFileProject(parentDir.toAbsolutePath(), filePath.toAbsolutePath(), language);
             analyzer = createAnalyzer(project, language);
 
             if (analyzer == null) {

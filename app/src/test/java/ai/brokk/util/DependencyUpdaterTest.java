@@ -5,10 +5,10 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.project.IProject;
+import ai.brokk.testutil.TestProject;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -196,7 +196,7 @@ public class DependencyUpdaterTest {
         var depRoot = new ProjectFile(masterRoot, masterRoot.relativize(depDir));
 
         // Create project with empty live dependencies (dep is disabled)
-        var project = new TestProject(masterRoot, Set.of(depRoot), Set.of());
+        var project = new TestProject(masterRoot, Languages.JAVA).withDependencies(Set.of(depRoot), Set.of());
 
         var result = DependencyUpdater.autoUpdateDependenciesOnce(project, true, false);
 
@@ -225,7 +225,7 @@ public class DependencyUpdaterTest {
 
         // Create project with this dependency in live set
         var dep = new IProject.Dependency(depRoot, Languages.JAVA);
-        var project = new TestProject(masterRoot, Set.of(depRoot), Set.of(dep));
+        var project = new TestProject(masterRoot, Languages.JAVA).withDependencies(Set.of(depRoot), Set.of(dep));
 
         var result = DependencyUpdater.autoUpdateDependenciesOnce(project, true, false);
 
@@ -237,7 +237,7 @@ public class DependencyUpdaterTest {
     // ========== Helper methods ==========
 
     private IProject createMinimalProject(Path root) {
-        return new TestProject(root, Set.of(), Set.of());
+        return new TestProject(root, Languages.JAVA).withDependencies(Set.of(), Set.of());
     }
 
     private static void writeMetadataToFile(Path depRoot, DependencyUpdater.DependencyMetadata metadata) {
@@ -247,57 +247,6 @@ public class DependencyUpdaterTest {
             Files.writeString(metadataPath, objectMapper.writeValueAsString(metadata));
         } catch (IOException e) {
             throw new RuntimeException(e);
-        }
-    }
-
-    /**
-     * Minimal IProject implementation for testing.
-     */
-    private static class TestProject implements IProject {
-        private final Path root;
-        private final Set<ProjectFile> allDeps;
-        private final Set<Dependency> liveDeps;
-
-        TestProject(Path root, Set<ProjectFile> allDeps, Set<Dependency> liveDeps) {
-            this.root = root;
-            this.allDeps = allDeps;
-            this.liveDeps = liveDeps;
-        }
-
-        @Override
-        public Path getMasterRootPathForConfig() {
-            return root;
-        }
-
-        @Override
-        public Set<ProjectFile> getAllOnDiskDependencies() {
-            return allDeps;
-        }
-
-        @Override
-        public Set<Dependency> getLiveDependencies() {
-            return liveDeps;
-        }
-
-        @Override
-        public Set<Language> getAnalyzerLanguages() {
-            return Set.of(Languages.JAVA);
-        }
-
-        // Remaining IProject methods throw UnsupportedOperationException
-        @Override
-        public Path getRoot() {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public boolean getAutoUpdateLocalDependencies() {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public boolean getAutoUpdateGitDependencies() {
-            throw new UnsupportedOperationException();
         }
     }
 }

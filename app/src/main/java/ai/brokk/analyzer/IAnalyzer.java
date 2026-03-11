@@ -525,7 +525,7 @@ public interface IAnalyzer {
         if (indent == 0 && !units.isEmpty()) {
             // Group by common prefix (package/module)
             Map<String, List<CodeUnit>> grouped = units.stream()
-                    .filter(cu -> !cu.isAnonymous())
+                    .filter(cu -> !cu.isAnonymous() && !cu.isModule())
                     .collect(Collectors.groupingBy(
                             cu -> {
                                 String fqn = cu.fqName();

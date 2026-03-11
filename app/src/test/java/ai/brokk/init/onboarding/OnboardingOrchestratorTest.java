@@ -3,12 +3,13 @@ package ai.brokk.init.onboarding;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.agents.BuildAgent;
-import ai.brokk.git.GitRepo;
 import ai.brokk.project.IProject;
+import ai.brokk.testutil.InlineTestProjectCreator;
 import java.nio.file.Path;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import org.jetbrains.annotations.NotNull;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -20,48 +21,9 @@ class OnboardingOrchestratorTest {
     @TempDir
     Path tempDir;
 
-    /**
-     * Minimal test implementation of IProject for testing.
-     */
-    private static class TestProject implements IProject {
-        private final Path root;
-        private boolean hasGit = false;
-
-        TestProject(Path root) {
-            this.root = root;
-        }
-
-        void setHasGit(boolean hasGit) {
-            this.hasGit = hasGit;
-        }
-
-        @Override
-        public Path getRoot() {
-            return root;
-        }
-
-        @Override
-        public Path getMasterRootPathForConfig() {
-            return root;
-        }
-
-        @Override
-        public GitRepo getRepo() {
-            return null;
-        }
-
-        @Override
-        public boolean hasGit() {
-            return hasGit;
-        }
-
-        @Override
-        public void close() {}
-    }
-
     /** Builder for creating ProjectState in tests with sensible defaults. */
     private class StateBuilder {
-        private TestProject project = new TestProject(tempDir);
+        private IProject project = createProject();
         private boolean agentsMdExists = false;
         private boolean agentsMdHasContent = false;
         private boolean legacyStyleMdExists = false;
@@ -75,7 +37,7 @@ class OnboardingOrchestratorTest {
         private boolean onboardingCompleted = false;
         private boolean gitConfigDeclined = false;
 
-        StateBuilder withProject(TestProject p) {
+        StateBuilder withProject(IProject p) {
             this.project = p;
             return this;
         }
@@ -152,8 +114,7 @@ class OnboardingOrchestratorTest {
 
     @Test
     void testFreshProject_AllStepsExceptMigration() {
-        var project = new TestProject(tempDir);
-        project.setHasGit(true);
+        var project = createProject();
         var state = new StateBuilder().withProject(project).build();
 
         var orchestrator = new OnboardingOrchestrator();
@@ -174,8 +135,7 @@ class OnboardingOrchestratorTest {
 
     @Test
     void testLegacyProject_NeedsMigration() {
-        var project = new TestProject(tempDir);
-        project.setHasGit(true);
+        var project = createProject();
         var state = new StateBuilder().withProject(project).withLegacyStyleMd().build();
 
         var orchestrator = new OnboardingOrchestrator();
@@ -226,8 +186,7 @@ class OnboardingOrchestratorTest {
 
     @Test
     void testPostGitStyleRegeneration_Included() {
-        var project = new TestProject(tempDir);
-        project.setHasGit(true);
+        var project = createProject();
         var state = new StateBuilder()
                 .withProject(project)
                 .withAgentsMd()
@@ -253,8 +212,7 @@ class OnboardingOrchestratorTest {
 
     @Test
     void testPostGitStyleRegeneration_NotIncluded() {
-        var project = new TestProject(tempDir);
-        project.setHasGit(true);
+        var project = createProject();
         var state = new StateBuilder()
                 .withProject(project)
                 .withAgentsMd()
@@ -269,6 +227,10 @@ class OnboardingOrchestratorTest {
         assertTrue(plan.hasStep(GitConfigStep.STEP_ID));
         assertFalse(
                 plan.hasStep(PostGitStyleRegenerationStep.STEP_ID), "Should NOT offer regen when style wasn't skipped");
+    }
+
+    private @NotNull IProject createProject() {
+        return InlineTestProjectCreator.at(tempDir).withMockGit().build();
     }
 
     @Test
@@ -302,7 +264,7 @@ class OnboardingOrchestratorTest {
 
     @Test
     void testBuildProjectState_Helper() {
-        var project = new TestProject(tempDir);
+        var project = createProject();
         var styleFuture = CompletableFuture.completedFuture("# Style Guide");
         var buildFuture = CompletableFuture.completedFuture(null);
 
@@ -321,8 +283,7 @@ class OnboardingOrchestratorTest {
     @Test
     void testStepDependencies_CorrectOrder() {
         // Create state where all steps are applicable
-        var project = new TestProject(tempDir);
-        project.setHasGit(true);
+        var project = createProject();
         var state = new StateBuilder()
                 .withProject(project)
                 .withLegacyStyleMd()
@@ -347,8 +308,7 @@ class OnboardingOrchestratorTest {
 
     @Test
     void testGitConfigDeclined_NotApplicable() {
-        var project = new TestProject(tempDir);
-        project.setHasGit(true);
+        var project = createProject();
         var state = new StateBuilder()
                 .withProject(project)
                 .withGitConfigDeclined(true)
@@ -363,7 +323,7 @@ class OnboardingOrchestratorTest {
 
     @Test
     void testBuildDetails_InitiallyEmpty() {
-        var project = new ai.brokk.testutil.TestProject(tempDir);
+        var project = createProject();
 
         assertFalse(project.hasBuildDetails(), "Fresh project should not have build details");
         assertEquals(BuildAgent.BuildDetails.EMPTY, project.loadBuildDetails().orElseThrow());
@@ -371,7 +331,7 @@ class OnboardingOrchestratorTest {
 
     @Test
     void testBuildDetailsPersistence_AfterOnboardingSettingsApplied() {
-        var project = new ai.brokk.testutil.TestProject(tempDir);
+        var project = createProject();
 
         assertFalse(project.hasBuildDetails(), "Should not have build details initially");
 

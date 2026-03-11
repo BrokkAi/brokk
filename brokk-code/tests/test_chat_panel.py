@@ -46,6 +46,69 @@ async def test_token_usage_update():
 
 
 @pytest.mark.asyncio
+async def test_export_plain_text_transcript_formats_history():
+    """Verify the plain-text transcript export uses readable labels."""
+    from textual.app import App, ComposeResult
+
+    class TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield ChatPanel(id="chat")
+
+    app = TestApp()
+    async with app.run_test():
+        panel = app.query_one("#chat", ChatPanel)
+        panel.add_welcome("", "Welcome to Brokk")
+        panel.add_system_message("Starting Brokk executor...")
+        panel.add_system_message("Connected to executor abc (version: 1, protocol: 1)")
+        panel.add_user_message("help me")
+        panel.add_markdown("Here is a response")
+        panel.add_system_message("plain info")
+        panel.add_system_message("bad news", level="ERROR")
+        panel.add_tool_result("command output")
+
+        transcript = panel.export_plain_text_transcript()
+
+        assert "Welcome to Brokk" not in transcript
+        assert "Starting Brokk executor..." not in transcript
+        assert "Connected to executor" not in transcript
+        assert "You: help me" in transcript
+        assert "Brokk: Here is a response" in transcript
+        assert "[System] plain info" in transcript
+        assert "[ERROR] bad news" in transcript
+        assert "[Command Output]\ncommand output" in transcript
+
+
+@pytest.mark.asyncio
+async def test_export_rich_transcript_renderables_omits_welcome_and_keeps_panels():
+    """Verify exit renderables reuse the live chat presentation primitives."""
+    from rich.markdown import Markdown
+    from rich.panel import Panel
+    from rich.text import Text
+    from textual.app import App, ComposeResult
+
+    class TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield ChatPanel(id="chat")
+
+    app = TestApp()
+    async with app.run_test():
+        panel = app.query_one("#chat", ChatPanel)
+        panel.add_welcome("", "Welcome to Brokk")
+        panel.add_user_message("help me")
+        panel.add_markdown("Here is a response")
+        panel.add_system_message("bad news", level="ERROR")
+
+        renderables = [r for r in panel.export_rich_transcript_renderables() if r != ""]
+
+        assert all(
+            not isinstance(r, Markdown) or "Welcome to Brokk" not in str(r) for r in renderables
+        )
+        assert any(isinstance(r, Panel) and r.title == "You" for r in renderables)
+        assert any(isinstance(r, Markdown) for r in renderables)
+        assert any(isinstance(r, Text) and "[ERROR] bad news" in r.plain for r in renderables)
+
+
+@pytest.mark.asyncio
 async def test_job_progress_in_chat_panel():
     """
     Verify that job running state is reflected in ChatPanel's status timer
@@ -302,6 +365,79 @@ async def test_no_ctrl_u_e_bindings_in_chat_input():
     bindings = {b.key for b in ChatInput.BINDINGS}
     assert "ctrl+u" not in bindings
     assert "ctrl+e" not in bindings
+
+
+@pytest.mark.asyncio
+async def test_chat_panel_ctrl_b_f_bindings_scroll_log_with_input_focus():
+    """Verify Ctrl+B/F page the chat log while the input remains focused."""
+    from textual.app import App, ComposeResult
+
+    from brokk_code.widgets.chat_panel import ChatInput, ChatLog
+
+    class TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield ChatPanel(id="chat")
+
+    app = TestApp()
+    async with app.run_test(size=(80, 10)) as pilot:
+        panel = app.query_one("#chat", ChatPanel)
+        log = panel.query_one("#chat-log", ChatLog)
+        chat_input = panel.query_one("#chat-input", ChatInput)
+
+        for i in range(30):
+            panel.add_system_message(f"Message {i}")
+
+        # Wait for scroll state to settle after rapid writes;
+        # on Windows CI the scroll position may lag behind content height.
+        for _ in range(40):
+            await pilot.pause()
+            if log.max_scroll_y > 0 and log.is_vertical_scroll_end:
+                break
+
+        assert chat_input.has_focus
+        assert log.max_scroll_y > 0, "Log must be scrollable for this test"
+        assert log.is_vertical_scroll_end
+
+        bottom_y = log.scroll_y
+        await pilot.press("ctrl+b")
+        for _ in range(40):
+            await pilot.pause()
+            if log.scroll_y < bottom_y:
+                break
+
+        assert chat_input.has_focus
+        assert log.scroll_y < bottom_y
+        assert log.auto_scroll is False
+
+        after_page_up = log.scroll_y
+        await pilot.press("ctrl+f")
+        for _ in range(40):
+            await pilot.pause()
+            if log.scroll_y > after_page_up:
+                break
+
+        assert chat_input.has_focus
+        assert log.scroll_y > after_page_up
+
+
+@pytest.mark.asyncio
+async def test_chat_log_hides_horizontal_scrollbar():
+    """Verify the chat log wraps and does not expose a horizontal scrollbar."""
+    from textual.app import App, ComposeResult
+
+    from brokk_code.widgets.chat_panel import ChatLog
+
+    class TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield ChatPanel(id="chat")
+
+    app = TestApp()
+    async with app.run_test():
+        log = app.query_one("#chat-log", ChatLog)
+        assert log.wrap is True
+        assert log.min_width == 0
+        assert log.show_horizontal_scrollbar is False
+        assert log.styles.scrollbar_size_horizontal == 0
 
 
 def _static_rendered_text(widget: Static) -> str:
@@ -1291,7 +1427,7 @@ async def test_autoscroll_and_button_toggle_on_scroll():
 
         # Wait for scroll state to settle after rapid writes;
         # on Windows CI the scroll position may lag behind content height.
-        for _ in range(10):
+        for _ in range(40):
             await pilot.pause()
             if log.auto_scroll and log.max_scroll_y > 0:
                 break
@@ -1300,7 +1436,7 @@ async def test_autoscroll_and_button_toggle_on_scroll():
 
         # Scroll up
         log.scroll_to(y=0, animate=False)
-        for _ in range(10):
+        for _ in range(40):
             await pilot.pause()
             panel._sync_autoscroll()
             if not log.auto_scroll:
@@ -1311,7 +1447,7 @@ async def test_autoscroll_and_button_toggle_on_scroll():
 
         # Scroll back to bottom
         log.scroll_end(animate=False)
-        for _ in range(10):
+        for _ in range(40):
             await pilot.pause()
             panel._sync_autoscroll()
             if log.auto_scroll:
@@ -1345,14 +1481,18 @@ async def test_autoscroll_reset_on_submission():
         # Add enough content to make the log scrollable in small viewport
         for i in range(20):
             panel.add_system_message(f"Message {i}")
-        await pilot.pause()
+
+        for _ in range(40):
+            await pilot.pause()
+            if log.max_scroll_y > 0:
+                break
 
         # Verify scrollability is deterministic
         assert log.max_scroll_y > 0, "Log must be scrollable for this test"
 
         # Scroll up to disable auto_scroll
         log.scroll_to(y=0, animate=False)
-        for _ in range(10):
+        for _ in range(40):
             await pilot.pause()
             panel._sync_autoscroll()
             if not log.auto_scroll:
@@ -1362,20 +1502,18 @@ async def test_autoscroll_reset_on_submission():
         # Type and submit a message
         chat_input.text = "Hello"
         chat_input.action_submit()
-        # First pause processes the submission and schedules the deferred scroll
-        await pilot.pause()
-        # Second pause allows the call_after_refresh callback to execute
-        await pilot.pause()
+
+        # Wait for submission processing and the deferred scroll callback
+        for _ in range(40):
+            await pilot.pause()
+            if log.auto_scroll:
+                break
 
         # After submission, auto_scroll should be re-enabled
         assert log.auto_scroll is True
 
-        # Wait for the call_after_refresh in _reset_to_follow_bottom to complete
-        await pilot.pause()
-
-        # And we should be at the bottom. We check with a small retry loop
-        # to ensure deterministic behavior across refresh cycles.
-        for _ in range(10):
+        # And we should be at the bottom
+        for _ in range(40):
             if log.is_vertical_scroll_end:
                 break
             await pilot.pause()
@@ -1422,7 +1560,11 @@ async def test_refresh_log_preserves_middle_scroll_position():
         # Add enough content to make the log scrollable in small viewport
         for i in range(20):
             panel.add_system_message(f"Message {i}")
-        await pilot.pause()
+
+        for _ in range(40):
+            await pilot.pause()
+            if log.max_scroll_y > 0:
+                break
 
         # Verify scrollability is deterministic
         assert log.max_scroll_y > 0, "Log must be scrollable for this test"
@@ -1431,12 +1573,14 @@ async def test_refresh_log_preserves_middle_scroll_position():
         mid_y = log.max_scroll_y // 2
         assert mid_y > 0, "mid_y must be positive to test middle scroll"
         log.scroll_to(y=mid_y, animate=False)
-        for _ in range(10):
+        for _ in range(40):
             await pilot.pause()
             panel._sync_autoscroll()
-            if not log.auto_scroll:
+            if log.scroll_y >= mid_y and not log.auto_scroll:
                 break
 
+        assert log.scroll_y > 0, "scroll_y should move away from the top after middle scroll"
+        assert not log.is_vertical_scroll_end, "middle scroll should not remain at the bottom"
         assert log.auto_scroll is False, "auto_scroll should be disabled at middle position"
         assert not scroll_btn.has_class("hidden"), "Button should be visible at middle position"
 

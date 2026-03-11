@@ -110,7 +110,7 @@ public class ImportPageRankerTest {
                 .addFileContents("package test; public class J1 {}", "test/J1.java")
                 // The target result:
                 .addFileContents("package test; public class K1 {}", "test/K1.java")
-                .withGit()
+                .withMockGit()
                 .addCommit("test/A1.java", "test/B1.java")
                 .addCommit("test/B1.java", "test/C1.java")
                 .build()) {

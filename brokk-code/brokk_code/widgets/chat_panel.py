@@ -320,6 +320,9 @@ class ChatLog(RichLog):
     the pre-rendered Strip objects that RichLog produces.
     """
 
+    show_horizontal_scrollbar = False
+    wrap = True
+
     def get_selection(self, selection: "Selection") -> tuple[str, str] | None:
         text = "\n".join(strip.text for strip in self.lines)
         return selection.extract(text), "\n"
@@ -403,6 +406,8 @@ class ChatInput(TextArea):
     _mention_request_id: int = 0
 
     BINDINGS = [
+        Binding("ctrl+b", "page_up_log", "Page Up", show=False),
+        Binding("ctrl+f", "page_down_log", "Page Down", show=False),
         Binding("shift+enter", "insert_newline", "Insert Newline", show=False),
         Binding("ctrl+j", "insert_newline", "Insert Newline", show=False),
         Binding("tab", "accept_suggestion", "Accept Suggestion", show=False),
@@ -433,6 +438,14 @@ class ChatInput(TextArea):
 
     def action_insert_newline(self) -> None:
         self.insert("\n")
+
+    def action_page_up_log(self) -> None:
+        """Delegate page-up scrolling to the chat panel while keeping input focus."""
+        self.app.query_one(ChatPanel).action_page_up()
+
+    def action_page_down_log(self) -> None:
+        """Delegate page-down scrolling to the chat panel while keeping input focus."""
+        self.app.query_one(ChatPanel).action_page_down()
 
     def _set_autocomplete_open(self, is_open: bool) -> None:
         """Synchronizes suggestions visibility and container styling."""
@@ -805,7 +818,7 @@ class ChatPanel(Vertical):
         self._draft_buffer: str = ""  # Stores text before history navigation started
 
     def compose(self) -> ComposeResult:
-        yield ChatLog(highlight=True, markup=True, id="chat-log")
+        yield ChatLog(highlight=True, markup=True, wrap=True, min_width=0, id="chat-log")
         yield TokenBar(id="chat-token-bar", classes="hidden")
         yield StatusLine(id="status-line")
         with Vertical(id="chat-input-container"):
@@ -819,7 +832,8 @@ class ChatPanel(Vertical):
             yield LoadingIndicator(id="help-spinner", classes="hidden")
             yield Static(id="help-elapsed", classes="hidden")
             yield Static(
-                f"Enter: Send  Ctrl+J: Newline  {UP_ARROW}/{DOWN_ARROW}: History  Shift+Tab: Mode",
+                "Enter: Send  Ctrl+J: Newline  Ctrl+B/F: Scroll  "
+                f"{UP_ARROW}/{DOWN_ARROW}: History  Shift+Tab: Mode",
                 id="chat-help",
             )
 
@@ -827,6 +841,8 @@ class ChatPanel(Vertical):
         """Focus the input when the panel is mounted."""
         self.query_one("#chat-input", ChatInput).focus()
         log = self.query_one("#chat-log", RichLog)
+        log.min_width = 0
+        log.styles.scrollbar_size_horizontal = 0
         self.watch(log, "scroll_y", self._on_chat_log_scroll_change)
 
     def _on_chat_log_scroll_change(self, old: float, new: float) -> None:
@@ -862,6 +878,20 @@ class ChatPanel(Vertical):
             # Content fits in view - restore auto_scroll and hide button
             log.auto_scroll = True
             scroll_btn.add_class("hidden")
+
+    def action_page_up(self) -> None:
+        """Scroll the chat log up by one page even while input has focus."""
+        log = self.query_one("#chat-log", RichLog)
+        log.auto_scroll = False
+        log.scroll_page_up(animate=False)
+        self._sync_autoscroll()
+
+    def action_page_down(self) -> None:
+        """Scroll the chat log down by one page even while input has focus."""
+        log = self.query_one("#chat-log", RichLog)
+        log.auto_scroll = False
+        log.scroll_page_down(animate=False)
+        self._sync_autoscroll()
 
     def on_key(self, event: events.Key) -> None:
         """Handle Up/Down arrow keys for prompt history navigation."""
@@ -1190,8 +1220,8 @@ class ChatPanel(Vertical):
         else:
             return self._collapsed_summary_text(name, yaml_body)
 
-    def _render_ai_content(self, log: RichLog, content: str) -> None:
-        """Renders AI markdown and tool-call YAML blocks with consistent formatting."""
+    def _ai_renderables(self, content: str) -> List[Any]:
+        """Build Rich renderables for AI markdown and tool-call YAML blocks."""
         import re
 
         pattern = re.compile(
@@ -1199,44 +1229,44 @@ class ChatPanel(Vertical):
             flags=re.DOTALL,
         )
 
+        renderables: List[Any] = []
         position = 0
         matched_tool_call = False
         for match in pattern.finditer(content):
             matched_tool_call = True
             before = content[position : match.start()]
             if before.strip():
-                log.write(DotMarkdown(before))
-                log.write("")
+                renderables.append(DotMarkdown(before))
+                renderables.append("")
 
             tool_name = match.group(1)
             yaml_body = match.group(3)
-            log.write(self._render_tool_call_panel(tool_name, yaml_body))
-            log.write("")
+            renderables.append(self._render_tool_call_panel(tool_name, yaml_body))
+            renderables.append("")
             position = match.end()
 
         if not matched_tool_call:
             filtered_content = self._filter_tool_call_blocks(content)
-            log.write(DotMarkdown(filtered_content))
-            log.write("")
-            return
+            renderables.append(DotMarkdown(filtered_content))
+            renderables.append("")
+            return renderables
 
         after = content[position:]
         if after.strip():
-            log.write(DotMarkdown(after))
-            log.write("")
+            renderables.append(DotMarkdown(after))
+            renderables.append("")
+        return renderables
 
-    def _render_message_entry(self, kind: str, content: str, **kwargs: Any) -> None:
-        """Visual rendering implementation for a single history entry."""
-        log = self.query_one("#chat-log", RichLog)
+    def _render_ai_content(self, log: RichLog, content: str) -> None:
+        """Renders AI markdown and tool-call YAML blocks with consistent formatting."""
+        for renderable in self._ai_renderables(content):
+            log.write(renderable)
 
-        # If we are not following the bottom, ensure auto_scroll is disabled
-        # so that log.write() does not jump to the end.
-        if not log.is_vertical_scroll_end:
-            log.auto_scroll = False
-
+    def _message_entry_renderables(self, kind: str, content: str, **kwargs: Any) -> List[Any]:
+        """Build the renderables used for both live chat and exit transcript output."""
         if kind == "AI":
-            self._render_ai_content(log, content)
-        elif kind == "REASONING":
+            return self._ai_renderables(content)
+        if kind == "REASONING":
             if self.show_verbose:
                 panel_content = DotMarkdown(content, style="grey50")
                 panel = Panel(
@@ -1245,21 +1275,19 @@ class ChatPanel(Vertical):
                     title_align="center",
                     border_style="grey37",
                 )
-                log.write(panel)
-            else:
-                log.write(self._collapsed_summary_text("Thinking", content))
-            log.write("")
-        elif kind == "USER":
-            log.write(
+                return [panel, ""]
+            return [self._collapsed_summary_text("Thinking", content)]
+        if kind == "USER":
+            return [
                 Panel(
                     Text(content, justify="left"),
                     title="You",
                     title_align="right",
                     border_style="blue",
-                )
-            )
-            log.write("")
-        elif kind == "SYSTEM":
+                ),
+                "",
+            ]
+        if kind == "SYSTEM":
             level = kwargs.get("level", "INFO")
             markup = kwargs.get("markup", False)
             style_map = {
@@ -1270,12 +1298,10 @@ class ChatPanel(Vertical):
             }
             style = style_map.get(level.upper(), "italic grey50")
             prefix = f"[{level}] " if level != "INFO" else ""
-
             if markup:
-                log.write(f"[{style}]{prefix}{content}[/]")
-            else:
-                log.write(Text(f"{prefix}{content}", style=style))
-        elif kind == "TOOL_RESULT":
+                return [f"[{style}]{prefix}{content}[/]"]
+            return [Text(f"{prefix}{content}", style=style)]
+        if kind == "TOOL_RESULT":
             if self.show_verbose:
                 panel_content = DotMarkdown(content)
                 panel = Panel(
@@ -1284,21 +1310,29 @@ class ChatPanel(Vertical):
                     title_align="center",
                     border_style="grey37",
                 )
-                log.write(panel)
-            else:
-                log.write(self._collapsed_summary_text("Command Output", content))
-            log.write("")
-        elif kind == "WELCOME":
+                return [panel, ""]
+            return [self._collapsed_summary_text("Command Output", content), ""]
+        if kind == "WELCOME":
             icon = kwargs.get("icon", "")
-            log.write(Text(icon, style="#D04040"))
-            log.write(DotMarkdown(content))
-            log.write("")
-        elif kind == "LEGACY_AUTHOR":
+            return [Text(icon, style="#D04040"), DotMarkdown(content), ""]
+        if kind == "LEGACY_AUTHOR":
             author = kwargs.get("author", "System")
             output = Text()
             output.append(f"{author}: ", style="bold green")
             output.append(content)
-            log.write(output)
+            return [output]
+        return [Text(content)]
+
+    def _render_message_entry(self, kind: str, content: str, **kwargs: Any) -> None:
+        """Visual rendering implementation for a single history entry."""
+        log = self.query_one("#chat-log", RichLog)
+
+        # If we are not following the bottom, ensure auto_scroll is disabled
+        # so that log.write() does not jump to the end.
+        if not log.is_vertical_scroll_end:
+            log.auto_scroll = False
+        for renderable in self._message_entry_renderables(kind, content, **kwargs):
+            log.write(renderable)
 
     def refresh_log(self, show_verbose: bool) -> None:
         """Clears the RichLog and re-renders history based on the verbosity filter."""
@@ -1403,6 +1437,107 @@ class ChatPanel(Vertical):
         self._is_reasoning = False
         log = self.query_one("#chat-log", RichLog)
         log.clear()
+
+    def export_plain_text_transcript(self) -> str:
+        """Return a plain-text transcript derived from the in-memory message history."""
+
+        skipped_system_messages = {
+            "API key saved. Starting Brokk executor...",
+            "Starting Brokk executor...",
+            "Shutting down...",
+        }
+
+        def should_include_entry(entry: Dict[str, Any]) -> bool:
+            kind = entry["kind"]
+            if kind == "WELCOME":
+                return False
+            if kind != "SYSTEM":
+                return True
+
+            content = str(entry.get("content", "")).strip()
+            level = str(entry.get("level", "INFO")).upper()
+            if level != "INFO":
+                return True
+            if content in skipped_system_messages:
+                return False
+            if content.startswith("Connected to executor "):
+                return False
+            if content.startswith("Resuming session "):
+                return False
+            if content.startswith("Press Ctrl+C or Ctrl+D again to quit."):
+                return False
+            return True
+
+        def format_entry(entry: Dict[str, Any]) -> str:
+            kind = entry["kind"]
+            content = str(entry.get("content", "")).strip()
+
+            if kind == "USER":
+                return f"You: {content}"
+            if kind == "AI":
+                return f"Brokk: {content}"
+            if kind == "REASONING":
+                return f"[Thinking]\n{content}"
+            if kind == "SYSTEM":
+                level = str(entry.get("level", "INFO")).upper()
+                prefix = "System" if level == "INFO" else level
+                return f"[{prefix}] {content}"
+            if kind == "TOOL_RESULT":
+                return f"[Command Output]\n{content}"
+            if kind == "LEGACY_AUTHOR":
+                author = str(entry.get("author", "System")).strip() or "System"
+                return f"{author}: {content}"
+            return content
+
+        blocks = []
+        for entry in self._message_history:
+            if not should_include_entry(entry):
+                continue
+            block = format_entry(entry).strip()
+            if block:
+                blocks.append(block)
+        return "\n\n".join(blocks)
+
+    def export_rich_transcript_renderables(self) -> List[Any]:
+        """Return filtered Rich renderables for printing after the TUI exits."""
+
+        def should_include_entry(entry: Dict[str, Any]) -> bool:
+            kind = entry["kind"]
+            if kind == "WELCOME":
+                return False
+            if kind != "SYSTEM":
+                return True
+
+            content = str(entry.get("content", "")).strip()
+            level = str(entry.get("level", "INFO")).upper()
+            if level != "INFO":
+                return True
+            if content in {
+                "API key saved. Starting Brokk executor...",
+                "Starting Brokk executor...",
+                "Shutting down...",
+            }:
+                return False
+            if content.startswith("Connected to executor "):
+                return False
+            if content.startswith("Resuming session "):
+                return False
+            if content.startswith("Press Ctrl+C or Ctrl+D again to quit."):
+                return False
+            return True
+
+        renderables: List[Any] = []
+        for entry in self._message_history:
+            if not should_include_entry(entry):
+                continue
+            renderables.extend(
+                self._message_entry_renderables(
+                    entry["kind"],
+                    entry["content"],
+                    **{k: v for k, v in entry.items() if k not in ("kind", "content")},
+                )
+            )
+        return renderables
 
     def set_token_usage(
         self,

@@ -45,6 +45,7 @@ class JobsRouterValidationTest {
     private List<String> fsSnapshotBefore;
 
     private ContextManager contextManager;
+    private JobRunner jobRunner;
 
     @BeforeEach
     void setUp(@TempDir Path tempDir) throws Exception {
@@ -56,7 +57,7 @@ class JobsRouterValidationTest {
         Files.createDirectories(jobStoreDir);
         var jobStore = new JobStore(jobStoreDir);
 
-        var jobRunner = new JobRunner(contextManager, jobStore);
+        jobRunner = new JobRunner(contextManager, jobStore);
         var jobReservation = new JobReservation();
         // Ensure the reservation is clear
         String currentJob = jobReservation.current();
@@ -75,6 +76,9 @@ class JobsRouterValidationTest {
 
     @AfterEach
     void tearDown() {
+        if (jobRunner != null) {
+            jobRunner.shutdown();
+        }
         if (contextManager != null) {
             contextManager.close();
         }
