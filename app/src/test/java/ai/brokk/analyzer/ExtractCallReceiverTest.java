@@ -2,10 +2,9 @@ package ai.brokk.analyzer;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import ai.brokk.project.IProject;
+import ai.brokk.testutil.TestProject;
 import java.nio.file.Path;
 import java.util.Optional;
-import java.util.Set;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -16,21 +15,8 @@ import org.junit.jupiter.api.Test;
  */
 public class ExtractCallReceiverTest {
 
-    private static class MockProject implements IProject {
-        public Path getRoot() {
-            return Path.of("/test");
-        }
-
-        public String getName() {
-            return "test";
-        }
-
-        public Set<String> getExcludedDirectories() {
-            return Set.of();
-        }
-    }
-
-    private final IProject mockProject = new MockProject();
+    private final TestProject mockProject =
+            new TestProject(Path.of(System.getProperty("java.io.tmpdir")), Languages.NONE);
 
     @Test
     @DisplayName("Java analyzer - extractCallReceiver with various method references")

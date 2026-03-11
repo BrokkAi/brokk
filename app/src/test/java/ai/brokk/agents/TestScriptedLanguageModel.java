@@ -14,6 +14,7 @@ import org.jetbrains.annotations.Nullable;
 
 public class TestScriptedLanguageModel implements StreamingChatModel {
     private final Queue<AiMessage> responses;
+    private final Queue<ChatResponse> cannedResponses;
     private final AiMessage fallbackResponse;
     private final List<ChatRequest> seenRequests = new ArrayList<>();
 
@@ -23,9 +24,18 @@ public class TestScriptedLanguageModel implements StreamingChatModel {
 
     public TestScriptedLanguageModel(List<AiMessage> cannedResponses) {
         this.responses = new LinkedList<>(cannedResponses);
+        this.cannedResponses = new LinkedList<>();
         this.fallbackResponse = cannedResponses.isEmpty()
                 ? new AiMessage("TestScriptedLanguageModel: fallback response")
                 : cannedResponses.getFirst();
+    }
+
+    public TestScriptedLanguageModel(ChatResponse... cannedResponses) {
+        this.responses = new LinkedList<>();
+        this.cannedResponses = new LinkedList<>(Arrays.asList(cannedResponses));
+        this.fallbackResponse = cannedResponses.length == 0
+                ? new AiMessage("TestScriptedLanguageModel: fallback response")
+                : cannedResponses[0].aiMessage();
     }
 
     public List<ChatRequest> seenRequests() {
@@ -35,6 +45,12 @@ public class TestScriptedLanguageModel implements StreamingChatModel {
     @Override
     public void doChat(ChatRequest chatRequest, StreamingChatResponseHandler handler) {
         seenRequests.add(chatRequest);
+
+        ChatResponse prebuilt = cannedResponses.poll();
+        if (prebuilt != null) {
+            handler.onCompleteResponse(prebuilt);
+            return;
+        }
 
         @Nullable AiMessage ai = responses.poll();
         if (ai == null) {

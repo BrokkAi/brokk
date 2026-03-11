@@ -7,8 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.GitRepo;
-import ai.brokk.git.IGitRepo;
-import ai.brokk.project.IProject;
+import ai.brokk.testutil.TestProject;
 import ai.brokk.util.Environment;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -103,27 +102,6 @@ class ConflictInspectorTest {
         return new ParsedAnnotated(oursHeader, baseHeader, theirsHeader, ours, base, theirs);
     }
 
-    // Simple IProject implementation to avoid anonymous class literal in source (prevents test filter parsing issues)
-    private static final class TestProject implements IProject {
-        private final Path root;
-        private final IGitRepo repo;
-
-        private TestProject(Path root, IGitRepo repo) {
-            this.root = root;
-            this.repo = repo;
-        }
-
-        @Override
-        public Path getRoot() {
-            return root;
-        }
-
-        @Override
-        public IGitRepo getRepo() {
-            return repo;
-        }
-    }
-
     private static void initRepo(Path root) throws Exception {
         runGit(root, "init");
         runGit(root, "config user.name TestUser");
@@ -156,8 +134,8 @@ class ConflictInspectorTest {
         return runGitCapture(root, "rev-parse --abbrev-ref HEAD").trim();
     }
 
-    private static IProject makeProject(Path root, GitRepo repo) {
-        return new TestProject(root, repo);
+    private static TestProject makeProject(Path root, GitRepo repo) {
+        return new TestProject(root).withRepo(repo);
     }
 
     /** Simple content conflict: validate mode, commits, and that it's actually a content conflict. */

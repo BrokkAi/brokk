@@ -959,6 +959,32 @@ public class GitRepoTest {
     }
 
     @Test
+    void testGetTrackedFilesFiltersOutSymlinks() throws Exception {
+        // Symlinks are not supported on all platforms/environments
+        Path target = projectRoot.resolve("README.md");
+        Path link = projectRoot.resolve("link_to_readme");
+        try {
+            Files.createSymbolicLink(link, target);
+        } catch (Exception e) {
+            assumeTrue(false, "FileSystem does not support symlinks in this environment");
+        }
+
+        // Add and commit the symlink
+        repo.getGit().add().addFilepattern("link_to_readme").call();
+        repo.getGit().commit().setMessage("Add symlink").setSign(false).call();
+        repo.invalidateCaches();
+
+        Set<ProjectFile> trackedFiles = repo.getTrackedFiles();
+        boolean containsSymlink =
+                trackedFiles.stream().anyMatch(pf -> pf.getFileName().equals("link_to_readme"));
+
+        assertFalse(containsSymlink, "getTrackedFiles should filter out symlinks");
+        assertTrue(
+                trackedFiles.stream().anyMatch(pf -> pf.getFileName().equals("README.md")),
+                "README.md should still be tracked");
+    }
+
+    @Test
     void testGetTrackedFilesEmptyRepository() throws Exception {
         var emptyRepoRoot = tempDir.resolve("emptyRepo");
         Files.createDirectories(emptyRepoRoot);

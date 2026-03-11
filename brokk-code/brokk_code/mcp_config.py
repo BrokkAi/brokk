@@ -17,16 +17,9 @@ Always use the Brokk MCP server tools for syntax-aware code search and callCodeA
 """
 _BROKK_MCP_PERMISSION_ALLOW: list[str] = [
     "Bash(./gradlew:*)",
-    "mcp__brokk__searchSymbols",
-    "mcp__brokk__getClassSources",
-    "mcp__brokk__getMethodSources",
-    "mcp__brokk__getClassSkeletons",
-    "mcp__brokk__scanUsages",
-    "mcp__brokk__callCodeAgent",
-    "mcp__brokk__scan",
-    "mcp__brokk__getFileSummaries",
-    "mcp__brokk__skimDirectory",
-    "mcp__brokk__runBuild",
+    # MCP permissions do not support wildcards for tool names.
+    # Allow the entire Brokk MCP server by name instead.
+    "mcp__brokk",
 ]
 
 

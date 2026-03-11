@@ -1122,7 +1122,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         notificationsDialog.add(scroll, BorderLayout.CENTER);
         notificationsDialog.add(footer, BorderLayout.SOUTH);
 
-        notificationsDialog.setSize(640, 480);
+        notificationsDialog.setSize(800, 600);
+        notificationsDialog.setMinimumSize(new Dimension(600, 400));
         notificationsDialog.setLocationRelativeTo(chrome.getFrame());
         notificationsDialog.setVisible(true);
     }
@@ -1154,26 +1155,22 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 var card = new RoundedPanel(12, bg, border);
                 card.setLayout(new BorderLayout(8, 4));
                 card.setBorder(new EmptyBorder(4, 8, 4, 8));
-                card.setMinimumSize(new Dimension(0, 30));
 
-                // Left: unread indicator (if unread) + message with bold timestamp at end
-                var leftPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
-                leftPanel.setOpaque(false);
-
+                // Center: message with bold timestamp at end, using HTML for wrapping
                 String timeStr = formatModified(n.timestamp);
                 String combined = escapeHtml(n.message) + " <b>" + escapeHtml(timeStr) + "</b>";
-                var msgLabel = new JLabel("<html><div style='width:100%; word-wrap: break-word; white-space: normal;'>"
-                        + combined + "</div></html>");
+                var msgLabel = new JLabel("<html><body style='width:100%'>"
+                        + "<div style='word-wrap: break-word; white-space: normal;'>"
+                        + combined + "</div></body></html>");
                 msgLabel.setForeground(fg);
                 msgLabel.setHorizontalAlignment(JLabel.LEFT);
                 msgLabel.setVerticalAlignment(JLabel.CENTER);
 
-                leftPanel.add(msgLabel);
-                card.add(leftPanel, BorderLayout.CENTER);
+                card.add(msgLabel, BorderLayout.CENTER);
 
                 // Clicking on the message area opens a detail view
-                leftPanel.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-                leftPanel.addMouseListener(new MouseAdapter() {
+                msgLabel.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+                msgLabel.addMouseListener(new MouseAdapter() {
                     @Override
                     public void mouseClicked(MouseEvent e) {
                         showFullNotificationMessage(n);

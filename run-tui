@@ -11,7 +11,7 @@ LIB_DIR="$SCRIPT_DIR/app/build/libs"
 needs_build() {
     # Build if no jar exists
     local jar
-    jar="$(ls -t "$LIB_DIR"/brokk-*.jar 2>/dev/null | head -n 1)" || true
+    jar="$(ls -t "$LIB_DIR"/brokk*.jar 2>/dev/null | head -n 1)" || true
     if [[ -z "$jar" ]]; then
         return 0
     fi
@@ -44,5 +44,11 @@ if needs_build; then
     "$SCRIPT_DIR/gradlew" -p "$SCRIPT_DIR" shadowJar
 fi
 
+JAR="$(ls -t "$LIB_DIR"/brokk*.jar 2>/dev/null | head -n 1)" || true
+
 cd "$SCRIPT_DIR/brokk-code"
-exec uv run brokk "$@"
+if [[ -n "$JAR" ]]; then
+    exec uv run brokk --jar "$JAR" "$@"
+else
+    exec uv run brokk "$@"
+fi

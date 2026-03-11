@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.testutil.TestProject;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -14,36 +15,6 @@ import org.junit.jupiter.api.io.TempDir;
 
 class DependencyResolutionTest {
 
-    /**
-     * Minimal implementation of IProject for testing default methods that require on-disk dependency discovery.
-     */
-    private record ResolutionTestProject(Path root) implements IProject {
-        @Override
-        public Path getRoot() {
-            return root;
-        }
-
-        @Override
-        public Path getMasterRootPathForConfig() {
-            return root;
-        }
-
-        @Override
-        public Set<ProjectFile> getAllOnDiskDependencies() {
-            Path dependenciesPath = root.resolve(".brokk/dependencies");
-            if (!Files.exists(dependenciesPath)) {
-                return Set.of();
-            }
-            try (var stream = Files.list(dependenciesPath)) {
-                return stream.filter(Files::isDirectory)
-                        .map(p -> new ProjectFile(root, root.relativize(p)))
-                        .collect(Collectors.toSet());
-            } catch (IOException e) {
-                return Set.of();
-            }
-        }
-    }
-
     @Test
     void testNamesToDependencies(@TempDir Path root) throws IOException {
         // Ensure dependencies directories exist in the standard .brokk/dependencies location
@@ -53,7 +24,18 @@ class DependencyResolutionTest {
         Files.createDirectories(dep2Dir);
 
         // Create a test project instance
-        IProject project = new ResolutionTestProject(root);
+        Path dependenciesPath = root.resolve(".brokk/dependencies");
+        Set<ProjectFile> allOnDiskDependencies = Set.of();
+        if (Files.exists(dependenciesPath)) {
+            try (var stream = Files.list(dependenciesPath)) {
+                allOnDiskDependencies = stream.filter(Files::isDirectory)
+                        .map(p -> new ProjectFile(root, root.relativize(p)))
+                        .collect(Collectors.toSet());
+            } catch (IOException e) {
+                allOnDiskDependencies = Set.of();
+            }
+        }
+        IProject project = new TestProject(root).withDependencies(allOnDiskDependencies, Set.of());
 
         // Act: resolve from string
         Set<IProject.Dependency> resolved = project.resolveDependencies("dep1, dep2");

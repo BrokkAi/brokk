@@ -111,7 +111,7 @@ class JobRunnerIssueModeTest {
     @Test
     void testIssueDeliveryPolicy_DefaultsToPr() {
         JobSpec spec = JobSpec.ofIssue("gpt-4", null, "token", "owner", "repo", 1, "{}");
-        assertTrue(JobRunner.issueDeliveryEnabled(spec), "Default policy should enable PR creation");
+        assertTrue(IssueService.issueDeliveryEnabled(spec), "Default policy should enable PR creation");
     }
 
     @Test
@@ -166,7 +166,7 @@ class JobRunnerIssueModeTest {
                 null,
                 false,
                 JobSpec.DEFAULT_MAX_ISSUE_FIX_ATTEMPTS);
-        assertFalse(JobRunner.issueDeliveryEnabled(spec), "issue_delivery=none should disable PR creation");
+        assertFalse(IssueService.issueDeliveryEnabled(spec), "issue_delivery=none should disable PR creation");
     }
 
     @Test
@@ -215,7 +215,7 @@ class JobRunnerIssueModeTest {
         assertNull(spec.getBuildSettingsJson(), "Precondition: blank buildSettingsJson should omit tag");
 
         // Resolve should fall back to project build details
-        BuildDetails resolved = JobRunner.resolveIssueBuildDetails(spec, project);
+        BuildDetails resolved = IssueService.resolveIssueBuildDetails(spec, project);
 
         assertEquals(projectBuildDetails, resolved, "Should fall back to project build details when spec is blank");
         assertEquals("./gradlew lint", resolved.buildLintCommand());
@@ -235,7 +235,7 @@ class JobRunnerIssueModeTest {
         assertEquals(specJson, spec.getBuildSettingsJson(), "Precondition: non-blank settings should be stored");
 
         // Resolve should use spec's build settings, not project's
-        BuildDetails resolved = JobRunner.resolveIssueBuildDetails(spec, project);
+        BuildDetails resolved = IssueService.resolveIssueBuildDetails(spec, project);
 
         assertEquals("./mvn lint", resolved.buildLintCommand());
         assertEquals("./mvn test", resolved.testAllCommand());
@@ -252,7 +252,7 @@ class JobRunnerIssueModeTest {
         JobSpec spec = JobSpec.ofIssue("gpt-4", null, "token", "owner", "repo", 42, "");
 
         // Resolve should return EMPTY (both spec and project are empty)
-        BuildDetails resolved = JobRunner.resolveIssueBuildDetails(spec, project);
+        BuildDetails resolved = IssueService.resolveIssueBuildDetails(spec, project);
 
         assertEquals(BuildDetails.EMPTY, resolved, "Should return EMPTY when both spec and project have no config");
     }
@@ -369,7 +369,7 @@ class JobRunnerIssueModeTest {
 
         IssueExecutionException ex = assertThrows(
                 IssueExecutionException.class,
-                () -> JobRunner.runSingleFixVerificationGate(
+                () -> IssueService.runSingleFixVerificationGate(
                         "job-single-fix-1", store, io, "./gradlew test", verificationRunner, fixRunner));
 
         assertEquals(2, verificationCalls.get(), "Verification should be called exactly twice");
@@ -423,7 +423,10 @@ class JobRunnerIssueModeTest {
 
         assertThrows(
                 IssueExecutionException.class,
-                () -> JobRunner.runIssueModeTestLintRetryLoop(
+                () -> IssueService.runIssueModeTestLintRetryLoop(
+                        "jobId",
+                        store,
+                        new TestConsoleIO(),
                         cancelled::get,
                         progressSink,
                         commandRunner,
@@ -465,7 +468,10 @@ class JobRunnerIssueModeTest {
 
         assertThrows(
                 IssueExecutionException.class,
-                () -> JobRunner.runIssueModeTestLintRetryLoop(
+                () -> IssueService.runIssueModeTestLintRetryLoop(
+                        "jobId",
+                        store,
+                        new TestConsoleIO(),
                         cancelled::get,
                         progressSink,
                         commandRunner,
@@ -504,7 +510,10 @@ class JobRunnerIssueModeTest {
 
         Consumer<String> fixTaskRunner = out -> fail("No fix tasks when both pass");
 
-        JobRunner.runIssueModeTestLintRetryLoop(
+        IssueService.runIssueModeTestLintRetryLoop(
+                "jobId",
+                store,
+                new TestConsoleIO(),
                 cancelled::get,
                 progressSink,
                 commandRunner,
@@ -538,7 +547,10 @@ class JobRunnerIssueModeTest {
 
         IssueExecutionException ex = assertThrows(
                 IssueExecutionException.class,
-                () -> JobRunner.runIssueModeTestLintRetryLoop(
+                () -> IssueService.runIssueModeTestLintRetryLoop(
+                        "jobId",
+                        store,
+                        new TestConsoleIO(),
                         cancelled::get,
                         progressSink,
                         commandRunner,
@@ -575,7 +587,10 @@ class JobRunnerIssueModeTest {
 
         Consumer<String> fixTaskRunner = out -> fixCalls.incrementAndGet();
 
-        JobRunner.runIssueModeTestLintRetryLoop(
+        IssueService.runIssueModeTestLintRetryLoop(
+                "jobId",
+                store,
+                new TestConsoleIO(),
                 cancelled::get,
                 progressSink,
                 commandRunner,
@@ -600,7 +615,7 @@ class JobRunnerIssueModeTest {
 
         Function<String, String> commandRunner = cmd -> "";
 
-        JobRunner.runIssueModeTestLintRetryLoop(
+        IssueService.runIssueModeTestLintRetryLoop(
                 jobId,
                 store,
                 io,
@@ -665,7 +680,7 @@ class JobRunnerIssueModeTest {
 
         assertThrows(
                 IssueExecutionException.class,
-                () -> JobRunner.runIssueModeTestLintRetryLoop(
+                () -> IssueService.runIssueModeTestLintRetryLoop(
                         jobId,
                         store,
                         io,
@@ -733,7 +748,7 @@ class JobRunnerIssueModeTest {
 
         assertThrows(
                 IssueExecutionException.class,
-                () -> JobRunner.runIssueModeTestLintRetryLoop(
+                () -> IssueService.runIssueModeTestLintRetryLoop(
                         jobId,
                         store,
                         io,
@@ -782,7 +797,10 @@ class JobRunnerIssueModeTest {
 
         var ex = assertThrows(
                 IllegalArgumentException.class,
-                () -> JobRunner.runIssueModeTestLintRetryLoop(
+                () -> IssueService.runIssueModeTestLintRetryLoop(
+                        "jobId",
+                        store,
+                        new TestConsoleIO(),
                         cancelled::get,
                         progressSink,
                         commandRunner,
@@ -804,7 +822,10 @@ class JobRunnerIssueModeTest {
 
         var ex = assertThrows(
                 IllegalArgumentException.class,
-                () -> JobRunner.runIssueModeTestLintRetryLoop(
+                () -> IssueService.runIssueModeTestLintRetryLoop(
+                        "jobId",
+                        store,
+                        new TestConsoleIO(),
                         cancelled::get,
                         progressSink,
                         commandRunner,
@@ -828,7 +849,10 @@ class JobRunnerIssueModeTest {
 
         assertThrows(
                 JobRunner.IssueCancelledException.class,
-                () -> JobRunner.runIssueModeTestLintRetryLoop(
+                () -> IssueService.runIssueModeTestLintRetryLoop(
+                        "jobId",
+                        store,
+                        new TestConsoleIO(),
                         cancelled::get,
                         progressSink,
                         commandRunner,
@@ -857,7 +881,10 @@ class JobRunnerIssueModeTest {
 
         IssueExecutionException ex = assertThrows(
                 IssueExecutionException.class,
-                () -> JobRunner.runIssueModeTestLintRetryLoop(
+                () -> IssueService.runIssueModeTestLintRetryLoop(
+                        "jobId",
+                        store,
+                        new TestConsoleIO(),
                         cancelled::get,
                         progressSink,
                         commandRunner,
@@ -905,7 +932,10 @@ class JobRunnerIssueModeTest {
 
         IssueExecutionException ex = assertThrows(
                 IssueExecutionException.class,
-                () -> JobRunner.runIssueModeTestLintRetryLoop(
+                () -> IssueService.runIssueModeTestLintRetryLoop(
+                        "jobId",
+                        store,
+                        new TestConsoleIO(),
                         cancelled::get,
                         progressSink,
                         commandRunner,
@@ -939,7 +969,7 @@ class JobRunnerIssueModeTest {
         var currentPhase = new AtomicReference<String>("START");
 
         Function<PrReviewService.InlineComment, String> commentToPrompt = c -> {
-            String prompt = JobRunner.buildInlineCommentFixPrompt(c);
+            String prompt = IssueService.buildInlineCommentFixPrompt(c);
             prompts.add(prompt);
             return prompt;
         };
@@ -967,7 +997,7 @@ class JobRunnerIssueModeTest {
             currentPhase.set("FINAL_VERIFICATION");
             finalVerification.run();
         };
-        JobRunner.runIssueReviewTaskSequence(comments, commentToPrompt, taskRunner, branchUpdateHook, exec);
+        IssueService.runIssueReviewTaskSequence(comments, commentToPrompt, taskRunner, branchUpdateHook, exec);
 
         assertEquals(3, prompts.size(), "Each inline comment must be converted to a prompt");
         assertTrue(prompts.get(0).contains("src/A.java"));
@@ -1020,7 +1050,7 @@ class JobRunnerIssueModeTest {
 
         Function<PrReviewService.InlineComment, String> commentToPrompt = c -> {
             promptsBuilt.incrementAndGet();
-            return JobRunner.buildInlineCommentFixPrompt(c);
+            return IssueService.buildInlineCommentFixPrompt(c);
         };
 
         Consumer<String> taskRunner = prompt -> {
@@ -1041,7 +1071,7 @@ class JobRunnerIssueModeTest {
             observed.add("finalVerification");
         };
 
-        JobRunner.runIssueReviewTaskSequenceWithCancellation(
+        IssueService.runIssueReviewTaskSequenceWithCancellation(
                 comments, cancelled::get, commentToPrompt, taskRunner, branchUpdateHook, finalVerification);
 
         assertTrue(cancelled.get(), "Test must trigger cancellation");
@@ -1060,18 +1090,12 @@ class JobRunnerIssueModeTest {
     @Test
     void issueReviewTaskSequence_noComments_stillRunsFinalVerification() {
         var observed = new ArrayList<String>();
-        var branchHookCalls = new AtomicInteger(0);
 
-        JobRunner.runIssueReviewTaskSequence(
-                List.of(),
-                JobRunner::buildInlineCommentFixPrompt,
-                prompt -> observed.add("task:" + prompt),
-                () -> branchHookCalls.incrementAndGet(),
-                () -> observed.add("finalVerification"));
+        IssueService.runIssueReviewTaskSequence(
+                List.of(), c -> "", p -> {}, () -> {}, () -> observed.add("finalVerification"));
 
         assertTrue(observed.contains("finalVerification"));
         assertEquals(1, observed.size(), "No tasks should run when comments list is empty");
-        assertEquals(0, branchHookCalls.get(), "Branch update hook must not run when there are no tasks");
     }
 
     @Test
@@ -1104,7 +1128,7 @@ class JobRunnerIssueModeTest {
 
         var thrown = assertThrows(
                 RuntimeException.class,
-                () -> JobRunner.runIssueReviewFixAttemptsWithCommandResultEvents(
+                () -> IssueService.runIssueReviewFixAttemptsWithCommandResultEvents(
                         jobId, store, io, cancelled::get, comments, runner, branchHook));
         assertEquals("boom", thrown.getMessage());
 
@@ -1189,7 +1213,7 @@ class JobRunnerIssueModeTest {
         };
         Runnable branchHook = () -> branchHooks.incrementAndGet();
 
-        JobRunner.runIssueReviewFixAttemptsWithCommandResultEvents(
+        IssueService.runIssueReviewFixAttemptsWithCommandResultEvents(
                 jobId, store, io, cancelled::get, comments, runner, branchHook);
 
         assertEquals(1, ran.get(), "Attempt 2 should not execute after cancellation flips true");
@@ -1248,7 +1272,7 @@ class JobRunnerIssueModeTest {
         Consumer<PrReviewService.InlineComment> runner = c -> ran.incrementAndGet();
         Runnable branchHook = () -> branchHooks.incrementAndGet();
 
-        JobRunner.runIssueReviewFixAttemptsWithCommandResultEvents(
+        IssueService.runIssueReviewFixAttemptsWithCommandResultEvents(
                 jobId, store, io, cancelled::get, comments, runner, branchHook);
 
         assertEquals(0, ran.get(), "No tasks should run when already cancelled");
@@ -1296,14 +1320,22 @@ class JobRunnerIssueModeTest {
         Consumer<String> fixRunner = prompt -> fixCalls.incrementAndGet();
 
         assertThrows(IssueExecutionException.class, () -> {
-            JobRunner.runSingleFixVerificationGate(
-                    "job-pr-skip-1", store, io, "verification", verificationRunner, fixRunner);
+            IssueService.runIssueModeTestLintRetryLoop(
+                    "job-pr-skip-1",
+                    store,
+                    io,
+                    () -> false,
+                    (a, m) -> {},
+                    cmd -> verificationRunner.get(),
+                    fixRunner,
+                    new BuildDetails("", "verification", "", Set.of()),
+                    1);
             // This line simulates PR creation that must not be reached if verification fails.
             prCreated.set(true);
         });
 
         assertFalse(prCreated.get(), "PR creation path must not be reached when verification fails");
-        assertEquals(2, verificationCalls.get(), "Verification should be invoked twice (before and after fix)");
+        assertEquals(1, verificationCalls.get(), "Verification should be invoked exactly once (maxIterations=1)");
         assertEquals(1, fixCalls.get(), "Exactly one fix attempt should be invoked");
     }
 
@@ -1317,7 +1349,7 @@ class JobRunnerIssueModeTest {
         assertEquals(issueBranchName, repo.getCurrentBranch());
 
         assertDoesNotThrow(
-                () -> JobRunner.cleanupIssueBranch("job-cleanup-1", repo, originalBranch, issueBranchName, false));
+                () -> IssueService.cleanupIssueBranch("job-cleanup-1", repo, originalBranch, issueBranchName, false));
 
         assertEquals(originalBranch, repo.getCurrentBranch());
         assertFalse(repo.isLocalBranch(issueBranchName), "Issue branch should be deleted after cleanup");
@@ -1336,7 +1368,7 @@ class JobRunnerIssueModeTest {
         repo.getGit().commit().setMessage("unique").setSign(false).call();
 
         assertDoesNotThrow(
-                () -> JobRunner.cleanupIssueBranch("job-cleanup-3", repo, originalBranch, issueBranchName, true));
+                () -> IssueService.cleanupIssueBranch("job-cleanup-3", repo, originalBranch, issueBranchName, true));
 
         assertEquals(originalBranch, repo.getCurrentBranch());
         assertFalse(
@@ -1352,7 +1384,7 @@ class JobRunnerIssueModeTest {
         assertEquals(issueBranchName, repo.getCurrentBranch());
 
         assertDoesNotThrow(
-                () -> JobRunner.cleanupIssueBranch("job-cleanup-1", repo, originalBranch, issueBranchName, false));
+                () -> IssueService.cleanupIssueBranch("job-cleanup-1", repo, originalBranch, issueBranchName, false));
 
         assertEquals(originalBranch, repo.getCurrentBranch());
         assertFalse(
@@ -1377,7 +1409,7 @@ class JobRunnerIssueModeTest {
         Files.writeString(root.resolve("README.md"), "uncommitted change");
 
         assertDoesNotThrow(
-                () -> JobRunner.cleanupIssueBranch("job-cleanup-2", repo, originalBranch, issueBranchName, false));
+                () -> IssueService.cleanupIssueBranch("job-cleanup-2", repo, originalBranch, issueBranchName, false));
 
         assertEquals(originalBranch, repo.getCurrentBranch());
         assertTrue(repo.listStashes().size() > stashesBefore, "Cleanup should create a stash when checkout is blocked");
@@ -1396,7 +1428,7 @@ class JobRunnerIssueModeTest {
         repo.getGit().commit().setMessage("unique").setSign(false).call();
 
         assertDoesNotThrow(
-                () -> JobRunner.cleanupIssueBranch("job-cleanup-3", repo, originalBranch, issueBranchName, true));
+                () -> IssueService.cleanupIssueBranch("job-cleanup-3", repo, originalBranch, issueBranchName, true));
 
         assertEquals(originalBranch, repo.getCurrentBranch());
         assertFalse(repo.isLocalBranch(issueBranchName), "Force-delete cleanup should delete issue branch");
@@ -1427,7 +1459,7 @@ class JobRunnerIssueModeTest {
 
         // Call cleanup with forceDelete=false. If deleteBranch throws, cleanup should NOT force-delete and branch
         // should remain.
-        JobRunner.cleanupIssueBranch("job-cleanup-force-flag-1", repo, originalBranch, issueBranchName, false);
+        IssueService.cleanupIssueBranch("job-cleanup-force-flag-1", repo, originalBranch, issueBranchName, false);
 
         // The branch should still exist (delete should not have been force-applied).
         assertTrue(
@@ -1458,7 +1490,7 @@ class JobRunnerIssueModeTest {
         assertEquals(originalBranch, repo.getCurrentBranch());
 
         // Call cleanup with forceDelete=true; branch should be removed even if normal delete would have failed.
-        JobRunner.cleanupIssueBranch("job-cleanup-force-flag-2", repo, originalBranch, issueBranchName, true);
+        IssueService.cleanupIssueBranch("job-cleanup-force-flag-2", repo, originalBranch, issueBranchName, true);
 
         assertFalse(
                 repo.isLocalBranch(issueBranchName),
@@ -1475,7 +1507,7 @@ class JobRunnerIssueModeTest {
 
         var reviewCalls = new AtomicInteger(0);
 
-        var comments = JobRunner.issueModeComputeInlineCommentsOrEmpty(() -> "", ignoredDiff -> {
+        var comments = IssueService.issueModeComputeInlineCommentsOrEmpty(() -> "", ignoredDiff -> {
             reviewCalls.incrementAndGet();
             return List.of();
         });

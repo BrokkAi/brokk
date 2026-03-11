@@ -186,6 +186,39 @@ class RealProjectFixtureTest {
         }
     }
 
+    @Test
+    @Tag("git-integration")
+    void testFromGitUsesRepoWorkTreeRoot() throws Exception {
+        Path sourceRepoPath = tempDir.resolve("source-repo-from-git");
+        Files.createDirectories(sourceRepoPath);
+        GitRepoFactory.initRepo(sourceRepoPath);
+
+        Path javaFile = sourceRepoPath.resolve("Foo.java");
+        Files.writeString(javaFile, "public class Foo {}");
+
+        try (Git git = Git.open(sourceRepoPath.toFile())) {
+            git.add().addFilepattern("Foo.java").call();
+            git.commit()
+                    .setMessage("Initial commit")
+                    .setAuthor("Tester", "tester@brokk.ai")
+                    .setSign(false)
+                    .call();
+        }
+
+        try (ai.brokk.git.GitRepo repo = new ai.brokk.git.GitRepo(sourceRepoPath)) {
+            ITestProject project = InlineTestProjectCreator.fromGit(repo).build();
+            try (project) {
+                assertEquals(repo.getWorkTreeRoot(), project.getRoot());
+                assertTrue(project.hasGit());
+                assertTrue(project.getRepo() == repo);
+                assertTrue(Files.exists(project.getRoot().resolve("Foo.java")));
+            }
+
+            // fromGit(repo) should not delete caller-owned repository files
+            assertTrue(Files.exists(sourceRepoPath.resolve("Foo.java")));
+        }
+    }
+
     private void createTestZip(Path zipPath, String fileName, String content) throws IOException {
         try (ZipOutputStream zos = new ZipOutputStream(new FileOutputStream(zipPath.toFile()))) {
             ZipEntry entry = new ZipEntry(fileName);
