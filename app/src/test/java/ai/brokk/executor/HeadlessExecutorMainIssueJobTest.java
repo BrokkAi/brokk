@@ -253,6 +253,7 @@ class HeadlessExecutorMainIssueJobTest {
         var payload = baseGenericIssueJobPayload();
         String jobId = postGenericIssueJobAndGetJobId(payload);
         var persisted = loadPersistedJobSpec(jobId);
+        Assertions.assertTrue(persisted.autoCommit());
         Assertions.assertFalse(persisted.skipVerification());
     }
 
@@ -262,6 +263,7 @@ class HeadlessExecutorMainIssueJobTest {
         payload.put("skipVerification", true);
         String jobId = postGenericIssueJobAndGetJobId(payload);
         var persisted = loadPersistedJobSpec(jobId);
+        Assertions.assertTrue(persisted.autoCommit());
         Assertions.assertTrue(persisted.skipVerification());
     }
 

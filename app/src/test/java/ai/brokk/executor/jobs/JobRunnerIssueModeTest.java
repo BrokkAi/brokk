@@ -187,6 +187,7 @@ class JobRunnerIssueModeTest {
         assertEquals("{\"buildLintCommand\":\"./gradlew build\"}", spec.getBuildSettingsJson());
         assertEquals("gpt-4", spec.plannerModel());
         assertEquals("gpt-4-mini", spec.codeModel());
+        assertTrue(spec.autoCommit());
         assertEquals(JobSpec.DEFAULT_MAX_ISSUE_FIX_ATTEMPTS, spec.effectiveMaxIssueFixAttempts());
     }
 
