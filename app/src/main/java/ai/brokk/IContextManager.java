@@ -162,6 +162,11 @@ public interface IContextManager {
         throw new UnsupportedOperationException();
     }
 
+    /** Returns whether successful task execution should auto-commit repository changes. */
+    default boolean isAutoCommit() {
+        return true;
+    }
+
     /** Listener interface for context change events. */
     interface ContextListener {
         /**

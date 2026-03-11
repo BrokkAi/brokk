@@ -189,6 +189,7 @@ class JobSpecTest {
     @Test
     void testOfIssue_DefaultSkipVerificationFalse() {
         var spec = JobSpec.ofIssue("planner", null, "token", "owner", "repo", 123, null);
+        assertTrue(spec.autoCommit());
         assertFalse(spec.skipVerification());
     }
 
@@ -196,6 +197,7 @@ class JobSpecTest {
     void testOfIssue_CanSetSkipVerificationTrue() {
         var spec = JobSpec.ofIssue(
                 "planner", null, "token", "owner", "repo", 123, null, JobSpec.DEFAULT_MAX_ISSUE_FIX_ATTEMPTS, true);
+        assertTrue(spec.autoCommit());
         assertTrue(spec.skipVerification());
     }
 }
