@@ -1,25 +1,102 @@
-import type { InitialShellState, ShellControllerDeps, ThreadMetadata } from "./types";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { resolve } from "node:path";
+import type { LazyWorktreeProvisioningService, ThreadMetadata, ThreadProvisioning } from "./types";
 
-function pickInitialThreadId(threads: ThreadMetadata[]): string | null {
-  if (threads.length === 0) {
-    return null;
-  }
+type ProvisioningRecord = {
+  threadId: string;
+  branch: string;
+  worktreePath: string;
+  brokkSessionId: string | null;
+};
 
-  const sortedByUpdatedAtDesc = [...threads].sort((a, b) =>
-    b.updatedAt.localeCompare(a.updatedAt)
-  );
+type ProvisioningState = {
+  version: 1;
+  mappings: ProvisioningRecord[];
+};
 
-  return sortedByUpdatedAtDesc[0]?.id ?? null;
+export interface WorktreeGitOps {
+  sanitizeBranchName(proposed: string): string;
+  getNextWorktreePath(storageRoot: string): Promise<string>;
+  addWorktree(branch: string, worktreePath: string): Promise<void>;
+  worktreeExists(worktreePath: string): Promise<boolean>;
 }
 
-export async function loadInitialShellState(
-  deps: ShellControllerDeps
-): Promise<InitialShellState> {
-  const threads = await deps.metadataStore.readThreadMetadata();
-  const selectedThreadId = pickInitialThreadId(threads);
+const defaultState = (): ProvisioningState => ({ version: 1, mappings: [] });
 
-  return {
-    threads,
-    selectedThreadId
-  };
+function stableBaseBranchName(thread: ThreadMetadata): string {
+  const titlePart = thread.title.trim().toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-/_]/g, "");
+  const fallback = `thread-${thread.id}`;
+  return titlePart.length > 0 ? `${titlePart}-${thread.id}` : fallback;
+}
+
+export class LazyThreadWorktreeProvisioningService implements LazyWorktreeProvisioningService {
+  constructor(
+    private readonly mappingFilePath: string,
+    private readonly worktreeStorageRoot: string,
+    private readonly gitOps: WorktreeGitOps
+  ) {}
+
+  private async readState(): Promise<ProvisioningState> {
+    try {
+      const raw = await readFile(resolve(this.mappingFilePath), "utf-8");
+      const parsed = JSON.parse(raw) as Partial<ProvisioningState>;
+      const mappings = Array.isArray(parsed.mappings) ? parsed.mappings : [];
+      return { version: 1, mappings };
+    } catch (error: unknown) {
+      const code = (error as { code?: string })?.code;
+      if (code === "ENOENT") {
+        await mkdir(resolve(this.mappingFilePath, ".."), { recursive: true });
+        await writeFile(resolve(this.mappingFilePath), JSON.stringify(defaultState(), null, 2), "utf-8");
+        return defaultState();
+      }
+      throw error;
+    }
+  }
+
+  private async writeState(state: ProvisioningState): Promise<void> {
+    await writeFile(resolve(this.mappingFilePath), JSON.stringify(state, null, 2), "utf-8");
+  }
+
+  async createWorktreeForThread(thread: ThreadMetadata): Promise<ThreadProvisioning> {
+    if (thread.provisioning?.branch && thread.provisioning?.worktreePath) {
+      return thread.provisioning;
+    }
+
+    const state = await this.readState();
+    const existing = state.mappings.find((mapping) => mapping.threadId === thread.id);
+    if (existing) {
+      const exists = await this.gitOps.worktreeExists(existing.worktreePath);
+      if (!exists) {
+        await this.gitOps.addWorktree(existing.branch, existing.worktreePath);
+      }
+      return {
+        branch: existing.branch,
+        worktreePath: existing.worktreePath,
+        brokkSessionId: existing.brokkSessionId
+      };
+    }
+
+    const proposed = stableBaseBranchName(thread);
+    const branch = this.gitOps.sanitizeBranchName(proposed);
+    const worktreePath = await this.gitOps.getNextWorktreePath(this.worktreeStorageRoot);
+    await this.gitOps.addWorktree(branch, worktreePath);
+
+    const record: ProvisioningRecord = {
+      threadId: thread.id,
+      branch,
+      worktreePath,
+      brokkSessionId: null
+    };
+    const nextState: ProvisioningState = {
+      version: 1,
+      mappings: [...state.mappings, record]
+    };
+    await this.writeState(nextState);
+
+    return {
+      branch,
+      worktreePath,
+      brokkSessionId: null
+    };
+  }
 }
