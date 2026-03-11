@@ -3,6 +3,7 @@ package ai.brokk.util;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitRepoFactory;
 import ai.brokk.project.FileFilteringService;
+import ai.brokk.project.IProject;
 import com.google.common.base.Splitter;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -52,9 +53,19 @@ public class EnvironmentPython {
      * that can be legitimate source trees in some projects.
      */
     private static final Set<String> FALLBACK_SKIP_DIRECTORIES = Set.of(
-            ".venv", "venv", ".gradle", "node_modules", "__pycache__",
-            ".pytest_cache", ".mypy_cache", ".tox",
-            "build", "dist", "target", "out", "bazel-out");
+            ".venv",
+            "venv",
+            ".gradle",
+            "node_modules",
+            "__pycache__",
+            ".pytest_cache",
+            ".mypy_cache",
+            ".tox",
+            "build",
+            "dist",
+            "target",
+            "out",
+            "bazel-out");
 
     /** Represents a Python major.minor version. */
     private record PyVersion(int major, int minor) {
@@ -74,9 +85,15 @@ public class EnvironmentPython {
     private record VersionWithSource(String version, Path sourceFile) {}
 
     private final Path projectRoot;
+    private final @Nullable IProject project;
 
     public EnvironmentPython(Path projectRoot) {
+        this(projectRoot, null);
+    }
+
+    public EnvironmentPython(Path projectRoot, @Nullable IProject project) {
         this.projectRoot = projectRoot;
+        this.project = project;
     }
 
     /**
@@ -310,6 +327,7 @@ public class EnvironmentPython {
         }
 
         final @Nullable FileFilteringService effectiveFilter = filteringService;
+        final @Nullable IProject effectiveProject = project;
         var found = new AtomicBoolean(false);
 
         try {
@@ -323,9 +341,17 @@ public class EnvironmentPython {
                         return FileVisitResult.SKIP_SUBTREE;
                     }
 
-                    // Skip if directory is gitignored (prunes entire subtree)
+                    // Skip if directory is gitignored or project-excluded (prunes entire subtree)
                     if (!dir.equals(projectRoot)) {
                         Path relPath = projectRoot.relativize(dir);
+                        String relPathStr = relPath.toString();
+
+                        // Check project-level exclusions first (user-configured patterns)
+                        if (effectiveProject != null && effectiveProject.isPathExcluded(relPathStr, true)) {
+                            logger.trace("Skipping project-excluded directory: {}", relPath);
+                            return FileVisitResult.SKIP_SUBTREE;
+                        }
+
                         if (effectiveFilter != null) {
                             if (effectiveFilter.isGitignored(relPath, true)) {
                                 logger.trace("Skipping gitignored directory: {}", relPath);
@@ -352,8 +378,16 @@ public class EnvironmentPython {
                         return FileVisitResult.CONTINUE;
                     }
 
-                    // Skip if file is gitignored
                     Path relPath = projectRoot.relativize(file);
+                    String relPathStr = relPath.toString();
+
+                    // Skip if file is project-excluded
+                    if (effectiveProject != null && effectiveProject.isPathExcluded(relPathStr, false)) {
+                        logger.trace("Skipping project-excluded file: {}", relPath);
+                        return FileVisitResult.CONTINUE;
+                    }
+
+                    // Skip if file is gitignored
                     if (effectiveFilter != null && effectiveFilter.isGitignored(relPath, false)) {
                         logger.trace("Skipping gitignored file: {}", relPath);
                         return FileVisitResult.CONTINUE;

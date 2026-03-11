@@ -199,7 +199,7 @@ public class BuildTools {
             return Optional.empty();
         }
         try {
-            return Optional.of(new EnvironmentPython(projectRoot).getPythonVersion());
+            return Optional.of(new EnvironmentPython(projectRoot, project).getPythonVersion());
         } catch (Exception e) {
             logger.debug("Unable to determine Python version for project", e);
             return Optional.empty();
