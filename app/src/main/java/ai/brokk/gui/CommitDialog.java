@@ -197,10 +197,13 @@ public class CommitDialog extends BaseThemedDialog {
             protected void done() {
                 super.done(); // centralized exception handling
                 try {
-                    get();
+                    String suggested = get();
                     SwingUtilities.invokeLater(() -> {
                         streamingIO.onComplete();
                         regenerateButton.setVisible(true); // Show after first successful generation
+                        // Use the canonical LLM response text, not whatever was streamed into the textarea
+                        // (prevents reasoning/tool-call bleed from near-non-reasoning models)
+                        commitMessageArea.setText(suggested);
                         commitMessageArea.requestFocusInWindow();
                         commitMessageArea.setCaretPosition(0);
                         checkCommitButtonState();
