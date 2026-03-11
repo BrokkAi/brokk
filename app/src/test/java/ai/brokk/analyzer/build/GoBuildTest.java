@@ -17,7 +17,6 @@ import org.junit.jupiter.api.Test;
 public class GoBuildTest {
 
     @Test
-    @Disabled("Failing due to analyzer changes")
     void testGoTestCommandInterpolation() throws Exception {
         String code = """
                 package mypkg
@@ -55,7 +54,6 @@ public class GoBuildTest {
     }
 
     @Test
-    @Disabled("Failing multi-function interpolation")
     void testMultipleFunctionsTemplateInterpolation() throws Exception {
         String code = """
                 package mypkg
