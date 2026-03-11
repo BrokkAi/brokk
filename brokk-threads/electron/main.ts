@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain } from "electron";
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { FileThreadMetadataStore } from "./metadataStore.js";
 import {
   createThreadMetadataOnly,
@@ -26,6 +27,9 @@ class NoopLazyExecutorService implements LazyExecutorService {
     };
   }
 }
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 const userDataPath = app.getPath("userData");
 const metadataStore = new FileThreadMetadataStore(join(userDataPath, "thread-metadata.json"));
