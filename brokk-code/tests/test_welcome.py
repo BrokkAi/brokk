@@ -105,3 +105,26 @@ async def test_welcome_message_updates_after_pypi_fetch(tmp_path: Path):
                 await pilot.pause(0.1)
 
             assert "(Latest: 1.2.3)" in content
+
+
+@pytest.mark.asyncio
+async def test_show_welcome_message_handles_nomatches_gracefully(tmp_path: Path):
+    """Verify _show_welcome_message does not crash if UI widgets are missing (e.g. during unmount)."""
+    from textual.css.query import NoMatches
+
+    mock_executor = MagicMock()
+    mock_executor.workspace_dir = tmp_path
+    app = BrokkApp(executor=mock_executor)
+
+    # Mock _maybe_chat to return a mock that raises NoMatches
+    mock_chat = MagicMock()
+    mock_chat.update_welcome.side_effect = NoMatches("No nodes match '#chat-log'")
+    mock_chat.add_welcome.side_effect = NoMatches("No nodes match '#chat-log'")
+
+    with patch.object(app, "_maybe_chat", return_value=mock_chat):
+        # Should not raise
+        app._show_welcome_message(refresh=False)
+        app._show_welcome_message(refresh=True)
+
+    mock_chat.add_welcome.assert_called_once()
+    mock_chat.update_welcome.assert_called_once()

@@ -330,6 +330,7 @@ async def test_action_handle_ctrl_c_no_input_widget():
         patch.object(BrokkApp, "_monitor_executor", return_value=None),
         patch.object(BrokkApp, "_poll_tasklist", return_value=None),
         patch.object(BrokkApp, "_poll_context", return_value=None),
+        patch.object(BrokkApp, "_check_for_updates", return_value=None),
     ):
         async with app.run_test() as pilot:
             # Simulate a job in progress so we can verify the fall-through behavior
