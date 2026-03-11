@@ -203,6 +203,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     private final AtomicBoolean taskScopeInProgress = new AtomicBoolean(false);
 
     private boolean sessionsSyncActive = false;
+    private volatile boolean autoCommit = true;
 
     @SuppressWarnings("NullAway.Init")
     private AbstractWatchService watchService;
@@ -712,6 +713,15 @@ public class ContextManager implements IContextManager, AutoCloseable {
     @Override
     public IProject getProject() {
         return project;
+    }
+
+    @Override
+    public boolean isAutoCommit() {
+        return autoCommit;
+    }
+
+    public void setAutoCommit(boolean autoCommit) {
+        this.autoCommit = autoCommit;
     }
 
     @Override
@@ -1627,7 +1637,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             result = agent.executeWithScan();
 
             if (result.stopDetails().reason() == TaskResult.StopReason.SUCCESS) {
-                if (project.hasGit()) {
+                if (autoCommit && project.hasGit()) {
                     new GitWorkflow(this).performAutoCommit(prompt);
                 }
                 var ctx = markTaskDone(result.context(), task);

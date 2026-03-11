@@ -3,6 +3,7 @@ package ai.brokk.executor.jobs;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.AbstractService;
 import ai.brokk.ContextManager;
@@ -201,6 +202,35 @@ class HeadlessJobTemperatureOverrideTest {
 
         assertEquals(0.11, spyService.lastTemperatureByModelName.get("plannerA"), 0.001);
         assertEquals(0.88, spyService.lastTemperatureByModelName.get("codeA"), 0.001);
+    }
+
+    @Test
+    void runAsync_restoresPreviousAutoCommitSettingAfterJob() throws Exception {
+        spyService.setExposedModelLocations(Map.of("modelA", "locA"));
+        spyService.setExposedModelInfoMap(Map.of("modelA", Map.of("supported_openai_params", List.of())));
+        cm.setAutoCommit(true);
+
+        JobSpec spec = new JobSpec(
+                "test task",
+                false,
+                false,
+                "modelA",
+                null,
+                null,
+                false,
+                Map.of("mode", "ASK"),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                false,
+                JobSpec.DEFAULT_MAX_ISSUE_FIX_ATTEMPTS);
+
+        runner.runAsync("job-auto-commit-restore", spec).get(5, TimeUnit.SECONDS);
+
+        assertTrue(cm.isAutoCommit(), "JobRunner should restore the previous autoCommit setting after a job");
     }
 
     private static class SpyService extends TestService {

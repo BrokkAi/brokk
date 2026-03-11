@@ -155,7 +155,8 @@ public record JobSpec(
      * Creates a JobSpec for Issue remediation jobs.
      *
      * <p>This factory creates a job with empty taskInput and stores Issue metadata in tags.
-     * Auto-commit and auto-compress are disabled for Issue remediation jobs.</p>
+     * Auto-commit is enabled for Issue remediation jobs because the workflow must commit before push/PR creation.
+     * Auto-compress remains disabled.</p>
      */
     public static JobSpec ofIssue(
             String plannerModel,
@@ -228,7 +229,7 @@ public record JobSpec(
         }
         return new JobSpec(
                 "",
-                false,
+                true,
                 false,
                 plannerModel,
                 null,

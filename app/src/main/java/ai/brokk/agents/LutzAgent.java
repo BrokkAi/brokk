@@ -1312,7 +1312,7 @@ public class LutzAgent {
             context = result.context();
 
             if (reason == TaskResult.StopReason.SUCCESS) {
-                if (agent.cm.getProject().hasGit()) {
+                if (agent.cm.isAutoCommit() && agent.cm.getProject().hasGit()) {
                     new GitWorkflow(agent.cm).performAutoCommit(instructions);
                 }
                 logger.debug("SearchAgent.callCodeAgent finished successfully");
