@@ -31,6 +31,7 @@ import javax.swing.event.DocumentListener;
 import javax.swing.text.BadLocationException;
 import javax.swing.text.Document;
 import javax.swing.text.Highlighter;
+import javax.swing.text.StyledDocument;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
@@ -1208,8 +1209,7 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
             } else if (eventType == DocumentEvent.EventType.CHANGE) {
                 // CHANGE events are for attribute changes (font, style, etc.), not content changes.
                 // We expect PlainDocument or RSyntaxDocument, not StyledDocument.
-                if (sourceDoc instanceof javax.swing.text.StyledDocument
-                        || destinationDoc instanceof javax.swing.text.StyledDocument) {
+                if (sourceDoc instanceof StyledDocument || destinationDoc instanceof StyledDocument) {
                     logger.warn(
                             "Unexpected StyledDocument during CHANGE sync: src={}, dst={}",
                             sourceDoc.getClass().getName(),

@@ -17,6 +17,7 @@ import java.util.zip.ZipFile;
 import javax.swing.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.java.decompiler.main.decompiler.ConsoleDecompiler;
 import org.jetbrains.java.decompiler.main.extern.IFernflowerLogger;
@@ -178,7 +179,7 @@ public class Decompiler {
      * @param overwrite if true, delete existing output dir; if false and exists, return early
      * @return result with output directory and file count, or empty if skipped/failed
      */
-    @org.jetbrains.annotations.Blocking
+    @Blocking
     public static Optional<DecompileResult> decompileJarBlocking(Path jarPath, Path projectRoot, boolean overwrite) {
         return decompileJarBlocking(jarPath, projectRoot, overwrite, null);
     }
@@ -192,7 +193,7 @@ public class Decompiler {
      * @param fetcher optional MavenArtifactFetcher to use for sources JAR download; if null, creates a new one
      * @return result with output directory and file count, or empty if skipped/failed
      */
-    @org.jetbrains.annotations.Blocking
+    @Blocking
     public static Optional<DecompileResult> decompileJarBlocking(
             Path jarPath, Path projectRoot, boolean overwrite, @Nullable MavenArtifactFetcher fetcher) {
         var jarName = jarPath.getFileName().toString();

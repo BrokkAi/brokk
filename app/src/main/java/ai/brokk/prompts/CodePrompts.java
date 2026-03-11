@@ -37,6 +37,7 @@ import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Blocking;
+import org.jetbrains.annotations.Nullable;
 
 /** Generates prompts for the main coding agent loop, including instructions for SEARCH/REPLACE blocks. */
 public class CodePrompts {
@@ -395,7 +396,7 @@ public class CodePrompts {
             boolean hasMergeMarkers,
             String examples,
             String reminder,
-            @org.jetbrains.annotations.Nullable String goal) {}
+            @Nullable String goal) {}
 
     private record ApplyRetryData(
             String successIndices,

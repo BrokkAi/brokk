@@ -37,6 +37,7 @@ import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.TestOnly;
 
 public final class HeadlessExecutorMain {
     private static final Logger logger = LogManager.getLogger(HeadlessExecutorMain.class);
@@ -409,7 +410,7 @@ public final class HeadlessExecutorMain {
      * executor has observed a session lifecycle event (sessionLoaded==true) but the
      * ContextManager currently reports no active session id.
      */
-    @org.jetbrains.annotations.TestOnly
+    @TestOnly
     void setSessionLoadedForTests(boolean value) {
         this.sessionLoaded = value;
     }

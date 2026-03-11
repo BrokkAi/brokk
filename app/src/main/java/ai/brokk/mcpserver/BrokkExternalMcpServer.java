@@ -3,13 +3,19 @@ package ai.brokk.mcpserver;
 import static java.util.Objects.requireNonNull;
 
 import ai.brokk.ContextManager;
+import ai.brokk.IConsoleIO;
+import ai.brokk.LlmOutputMeta;
 import ai.brokk.MutedConsoleIO;
 import ai.brokk.TaskResult;
 import ai.brokk.agents.BuildAgent;
 import ai.brokk.agents.CodeAgent;
+import ai.brokk.agents.ConflictInspector;
 import ai.brokk.agents.ContextAgent;
+import ai.brokk.agents.MergeAgent;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.cli.MemoryConsole;
 import ai.brokk.context.ContextDelta;
+import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments.SummaryFragment;
 import ai.brokk.project.MainProject;
 import ai.brokk.project.ModelProperties;
@@ -24,6 +30,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
+import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.request.json.JsonArraySchema;
 import dev.langchain4j.model.chat.request.json.JsonBooleanSchema;
@@ -37,6 +44,7 @@ import io.modelcontextprotocol.json.McpJsonMapper;
 import io.modelcontextprotocol.server.McpServer;
 import io.modelcontextprotocol.server.McpServerFeatures;
 import io.modelcontextprotocol.server.McpSyncServer;
+import io.modelcontextprotocol.server.McpSyncServerExchange;
 import io.modelcontextprotocol.server.transport.StdioServerTransportProvider;
 import io.modelcontextprotocol.spec.McpSchema;
 import java.io.IOException;
@@ -49,6 +57,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
@@ -207,10 +216,10 @@ public class BrokkExternalMcpServer {
                                     }
                                 }
 
-                                ai.brokk.IConsoleIO originalIo = cm.getIo();
-                                ai.brokk.IConsoleIO progressIo = progressToken != null
+                                IConsoleIO originalIo = cm.getIo();
+                                IConsoleIO progressIo = progressToken != null
                                         ? new ProgressNotifyingConsole(exchange, progressToken, historyWriter, logFile)
-                                        : new ai.brokk.MutedConsoleIO(originalIo);
+                                        : new MutedConsoleIO(originalIo);
                                 cm.setIo(progressIo);
 
                                 try {
@@ -238,7 +247,7 @@ public class BrokkExternalMcpServer {
                                     McpSchema.CallToolResult callResult;
                                     try {
                                         callResult = future.get();
-                                    } catch (java.util.concurrent.ExecutionException e) {
+                                    } catch (ExecutionException e) {
                                         Throwable cause = e.getCause();
                                         if (cause instanceof RuntimeException re) throw re;
                                         throw new RuntimeException(cause);
@@ -535,8 +544,8 @@ public class BrokkExternalMcpServer {
     }
 
     @Tool("Solve all merge/rebase/cherry-pick conflicts in the repository.")
-    public String merge() throws InterruptedException, java.io.IOException, GitAPIException {
-        var conflictOpt = ai.brokk.agents.ConflictInspector.inspectFromProject(cm.getProject());
+    public String merge() throws InterruptedException, IOException, GitAPIException {
+        var conflictOpt = ConflictInspector.inspectFromProject(cm.getProject());
         if (conflictOpt.isEmpty()) {
             return "Error: Repository is not in a merge conflict state.";
         }
@@ -548,20 +557,15 @@ public class BrokkExternalMcpServer {
 
         TaskResult result;
         try (var scope = cm.beginTaskUngrouped("Merge")) {
-            var mergeAgent = new ai.brokk.agents.MergeAgent(
-                    cm,
-                    planModel,
-                    codeModel,
-                    conflictOpt.get(),
-                    scope,
-                    ai.brokk.agents.MergeAgent.DEFAULT_MERGE_INSTRUCTIONS);
+            var mergeAgent = new MergeAgent(
+                    cm, planModel, codeModel, conflictOpt.get(), scope, MergeAgent.DEFAULT_MERGE_INSTRUCTIONS);
             result = mergeAgent.execute();
             scope.append(result);
         }
         return result.stopDetails().explanation();
     }
 
-    private List<SummaryFragment> toSummaryFragments(ai.brokk.context.ContextFragment fragment) {
+    private List<SummaryFragment> toSummaryFragments(ContextFragment fragment) {
         var results = new ArrayList<SummaryFragment>();
         var files = fragment.sourceFiles().join();
         for (var file : files) {
@@ -571,22 +575,21 @@ public class BrokkExternalMcpServer {
         var sources = fragment.sources().join();
         for (var codeUnit : sources) {
             if (codeUnit.isClass()) {
-                results.add(new SummaryFragment(
-                        cm, codeUnit.fqName(), ai.brokk.context.ContextFragment.SummaryType.CODEUNIT_SKELETON));
+                results.add(new SummaryFragment(cm, codeUnit.fqName(), ContextFragment.SummaryType.CODEUNIT_SKELETON));
             }
         }
         return results;
     }
 
-    private static final class ProgressNotifyingConsole extends ai.brokk.cli.MemoryConsole {
-        private final io.modelcontextprotocol.server.McpSyncServerExchange exchange;
+    private static final class ProgressNotifyingConsole extends MemoryConsole {
+        private final McpSyncServerExchange exchange;
         private final Object progressToken;
         private final @Nullable McpToolCallHistoryWriter historyWriter;
         private final @Nullable Path logFile;
         private final AtomicReference<Double> currentProgress = new AtomicReference<>(0.0);
 
         ProgressNotifyingConsole(
-                io.modelcontextprotocol.server.McpSyncServerExchange exchange,
+                McpSyncServerExchange exchange,
                 Object progressToken,
                 @Nullable McpToolCallHistoryWriter historyWriter,
                 @Nullable Path logFile) {
@@ -637,8 +640,7 @@ public class BrokkExternalMcpServer {
         }
 
         @Override
-        public void llmOutput(
-                String token, dev.langchain4j.data.message.ChatMessageType type, ai.brokk.LlmOutputMeta meta) {
+        public void llmOutput(String token, ChatMessageType type, LlmOutputMeta meta) {
             super.llmOutput(token, type, meta);
             // No-op for tokens to avoid flooding progress notifications
         }

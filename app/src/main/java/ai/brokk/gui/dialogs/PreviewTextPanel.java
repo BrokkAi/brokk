@@ -1130,7 +1130,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
                     var ancestor = SwingUtilities.getWindowAncestor(PreviewTextPanel.this);
                     if (ancestor != null) {
                         // If embedded in a shared preview frame, let the frame own close behavior.
-                        if (ancestor instanceof ai.brokk.gui.dialogs.DetachableTabFrame) {
+                        if (ancestor instanceof DetachableTabFrame) {
                             SwingUtilities.invokeLater(() -> removeHierarchyListener(this));
                             return;
                         }

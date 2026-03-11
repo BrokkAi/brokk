@@ -24,11 +24,14 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.function.Consumer;
 import java.util.stream.Stream;
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
+import javax.swing.table.DefaultTableModel;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
@@ -57,7 +60,7 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
     private JTabbedPane middleTabbedPane;
     private JPanel sessionsTabPanel;
     private JTable sessionsTable;
-    private javax.swing.table.DefaultTableModel sessionsTableModel;
+    private DefaultTableModel sessionsTableModel;
     private JCheckBox selectAllSessionsCheckbox;
 
     private final CompletableFuture<Void> sessionSyncFuture;
@@ -723,7 +726,7 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
 
     private JPanel createSessionsTabPanel() {
         var panel = new JPanel(new BorderLayout());
-        sessionsTableModel = new javax.swing.table.DefaultTableModel(new Object[] {"", "Session Name", "Tasks"}, 0) {
+        sessionsTableModel = new DefaultTableModel(new Object[] {"", "Session Name", "Tasks"}, 0) {
             @Override
             public Class<?> getColumnClass(int columnIndex) {
                 return columnIndex == 0 ? Boolean.class : String.class;
@@ -857,8 +860,8 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
             try {
                 // Wait for background session sync to complete before proceeding
                 try {
-                    sessionSyncFuture.get(30, java.util.concurrent.TimeUnit.SECONDS);
-                } catch (java.util.concurrent.TimeoutException e) {
+                    sessionSyncFuture.get(30, TimeUnit.SECONDS);
+                } catch (TimeoutException e) {
                     logger.warn("Timed out waiting for session sync, proceeding anyway");
                 } catch (InterruptedException | ExecutionException e) {
                     logger.warn("Session sync failed, proceeding anyway: {}", e.getMessage());

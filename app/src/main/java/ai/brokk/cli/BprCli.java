@@ -40,6 +40,7 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -700,15 +701,15 @@ public final class BprCli implements Callable<Integer> {
                         var recDelta = ContextDelta.between(
                                         baseContext, explicitContext.addAsSummaries(finalRec.fragments()))
                                 .join();
-                        var jsonMap = new java.util.LinkedHashMap<String, Object>();
+                        var jsonMap = new LinkedHashMap<String, Object>();
                         jsonMap.put("addedFragments", recDelta.addedFragments().size());
                         jsonMap.put(
                                 "removedFragments", recDelta.removedFragments().size());
 
                         try {
-                            var jsonString = ai.brokk.project.AbstractProject.objectMapper.writeValueAsString(jsonMap);
+                            var jsonString = AbstractProject.objectMapper.writeValueAsString(jsonMap);
                             System.err.println("\nBRK_CONTEXT_METRICS=" + jsonString);
-                        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+                        } catch (JsonProcessingException e) {
                             logger.warn("Failed to serialize context metrics", e);
                         }
                     }

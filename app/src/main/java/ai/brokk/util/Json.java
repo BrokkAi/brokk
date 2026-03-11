@@ -7,6 +7,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.DeserializationContext;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonDeserializer;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.JsonSerializer;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
@@ -72,7 +73,7 @@ public class Json {
         return MAPPER;
     }
 
-    public static Set<String> stringArrayToSet(com.fasterxml.jackson.databind.JsonNode node) {
+    public static Set<String> stringArrayToSet(JsonNode node) {
         if (!node.isArray()) {
             return Set.of();
         }

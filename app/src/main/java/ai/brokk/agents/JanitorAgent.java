@@ -19,6 +19,7 @@ import com.github.jknack.handlebars.Handlebars;
 import com.github.jknack.handlebars.Template;
 import com.github.jknack.handlebars.helper.ConditionalHelpers;
 import dev.langchain4j.agent.tool.Tool;
+import dev.langchain4j.agent.tool.ToolContext;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.data.message.SystemMessage;
@@ -159,8 +160,7 @@ public class JanitorAgent {
                 messages.add(new UserMessage(retryNote));
             }
 
-            var result = llm.sendRequest(
-                    messages, new dev.langchain4j.agent.tool.ToolContext(toolSpecs, ToolChoice.REQUIRED, tr));
+            var result = llm.sendRequest(messages, new ToolContext(toolSpecs, ToolChoice.REQUIRED, tr));
 
             if (result.error() != null) {
                 stopDetails = TaskResult.StopDetails.fromResponse(result);

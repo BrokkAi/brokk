@@ -38,7 +38,6 @@ import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
-@org.jspecify.annotations.NullMarked
 public class BuildTools {
     private static final Logger logger = LogManager.getLogger(BuildTools.class);
 

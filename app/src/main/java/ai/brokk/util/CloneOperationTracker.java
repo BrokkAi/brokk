@@ -2,6 +2,7 @@ package ai.brokk.util;
 
 import ai.brokk.concurrent.AtomicWrites;
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collections;
 import java.util.HashSet;
@@ -84,12 +85,12 @@ public class CloneOperationTracker {
 
         logger.debug("Scanning for orphaned clone operations in: {}", dependenciesRoot);
 
-        try (var stream = java.nio.file.Files.list(dependenciesRoot)) {
-            stream.filter(java.nio.file.Files::isDirectory).forEach(dir -> {
+        try (var stream = Files.list(dependenciesRoot)) {
+            stream.filter(Files::isDirectory).forEach(dir -> {
                 Path inProgressMarker = dir.resolve(CLONE_IN_PROGRESS_MARKER);
                 Path completeMarker = dir.resolve(CLONE_COMPLETE_MARKER);
 
-                if (java.nio.file.Files.exists(inProgressMarker) && !java.nio.file.Files.exists(completeMarker)) {
+                if (Files.exists(inProgressMarker) && !Files.exists(completeMarker)) {
                     try {
                         logger.info("Found orphaned clone operation from previous session: {}", dir);
                         FileUtil.deleteRecursively(dir);

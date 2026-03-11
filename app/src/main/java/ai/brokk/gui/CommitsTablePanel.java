@@ -6,9 +6,7 @@ import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.gui.util.GitDiffUiUtil;
-import java.awt.BorderLayout;
-import java.awt.Component;
-import java.awt.Font;
+import java.awt.*;
 import java.awt.event.ActionListener;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
@@ -30,6 +28,7 @@ import javax.swing.SwingUtilities;
 import javax.swing.border.EmptyBorder;
 import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.DefaultTableModel;
+import org.jetbrains.annotations.Nullable;
 import org.jspecify.annotations.NullMarked;
 
 @NullMarked
@@ -41,8 +40,8 @@ public class CommitsTablePanel extends JPanel implements ThemeAware {
     private final MaterialButton viewAllBtn;
     private boolean suppressSelectionEvents = false;
 
-    private @javax.annotation.Nullable ActionListener guidedReviewListener;
-    private @javax.annotation.Nullable ActionListener captureDiffListener;
+    private @Nullable ActionListener guidedReviewListener;
+    private @Nullable ActionListener captureDiffListener;
 
     public CommitsTablePanel() {
         setLayout(new BorderLayout());
@@ -76,7 +75,7 @@ public class CommitsTablePanel extends JPanel implements ThemeAware {
         table.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
         table.setTableHeader(null);
         table.setShowGrid(false);
-        table.setIntercellSpacing(new java.awt.Dimension(0, 0));
+        table.setIntercellSpacing(new Dimension(0, 0));
         table.setFillsViewportHeight(true);
 
         CommitCellRenderer renderer = new CommitCellRenderer();

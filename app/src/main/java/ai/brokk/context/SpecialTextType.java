@@ -4,6 +4,7 @@ import ai.brokk.IContextManager;
 import ai.brokk.tasks.TaskList;
 import ai.brokk.util.Json;
 import com.fasterxml.jackson.core.JacksonException;
+import com.fasterxml.jackson.core.type.TypeReference;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
@@ -231,7 +232,7 @@ public enum SpecialTextType {
      */
     public static Map<String, String> deserializeDiscardedContext(String rawContent) {
         try {
-            return Json.getMapper().readValue(rawContent, new com.fasterxml.jackson.core.type.TypeReference<>() {});
+            return Json.getMapper().readValue(rawContent, new TypeReference<>() {});
         } catch (JacksonException e) {
             return new LinkedHashMap<>();
         }

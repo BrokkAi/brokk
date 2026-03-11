@@ -2,10 +2,11 @@ package ai.brokk.gui;
 
 import ai.brokk.gui.components.MaterialButton;
 import java.awt.Component;
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
 import java.util.List;
-import javax.swing.Icon;
-import javax.swing.JOptionPane;
-import javax.swing.SwingUtilities;
+import java.util.concurrent.CompletableFuture;
+import javax.swing.*;
 import org.jetbrains.annotations.Nullable;
 import org.jspecify.annotations.NullMarked;
 
@@ -78,25 +79,22 @@ public class MaterialOptionPane {
      * @return true if the future completed successfully, false if the user cancelled.
      */
     public static boolean showBlockingProgressDialog(
-            @Nullable Component parent,
-            String message,
-            String title,
-            java.util.concurrent.CompletableFuture<?> future) {
+            @Nullable Component parent, String message, String title, CompletableFuture<?> future) {
         MaterialButton cancelButton = new MaterialButton("Cancel");
         MaterialButton[] buttons = {cancelButton};
 
         JOptionPane pane = new JOptionPane(
                 message, JOptionPane.INFORMATION_MESSAGE, JOptionPane.DEFAULT_OPTION, null, buttons, cancelButton);
-        javax.swing.JDialog dialog = pane.createDialog(parent, title);
+        JDialog dialog = pane.createDialog(parent, title);
 
         cancelButton.addActionListener(e -> {
             future.cancel(true);
             dialog.dispose();
         });
 
-        dialog.addWindowListener(new java.awt.event.WindowAdapter() {
+        dialog.addWindowListener(new WindowAdapter() {
             @Override
-            public void windowClosing(java.awt.event.WindowEvent e) {
+            public void windowClosing(WindowEvent e) {
                 future.cancel(true);
             }
         });

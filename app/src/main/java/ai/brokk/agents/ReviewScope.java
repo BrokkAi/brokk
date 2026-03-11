@@ -22,6 +22,7 @@ import com.google.common.collect.Sets;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -107,7 +108,7 @@ public record ReviewScope(DiffService.CumulativeChanges changes, ReviewScope.Met
             String currentBranch = repo.getCurrentBranch();
             boolean hasUpstream = repo.hasUpstreamBranch(currentBranch);
             boolean canPush;
-            Set<String> unpushedCommitIds = new java.util.HashSet<>();
+            Set<String> unpushedCommitIds = new HashSet<>();
             if (hasUpstream) {
                 unpushedCommitIds.addAll(repo.remote().getUnpushedCommitIds(currentBranch));
                 canPush = !unpushedCommitIds.isEmpty();

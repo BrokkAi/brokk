@@ -24,6 +24,7 @@ import javax.swing.SwingUtilities;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.TestOnly;
 
 /**
  * Service for initiating OpenAI OAuth authorization flow.
@@ -47,8 +48,8 @@ public class OpenAiOAuthService {
 
     private static final Object lock = new Object();
 
-    @org.jetbrains.annotations.TestOnly
-    public static volatile @org.jetbrains.annotations.Nullable Runnable testAuthorizationHook = null;
+    @TestOnly
+    public static volatile @Nullable Runnable testAuthorizationHook = null;
 
     @Nullable
     private static SimpleHttpServer activeServer;

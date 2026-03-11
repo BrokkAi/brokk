@@ -6,6 +6,7 @@ import ai.brokk.util.Messages;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.JsonNode;
+import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -294,7 +295,7 @@ public final class PrReviewService {
      * <p>TaskFragment.text() is formatted with XML-like wrappers for UI rendering, which can obscure pure JSON payloads.
      * For PR review parsing, prefer concatenated AI message text.
      */
-    public static String extractAiTranscript(List<dev.langchain4j.data.message.ChatMessage> messages) {
+    public static String extractAiTranscript(List<ChatMessage> messages) {
         return messages.stream()
                 .filter(m -> m.type() == ChatMessageType.AI)
                 .map(Messages::getText)
