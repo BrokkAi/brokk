@@ -138,3 +138,11 @@
     ]
   )
 ]
+
+; Support for JUnit 3 / legacy TestCase inheritance detection
+(superclass
+  [
+    (type_identifier) @test_marker
+    (scoped_type_identifier (type_identifier) @test_marker)
+  ]
+)
