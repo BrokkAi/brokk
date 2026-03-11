@@ -29,7 +29,7 @@ import ai.brokk.prompts.SearchPrompts.Objective;
 import ai.brokk.prompts.SearchPrompts.Terminal;
 import ai.brokk.tools.DependencyTools;
 import ai.brokk.tools.ExplanationRenderer;
-import ai.brokk.tools.SearchTools;
+import ai.brokk.tools.ParallelSearch;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
 import ai.brokk.tools.WorkspaceTools;
@@ -144,7 +144,6 @@ public class LutzAgent {
             The agent is expressing confidence that it has enough information to answer the question or resolve the problem.
             """;
 
-    private final SearchTools searchTools;
     private final Set<ContextFragment> originalPinnedFragments;
     private final List<ContextFragment> droppedFragments = new ArrayList<>();
     private double researchTokensEma = 0.0;
@@ -173,8 +172,7 @@ public class LutzAgent {
             StreamingChatModel model,
             ContextManager.TaskScope scope,
             IConsoleIO io,
-            ScanConfig scanConfig)
-            throws InterruptedException {
+            ScanConfig scanConfig) {
         this(initialContext, goal, model, Objective.WORKSPACE_ONLY, scope, io, scanConfig);
     }
 
@@ -183,8 +181,7 @@ public class LutzAgent {
             String goal,
             StreamingChatModel model,
             Objective objective,
-            ContextManager.TaskScope scope)
-            throws InterruptedException {
+            ContextManager.TaskScope scope) {
         this(
                 initialContext,
                 goal,
@@ -202,8 +199,7 @@ public class LutzAgent {
             Objective objective,
             ContextManager.TaskScope scope,
             IConsoleIO io,
-            ScanConfig scanConfig)
-            throws InterruptedException {
+            ScanConfig scanConfig) {
         this.goal = goal;
         this.cm = initialContext.getContextManager();
         this.model = model;
@@ -233,7 +229,6 @@ public class LutzAgent {
         this.terminalToolNames = Set.copyOf(terminalTools);
 
         this.staticTools = initStaticTools(cm.getProject(), mcpTools);
-        this.searchTools = new SearchTools(cm);
     }
 
     private static List<McpPrompts.McpTool> initMcpTools(IProject project) {
@@ -252,11 +247,7 @@ public class LutzAgent {
     private static List<String> initStaticTools(IProject project, List<McpPrompts.McpTool> mcpTools) {
         var tools = new ArrayList<String>();
 
-        // Search-specific analyzer tools
-        tools.add("searchSymbols");
-        tools.add("scanUsages");
-        tools.add("getSymbolLocations");
-        tools.add("skimDirectory");
+        tools.add("callSearchAgent");
 
         // Workspace analyzer tools
         tools.add("addClassesToWorkspace");
@@ -265,26 +256,9 @@ public class LutzAgent {
         tools.add("addFileSummariesToWorkspace");
 
         // Non-analyzer tools
-        tools.add("findFilesContaining");
-        tools.add("findFilenames");
-        tools.add("searchFileContents");
         tools.add("addLineRangeToWorkspace");
         tools.add("addFilesToWorkspace");
         tools.add("addUrlContentsToWorkspace");
-        if (project.hasGit()) {
-            tools.add("searchGitCommitMessages");
-            tools.add("getGitLog");
-            tools.add("explainCommit");
-        }
-
-        var allFiles = project.getAllFiles();
-        if (allFiles.stream().anyMatch(f -> f.extension().equals("xml"))) {
-            tools.add("xmlSkim");
-            tools.add("xmlSelect");
-        }
-        if (allFiles.stream().anyMatch(f -> f.extension().equals("json"))) {
-            tools.add("jq");
-        }
 
         if (!mcpTools.isEmpty()) {
             tools.add("callMcpTool");
@@ -294,8 +268,7 @@ public class LutzAgent {
         return WorkspaceTools.filterByAnalyzerAvailability(tools, project);
     }
 
-    public LutzAgent(Context initialContext, String goal, StreamingChatModel model, ContextManager.TaskScope scope)
-            throws InterruptedException {
+    public LutzAgent(Context initialContext, String goal, StreamingChatModel model, ContextManager.TaskScope scope) {
         this(
                 initialContext,
                 goal,
@@ -526,12 +499,12 @@ public class LutzAgent {
         return new SetupContextResult(preparedContext, referencedFragments);
     }
 
-    private ToolRegistry createToolRegistry(WorkspaceTools wst, Object toolProvider) {
+    private ToolRegistry createToolRegistry(WorkspaceTools wst, Object toolProvider, ParallelSearch parallelSearch) {
         var builder = cm.getToolRegistry()
                 .builder()
-                .register(searchTools)
                 .register(wst)
-                .register(toolProvider);
+                .register(toolProvider)
+                .register(parallelSearch);
         if (DependencyTools.isSupported(cm.getProject())) {
             builder.register(new DependencyTools(cm));
         }
@@ -724,7 +697,7 @@ public class LutzAgent {
     }
 
     private boolean toolTriggersScan(String toolName) {
-        return toolName.startsWith("search") || toolName.startsWith("find");
+        return toolName.startsWith("search") || toolName.startsWith("find") || "callSearchAgent".equals(toolName);
     }
 
     /**
@@ -775,6 +748,7 @@ public class LutzAgent {
         private final List<ChatMessage> sessionMessages;
 
         private final WorkspaceTools wst;
+        private final ParallelSearch parallelSearch;
         private final ToolRegistry tr;
 
         private SingleTurnAgent(
@@ -792,7 +766,8 @@ public class LutzAgent {
             this.sessionMessages = new ArrayList<>(stateAtTurnStart.sessionMessages());
 
             this.wst = new WorkspaceTools(context);
-            this.tr = agent.createToolRegistry(wst, this);
+            this.parallelSearch = new ParallelSearch(agent.cm, agent.goal);
+            this.tr = agent.createToolRegistry(wst, this, parallelSearch);
         }
 
         private TurnOutcome executeTurn() throws InterruptedException {
@@ -805,8 +780,9 @@ public class LutzAgent {
 
             try {
                 outcome = executeTurnInternal(filesBeforeSet);
+                researchTokensThisTurn =
+                        agent.calculateResearchTokensAddedThisTurn(contextAtTurnStartForStagnation, context);
             } finally {
-                researchTokensThisTurn = agent.searchTools.getAndClearResearchTokens();
                 agent.recordResearchTokensForTurn(researchTokensThisTurn);
                 agent.endTurnAndRecordFileChanges(filesBeforeSet, context);
             }
@@ -1008,7 +984,14 @@ public class LutzAgent {
             boolean executedNonHygiene = false;
             List<String> nonHygieneToolCalls = new ArrayList<>();
 
-            for (var req : primaryCalls) {
+            var searchAgentReqs = primaryCalls.stream()
+                    .filter(req -> "callSearchAgent".equals(req.name()))
+                    .toList();
+            var otherPrimaryCalls = primaryCalls.stream()
+                    .filter(req -> !"callSearchAgent".equals(req.name()))
+                    .toList();
+
+            for (var req : otherPrimaryCalls) {
                 agent.io.beforeToolCall(req);
                 ToolExecutionResult toolResult = executeTool(req);
                 agent.io.afterToolOutput(toolResult);
@@ -1023,6 +1006,32 @@ public class LutzAgent {
                     executedNonHygiene = true;
                     nonHygieneToolCalls.add(req.name());
                 }
+            }
+
+            if (!searchAgentReqs.isEmpty()) {
+                context = agent.appendUiMessagesToHistory(context);
+                var searchResult = parallelSearch.execute(searchAgentReqs, tr);
+                if (searchResult.stopDetails().reason() == TaskResult.StopReason.LLM_ERROR) {
+                    return new TurnOutcome.Final(agent.errorResult(
+                            new TaskResult.StopDetails(
+                                    TaskResult.StopReason.LLM_ERROR,
+                                    searchResult.stopDetails().explanation()),
+                            context));
+                }
+
+                context = context.addFragments(
+                        searchResult.context().allFragments().toList());
+                sessionMessages.addAll(searchResult.toolExecutionMessages());
+                context = context.addHistoryEntry(
+                        searchResult.mopMessages(),
+                        List.of(),
+                        TaskResult.Type.SEARCH,
+                        agent.model,
+                        searchResult.historyDescription());
+                agent.scope.append(context);
+
+                executedNonHygiene = true;
+                nonHygieneToolCalls.add("callSearchAgent");
             }
 
             boolean contextSafeForTerminal = context.equals(contextAtTurnStart) || !executedNonHygiene;
@@ -1644,6 +1653,12 @@ public class LutzAgent {
                 : (researchTokensEma / (researchTokensEma + workspaceTokens));
 
         return stability * (1.0 - novelty);
+    }
+
+    private long calculateResearchTokensAddedThisTurn(Context contextAtTurnStart, Context contextAtTurnEnd) {
+        return ContextDelta.between(contextAtTurnStart, contextAtTurnEnd).join().addedFragments().stream()
+                .mapToLong(f -> Messages.getApproximateTokens(f.text().join()))
+                .sum();
     }
 
     private void recordResearchTokensForTurn(long researchTokensThisTurn) {

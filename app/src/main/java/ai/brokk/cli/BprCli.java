@@ -14,6 +14,7 @@ import ai.brokk.agents.ConflictInspector;
 import ai.brokk.agents.ContextAgent;
 import ai.brokk.agents.LutzAgent;
 import ai.brokk.agents.MergeAgent;
+import ai.brokk.agents.SearchAgent;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
@@ -472,22 +473,19 @@ public final class BprCli implements Callable<Integer> {
         // --- Search Workspace Mode ---
         if (searchWorkspace != null && !searchWorkspace.isBlank()) {
             TaskResult searchResult;
-            boolean success;
-
             try (var scope = cm.beginTaskUngrouped(searchWorkspace)) {
                 var searchModel = taskModelOverride == null ? cm.getService().getScanModel() : taskModelOverride;
-                // Honor --disable-context-scan flag via ScanConfig
-                var scanConfig = disableContextScan
-                        ? LutzAgent.ScanConfig.disabled()
-                        : LutzAgent.ScanConfig.withModel(searchModel);
-                var agent =
-                        new LutzAgent(cm.liveContext(), searchWorkspace, searchModel, scope, cm.getIo(), scanConfig);
+                if (disableContextScan) {
+                    logger.info(
+                            "Ignoring --disable-context-scan: SearchAgent does not perform an initial Context scan.");
+                }
+                var agent = new SearchAgent(
+                        cm.liveContext(), searchWorkspace, searchModel, SearchPrompts.Objective.WORKSPACE_ONLY);
                 searchResult = agent.execute();
                 scope.append(searchResult);
-                success = searchResult.stopDetails().reason() == TaskResult.StopReason.SUCCESS;
             }
 
-            return success ? 0 : 1;
+            return searchResult.stopDetails().reason() == TaskResult.StopReason.SUCCESS ? 0 : 1;
         }
 
         // --- Name Resolution and Context Building ---
@@ -758,12 +756,12 @@ public final class BprCli implements Callable<Integer> {
                         return 1;
                     }
                     // SearchAgent now handles scanning internally via execute()
-                    var agent = new LutzAgent(
+                    var agent = new SearchAgent(
                             cm.liveContext(),
                             requireNonNull(searchAnswerPrompt),
                             planModel,
                             SearchPrompts.Objective.ANSWER_ONLY,
-                            scope);
+                            cm.getIo());
                     result = agent.execute();
                     context = result.context();
                     scope.append(result);

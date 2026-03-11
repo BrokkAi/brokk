@@ -211,35 +211,78 @@ public class SearchPrompts {
         return new UserMessage(text);
     }
 
-    public SystemMessage searchSystemPrompt(Context context, Objective objective) {
-        var supportedTypes = context.getContextManager().getProject().getAnalyzerLanguages().stream()
-                .map(Language::name)
-                .collect(Collectors.joining(", "));
+    public SystemMessage lutzSystemPrompt(Context context, Objective objective) {
+        var supportedTypes = supportedTypesForPrompt(context);
 
         record SearchSystemData(
                 String identity,
-                String objective,
                 String deliverable,
                 String mission,
                 boolean includeHandoff,
-                String supportedTypes) {}
+                @Nullable String supportedTypes) {}
 
         var data = new SearchSystemData(
                 objective.identity(),
-                objective.name(),
                 objective.deliverable(),
                 objective.mission(),
                 objective.includeHandoff(),
                 supportedTypes);
 
         try {
-            return new SystemMessage(SEARCH_SYSTEM_TEMPLATE.apply(data));
+            return new SystemMessage(LUTZ_SYSTEM_TEMPLATE.apply(data));
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
     }
 
+    public SystemMessage searchSystemPrompt(Context context, Objective objective, List<String> allowedTools) {
+        var terminals = objective.terminals();
+        var data = new SearchAgentSystemData(
+                objective.deliverable(),
+                objective.mission(),
+                supportedTypesForPrompt(context),
+                hasAnyTool(allowedTools, SYNTAX_AWARE_SEARCH_TOOLS),
+                hasAnyTool(allowedTools, STRUCTURED_DATA_TOOLS),
+                hasAnyTool(allowedTools, GIT_HISTORY_TOOLS),
+                terminals.contains(Terminal.ANSWER),
+                terminals.contains(Terminal.WORKSPACE));
+
+        try {
+            return new SystemMessage(SEARCH_AGENT_SYSTEM_TEMPLATE.apply(data));
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
+    private static String supportedTypesForPrompt(Context context) {
+        var languages = context.getContextManager().getProject().getAnalyzerLanguages();
+        if (languages.isEmpty()) {
+            return "";
+        }
+        return languages.stream().map(Language::name).collect(Collectors.joining(", "));
+    }
+
+    private static boolean hasAnyTool(List<String> allowedTools, Set<String> toolNames) {
+        return allowedTools.stream().anyMatch(toolNames::contains);
+    }
+
     public record SpecialTurnTooling(String turnType, List<String> allowedTools) {}
+
+    private static final Set<String> SYNTAX_AWARE_SEARCH_TOOLS =
+            Set.of("searchSymbols", "scanUsages", "getSymbolLocations");
+    private static final Set<String> STRUCTURED_DATA_TOOLS = Set.of("jq", "xmlSkim", "xmlSelect");
+    private static final Set<String> GIT_HISTORY_TOOLS =
+            Set.of("searchGitCommitMessages", "getGitLog", "explainCommit");
+
+    private record SearchAgentSystemData(
+            String deliverable,
+            String mission,
+            @Nullable String supportedTypes,
+            boolean hasSyntaxAwareTools,
+            boolean hasStructuredDataTools,
+            boolean hasGitHistoryTools,
+            boolean answerObjective,
+            boolean workspaceObjective) {}
 
     private record DirectiveData(
             String goal,
@@ -260,7 +303,8 @@ public class SearchPrompts {
             boolean finalTurnOnly,
             @Nullable SpecialTurnTooling specialTooling) {}
 
-    private static final Template SEARCH_SYSTEM_TEMPLATE;
+    private static final Template LUTZ_SYSTEM_TEMPLATE;
+    private static final Template SEARCH_AGENT_SYSTEM_TEMPLATE;
     private static final Template DIRECTIVE_TEMPLATE;
 
     static {
@@ -268,24 +312,18 @@ public class SearchPrompts {
         handlebars.registerHelpers(ConditionalHelpers.class);
         handlebars.registerHelpers(com.github.jknack.handlebars.helper.StringHelpers.class);
 
-        String searchSystemTemplateText =
+        String lutzSystemTemplateText =
                 """
                 <instructions>
                 {{identity}}
-
-                Objective: {{objective}}
-                Deliverable: {{deliverable}}
 
                 {{mission}}
 
                 Your responsibilities are:
                   1.  **Find & Discover:** Use search and inspection tools to locate relevant code (files, classes, methods).
-                  2.  **Curate & Prune:** Prune the Workspace of irrelevant content.
-                {{#if includeHandoff~}}
-                  3.  **Handoff:** Your final output is a clean workspace ready for the Code Agent.
-                {{~/if}}
+                  2.  Deliverable: {{deliverable}}
 
-                Remember: **You must never write, create, or modify code.** Your purpose is to *find* existing code, not *create* new code.
+                Remember: **You must never write, create, or modify code.** Your purpose is to *find* existing code, not to *create* or *modify* code.
 
                 Memory model (reliability):
                   - Durable memory is ONLY the Workspace (fragments + SpecialText such as Discarded Context).
@@ -299,7 +337,7 @@ public class SearchPrompts {
 
                 Critical rules:
                   1) Use search and inspection tools to discover relevant code, including classes/methods/usages/call graphs.
-                     Prefer syntax-aware tools in {{supportedTypes}} files because they return higher-precision results with less noise.
+                     Prefer syntax-aware tools{{#if supportedTypes}} in {{supportedTypes}} files{{/if}} because they return higher-precision results with less noise.
                      - Search tool selection:
                           Definitions / declarations only?
                           -> searchSymbols
@@ -344,7 +382,54 @@ public class SearchPrompts {
                 </instructions>
                 """;
         try {
-            SEARCH_SYSTEM_TEMPLATE = handlebars.compileInline(searchSystemTemplateText);
+            LUTZ_SYSTEM_TEMPLATE = handlebars.compileInline(lutzSystemTemplateText);
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+
+        String searchAgentSystemTemplateText =
+                """
+                <instructions>
+                Your role is EXCLUSIVELY to search and analyze existing code.
+
+                {{mission}}
+
+                Your strengths:
+                    - Rapidly finding files using glob patterns
+                    - Searching code and text with powerful regex patterns
+                    - Reading and analyzing file contents
+
+                Guidelines:
+                    - Use addFilesToWorkspace or addLineRangeToWorkspace when you know the specific file path or range you need to read.
+                    - When you identify a specific class or method, prefer adding its summary or source (addClassSummariesToWorkspace, addMethodsToWorkspace) to keep the Workspace lean.
+                {{#if hasSyntaxAwareTools}}
+                    - Prefer syntax-aware tools (searchSymbols, scanUsages, getSymbolLocations){{#if supportedTypes}} for {{supportedTypes}} files{{/if}} for higher-signal symbol and usage discovery.
+                {{/if}}
+                {{#if hasStructuredDataTools}}
+                    - Prefer structured query tools (jq, xmlSelect) for JSON or XML when structure matters.
+                {{/if}}
+                {{#if hasGitHistoryTools}}
+                    - Use Git-history tools only when repository history is relevant to the request.
+                {{/if}}
+                    - Preserve project-relative paths and fully-qualified symbols in your final response.
+                    - For clear communication, avoid using emojis.
+                {{#if answerObjective}}
+                    - Finalize with `answer(String)` once you have enough evidence; if you hit a dead end, use `abortSearch(String)` instead of guessing.
+                {{/if}}
+                {{#if workspaceObjective}}
+                    - Finalize with `workspaceComplete()` once the Workspace contains the minimum sufficient context; use `abortSearch(String)` if the request cannot be satisfied.
+                {{/if}}
+
+                NOTE: You are meant to be a fast agent that returns output as quickly as possible. In order to achieve this you must:
+                    - Make efficient use of the tools that you have at your disposal: be smart about how you search for symbols and implementations.
+                    - Wherever possible you should try to spawn multiple parallel tool calls for searching and reading code.
+
+                Complete the user's search request efficiently and report your findings clearly.
+                </instructions>
+                """
+                        .stripIndent();
+        try {
+            SEARCH_AGENT_SYSTEM_TEMPLATE = handlebars.compileInline(searchAgentSystemTemplateText);
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
@@ -527,7 +612,7 @@ public class SearchPrompts {
 
         var messages = new ArrayList<ChatMessage>();
 
-        messages.add(searchSystemPrompt(context, objective));
+        messages.add(lutzSystemPrompt(context, objective));
 
         // Describe available MCP tools
         var mcpToolPrompt = McpPrompts.mcpToolPrompt(mcpTools);
@@ -638,7 +723,7 @@ public class SearchPrompts {
         var workspaceMessages = WorkspacePrompts.getMessagesInAddedOrder(context, suppressed);
 
         var messages = new ArrayList<ChatMessage>();
-        messages.add(searchSystemPrompt(context, objective));
+        messages.add(lutzSystemPrompt(context, objective));
 
         var mcpToolPrompt = McpPrompts.mcpToolPrompt(mcpTools);
         if (mcpToolPrompt != null) {

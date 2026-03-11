@@ -1,13 +1,12 @@
 package ai.brokk.tools;
 
-import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
 import ai.brokk.LlmOutputMeta;
 import ai.brokk.MutedConsoleIO;
 import ai.brokk.TaskResult;
 import ai.brokk.TaskResult.StopReason;
-import ai.brokk.agents.LutzAgent;
+import ai.brokk.agents.SearchAgent;
 import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextDelta;
@@ -18,7 +17,6 @@ import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.data.message.ToolExecutionResultMessage;
-import dev.langchain4j.model.chat.StreamingChatModel;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -37,15 +35,10 @@ public class ParallelSearch {
     private static final Logger logger = LogManager.getLogger(ParallelSearch.class);
 
     private final IContextManager cm;
-    private final StreamingChatModel planningModel;
-    private final ContextManager.TaskScope scope;
     private final String goal;
 
-    public ParallelSearch(
-            IContextManager cm, StreamingChatModel planningModel, ContextManager.TaskScope scope, String goal) {
+    public ParallelSearch(IContextManager cm, String goal) {
         this.cm = cm;
-        this.planningModel = planningModel;
-        this.scope = scope;
         this.goal = goal;
     }
 
@@ -151,13 +144,14 @@ public class ParallelSearch {
             throw new InterruptedException();
         }
 
-        var overallResult = firstFatalMessage == null
-                ? new TaskResult(combinedContext, new TaskResult.StopDetails(StopReason.SUCCESS))
-                : new TaskResult(combinedContext, new TaskResult.StopDetails(StopReason.LLM_ERROR, firstFatalMessage));
+        var stopDetails = firstFatalMessage == null
+                ? new TaskResult.StopDetails(StopReason.SUCCESS)
+                : new TaskResult.StopDetails(StopReason.LLM_ERROR, firstFatalMessage);
 
         var description =
                 batchSize > 1 ? "Multiple concurrent searches" : extractQueryDescription(requests.getFirst(), tr);
-        return new ParallelSearchResult(overallResult, toolExecutionMessages, io.getLlmRawMessages(), description);
+        var mopMessages = List.copyOf(io.getLlmRawMessages());
+        return new ParallelSearchResult(combinedContext, stopDetails, toolExecutionMessages, mopMessages, description);
     }
 
     private SearchTaskResult executeSearchRequest(
@@ -168,7 +162,6 @@ public class ParallelSearch {
         ToolExecutionResult toolResult;
         TaskResult taskResult;
         SearchPrompts.Objective objective = SearchPrompts.Objective.WORKSPACE_ONLY;
-        List<ChatMessage> llmMessages = List.of();
 
         try {
             var validated = tr.validateTool(request);
@@ -180,14 +173,8 @@ public class ParallelSearch {
             logger.debug("callSearchAgent invoked with query: {}, mode: {}", query, mode);
             io.llmOutput("**Search Agent** engaged:\n" + query, ChatMessageType.CUSTOM, LlmOutputMeta.newMessage());
 
-            var searchAgent = new LutzAgent(
-                    searchStartContext, query, planningModel, objective, scope, io, LutzAgent.ScanConfig.noAppend());
+            var searchAgent = new SearchAgent(searchStartContext, query, objective, io);
             taskResult = searchAgent.execute();
-
-            if (!taskResult.context().getTaskHistory().isEmpty()) {
-                llmMessages = List.copyOf(
-                        taskResult.context().getTaskHistory().getLast().mopMessages());
-            }
 
             if (taskResult.stopDetails().reason() == StopReason.LLM_ERROR) {
                 toolResult = ToolExecutionResult.fatal(
@@ -210,13 +197,15 @@ public class ParallelSearch {
         }
 
         io.afterToolOutput(toolResult);
-        return new SearchTaskResult(toolResult, taskResult, objective, llmMessages);
+        return new SearchTaskResult(toolResult, taskResult, objective);
     }
 
     private String marshalSearchResult(
             Context searchStartContext, TaskResult taskResult, SearchPrompts.Objective objective) {
-        var lastEntry = taskResult.context().getTaskHistory().getLast();
-        var reasoningSummary = lastEntry.description();
+        var lastEntry = taskResult.context().getTaskHistory().isEmpty()
+                ? null
+                : taskResult.context().getTaskHistory().getLast();
+        var reasoningSummary = lastEntry != null ? lastEntry.description() : "(No reasoning provided)";
 
         if (objective == SearchPrompts.Objective.WORKSPACE_ONLY) {
             var delta = ContextDelta.between(
@@ -266,16 +255,14 @@ public class ParallelSearch {
     }
 
     public record ParallelSearchResult(
-            TaskResult taskResult,
+            Context context,
+            TaskResult.StopDetails stopDetails,
             List<ToolExecutionResultMessage> toolExecutionMessages,
-            List<ChatMessage> llmRawMessages,
+            List<ChatMessage> mopMessages,
             String historyDescription) {}
 
     private record SearchTask(ToolExecutionRequest request, Future<SearchTaskResult> future) {}
 
     private record SearchTaskResult(
-            ToolExecutionResult toolResult,
-            TaskResult taskResult,
-            SearchPrompts.Objective objective,
-            List<ChatMessage> llmRawMessages) {}
+            ToolExecutionResult toolResult, TaskResult taskResult, SearchPrompts.Objective objective) {}
 }

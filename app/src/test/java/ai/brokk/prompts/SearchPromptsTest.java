@@ -20,7 +20,7 @@ class SearchPromptsTest {
     }
 
     @Test
-    void searchSystemPrompt_includesObjectiveAndDeliverable() throws Exception {
+    void lutzSystemPrompt_includesObjectiveAndDeliverable() throws Exception {
         var tempDir = Files.createTempDirectory("brokk-search-system-prompt-test-");
         try {
             var project = new TestProject(tempDir);
@@ -29,21 +29,22 @@ class SearchPromptsTest {
             Context ctx = cm.liveContext();
 
             var answerOnly = SearchPrompts.instance
-                    .searchSystemPrompt(ctx, SearchPrompts.Objective.ANSWER_ONLY)
+                    .lutzSystemPrompt(ctx, SearchPrompts.Objective.ANSWER_ONLY)
                     .text();
-            assertTrue(answerOnly.contains("Objective: ANSWER_ONLY"));
+            assertTrue(answerOnly.contains(
+                    "Your goal is to gather enough context to answer the user's question accurately"));
             assertTrue(answerOnly.contains("Deliverable: a comprehensive Markdown answer"));
 
             var workspaceOnly = SearchPrompts.instance
-                    .searchSystemPrompt(ctx, SearchPrompts.Objective.WORKSPACE_ONLY)
+                    .lutzSystemPrompt(ctx, SearchPrompts.Objective.WORKSPACE_ONLY)
                     .text();
-            assertTrue(workspaceOnly.contains("Objective: WORKSPACE_ONLY"));
+            assertTrue(workspaceOnly.contains("Your goal is to prepare the Workspace for the Code Agent"));
             assertTrue(workspaceOnly.contains("Deliverable: a curated Workspace ready for the Code Agent"));
 
             var issueDiagnosis = SearchPrompts.instance
-                    .searchSystemPrompt(ctx, SearchPrompts.Objective.ISSUE_DESCRIPTION)
+                    .lutzSystemPrompt(ctx, SearchPrompts.Objective.ISSUE_DESCRIPTION)
                     .text();
-            assertTrue(issueDiagnosis.contains("Objective: ISSUE_DESCRIPTION"));
+            assertTrue(issueDiagnosis.contains("Your goal is to gather enough context to describe the issue"));
             assertTrue(issueDiagnosis.contains("Deliverable: a high-quality GitHub issue"));
         } finally {
             ai.brokk.util.FileUtil.deleteRecursively(tempDir);

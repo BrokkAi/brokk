@@ -75,7 +75,8 @@ public interface ContextFragment {
 
         private static final EnumSet<FragmentType> EDITABLE_TYPES = EnumSet.of(PROJECT_PATH, USAGE, CODE, LINE_RANGE);
 
-        private static final EnumSet<FragmentType> PROJECT_GUIDE_TYPES = EnumSet.of(PROJECT_PATH, CODE, SKELETON);
+        private static final EnumSet<FragmentType> PROJECT_GUIDE_TYPES =
+                EnumSet.of(PROJECT_PATH, CODE, LINE_RANGE, SKELETON);
 
         public boolean isPath() {
             return PATH_TYPES.contains(this);
@@ -149,15 +150,25 @@ public interface ContextFragment {
      */
     ComputedValue<String> text();
 
+    @Blocking
+    default String format() {
+        return """
+               <fragment description="%s">
+               %s
+               </fragment>
+               """
+                .formatted(description().join(), text().join());
+    }
+
     /**
      * fragment toc entry, usually id + description
      */
+    @Blocking
     default String formatToc(boolean isPinned) {
-        // Non-blocking best-effort rendering
         String idOrPinned = isPinned ? "pinned=\"true\"" : "fragmentid=\"%s\"".formatted(id());
         return """
                 <fragment-toc description="%s" %s />"""
-                .formatted(description().renderNowOr(""), idOrPinned);
+                .formatted(description().join(), idOrPinned);
     }
 
     default boolean isText() {

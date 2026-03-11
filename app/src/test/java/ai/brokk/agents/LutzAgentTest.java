@@ -34,6 +34,7 @@ class LutzAgentTest {
                 cm.liveContext(),
                 "goal",
                 new OfflineStreamingModel(),
+                ai.brokk.prompts.SearchPrompts.Objective.WORKSPACE_ONLY,
                 null,
                 new NoOpConsoleIO(),
                 LutzAgent.ScanConfig.disabled());
@@ -69,6 +70,18 @@ class LutzAgentTest {
 
         assertTrue(allowed.contains("addLineRangeToWorkspace"));
         assertFalse(allowed.contains("readLineRange"));
+    }
+
+    @Test
+    void calculateAllowedToolNames_delegatesSearchToCallSearchAgent() throws InterruptedException {
+        TestConsoleIO io = new TestConsoleIO();
+        TestContextManager cm = new TestContextManager(tempDir, io);
+
+        LutzAgent agent = newAgent(cm, new OfflineStreamingModel());
+        List<String> allowed = agent.calculateAllowedToolNames(cm.liveContext());
+
+        assertTrue(allowed.contains("callSearchAgent"), "LutzAgent should offer callSearchAgent for delegated search");
+        assertFalse(allowed.contains("searchSymbols"), "LutzAgent should not offer raw searchSymbols tool");
     }
 
     @Test
@@ -170,12 +183,7 @@ class LutzAgentTest {
         var cm = new TestContextManager(tempDir, new NoOpConsoleIO());
         Context empty = new Context(cm);
         LutzAgent agent = new LutzAgent(
-                empty,
-                "goal",
-                new OfflineStreamingModel(),
-                null,
-                new NoOpConsoleIO(),
-                LutzAgent.ScanConfig.disabled());
+                empty, "goal", new OfflineStreamingModel(), null, new NoOpConsoleIO(), LutzAgent.ScanConfig.disabled());
 
         // Case 1: No last turn
         assertTrue(agent.calculateConvergenceScore(empty, null) == 0.0);
@@ -227,9 +235,10 @@ class LutzAgentTest {
 
         assertTrue(note.startsWith("[HARNESS NOTE:"), "Note should use HARNESS NOTE format");
         assertTrue(note.contains("Context grew by"), "Note should contain token growth statement");
-        assertTrue(note.contains("tokens since checkpoint"), "Note should include checkpoint wording");
-        assertTrue(
-                note.contains("frag-one") || note.contains("frag-two"), "Note should contain fragment detail labels");
+        assertTrue(note.contains("Added fragments:"), "Note should include fragment list wording");
+        // Labels for StringFragments default to "fragment <id>" or "Summary of..." if no description is provided to
+        // ctor
+        assertTrue(note.contains("fragment"), "Note should contain fragment labels");
     }
 
     @Test

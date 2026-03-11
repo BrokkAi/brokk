@@ -733,17 +733,16 @@ public class ArchitectAgent {
             if (!searchAgentReqs.isEmpty()) {
                 addPlanningToHistory();
                 var searchResult = parallelSearch.execute(searchAgentReqs, tr);
-                var searchTaskResult = searchResult.taskResult();
-                if (searchTaskResult.stopDetails().reason() == StopReason.LLM_ERROR) {
+                if (searchResult.stopDetails().reason() == StopReason.LLM_ERROR) {
                     return resultWithMessages(
-                            StopReason.LLM_ERROR, searchTaskResult.stopDetails().explanation());
+                            StopReason.LLM_ERROR, searchResult.stopDetails().explanation());
                 }
 
                 context = context.addFragments(
-                        searchTaskResult.context().allFragments().toList());
+                        searchResult.context().allFragments().toList());
                 architectMessages.addAll(searchResult.toolExecutionMessages());
                 context = context.addHistoryEntry(
-                        searchResult.llmRawMessages(),
+                        searchResult.mopMessages(),
                         List.of(),
                         TaskResult.Type.SEARCH,
                         planningModel,
@@ -821,7 +820,7 @@ public class ArchitectAgent {
                     buildPrompt(workspaceTokenSize, maxInputTokensForPrompt, workspaceContentMessages, harnessNote);
 
             WorkspaceTools wst = new WorkspaceTools(this.context);
-            ParallelSearch parallelSearch = new ParallelSearch(cm, planningModel, scope, goal);
+            ParallelSearch parallelSearch = new ParallelSearch(cm, goal);
 
             var depTools = DependencyTools.isSupported(cm.getProject())
                     ? Optional.of(new DependencyTools(cm))
