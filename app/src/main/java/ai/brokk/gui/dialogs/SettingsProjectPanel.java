@@ -900,6 +900,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
             // Convert view index to model index when sorter is active
             if (languagesTableModel == null) return;
             int modelRow = table.convertRowIndexToModel(sel);
+            if (modelRow < 0 || modelRow >= languagesTableModel.rows.size()) return;
             var lang = languagesTableModel.rows.get(modelRow);
 
             // Create (or reuse) analyzer settings panel for this language
@@ -990,7 +991,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
     }
 
     private class LanguagesTableModel extends AbstractTableModel {
-        private List<Language> rows;
+        private List<Language> rows = Collections.emptyList();
 
         LanguagesTableModel(List<Language> rows) {
             this.rows = rows;
