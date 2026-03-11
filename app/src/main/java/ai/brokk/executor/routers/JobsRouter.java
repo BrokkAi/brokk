@@ -333,7 +333,11 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
         }
 
         var jobSpec = JobSpec.ofPrReview(
-                request.plannerModel(), request.githubToken(), request.owner(), request.repo(), request.prNumber(),
+                request.plannerModel(),
+                request.githubToken(),
+                request.owner(),
+                request.repo(),
+                request.prNumber(),
                 request.severityThreshold());
         var createResult = jobStore.createOrGetJob(idempotencyKey, jobSpec);
         var jobId = createResult.jobId();

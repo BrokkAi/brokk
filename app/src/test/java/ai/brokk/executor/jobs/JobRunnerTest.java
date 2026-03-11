@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.agents.IssueRewriterAgent;
+import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.tasks.TaskList;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import java.util.ArrayList;
@@ -105,6 +106,12 @@ class JobRunnerTest {
         String result = IssueRewriterAgent.maybeAnnotateDiffBlocks(body);
 
         assertTrue(result.contains("```diff\n\n```"));
+    }
+
+    @Test
+    void testReviewModeSeverityAndCap() {
+        assertEquals(PrReviewService.Severity.HIGH, JobRunner.DEFAULT_REVIEW_SEVERITY_THRESHOLD);
+        assertEquals(3, JobRunner.DEFAULT_REVIEW_MAX_INLINE_COMMENTS);
     }
 
     @Test
@@ -261,6 +268,21 @@ class JobRunnerTest {
         executor.runLutzFromSearchResult(fakeContext, null, null);
 
         assertTrue(executedTasks.isEmpty(), "No tasks should be executed when task list is empty");
+    }
+
+    @Test
+    void testObjectiveForModeLutzEqualsLutzObjective() {
+        assertEquals(SearchPrompts.Objective.LUTZ, JobRunner.objectiveForMode(JobRunner.Mode.LUTZ));
+    }
+
+    @Test
+    void testObjectiveForLutzSearchPhaseIsLutzObjective() {
+        assertEquals(SearchPrompts.Objective.LUTZ, JobRunner.objectiveForLutzSearchPhase());
+    }
+
+    @Test
+    void testObjectiveForModePlanIsTasksOnly() {
+        assertEquals(SearchPrompts.Objective.TASKS_ONLY, JobRunner.objectiveForMode(JobRunner.Mode.PLAN));
     }
 
     @Test

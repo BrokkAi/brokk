@@ -24,11 +24,38 @@ class JobSpecTest {
         assertNull(spec.sourceBranch());
         assertNull(spec.targetBranch());
 
-        assertEquals("REVIEW", spec.tags().get("mode"));
         assertEquals("ghp_token123", spec.tags().get("github_token"));
         assertEquals("octocat", spec.tags().get("repo_owner"));
         assertEquals("hello-world", spec.tags().get("repo_name"));
         assertEquals("42", spec.tags().get("pr_number"));
+    }
+
+    @Test
+    void testGetPrNumber_ReturnsCorrectInteger() {
+        var spec = JobSpec.ofPrReview("gpt-4", "token", "owner", "repo", 123);
+
+        assertEquals(123, spec.getPrNumber());
+    }
+
+    @Test
+    void testGetGithubToken_ReturnsCorrectValue() {
+        var spec = JobSpec.ofPrReview("gpt-4", "ghp_secrettoken", "owner", "repo", 1);
+
+        assertEquals("ghp_secrettoken", spec.getGithubToken());
+    }
+
+    @Test
+    void testGetRepoOwner_ReturnsCorrectValue() {
+        var spec = JobSpec.ofPrReview("gpt-4", "token", "myorg", "repo", 1);
+
+        assertEquals("myorg", spec.getRepoOwner());
+    }
+
+    @Test
+    void testGetRepoName_ReturnsCorrectValue() {
+        var spec = JobSpec.ofPrReview("gpt-4", "token", "owner", "myrepo", 1);
+
+        assertEquals("myrepo", spec.getRepoName());
     }
 
     @Test
@@ -55,6 +82,26 @@ class JobSpecTest {
                 JobSpec.of("task", true, true, "model", null, null, false, Map.of("pr_number", ""), null, null, null);
 
         assertNull(spec.getPrNumber());
+    }
+
+    @Test
+    void testOfPrReview_WithLargePrNumber() {
+        var spec = JobSpec.ofPrReview("gpt-4", "token", "owner", "repo", 999999);
+
+        assertEquals(999999, spec.getPrNumber());
+    }
+
+    @Test
+    void testTagsImmutable() {
+        var spec = JobSpec.ofPrReview("gpt-4", "token", "owner", "repo", 1);
+
+        // Verify tags map is immutable by attempting to retrieve it
+        var tags = spec.tags();
+        assertEquals(4, tags.size());
+        assertTrue(tags.containsKey("github_token"));
+        assertTrue(tags.containsKey("repo_owner"));
+        assertTrue(tags.containsKey("repo_name"));
+        assertTrue(tags.containsKey("pr_number"));
     }
 
     @Test

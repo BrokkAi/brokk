@@ -127,9 +127,13 @@ public record JobSpec(
      * <p>This factory creates a job with empty taskInput and stores PR metadata in tags.
      * Auto-commit and auto-compress are disabled for PR review jobs.</p>
      */
-    public static JobSpec ofPrReview(String plannerModel, String githubToken, String owner, String repo, int prNumber,
-                                     @Nullable String severityThreshold)
-    {
+    public static JobSpec ofPrReview(
+            String plannerModel,
+            String githubToken,
+            String owner,
+            String repo,
+            int prNumber,
+            @Nullable String severityThreshold) {
         var tags = new HashMap<>(Map.of(
                 "mode", "REVIEW",
                 "github_token", githubToken,

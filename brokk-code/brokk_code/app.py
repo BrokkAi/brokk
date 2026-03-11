@@ -1991,7 +1991,9 @@ class BrokkApp(App):
             return
 
         severity_msg = f" (severity>={severity_threshold})" if severity_threshold else ""
-        chat.add_system_message(f"Submitting PR review for {owner}/{repo}#{pr_number}{severity_msg}...")
+        chat.add_system_message(
+            f"Submitting PR review for {owner}/{repo}#{pr_number}{severity_msg}..."
+        )
         self.run_worker(
             self._run_pr_review_job(
                 pr_number=pr_number,
@@ -2390,7 +2392,10 @@ class BrokkApp(App):
             {"command": "/commit", "description": "Commit current changes"},
             {"command": "/pr", "description": "Create a pull request"},
             {"command": "/info", "description": "Show current configuration and status"},
-            {"command": "/review", "description": "Submit a PR review job"},
+            {
+                "command": "/review",
+                "description": "Submit a PR review job (supports --severity LEVEL)",
+            },
             {"command": "/quit", "description": "Exit the application"},
             {"command": "/exit", "description": "Exit the application"},
         ]
