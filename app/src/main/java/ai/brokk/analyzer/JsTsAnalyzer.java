@@ -8,6 +8,7 @@ import ai.brokk.project.IProject;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import java.nio.file.Path;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -160,6 +161,14 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
                         key -> Optional.ofNullable(resolveJavaScriptLikeModulePath(root, absolutePaths, file, path))))
                 .flatMap(Optional::stream)
                 .flatMap(resolvedFile -> getDeclarations(resolvedFile).stream())
+                .collect(Collectors.toSet());
+    }
+
+    @Override
+    public Set<CodeUnit> testFilesToCodeUnits(Collection<ProjectFile> files) {
+        return files.stream()
+                .flatMap(file -> getDeclarations(file).stream())
+                .filter(cu -> cu.isClass() || cu.isFunction() || cu.isModule())
                 .collect(Collectors.toSet());
     }
 
