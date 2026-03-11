@@ -817,6 +817,8 @@ class ChatPanel(Vertical):
         self._history_index: int = -1  # -1 means no history navigation active
         self._draft_buffer: str = ""  # Stores text before history navigation started
 
+        self._suppressing_sync: bool = False
+
     def compose(self) -> ComposeResult:
         yield ChatLog(highlight=True, markup=True, wrap=True, min_width=0, id="chat-log")
         yield TokenBar(id="chat-token-bar", classes="hidden")
@@ -843,7 +845,15 @@ class ChatPanel(Vertical):
         log = self.query_one("#chat-log", RichLog)
         log.min_width = 0
         log.styles.scrollbar_size_horizontal = 0
+        self._last_width = self.size.width
         self.watch(log, "scroll_y", self._on_chat_log_scroll_change)
+
+    def on_resize(self, event: events.Resize) -> None:
+        """Handle panel resizing by refreshing the log if width changed."""
+        if event.size.width != self._last_width:
+            self._last_width = event.size.width
+            if self._message_history:
+                self.refresh_log(show_verbose=self.show_verbose)
 
     def _on_chat_log_scroll_change(self, old: float, new: float) -> None:
         """Called when the chat log's scroll_y changes."""
@@ -858,6 +868,9 @@ class ChatPanel(Vertical):
 
         Also toggles visibility of the scroll-to-bottom button.
         """
+        if self._suppressing_sync:
+            return
+
         try:
             log = self.query_one("#chat-log", RichLog)
             scroll_btn = self.query_one("#scroll-to-bottom", Button)
@@ -1345,6 +1358,10 @@ class ChatPanel(Vertical):
         if not was_following:
             log.auto_scroll = False
 
+        # Suppress _sync_autoscroll during the clear+re-render cycle so that
+        # reactive scroll_y changes don't override the auto_scroll state.
+        self._suppressing_sync = True
+
         log.clear()
 
         for entry in self._message_history:
@@ -1358,14 +1375,27 @@ class ChatPanel(Vertical):
             # Re-verify auto_scroll is still False after writes
             log.auto_scroll = False
 
-            # Use call_later to ensure the scroll happens after the log's internal state updates
+            # Use call_later to ensure the scroll happens after the log's internal state updates.
+            # Keep sync suppression enabled until the restored middle scroll position has had a
+            # chance to propagate; otherwise transient "at bottom" state can re-enable follow mode.
             def _restore_scroll():
                 log.scroll_to(y=min(prior_scroll_y, log.max_scroll_y), animate=False)
-                self._sync_autoscroll()
+                log.auto_scroll = False
+                self.query_one("#scroll-to-bottom", Button).remove_class("hidden")
+
+                def _finish_restore() -> None:
+                    self._suppressing_sync = False
+
+                self.call_later(_finish_restore)
 
             self.call_later(_restore_scroll)
         else:
-            self.call_later(self._sync_autoscroll)
+
+            def _finish_refresh():
+                self._suppressing_sync = False
+                self._sync_autoscroll()
+
+            self.call_later(_finish_refresh)
 
     def add_markdown(self, content: str) -> None:
         """Renders a block of Markdown content to the chat log."""
@@ -1376,6 +1406,14 @@ class ChatPanel(Vertical):
         """Renders the welcome message: icon in Brokk red, followed by Markdown body."""
         self._message_history.append({"kind": "WELCOME", "content": body, "icon": icon})
         self._render_message_entry("WELCOME", body, icon=icon)
+
+    def update_welcome(self, body: str) -> None:
+        """Updates the most recent welcome message in history and refreshes the log."""
+        for entry in reversed(self._message_history):
+            if entry["kind"] == "WELCOME":
+                entry["content"] = body
+                self.refresh_log(self.show_verbose)
+                break
 
     def add_user_message(self, text: str) -> None:
         """Renders a user message with distinct styling."""

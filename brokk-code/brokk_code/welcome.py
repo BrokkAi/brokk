@@ -24,18 +24,25 @@ def get_braille_icon() -> str:
     )
 
 
-def build_welcome_message(commands: List[Dict[str, str]]) -> str:
+def build_welcome_message(
+    commands: List[Dict[str, str]], latest_pypi_version: str | None = None
+) -> str:
     """
     Constructs the branded welcome/onboarding message as a Markdown string.
 
     Args:
         commands: The list of supported slash commands from BrokkApp.get_slash_commands().
+        latest_pypi_version: The latest version available on PyPI, if known.
 
     Returns:
         A Markdown-formatted string for display in the ChatPanel.
     """
+    version_info = f"v{__version__}"
+    if latest_pypi_version and latest_pypi_version != __version__:
+        version_info += f" (Latest: {latest_pypi_version})"
+
     description = (
-        f"# Welcome to Brokk v{__version__}\n\n"
+        f"# Welcome to Brokk {version_info}\n\n"
         "Brokk is a code intelligence agent designed for high-precision **context engineering**."
     )
 

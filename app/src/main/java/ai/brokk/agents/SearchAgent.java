@@ -127,10 +127,6 @@ public class SearchAgent {
         return result;
     }
 
-    private String collectMetricsFlag() {
-        return "collectMetrics=" + (metrics instanceof SearchMetrics.Tracking);
-    }
-
     private TaskResult interruptedResult() {
         try {
             return errorResult(new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED));

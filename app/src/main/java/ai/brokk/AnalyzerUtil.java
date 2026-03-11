@@ -69,10 +69,22 @@ public class AnalyzerUtil {
     }
 
     public static Set<CodeUnit> testFilesToCodeUnits(IAnalyzer analyzer, Collection<ProjectFile> files) {
-        var unitsInTestFiles = files.stream()
-                .flatMap(testFile -> analyzer.getDeclarations(testFile).stream())
-                .filter(cu -> cu.isClass() || cu.isFunction())
-                .collect(Collectors.toSet());
+        Set<CodeUnit> unitsInTestFiles = new HashSet<>();
+        Set<ProjectFile> analyzedFiles = analyzer.getAnalyzedFiles();
+
+        for (ProjectFile testFile : files) {
+            if (!analyzedFiles.contains(testFile)) {
+                logger.warn("Test file is missing from analyzer index: {}", testFile);
+                continue;
+            }
+
+            var decls = analyzer.getDeclarations(testFile);
+            if (decls.isEmpty()) {
+                logger.warn("Test file contains no code units: {}", testFile);
+            }
+
+            decls.stream().filter(cu -> cu.isClass() || cu.isFunction()).forEach(unitsInTestFiles::add);
+        }
 
         return AnalyzerUtil.coalesceInnerClasses(unitsInTestFiles);
     }

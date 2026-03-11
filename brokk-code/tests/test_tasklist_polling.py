@@ -189,6 +189,11 @@ async def test_polling_triggers_immediately_after_ready(tmp_path):
     mock_context = {"usedTokens": 100, "fragments": []}
     mock_tasklist = {"bigPicture": "Test", "tasks": []}
 
+    # Stub chat access to prevent background workers from accessing #chat-log before mount
+    from unittest.mock import MagicMock
+
+    app._maybe_chat = MagicMock(return_value=None)
+
     with (
         patch(
             "brokk_code.executor.ExecutorManager.get_context", new_callable=AsyncMock
