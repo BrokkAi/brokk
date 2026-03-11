@@ -339,7 +339,10 @@ def test_handle_event_notification_with_map_data(tmp_path, monkeypatch):
 
     monkeypatch.setattr(app, "_maybe_chat", lambda: MockChat())
 
-    event = {"type": "NOTIFICATION", "data": {"message": "Fetching PR refs from remote 'origin'..."}}
+    event = {
+        "type": "NOTIFICATION",
+        "data": {"message": "Fetching PR refs from remote 'origin'..."},
+    }
     app._handle_event(event)
 
     assert len(messages) == 1

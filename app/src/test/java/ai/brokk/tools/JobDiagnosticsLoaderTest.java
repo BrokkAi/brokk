@@ -57,10 +57,13 @@ public class JobDiagnosticsLoaderTest {
         MAPPER.writeValue(j1.resolve("status.json").toFile(), status1);
 
         // events.jsonl with scan start and complete
-        String ev1 = MAPPER.writeValueAsString(
-                new JobEvent(1, 1100L, "NOTIFICATION", Map.of("message", "Brokk Context Engine: analyzing repository context...")));
+        String ev1 = MAPPER.writeValueAsString(new JobEvent(
+                1, 1100L, "NOTIFICATION", Map.of("message", "Brokk Context Engine: analyzing repository context...")));
         String ev2 = MAPPER.writeValueAsString(new JobEvent(
-                2, 1200L, "NOTIFICATION", Map.of("message", "Brokk Context Engine: complete — contextual insights added to Workspace.")));
+                2,
+                1200L,
+                "NOTIFICATION",
+                Map.of("message", "Brokk Context Engine: complete — contextual insights added to Workspace.")));
         Files.writeString(
                 j1.resolve("events.jsonl"),
                 ev1 + "\n" + ev2 + "\n",

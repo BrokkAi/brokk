@@ -1,7 +1,5 @@
 """Shared event utilities for JobEvent payloads."""
-
 from __future__ import annotations
-
 
 _FAILURE_STATES = frozenset({"FAILED", "CANCELLED"})
 
