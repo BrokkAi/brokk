@@ -257,9 +257,10 @@ class JobRunnerTest {
             }
         };
 
-        executor.runLutzFromSearchResult(fakeContext, null, null);
+        var completedTasks = executor.runLutzFromSearchResult(fakeContext, null, null);
 
         assertTrue(executedTasks.isEmpty(), "No tasks should be executed when task list is empty");
+        assertTrue(completedTasks.isEmpty(), "No completed tasks should be reported when task list is empty");
     }
 
     @Test
@@ -302,11 +303,35 @@ class JobRunnerTest {
 
         StreamingChatModel mockModel = new StreamingChatModel() {};
 
-        executor.runLutzFromSearchResult(fakeContext, null, mockModel);
+        var completedTasks = executor.runLutzFromSearchResult(fakeContext, null, mockModel);
 
         assertEquals(2, executedTasks.size(), "Two tasks should have been executed");
         assertEquals("2", executedTasks.get(0).id());
         assertEquals("3", executedTasks.get(1).id());
+        assertEquals(2, completedTasks.size(), "Completed task recap should include each executed incomplete task");
+        assertEquals("2", completedTasks.get(0).id());
+        assertEquals("3", completedTasks.get(1).id());
+    }
+
+    @Test
+    void testLutz_emitPostRunSummary_noCompletedTasks_noop() {
+        LutzExecutor executor = new LutzExecutor(null, () -> false, null);
+        executor.emitPostRunSummary(List.of(new TaskList.TaskItem("1", "title1", "text1", true)), List.of());
+    }
+
+    @Test
+    void testLutz_emitPostRunSummary_completedTasks_basedOnRunState() {
+        LutzExecutor executor = new LutzExecutor(null, () -> false, null);
+
+        var generated = List.of(
+                new TaskList.TaskItem("1", "title1", "text1", true),
+                new TaskList.TaskItem("2", "title2", "text2", false),
+                new TaskList.TaskItem("3", "title3", "text3", false));
+        var completed = List.of(
+                new TaskList.TaskItem("2", "title2", "text2", false),
+                new TaskList.TaskItem("3", "title3", "text3", false));
+
+        executor.emitPostRunSummary(generated, completed);
     }
 
     @Test

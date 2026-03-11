@@ -57,7 +57,8 @@ public final class LutzExecutor {
             }
         };
 
-        runLutzFromSearchResult(adapter, plannerModel, codeModel);
+        var completedTasks = runLutzFromSearchResult(adapter, plannerModel, codeModel);
+        emitPostRunSummary(adapter.getTasks(), completedTasks);
     }
 
     @Blocking
@@ -81,7 +82,7 @@ public final class LutzExecutor {
     }
 
     @Blocking
-    void runLutzFromSearchResult(
+    List<TaskList.TaskItem> runLutzFromSearchResult(
             LutzContext lutzContext, StreamingChatModel plannerModel, @Nullable StreamingChatModel codeModel)
             throws InterruptedException {
         var generatedTasks = lutzContext.getTasks();
@@ -91,7 +92,7 @@ public final class LutzExecutor {
             if (console != null) {
                 console.showNotification(IConsoleIO.NotificationRole.INFO, msg);
             }
-            return;
+            return List.of();
         }
 
         logger.debug("LUTZ orchestration: {} task(s) to execute", generatedTasks.size());
@@ -132,5 +133,21 @@ public final class LutzExecutor {
         }
 
         logger.debug("LUTZ orchestration: all generated tasks executed");
+        return incompleteTasks;
+    }
+
+    void emitPostRunSummary(List<TaskList.TaskItem> generatedTasks, List<TaskList.TaskItem> completedTasks) {
+        if (completedTasks.isEmpty()) {
+            return;
+        }
+
+        var completedIds = completedTasks.stream().map(TaskList.TaskItem::id).toList();
+        var summary = "LUTZ run complete: executed %d of %d generated task(s). Completed task ids: %s"
+                .formatted(completedTasks.size(), generatedTasks.size(), completedIds);
+
+        logger.info("LUTZ orchestration summary: {}", summary);
+        if (console != null) {
+            console.showNotification(IConsoleIO.NotificationRole.INFO, summary);
+        }
     }
 }
