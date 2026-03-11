@@ -449,6 +449,7 @@ public final class JobRunner {
                         codeModelNameForLog);
 
                 // Execute within submitLlmAction to honor cancellation semantics
+                cm.setAutoCommit(spec.autoCommit());
                 cm.submitLlmAction(() -> {
                             if (cancelled.get()) {
                                 logger.info("Job {} execution cancelled by user", jobId);

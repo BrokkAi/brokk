@@ -321,6 +321,11 @@ public interface IContextManager {
         throw new UnsupportedOperationException();
     }
 
+    /** Returns whether completed tasks should be auto-committed. Defaults to true. */
+    default boolean isAutoCommit() {
+        return true;
+    }
+
     default ContextManager.TaskScope beginTask(String input, boolean group, @Nullable String taskDescription) {
         throw new UnsupportedOperationException();
     }

@@ -204,6 +204,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     private boolean sessionsSyncActive = false;
 
+    // Whether completed tasks should be auto-committed. Set per-job by the executor from JobSpec.
+    private volatile boolean autoCommit = true;
+
     @SuppressWarnings("NullAway.Init")
     private AbstractWatchService watchService;
 
@@ -712,6 +715,16 @@ public class ContextManager implements IContextManager, AutoCloseable {
     @Override
     public IProject getProject() {
         return project;
+    }
+
+    /** Returns whether completed tasks should be auto-committed. */
+    public boolean isAutoCommit() {
+        return autoCommit;
+    }
+
+    /** Sets whether completed tasks should be auto-committed. */
+    public void setAutoCommit(boolean autoCommit) {
+        this.autoCommit = autoCommit;
     }
 
     @Override
@@ -1627,7 +1640,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             result = agent.executeWithScan();
 
             if (result.stopDetails().reason() == TaskResult.StopReason.SUCCESS) {
-                if (project.hasGit()) {
+                if (autoCommit && project.hasGit()) {
                     new GitWorkflow(this).performAutoCommit(prompt);
                 }
                 var ctx = markTaskDone(result.context(), task);

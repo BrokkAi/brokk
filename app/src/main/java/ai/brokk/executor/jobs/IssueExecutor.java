@@ -490,7 +490,9 @@ public final class IssueExecutor {
             }
 
             try {
-                new GitWorkflow(cm).performAutoCommit(reviewFixTaskDescription);
+                if (cm.isAutoCommit()) {
+                    new GitWorkflow(cm).performAutoCommit(reviewFixTaskDescription);
+                }
             } catch (InterruptedException ie) {
                 Thread.currentThread().interrupt();
                 throw new RuntimeException(ie);
@@ -563,8 +565,10 @@ public final class IssueExecutor {
         try {
             var workflow = new GitWorkflow(cm);
 
-            workflow.performAutoCommit("Resolves #" + prepared.issueNumber() + ": "
-                    + prepared.details().header().title());
+            if (cm.isAutoCommit()) {
+                workflow.performAutoCommit("Resolves #" + prepared.issueNumber() + ": "
+                        + prepared.details().header().title());
+            }
 
             var suggestion = workflow.suggestPullRequestDetails(issueBranchName, targetBranch, cm.getIo());
 
