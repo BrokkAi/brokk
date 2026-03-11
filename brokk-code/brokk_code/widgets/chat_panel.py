@@ -1385,6 +1385,14 @@ class ChatPanel(Vertical):
         self._message_history.append({"kind": "WELCOME", "content": body, "icon": icon})
         self._render_message_entry("WELCOME", body, icon=icon)
 
+    def update_welcome(self, body: str) -> None:
+        """Updates the most recent welcome message in history and refreshes the log."""
+        for entry in reversed(self._message_history):
+            if entry["kind"] == "WELCOME":
+                entry["content"] = body
+                self.refresh_log(self.show_verbose)
+                break
+
     def add_user_message(self, text: str) -> None:
         """Renders a user message with distinct styling."""
         self._message_history.append({"kind": "USER", "content": text})
