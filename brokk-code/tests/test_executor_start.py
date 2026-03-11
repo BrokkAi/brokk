@@ -439,6 +439,49 @@ async def test_executor_start_propagates_install_failure(monkeypatch, tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_executor_start_includes_session_name_flag(monkeypatch, tmp_path):
+    dummy_jar = tmp_path / "brokk.jar"
+    dummy_jar.write_text("dummy")
+    captured_cmd = None
+
+    async def fake_create_subprocess_exec(*cmd, stdin=None, stdout=None, stderr=None, cwd=None):
+        nonlocal captured_cmd
+        captured_cmd = list(cmd)
+
+        class FakeStdout:
+            async def readline(self):
+                return b"Executor listening on http://127.0.0.1:12345\n"
+
+        class FakeProcess:
+            def __init__(self):
+                self.stdout = FakeStdout()
+                self.stdin = MagicMock()
+                self.returncode = None
+
+            async def wait(self):
+                return 0
+
+            def terminate(self):
+                pass
+
+        return FakeProcess()
+
+    from unittest.mock import MagicMock
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_create_subprocess_exec)
+
+    manager = ExecutorManager(workspace_dir=tmp_path, jar_path=dummy_jar)
+    await manager.start(session_name="ACP Bootstrap Session")
+
+    assert captured_cmd is not None
+    assert "--session-name" in captured_cmd
+    idx = captured_cmd.index("--session-name")
+    assert captured_cmd[idx + 1] == "ACP Bootstrap Session"
+
+    await manager.stop()
+
+
+@pytest.mark.asyncio
 async def test_executor_start_includes_brokk_api_key_flag(monkeypatch, tmp_path):
     dummy_jar = tmp_path / "brokk.jar"
     dummy_jar.write_text("dummy")

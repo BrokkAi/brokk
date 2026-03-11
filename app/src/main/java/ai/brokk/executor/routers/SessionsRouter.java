@@ -302,13 +302,13 @@ public final class SessionsRouter implements SimpleHttpServer.CheckedHttpHandler
 
         try {
             try {
-                contextManager.createSessionAsync(sessionName).get(3, TimeUnit.SECONDS);
+                contextManager.activateNamedSessionOrCreateAsync(sessionName).get(3, TimeUnit.SECONDS);
             } catch (TimeoutException e) {
-                logger.warn("Timed out creating session {}; continuing asynchronously", sessionName);
+                logger.warn("Timed out creating or activating session {}; continuing asynchronously", sessionName);
             }
 
             var sessionId = contextManager.getCurrentSessionId();
-            logger.info("Created new session: {} ({})", sessionName, sessionId);
+            logger.info("Created or activated session: {} ({})", sessionName, sessionId);
 
             sessionLoadedSetter.accept(true);
 

@@ -2456,6 +2456,40 @@ public class ContextManager implements IContextManager, AutoCloseable {
         });
     }
 
+    public CompletableFuture<Void> activateNamedSessionOrCreateAsync(String name) {
+        return submitExclusiveAction(() -> activateNamedSessionOrCreate(name));
+    }
+
+    public void activateNamedSessionOrCreate(String name) {
+        Optional<SessionInfo> existingNamedSessionInfo = getLatestSessionByName(name);
+        if (existingNamedSessionInfo.isPresent()) {
+            SessionInfo sessionInfo = existingNamedSessionInfo.get();
+            logger.info("Activating existing session {} with name '{}'", sessionInfo.id(), name);
+            switchToSession(sessionInfo.id());
+            return;
+        }
+        createOrReuseSession(name);
+    }
+
+    private Optional<SessionInfo> getLatestSessionByName(String name) {
+        var sessionManager = project.getSessionManager();
+        var sessionsByNewest = sessionManager.listSessions().stream()
+                .filter(session -> session.name().equals(name))
+                .filter(session ->
+                        !project.getSessionRegistry().isSessionActiveElsewhere(project.getRoot(), session.id()))
+                .sorted(Comparator.comparingLong(SessionInfo::created).reversed())
+                .toList();
+
+        for (var session : sessionsByNewest) {
+            var history = sessionManager.loadHistory(session.id(), this);
+            if (!SessionManager.isSessionEmpty(session, history)) {
+                return Optional.of(session);
+            }
+        }
+
+        return Optional.empty();
+    }
+
     private void createOrReuseSession(String name) {
         Optional<SessionInfo> existingSessionInfo = getEmptySessionToReuseInsteadOfCreatingNew(name);
         if (existingSessionInfo.isPresent()) {
@@ -2773,10 +2807,19 @@ public class ContextManager implements IContextManager, AutoCloseable {
         ensureBuildDetailsAsync();
     }
 
+    public void createHeadlessWithoutInitialSession(IConsoleIO io) {
+        createHeadlessInternal(io, false, false);
+        ensureBuildDetailsAsync();
+    }
+
     /**
      * Semi-internal functionality; Setting build details is caller's responsibility!
      */
     public void createHeadlessInternal(boolean createNewSession, IConsoleIO io) {
+        createHeadlessInternal(io, true, createNewSession);
+    }
+
+    private void createHeadlessInternal(IConsoleIO io, boolean initializeSession, boolean createNewSession) {
         this.io = io;
         this.watchService = new NoopWatchService();
         this.userActions.setIo(this.io);
@@ -2792,10 +2835,15 @@ public class ContextManager implements IContextManager, AutoCloseable {
             throw new RuntimeException(e);
         }
 
-        // potentially requires analyzer to load existing session
-        initializeCurrentSessionAndHistory(createNewSession);
+        if (initializeSession) {
+            // potentially requires analyzer to load existing session
+            initializeCurrentSessionAndHistory(createNewSession);
+        }
 
-        checkBalanceAndNotify();
+        if (MainProject.getProxySetting() == MainProject.LlmProxySetting.BROKK
+                && !MainProject.getBrokkKey().isBlank()) {
+            checkBalanceAndNotify();
+        }
     }
 
     @Override

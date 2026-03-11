@@ -23,16 +23,11 @@ class HeadlessReadinessLifecycleTest {
 
     private HeadlessExecutorMain executor;
     private String baseUrl;
+    private Path projectRoot;
 
     @BeforeEach
-    void setup(@TempDir Path tempDir) throws Exception {
-        var project = new MainProject(tempDir);
-        var contextManager = new ContextManager(project);
-        var execId = UUID.randomUUID();
-        // Use port 0 for random available port
-        executor = new HeadlessExecutorMain(execId, "127.0.0.1:0", AUTH_TOKEN, contextManager);
-        executor.start();
-        baseUrl = "http://127.0.0.1:" + executor.getPort();
+    void setup(@TempDir Path tempDir) {
+        projectRoot = tempDir;
     }
 
     @AfterEach
@@ -42,8 +37,18 @@ class HeadlessReadinessLifecycleTest {
         }
     }
 
+    private void startExecutor(@org.jetbrains.annotations.Nullable String startupSessionName) throws Exception {
+        var project = new MainProject(projectRoot);
+        var contextManager = new ContextManager(project);
+        var execId = UUID.randomUUID();
+        executor = new HeadlessExecutorMain(execId, "127.0.0.1:0", AUTH_TOKEN, contextManager, startupSessionName);
+        executor.start();
+        baseUrl = "http://127.0.0.1:" + executor.getPort();
+    }
+
     @Test
     void testReadinessTransitionsAfterSessionCreation() throws Exception {
+        startExecutor(null);
         // 1. Initial state: should be 503 NOT_READY
         var readyUrl = URI.create(baseUrl + "/health/ready").toURL();
         var conn1 = (HttpURLConnection) readyUrl.openConnection();
@@ -85,5 +90,45 @@ class HeadlessReadinessLifecycleTest {
         assertNotNull(readySessionIdObj);
         String readySessionId = String.valueOf(readySessionIdObj);
         assertTrue(!readySessionId.isBlank(), "Expected non-empty sessionId in readiness response");
+    }
+
+    @Test
+    void testReadinessReadyOnStartupWithSessionName() throws Exception {
+        startExecutor("Bootstrap Session");
+
+        var readyUrl = URI.create(baseUrl + "/health/ready").toURL();
+        var conn = (HttpURLConnection) readyUrl.openConnection();
+        conn.setRequestMethod("GET");
+        assertEquals(200, conn.getResponseCode());
+
+        var readyBody = MAPPER.readValue(conn.getInputStream(), Map.class);
+        assertEquals("ready", readyBody.get("status"));
+        assertNotNull(readyBody.get("sessionId"));
+    }
+
+    @Test
+    void testReadinessReusesExistingNamedSessionOnRestart() throws Exception {
+        startExecutor("Persistent Session");
+
+        var readyUrl1 = URI.create(baseUrl + "/health/ready").toURL();
+        var conn1 = (HttpURLConnection) readyUrl1.openConnection();
+        conn1.setRequestMethod("GET");
+        assertEquals(200, conn1.getResponseCode());
+        var readyBody1 = MAPPER.readValue(conn1.getInputStream(), Map.class);
+        String firstSessionId = String.valueOf(readyBody1.get("sessionId"));
+        assertTrue(!firstSessionId.isBlank());
+
+        executor.stop(0);
+        executor = null;
+
+        startExecutor("Persistent Session");
+
+        var readyUrl2 = URI.create(baseUrl + "/health/ready").toURL();
+        var conn2 = (HttpURLConnection) readyUrl2.openConnection();
+        conn2.setRequestMethod("GET");
+        assertEquals(200, conn2.getResponseCode());
+        var readyBody2 = MAPPER.readValue(conn2.getInputStream(), Map.class);
+        String secondSessionId = String.valueOf(readyBody2.get("sessionId"));
+        assertEquals(firstSessionId, secondSessionId);
     }
 }

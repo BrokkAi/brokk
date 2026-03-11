@@ -630,12 +630,14 @@ class BrokkAcpBridge:
     async def ensure_ready(self) -> None:
         if self._started:
             return
-        await self.executor.start()
-        # Executor readiness depends on having an active session.
-        await self.executor.create_session(name="ACP Bootstrap Session")
+        await self.executor.start(session_name="ACP Bootstrap Session")
         ready = await self.executor.wait_ready()
         if not ready:
             raise ExecutorError("Brokk executor failed readiness check")
+        if not self.executor.session_id:
+            raise ExecutorError(
+                "Brokk executor readiness succeeded but no bootstrapped session id was returned"
+            )
         self._started = True
 
     async def start_and_create_session(self, name: str) -> str:
@@ -643,13 +645,16 @@ class BrokkAcpBridge:
         if self._started:
             return await self.executor.create_session(name=name)
 
-        await self.executor.start()
-        session_id = await self.executor.create_session(name=name)
+        await self.executor.start(session_name=name)
         ready = await self.executor.wait_ready()
         if not ready:
             raise ExecutorError("Brokk executor failed readiness check")
+        if not self.executor.session_id:
+            raise ExecutorError(
+                "Brokk executor readiness succeeded but no bootstrapped session id was returned"
+            )
         self._started = True
-        return session_id
+        return self.executor.session_id
 
     async def _ensure_session(self, acp_session_id: str) -> str:
         existing = self._acp_to_brokk_session.get(acp_session_id)

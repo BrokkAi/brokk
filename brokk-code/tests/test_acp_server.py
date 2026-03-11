@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 from brokk_code.acp_server import (
     BASE_MODEL_IDS,
@@ -459,8 +459,11 @@ async def test_ensure_ready_bootstraps_session_before_wait_ready() -> None:
     calls: list[str] = []
 
     class StubExecutor:
-        async def start(self) -> None:
-            calls.append("start")
+        def __init__(self) -> None:
+            self.session_id: Optional[str] = "session-1"
+
+        async def start(self, session_name: Optional[str] = None) -> None:
+            calls.append(f"start:{session_name}")
 
         async def create_session(self, name: str = "ignored") -> str:
             calls.append(f"create_session:{name}")
@@ -473,15 +476,18 @@ async def test_ensure_ready_bootstraps_session_before_wait_ready() -> None:
     bridge = BrokkAcpBridge(StubExecutor())  # type: ignore[arg-type]
     await bridge.ensure_ready()
 
-    assert calls == ["start", "create_session:ACP Bootstrap Session", "wait_ready"]
+    assert calls == ["start:ACP Bootstrap Session", "wait_ready"]
 
 
 async def test_start_and_create_session_avoids_bootstrap_on_first_call() -> None:
     calls: list[str] = []
 
     class StubExecutor:
-        async def start(self) -> None:
-            calls.append("start")
+        def __init__(self) -> None:
+            self.session_id: Optional[str] = "session-real"
+
+        async def start(self, session_name: Optional[str] = None) -> None:
+            calls.append(f"start:{session_name}")
 
         async def create_session(self, name: str = "ignored") -> str:
             calls.append(f"create_session:{name}")
@@ -495,7 +501,33 @@ async def test_start_and_create_session_avoids_bootstrap_on_first_call() -> None
     session_id = await bridge.start_and_create_session(name="Requested Session")
 
     assert session_id == "session-real"
-    assert calls == ["start", "create_session:Requested Session", "wait_ready"]
+    assert calls == ["start:Requested Session", "wait_ready"]
+
+
+async def test_start_and_create_session_already_started_keeps_create_session_behavior() -> None:
+    calls: list[str] = []
+
+    class StubExecutor:
+        def __init__(self) -> None:
+            self.session_id: Optional[str] = "session-bootstrap"
+
+        async def start(self, session_name: Optional[str] = None) -> None:
+            calls.append(f"start:{session_name}")
+
+        async def create_session(self, name: str = "ignored") -> str:
+            calls.append(f"create_session:{name}")
+            return "session-manual"
+
+        async def wait_ready(self) -> bool:
+            calls.append("wait_ready")
+            return True
+
+    bridge = BrokkAcpBridge(StubExecutor())  # type: ignore[arg-type]
+    bridge._started = True
+
+    session_id = await bridge.start_and_create_session(name="Later Session")
+    assert session_id == "session-manual"
+    assert calls == ["create_session:Later Session"]
 
 
 async def test_prompt_standard_flow_calls_submit_job_and_streams_tokens(tmp_path: Path) -> None:
@@ -505,17 +537,21 @@ async def test_prompt_standard_flow_calls_submit_job_and_streams_tokens(tmp_path
     class StubExecutor:
         def __init__(self, workspace_dir: Path):
             self.workspace_dir = workspace_dir
+            self.session_id: Optional[str] = "acp-session-1"
 
-        async def start(self) -> None:
+        async def start(self, session_name: Optional[str] = None) -> None:
+            _ = session_name
             pass
 
         async def create_session(self, name: str = "ignored") -> str:
+            self.session_id = "session-1"
             return "session-1"
 
         async def wait_ready(self) -> bool:
             return True
 
         async def switch_session(self, sid: str) -> bool:
+            self.session_id = sid
             return True
 
         async def submit_job(
@@ -568,16 +604,22 @@ async def test_prompt_context_command_renders_snapshot_without_job(tmp_path: Pat
     job_submitted = False
 
     class StubExecutor:
-        async def start(self) -> None:
+        def __init__(self) -> None:
+            self.session_id: Optional[str] = "session-1"
+
+        async def start(self, session_name: Optional[str] = None) -> None:
+            _ = session_name
             pass
 
         async def create_session(self, name: str) -> str:
+            self.session_id = "session-1"
             return "session-1"
 
         async def wait_ready(self) -> bool:
             return True
 
         async def switch_session(self, sid: str) -> bool:
+            self.session_id = sid
             return True
 
         async def get_context(self) -> dict[str, Any]:

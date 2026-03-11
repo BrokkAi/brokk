@@ -33,6 +33,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -47,6 +49,7 @@ public final class HeadlessExecutorMain {
             "listen-addr",
             "auth-token",
             "workspace-dir",
+            "session-name",
             "brokk-api-key",
             "proxy-setting",
             "vendor",
@@ -61,6 +64,7 @@ public final class HeadlessExecutorMain {
     private final JobReservation jobReservation = new JobReservation();
     private final Thread initThread;
     private final CompletableFuture<Void> headlessInit = new CompletableFuture<>();
+    private final boolean startupSessionRequested;
     // Indicates whether a session has been loaded (either uploaded or created) at least once.
     // Used to gate /health/ready until the first session is available.
     private volatile boolean sessionLoaded = false;
@@ -187,6 +191,7 @@ public final class HeadlessExecutorMain {
         System.out.println("  --auth-token <token>       Authentication token (required)");
         System.out.println("  --workspace-dir <path>     Path to workspace directory (required)");
         System.out.println("  --brokk-api-key <key>      Brokk API key override (optional)");
+        System.out.println("  --session-name <name>      Startup session name (optional)");
         System.out.println("  --proxy-setting <setting>  LLM proxy: BROKK, LOCALHOST, STAGING (optional)");
         System.out.println(
                 "  --vendor <vendor>          Other-models vendor: Default, Anthropic, Gemini, OpenAI, OpenAI - Codex (optional)");
@@ -196,13 +201,23 @@ public final class HeadlessExecutorMain {
         System.out.println();
         System.out.println("Arguments can also be provided via environment variables:");
         System.out.println(
-                "  EXEC_ID, LISTEN_ADDR, AUTH_TOKEN, WORKSPACE_DIR, BROKK_API_KEY, PROXY_SETTING, EXIT_ON_STDIN_EOF");
+                "  EXEC_ID, LISTEN_ADDR, AUTH_TOKEN, WORKSPACE_DIR, SESSION_NAME, BROKK_API_KEY, PROXY_SETTING, EXIT_ON_STDIN_EOF");
         System.out.println();
 
         System.exit(invalidArgs.isEmpty() ? 0 : 1);
     }
 
     public HeadlessExecutorMain(UUID execId, String listenAddr, String authToken, ContextManager contextManager)
+            throws IOException {
+        this(execId, listenAddr, authToken, contextManager, null);
+    }
+
+    public HeadlessExecutorMain(
+            UUID execId,
+            String listenAddr,
+            String authToken,
+            ContextManager contextManager,
+            @Nullable String startupSessionName)
             throws IOException {
         // Headless executor can be constructed directly in tests/in-process callers, not only via main().
         // Set this early so any Swing/AWT calls route to headless toolkit and do not require X11 libraries.
@@ -240,13 +255,21 @@ public final class HeadlessExecutorMain {
         // Initialize JobStore
         this.jobStore = new JobStore(workspaceDir.resolve(".brokk"));
 
+        this.startupSessionRequested = startupSessionName != null && !startupSessionName.isBlank();
+
         // Initialize headless context asynchronously to avoid blocking constructor
         // Pass false to resume the last active session from workspace.properties
         // instead of always creating a new one (which would clobber the desktop app's session)
         this.initThread = new Thread(
                 () -> {
                     try {
-                        this.contextManager.createHeadless(false, new HeadlessConsole());
+                        if (startupSessionName == null || startupSessionName.isBlank()) {
+                            this.contextManager.createHeadlessWithoutInitialSession(new HeadlessConsole());
+                        } else {
+                            this.contextManager.createHeadlessWithoutInitialSession(new HeadlessConsole());
+                            this.contextManager.activateNamedSessionOrCreate(startupSessionName.strip());
+                            this.sessionLoaded = true;
+                        }
                         headlessInit.complete(null);
                         logger.info("ContextManager headless initialization complete");
                     } catch (Exception e) {
@@ -367,11 +390,24 @@ public final class HeadlessExecutorMain {
         logger.info(
                 "HeadlessExecutorMain HTTP server started on endpoints: /health/live, /v1/sessions, /v1/jobs, etc.; cmSession={}",
                 contextManager.getCurrentSessionId());
+
+        if (startupSessionRequested) {
+            try {
+                logger.info("Waiting for startup named-session bootstrap to complete");
+                headlessInit.get(30, TimeUnit.SECONDS);
+                logger.info("Startup named-session bootstrap completed");
+            } catch (TimeoutException e) {
+                logger.error("Timed out waiting for startup named-session bootstrap", e);
+                throw new RuntimeException("Timed out waiting for startup named-session bootstrap", e);
+            } catch (Exception e) {
+                logger.error("Startup named-session bootstrap failed", e);
+                throw new RuntimeException("Failed to complete startup named-session bootstrap", e);
+            }
+        }
     }
 
     public void stop(int delaySeconds) {
-        // Interrupt and wait for init thread to prevent resource leak
-        initThread.interrupt();
+        // Wait for init thread to finish naturally to avoid interrupting analyzer initialization.
         try {
             initThread.join(5000); // Wait up to 5 seconds
         } catch (InterruptedException e) {
@@ -461,6 +497,7 @@ public final class HeadlessExecutorMain {
             }
 
             var brokkApiKey = getConfigValue(parsedArgs, "brokk-api-key", "BROKK_API_KEY");
+            var startupSessionName = getConfigValue(parsedArgs, "session-name", "SESSION_NAME");
 
             var proxySettingStr = getConfigValue(parsedArgs, "proxy-setting", "PROXY_SETTING");
             @Nullable MainProject.LlmProxySetting proxySetting = null;
@@ -544,11 +581,12 @@ public final class HeadlessExecutorMain {
             var derivedSessionsDir = workspaceDir.resolve(".brokk").resolve("sessions");
 
             logger.info(
-                    "Starting HeadlessExecutorMain with config: execId={}, listenAddr={}, workspaceDir={}, sessionsDir={}",
+                    "Starting HeadlessExecutorMain with config: execId={}, listenAddr={}, workspaceDir={}, sessionsDir={}, sessionName={}",
                     execId,
                     listenAddr,
                     workspaceDir,
-                    derivedSessionsDir);
+                    derivedSessionsDir,
+                    startupSessionName != null && !startupSessionName.isBlank() ? startupSessionName : "(none)");
 
             // Print startup banner and config summary to console
             System.out.println();
@@ -563,6 +601,10 @@ public final class HeadlessExecutorMain {
             if (vendorArg != null && !vendorArg.isBlank()) {
                 System.out.println("  vendor:      " + vendorArg.trim());
             }
+            System.out.println("  sessionName: "
+                    + (startupSessionName != null && !startupSessionName.isBlank()
+                            ? startupSessionName.trim()
+                            : "(none)"));
             System.out.println();
             System.out.println("  exitOnStdinEof: " + exitOnStdinEof);
             System.out.println();
@@ -602,7 +644,7 @@ public final class HeadlessExecutorMain {
             System.out.println();
 
             // Create and start executor
-            var executor = new HeadlessExecutorMain(execId, listenAddr, authToken, contextManager);
+            var executor = new HeadlessExecutorMain(execId, listenAddr, authToken, contextManager, startupSessionName);
             executor.start();
 
             // Print effective bind address and curl example after server starts

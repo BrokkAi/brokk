@@ -369,7 +369,7 @@ class ExecutorManager:
             curr = curr.parent
         return None
 
-    async def start(self):
+    async def start(self, session_name: Optional[str] = None):
         """Starts the Java HeadlessExecutorMain subprocess."""
         exec_id = str(uuid.uuid4())
 
@@ -385,6 +385,9 @@ class ExecutorManager:
                 cmd = self._get_direct_java_command(dev_jar, exec_id)
             else:
                 cmd = await self._get_jbang_command(exec_id)
+
+        if session_name is not None and session_name.strip():
+            cmd.extend(["--session-name", session_name.strip()])
 
         logger.info(f"Starting executor: {' '.join(cmd)}")
 
@@ -464,6 +467,10 @@ class ExecutorManager:
             try:
                 resp = await self._http_client.get("/health/ready")
                 if resp.status_code == 200:
+                    data = resp.json()
+                    ready_session_id = data.get("sessionId")
+                    if isinstance(ready_session_id, str) and ready_session_id.strip():
+                        self.session_id = ready_session_id.strip()
                     return True
             except httpx.HTTPError:
                 pass
