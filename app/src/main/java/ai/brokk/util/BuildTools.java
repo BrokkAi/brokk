@@ -7,6 +7,7 @@ import ai.brokk.LlmOutputMeta;
 import ai.brokk.agents.BuildAgent.BuildDetails;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
+import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
@@ -73,12 +74,13 @@ public class BuildTools {
             return null;
         }
 
-        IProject.CodeAgentTestScope testScope = cm.getProject().getCodeAgentTestScope();
+        IProject project = cm.getProject();
+        IProject.CodeAgentTestScope testScope = project.getCodeAgentTestScope();
         if (testScope == IProject.CodeAgentTestScope.ALL) {
             String cmd = System.getenv("BRK_TESTALL_CMD") != null
                     ? System.getenv("BRK_TESTALL_CMD")
                     : details.testAllCommand();
-            return interpolateCommandWithPythonVersion(cmd, cm.getProject().getRoot());
+            return interpolateCommandWithPythonVersion(cmd, project.getRoot(), project);
         }
 
         if (testFilesOverride != null && !testFilesOverride.isEmpty()) {
@@ -102,8 +104,7 @@ public class BuildTools {
                 .toList();
 
         if (workspaceTestFiles.isEmpty()) {
-            return interpolateCommandWithPythonVersion(
-                    details.buildLintCommand(), cm.getProject().getRoot());
+            return interpolateCommandWithPythonVersion(details.buildLintCommand(), project.getRoot(), project);
         }
 
         return getBuildLintSomeCommand(cm, details, workspaceTestFiles);
@@ -112,7 +113,7 @@ public class BuildTools {
     public static String getBuildLintSomeCommand(
             IContextManager cm, BuildDetails details, Collection<ProjectFile> workspaceTestFiles)
             throws InterruptedException {
-        return getBuildLintSomeCommand(cm, details, workspaceTestFiles, null);
+        return getBuildLintSomeCommand(cm, details, workspaceTestFiles, null, cm.getProject());
     }
 
     public static CompletableFuture<@Nullable String> determineVerificationCommandAsync(ContextManager cm) {
@@ -126,6 +127,16 @@ public class BuildTools {
             Collection<ProjectFile> workspaceTestFiles,
             @Nullable String pythonVersionOverride)
             throws InterruptedException {
+        return getBuildLintSomeCommand(cm, details, workspaceTestFiles, pythonVersionOverride, cm.getProject());
+    }
+
+    static String getBuildLintSomeCommand(
+            IContextManager cm,
+            BuildDetails details,
+            Collection<ProjectFile> workspaceTestFiles,
+            @Nullable String pythonVersionOverride,
+            @Nullable IProject project)
+            throws InterruptedException {
 
         String testSomeTemplate = System.getenv("BRK_TESTSOME_CMD") != null
                 ? System.getenv("BRK_TESTSOME_CMD")
@@ -136,8 +147,9 @@ public class BuildTools {
         }
 
         final Path projectRoot = cm.getProject().getRoot();
-        String pythonVersion =
-                pythonVersionOverride != null ? pythonVersionOverride : getPythonVersionForProject(projectRoot);
+        String pythonVersion = pythonVersionOverride != null
+                ? pythonVersionOverride
+                : getPythonVersionForProject(projectRoot, project);
 
         IAnalyzer analyzer = cm.getAnalyzer();
         Map<String, Object> context = new HashMap<>();
@@ -190,7 +202,10 @@ public class BuildTools {
         return result;
     }
 
-    private static @Nullable String getPythonVersionForProject(Path projectRoot) {
+    private static @Nullable String getPythonVersionForProject(Path projectRoot, @Nullable IProject project) {
+        if (project != null && !project.getAnalyzerLanguages().contains(Languages.PYTHON)) {
+            return null;
+        }
         try {
             return new EnvironmentPython(projectRoot).getPythonVersion();
         } catch (Exception e) {
@@ -199,10 +214,11 @@ public class BuildTools {
         }
     }
 
-    private static String interpolateCommandWithPythonVersion(String command, Path projectRoot) {
+    private static String interpolateCommandWithPythonVersion(
+            String command, Path projectRoot, @Nullable IProject project) {
         if (command.isEmpty()) return command;
         if (System.getenv("BRK_TESTALL_CMD") != null) command = System.getenv("BRK_TESTALL_CMD");
-        String pythonVersion = getPythonVersionForProject(projectRoot);
+        String pythonVersion = getPythonVersionForProject(projectRoot, project);
         return interpolateMustacheTemplate(command, List.of(), "unused", pythonVersion);
     }
 

@@ -4,9 +4,11 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import ai.brokk.agents.BuildAgent.BuildDetails;
 import ai.brokk.analyzer.CodeUnit;
+import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.MultiAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.project.IProject;
 import ai.brokk.testutil.NoOpConsoleIO;
 import ai.brokk.testutil.TestAnalyzer;
 import ai.brokk.testutil.TestContextManager;
@@ -105,6 +107,42 @@ class BuildToolsTest {
         // Even with empty workspace test files, it should return the static command verbatim
         String result = BuildTools.getBuildLintSomeCommand(mockCm, details, List.of());
         assertEquals("pytest -q", result);
+    }
+
+    @Test
+    void testNonPythonProjectSkipsPythonVersionProbing(@TempDir Path tempDir) throws Exception {
+        // Create a Python file that imports distutils - would cap to 3.11 if probed
+        Path pyFile = tempDir.resolve("app.py");
+        Files.writeString(pyFile, "import distutils\nprint('hello')\n");
+
+        // Create an IProject that claims to be Java-only
+        IProject javaOnlyProject = new IProject() {
+            @Override
+            public Set<Language> getAnalyzerLanguages() {
+                return Set.of(Languages.JAVA);
+            }
+
+            @Override
+            public Path getRoot() {
+                return tempDir;
+            }
+        };
+
+        TestAnalyzer testAnalyzer = new TestAnalyzer();
+        TestContextManager mockCm =
+                new TestContextManager(javaOnlyProject, new NoOpConsoleIO(), Set.of(), testAnalyzer);
+
+        // Template that uses {{pyver}} - if Python version was probed, it would be "3.11"
+        BuildDetails details = new BuildDetails(
+                "javac *.java", "java -jar test.jar", "java -jar test.jar --pyver={{pyver}}", Set.of());
+
+        ProjectFile testFile = new ProjectFile(tempDir, "Test.java");
+
+        // Use the package-private overload to pass our custom project
+        String result = BuildTools.getBuildLintSomeCommand(mockCm, details, List.of(testFile), null, javaOnlyProject);
+
+        // Since project is Java-only, pyver should be empty (not "3.11" from distutils detection)
+        assertEquals("java -jar test.jar --pyver=", result);
     }
 
     @Test
