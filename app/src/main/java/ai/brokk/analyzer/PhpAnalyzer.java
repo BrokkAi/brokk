@@ -2,6 +2,7 @@ package ai.brokk.analyzer;
 
 import static ai.brokk.analyzer.php.PhpTreeSitterNodeTypes.*;
 
+import ai.brokk.AnalyzerUtil;
 import ai.brokk.analyzer.cache.AnalyzerCache;
 import ai.brokk.project.IProject;
 import java.util.*;
@@ -424,6 +425,6 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
                 .filter(cu -> cu.isClass() || cu.isFunction())
                 .collect(Collectors.toSet());
 
-        return ai.brokk.AnalyzerUtil.coalesceInnerClasses(unitsInFiles);
+        return AnalyzerUtil.coalesceInnerClasses(unitsInFiles);
     }
 }

@@ -2,6 +2,7 @@ package ai.brokk.analyzer;
 
 import static ai.brokk.analyzer.rust.RustTreeSitterNodeTypes.*;
 
+import ai.brokk.AnalyzerUtil;
 import ai.brokk.analyzer.cache.AnalyzerCache;
 import ai.brokk.project.IProject;
 import java.nio.file.Files;
@@ -455,7 +456,7 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
                 .filter(cu -> cu.isModule() || cu.isClass() || cu.isFunction())
                 .collect(Collectors.toSet());
 
-        return ai.brokk.AnalyzerUtil.coalesceInnerClasses(unitsInFiles);
+        return AnalyzerUtil.coalesceInnerClasses(unitsInFiles);
     }
 
     @Override

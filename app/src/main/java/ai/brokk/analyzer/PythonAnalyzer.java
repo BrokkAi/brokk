@@ -2,6 +2,7 @@ package ai.brokk.analyzer;
 
 import static ai.brokk.analyzer.python.PythonTreeSitterNodeTypes.*;
 
+import ai.brokk.AnalyzerUtil;
 import ai.brokk.analyzer.cache.AnalyzerCache;
 import ai.brokk.project.IProject;
 import java.nio.file.Files;
@@ -1262,6 +1263,6 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
                         || containsTests(cu.source()))
                 .collect(Collectors.toSet());
 
-        return ai.brokk.AnalyzerUtil.coalesceInnerClasses(testUnits);
+        return AnalyzerUtil.coalesceInnerClasses(testUnits);
     }
 }

@@ -2,6 +2,7 @@ package ai.brokk.analyzer;
 
 import static ai.brokk.analyzer.csharp.CSharpTreeSitterNodeTypes.*;
 
+import ai.brokk.AnalyzerUtil;
 import ai.brokk.analyzer.cache.AnalyzerCache;
 import ai.brokk.analyzer.csharp.CSharpTreeSitterNodeTypes;
 import ai.brokk.project.IProject;
@@ -356,7 +357,7 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
                 .filter(CodeUnit::isClass)
                 .collect(Collectors.toSet());
 
-        return ai.brokk.AnalyzerUtil.coalesceInnerClasses(unitsInFiles);
+        return AnalyzerUtil.coalesceInnerClasses(unitsInFiles);
     }
 
     @Override

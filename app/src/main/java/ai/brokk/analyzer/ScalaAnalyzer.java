@@ -2,6 +2,7 @@ package ai.brokk.analyzer;
 
 import static ai.brokk.analyzer.scala.ScalaTreeSitterNodeTypes.*;
 
+import ai.brokk.AnalyzerUtil;
 import ai.brokk.analyzer.cache.AnalyzerCache;
 import ai.brokk.project.IProject;
 import java.util.Collection;
@@ -217,7 +218,7 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer {
                 .filter(cu -> cu.isClass() || cu.isFunction())
                 .collect(Collectors.toSet());
 
-        return ai.brokk.AnalyzerUtil.coalesceInnerClasses(unitsInFiles);
+        return AnalyzerUtil.coalesceInnerClasses(unitsInFiles);
     }
 
     @Override

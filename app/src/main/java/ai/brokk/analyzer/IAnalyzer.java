@@ -1,5 +1,6 @@
 package ai.brokk.analyzer;
 
+import ai.brokk.AnalyzerUtil;
 import ai.brokk.project.IProject;
 import java.util.ArrayDeque;
 import java.util.Collection;
@@ -668,6 +669,6 @@ public interface IAnalyzer {
                 .filter(cu -> cu.isClass() || cu.isFunction())
                 .collect(Collectors.toSet());
 
-        return ai.brokk.AnalyzerUtil.coalesceInnerClasses(unitsInFiles);
+        return AnalyzerUtil.coalesceInnerClasses(unitsInFiles);
     }
 }
