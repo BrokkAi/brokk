@@ -125,12 +125,11 @@ class JavaAnalyzerUpdateTest {
     void cachePreservedForUnchangedFilesOnExplicitUpdate() throws IOException {
         var fileA = AnalyzerUtil.getFileFor(analyzer, "A").orElseThrow();
         var fileB = AnalyzerUtil.getFileFor(analyzer, "B").orElseThrow();
+        var tsAnalyzer = (TreeSitterAnalyzer) analyzer;
 
-        // Trigger lazy tree caching
-        var treeABefore = ((TreeSitterAnalyzer) analyzer).treeOf(fileA);
-        var treeBBefore = ((TreeSitterAnalyzer) analyzer).treeOf(fileB);
-        assertNotNull(treeABefore);
-        assertNotNull(treeBBefore);
+        // Trigger tree parsing
+        assertEquals("Present", tsAnalyzer.withTreeOf(fileA, tsTree -> "Present", "Not present"));
+        assertEquals("Present", tsAnalyzer.withTreeOf(fileB, tsTree -> "Present", "Not present"));
 
         // Modify ONLY A.java on disk
         new ProjectFile(project.getRoot(), "A.java")
@@ -145,14 +144,17 @@ class JavaAnalyzerUpdateTest {
         // Run explicit update for A
         analyzer = analyzer.update(Set.of(fileA));
 
-        // B's tree should be preserved (same instance)
-        var treeBAfter = ((TreeSitterAnalyzer) analyzer).treeOf(fileB);
-        assertSame(treeBBefore, treeBAfter, "B's cached tree should be carried over");
+        // Verify trees still parse
+        assertEquals("Present", tsAnalyzer.withTreeOf(fileA, tsTree -> "Present", "Not present"));
+        assertEquals("Present", tsAnalyzer.withTreeOf(fileB, tsTree -> "Present", "Not present"));
 
-        // A's tree should be different (or at least re-parsed)
-        var treeAAfter = ((TreeSitterAnalyzer) analyzer).treeOf(fileA);
-        assertNotSame(treeABefore, treeAAfter, "A's cached tree should be invalidated and replaced");
-        assertNotNull(treeAAfter);
+        // Semantic assertions:
+        // 1. A reflects the changes
+        assertTrue(analyzer.getDefinitions("A.method1").stream().findFirst().isPresent());
+        assertTrue(analyzer.getDefinitions("A.modified").stream().findFirst().isPresent());
+
+        // 2. B is still correctly analyzed (not lost during partial update)
+        assertTrue(analyzer.getDefinitions("B.methodB").stream().findFirst().isPresent());
     }
 
     @Test

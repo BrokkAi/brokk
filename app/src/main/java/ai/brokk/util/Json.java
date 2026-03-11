@@ -14,6 +14,8 @@ import com.fasterxml.jackson.databind.SerializerProvider;
 import com.fasterxml.jackson.databind.module.SimpleModule;
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.HashSet;
+import java.util.Set;
 
 /** JSON utility class for the Brokk project with proper Path serialization support. */
 public class Json {
@@ -68,6 +70,20 @@ public class Json {
     /** Gets the configured ObjectMapper instance for advanced usage. */
     public static ObjectMapper getMapper() {
         return MAPPER;
+    }
+
+    public static Set<String> stringArrayToSet(com.fasterxml.jackson.databind.JsonNode node) {
+        if (!node.isArray()) {
+            return Set.of();
+        }
+
+        Set<String> values = new HashSet<>();
+        node.forEach(item -> {
+            if (item.isTextual()) {
+                values.add(item.asText());
+            }
+        });
+        return values;
     }
 
     /** Serializes Path objects to their string representation. */

@@ -418,19 +418,13 @@ public class JdtUsageAnalyzerTest {
                     .findFirst()
                     .orElseThrow();
 
-            // Simulating a CodeUnit from Tree-sitter which might capture "(java.util.Properties)"
-            // if it parses the definition "as written".
-            CodeUnit target = new CodeUnit(
-                    targetFile, CodeUnitType.FUNCTION, "com.example", "FqnParams.method", "(java.util.Properties)");
+            // Simulating a CodeUnit with simple name signature
+            CodeUnit target =
+                    new CodeUnit(targetFile, CodeUnitType.FUNCTION, "com.example", "FqnParams.method", "(Properties)");
 
             Set<UsageHit> hits = JdtUsageAnalyzer.findUsages(target, project.getAllFiles(), project);
 
-            // Currently fails to match because JDT produces "(Properties)" but target is "(java.util.Properties)"
-            // Asserting 0 confirms the false negative behavior we are investigating
-            assertEquals(
-                    0,
-                    hits.size(),
-                    "Expect 0 hits due to FQN mismatch (Target: (java.util.Properties) vs Found: (Properties))");
+            assertEquals(1, hits.size(), "Should find 1 hit with simple name signature matching JDT output");
         }
     }
 

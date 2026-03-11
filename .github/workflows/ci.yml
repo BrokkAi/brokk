@@ -23,6 +23,8 @@ jobs:
         distribution: jetbrains
         java-package: jdk+jcef
         java-version: '21'
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Set up Node.js
       uses: actions/setup-node@v4

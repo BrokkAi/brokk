@@ -12,6 +12,8 @@ import tempfile
 from pathlib import Path
 from typing import Any, Iterator
 
+from rich.console import Console
+
 from brokk_code.executor import (
     BUNDLED_EXECUTOR_VERSION,
     ExecutorError,
@@ -473,6 +475,43 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Show full headless executor output (events/tokens) for debugging",
     )
 
+    # PR commands
+    pr_parser = subparsers.add_parser("pr", help="Manage pull requests")
+    pr_subparsers = pr_parser.add_subparsers(dest="pr_command", required=True)
+
+    pr_create_parser = pr_subparsers.add_parser("create", help="Create a pull request")
+    _add_common_runtime_args(pr_create_parser)
+    pr_create_parser.add_argument(
+        "--title",
+        type=str,
+        default=None,
+        help="PR title (if omitted, will be suggested by LLM)",
+    )
+    pr_create_parser.add_argument(
+        "--body",
+        type=str,
+        default=None,
+        help="PR body/description (if omitted, will be suggested by LLM)",
+    )
+    pr_create_parser.add_argument(
+        "--base",
+        type=str,
+        default=None,
+        help="Target/base branch (defaults to repository default branch)",
+    )
+    pr_create_parser.add_argument(
+        "--head",
+        type=str,
+        default=None,
+        help="Source/head branch (defaults to current branch)",
+    )
+    pr_create_parser.add_argument(
+        "--github-token",
+        type=str,
+        default=os.environ.get("GITHUB_TOKEN"),
+        help="GitHub API token (defaults to GITHUB_TOKEN env var)",
+    )
+
     return parser
 
 
@@ -512,6 +551,86 @@ async def run_commit(
             first_line = result.get("firstLine", "")
             short_id = commit_id[:7] if commit_id else ""
             print(f"Committed {short_id}: {first_line}")
+
+    except ExecutorError as e:
+        print(f"Executor error: {e}", file=sys.stderr)
+        sys.exit(1)
+    except Exception as e:
+        print(f"Unexpected error: {e}", file=sys.stderr)
+        sys.exit(1)
+    finally:
+        await manager.stop()
+
+
+async def run_pr_create(
+    workspace_dir: Path,
+    title: str | None = None,
+    body: str | None = None,
+    base_branch: str | None = None,
+    head_branch: str | None = None,
+    github_token: str | None = None,
+    jar_path: Path | None = None,
+    executor_version: str | None = None,
+    executor_snapshot: bool = True,
+    vendor: str | None = None,
+) -> None:
+    """Creates a pull request via ExecutorManager.
+
+    If title or body is not provided, the executor will suggest them via LLM.
+    """
+    from brokk_code.executor import ExecutorError, ExecutorManager
+
+    manager = ExecutorManager(
+        workspace_dir=workspace_dir,
+        jar_path=jar_path,
+        executor_version=executor_version,
+        executor_snapshot=executor_snapshot,
+        vendor=vendor,
+        exit_on_stdin_eof=True,
+    )
+
+    try:
+        await manager.start()
+        await manager.create_session(name="Headless PR create")
+        if not await manager.wait_ready():
+            print("Error: executor failed to become ready.", file=sys.stderr)
+            sys.exit(1)
+
+        # If title or body is missing, suggest them first
+        effective_title = title
+        effective_body = body
+        if not effective_title or not effective_body:
+            print("Suggesting PR title and description...", flush=True)
+            suggestion = await manager.pr_suggest(
+                source_branch=head_branch,
+                target_branch=base_branch,
+                github_token=github_token,
+            )
+            if not effective_title:
+                effective_title = suggestion.get("title", "")
+            if not effective_body:
+                effective_body = suggestion.get("description", "")
+
+            if not effective_title:
+                print("Error: could not determine PR title.", file=sys.stderr)
+                sys.exit(1)
+            if not effective_body:
+                effective_body = ""
+
+        # Create the PR
+        result = await manager.pr_create(
+            title=effective_title,
+            body=effective_body,
+            source_branch=head_branch,
+            target_branch=base_branch,
+            github_token=github_token,
+        )
+
+        pr_url = result.get("url", "")
+        if pr_url:
+            print(f"Pull request created: {pr_url}")
+        else:
+            print("Pull request created.")
 
     except ExecutorError as e:
         print(f"Executor error: {e}", file=sys.stderr)
@@ -893,6 +1012,24 @@ def main():
         )
         return
 
+    if args.command == "pr":
+        if args.pr_command == "create":
+            asyncio.run(
+                run_pr_create(
+                    workspace_dir=workspace_path,
+                    title=args.title,
+                    body=args.body,
+                    base_branch=args.base,
+                    head_branch=args.head,
+                    github_token=args.github_token,
+                    jar_path=jar_path,
+                    executor_version=args.executor_version,
+                    executor_snapshot=args.executor_snapshot,
+                    vendor=args.vendor,
+                )
+            )
+        return
+
     if args.command == "issue":
         if args.issue_command == "create":
             _validate_github_params(
@@ -995,6 +1132,22 @@ def main():
                 asyncio.run(app.executor.stop())
         except Exception:
             pass
+
+    get_renderables = getattr(app, "get_exit_transcript_renderables", None)
+    transcript_renderables = get_renderables() if callable(get_renderables) else []
+    get_transcript = getattr(app, "get_exit_transcript", None)
+    transcript = get_transcript().strip() if callable(get_transcript) else ""
+    if transcript_renderables:
+        console = Console()
+        for renderable in transcript_renderables:
+            if renderable == "":
+                console.print()
+            else:
+                console.print(renderable)
+        console.print()
+    elif transcript:
+        print(transcript)
+        print()
 
     # Print resume hint on exit if the session has tasks
     from brokk_code.session_persistence import (

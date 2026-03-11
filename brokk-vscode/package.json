@@ -2,7 +2,7 @@
   "name": "vscode-brokk",
   "displayName": "Brokk",
   "description": "Context management and AI chat for Brokk",
-  "version": "0.0.7",
+  "version": "0.0.10",
   "publisher": "brokk",
   "icon": "icon.png",
   "homepage": "https://brokk.ai",

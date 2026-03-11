@@ -55,6 +55,7 @@ public final class ModelProperties {
     private static final ModelConfig flash3 = new ModelConfig(FLASH_3, ReasoningLevel.DISABLE);
     private static final ModelConfig g31p = new ModelConfig(GEMINI_3_1_PRO, ReasoningLevel.DISABLE);
     private static final ModelConfig flash31liteHigh = new ModelConfig(GEMINI_3_1_FLASH_LITE, ReasoningLevel.HIGH);
+    private static final ModelConfig flash31liteLow = new ModelConfig(GEMINI_3_1_FLASH_LITE, ReasoningLevel.LOW);
 
     private static final ModelConfig gcf1 = new ModelConfig(GCF_1);
 
@@ -96,7 +97,7 @@ public final class ModelProperties {
         ARCHITECT("architectConfig", sonnet4_6, gcf1),
 
         // indirectly selectable via vendor preference
-        SUMMARIZE("quickConfig", flash31liteHigh, gcf1),
+        SUMMARIZE("quickConfig", flash31liteLow, gcf1),
         // GCF1 is cheap enough for usages, but we don't get enough concurrent requests, so free tier gets flash2
         USAGES("usagesConfig", flash31liteHigh, flash2),
         QUICK_EDIT("quickEditConfig", flash3, gcf1),

@@ -2,19 +2,21 @@ package ai.brokk.tools;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import ai.brokk.IContextManager;
 import ai.brokk.analyzer.JavaAnalyzer;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.GitRepo;
+import ai.brokk.git.TestRepo;
 import ai.brokk.project.AbstractProject;
 import ai.brokk.testutil.FileUtil;
+import ai.brokk.testutil.TestAnalyzer;
+import ai.brokk.testutil.TestConsoleIO;
+import ai.brokk.testutil.TestContextManager;
 import ai.brokk.testutil.TestProject;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.io.UncheckedIOException;
-import java.lang.reflect.Proxy;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Comparator;
@@ -44,7 +46,7 @@ public class SearchToolsTest {
     private Path projectRoot;
     private GitRepo repo;
     private SearchTools searchTools;
-    /** mutable set returned from the project-proxy's getAllFiles() */
+    /** mutable set returned from the test project's getAllFiles() */
     private Set<ProjectFile> mockProjectFiles;
 
     // For analyzer-dependent tests
@@ -113,54 +115,12 @@ public class SearchToolsTest {
 
         repo = new GitRepo(projectRoot);
 
-        /*
-         * Create a minimal IContextManager mock/stub that only needs to return
-         * the project root path for the SearchTools we are testing.
-         */
-        Class<?>[] projectInterfaces = AbstractProject.class.getInterfaces();
-        if (projectInterfaces.length == 0) {
-            throw new IllegalStateException("AbstractProject implements no interfaces to proxy");
-        }
-        Object projectProxy =
-                Proxy.newProxyInstance(getClass().getClassLoader(), projectInterfaces, (proxy, method, args) -> {
-                    switch (method.getName()) {
-                        case "getRoot" -> {
-                            return projectRoot;
-                        }
-                        case "getAllFiles" -> {
-                            // return the mutable list we populate in individual tests
-                            return mockProjectFiles;
-                        }
-                        case "isGitignored" -> {
-                            Path path = (Path) args[0];
-                            // Simulate .brokk being gitignored
-                            return path.startsWith(Path.of(AbstractProject.BROKK_DIR));
-                        }
-                        default -> throw new UnsupportedOperationException("Unexpected call: " + method.getName());
-                    }
-                });
-
-        IContextManager ctxManager = (IContextManager) Proxy.newProxyInstance(
-                getClass().getClassLoader(), new Class<?>[] {IContextManager.class}, (proxy, method, args) -> {
-                    return switch (method.getName()) {
-                        case "getProject" -> projectProxy;
-                        case "getRepo" -> repo;
-                        case "getAnalyzerUninterrupted", "getAnalyzer" ->
-                            Proxy.newProxyInstance(
-                                    getClass().getClassLoader(),
-                                    new Class<?>[] {ai.brokk.analyzer.IAnalyzer.class},
-                                    (p, m, a) -> {
-                                        if (m.getReturnType().equals(List.class)) return List.of();
-                                        if (m.getReturnType().equals(Set.class)) return Set.of();
-                                        return null;
-                                    });
-                        case "toFile" -> {
-                            String relPath = (String) args[0];
-                            yield new ProjectFile(projectRoot, Path.of(relPath));
-                        }
-                        default -> throw new UnsupportedOperationException("Unexpected call: " + method.getName());
-                    };
-                });
+        TestProject project = new TestProject(projectRoot, Languages.NONE)
+                .withRepo(repo)
+                .withAllFilesSupplier(() -> mockProjectFiles)
+                .withGitignoredPredicate(path -> path.startsWith(Path.of(AbstractProject.BROKK_DIR)));
+        TestContextManager ctxManager =
+                new TestContextManager(project, new TestConsoleIO(), Set.of(), new TestAnalyzer(), repo);
 
         searchTools = new SearchTools(ctxManager);
     }
@@ -272,16 +232,8 @@ public class SearchToolsTest {
 
     @Test
     void testSkimDirectory() {
-        // Create a context manager that provides the Java analyzer and the test project
-        IContextManager ctxWithAnalyzer = (IContextManager) Proxy.newProxyInstance(
-                getClass().getClassLoader(), new Class<?>[] {IContextManager.class}, (proxy, method, args) -> {
-                    return switch (method.getName()) {
-                        case "getAnalyzer" -> javaAnalyzer;
-                        case "getAnalyzerUninterrupted" -> javaAnalyzer;
-                        case "getProject" -> javaTestProject;
-                        default -> throw new UnsupportedOperationException("Unexpected call: " + method.getName());
-                    };
-                });
+        TestContextManager ctxWithAnalyzer = new TestContextManager(
+                javaTestProject, new TestConsoleIO(), Set.of(), javaAnalyzer, new TestRepo(javaTestProject.getRoot()));
 
         SearchTools tools = new SearchTools(ctxWithAnalyzer);
 
@@ -303,16 +255,8 @@ public class SearchToolsTest {
         try (TestProject localProject = new TestProject(projectRootCopy, Languages.JAVA)) {
             JavaAnalyzer localAnalyzer = new JavaAnalyzer(localProject);
 
-            // Create a context manager that provides the Java analyzer and the test project
-            IContextManager ctxWithAnalyzer = (IContextManager) Proxy.newProxyInstance(
-                    getClass().getClassLoader(), new Class<?>[] {IContextManager.class}, (proxy, method, args) -> {
-                        return switch (method.getName()) {
-                            case "getAnalyzer" -> localAnalyzer;
-                            case "getAnalyzerUninterrupted" -> localAnalyzer;
-                            case "getProject" -> localProject;
-                            default -> throw new UnsupportedOperationException("Unexpected call: " + method.getName());
-                        };
-                    });
+            TestContextManager ctxWithAnalyzer = new TestContextManager(
+                    localProject, new TestConsoleIO(), Set.of(), localAnalyzer, new TestRepo(localProject.getRoot()));
 
             SearchTools tools = new SearchTools(ctxWithAnalyzer);
 
@@ -348,16 +292,8 @@ public class SearchToolsTest {
 
     @Test
     void testGetClassSkeletons() {
-        // Create a context manager that provides the Java analyzer
-        IContextManager ctxWithAnalyzer = (IContextManager) Proxy.newProxyInstance(
-                getClass().getClassLoader(), new Class<?>[] {IContextManager.class}, (proxy, method, args) -> {
-                    return switch (method.getName()) {
-                        case "getAnalyzer" -> javaAnalyzer;
-                        case "getAnalyzerUninterrupted" -> javaAnalyzer;
-                        case "getProject" -> javaTestProject;
-                        default -> throw new UnsupportedOperationException("Unexpected call: " + method.getName());
-                    };
-                });
+        TestContextManager ctxWithAnalyzer = new TestContextManager(
+                javaTestProject, new TestConsoleIO(), Set.of(), javaAnalyzer, new TestRepo(javaTestProject.getRoot()));
 
         SearchTools tools = new SearchTools(ctxWithAnalyzer);
 

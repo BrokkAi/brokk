@@ -8,7 +8,7 @@ import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.concurrent.ExecutorsUtil;
-import ai.brokk.project.IProject;
+import ai.brokk.testutil.TestProject;
 import ai.brokk.util.FileUtil;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -1076,7 +1076,7 @@ public class TreeSitterRepoRunner implements Callable<Integer> {
     }
 
     private IAnalyzer createAnalyzer(Path projectRoot, Language language, List<ProjectFile> files) {
-        var project = new SimpleProject(projectRoot, language, files);
+        var project = createSimpleProject(projectRoot, language, files);
         return language.createAnalyzer(project);
     }
 
@@ -1817,31 +1817,8 @@ public class TreeSitterRepoRunner implements Callable<Integer> {
         }
     }
 
-    private static class SimpleProject implements IProject {
-        private final Path root;
-        private final Language language;
-        private final Set<ProjectFile> files;
-
-        SimpleProject(Path root, Language language, List<ProjectFile> files) {
-            this.root = root;
-            this.language = language;
-            this.files = Set.copyOf(files);
-        }
-
-        @Override
-        public Path getRoot() {
-            return root;
-        }
-
-        @Override
-        public Set<Language> getAnalyzerLanguages() {
-            return Set.of(language);
-        }
-
-        @Override
-        public Set<ProjectFile> getAllFiles() {
-            return files;
-        }
+    private static TestProject createSimpleProject(Path root, Language language, List<ProjectFile> files) {
+        return new TestProject(root, language).withAllFiles(Set.copyOf(files));
     }
 
     // Type converter to map --language values to the project's Language enum implementation.

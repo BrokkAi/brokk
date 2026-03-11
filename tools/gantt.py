@@ -33,6 +33,7 @@ FILE_RE = re.compile(
 
 
 BROKK_PROXY_URL = "https://proxy.brokk.ai"
+DEFAULT_HISTORY_PATH = str(Path.home() / "Projects" / "brokk" / ".brokk" / "llm-history")
 @dataclass(frozen=True)
 class PriceBand:
     min_tokens_inclusive: int
@@ -88,15 +89,24 @@ class GapAnnotation:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Render llm history as a PyQt gantt chart")
-    parser.add_argument("start", help="Start time as HH:MM:SS or HH-MM-SS")
+    parser.add_argument(
+        "start",
+        nargs="?",
+        help="Start time as HH:MM:SS or HH-MM-SS; defaults to first history subdirectory timestamp",
+    )
     parser.add_argument(
         "end",
         nargs="?",
         help="End time as HH:MM:SS or HH-MM-SS; defaults to the last history directory timestamp",
     )
     parser.add_argument(
+        "history_path",
+        nargs="?",
+        help="Legacy positional history path when start is omitted",
+    )
+    parser.add_argument(
         "--history",
-        default=str(Path.home() / "Projects" / "brokk" / ".brokk" / "llm-history"),
+        default=DEFAULT_HISTORY_PATH,
         help="History directory path (default: ~/Projects/brokk/.brokk/llm-history)",
     )
     parser.add_argument(
@@ -133,6 +143,15 @@ def parse_time(raw: str) -> datetime.time:
         except ValueError:
             continue
     raise ValueError("start/end must be HH:MM:SS or HH-MM-SS")
+
+
+def parse_time_or_none(raw: Optional[str]) -> Optional[datetime.time]:
+    if raw is None:
+        return None
+    try:
+        return parse_time(raw)
+    except ValueError:
+        return None
 
 
 def decode_properties_value(value: str) -> str:
@@ -794,6 +813,19 @@ def last_history_directory_timestamp(history_root: Path) -> Optional[datetime]:
         if latest is None or directory_timestamp > latest:
             latest = directory_timestamp
     return latest
+
+
+def first_history_directory_timestamp(history_root: Path) -> Optional[datetime]:
+    earliest: Optional[datetime] = None
+    for directory in history_root.iterdir():
+        if not directory.is_dir():
+            continue
+        directory_timestamp = parse_directory_timestamp(directory.name)
+        if directory_timestamp is None:
+            continue
+        if earliest is None or directory_timestamp < earliest:
+            earliest = directory_timestamp
+    return earliest
 
 
 def calculate_inference_ms(turns: Sequence[Turn]) -> int:
@@ -1524,22 +1556,49 @@ def print_debug(
 def main() -> int:
     args = parse_args()
     target_day = parse_day(args.day)
-    day_start = datetime.combine(target_day, parse_time(args.start))
+    explicit_history = Path(args.history_path) if args.history_path is not None else None
+    start_arg = args.start
+
+    if start_arg is not None and explicit_history is None:
+        start_candidate_dir = Path(start_arg).expanduser()
+        if start_candidate_dir.is_dir():
+            explicit_history = start_candidate_dir
+            start_arg = None
+
+    if explicit_history is not None and args.history != DEFAULT_HISTORY_PATH:
+        raise SystemExit("Use either positional history path or --history, not both.")
+
+    history_root = explicit_history or Path(args.history).expanduser()
+    if not history_root.exists():
+        raise SystemExit(f"History path not found: {history_root}")
+
+    start_time = parse_time_or_none(start_arg)
+    if start_arg is not None and start_time is None:
+        raise SystemExit("start must be HH:MM:SS or HH-MM-SS, or a history directory path")
+
+    if start_time is None:
+        day_start = first_history_directory_timestamp(history_root)
+        if day_start is None:
+            raise SystemExit("No parseable history directories found")
+    else:
+        day_start = datetime.combine(target_day, start_time)
 
     model_info_map: Optional[Dict[str, Dict[str, Any]]] = None
     if args.show_costs:
         model_info_map = fetch_model_info(BROKK_PROXY_URL, "BROKK", proxy_brokk_api_key())
-
-    history_root = Path(args.history).expanduser()
-    if not history_root.exists():
-        raise SystemExit(f"History path not found: {history_root}")
 
     if args.end is None:
         day_end = last_history_directory_timestamp(history_root)
         if day_end is None:
             raise SystemExit("No parseable history directories found")
     else:
-        day_end = datetime.combine(target_day, parse_time(args.end))
+        end_time = parse_time_or_none(args.end)
+        if end_time is None:
+            raise SystemExit("end must be HH:MM:SS or HH-MM-SS")
+        day_end = datetime.combine(
+            day_start.date() if start_arg is None else target_day,
+            end_time,
+        )
         if day_end < day_start:
             raise SystemExit("--end must be after --start")
 

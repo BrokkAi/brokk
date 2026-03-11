@@ -344,7 +344,7 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
             return signatureTextParam + " {";
         }
 
-        String nameText = sourceContent.substringFromBytes(nameNode.getStartByte(), nameNode.getEndByte());
+        String nameText = sourceContent.substringFrom(nameNode);
         String kindNodeType = kindNode.getType();
 
         if (STRUCT_TYPE.equals(kindNodeType)) {
@@ -352,7 +352,7 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
         } else if (INTERFACE_TYPE.equals(kindNodeType)) {
             return String.format("type %s interface {", nameText).strip();
         } else {
-            String kindSource = sourceContent.substringFromBytes(kindNode.getStartByte(), kindNode.getEndByte());
+            String kindSource = sourceContent.substringFrom(kindNode);
             return String.format("type %s %s {", nameText, kindSource).strip();
         }
     }
@@ -476,9 +476,7 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
 
         TSNode receiverNode = localCaptures.get("method.receiver.type");
         if (receiverNode != null && !receiverNode.isNull()) {
-            String receiverTypeText = sourceContent
-                    .substringFromBytes(receiverNode.getStartByte(), receiverNode.getEndByte())
-                    .trim();
+            String receiverTypeText = sourceContent.substringFrom(receiverNode).trim();
             // Remove leading * for pointer receivers
             if (receiverTypeText.startsWith("*")) {
                 receiverTypeText = receiverTypeText.substring(1).trim();
@@ -488,7 +486,7 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
             } else {
                 log.warn(
                         "Go method: Receiver type text was empty for node {}. FQN might be incorrect.",
-                        sourceContent.substringFromBytes(receiverNode.getStartByte(), receiverNode.getEndByte()));
+                        sourceContent.substringFrom(receiverNode));
             }
         } else {
             log.warn("Go method: Could not find capture for @method.receiver.type. FQN might be incorrect.");
@@ -829,13 +827,12 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
                     // Read the file and determine its package name
                     Optional<SourceContent> content = SourceContent.read(pf);
                     if (content.isPresent()) {
-                        TSTree tree = treeOf(pf);
-                        if (tree != null) {
-                            String pkgName =
-                                    determinePackageName(pf, tree.getRootNode(), tree.getRootNode(), content.get());
-                            if (!pkgName.isEmpty()) {
-                                return pkgName;
-                            }
+                        String pkgName = withTreeOf(
+                                pf,
+                                tree -> determinePackageName(pf, tree.getRootNode(), tree.getRootNode(), content.get()),
+                                "");
+                        if (!pkgName.isEmpty()) {
+                            return pkgName;
                         }
                     }
                 }

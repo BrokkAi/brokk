@@ -22,11 +22,13 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
 import net.jpountz.lz4.LZ4FrameOutputStream;
+import org.jetbrains.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.DisabledOnOs;
 import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
 import org.pcollections.HashTreePMap;
+import org.treesitter.TSTree;
 
 public class TreeSitterStateIOTest {
 
@@ -112,7 +114,10 @@ public class TreeSitterStateIOTest {
 
             ProjectFile cppFile = new ProjectFile(project.getRoot(), Path.of("main.cpp"));
             assertFalse(analyzer.getSkeletons(cppFile).isEmpty(), "Expected C++ skeletons before save");
-            assertNotNull(analyzer.treeOf(cppFile), "Expected parse tree before save");
+            assertEquals(
+                    "Present",
+                    analyzer.withTreeOf(cppFile, tsTree -> "Present", "Not present"),
+                    "Expected parse tree before save");
 
             // Save analyzer state
             Path storage = Languages.C_CPP.getStoragePath(project);
@@ -144,8 +149,10 @@ public class TreeSitterStateIOTest {
             CppAnalyzer updatedCpp = (CppAnalyzer) updated;
 
             // Verify treeOf(...) now returns a non-null parse tree
-            var rebuiltTree = updatedCpp.treeOf(cppFile);
-            assertNotNull(rebuiltTree, "treeOf should return a non-null TSTree after update");
+            assertEquals(
+                    "Present",
+                    updatedCpp.withTreeOf(cppFile, tsTree -> "Present", "Not present"),
+                    "treeOf should return a non-null TSTree after update");
 
             // Also validate we can still get skeletons for the modified file
             assertFalse(updatedCpp.getSkeletons(cppFile).isEmpty(), "Expected C++ skeletons after update");
@@ -405,7 +412,10 @@ public class TreeSitterStateIOTest {
             ProjectFile file = new ProjectFile(project.getRoot(), Path.of("src/main/java/com/example/Lazy.java"));
 
             // Verify the original analyzer has the tree parsed
-            assertNotNull(analyzer.treeOf(file), "Original analyzer should have parsed tree");
+            assertEquals(
+                    "Present",
+                    analyzer.withTreeOf(file, tsTree -> "Present", "Not present"),
+                    "Original analyzer should have parsed tree");
 
             // 3. Save state to temp file
             Path stateFile = tempDir.resolve("java" + Language.ANALYZER_STATE_SUFFIX);
@@ -425,11 +435,12 @@ public class TreeSitterStateIOTest {
             var initialFileProps = initialSnapshot.fileState().get(file);
             assertNotNull(initialFileProps, "File properties should exist in loaded state");
 
-            // 7. Call treeOf to trigger lazy parsing
-            var lazyParsedTree = loadedAnalyzer.treeOf(file);
-
-            // 8. Assert the returned tree is not null
-            assertNotNull(lazyParsedTree, "treeOf should return non-null tree after lazy parsing");
+            // 7. Call treeOf to trigger lazy parsing and assert the returned tree is not null by checking if default
+            // value is triggered
+            assertEquals(
+                    "Present",
+                    analyzer.withTreeOf(file, tsTree -> "Present", "Not present"),
+                    "treeOf should return non-null tree after lazy parsing");
         }
     }
 
@@ -855,6 +866,35 @@ public class TreeSitterStateIOTest {
 
         assertTrue(
                 TreeSitterStateIO.load(v100).isEmpty(), "All languages should reject legacy major schemaVersion 1.0.0");
+    }
+
+    @Test
+    void withTreeOfClosesTreeDeterministically() throws Exception {
+        var builder = InlineTestProjectCreator.code("class A {}", "A.java");
+        try (var project = builder.build()) {
+            JavaAnalyzer analyzer = new JavaAnalyzer(project);
+            ProjectFile file = new ProjectFile(project.getRoot(), "A.java");
+
+            class Captor {
+                @Nullable
+                TSTree tree;
+            }
+            Captor captor = new Captor();
+
+            assertEquals(
+                    "Present",
+                    analyzer.withTreeOf(
+                            file,
+                            tree -> {
+                                captor.tree = tree;
+                                return "Present";
+                            },
+                            "Not present"),
+                    "Tree was null");
+
+            assertNotNull(captor.tree);
+            assertThrows(IllegalStateException.class, () -> captor.tree.getRootNode(), "Tree should be closed");
+        }
     }
 
     @Test

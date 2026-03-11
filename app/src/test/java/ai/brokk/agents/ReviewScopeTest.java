@@ -24,7 +24,7 @@ class ReviewScopeTest {
     void testFromContext_roundTrip() throws IOException, GitAPIException, ReviewScope.ReviewLoadException {
         // Create a project with git and make changes
         var project = InlineTestProjectCreator.code("line1\n", "file.txt")
-                .withGit()
+                .withMockGit()
                 .addCommit("file.txt", "file.txt")
                 .build();
 
@@ -80,7 +80,7 @@ class ReviewScopeTest {
     @Test
     void testFromBaseline_SingleCommit() throws IOException, GitAPIException {
         var project = InlineTestProjectCreator.code("line1\n", "file.txt")
-                .withGit()
+                .withMockGit()
                 .addCommit("file.txt", "file.txt")
                 .build();
 
@@ -110,7 +110,7 @@ class ReviewScopeTest {
     @Test
     void testFromContext_missingMetadata() throws IOException {
         var project = InlineTestProjectCreator.code("test\n", "test.txt")
-                .withGit()
+                .withMockGit()
                 .addCommit("test.txt", "test.txt")
                 .build();
 
@@ -140,13 +140,7 @@ class ReviewScopeTest {
         Path tempDir = Files.createTempDirectory("brokk-empty-repo-test-");
         try (Git git = Git.init().setDirectory(tempDir.toFile()).call()) {
             var repo = new GitRepo(tempDir);
-            var project = new TestProject(tempDir, Languages.JAVA) {
-                @Override
-                public GitRepo getRepo() {
-                    return repo;
-                }
-            };
-            project.setHasGit(true);
+            var project = new TestProject(tempDir, Languages.JAVA).withRepo(repo);
             IContextManager cm = new TestContextManager(project);
 
             // On an empty repo (no commits), HEAD cannot be resolved

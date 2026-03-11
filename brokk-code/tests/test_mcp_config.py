@@ -158,3 +158,34 @@ def test_configure_mcp_settings_falls_back_to_bare_jbang(tmp_path, monkeypatch):
 
     data = json.loads(config_path.read_text(encoding="utf-8"))
     assert data["mcpServers"]["brokk"]["command"] == "jbang"
+
+
+def test_configure_claude_code_mcp_settings_uses_brokk_server_permission_rule(tmp_path) -> None:
+    config_path = tmp_path / ".claude.json"
+
+    configure_claude_code_mcp_settings(force=True, settings_path=config_path)
+
+    data = json.loads(config_path.read_text(encoding="utf-8"))
+    allow_rules = data["permissions"]["allow"]
+    assert "mcp__brokk" in allow_rules
+    assert all(
+        not (rule.startswith("mcp__brokk__") and rule != "mcp__brokk") for rule in allow_rules
+    )
+
+
+def test_configure_claude_code_mcp_settings_keeps_existing_permissions(tmp_path) -> None:
+    config_path = tmp_path / ".claude.json"
+    existing = {
+        "permissions": {
+            "allow": ["mcp__external", "Bash(./gradlew:*)"],
+        }
+    }
+    config_path.write_text(json.dumps(existing), encoding="utf-8")
+
+    configure_claude_code_mcp_settings(force=True, settings_path=config_path)
+
+    data = json.loads(config_path.read_text(encoding="utf-8"))
+    allow_rules = data["permissions"]["allow"]
+    assert "mcp__external" in allow_rules
+    assert "mcp__brokk" in allow_rules
+    assert allow_rules.count("mcp__brokk") == 1

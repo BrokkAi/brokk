@@ -68,7 +68,22 @@ public interface IAnalyzer {
     List<CodeUnit> getTopLevelDeclarations(ProjectFile file);
 
     /**
-     * @return true if the given file contains test cases according to this analyzer's logic.
+     * Returns the set of all files currently represented in this analyzer snapshot.
+     */
+    default Set<ProjectFile> getAnalyzedFiles() {
+        return Set.of();
+    }
+
+    /**
+     * Determines if the given file contains tests using semantic analysis.
+     *
+     * <p><b>API Note:</b> This method should only be relied upon if the analyzer exposes the
+     * {@link TestDetectionProvider} capability via {@link #as(Class)}. If the capability is
+     * missing, a {@code false} return value indicates "unknown" or "unsupported" rather than
+     * a definitive "no tests present". Callers should fall back to heuristics (e.g., filename
+     * patterns) in such cases.
+     *
+     * @return true if the analyzer semantically confirms the file contains tests.
      */
     default boolean containsTests(ProjectFile file) {
         return false;
@@ -510,7 +525,7 @@ public interface IAnalyzer {
         if (indent == 0 && !units.isEmpty()) {
             // Group by common prefix (package/module)
             Map<String, List<CodeUnit>> grouped = units.stream()
-                    .filter(cu -> !cu.isAnonymous())
+                    .filter(cu -> !cu.isAnonymous() && !cu.isModule())
                     .collect(Collectors.groupingBy(
                             cu -> {
                                 String fqn = cu.fqName();

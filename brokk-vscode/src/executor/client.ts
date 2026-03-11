@@ -303,4 +303,16 @@ export class BrokkClient {
   async getFavorites(): Promise<FavoritesResponse> {
     return this.request<FavoritesResponse>("/v1/favorites");
   }
+
+  // ── OpenAI OAuth ────────────────────────────────────
+
+  async startOpenAiOAuth(): Promise<{ status: string; url?: string }> {
+    return this.request<{ status: string; url?: string }>("/v1/openai/oauth/start", {
+      method: "POST",
+    });
+  }
+
+  async getOpenAiOAuthStatus(): Promise<{ connected: boolean }> {
+    return this.request<{ connected: boolean }>("/v1/openai/oauth/status");
+  }
 }

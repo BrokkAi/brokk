@@ -9,9 +9,9 @@ import ai.brokk.Llm;
 import ai.brokk.LlmOutputMeta;
 import ai.brokk.Service;
 import ai.brokk.TaskResult;
-import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.concurrent.ComputedValue;
+import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextDelta;
 import ai.brokk.context.ContextFragment;
@@ -57,6 +57,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -120,9 +121,8 @@ public class SearchAgent {
     private final List<String> terminalTools;
     private final Set<String> terminalToolNames;
     private final SearchMetrics metrics;
-    private final ScanConfig scanConfig;
+    private ScanConfig scanConfig;
     private boolean scanPerformed;
-    private boolean contextPruned;
 
     private boolean terminalCompletionReported = false;
 
@@ -156,6 +156,7 @@ public class SearchAgent {
 
     private int consecutiveStagnantTurns = 0;
     private final AtomicBoolean finalTurnRequestedByClassifier = new AtomicBoolean(false);
+    private final AtomicBoolean terminalDecisionRequestedByModel = new AtomicBoolean(false);
 
     /**
      * Tracks the fragment IDs present immediately after the most recent successful dropWorkspaceFragments call.
@@ -209,15 +210,7 @@ public class SearchAgent {
         this.scope = scope;
 
         this.io = io;
-
-        Set<ContextFragment> goalReferences = resolveGoalReferences(goal);
-        if (goalReferences.isEmpty()) {
-            this.scanConfig = scanConfig;
-        } else {
-            this.scanConfig =
-                    new ScanConfig(false, scanConfig.scanModel(), scanConfig.appendToScope(), scanConfig.autoPrune());
-            logger.debug("Goal references resolved: {}. Disabling auto-scan.", goalReferences);
-        }
+        this.scanConfig = scanConfig;
 
         var llmOptions = new Llm.Options(model, goal, TaskResult.Type.SEARCH).withEcho();
         this.llm = cm.getLlm(llmOptions);
@@ -231,9 +224,7 @@ public class SearchAgent {
                 : SearchMetrics.noOp();
 
         this.mcpTools = initMcpTools(cm.getProject());
-        this.currentState = goalReferences.isEmpty()
-                ? SearchState.initial(initialContext)
-                : SearchState.initial(initialContext.addFragments(goalReferences));
+        this.currentState = SearchState.initial(initialContext);
         this.checkpointState = currentState;
         this.originalPinnedFragments = initialContext.getPinnedFragments().collect(Collectors.toSet());
         this.objective = objective;
@@ -243,83 +234,6 @@ public class SearchAgent {
 
         this.staticTools = initStaticTools(cm.getProject(), mcpTools);
         this.searchTools = new SearchTools(cm);
-    }
-
-    private Set<ContextFragment> resolveGoalReferences(String goal) throws InterruptedException {
-        Set<ContextFragment> references = new HashSet<>();
-        Set<ProjectFile> filesReferenced = new HashSet<>();
-        Set<CodeUnit> classesReferenced = new HashSet<>();
-        var allDeclarations = cm.getAnalyzer().getAllDeclarations();
-
-        for (var file : cm.getProject().getAllFiles()) {
-            String fileName = file.getFileName();
-            if (containsBareToken(goal, fileName)) {
-                references.add(new ContextFragments.ProjectPathFragment(file, cm));
-                filesReferenced.add(file);
-            }
-        }
-
-        for (var cu : allDeclarations) {
-            if (!cu.isClass()) {
-                continue;
-            }
-            if (filesReferenced.contains(cu.source())) {
-                continue;
-            }
-
-            String target = cu.identifier();
-            if (target.length() < 3 || !containsBareToken(goal, target)) {
-                continue;
-            }
-            references.add(new ContextFragments.CodeFragment(cm, cu));
-            classesReferenced.add(cu);
-        }
-
-        for (var cu : allDeclarations) {
-            if (!(cu.isFunction() || cu.isField())) {
-                continue;
-            }
-            if (filesReferenced.contains(cu.source())) {
-                continue;
-            }
-            if (cm.getAnalyzer().parentOf(cu).map(classesReferenced::contains).orElse(true)) {
-                continue;
-            }
-
-            String target = cu.shortName();
-            if (containsBareToken(goal, target)) {
-                references.add(new ContextFragments.CodeFragment(cm, cu));
-            }
-        }
-
-        return references;
-    }
-
-    private static boolean containsBareToken(String text, String token) {
-        int tokenLength = token.length();
-        if (tokenLength == 0) {
-            return false;
-        }
-
-        int index = text.indexOf(token);
-        while (index >= 0) {
-            int tokenStart = index;
-            int tokenEnd = index + tokenLength;
-
-            boolean leftBoundary = tokenStart == 0 || !isBareTokenChar(text.charAt(tokenStart - 1));
-            boolean rightBoundary = tokenEnd >= text.length() || !isBareTokenChar(text.charAt(tokenEnd));
-
-            if (leftBoundary && rightBoundary) {
-                return true;
-            }
-
-            index = text.indexOf(token, tokenStart + 1);
-        }
-        return false;
-    }
-
-    private static boolean isBareTokenChar(char c) {
-        return Character.isLetterOrDigit(c) || c == '_' || c == '$';
     }
 
     private static List<McpPrompts.McpTool> initMcpTools(IProject project) {
@@ -427,34 +341,48 @@ public class SearchAgent {
         return scanConfig.autoScan() && !scanPerformed;
     }
 
-    private TaskResult executeInternal() throws InterruptedException {
-        if (scanConfig.autoPrune()) {
-            pruneContext();
+    private void setupContextInternal() throws InterruptedException {
+        Context contextBeforeSetup = currentState.context();
+        boolean shouldPrune = scanConfig.autoPrune()
+                && hasDroppableFragments(contextBeforeSetup)
+                && isPruningWorthwhile(contextBeforeSetup);
+
+        SetupContextResult setupResult = setupContext(contextBeforeSetup, goal, shouldPrune);
+        Context preparedContext = setupResult.context();
+
+        if (shouldPrune) {
+            if (scanConfig.appendToScope() && !contextBeforeSetup.equals(preparedContext)) {
+                scope.append(preparedContext);
+            }
+            recordDropBaseline(preparedContext);
         }
+
+        if (!setupResult.newFragments().isEmpty()) {
+            checkpointState = SearchState.initial(preparedContext);
+            scanConfig =
+                    new ScanConfig(false, scanConfig.scanModel(), scanConfig.appendToScope(), scanConfig.autoPrune());
+            logger.debug("Referenced fragments resolved: {}. Disabling auto-scan.", setupResult.newFragments());
+        }
+
+        currentState = currentState.withContext(preparedContext);
+
         if (shouldAutomaticallyScan() && currentState.context().isFileContentEmpty()) {
             performAutoScan();
         }
+    }
 
-        @Nullable PendingTerminal pendingTerminal = null;
+    private TaskResult executeInternal() throws InterruptedException {
+        setupContextInternal();
+
         DropMode dropMode = calculateDropMode(currentState.context());
 
-        for (int turn = 0; turn < MAX_TOTAL_TURNS || (pendingTerminal != null && turn < MAX_TOTAL_TURNS + 1); ) {
-            if (pendingTerminal == null
-                    && dropMode != DropMode.DROP_ONLY
-                    && turn < MAX_TOTAL_TURNS - 1
-                    && finalTurnRequestedByClassifier.get()) {
+        for (int turn = 0; turn < MAX_TOTAL_TURNS; ) {
+            if (dropMode != DropMode.DROP_ONLY && turn < MAX_TOTAL_TURNS - 1 && finalTurnRequestedByClassifier.get()) {
                 turn = MAX_TOTAL_TURNS - 1;
             }
 
             SearchState stateAtTurnStart = currentState;
-
-            if (pendingTerminal != null) {
-                assert dropMode == DropMode.DROP_ONLY;
-                assert hasDroppableFragments(currentState.context());
-            }
-
-            int maxTurnsThisRun = MAX_TOTAL_TURNS + (pendingTerminal != null ? 1 : 0);
-            var sta = new SingleTurnAgent(this, stateAtTurnStart, dropMode, pendingTerminal, turn, maxTurnsThisRun);
+            var sta = new SingleTurnAgent(this, stateAtTurnStart, dropMode, turn, MAX_TOTAL_TURNS);
             var outcome = sta.executeTurn();
 
             switch (outcome) {
@@ -462,7 +390,6 @@ public class SearchAgent {
                     return f.result();
                 }
                 case TurnOutcome.Overflow overflow -> {
-                    assert pendingTerminal == null;
                     Context overflowContext = currentState.context();
                     Context checkpointContext = checkpointState.context();
                     OverflowGrowth overflowGrowth = computeOverflowGrowth(checkpointContext, overflowContext);
@@ -519,7 +446,7 @@ public class SearchAgent {
                             c.contextAfterTurn(),
                             c.sessionMessagesAfterTurn(),
                             stateAtTurnStart.context(),
-                            stateAtTurnStart.presentedRelatedFiles());
+                            c.presentedRelatedFiles());
                     currentState = nextState;
 
                     // if we just ran a drop-only turn, reset checkpoint to current state: this means that if we
@@ -532,12 +459,11 @@ public class SearchAgent {
                 }
                 case TurnOutcome.ForceFinalTurn fft -> {
                     assert dropMode != DropMode.DROP_ONLY;
-                    SearchState nextState = new SearchState(
+                    currentState = new SearchState(
                             fft.contextAfterTurn(),
                             fft.sessionMessagesAfterTurn(),
                             stateAtTurnStart.context(),
-                            stateAtTurnStart.presentedRelatedFiles());
-                    currentState = nextState;
+                            fft.presentedRelatedFiles());
 
                     checkpointState = stateAtTurnStart;
                     dropMode = calculateDropMode(fft.contextAfterTurn());
@@ -545,22 +471,59 @@ public class SearchAgent {
 
                     turn = MAX_TOTAL_TURNS - 1;
                 }
-                case TurnOutcome.PendingTerminal pt -> {
-                    currentState = new SearchState(
-                            pt.contextAfterTurn(),
-                            pt.sessionMessagesAfterTurn(),
-                            stateAtTurnStart.lastTurnContext(),
-                            stateAtTurnStart.presentedRelatedFiles());
-                    pendingTerminal = pt.pendingTerminal();
-                    overflowNormalReplayPendingResult = false;
-                    dropMode = DropMode.DROP_ONLY;
-                    turn++;
-                }
                 default -> throw new AssertionError("Unexpected outcome " + outcome);
             }
         }
 
         return errorResult(new TaskResult.StopDetails(TaskResult.StopReason.TURN_LIMIT), currentState.context());
+    }
+
+    public record SetupContextResult(Context context, Set<ContextFragment> newFragments) {}
+
+    /**
+     * - always resolved references in `goal` and adds to returned Context
+     * - When `prune` is true, also runs JanitorAgent to drop unwanted fragments
+     */
+    public static SetupContextResult setupContext(Context initialContext, String goal, boolean prune)
+            throws InterruptedException {
+        IContextManager cm = initialContext.getContextManager();
+
+        // async referenceagent
+        CompletableFuture<Set<ContextFragment>> referencesFuture = goal.isBlank()
+                ? CompletableFuture.completedFuture(Set.of())
+                : LoggingFuture.supplyCallableAsync(() -> new ReferenceAgent(cm).resolveReferencedFragments(goal));
+
+        // async janitoragent
+        CompletableFuture<Context> pruneFuture;
+        if (prune) {
+            pruneFuture = LoggingFuture.supplyCallableAsync(() -> {
+                IContextManager cm1 = initialContext.getContextManager();
+                var janitor = new JanitorAgent(cm1, cm1.getIo(), goal, initialContext);
+                return janitor.execute().context();
+            });
+        } else {
+            pruneFuture = CompletableFuture.completedFuture(initialContext);
+        }
+
+        // wait for both agents
+        Context preparedContext;
+        Set<ContextFragment> referencedFragments;
+        try {
+            LoggingFuture.allOf(pruneFuture, referencesFuture).join();
+            preparedContext = pruneFuture.join();
+            referencedFragments = referencesFuture.join();
+        } catch (CompletionException e) {
+            if (e.getCause() instanceof InterruptedException interrupted) {
+                throw interrupted;
+            }
+            throw e;
+        }
+
+        if (!referencedFragments.isEmpty()) {
+            preparedContext = preparedContext.addFragments(referencedFragments);
+        }
+
+        return new SetupContextResult(preparedContext, referencedFragments);
     }
 
     private ToolRegistry createToolRegistry(WorkspaceTools wst, Object toolProvider) {
@@ -693,25 +656,6 @@ public class SearchAgent {
         return priority(req.name());
     }
 
-    public Context pruneContext() throws InterruptedException {
-        Context context = currentState.context();
-        if (contextPruned || !hasDroppableFragments(context)) {
-            return context;
-        }
-
-        var janitor = new JanitorAgent(cm, io, goal, context);
-        var result = janitor.execute();
-
-        if (scanConfig.appendToScope) {
-            this.scope.append(result.context());
-        }
-
-        currentState = currentState.withContext(result.context());
-        recordDropBaseline(result.context());
-        contextPruned = true;
-        return currentState.context();
-    }
-
     private void performAutoScan() throws InterruptedException {
         scanContext();
         scanPerformed = true;
@@ -779,8 +723,8 @@ public class SearchAgent {
         return scanConfig.scanModel() == null ? cm.getService().getScanModel() : scanConfig.scanModel();
     }
 
-    private boolean isSearchTool(String toolName) {
-        return toolName.startsWith("search");
+    private boolean toolTriggersScan(String toolName) {
+        return toolName.startsWith("search") || toolName.startsWith("find");
     }
 
     /**
@@ -823,7 +767,6 @@ public class SearchAgent {
     public static final class SingleTurnAgent {
         private final SearchAgent agent;
         private final DropMode dropMode;
-        private final @Nullable PendingTerminal pendingTerminal;
         private final int turnNumber;
         private final int maxTurns;
 
@@ -835,18 +778,12 @@ public class SearchAgent {
         private final ToolRegistry tr;
 
         private SingleTurnAgent(
-                SearchAgent agent,
-                SearchState stateAtTurnStart,
-                DropMode dropMode,
-                @Nullable PendingTerminal pendingTerminal,
-                int turnNumber,
-                int maxTurns) {
+                SearchAgent agent, SearchState stateAtTurnStart, DropMode dropMode, int turnNumber, int maxTurns) {
             assert maxTurns > 0;
             assert turnNumber >= 0 && turnNumber < maxTurns;
 
             this.agent = agent;
             this.dropMode = dropMode;
-            this.pendingTerminal = pendingTerminal;
             this.turnNumber = turnNumber;
             this.maxTurns = maxTurns;
 
@@ -859,9 +796,7 @@ public class SearchAgent {
         }
 
         private TurnOutcome executeTurn() throws InterruptedException {
-            assert pendingTerminal == null || agent.hasDroppableFragments(context);
-
-            boolean stagnationEligible = pendingTerminal == null && dropMode != DropMode.DROP_ONLY && !isFinalTurn();
+            boolean stagnationEligible = dropMode != DropMode.DROP_ONLY && !isFinalTurn();
             Context contextAtTurnStartForStagnation = context;
 
             Set<ProjectFile> filesBeforeSet = agent.workspaceFiles(context);
@@ -880,7 +815,8 @@ public class SearchAgent {
                 boolean shouldForceFinalTurn = agent.recordTurnForStagnation(
                         contextAtTurnStartForStagnation, c.contextAfterTurn(), researchTokensThisTurn);
                 if (shouldForceFinalTurn) {
-                    return new TurnOutcome.ForceFinalTurn(c.contextAfterTurn(), c.sessionMessagesAfterTurn());
+                    return new TurnOutcome.ForceFinalTurn(
+                            c.contextAfterTurn(), c.sessionMessagesAfterTurn(), c.presentedRelatedFiles());
                 }
             }
 
@@ -914,7 +850,6 @@ public class SearchAgent {
                 if (result.error() != null) {
                     var details = TaskResult.StopDetails.fromResponse(result);
                     if (details.reason() == TaskResult.StopReason.LLM_CONTEXT_SIZE) {
-                        assert pendingTerminal == null;
                         return TurnOutcome.Overflow.INSTANCE;
                     }
                     agent.io.showNotification(
@@ -925,8 +860,7 @@ public class SearchAgent {
                 ai = ToolRegistry.removeDuplicateToolRequests(result.aiMessage());
 
                 if (agent.shouldAutomaticallyScan()
-                        && ai.toolExecutionRequests().stream().anyMatch(req -> agent.isSearchTool(req.name()))) {
-                    assert pendingTerminal == null;
+                        && ai.toolExecutionRequests().stream().anyMatch(req -> agent.toolTriggersScan(req.name()))) {
                     return TurnOutcome.AutoScan.INSTANCE;
                 }
 
@@ -977,40 +911,16 @@ public class SearchAgent {
                 break;
             }
 
-            String modelResponse = ai.reasoningContent() + "\n\n" + ai.text();
-            agent.startWorkspaceCompleteClassification(modelResponse);
-
-            DropMode effectiveDropMode = (pendingTerminal == null && isFinalTurn()) ? DropMode.NORMAL : dropMode;
-
-            if (pendingTerminal != null) {
-                var dropRequests = orderedRequests.stream()
-                        .filter(req -> "dropWorkspaceFragments".equals(req.name()))
-                        .toList();
-                if (dropRequests.isEmpty()) {
-                    return new TurnOutcome.Final(agent.errorResult(
-                            new TaskResult.StopDetails(
-                                    TaskResult.StopReason.TOOL_ERROR,
-                                    "Special turn requires a dropWorkspaceFragments tool call before finalization."),
-                            context));
-                }
-
-                for (var req : dropRequests) {
-                    agent.io.beforeToolCall(req);
-                    ToolExecutionResult toolResult = executeTool(req);
-                    agent.io.afterToolOutput(toolResult);
-
-                    if (toolResult.status() == ToolExecutionResult.Status.FATAL) {
-                        var details =
-                                new TaskResult.StopDetails(TaskResult.StopReason.LLM_ERROR, toolResult.resultText());
-                        return new TurnOutcome.Final(agent.errorResult(details, context));
-                    }
-
-                    sessionMessages.add(toolResult.toExecutionResultMessage());
-                }
-
-                return new TurnOutcome.Final(agent.finalizePendingTerminal(requireNonNull(pendingTerminal), context));
+            boolean hasTerminalRequest =
+                    orderedRequests.stream().anyMatch(req -> agent.terminalToolNames.contains(req.name()));
+            if (hasTerminalRequest) {
+                agent.terminalDecisionRequestedByModel.compareAndSet(false, true);
+            } else {
+                String modelResponse = ai.reasoningContent() + "\n\n" + ai.text();
+                agent.startWorkspaceCompleteClassification(modelResponse);
             }
 
+            DropMode effectiveDropMode = isFinalTurn() ? DropMode.NORMAL : dropMode;
             if (isFinalTurn()) {
                 @Nullable
                 ToolExecutionRequest terminalRequest = orderedRequests.stream()
@@ -1135,17 +1045,7 @@ public class SearchAgent {
 
                 context = agent.resetPinsToOriginal(context);
                 context = context.removeSupersededSummaries();
-                var pending = new PendingTerminal(termExec);
-
-                // take an extra turn to drop fragments after making the terminal decision now that
-                // we are de-emphasizing constantly dropping during the search
-                if (agent.isPruningWorthwhile(context)
-                        && (primaryCalls.isEmpty()
-                                || !"dropWorkspaceFragments"
-                                        .equals(primaryCalls.getFirst().name()))) {
-                    return new TurnOutcome.PendingTerminal(context, List.copyOf(sessionMessages), pending);
-                }
-                return new TurnOutcome.Final(agent.finalizePendingTerminal(pending, context));
+                return new TurnOutcome.Final(agent.finalizePendingTerminal(new PendingTerminal(termExec), context));
             }
             if (terminalRequest != null) {
                 String changedTools =
@@ -1166,13 +1066,14 @@ public class SearchAgent {
                 agent.scope.publish(context);
             }
 
-            return new TurnOutcome.Continue(context, List.copyOf(sessionMessages));
+            return new TurnOutcome.Continue(
+                    context, List.copyOf(sessionMessages), agent.currentState.presentedRelatedFiles());
         }
 
         private TurnPrompt preparePrompt(boolean workspaceOnlyNoHistory) throws InterruptedException {
             wst.setContext(context);
 
-            DropMode effectiveDropMode = (pendingTerminal == null && isFinalTurn()) ? DropMode.NORMAL : dropMode;
+            DropMode effectiveDropMode = isFinalTurn() ? DropMode.NORMAL : dropMode;
 
             // update pins before generating prompt
             Map<ProjectFile, String> related;
@@ -1196,10 +1097,7 @@ public class SearchAgent {
             List<String> terminalTools = agent.terminalTools;
 
             @Nullable SearchPrompts.SpecialTurnTooling specialToolingNotice = null;
-            if (pendingTerminal != null) {
-                specialToolingNotice = new SearchPrompts.SpecialTurnTooling(
-                        "Workspace final cleanup", List.of("dropWorkspaceFragments"));
-            } else if (isFinalTurn()) {
+            if (isFinalTurn()) {
                 var allowedFinalTurnTools = Streams.concat(Stream.of("dropWorkspaceFragments"), terminalTools.stream())
                         .distinct()
                         .toList();
@@ -1367,6 +1265,15 @@ public class SearchAgent {
                 @P("Detailed instructions for the CodeAgent, referencing the current project and Workspace.")
                         String instructions)
                 throws InterruptedException, ToolRegistry.FatalLlmException {
+            if (agent.isPruningWorthwhile(context)) {
+                var janitor = new JanitorAgent(agent.cm, agent.io, agent.goal, context);
+                var janitorResult = janitor.execute();
+                Context prunedContext = janitorResult.context();
+                agent.updateDroppedHistory(context, prunedContext);
+                context = prunedContext;
+                wst.setContext(prunedContext);
+                agent.recordDropBaseline(prunedContext);
+            }
 
             var oldContext = context;
             context = agent.appendUiMessagesToHistory(context);
@@ -1396,7 +1303,9 @@ public class SearchAgent {
             context = result.context();
 
             if (reason == TaskResult.StopReason.SUCCESS) {
-                new GitWorkflow(agent.cm).performAutoCommit(instructions);
+                if (agent.cm.getProject().hasGit()) {
+                    new GitWorkflow(agent.cm).performAutoCommit(instructions);
+                }
                 logger.debug("SearchAgent.callCodeAgent finished successfully");
                 return "CodeAgent finished with a successful build!";
             }
@@ -1778,6 +1687,10 @@ public class SearchAgent {
     }
 
     private void startWorkspaceCompleteClassification(String modelResponse) {
+        if (terminalDecisionRequestedByModel.get()) {
+            return;
+        }
+
         CompletableFuture.runAsync(() -> {
             try {
                 if (RelevanceClassifier.isRelevant(scanLlm, READY_FOR_FINAL_TURN_FILTER, modelResponse)) {
@@ -1800,15 +1713,16 @@ public class SearchAgent {
     }
 
     private sealed interface TurnOutcome {
-        record Continue(Context contextAfterTurn, List<ChatMessage> sessionMessagesAfterTurn) implements TurnOutcome {}
-
-        record ForceFinalTurn(Context contextAfterTurn, List<ChatMessage> sessionMessagesAfterTurn)
-                implements TurnOutcome {}
-
-        record PendingTerminal(
+        record Continue(
                 Context contextAfterTurn,
                 List<ChatMessage> sessionMessagesAfterTurn,
-                SearchAgent.PendingTerminal pendingTerminal)
+                Set<ProjectFile> presentedRelatedFiles)
+                implements TurnOutcome {}
+
+        record ForceFinalTurn(
+                Context contextAfterTurn,
+                List<ChatMessage> sessionMessagesAfterTurn,
+                Set<ProjectFile> presentedRelatedFiles)
                 implements TurnOutcome {}
 
         record Final(TaskResult result) implements TurnOutcome {}

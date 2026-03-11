@@ -336,7 +336,8 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
         return "}";
     }
 
-    private static final Set<String> TEST_ANNOTATIONS = Set.of("Test", "ParameterizedTest", "RepeatedTest");
+    private static final Set<String> TEST_ANNOTATIONS =
+            Set.of("Test", "ParameterizedTest", "RepeatedTest", "TestCase", "Rule", "Ignore");
 
     @Override
     protected boolean containsTestMarkers(TSTree tree, SourceContent sourceContent) {
@@ -352,9 +353,8 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
                                 String captureName = query.getCaptureNameForId(capture.getIndex());
                                 if (TEST_MARKER.equals(captureName)) {
                                     TSNode node = capture.getNode();
-                                    String rawName =
-                                            sourceContent.substringFromBytes(node.getStartByte(), node.getEndByte());
-                                    String simpleName = rawName.strip();
+                                    String simpleName =
+                                            sourceContent.substringFrom(node).strip();
                                     int lastDot = simpleName.lastIndexOf('.');
                                     if (lastDot >= 0) {
                                         simpleName = simpleName.substring(lastDot + 1);
@@ -735,105 +735,113 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
 
     @Override
     public boolean isAccessExpression(ProjectFile file, int startByte, int endByte) {
-        TSTree tree = treeOf(file);
-        if (tree == null) return true;
+        return withTreeOf(
+                file,
+                tree -> {
+                    TSNode root = tree.getRootNode();
+                    if (root.isNull()) return true;
 
-        TSNode root = tree.getRootNode();
-        if (root.isNull()) return true;
+                    TSNode node = root.getDescendantForByteRange(startByte, endByte);
+                    if (node == null || node.isNull()) return true;
 
-        TSNode node = root.getDescendantForByteRange(startByte, endByte);
-        if (node == null || node.isNull()) return true;
-
-        // 1. Check if the node itself or any parent is a comment
-        TSNode walk = node;
-        while (walk != null && !walk.isNull()) {
-            if (isCommentNode(walk)) return false;
-            walk = walk.getParent();
-        }
-
-        // 2. Check if we are in a declaration context (name of a method, field, param, etc.)
-        TSNode current = node;
-        while (current != null && !current.isNull()) {
-            String type = current.getType();
-
-            // If we hit a known reference/usage node type, it's likely a reference
-            if (type.equals(METHOD_INVOCATION)
-                    || type.equals(FIELD_ACCESS)
-                    || type.equals(OBJECT_CREATION_EXPRESSION)
-                    || type.equals(TYPE_IDENTIFIER)
-                    || type.equals(SCOPED_TYPE_IDENTIFIER)
-                    || type.equals(MARKER_ANNOTATION)
-                    || type.equals(ANNOTATION)
-                    || type.equals(CLASS_LITERAL)
-                    || type.equals(IMPORT_DECLARATION)) {
-                break; // Continue to nearest declaration check
-            }
-
-            // If we are the 'name' child of a declaration, it's not a reference
-            TSNode parent = current.getParent();
-            if (parent != null && !parent.isNull()) {
-                String pType = parent.getType();
-                if (pType.equals(METHOD_DECLARATION)
-                        || pType.equals(FIELD_DECLARATION)
-                        || pType.equals(CLASS_DECLARATION)
-                        || pType.equals(INTERFACE_DECLARATION)
-                        || pType.equals(ENUM_DECLARATION)
-                        || pType.equals(RECORD_DECLARATION)
-                        || pType.equals(VARIABLE_DECLARATOR)
-                        || pType.equals(FORMAL_PARAMETER)) {
-
-                    TSNode nameNode = parent.getChildByFieldName("name");
-                    if (nameNode != null && !nameNode.isNull() && nameNode.getStartByte() == startByte) {
-                        return false;
+                    // 1. Check if the node itself or any parent is a comment
+                    TSNode walk = node;
+                    while (walk != null && !walk.isNull()) {
+                        if (isCommentNode(walk)) return false;
+                        walk = walk.getParent();
                     }
-                }
-            }
-            current = current.getParent();
-        }
 
-        // 3. Perform lexical scope analysis to filter out local variables and parameters
-        // Skip this if the current node is explicitly part of a member access (e.g., this.field or obj.field)
-        TSNode parent = node.getParent();
-        if (parent != null && !parent.isNull()) {
-            String pType = parent.getType();
-            if (pType.equals(FIELD_ACCESS)) {
-                // In tree-sitter-java, field_access has a "field" child for the member name
-                TSNode fieldNode = parent.getChildByFieldName("field");
-                if (fieldNode != null && !fieldNode.isNull() && fieldNode.getStartByte() == node.getStartByte()) {
-                    return true;
-                }
-            }
-            if (pType.equals(METHOD_INVOCATION)) {
-                // In tree-sitter-java, method_invocation has a "name" child for the method name
-                TSNode nameNode = parent.getChildByFieldName("name");
-                if (nameNode != null && !nameNode.isNull() && nameNode.getStartByte() == node.getStartByte()) {
-                    return true;
-                }
-            }
-        }
+                    // 2. Check if we are in a declaration context (name of a method, field, param, etc.)
+                    TSNode current = node;
+                    while (current != null && !current.isNull()) {
+                        String type = current.getType();
 
-        var sourceContentOpt = SourceContent.read(file);
-        if (sourceContentOpt.isPresent()) {
-            SourceContent sourceContent = sourceContentOpt.get();
-            String identifierName = sourceContent.substringFrom(node).strip();
-            if (!identifierName.isEmpty()) {
-                var declOpt = findNearestDeclaration(node, identifierName, sourceContent);
-                if (declOpt.isPresent()) {
-                    var kind = declOpt.get().kind();
-                    return switch (kind) {
-                        case PARAMETER,
-                                LOCAL_VARIABLE,
-                                CATCH_PARAMETER,
-                                FOR_LOOP_VARIABLE,
-                                RESOURCE_VARIABLE,
-                                PATTERN_VARIABLE -> false;
-                        default -> true;
-                    };
-                }
-            }
-        }
+                        // If we hit a known reference/usage node type, it's likely a reference
+                        if (type.equals(METHOD_INVOCATION)
+                                || type.equals(FIELD_ACCESS)
+                                || type.equals(OBJECT_CREATION_EXPRESSION)
+                                || type.equals(TYPE_IDENTIFIER)
+                                || type.equals(SCOPED_TYPE_IDENTIFIER)
+                                || type.equals(MARKER_ANNOTATION)
+                                || type.equals(ANNOTATION)
+                                || type.equals(CLASS_LITERAL)
+                                || type.equals(IMPORT_DECLARATION)) {
+                            break; // Continue to nearest declaration check
+                        }
 
-        return true;
+                        // If we are the 'name' child of a declaration, it's not a reference
+                        TSNode parent = current.getParent();
+                        if (parent != null && !parent.isNull()) {
+                            String pType = parent.getType();
+                            if (pType.equals(METHOD_DECLARATION)
+                                    || pType.equals(FIELD_DECLARATION)
+                                    || pType.equals(CLASS_DECLARATION)
+                                    || pType.equals(INTERFACE_DECLARATION)
+                                    || pType.equals(ENUM_DECLARATION)
+                                    || pType.equals(RECORD_DECLARATION)
+                                    || pType.equals(VARIABLE_DECLARATOR)
+                                    || pType.equals(FORMAL_PARAMETER)) {
+
+                                TSNode nameNode = parent.getChildByFieldName("name");
+                                if (nameNode != null && !nameNode.isNull() && nameNode.getStartByte() == startByte) {
+                                    return false;
+                                }
+                            }
+                        }
+                        current = current.getParent();
+                    }
+
+                    // 3. Perform lexical scope analysis to filter out local variables and parameters
+                    // Skip this if the current node is explicitly part of a member access (e.g., this.field or
+                    // obj.field)
+                    TSNode parent = node.getParent();
+                    if (parent != null && !parent.isNull()) {
+                        String pType = parent.getType();
+                        if (pType.equals(FIELD_ACCESS)) {
+                            // In tree-sitter-java, field_access has a "field" child for the member name
+                            TSNode fieldNode = parent.getChildByFieldName("field");
+                            if (fieldNode != null
+                                    && !fieldNode.isNull()
+                                    && fieldNode.getStartByte() == node.getStartByte()) {
+                                return true;
+                            }
+                        }
+                        if (pType.equals(METHOD_INVOCATION)) {
+                            // In tree-sitter-java, method_invocation has a "name" child for the method name
+                            TSNode nameNode = parent.getChildByFieldName("name");
+                            if (nameNode != null
+                                    && !nameNode.isNull()
+                                    && nameNode.getStartByte() == node.getStartByte()) {
+                                return true;
+                            }
+                        }
+                    }
+
+                    return withSource(
+                            file,
+                            sourceContent -> {
+                                String identifierName =
+                                        sourceContent.substringFrom(node).strip();
+                                if (!identifierName.isEmpty()) {
+                                    var declOpt = findNearestDeclaration(node, identifierName, sourceContent);
+                                    if (declOpt.isPresent()) {
+                                        var kind = declOpt.get().kind();
+                                        return switch (kind) {
+                                            case PARAMETER,
+                                                    LOCAL_VARIABLE,
+                                                    CATCH_PARAMETER,
+                                                    FOR_LOOP_VARIABLE,
+                                                    RESOURCE_VARIABLE,
+                                                    PATTERN_VARIABLE -> false;
+                                            default -> true;
+                                        };
+                                    }
+                                }
+                                return true;
+                            },
+                            true);
+                },
+                true);
     }
 
     @Override
@@ -873,8 +881,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
      */
     @Override
     public Set<String> extractTypeIdentifiers(String source) {
-        try {
-            TSTree tree = getTSParser().parseString(null, source);
+        try (TSTree tree = getTSParser().parseString(null, source)) {
             TSNode root = tree.getRootNode();
             return performIdentifierExtraction(root, source);
         } catch (Exception e) {
@@ -1102,17 +1109,21 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
     @Override
     public Optional<DeclarationInfo> findNearestDeclaration(
             ProjectFile file, int startByte, int endByte, String identifierName) {
-        TSTree tree = treeOf(file);
-        if (tree == null) return Optional.empty();
+        return withTreeOf(
+                file,
+                tree -> {
+                    TSNode root = tree.getRootNode();
+                    if (root.isNull()) return Optional.empty();
 
-        TSNode root = tree.getRootNode();
-        if (root.isNull()) return Optional.empty();
+                    TSNode node = root.getDescendantForByteRange(startByte, endByte);
+                    if (node == null || node.isNull()) return Optional.empty();
 
-        TSNode node = root.getDescendantForByteRange(startByte, endByte);
-        if (node == null || node.isNull()) return Optional.empty();
-
-        var sourceContentOpt = SourceContent.read(file);
-        return sourceContentOpt.flatMap(sourceContent -> findNearestDeclaration(node, identifierName, sourceContent));
+                    return withSource(
+                            file,
+                            sourceContent -> findNearestDeclaration(node, identifierName, sourceContent),
+                            Optional.empty());
+                },
+                Optional.empty());
     }
 
     private Optional<DeclarationInfo> findNearestDeclaration(

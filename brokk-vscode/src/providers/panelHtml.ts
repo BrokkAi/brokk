@@ -74,9 +74,21 @@ export function getPanelHtml(webview: vscode.Webview, extensionUri: vscode.Uri):
             <a href="https://brokk.ai/dashboard" class="settings-topup">Top Up</a>
           </div>
         </div>
+        <div class="settings-field">
+          <label>Your Subscriptions</label>
+          <div class="settings-subscription-row">
+            <span id="openai-status-label" class="subscription-status">Checking...</span>
+            <button id="openai-connect-btn" class="settings-link-btn hidden">Connect</button>
+          </div>
+        </div>
         <div id="settings-message" class="settings-message hidden"></div>
         <div class="settings-actions">
           <button id="settings-save-btn" class="settings-save">Save</button>
+        </div>
+        <div class="settings-help">
+          <a href="https://brokk.ai/dashboard/feedback">Report a bug</a>
+          <span class="settings-help-sep">&middot;</span>
+          <a href="https://discord.com/invite/qYQ2Zg2PX7">Discord</a>
         </div>
       </div>
     </div>
@@ -154,11 +166,10 @@ export function getPanelHtml(webview: vscode.Webview, extensionUri: vscode.Uri):
         <div class="custom-select" id="code-select">
           <button class="custom-select-trigger">
             <span class="custom-select-label">Code</span>
-            <span class="custom-select-value" id="code-value">gemini-3-flash-preview</span>
+            <span class="custom-select-value" id="code-value">Loading...</span>
             <svg class="custom-select-chevron" width="8" height="8" viewBox="0 0 8 8" fill="currentColor"><path d="M0 2l4 4 4-4z"/></svg>
           </button>
           <div class="custom-select-dropdown hidden">
-            <div class="custom-select-option selected" data-value="gemini-3-flash-preview"><span class="option-label">gemini-3-flash-preview</span></div>
           </div>
         </div>
       </div>

@@ -684,6 +684,48 @@ public final class MainProject extends AbstractProject {
         saveProjectProperties();
     }
 
+    @Override
+    public List<String> getSourceRoots(Language language) {
+        String key = getSourceRootsKey(language);
+        String json = projectProps.getProperty(key);
+
+        if (json == null || json.isBlank()) {
+            return super.getSourceRoots(language);
+        }
+
+        try {
+            var tf = objectMapper.getTypeFactory();
+            var type = tf.constructCollectionType(List.class, String.class);
+            return objectMapper.readValue(json, type);
+        } catch (JsonProcessingException e) {
+            logger.error("Failed to deserialize source roots for {} from JSON: {}", language.name(), json, e);
+            return super.getSourceRoots(language);
+        }
+    }
+
+    @Override
+    public void setSourceRoots(Language language, List<String> roots) {
+        String key = getSourceRootsKey(language);
+        try {
+            String json = objectMapper.writeValueAsString(roots);
+            String existingJson = projectProps.getProperty(key);
+
+            if (Objects.equals(existingJson, json)) {
+                return;
+            }
+
+            projectProps.setProperty(key, json);
+            saveProjectProperties();
+            logger.debug("Saved {} source roots to project properties using key: {}", language.name(), key);
+        } catch (JsonProcessingException e) {
+            throw new RuntimeException("Failed to serialize source roots for " + language.name(), e);
+        }
+    }
+
+    private static String getSourceRootsKey(Language language) {
+        return language.internalName() + "SourceRoots";
+    }
+
     @Nullable
     private volatile IssueProvider issuesProviderCache = null;
 

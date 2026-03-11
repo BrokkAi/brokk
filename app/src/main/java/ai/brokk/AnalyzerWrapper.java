@@ -379,9 +379,25 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
                     "Loaded existing analyzer: {} for directory: {}",
                     analyzer.getClass().getSimpleName(),
                     project.getRoot());
+
+            // Validate the loaded analyzer's state against project files
+            Optional<StateMismatch> mismatch = stateMismatch(analyzer);
+            if (mismatch.isPresent()) {
+                StateMismatch delta = mismatch.get();
+                logger.warn(
+                        "Loaded analyzer state appears corrupt (file mismatch). Attempting targeted repair of {} files.",
+                        delta.missing().size() + delta.unexpected().size());
+
+                analyzer = analyzer.update(delta.all());
+                if (stateMismatch(analyzer).isPresent()) {
+                    throw new IllegalStateException("Analyzer state remains corrupt after targeted repair attempt.");
+                }
+                // Persist the repaired state so we don't have to repair it again on next load
+                persistAnalyzerState(analyzer);
+            }
         } catch (Throwable th) {
             // cache missing or corrupt, rebuild
-            logger.warn(th);
+            logger.warn("Failed to load or validate cached analyzer", th);
             analyzer = langHandle.createAnalyzer(project, progressListener);
             logger.info(
                     "Created new analyzer: {} for directory: {}",
@@ -404,6 +420,61 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
 
         logger.debug("Analyzer load complete!");
         return analyzer;
+    }
+
+    /**
+     * Represents a mismatch between the files expected by the project and those actually present in the analyzer.
+     */
+    private record StateMismatch(Set<ProjectFile> missing, Set<ProjectFile> unexpected) {
+
+        /**
+         * @return a combination of missing and unexpected files.
+         */
+        Set<ProjectFile> all() {
+            Set<ProjectFile> deltaFiles = new HashSet<>(missing);
+            deltaFiles.addAll(unexpected);
+            return Set.copyOf(deltaFiles);
+        }
+    }
+
+    /**
+     * Checks if the analyzer's tracked file set and languages match the project's configuration.
+     * Returns an Optional containing the mismatch details if corruption is detected.
+     */
+    private Optional<StateMismatch> stateMismatch(IAnalyzer analyzer) {
+        Set<Language> projectLangs = project.getAnalyzerLanguages().stream()
+                .filter(l -> l != Languages.NONE)
+                .collect(Collectors.toSet());
+        Set<Language> analyzerLangs = analyzer.languages();
+
+        boolean langMismatch = !projectLangs.equals(analyzerLangs);
+        if (langMismatch) {
+            logger.info("Analyzer language mismatch detected. Project: {}, Analyzer: {}", projectLangs, analyzerLangs);
+        }
+
+        Set<ProjectFile> expectedFiles = projectLangs.stream()
+                .flatMap(l -> project.getAnalyzableFiles(l).stream())
+                .collect(Collectors.toSet());
+
+        Set<ProjectFile> actualFiles = analyzer.getAnalyzedFiles();
+
+        if (langMismatch || !actualFiles.equals(expectedFiles)) {
+            Set<ProjectFile> missing = new HashSet<>(expectedFiles);
+            missing.removeAll(actualFiles);
+            Set<ProjectFile> unexpected = new HashSet<>(actualFiles);
+            unexpected.removeAll(expectedFiles);
+
+            if (!actualFiles.equals(expectedFiles)) {
+                logger.debug(
+                        "Analyzer file mismatch detected. Missing ({}): {}, Unexpected ({}): {}",
+                        missing.size(),
+                        missing,
+                        unexpected.size(),
+                        unexpected);
+            }
+            return Optional.of(new StateMismatch(missing, unexpected));
+        }
+        return Optional.empty();
     }
 
     /** Get a human-readable description of the analyzer languages for logging. */
