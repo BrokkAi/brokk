@@ -11,6 +11,7 @@ import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.project.FileFilteringService;
 import ai.brokk.project.IProject;
 import com.github.mustachejava.DefaultMustacheFactory;
 import com.github.mustachejava.Mustache;
@@ -199,7 +200,8 @@ public class BuildTools {
             return Optional.empty();
         }
         try {
-            return Optional.of(new EnvironmentPython(projectRoot, project).getPythonVersion());
+            var matcher = FileFilteringService.createPatternMatcher(project.getExclusionPatterns());
+            return Optional.of(new EnvironmentPython(projectRoot, matcher.isEmpty() ? null : matcher).getPythonVersion());
         } catch (Exception e) {
             logger.debug("Unable to determine Python version for project", e);
             return Optional.empty();

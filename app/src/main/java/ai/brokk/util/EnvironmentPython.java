@@ -3,7 +3,7 @@ package ai.brokk.util;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitRepoFactory;
 import ai.brokk.project.FileFilteringService;
-import ai.brokk.project.IProject;
+import ai.brokk.project.FileFilteringService.FilePatternMatcher;
 import com.google.common.base.Splitter;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -85,15 +85,15 @@ public class EnvironmentPython {
     private record VersionWithSource(String version, Path sourceFile) {}
 
     private final Path projectRoot;
-    private final @Nullable IProject project;
+    private final @Nullable FilePatternMatcher exclusionMatcher;
 
     public EnvironmentPython(Path projectRoot) {
         this(projectRoot, null);
     }
 
-    public EnvironmentPython(Path projectRoot, @Nullable IProject project) {
+    public EnvironmentPython(Path projectRoot, @Nullable FilePatternMatcher exclusionMatcher) {
         this.projectRoot = projectRoot;
-        this.project = project;
+        this.exclusionMatcher = exclusionMatcher;
     }
 
     /**
@@ -327,7 +327,7 @@ public class EnvironmentPython {
         }
 
         final @Nullable FileFilteringService effectiveFilter = filteringService;
-        final @Nullable IProject effectiveProject = project;
+        final @Nullable FilePatternMatcher effectiveMatcher = exclusionMatcher;
         var found = new AtomicBoolean(false);
 
         try {
@@ -347,7 +347,7 @@ public class EnvironmentPython {
                         String relPathStr = relPath.toString();
 
                         // Check project-level exclusions first (user-configured patterns)
-                        if (effectiveProject != null && effectiveProject.isPathExcluded(relPathStr, true)) {
+                        if (effectiveMatcher != null && effectiveMatcher.isPathExcluded(relPathStr, true)) {
                             logger.trace("Skipping project-excluded directory: {}", relPath);
                             return FileVisitResult.SKIP_SUBTREE;
                         }
@@ -382,7 +382,7 @@ public class EnvironmentPython {
                     String relPathStr = relPath.toString();
 
                     // Skip if file is project-excluded
-                    if (effectiveProject != null && effectiveProject.isPathExcluded(relPathStr, false)) {
+                    if (effectiveMatcher != null && effectiveMatcher.isPathExcluded(relPathStr, false)) {
                         logger.trace("Skipping project-excluded file: {}", relPath);
                         return FileVisitResult.CONTINUE;
                     }
