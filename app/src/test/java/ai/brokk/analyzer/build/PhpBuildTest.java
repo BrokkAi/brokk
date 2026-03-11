@@ -11,6 +11,7 @@ import ai.brokk.testutil.TestContextManager;
 import ai.brokk.util.BuildTools;
 import java.util.List;
 import java.util.Set;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 public class PhpBuildTest {
@@ -53,6 +54,23 @@ public class PhpBuildTest {
 
             // We expect the class 'MyTest' to be substituted for {{classes}}
             assertEquals("vendor/bin/phpunit --filter MyTest", command.trim());
+        }
+    }
+
+    @Test
+    void testMultipleClassesTemplateInterpolation() throws Exception {
+        String code1 = "<?php class T1 extends PHPUnit\\Framework\\TestCase { public function test1(){} }";
+        String code2 = "<?php class T2 extends PHPUnit\\Framework\\TestCase { public function test1(){} }";
+
+        try (var project = InlineTestProjectCreator.empty()
+                .addFileContents(code1, "T1.php")
+                .addFileContents(code2, "T2.php")
+                .build()) {
+            TestContextManager cm = new TestContextManager(project, new NoOpConsoleIO(), Set.of(), project.getAnalyzer());
+            BuildDetails details = new BuildDetails("", "", "phpunit --filter {{#classes}}{{value}}{{^last}}|{{/last}}{{/classes}}", Set.of());
+
+            String command = BuildTools.getBuildLintSomeCommand(cm, details, List.copyOf(project.getAllFiles()));
+            assertEquals("phpunit --filter T1|T2", command.trim());
         }
     }
 }

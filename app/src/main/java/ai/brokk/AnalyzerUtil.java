@@ -81,7 +81,8 @@ public class AnalyzerUtil {
      * Returns a stream of declarations from the given files, logging warnings if files are missing from the analyzer
      * or contain no code units.
      */
-    public static Stream<CodeUnit> getTestDeclarationsWithLogging(IAnalyzer analyzer, Collection<ProjectFile> files, boolean topLevelDeclOnly) {
+    public static Stream<CodeUnit> getTestDeclarationsWithLogging(
+            IAnalyzer analyzer, Collection<ProjectFile> files, boolean topLevelDeclOnly) {
         Set<ProjectFile> analyzedFiles = analyzer.getAnalyzedFiles();
         return files.stream().flatMap(testFile -> {
             if (!analyzedFiles.contains(testFile)) {
@@ -89,7 +90,9 @@ public class AnalyzerUtil {
                 return Stream.empty();
             }
 
-            Set<CodeUnit> decls = topLevelDeclOnly ? Set.copyOf(analyzer.getTopLevelDeclarations(testFile)) : analyzer.getDeclarations(testFile);
+            Set<CodeUnit> decls = topLevelDeclOnly
+                    ? Set.copyOf(analyzer.getTopLevelDeclarations(testFile))
+                    : analyzer.getDeclarations(testFile);
             if (decls.isEmpty()) {
                 logger.warn("Test file contains no code units: {}", testFile);
             }

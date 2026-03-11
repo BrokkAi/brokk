@@ -11,6 +11,7 @@ import ai.brokk.testutil.TestContextManager;
 import ai.brokk.util.BuildTools;
 import java.util.List;
 import java.util.Set;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 public class ScalaBuildTest {
@@ -52,6 +53,24 @@ public class ScalaBuildTest {
 
             // We expect the class 'MyTest' to be substituted for {{classes}}
             assertEquals("sbt \"testOnly MyTest\"", command.trim());
+        }
+    }
+
+    @Test
+    void testMultipleClassesTemplateInterpolation() throws Exception {
+        String code1 = "package c; class T1 extends org.scalatest.funsuite.AnyFunSuite { test(\"a\"){} }";
+        String code2 = "package c; class T2 extends org.scalatest.funsuite.AnyFunSuite { test(\"a\"){} }";
+
+        try (var project = InlineTestProjectCreator.empty()
+                .addFileContents(code1, "T1.scala")
+                .addFileContents(code2, "T2.scala")
+                .build()) {
+            TestContextManager cm = new TestContextManager(project, new NoOpConsoleIO(), Set.of(), project.getAnalyzer());
+            // Remove trailing space inside {{#classes}} loop to match expected output
+            BuildDetails details = new BuildDetails("", "", "sbt \"testOnly {{#classes}}{{value}}{{^last}} {{/last}}{{/classes}}\"", Set.of());
+
+            String command = BuildTools.getBuildLintSomeCommand(cm, details, List.copyOf(project.getAllFiles()));
+            assertEquals("sbt \"testOnly T1 T2\"", command.trim());
         }
     }
 }

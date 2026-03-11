@@ -8,6 +8,7 @@ import ai.brokk.testutil.TestContextManager;
 import ai.brokk.util.BuildTools;
 import java.util.List;
 import java.util.Set;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -46,6 +47,23 @@ public class JavaBuildTest {
             // Assert interpolation
             String command = BuildTools.getBuildLintSomeCommand(cm, details, List.of(testFile));
             assertEquals("mvn test -Dtest=MyTest", command);
+        }
+    }
+
+    @Test
+    void testMultipleClassesTemplateInterpolation() throws Exception {
+        String code1 = "package com.example; public class Test1 { @org.junit.jupiter.api.Test void t() {} }";
+        String code2 = "package com.example; public class Test2 { @org.junit.jupiter.api.Test void t() {} }";
+
+        try (var project = InlineTestProjectCreator.empty()
+                .addFileContents(code1, "src/test/java/com/example/Test1.java")
+                .addFileContents(code2, "src/test/java/com/example/Test2.java")
+                .build()) {
+            TestContextManager cm = new TestContextManager(project.getRoot(), new NoOpConsoleIO(), project.getAnalyzer());
+            BuildDetails details = new BuildDetails("", "", "mvn test -Dtest={{#classes}}{{value}}{{^last}},{{/last}}{{/classes}}", Set.of());
+
+            String command = BuildTools.getBuildLintSomeCommand(cm, details, List.copyOf(project.getAllFiles()));
+            assertEquals("mvn test -Dtest=Test1,Test2", command);
         }
     }
 }
