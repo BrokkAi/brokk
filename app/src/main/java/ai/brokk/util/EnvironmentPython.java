@@ -51,26 +51,6 @@ public class EnvironmentPython {
      * We intentionally avoid broad names like "packages", "cache", "vendor", "bin", "obj"
      * that can be legitimate source trees in some projects.
      */
-    private static final Set<String> FALLBACK_SKIP_DIRECTORIES = Set.of(
-            // Python virtual environments and caches
-            ".venv",
-            "venv",
-            "__pycache__",
-            ".pytest_cache",
-            ".mypy_cache",
-            ".tox",
-            // Build tool caches
-            ".gradle",
-            "node_modules",
-            // Common build output directories
-            "build",
-            "dist",
-            "target",
-            "out",
-            "bazel-out",
-            // IDE directories
-            ".idea",
-            ".vscode");
 
     /** Represents a Python major.minor version. */
     private record PyVersion(int major, int minor) {
@@ -349,7 +329,7 @@ public class EnvironmentPython {
                             }
                         } else {
                             // Fallback: skip common artifact/cache/venv directories
-                            if (FALLBACK_SKIP_DIRECTORIES.contains(dirName)) {
+                            if (BuildToolConventions.getAllDefaultExcludedDirectories().contains(dirName)) {
                                 logger.trace("Skipping fallback-excluded directory: {}", relPath);
                                 return FileVisitResult.SKIP_SUBTREE;
                             }

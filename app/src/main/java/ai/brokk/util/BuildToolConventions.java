@@ -1,5 +1,6 @@
 package ai.brokk.util;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -86,5 +87,23 @@ public class BuildToolConventions {
             case DOTNET -> List.of("bin/", "obj/", "packages/");
             default -> List.of();
         };
+    }
+
+    private static final Set<String> IDE_AND_VENV_DIRECTORIES = Set.of(
+            ".venv", "venv", ".idea", ".vscode");
+
+    /**
+     * Returns directory names that should be skipped during file traversal when
+     * git-aware filtering is unavailable. This is the union of all build-system
+     * excludes (with trailing slashes stripped) plus IDE and virtual environment directories.
+     */
+    public static Set<String> getAllDefaultExcludedDirectories() {
+        var result = new HashSet<>(IDE_AND_VENV_DIRECTORIES);
+        for (var system : BuildSystem.values()) {
+            for (var exclude : getDefaultExcludes(system)) {
+                result.add(exclude.endsWith("/") ? exclude.substring(0, exclude.length() - 1) : exclude);
+            }
+        }
+        return Set.copyOf(result);
     }
 }

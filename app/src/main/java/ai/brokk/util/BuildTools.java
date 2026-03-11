@@ -31,6 +31,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
@@ -138,13 +139,13 @@ public class BuildTools {
 
         var project = cm.getProject();
         final Path projectRoot = project.getRoot();
-        String pythonVersion = pythonVersionOverride != null
-                ? pythonVersionOverride
+        var pythonVersion = pythonVersionOverride != null
+                ? Optional.of(pythonVersionOverride)
                 : getPythonVersionForProject(projectRoot, project);
 
         IAnalyzer analyzer = cm.getAnalyzer();
         Map<String, Object> context = new HashMap<>();
-        context.put("pyver", pythonVersion == null ? "" : pythonVersion);
+        context.put("pyver", pythonVersion.orElse(""));
 
         // Always calculate all potential lists to support mixed templates
         // 1. Packages
@@ -193,23 +194,22 @@ public class BuildTools {
         return result;
     }
 
-    private static @Nullable String getPythonVersionForProject(Path projectRoot, @Nullable IProject project) {
-        if (project != null && !project.getAnalyzerLanguages().contains(Languages.PYTHON)) {
-            return null;
+    private static Optional<String> getPythonVersionForProject(Path projectRoot, IProject project) {
+        if (!project.getAnalyzerLanguages().contains(Languages.PYTHON)) {
+            return Optional.empty();
         }
         try {
-            return new EnvironmentPython(projectRoot).getPythonVersion();
+            return Optional.of(new EnvironmentPython(projectRoot).getPythonVersion());
         } catch (Exception e) {
             logger.debug("Unable to determine Python version for project", e);
-            return null;
+            return Optional.empty();
         }
     }
 
-    private static String interpolateCommandWithPythonVersion(
-            String command, Path projectRoot, @Nullable IProject project) {
+    private static String interpolateCommandWithPythonVersion(String command, Path projectRoot, IProject project) {
         if (command.isEmpty()) return command;
         if (System.getenv("BRK_TESTALL_CMD") != null) command = System.getenv("BRK_TESTALL_CMD");
-        String pythonVersion = getPythonVersionForProject(projectRoot, project);
+        var pythonVersion = getPythonVersionForProject(projectRoot, project).orElse(null);
         return interpolateMustacheTemplate(command, List.of(), "unused", pythonVersion);
     }
 
