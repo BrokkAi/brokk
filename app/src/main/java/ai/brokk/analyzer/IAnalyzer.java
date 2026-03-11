@@ -1,5 +1,6 @@
 package ai.brokk.analyzer;
 
+import ai.brokk.AnalyzerUtil;
 import ai.brokk.project.IProject;
 import java.util.ArrayDeque;
 import java.util.Collection;
@@ -161,10 +162,6 @@ public interface IAnalyzer {
      * If cu is a member (function, field), searches for the parent definition.
      */
     default Optional<CodeUnit> parentOf(CodeUnit cu) {
-        if (cu.isClass() || cu.isModule()) {
-            return Optional.of(cu);
-        }
-
         String fqName = cu.fqName();
         int lastIdx = -1;
         // Find the last occurrence among any valid separators
@@ -654,4 +651,19 @@ public interface IAnalyzer {
      * @return set of source code snippets, empty set if none found
      */
     Set<String> getSources(CodeUnit codeUnit, boolean includeComments);
+
+    /**
+     * Converts a collection of project files (typically test files) into a set of relevant
+     * code units (classes or functions) for analysis or testing purposes.
+     *
+     * @param files the files to extract code units from
+     * @return a set of code units found in the files, with inner classes coalesced
+     */
+    default Set<CodeUnit> testFilesToCodeUnits(Collection<ProjectFile> files) {
+        var unitsInFiles = AnalyzerUtil.getTestDeclarationsWithLogging(this, files)
+                .filter(cu -> cu.isClass() || cu.isFunction() || cu.isModule())
+                .collect(Collectors.toSet());
+
+        return AnalyzerUtil.coalesceNestedUnits(this, unitsInFiles);
+    }
 }

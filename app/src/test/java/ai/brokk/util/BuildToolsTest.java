@@ -46,7 +46,12 @@ class BuildToolsTest {
         ProjectFile testFile =
                 new ProjectFile(tempDir, tempDir.relativize(testFilePath).toString());
 
-        TestAnalyzer testAnalyzer = new TestAnalyzer();
+        TestAnalyzer testAnalyzer = new TestAnalyzer() {
+            @Override
+            public Set<ProjectFile> getAnalyzedFiles() {
+                return Set.of(testFile);
+            }
+        };
         CodeUnit testCu = CodeUnit.cls(testFile, "myapp.tests.test_logic", "TestLogic");
         testAnalyzer.addDeclaration(testCu);
         testAnalyzer.setSource(testCu, testFile.toString());
