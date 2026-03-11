@@ -212,10 +212,12 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     public Set<CodeUnit> testFilesToCodeUnits(Collection<ProjectFile> files) {
-        return files.stream()
+        var unitsInFiles = files.stream()
                 .flatMap(file -> getDeclarations(file).stream())
                 .filter(cu -> cu.isClass() || cu.isFunction())
                 .collect(Collectors.toSet());
+
+        return ai.brokk.AnalyzerUtil.coalesceInnerClasses(unitsInFiles);
     }
 
     @Override

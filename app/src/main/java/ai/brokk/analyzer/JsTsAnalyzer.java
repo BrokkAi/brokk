@@ -166,10 +166,12 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
 
     @Override
     public Set<CodeUnit> testFilesToCodeUnits(Collection<ProjectFile> files) {
-        return files.stream()
+        var unitsInFiles = files.stream()
                 .flatMap(file -> getDeclarations(file).stream())
                 .filter(cu -> cu.isClass() || cu.isFunction() || cu.isModule())
                 .collect(Collectors.toSet());
+
+        return ai.brokk.AnalyzerUtil.coalesceInnerClasses(unitsInFiles);
     }
 
     @Override
