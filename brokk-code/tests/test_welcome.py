@@ -109,7 +109,8 @@ async def test_welcome_message_updates_after_pypi_fetch(tmp_path: Path):
 
 @pytest.mark.asyncio
 async def test_show_welcome_message_handles_nomatches_gracefully(tmp_path: Path):
-    """Verify _show_welcome_message does not crash if UI widgets are missing (e.g. during unmount)."""
+    """Verify _show_welcome_message does not crash if UI
+    widgets are missing (e.g. during unmount)."""
     from textual.css.query import NoMatches
 
     mock_executor = MagicMock()
