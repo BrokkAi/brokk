@@ -6,6 +6,7 @@ import ai.brokk.LlmOutputMeta;
 import ai.brokk.agents.BuildAgent.BuildDetails;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
+import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
@@ -77,7 +78,7 @@ public class BuildTools {
             String cmd = System.getenv("BRK_TESTALL_CMD") != null
                     ? System.getenv("BRK_TESTALL_CMD")
                     : details.testAllCommand();
-            return interpolateCommandWithPythonVersion(cmd, cm.getProject().getRoot());
+            return interpolateCommandWithPythonVersion(cmd, cm.getProject());
         }
 
         if (testFilesOverride != null && !testFilesOverride.isEmpty()) {
@@ -101,8 +102,7 @@ public class BuildTools {
                 .toList();
 
         if (workspaceTestFiles.isEmpty()) {
-            return interpolateCommandWithPythonVersion(
-                    details.buildLintCommand(), cm.getProject().getRoot());
+            return interpolateCommandWithPythonVersion(details.buildLintCommand(), cm.getProject());
         }
 
         return getBuildLintSomeCommand(cm, details, workspaceTestFiles);
@@ -134,9 +134,9 @@ public class BuildTools {
             return details.buildLintCommand();
         }
 
-        final Path projectRoot = cm.getProject().getRoot();
+        IProject project = cm.getProject();
         String pythonVersion =
-                pythonVersionOverride != null ? pythonVersionOverride : getPythonVersionForProject(projectRoot);
+                pythonVersionOverride != null ? pythonVersionOverride : getPythonVersionForProject(project);
 
         IAnalyzer analyzer = cm.getAnalyzer();
         Map<String, Object> context = new HashMap<>();
@@ -189,19 +189,26 @@ public class BuildTools {
         return result;
     }
 
-    private static @Nullable String getPythonVersionForProject(Path projectRoot) {
+    private static boolean shouldResolvePythonVersion(IProject project) {
+        return project.getAnalyzerLanguages().contains(Languages.PYTHON);
+    }
+
+    private static @Nullable String getPythonVersionForProject(IProject project) {
+        if (!shouldResolvePythonVersion(project)) {
+            return null;
+        }
         try {
-            return new EnvironmentPython(projectRoot).getPythonVersion();
+            return new EnvironmentPython(project.getRoot()).getPythonVersion();
         } catch (Exception e) {
             logger.debug("Unable to determine Python version for project", e);
             return null;
         }
     }
 
-    private static String interpolateCommandWithPythonVersion(String command, Path projectRoot) {
+    private static String interpolateCommandWithPythonVersion(String command, IProject project) {
         if (command.isEmpty()) return command;
         if (System.getenv("BRK_TESTALL_CMD") != null) command = System.getenv("BRK_TESTALL_CMD");
-        String pythonVersion = getPythonVersionForProject(projectRoot);
+        String pythonVersion = getPythonVersionForProject(project);
         return interpolateMustacheTemplate(command, List.of(), "unused", pythonVersion);
     }
 
