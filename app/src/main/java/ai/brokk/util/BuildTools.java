@@ -201,7 +201,8 @@ public class BuildTools {
         }
         try {
             var matcher = FileFilteringService.createPatternMatcher(project.getExclusionPatterns());
-            return Optional.of(new EnvironmentPython(projectRoot, matcher.isEmpty() ? null : matcher).getPythonVersion());
+            return Optional.of(
+                    new EnvironmentPython(projectRoot, matcher.isEmpty() ? null : matcher).getPythonVersion());
         } catch (Exception e) {
             logger.debug("Unable to determine Python version for project", e);
             return Optional.empty();

@@ -1,8 +1,9 @@
 package ai.brokk.util;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import ai.brokk.agents.BuildAgent.BuildDetails;
 import ai.brokk.analyzer.CodeUnit;
@@ -138,45 +139,82 @@ class BuildToolsTest {
 
     @Test
     void testProjectExclusionPatternsArePassedToEnvironmentPython(@TempDir Path tempDir) throws Exception {
-        // Create a Python file with distutils in an excluded directory
-        Path excludedDir = tempDir.resolve("legacy");
-        Files.createDirectories(excludedDir);
-        Files.writeString(excludedDir.resolve("old_setup.py"), "from distutils.core import setup\n");
-
-        // Create a normal Python file without distutils
-        Path srcDir = tempDir.resolve("src");
-        Files.createDirectories(srcDir);
-        Files.writeString(srcDir.resolve("main.py"), "print('hello')\n");
-
-        // Create pyproject.toml so Python version detection has a known spec
-        Files.writeString(tempDir.resolve("pyproject.toml"), "[project]\nrequires-python = \">=3.8\"\n");
-
-        // Create a TestProject configured as Python with "legacy" excluded
-        TestProject project = new TestProject(tempDir);
-        project.setAnalyzerLanguages(Set.of(Languages.PYTHON));
-        project.setExclusionPatterns(Set.of("legacy"));
-
-        TestAnalyzer testAnalyzer = new TestAnalyzer();
-        TestContextManager mockCm = new TestContextManager(project, new NoOpConsoleIO(), Set.of(), testAnalyzer);
-
         // Template that uses {{pyver}}
         BuildDetails details =
                 new BuildDetails("python -m compileall .", "pytest", "pytest --python={{pyver}}", Set.of());
 
-        ProjectFile testFile = new ProjectFile(tempDir, "src/test_main.py");
+        // BASELINE: pyproject + normal Python source, NO distutils file
+        Path baselineDir = tempDir.resolve("baseline");
+        Files.createDirectories(baselineDir);
+        Files.writeString(baselineDir.resolve("pyproject.toml"), "[project]\nrequires-python = \">=3.8\"\n");
+        Path baselineSrc = baselineDir.resolve("src");
+        Files.createDirectories(baselineSrc);
+        Files.writeString(baselineSrc.resolve("main.py"), "print('hello')\n");
 
-        // Use the PUBLIC API - this exercises the real code path where project exclusions
-        // should be passed from context manager through to EnvironmentPython
-        String result = BuildTools.getBuildLintSomeCommand(mockCm, details, List.of(testFile));
+        TestProject baselineProject = new TestProject(baselineDir);
+        baselineProject.setAnalyzerLanguages(Set.of(Languages.PYTHON));
+        TestContextManager baselineCm =
+                new TestContextManager(baselineProject, new NoOpConsoleIO(), Set.of(), new TestAnalyzer());
+        String baselineResult = BuildTools.getBuildLintSomeCommand(
+                baselineCm, details, List.of(new ProjectFile(baselineDir, "src/test_main.py")));
 
-        // Since "legacy" is excluded, the distutils import there should NOT cap to 3.11
-        // The result should have a Python version that is NOT capped (could be 3.12+)
-        // We verify by checking pyver is NOT "3.11" (assuming 3.12+ is available)
-        // If only 3.11 is installed, the test still passes as the exclusion logic is correct
-        assertFalse(
-                result.contains("--python=3.11") && result.contains("--python=3.10"),
-                "Project exclusion patterns should prevent distutils detection in excluded dirs");
-        assertTrue(result.startsWith("pytest --python="), "Should interpolate Python version template");
+        // CONTROL: identical to baseline but with legacy/old_setup.py importing distutils, NO exclusion
+        Path controlDir = tempDir.resolve("control");
+        Files.createDirectories(controlDir);
+        Files.writeString(controlDir.resolve("pyproject.toml"), "[project]\nrequires-python = \">=3.8\"\n");
+        Path controlSrc = controlDir.resolve("src");
+        Files.createDirectories(controlSrc);
+        Files.writeString(controlSrc.resolve("main.py"), "print('hello')\n");
+        Path controlLegacy = controlDir.resolve("legacy");
+        Files.createDirectories(controlLegacy);
+        Files.writeString(controlLegacy.resolve("old_setup.py"), "from distutils.core import setup\n");
+
+        TestProject controlProject = new TestProject(controlDir);
+        controlProject.setAnalyzerLanguages(Set.of(Languages.PYTHON));
+        controlProject.setExclusionPatterns(Set.of());
+        TestContextManager controlCm =
+                new TestContextManager(controlProject, new NoOpConsoleIO(), Set.of(), new TestAnalyzer());
+        String controlResult = BuildTools.getBuildLintSomeCommand(
+                controlCm, details, List.of(new ProjectFile(controlDir, "src/test_main.py")));
+
+        // EXCLUDED: same as control but with "legacy" excluded
+        Path excludedDir = tempDir.resolve("excluded");
+        Files.createDirectories(excludedDir);
+        Files.writeString(excludedDir.resolve("pyproject.toml"), "[project]\nrequires-python = \">=3.8\"\n");
+        Path excludedSrc = excludedDir.resolve("src");
+        Files.createDirectories(excludedSrc);
+        Files.writeString(excludedSrc.resolve("main.py"), "print('hello')\n");
+        Path excludedLegacy = excludedDir.resolve("legacy");
+        Files.createDirectories(excludedLegacy);
+        Files.writeString(excludedLegacy.resolve("old_setup.py"), "from distutils.core import setup\n");
+
+        TestProject excludedProject = new TestProject(excludedDir);
+        excludedProject.setAnalyzerLanguages(Set.of(Languages.PYTHON));
+        excludedProject.setExclusionPatterns(Set.of("legacy"));
+        TestContextManager excludedCm =
+                new TestContextManager(excludedProject, new NoOpConsoleIO(), Set.of(), new TestAnalyzer());
+        String excludedResult = BuildTools.getBuildLintSomeCommand(
+                excludedCm, details, List.of(new ProjectFile(excludedDir, "src/test_main.py")));
+
+        // All three should interpolate the template
+        assertTrue(baselineResult.startsWith("pytest --python="), "Baseline should interpolate Python version");
+        assertTrue(controlResult.startsWith("pytest --python="), "Control should interpolate Python version");
+        assertTrue(excludedResult.startsWith("pytest --python="), "Excluded should interpolate Python version");
+
+        // With exclusion, result should match baseline (no distutils detected)
+        assertEquals(
+                baselineResult, excludedResult, "With exclusion, result should match baseline (no distutils detected)");
+
+        // Guard for environments without Python 3.12+: if baseline equals control, skip the difference assertion
+        assumeTrue(
+                !baselineResult.equals(controlResult),
+                "Skipping control != excluded assertion: no Python > 3.11 available to demonstrate the difference");
+
+        // Verify control differs from excluded (the exclusion made a difference)
+        assertNotEquals(
+                controlResult,
+                excludedResult,
+                "Exclusion pattern should change Python version selection by skipping distutils in excluded dir");
     }
 
     @Test
