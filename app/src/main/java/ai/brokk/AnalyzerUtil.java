@@ -70,6 +70,24 @@ public class AnalyzerUtil {
     }
 
     /**
+     * Filters a set of code units to remove nested units whose parent (class or module)
+     * is already present in the set. This is used to avoid redundant test targets.
+     */
+    public static Set<CodeUnit> coalesceNestedUnits(IAnalyzer analyzer, Set<CodeUnit> units) {
+        return units.stream()
+                .filter(cu -> {
+                    Optional<CodeUnit> parentOpt = analyzer.parentOf(cu);
+                    if (parentOpt.isEmpty()) {
+                        return true;
+                    }
+                    CodeUnit parent = parentOpt.get();
+                    // If the parent is a different unit and is already in our set, exclude the child.
+                    return parent.equals(cu) || !units.contains(parent);
+                })
+                .collect(Collectors.toSet());
+    }
+
+    /**
      * Returns a stream of declarations from the given files, logging warnings if files are missing from the analyzer
      * or contain no code units.
      */

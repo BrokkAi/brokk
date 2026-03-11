@@ -2,17 +2,14 @@ package ai.brokk.analyzer;
 
 import static ai.brokk.analyzer.rust.RustTreeSitterNodeTypes.*;
 
-import ai.brokk.AnalyzerUtil;
 import ai.brokk.analyzer.cache.AnalyzerCache;
 import ai.brokk.project.IProject;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.stream.Collectors;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -447,15 +444,6 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
     @Override
     protected Set<String> getLeadingMetadataNodeTypes() {
         return Set.of(ATTRIBUTE_ITEM, INNER_ATTRIBUTE);
-    }
-
-    @Override
-    public Set<CodeUnit> testFilesToCodeUnits(Collection<ProjectFile> files) {
-        var unitsInFiles = AnalyzerUtil.getTestDeclarationsWithLogging(this, files)
-                .filter(cu -> cu.isModule() || cu.isClass() || cu.isFunction())
-                .collect(Collectors.toSet());
-
-        return AnalyzerUtil.coalesceInnerClasses(unitsInFiles);
     }
 
     @Override

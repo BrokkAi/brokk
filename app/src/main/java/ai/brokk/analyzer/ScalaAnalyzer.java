@@ -217,7 +217,7 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer {
                 .filter(cu -> cu.isClass() || cu.isFunction())
                 .collect(Collectors.toSet());
 
-        return AnalyzerUtil.coalesceInnerClasses(unitsInFiles);
+        return AnalyzerUtil.coalesceNestedUnits(this, unitsInFiles);
     }
 
     @Override

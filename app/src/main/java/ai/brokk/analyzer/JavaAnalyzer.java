@@ -1489,7 +1489,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPr
                 .filter(CodeUnit::isClass)
                 .collect(Collectors.toSet());
 
-        return AnalyzerUtil.coalesceInnerClasses(unitsInFiles);
+        return AnalyzerUtil.coalesceNestedUnits(this, unitsInFiles);
     }
 
     @Override

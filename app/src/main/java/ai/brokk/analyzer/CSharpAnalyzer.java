@@ -356,7 +356,7 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
                 .filter(CodeUnit::isClass)
                 .collect(Collectors.toSet());
 
-        return AnalyzerUtil.coalesceInnerClasses(unitsInFiles);
+        return AnalyzerUtil.coalesceNestedUnits(this, unitsInFiles);
     }
 
     @Override

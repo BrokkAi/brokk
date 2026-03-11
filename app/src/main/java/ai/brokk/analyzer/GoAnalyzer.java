@@ -2,7 +2,6 @@ package ai.brokk.analyzer;
 
 import static ai.brokk.analyzer.go.GoTreeSitterNodeTypes.*;
 
-import ai.brokk.AnalyzerUtil;
 import ai.brokk.analyzer.cache.AnalyzerCache;
 import ai.brokk.project.IProject;
 import com.github.benmanes.caffeine.cache.Cache;
@@ -856,15 +855,6 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
         String lastToken =
                 lastSpace == -1 ? prefix : prefix.substring(lastSpace).trim();
         return "_".equals(lastToken);
-    }
-
-    @Override
-    public Set<CodeUnit> testFilesToCodeUnits(Collection<ProjectFile> files) {
-        var unitsInFiles = AnalyzerUtil.getTestDeclarationsWithLogging(this, files)
-                .filter(cu -> cu.isModule() || cu.isClass() || cu.isFunction())
-                .collect(java.util.stream.Collectors.toSet());
-
-        return AnalyzerUtil.coalesceInnerClasses(unitsInFiles);
     }
 
     @Override
