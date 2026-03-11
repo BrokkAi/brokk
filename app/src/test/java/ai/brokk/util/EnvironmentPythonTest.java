@@ -19,20 +19,22 @@ public class EnvironmentPythonTest {
     @TempDir
     Path tempDir;
 
-    private static void assertVersionCappedAt311(String version) {
-        var parts = version.split("\\.");
-        int major = Integer.parseInt(parts[0]);
-        int minor = Integer.parseInt(parts[1]);
-        assertTrue(
-                major < 3 || (major == 3 && minor <= 11),
-                "distutils import should cap version at 3.11, got " + version);
+    /** The highest version in EnvironmentPython's candidate list when NOT capped. */
+    private static final String UNCAPPED_VERSION = "3.13";
+    /** The highest version in EnvironmentPython's candidate list when capped at 3.11. */
+    private static final String CAPPED_VERSION = "3.11";
+
+    /** Predicate that treats all Python versions as available, for deterministic testing. */
+    private static boolean allVersionsAvailable(String version) {
+        return true;
     }
 
-    private static void assertVersionNotCappedAt311(String version) {
-        var parts = version.split("\\.");
-        int major = Integer.parseInt(parts[0]);
-        int minor = Integer.parseInt(parts[1]);
-        assertTrue(major >= 3 && minor >= 0, "Should return a valid Python version, got " + version);
+    private EnvironmentPython createTestEnvPython(Path projectRoot) {
+        return new EnvironmentPython(projectRoot, null, EnvironmentPythonTest::allVersionsAvailable);
+    }
+
+    private EnvironmentPython createTestEnvPython(Path projectRoot, FileFilteringService.FilePatternMatcher matcher) {
+        return new EnvironmentPython(projectRoot, matcher, EnvironmentPythonTest::allVersionsAvailable);
     }
 
     @Test
@@ -53,8 +55,8 @@ public class EnvironmentPythonTest {
                     .call();
         }
 
-        var version = new EnvironmentPython(repoPath).getPythonVersion();
-        assertVersionCappedAt311(version);
+        var version = createTestEnvPython(repoPath).getPythonVersion();
+        assertEquals(CAPPED_VERSION, version, "Tracked distutils import should cap version at 3.11");
     }
 
     @Test
@@ -64,8 +66,8 @@ public class EnvironmentPythonTest {
 
         Files.writeString(projectPath.resolve("setup.py"), "from distutils.core import setup\nsetup(name='test')\n");
 
-        var version = new EnvironmentPython(projectPath).getPythonVersion();
-        assertVersionCappedAt311(version);
+        var version = createTestEnvPython(projectPath).getPythonVersion();
+        assertEquals(CAPPED_VERSION, version, "Non-git distutils import should cap version at 3.11");
     }
 
     @Test
@@ -75,8 +77,8 @@ public class EnvironmentPythonTest {
 
         Files.writeString(projectPath.resolve("util.py"), "import distutils\nimport distutils.util\n");
 
-        var version = new EnvironmentPython(projectPath).getPythonVersion();
-        assertVersionCappedAt311(version);
+        var version = createTestEnvPython(projectPath).getPythonVersion();
+        assertEquals(CAPPED_VERSION, version, "'import distutils' pattern should cap version at 3.11");
     }
 
     @Test
@@ -101,8 +103,9 @@ public class EnvironmentPythonTest {
                     .call();
         }
 
-        var version = new EnvironmentPython(repoPath).getPythonVersion();
-        assertVersionCappedAt311(version);
+        var version = createTestEnvPython(repoPath).getPythonVersion();
+        // important.py is un-ignored via negation, so distutils is detected
+        assertEquals(CAPPED_VERSION, version, "Gitignore negation should allow distutils detection");
     }
 
     @Test
@@ -114,8 +117,8 @@ public class EnvironmentPythonTest {
         Files.createDirectories(srcDir);
         Files.writeString(srcDir.resolve("setup_helper.py"), "from distutils.core import setup\n");
 
-        var version = new EnvironmentPython(projectPath).getPythonVersion();
-        assertVersionCappedAt311(version);
+        var version = createTestEnvPython(projectPath).getPythonVersion();
+        assertEquals(CAPPED_VERSION, version, "Real source distutils import should cap version at 3.11");
     }
 
     // ===== Project Exclusion Pattern Tests =====
@@ -134,8 +137,8 @@ public class EnvironmentPythonTest {
         Files.writeString(srcDir.resolve("main.py"), "print('hello')\n");
 
         var matcher = FileFilteringService.createPatternMatcher(Set.of("legacy_scripts"));
-        var version = new EnvironmentPython(projectPath, matcher).getPythonVersion();
-        assertVersionNotCappedAt311(version);
+        var version = createTestEnvPython(projectPath, matcher).getPythonVersion();
+        assertEquals(UNCAPPED_VERSION, version, "Distutils in excluded directory should not cap version");
     }
 
     @Test
@@ -149,8 +152,8 @@ public class EnvironmentPythonTest {
         Files.writeString(srcDir.resolve("main.py"), "print('hello')\n");
 
         var matcher = FileFilteringService.createPatternMatcher(Set.of("*_setup.py"));
-        var version = new EnvironmentPython(projectPath, matcher).getPythonVersion();
-        assertVersionNotCappedAt311(version);
+        var version = createTestEnvPython(projectPath, matcher).getPythonVersion();
+        assertEquals(UNCAPPED_VERSION, version, "Distutils in excluded file pattern should not cap version");
     }
 
     @Test
@@ -167,8 +170,8 @@ public class EnvironmentPythonTest {
         Files.writeString(excludedDir.resolve("other.py"), "print('vendor')\n");
 
         var matcher = FileFilteringService.createPatternMatcher(Set.of("vendor"));
-        var version = new EnvironmentPython(projectPath, matcher).getPythonVersion();
-        assertVersionCappedAt311(version);
+        var version = createTestEnvPython(projectPath, matcher).getPythonVersion();
+        assertEquals(CAPPED_VERSION, version, "Non-excluded distutils should still cap version");
     }
 
     @Test
@@ -181,8 +184,8 @@ public class EnvironmentPythonTest {
         Files.writeString(srcDir.resolve("setup_helper.py"), "from distutils.core import setup\n");
 
         var matcher = FileFilteringService.createPatternMatcher(Set.of());
-        var version = new EnvironmentPython(projectPath, matcher).getPythonVersion();
-        assertVersionCappedAt311(version);
+        var version = createTestEnvPython(projectPath, matcher).getPythonVersion();
+        assertEquals(CAPPED_VERSION, version, "Empty exclusion patterns should not change capping behavior");
     }
 
     @Test
@@ -215,7 +218,90 @@ public class EnvironmentPythonTest {
         }
 
         var matcher = FileFilteringService.createPatternMatcher(Set.of("vendor"));
-        var version = new EnvironmentPython(repoPath, matcher).getPythonVersion();
-        assertVersionNotCappedAt311(version);
+        var version = createTestEnvPython(repoPath, matcher).getPythonVersion();
+        assertEquals(UNCAPPED_VERSION, version, "Gitignore + project exclusion should skip all distutils");
+    }
+
+    // ===== Gitignored path tests =====
+
+    @Test
+    void testGitignoredDistutilsDoesNotCapVersion() throws Exception {
+        Path repoPath = tempDir.resolve("gitignored-distutils");
+        Files.createDirectories(repoPath);
+
+        try (Git git = Git.init().setDirectory(repoPath.toFile()).call()) {
+            Files.writeString(repoPath.resolve(".gitignore"), "generated/\n");
+            git.add().addFilepattern(".gitignore").call();
+
+            Path generatedDir = repoPath.resolve("generated");
+            Files.createDirectories(generatedDir);
+            Files.writeString(generatedDir.resolve("setup.py"), "from distutils.core import setup\n");
+
+            Path srcDir = repoPath.resolve("src");
+            Files.createDirectories(srcDir);
+            Files.writeString(srcDir.resolve("main.py"), "print('hello')\n");
+            git.add().addFilepattern("src/main.py").call();
+
+            git.commit()
+                    .setMessage("Initial commit")
+                    .setAuthor("Test", "test@example.com")
+                    .setSign(false)
+                    .call();
+        }
+
+        var version = createTestEnvPython(repoPath).getPythonVersion();
+        assertEquals(UNCAPPED_VERSION, version, "Distutils in gitignored directory should not cap version");
+    }
+
+    // ===== Fallback pruning tests =====
+
+    @Test
+    void testFallbackPrunedDirectoryDoesNotCapVersion() throws Exception {
+        // Non-git project with distutils only in a fallback-pruned directory
+        Path projectPath = tempDir.resolve("fallback-pruned");
+        Files.createDirectories(projectPath);
+
+        // .gradle is in FALLBACK_SKIP_DIRECTORIES
+        Path gradleDir = projectPath.resolve(".gradle");
+        Files.createDirectories(gradleDir);
+        Files.writeString(gradleDir.resolve("setup.py"), "from distutils.core import setup\n");
+
+        Path srcDir = projectPath.resolve("src");
+        Files.createDirectories(srcDir);
+        Files.writeString(srcDir.resolve("main.py"), "print('hello')\n");
+
+        var version = createTestEnvPython(projectPath).getPythonVersion();
+        assertEquals(UNCAPPED_VERSION, version, "Distutils in fallback-pruned directory should not cap version");
+    }
+
+    @Test
+    void testFallbackPrunedNodeModulesDoesNotCapVersion() throws Exception {
+        Path projectPath = tempDir.resolve("fallback-node-modules");
+        Files.createDirectories(projectPath);
+
+        Path nodeModulesDir = projectPath.resolve("node_modules");
+        Files.createDirectories(nodeModulesDir);
+        Files.writeString(nodeModulesDir.resolve("some_tool.py"), "import distutils\n");
+
+        Path srcDir = projectPath.resolve("src");
+        Files.createDirectories(srcDir);
+        Files.writeString(srcDir.resolve("app.py"), "print('app')\n");
+
+        var version = createTestEnvPython(projectPath).getPythonVersion();
+        assertEquals(UNCAPPED_VERSION, version, "Distutils in node_modules should not cap version");
+    }
+
+    @Test
+    void testNoDistutilsReturnsUncappedVersion() throws Exception {
+        Path projectPath = tempDir.resolve("no-distutils");
+        Files.createDirectories(projectPath);
+
+        Path srcDir = projectPath.resolve("src");
+        Files.createDirectories(srcDir);
+        Files.writeString(srcDir.resolve("main.py"), "print('hello')\n");
+        Files.writeString(srcDir.resolve("utils.py"), "import os\nimport sys\n");
+
+        var version = createTestEnvPython(projectPath).getPythonVersion();
+        assertEquals(UNCAPPED_VERSION, version, "Project without distutils should not be capped");
     }
 }

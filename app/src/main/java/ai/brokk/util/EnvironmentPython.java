@@ -4,6 +4,7 @@ import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitRepoFactory;
 import ai.brokk.project.FileFilteringService;
 import ai.brokk.project.FileFilteringService.FilePatternMatcher;
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Splitter;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -17,6 +18,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Predicate;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -86,14 +88,31 @@ public class EnvironmentPython {
 
     private final Path projectRoot;
     private final @Nullable FilePatternMatcher exclusionMatcher;
+    private final Predicate<String> pythonExecutableChecker;
 
     public EnvironmentPython(Path projectRoot) {
-        this(projectRoot, null);
+        this(projectRoot, (FilePatternMatcher) null);
     }
 
-    public EnvironmentPython(Path projectRoot, @Nullable FilePatternMatcher exclusionMatcher) {
+    EnvironmentPython(Path projectRoot, @Nullable FilePatternMatcher exclusionMatcher) {
+        this(projectRoot, exclusionMatcher, EnvironmentPython::checkPythonExecutable);
+    }
+
+    /**
+     * Test constructor that allows controlling which Python versions appear "installed".
+     *
+     * @param projectRoot the project root path
+     * @param exclusionMatcher optional matcher for project exclusion patterns
+     * @param pythonExecutableChecker predicate that returns true if a given version (e.g. "3.12") is available
+     */
+    @VisibleForTesting
+    EnvironmentPython(
+            Path projectRoot,
+            @Nullable FilePatternMatcher exclusionMatcher,
+            Predicate<String> pythonExecutableChecker) {
         this.projectRoot = projectRoot;
         this.exclusionMatcher = exclusionMatcher;
+        this.pythonExecutableChecker = pythonExecutableChecker;
     }
 
     /**
@@ -509,6 +528,11 @@ public class EnvironmentPython {
 
     /** Check if a Python executable of the given version exists. */
     private boolean pythonExecutableExists(String version) {
+        return pythonExecutableChecker.test(version);
+    }
+
+    /** Default implementation that actually checks for Python executables on PATH. */
+    private static boolean checkPythonExecutable(String version) {
         try {
             var process = new ProcessBuilder("python" + version, "--version")
                     .redirectErrorStream(true)
