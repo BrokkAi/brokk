@@ -4,9 +4,7 @@ import ai.brokk.IConsoleIO;
 import ai.brokk.TaskResult;
 import ai.brokk.agents.BuildAgent;
 import ai.brokk.analyzer.*;
-import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.gui.Chrome;
-import ai.brokk.gui.SwingUtil;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
@@ -1085,11 +1083,18 @@ public class SettingsProjectBuildPanel extends JPanel {
     }
 
     private void updateJdkControlsVisibility(@Nullable Language selected) {
-        LoggingFuture.supplyAsync(() -> Languages.isJvmLanguage(selected))
-                .thenAccept(isJvmVisible -> SwingUtil.runOnEdt(() -> {
-                    setJavaHomeCheckbox.setVisible(isJvmVisible);
-                    jdkSelector.setVisible(isJvmVisible);
-                }));
+        boolean isJvmVisible = Languages.isJvmLanguage(selected);
+
+        Runnable apply = () -> {
+            setJavaHomeCheckbox.setVisible(isJvmVisible);
+            jdkSelector.setVisible(isJvmVisible);
+        };
+
+        if (SwingUtilities.isEventDispatchThread()) {
+            apply.run();
+        } else {
+            SwingUtilities.invokeLater(apply);
+        }
     }
 
     private Map<String, String> computeEnvFromUi() {
