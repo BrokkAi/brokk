@@ -10,6 +10,8 @@ import ai.brokk.analyzer.ExternalFile;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.concurrent.ComputedValue;
 import ai.brokk.util.Lines;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import java.io.IOException;
 import java.time.Duration;
 import java.util.*;
@@ -32,6 +34,14 @@ import org.jetbrains.annotations.Nullable;
  */
 public interface ContextFragment {
     Logger logger = LogManager.getLogger(ContextFragment.class);
+
+    Cache<String, Integer> lineCountCache =
+            Caffeine.newBuilder().maximumSize(1000).build();
+
+    @Blocking
+    default int lineCount() {
+        return lineCountCache.get(id(), k -> Lines.count(text().join()));
+    }
 
     @Blocking
     default boolean contentEquals(ContextFragment other) {
@@ -167,8 +177,8 @@ public interface ContextFragment {
     default String formatToc(boolean isPinned) {
         String idOrPinned = isPinned ? "pinned=\"true\"" : "fragmentid=\"%s\"".formatted(id());
         return """
-                <fragment-toc description="%s" %s />"""
-                .formatted(description().join(), idOrPinned);
+                <fragment-toc description="%s" loc="%d" %s />"""
+                .formatted(description().join(), lineCount(), idOrPinned);
     }
 
     default boolean isText() {
