@@ -153,6 +153,11 @@ public interface IContextManager {
         throw new UnsupportedOperationException();
     }
 
+    /** Returns whether successful task execution should auto-commit repository changes. */
+    default boolean isAutoCommit() {
+        return true;
+    }
+
     /**
      * Returns the live, unfrozen context that we can edit.
      *

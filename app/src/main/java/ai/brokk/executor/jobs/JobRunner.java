@@ -319,6 +319,7 @@ public final class JobRunner {
             }
         });
         final var previousIo = cm.getIo();
+        final var previousAutoCommit = cm.isAutoCommit();
         cm.setIo(console);
         logger.info("Job {} attaching streaming console", jobId);
 
@@ -449,6 +450,7 @@ public final class JobRunner {
                         codeModelNameForLog);
 
                 // Execute within submitLlmAction to honor cancellation semantics
+                cm.setAutoCommit(spec.autoCommit());
                 cm.submitLlmAction(() -> {
                             if (cancelled.get()) {
                                 logger.info("Job {} execution cancelled by user", jobId);
@@ -1226,6 +1228,7 @@ public final class JobRunner {
                 // Restore original console. HeadlessHttpConsole is installed only for the job duration so that
                 // all ContextManager/agents IConsoleIO callbacks flow to the JobStore; then the previous console is
                 // restored.
+                cm.setAutoCommit(previousAutoCommit);
                 cm.setIo(previousIo);
                 activeJobId = null;
                 logger.info("Job {} execution ended", jobId);
