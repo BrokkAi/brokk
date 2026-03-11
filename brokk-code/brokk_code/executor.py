@@ -768,7 +768,16 @@ class ExecutorManager:
                 # Force status check on next loop if we are idling
                 last_status_check = 0.0
 
-        # Yield a synthetic STATE_CHANGE so consumers know the final state
+        # Final status fetch to guarantee we emit the true terminal state
+        try:
+            final_resp = await self._http_client.get(f"/v1/jobs/{job_id}")
+            final_resp.raise_for_status()
+            final_data = final_resp.json()
+            if isinstance(final_data, dict):
+                state = final_data.get("state", state)
+        except Exception:
+            pass  # fall back to last known state
+
         yield {"type": "STATE_CHANGE", "data": {"state": state}}
 
     async def _handle_http_error(self, e: httpx.HTTPError, endpoint: str) -> None:

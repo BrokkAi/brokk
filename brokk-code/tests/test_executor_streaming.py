@@ -56,6 +56,7 @@ async def test_stream_events_polling_logic():
         empty_events,  # Loop 2 Events (terminal drain 1)
         empty_events,  # Loop 3 Events (terminal drain 2)
         empty_events,  # Loop 4 Events (terminal drain 3 -> exit)
+        status_completed,  # Final status fetch before synthetic yield
     ]
 
     # Use a small sleep to speed up test
@@ -128,6 +129,7 @@ async def test_stream_events_adaptive_backoff():
         empty_events,  # Iter 3: terminal drain 1
         empty_events,  # terminal drain 2
         empty_events,  # terminal drain 3 -> exit
+        status_completed,  # Final status fetch before synthetic yield
     ]
 
     with (
@@ -190,6 +192,7 @@ async def test_stream_events_drains_terminal_race_and_yields_late_notification()
         empty_events,  # terminal drain 1 after late event
         empty_events,  # terminal drain 2
         empty_events,  # terminal drain 3 -> exit
+        status_completed,  # Final status fetch before synthetic yield
     ]
 
     with (

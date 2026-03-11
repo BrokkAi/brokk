@@ -9,6 +9,7 @@ from typing import Any, Awaitable, Callable, Optional
 from urllib.parse import unquote, urlparse
 
 from brokk_code import __version__
+from brokk_code.event_utils import safe_data
 from brokk_code.executor import ExecutorError, ExecutorManager
 from brokk_code.settings import Settings
 from brokk_code.widgets.token_bar import get_token_bar_markdown
@@ -469,8 +470,8 @@ def map_executor_event_to_session_update(
 ) -> Optional[Any]:
     """Map executor events into clean ACP message or thought updates."""
     event_type = event.get("type")
-    data = event.get("data") or {}
-    if not isinstance(data, dict):
+    data = safe_data(event)
+    if not data:
         return None
 
     match event_type:

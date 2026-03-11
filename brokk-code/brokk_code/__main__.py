@@ -14,7 +14,7 @@ from typing import Any, Iterator
 
 from rich.console import Console
 
-from brokk_code.event_utils import is_failure_state
+from brokk_code.event_utils import is_failure_state, safe_data
 from brokk_code.executor import (
     BUNDLED_EXECUTOR_VERSION,
     ExecutorError,
@@ -720,7 +720,10 @@ async def run_pr_review_job(
     spinner_enabled = sys.stdout.isatty() and not verbose
 
     def _extract_message(event: dict[str, Any]) -> str:
-        data = event.get("data") or {}
+        raw = event.get("data")
+        if isinstance(raw, str):
+            return raw.strip()
+        data = safe_data(event)
         for key in ("message", "text", "detail", "error"):
             value = data.get(key)
             if isinstance(value, str) and value.strip():
@@ -795,7 +798,7 @@ async def run_pr_review_job(
         async for event in manager.stream_events(job_id):
             _render_spinner()
             event_type = event.get("type")
-            data = event.get("data") or {}
+            data = safe_data(event)
             if event_type == "NOTIFICATION":
                 message = _extract_message(event)
                 if not message:
@@ -910,7 +913,10 @@ async def run_headless_job(
     spinner_enabled = sys.stdout.isatty() and not verbose
 
     def _extract_message(event: dict[str, Any]) -> str:
-        data = event.get("data") or {}
+        raw = event.get("data")
+        if isinstance(raw, str):
+            return raw.strip()
+        data = safe_data(event)
         for key in ("message", "text", "detail", "error"):
             value = data.get(key)
             if isinstance(value, str) and value.strip():
@@ -943,7 +949,7 @@ async def run_headless_job(
     def _record_issue_url_from_structured_issue_created(event: dict[str, Any]) -> None:
         if created_issue_url:
             return
-        data = event.get("data") or {}
+        data = safe_data(event)
         issue_url = data.get("issueUrl")
         if isinstance(issue_url, str) and issue_url.strip():
             _record_issue_url(issue_url.strip())
@@ -1019,7 +1025,7 @@ async def run_headless_job(
         async for event in manager.stream_events(job_id):
             _render_spinner()
             event_type = event.get("type")
-            data = event.get("data") or {}
+            data = safe_data(event)
             if event_type == "NOTIFICATION":
                 message = _extract_message(event)
                 if not message:
