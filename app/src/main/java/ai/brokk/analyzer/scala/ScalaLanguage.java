@@ -2,13 +2,13 @@ package ai.brokk.analyzer.scala;
 
 import ai.brokk.analyzer.CodeUnitType;
 import ai.brokk.analyzer.IAnalyzer;
-import ai.brokk.analyzer.Language;
+import ai.brokk.analyzer.JvmLanguage;
 import ai.brokk.analyzer.ScalaAnalyzer;
 import ai.brokk.analyzer.TreeSitterStateIO;
 import ai.brokk.project.IProject;
 import java.util.Set;
 
-public class ScalaLanguage implements Language {
+public class ScalaLanguage implements JvmLanguage {
 
     private final Set<String> extensions = Set.of("scala");
 
@@ -61,7 +61,7 @@ public class ScalaLanguage implements Language {
                     "\\bimport\\s+.*\\.$ident\\b" // import statements
                     );
         }
-        return Language.super.getSearchPatterns(type);
+        return JvmLanguage.super.getSearchPatterns(type);
     }
 
     @Override

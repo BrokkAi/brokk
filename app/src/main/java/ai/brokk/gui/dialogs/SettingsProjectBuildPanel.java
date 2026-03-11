@@ -3,11 +3,7 @@ package ai.brokk.gui.dialogs;
 import ai.brokk.IConsoleIO;
 import ai.brokk.TaskResult;
 import ai.brokk.agents.BuildAgent;
-import ai.brokk.analyzer.IAnalyzer;
-import ai.brokk.analyzer.JvmBasedAnalyzer;
-import ai.brokk.analyzer.Language;
-import ai.brokk.analyzer.Languages;
-import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.analyzer.*;
 import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.SwingUtil;
@@ -1082,34 +1078,19 @@ public class SettingsProjectBuildPanel extends JPanel {
         jdkSelector.loadJdksAsync(effectiveJdk);
     }
 
-    private void scheduleJdkControlsUpdate() {
-        LoggingFuture.supplyAsync(() -> findLanguagesInProject().stream().anyMatch(this::isJvmLanguage))
+    private void updateJdkControlsVisibility(@Nullable Language selected) {
+        LoggingFuture.supplyAsync(() -> Languages.isJvmLanguage(selected))
                 .thenAccept(isJvmVisible -> SwingUtil.runOnEdt(() -> {
                     setJavaHomeCheckbox.setVisible(isJvmVisible);
                     jdkSelector.setVisible(isJvmVisible);
                 }));
     }
 
-    private void updateJdkControlsVisibility(@Nullable Language selected) {
-        scheduleJdkControlsUpdate();
-    }
-
-    private boolean isJvmLanguage(Language language) {
-        if (language == Languages.NONE) return false;
-        try {
-            IAnalyzer analyzer = language.createAnalyzer(project);
-            return analyzer instanceof JvmBasedAnalyzer;
-        } catch (Exception e) {
-            logger.debug("Could not instantiate analyzer for {} to check JvmBased capability", language.name(), e);
-            return false;
-        }
-    }
-
     private Map<String, String> computeEnvFromUi() {
         var env = new HashMap<String, String>();
         var selected = (Language) primaryLanguageComboBox.getSelectedItem();
 
-        if (isJvmLanguage(selected != null ? selected : Languages.NONE)) {
+        if (Languages.isJvmLanguage(selected)) {
             if (setJavaHomeCheckbox.isSelected()) {
                 String sel = jdkSelector.getSelectedJdkPath();
                 if (sel != null && !sel.isBlank()) {

@@ -466,6 +466,18 @@ public class Languages {
     public static final List<Language> ALL_LANGUAGES =
             List.of(C_SHARP, JAVA, JAVASCRIPT, PYTHON, C_CPP, GO, RUST, PHP, TYPESCRIPT, SCALA, SQL, NONE);
 
+    public static boolean isJvmLanguage(@Nullable Language language) {
+        if (language == null || language == NONE) return false;
+
+        if (language instanceof JvmLanguage) return true;
+
+        if (language instanceof Language.MultiLanguage multi) {
+            return multi.getLanguages().stream().anyMatch(Languages::isJvmLanguage);
+        }
+
+        return false;
+    }
+
     /**
      * Returns the Language constant corresponding to the given file extension. Comparison is case-insensitive.
      *

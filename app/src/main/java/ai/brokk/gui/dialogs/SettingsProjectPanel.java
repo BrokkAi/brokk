@@ -6,7 +6,9 @@ import ai.brokk.agents.BuildAgent.BuildDetails;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.gui.Chrome;
+import ai.brokk.gui.SwingUtil;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
@@ -682,7 +684,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         var table = new JTable(languagesTableModel);
 
         // Load languages asynchronously
-        ai.brokk.concurrent.LoggingFuture.supplyAsync(() -> {
+        LoggingFuture.supplyAsync(() -> {
                     var detected = findLanguagesInProject(project);
                     var configured = new ArrayList<>(project.getAnalyzerLanguages());
                     var langSet = new HashSet<Language>();
@@ -692,7 +694,7 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
                     result.sort(Comparator.comparing(Language::name));
                     return result;
                 })
-                .thenAccept(languagesToShow -> ai.brokk.gui.SwingUtil.runOnEdt(() -> {
+                .thenAccept(languagesToShow -> SwingUtil.runOnEdt(() -> {
                     if (languagesTableModel != null) {
                         languagesTableModel.setRows(languagesToShow);
 
@@ -701,7 +703,8 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
                             int maxModelIdx = 0;
                             int maxCount = -1;
                             for (int i = 0; i < languagesToShow.size(); i++) {
-                                int cnt = project.getAnalyzableFiles(languagesToShow.get(i)).size();
+                                int cnt = project.getAnalyzableFiles(languagesToShow.get(i))
+                                        .size();
                                 if (cnt > maxCount) {
                                     maxCount = cnt;
                                     maxModelIdx = i;
