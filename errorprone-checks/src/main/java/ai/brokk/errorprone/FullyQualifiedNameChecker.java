@@ -7,7 +7,9 @@ import com.google.errorprone.bugpatterns.BugChecker;
 import com.google.errorprone.fixes.SuggestedFix;
 import com.google.errorprone.matchers.Description;
 import com.google.errorprone.util.ASTHelpers;
+import com.sun.source.tree.ImportTree;
 import com.sun.source.tree.MemberSelectTree;
+import com.sun.source.tree.Tree;
 import com.sun.tools.javac.code.Symbol;
 import com.sun.tools.javac.code.Symbol.ClassSymbol;
 
@@ -30,9 +32,15 @@ public final class FullyQualifiedNameChecker extends BugChecker implements BugCh
             return Description.NO_MATCH;
         }
 
+        // Do not flag FQNs within import statements.
+        if (ASTHelpers.findEnclosingNode(state.getPath(), ImportTree.class) != null) {
+            return Description.NO_MATCH;
+        }
+
         // If the parent is a MemberSelectTree, then 'tree' is just a qualifier
         // (e.g., 'java.util' in 'java.util.List'). We only want to flag the full FQCN.
-        if (state.getPath().getParentPath().getLeaf() instanceof MemberSelectTree) {
+        Tree parent = state.getPath().getParentPath().getLeaf();
+        if (parent instanceof MemberSelectTree) {
             return Description.NO_MATCH;
         }
 
@@ -56,6 +64,18 @@ public final class FullyQualifiedNameChecker extends BugChecker implements BugCh
         String simpleName = classSymbol.getSimpleName().toString();
         Symbol existing = state.getSymbolFromString(simpleName);
         if (existing != null && !existing.equals(classSymbol)) {
+            return Description.NO_MATCH;
+        }
+
+        // Check if any existing import matches the simple name but refers to a different FQN.
+        boolean importCollision = state.getPath().getCompilationUnit().getImports().stream()
+                .filter(it -> !it.isStatic())
+                .map(ImportTree::getQualifiedIdentifier)
+                .map(Object::toString)
+                .anyMatch(fqn -> fqn.endsWith("." + simpleName)
+                        && !fqn.equals(classSymbol.getQualifiedName().toString()));
+
+        if (importCollision) {
             return Description.NO_MATCH;
         }
 
