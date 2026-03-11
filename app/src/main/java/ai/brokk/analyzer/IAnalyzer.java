@@ -668,6 +668,6 @@ public interface IAnalyzer {
                 .filter(cu -> cu.isClass() || cu.isFunction() || cu.isModule())
                 .collect(Collectors.toSet());
 
-        return AnalyzerUtil.coalesceInnerClasses(unitsInFiles);
+        return AnalyzerUtil.coalesceNestedUnits(this, unitsInFiles);
     }
 }
