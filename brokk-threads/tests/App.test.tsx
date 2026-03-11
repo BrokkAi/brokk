@@ -213,4 +213,16 @@ describe("App", () => {
 
     await waitFor(() => expect(screen.getByTestId("prompt-error")).toHaveTextContent("provision failed"));
   });
+
+  it("renders without crashing when window.brokkThreads is missing (browser fallback)", async () => {
+    // @ts-ignore
+    delete window.brokkThreads;
+
+    render(<App />);
+
+    expect(screen.getByText("Brokk Threads")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText("No thread selected")).toBeInTheDocument();
+    });
+  });
 });

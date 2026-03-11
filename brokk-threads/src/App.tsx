@@ -13,6 +13,22 @@ function isProvisioned(thread: ThreadMetadata): boolean {
   );
 }
 
+function getBridge(): typeof window.brokkThreads {
+  if (typeof window !== "undefined" && window.brokkThreads) {
+    return window.brokkThreads;
+  }
+  return {
+    getInitialShellState: async () => ({ threads: [], selectedThreadId: null }),
+    createThread: async () => ({} as any),
+    renameThread: async () => ({} as any),
+    selectThread: async () => {},
+    ensureThreadProvisionedForPrompt: async () => ({ thread: {} as any, created: false }),
+    sendPrompt: async () => {},
+    subscribeOutput: async () => {},
+    debugActiveExecutors: async () => []
+  };
+}
+
 export function App() {
   const [state, setState] = useState<InitialShellState>(emptyState);
   const [prompt, setPrompt] = useState("");
@@ -21,11 +37,13 @@ export function App() {
 
   useEffect(() => {
     let active = true;
-    window.brokkThreads.getInitialShellState().then((nextState) => {
-      if (active) {
-        setState(nextState);
-      }
-    });
+    getBridge()
+      .getInitialShellState()
+      .then((nextState) => {
+        if (active) {
+          setState(nextState);
+        }
+      });
     return () => {
       active = false;
     };
@@ -36,7 +54,7 @@ export function App() {
   }, [state.threads, state.selectedThreadId]);
 
   useEffect(() => {
-    window.brokkThreads.subscribeOutput((payload) => {
+    getBridge().subscribeOutput((payload) => {
       setOutputByThreadId((prev) => ({
         ...prev,
         [payload.threadId]: `${prev[payload.threadId] ?? ""}${prev[payload.threadId] ? "\n" : ""}${payload.text}`
@@ -56,9 +74,10 @@ export function App() {
     setPrompt("");
 
     try {
-      await window.brokkThreads.sendPrompt(threadId, promptToSend);
+      const bridge = getBridge();
+      await bridge.sendPrompt(threadId, promptToSend);
       // Refresh state to show "Provisioned" label if it was the first prompt
-      const nextState = await window.brokkThreads.getInitialShellState();
+      const nextState = await bridge.getInitialShellState();
       setState(nextState);
     } catch (submitError) {
       setPrompt(promptToSend); // Restore prompt on error
@@ -67,7 +86,7 @@ export function App() {
   }
 
   async function onSelectThread(threadId: string) {
-    await window.brokkThreads.selectThread(threadId);
+    await getBridge().selectThread(threadId);
     setState((prev) => ({ ...prev, selectedThreadId: threadId }));
   }
 
