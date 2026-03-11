@@ -1248,4 +1248,20 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
 
         return result;
     }
+
+    @Override
+    public Set<CodeUnit> testFilesToCodeUnits(Collection<ProjectFile> files) {
+        // Python often uses top-level functions for tests.
+        // We filter for functions/classes that look like tests and exclude the module itself
+        // so that coalesceInnerClasses doesn't swallow specific test classes/functions.
+        var testUnits = files.stream()
+                .flatMap(file -> getDeclarations(file).stream())
+                .filter(cu -> cu.isClass() || cu.isFunction())
+                .filter(cu -> cu.identifier().startsWith("test_")
+                        || cu.identifier().startsWith("Test")
+                        || containsTests(cu.source()))
+                .collect(Collectors.toSet());
+
+        return ai.brokk.AnalyzerUtil.coalesceInnerClasses(testUnits);
+    }
 }
