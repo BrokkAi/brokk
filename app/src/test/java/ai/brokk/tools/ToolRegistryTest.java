@@ -207,6 +207,35 @@ class ToolRegistryTest {
     }
 
     @Test
+    void executeTool_UsesTypedToolOutput() throws Exception {
+        var req = ToolExecutionRequest.builder()
+                .name("richOutput")
+                .arguments("{}")
+                .build();
+
+        var result = registry.executeTool(req);
+        assertEquals("LLM visible text", result.resultText());
+        assertInstanceOf(RichOutput.class, result.result());
+        assertEquals("side-channel-value", ((RichOutput) result.result()).value());
+    }
+
+    @Test
+    void executeTool_ValidationFailureReturnsRequestErrorWithTextOutput() throws Exception {
+        var map = new LinkedHashMap<String, Object>();
+        map.put("classNames", List.of("com.a.A"));
+        var json = MAPPER.writeValueAsString(map);
+        var req = ToolExecutionRequest.builder()
+                .name("getClassSources")
+                .arguments(json)
+                .build();
+
+        var result = registry.executeTool(req);
+        assertEquals(ToolExecutionResult.Status.REQUEST_ERROR, result.status());
+        assertInstanceOf(ToolOutput.TextOutput.class, result.result());
+        assertTrue(result.resultText().contains("Missing required parameter"));
+    }
+
+    @Test
     void getExplanationForToolRequest_ValidTool() throws Exception {
         Method m = TestTools.class.getDeclaredMethod("getClassSources", List.class, String.class);
         String json = jsonArgs(m, List.of("com.a.A", "com.b.B"), "analyzing dependencies");
@@ -304,5 +333,12 @@ class ToolRegistryTest {
         public String multiList(@P("a") List<String> a, @P("b") List<String> b) {
             return "ok";
         }
+
+        @Tool("ToolOutput-returning tool")
+        public ToolOutput richOutput() {
+            return new RichOutput("LLM visible text", "side-channel-value");
+        }
     }
+
+    private record RichOutput(String llmText, String value) implements ToolOutput {}
 }

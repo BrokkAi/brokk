@@ -1,7 +1,6 @@
 package ai.brokk.agents;
 
 import static ai.brokk.tools.WorkspaceTools.DROP_EXPLANATION_GUIDANCE;
-import static java.util.Objects.requireNonNull;
 
 import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
@@ -153,9 +152,6 @@ public class JanitorAgent {
         String retryNote = "";
 
         for (int attempt = 1; attempt <= 3; attempt++) {
-            wst.setContext(context);
-            wst.clearLastDropReport();
-
             var messages = new ArrayList<>(buildPruningPrompt(context, goal));
             if (!retryNote.isBlank()) {
                 messages.add(new UserMessage(retryNote));
@@ -201,14 +197,14 @@ public class JanitorAgent {
 
             // Sync context if it was a workspace tool
             if (dropRequest.isPresent()) {
-                this.context = wst.getContext();
+                var dropOutput = (WorkspaceTools.DropWorkspaceOutput) toolResult.result();
+                this.context = dropOutput.context();
             } else {
                 // performedInitialReview called, nothing to drop
                 break;
             }
 
-            var dropReport = requireNonNull(wst.getLastDropReport());
-            wst.clearLastDropReport();
+            var dropReport = ((WorkspaceTools.DropWorkspaceOutput) toolResult.result()).dropReport();
             if (dropReport.unknownFragmentIds().isEmpty()) {
                 // it worked!
                 break;

@@ -254,6 +254,9 @@ public class ToolRegistry {
             Object resultObject = validated
                     .method()
                     .invoke(validated.instance(), validated.parameters().toArray());
+            if (resultObject instanceof ToolOutput output) {
+                return ToolExecutionResult.success(request, output);
+            }
             String resultString = resultObject != null ? resultObject.toString() : "";
             return ToolExecutionResult.success(request, resultString);
         } catch (InvocationTargetException e) {

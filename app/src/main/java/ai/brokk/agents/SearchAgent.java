@@ -18,6 +18,7 @@ import ai.brokk.prompts.SearchPrompts.Objective;
 import ai.brokk.prompts.WorkspacePrompts;
 import ai.brokk.tools.SearchTools;
 import ai.brokk.tools.ToolExecutionResult;
+import ai.brokk.tools.ToolOutput;
 import ai.brokk.tools.ToolRegistry;
 import ai.brokk.tools.WorkspaceTools;
 import ai.brokk.util.Json;
@@ -47,6 +48,8 @@ import org.jetbrains.annotations.Nullable;
  * OUT of the calling agents' contexts.
  */
 public class SearchAgent {
+    private record TerminalStopOutput(String llmText, TaskResult.StopDetails stopDetails) implements ToolOutput {}
+
     private static final int MAX_TURNS = 20;
 
     private final IContextManager cm;
@@ -59,7 +62,6 @@ public class SearchAgent {
     private final SearchMetrics metrics;
 
     private Context context;
-    private @Nullable TaskResult.StopDetails terminalStopDetails;
     private @Nullable LinkedHashSet<String> pendingWorkspaceCompleteIds;
     private boolean workspaceCompleteRetryOffered;
 
@@ -202,12 +204,16 @@ public class SearchAgent {
                 for (var request : ai.toolExecutionRequests()) {
                     metrics.recordToolCall(request.name());
                     io.beforeToolCall(request);
-                    Context before = workspaceTools.getContext();
+                    Context before = context;
                     var toolResult = toolRegistry.executeTool(request);
                     io.afterToolOutput(toolResult);
                     messages.add(toolResult.toMessage());
 
-                    context = workspaceTools.getContext();
+                    if (toolResult.result() instanceof WorkspaceTools.WorkspaceMutationOutput output) {
+                        context = output.context();
+                    } else if (toolResult.result() instanceof WorkspaceTools.DropWorkspaceOutput output) {
+                        context = output.context();
+                    }
                     additionsThisTurn.addAll(
                             ContextDelta.between(before, context).join().addedFragments());
 
@@ -216,8 +222,8 @@ public class SearchAgent {
                                 new TaskResult.StopDetails(TaskResult.StopReason.LLM_ERROR, toolResult.resultText()));
                     }
 
-                    if (terminalStopDetails != null) {
-                        return createResult(terminalStopDetails);
+                    if (isTerminalTool(request.name()) && toolResult.result() instanceof TerminalStopOutput tso) {
+                        return createResult(tso.stopDetails());
                     }
                 }
 
@@ -395,23 +401,23 @@ public class SearchAgent {
     }
 
     @Tool("Abort search immediately.")
-    public String abortSearch(@P("Reason for abort.") String explanation) {
+    public TerminalStopOutput abortSearch(@P("Reason for abort.") String explanation) {
         var details = jsonWithExplanation(explanation);
-        terminalStopDetails = new TaskResult.StopDetails(TaskResult.StopReason.LLM_ABORTED, details);
+        var stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.LLM_ABORTED, details);
         io.llmOutput(explanation, ChatMessageType.AI, LlmOutputMeta.DEFAULT);
-        return details;
+        return new TerminalStopOutput(details, stopDetails);
     }
 
     @Tool("Provide final answer.")
-    public String answer(@P("Comprehensive final answer in Markdown.") String explanation) {
+    public TerminalStopOutput answer(@P("Comprehensive final answer in Markdown.") String explanation) {
         var details = jsonWithExplanation(explanation);
-        terminalStopDetails = new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS, details);
+        var stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS, details);
         io.llmOutput("# Answer\n\n" + explanation, ChatMessageType.AI, LlmOutputMeta.newMessage());
-        return details;
+        return new TerminalStopOutput(details, stopDetails);
     }
 
     @Tool("Signal workspace preparation is complete.")
-    public String workspaceComplete(
+    public ToolOutput workspaceComplete(
             @P("Selected workspace fragments as IDs, or exact fragment descriptions.")
                     List<String> fragmentIdsOrDescriptions) {
         var acceptedIds = new LinkedHashSet<String>();
@@ -435,16 +441,16 @@ public class SearchAgent {
                     """
                             .formatted(resolved.badSelections(), acceptedIds);
             io.llmOutput(retryMessage, ChatMessageType.AI, LlmOutputMeta.DEFAULT);
-            return retryMessage;
+            return new ToolOutput.TextOutput(retryMessage);
         }
 
         workspaceCompleteRetryOffered = false;
         pendingWorkspaceCompleteIds = null;
 
         var details = jsonWithFragmentIds(List.copyOf(acceptedIds));
-        terminalStopDetails = new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS, details);
+        var stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS, details);
         io.llmOutput(details, ChatMessageType.AI, LlmOutputMeta.newMessage());
-        return details;
+        return new TerminalStopOutput(details, stopDetails);
     }
 
     private record FragmentSelectionResolution(List<String> acceptedIds, List<String> badSelections) {}

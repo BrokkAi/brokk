@@ -1079,8 +1079,6 @@ public class LutzAgent {
         }
 
         private TurnPrompt preparePrompt(boolean workspaceOnlyNoHistory) throws InterruptedException {
-            wst.setContext(context);
-
             DropMode effectiveDropMode = isFinalTurn() ? DropMode.NORMAL : dropMode;
 
             // update pins before generating prompt
@@ -1171,13 +1169,14 @@ public class LutzAgent {
 
         private ToolExecutionResult executeTool(ToolExecutionRequest req) throws InterruptedException {
             agent.metrics.recordToolCall(req.name());
-            wst.setContext(context);
-
             var result = tr.executeTool(req);
 
-            if (agent.isWorkspaceTool(req, tr)) {
-                agent.updateDroppedHistory(context, wst.getContext());
-                context = wst.getContext();
+            if (agent.isWorkspaceTool(req, tr) && result.status() == ToolExecutionResult.Status.SUCCESS) {
+                var updatedContext = "dropWorkspaceFragments".equals(req.name())
+                        ? ((WorkspaceTools.DropWorkspaceOutput) result.result()).context()
+                        : ((WorkspaceTools.WorkspaceMutationOutput) result.result()).context();
+                agent.updateDroppedHistory(context, updatedContext);
+                context = updatedContext;
 
                 if ("dropWorkspaceFragments".equals(req.name())
                         && result.status() == ToolExecutionResult.Status.SUCCESS) {
@@ -1279,7 +1278,6 @@ public class LutzAgent {
                 Context prunedContext = janitorResult.context();
                 agent.updateDroppedHistory(context, prunedContext);
                 context = prunedContext;
-                wst.setContext(prunedContext);
                 agent.recordDropBaseline(prunedContext);
             }
 

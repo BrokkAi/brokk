@@ -13,14 +13,12 @@ import org.jetbrains.annotations.Nullable;
 public final class ToolExecutionResult {
     private final ToolExecutionRequest request;
     private final Status status;
-    private final String resultText;
+    private final ToolOutput result;
 
-    private ToolExecutionResult(ToolExecutionRequest request, Status status, String resultText) {
-        assert !resultText.isBlank();
-
+    private ToolExecutionResult(ToolExecutionRequest request, Status status, ToolOutput result) {
         this.request = request;
         this.status = status;
-        this.resultText = resultText;
+        this.result = result;
     }
 
     /** Overall status of the tool execution. */
@@ -39,11 +37,19 @@ public final class ToolExecutionResult {
 
     public static ToolExecutionResult create(ToolExecutionRequest request, Status status, @Nullable String resultText) {
         String finalText = (resultText == null || resultText.isBlank()) ? status.toString() : resultText;
-        return new ToolExecutionResult(request, status, finalText);
+        return create(request, status, new ToolOutput.TextOutput(finalText));
+    }
+
+    public static ToolExecutionResult create(ToolExecutionRequest request, Status status, ToolOutput result) {
+        return new ToolExecutionResult(request, status, result);
     }
 
     public static ToolExecutionResult success(ToolExecutionRequest request, @Nullable String resultText) {
         return create(request, Status.SUCCESS, resultText);
+    }
+
+    public static ToolExecutionResult success(ToolExecutionRequest request, ToolOutput output) {
+        return create(request, Status.SUCCESS, output);
     }
 
     public static ToolExecutionResult requestError(ToolExecutionRequest request, String errorMessage) {
@@ -83,10 +89,10 @@ public final class ToolExecutionResult {
     public ToolExecutionResultMessage toMessage() {
         String text =
                 switch (status) {
-                    case SUCCESS -> resultText;
-                    case REQUEST_ERROR -> "Request error: " + resultText;
-                    case INTERNAL_ERROR -> "Internal error: " + resultText;
-                    case FATAL -> "Fatal error: " + resultText;
+                    case SUCCESS -> result.llmText();
+                    case REQUEST_ERROR -> "Request error: " + result.llmText();
+                    case INTERNAL_ERROR -> "Internal error: " + result.llmText();
+                    case FATAL -> "Fatal error: " + result.llmText();
                 };
         return new ToolExecutionResultMessage(toolId(), toolName(), text);
     }
@@ -100,7 +106,11 @@ public final class ToolExecutionResult {
     }
 
     public String resultText() {
-        return resultText;
+        return result.llmText();
+    }
+
+    public ToolOutput result() {
+        return result;
     }
 
     @Override
@@ -110,19 +120,19 @@ public final class ToolExecutionResult {
         var that = (ToolExecutionResult) obj;
         return Objects.equals(this.request, that.request)
                 && Objects.equals(this.status, that.status)
-                && Objects.equals(this.resultText, that.resultText);
+                && Objects.equals(this.result, that.result);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(request, status, resultText);
+        return Objects.hash(request, status, result);
     }
 
     @Override
     public String toString() {
         return "ToolExecutionResult[" + "request="
                 + request + ", " + "status="
-                + status + ", " + "resultText="
-                + resultText + ']';
+                + status + ", " + "result="
+                + result + ']';
     }
 }

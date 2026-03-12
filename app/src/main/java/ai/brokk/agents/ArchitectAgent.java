@@ -625,7 +625,6 @@ public class ArchitectAgent {
             var turn = ((PlanningTurnOutcome.Success) outcome).turn();
 
             var tr = turn.toolRegistry();
-            var wst = turn.workspaceTools();
             var parallelSearch = turn.parallelSearch();
             var result = turn.result();
 
@@ -717,13 +716,17 @@ public class ArchitectAgent {
             // Execute remaining tool calls in the desired order (all use the local registry)
             otherReqs.sort(Comparator.comparingInt(req -> getPriorityRank(req.name())));
             for (var req : otherReqs) {
-                wst.setContext(context);
-
                 io.beforeToolCall(req);
                 ToolExecutionResult toolResult = tr.executeTool(req);
                 io.afterToolOutput(toolResult);
 
-                context = wst.getContext();
+                if (isWorkspaceTool(req, tr) && toolResult.status() == ToolExecutionResult.Status.SUCCESS) {
+                    if ("dropWorkspaceFragments".equals(req.name())) {
+                        context = ((WorkspaceTools.DropWorkspaceOutput) toolResult.result()).context();
+                    } else {
+                        context = ((WorkspaceTools.WorkspaceMutationOutput) toolResult.result()).context();
+                    }
+                }
                 architectMessages.add(toolResult.toMessage());
                 logger.debug("Executed tool '{}' => result: {}", req.name(), toolResult.resultText());
             }
@@ -991,6 +994,15 @@ public class ArchitectAgent {
         var badge = StatusBadge.badgeFor(reason);
         io.llmOutput(
                 "\n# " + heading + "\n\n" + badge + "\n\n" + message, ChatMessageType.AI, LlmOutputMeta.newMessage());
+    }
+
+    private boolean isWorkspaceTool(ToolExecutionRequest request, ToolRegistry tr) {
+        try {
+            var vi = tr.validateTool(request);
+            return vi.instance() instanceof WorkspaceTools;
+        } catch (ToolRegistry.ToolValidationException e) {
+            return false;
+        }
     }
 
     /**

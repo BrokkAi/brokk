@@ -30,18 +30,17 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.checkerframework.checker.nullness.util.NullnessUtil;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
-import org.jetbrains.annotations.Nullable;
 
 /**
  * Provides tools for manipulating the context (adding/removing files and fragments) and adding analysis results
  * (usages, skeletons, sources, call graphs) as context fragments.
  *
- * This class is now context-local: it holds a working Context instance and mutates it immutably.
- * Use WorkspaceTools(Context) for per-turn, local usage inside agents. For compatibility, a constructor taking a
- * ContextManager is provided which seeds the local Context from the manager; call publishTo(cm) to commit changes.
+ * This class is context-local: it holds a working Context instance and mutates it immutably.
  */
 public class WorkspaceTools {
     private static final Logger logger = LogManager.getLogger(WorkspaceTools.class);
+
+    public record WorkspaceMutationOutput(String llmText, Context context) implements ToolOutput {}
 
     public record DropReport(
             Set<String> droppedFragmentIds, Set<String> protectedFragmentIds, Set<String> unknownFragmentIds) {
@@ -52,10 +51,10 @@ public class WorkspaceTools {
         }
     }
 
+    public record DropWorkspaceOutput(String llmText, Context context, DropReport dropReport) implements ToolOutput {}
+
     // Per-instance working context (immutable Context instances replaced on modification)
     private Context context;
-
-    private @Nullable DropReport lastDropReport = null;
 
     /**
      * Construct a WorkspaceTools instance operating on the provided Context.
@@ -63,19 +62,6 @@ public class WorkspaceTools {
      */
     public WorkspaceTools(Context initialContext) {
         this.context = initialContext;
-    }
-
-    /** Returns the current working Context for this WorkspaceTools instance. */
-    public Context getContext() {
-        return context;
-    }
-
-    public @Nullable DropReport getLastDropReport() {
-        return lastDropReport;
-    }
-
-    public void clearLastDropReport() {
-        this.lastDropReport = null;
     }
 
     /**
@@ -89,9 +75,12 @@ public class WorkspaceTools {
             @D(KEY_FACTS_DESCRIPTION) String keyFacts,
             @D(DROP_REASON_DESCRIPTION) String dropReason) {}
 
-    /** Updates the working Context for this WorkspaceTools instance. */
-    public void setContext(Context newContext) {
-        this.context = newContext;
+    private WorkspaceMutationOutput output(String text) {
+        return new WorkspaceMutationOutput(text, context);
+    }
+
+    private DropWorkspaceOutput dropOutput(String text, DropReport report) {
+        return new DropWorkspaceOutput(text, context, report);
     }
 
     // ---------------------------
@@ -100,12 +89,12 @@ public class WorkspaceTools {
 
     @Tool(
             "Edit project files to the Workspace. Use this when Code Agent will need to make changes to these files, or if you need to read the full source. Only call when you have identified specific filenames. DO NOT call this to create new files -- Code Agent can do that without extra steps.")
-    public String addFilesToWorkspace(
+    public WorkspaceMutationOutput addFilesToWorkspace(
             @P(
                             "List of file paths relative to the project root (e.g., 'src/main/java/com/example/MyClass.java'). Must not be empty.")
                     List<String> relativePaths) {
         if (relativePaths.isEmpty()) {
-            return "Cannot add files: file paths list is empty.";
+            return output("Cannot add files: file paths list is empty.");
         }
 
         var reporter = new CoverageReporter(context, getAnalyzer(), workspaceState());
@@ -149,7 +138,7 @@ public class WorkspaceTools {
         context = context.addFragments(fragments);
 
         String report = reporter.report();
-        return report.isEmpty() ? "No changes." : report;
+        return output(report.isEmpty() ? "No changes." : report);
     }
 
     @Tool(
@@ -158,32 +147,32 @@ public class WorkspaceTools {
             Lines are stored with line numbers and the requested range is capped at 200 lines.
             For source code navigation, prefer addClassesToWorkspace/addMethodsToWorkspace when those can identify the exact code unit you need.
             """)
-    public String addLineRangeToWorkspace(
+    public WorkspaceMutationOutput addLineRangeToWorkspace(
             @P("The filename relative to project root.") String filename,
             @P("The 1-based start line number (inclusive).") int startLine,
             @P("The 1-based end line number (inclusive). Maximum 200 lines from start.") int endLine) {
         String normalized = filename.strip();
         if (normalized.isEmpty()) {
-            return "Filename cannot be empty.";
+            return output("Filename cannot be empty.");
         }
 
         final ProjectFile file;
         try {
             file = context.getContextManager().toFile(normalized);
         } catch (IllegalArgumentException e) {
-            return "Invalid path: `%s`.".formatted(filename);
+            return output("Invalid path: `%s`.".formatted(filename));
         }
 
         if (!file.exists()) {
-            return "File not found: " + normalized;
+            return output("File not found: " + normalized);
         }
         if (file.isDirectory()) {
-            return "File path `%s` is a directory; only normal files may be added.".formatted(normalized);
+            return output("File path `%s` is a directory; only normal files may be added.".formatted(normalized));
         }
 
         var contentOpt = file.read();
         if (contentOpt.isEmpty()) {
-            return "Could not read file: " + normalized;
+            return output("Could not read file: " + normalized);
         }
 
         int effectiveStart = Math.max(1, startLine);
@@ -191,7 +180,8 @@ public class WorkspaceTools {
 
         var rangeResult = Lines.range(contentOpt.get(), effectiveStart, requestedEnd);
         if (rangeResult.lineCount() == 0) {
-            return "No lines found in range %d-%d for file %s".formatted(effectiveStart, requestedEnd, normalized);
+            return output(
+                    "No lines found in range %d-%d for file %s".formatted(effectiveStart, requestedEnd, normalized));
         }
 
         int actualEnd = effectiveStart + rangeResult.lineCount() - 1;
@@ -200,32 +190,32 @@ public class WorkspaceTools {
 
         // Check for exact duplicate already in the workspace
         if (context.contains(fragment)) {
-            return "Already present (no-op): %s:%d-%d".formatted(normalized, effectiveStart, actualEnd);
+            return output("Already present (no-op): %s:%d-%d".formatted(normalized, effectiveStart, actualEnd));
         }
 
         // Check if the lines are already covered by workspace content
         var ws = workspaceState();
         if (ws.isCovered(file)) {
-            return "Skipped (covered by file in workspace): %s (lines %d-%d)"
-                    .formatted(normalized, effectiveStart, actualEnd);
+            return output("Skipped (covered by file in workspace): %s (lines %d-%d)"
+                    .formatted(normalized, effectiveStart, actualEnd));
         }
         if (ws.isCovered(fragment, getAnalyzer())) {
-            return "Skipped (covered by class source in workspace): %s (lines %d-%d)"
-                    .formatted(normalized, effectiveStart, actualEnd);
+            return output("Skipped (covered by class source in workspace): %s (lines %d-%d)"
+                    .formatted(normalized, effectiveStart, actualEnd));
         }
 
         context = context.addFragments(fragment);
-        return "Added: %s (lines %d-%d)".formatted(normalized, effectiveStart, actualEnd);
+        return output("Added: %s (lines %d-%d)".formatted(normalized, effectiveStart, actualEnd));
     }
 
     @Tool(
             "Add classes to the Workspace by their fully qualified names. This adds read-only code fragments for those classes. Only call when you have identified specific class names.")
-    public String addClassesToWorkspace(
+    public WorkspaceMutationOutput addClassesToWorkspace(
             @P(
                             "List of fully qualified class names (e.g., ['com.example.MyClass', 'org.another.Util']). Must not be empty.")
                     List<String> classNames) {
         if (classNames.isEmpty()) {
-            return "Cannot add classes: class names list is empty.";
+            return output("Cannot add classes: class names list is empty.");
         }
 
         var reporter = new CoverageReporter(context, getAnalyzer(), workspaceState());
@@ -256,15 +246,23 @@ public class WorkspaceTools {
 
         context = context.addFragments(toAdd);
         String report = reporter.report();
-        return report.isEmpty() ? "No changes." : report;
+        return output(report.isEmpty() ? "No changes." : report);
     }
 
+    /**
+     * Fetches URL content into the workspace.
+     *
+     * <p>Convention: operational outcomes (invalid URL text, fetch I/O failures, empty fetched content) are returned
+     * as normal {@link WorkspaceMutationOutput} messages rather than {@link ToolRegistry.ToolCallException}. In this
+     * codebase, non-success tool statuses are reserved for malformed tool invocations (validation/argument-shape
+     * problems) or catastrophic internal failures.
+     */
     @Tool(
             "Fetch content from a URL (e.g., documentation, issue tracker) and add it to the Workspace as a read-only text fragment. HTML content will be converted to Markdown.")
-    public String addUrlContentsToWorkspace(
+    public WorkspaceMutationOutput addUrlContentsToWorkspace(
             @P("The full URL to fetch content from (e.g., 'https://example.com/docs/page').") String urlString) {
         if (urlString.isBlank()) {
-            return "URL cannot be empty.";
+            return output("URL cannot be empty.");
         }
 
         try {
@@ -273,7 +271,7 @@ public class WorkspaceTools {
             content = HtmlToMarkdown.maybeConvertToMarkdown(content);
 
             if (content.isBlank()) {
-                return "Fetched content from URL is empty";
+                return output("Fetched content from URL is empty");
             }
 
             var fragment = new ContextFragments.StringFragment(
@@ -284,11 +282,13 @@ public class WorkspaceTools {
             context = context.addFragments(fragment);
 
             logger.debug("Successfully added URL content to context");
-            return "Added content from URL as a read-only text fragment";
+            return output("Added content from URL as a read-only text fragment");
         } catch (URISyntaxException e) {
-            throw new ToolRegistry.ToolCallException(ToolExecutionResult.Status.REQUEST_ERROR, "Invalid URL format");
+            return output("Invalid URL format");
+        } catch (IllegalArgumentException e) {
+            return output("Invalid URL format");
         } catch (IOException e) {
-            throw new ToolRegistry.ToolCallException(ToolExecutionResult.Status.INTERNAL_ERROR, "I/O Error");
+            return output("I/O Error");
         }
     }
 
@@ -296,11 +296,11 @@ public class WorkspaceTools {
             value = "Remove specified fragments (files, text snippets, task history, analysis results) "
                     + "from the Workspace by their `fragmentid` and record structured breadcrumbs (keyFacts + dropReason) in DISCARDED_CONTEXT. "
                     + "Do not drop file fragments that you still need to read or edit.")
-    public String dropWorkspaceFragments(
+    public DropWorkspaceOutput dropWorkspaceFragments(
             @P("List of fragments to remove from the Workspace. Must not be empty. Pinned fragments are ineligible.")
                     List<FragmentRemoval> fragments) {
         if (fragments.isEmpty()) {
-            return "Fragments list cannot be empty.";
+            return dropOutput("Fragments list cannot be empty.", new DropReport(Set.of(), Set.of(), Set.of()));
         }
 
         // Build map from fragmentId -> FragmentRemoval for lookup
@@ -343,7 +343,7 @@ public class WorkspaceTools {
 
         var droppedIds = toDrop.stream().map(ContextFragment::id).collect(Collectors.toSet());
         var protectedIds = protectedFragments.stream().map(ContextFragment::id).collect(Collectors.toSet());
-        this.lastDropReport = new DropReport(droppedIds, protectedIds, unknownIds);
+        var dropReport = new DropReport(droppedIds, protectedIds, unknownIds);
 
         // Apply removal and upsert DISCARDED_CONTEXT in the local context
         context =
@@ -375,7 +375,8 @@ public class WorkspaceTools {
             lines.add("Unknown fragment IDs (not dropped): %s.".formatted(String.join(", ", unknownIds)));
         }
 
-        return lines.isEmpty() ? "No changes." : String.join("\n", lines);
+        var llmText = lines.isEmpty() ? "No changes." : String.join("\n", lines);
+        return dropOutput(llmText, dropReport);
     }
 
     @Tool(
@@ -384,12 +385,12 @@ public class WorkspaceTools {
                   Faster and more efficient than reading entire files or classes when you just need the API and not the full source code.
                   Only call when you have identified specific class names.")
                   """)
-    public String addClassSummariesToWorkspace(
+    public WorkspaceMutationOutput addClassSummariesToWorkspace(
             @P(
                             "List of fully qualified class names (e.g., ['com.example.ClassA', 'org.another.ClassB']) to get summaries for. Must not be empty.")
                     List<String> classNames) {
         if (classNames.isEmpty()) {
-            return "Cannot add class summaries: class names list is empty.";
+            return output("Cannot add class summaries: class names list is empty.");
         }
 
         var reporter = new CoverageReporter(context, getAnalyzer(), workspaceState());
@@ -420,7 +421,7 @@ public class WorkspaceTools {
 
         context = context.addFragments(toAdd);
         String report = reporter.report();
-        return report.isEmpty() ? "No changes." : report;
+        return output(report.isEmpty() ? "No changes." : report);
     }
 
     @Tool(
@@ -430,12 +431,12 @@ public class WorkspaceTools {
                   Faster and more efficient than reading entire files when you just need the API definitions.
                   (But if you don't know where what you want is located, you should use Search Agent instead.)
                   """)
-    public String addFileSummariesToWorkspace(
+    public WorkspaceMutationOutput addFileSummariesToWorkspace(
             @P(
                             "List of file paths relative to the project root. Supports glob patterns (* for single directory, ** for recursive). E.g., ['src/main/java/com/example/util/*.java', 'tests/foo/**.py']. Must not be empty.")
                     List<String> filePaths) {
         if (filePaths.isEmpty()) {
-            return "Cannot add file summaries: file paths list is empty.";
+            return output("Cannot add file summaries: file paths list is empty.");
         }
 
         var reporter = new CoverageReporter(context, getAnalyzer(), workspaceState());
@@ -478,7 +479,7 @@ public class WorkspaceTools {
 
         context = context.addFragments(toAdd);
         String report = reporter.report();
-        return report.isEmpty() ? "No changes." : report;
+        return output(report.isEmpty() ? "No changes." : report);
     }
 
     @Tool(
@@ -486,12 +487,12 @@ public class WorkspaceTools {
                   Retrieves the full source code of specific methods or functions and adds to the Workspace each as a separate read-only text fragment.
                   Faster and more efficient than including entire files or classes when you only need a few methods.
                   """)
-    public String addMethodsToWorkspace(
+    public WorkspaceMutationOutput addMethodsToWorkspace(
             @P(
                             "List of fully qualified method names (e.g., ['com.example.ClassA.method1', 'org.another.ClassB.processData']) to retrieve sources for. Must not be empty. Must not include parameters (I will process all overloads).")
                     List<String> methodNames) {
         if (methodNames.isEmpty()) {
-            return "Cannot add method sources: method names list is empty.";
+            return output("Cannot add method sources: method names list is empty.");
         }
 
         var reporter = new CoverageReporter(context, getAnalyzer(), workspaceState());
@@ -522,7 +523,7 @@ public class WorkspaceTools {
 
         context = context.addFragments(toAdd);
         String report = reporter.report();
-        return report.isEmpty() ? "No changes." : report;
+        return output(report.isEmpty() ? "No changes." : report);
     }
 
     /**
@@ -632,14 +633,14 @@ public class WorkspaceTools {
     @Tool(
             value =
                     "Replace the entire task list with the provided tasks. Completed tasks from the previous list are implicitly dropped. Use this when you want to create a fresh task list or significantly revise the scope.")
-    public String createOrReplaceTaskList(
+    public WorkspaceMutationOutput createOrReplaceTaskList(
             @P(
                             "Explanation of the problem and a high-level but comprehensive overview of the solution proposed in the tasks, formatted in Markdown. Include touch points for files, classes, and tests.")
                     String explanation,
             @P(TASK_LIST_GUIDANCE) List<TaskListEntry> tasks) {
         logger.debug("createOrReplaceTaskList selected with {} tasks", tasks.size());
         if (tasks.isEmpty()) {
-            return "No tasks provided.";
+            return output("No tasks provided.");
         }
 
         List<TaskList.TaskItem> taskItems =
@@ -668,7 +669,7 @@ public class WorkspaceTools {
                         .formatted(count, suffix, checklist);
         io.llmOutput(message, ChatMessageType.AI, LlmOutputMeta.newMessage());
 
-        return formattedTaskList;
+        return output(formattedTaskList);
     }
 
     // --- Helper Methods ---
