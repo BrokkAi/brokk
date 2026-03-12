@@ -1088,10 +1088,9 @@ public class SessionChangesPanel extends JPanel implements ThemeAware, AnalyzerC
         if (!nextComparisons.isEmpty()) {
             // Attempt to restore selection if the same file exists in the new list
             int currentIndex = diffCore.getCurrentIndex();
-            ProjectFile selectedFile = null;
-            if (currentIndex >= 0 && currentIndex < fileComparisons.size()) {
-                selectedFile = fileComparisons.get(currentIndex).file();
-            }
+            ProjectFile selectedFile = (currentIndex >= 0 && currentIndex < fileComparisons.size())
+                    ? fileComparisons.get(currentIndex).file()
+                    : null;
 
             int nextIndex = -1;
             if (selectedFile != null) {
@@ -1105,8 +1104,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware, AnalyzerC
 
             if (nextIndex != -1) {
                 if (savedLine > 0) {
-                    this.diffCore.showLocation(
-                            requireNonNull(nextComparisons.get(nextIndex).file()), savedLine);
+                    this.diffCore.showLocation(selectedFile, savedLine);
                 } else {
                     this.diffCore.showFile(nextIndex);
                 }
