@@ -32,7 +32,6 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -1751,15 +1750,6 @@ public class SearchTools {
         return List.copyOf(refs);
     }
 
-    private static int lineNoForOffset(int[] lineStartOffsets, int matchStartOffset) {
-        int idx = Arrays.binarySearch(lineStartOffsets, matchStartOffset);
-        if (idx >= 0) {
-            return idx + 1;
-        }
-        int insertionPoint = -idx - 1;
-        return insertionPoint;
-    }
-
     @Nullable
     private FileContentSearchResult searchFileContentsInFile(
             ProjectFile file, List<Pattern> patterns, int contextLines, int maxMatchesToTake) {
@@ -1782,23 +1772,30 @@ public class SearchTools {
                 lineRefs.stream().mapToInt(LineRef::startInclusive).toArray();
         int lineCount = lineRefs.size();
 
-        Map<Integer, Integer> firstMatchOffsetByLine = new HashMap<>();
+        // 0: unseen, 1: seen but not stored (beyond maxMatchesToTake), 2: stored as a hit line
+        byte[] lineStates = new byte[lineCount + 1];
+        int matchesTaken = 0;
         int totalMatchesInFile = 0;
 
         for (Pattern pattern : patterns) {
             try {
                 Matcher matcher = pattern.matcher(content);
+                int lineIdx = 0; // 0-based index into lineStartOffsets/lineRefs
                 while (matcher.find()) {
                     int matchStart = matcher.start();
-                    int ln = lineNoForOffset(lineStartOffsets, matchStart);
-                    if (ln < 1 || ln > lineCount) continue;
+                    while (lineIdx + 1 < lineCount && lineStartOffsets[lineIdx + 1] <= matchStart) {
+                        lineIdx++;
+                    }
 
-                    if (firstMatchOffsetByLine.containsKey(ln)) {
-                        firstMatchOffsetByLine.merge(ln, matchStart, Math::min);
-                    } else {
+                    int lineNo = lineIdx + 1; // convert to 1-based
+                    byte state = lineStates[lineNo];
+                    if (state == 0) {
                         totalMatchesInFile++;
-                        if (firstMatchOffsetByLine.size() < maxMatchesToTake) {
-                            firstMatchOffsetByLine.put(ln, matchStart);
+                        if (matchesTaken < maxMatchesToTake) {
+                            lineStates[lineNo] = 2;
+                            matchesTaken++;
+                        } else {
+                            lineStates[lineNo] = 1;
                         }
                     }
                 }
@@ -1807,19 +1804,17 @@ public class SearchTools {
             }
         }
 
-        if (firstMatchOffsetByLine.isEmpty()) {
+        if (matchesTaken == 0) {
             return null;
         }
 
-        List<Integer> hitLines =
-                firstMatchOffsetByLine.keySet().stream().sorted().toList();
-
-        int matchesTaken = hitLines.size();
-
         boolean[] toPrint = new boolean[lineCount + 1]; // 1-based indexing for convenience
-        for (int hit : hitLines) {
-            int from = max(1, hit - contextLines);
-            int to = min(lineCount, hit + contextLines);
+        for (int lineNo = 1; lineNo <= lineCount; lineNo++) {
+            if (lineStates[lineNo] != 2) {
+                continue;
+            }
+            int from = max(1, lineNo - contextLines);
+            int to = min(lineCount, lineNo + contextLines);
             for (int ln = from; ln <= to; ln++) {
                 toPrint[ln] = true;
             }
