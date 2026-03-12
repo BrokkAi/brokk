@@ -129,3 +129,52 @@ async def test_relaunch_failure_leaves_app_usable(tmp_path):
     # App state should reflect that job-submission is no longer blocked even though executor is dead
     assert app.job_in_progress is False
     assert app._executor_ready is False
+
+
+@pytest.mark.asyncio
+async def test_relaunch_sequencing_restores_before_ready_poll(tmp_path):
+    """Verify that session restoration happens BEFORE wait_ready is called.
+    This is critical because /health/ready returns 503 until a session is loaded.
+    """
+    fake = RelaunchFakeExecutor(tmp_path)
+    app = BrokkApp(executor=fake, workspace_dir=tmp_path)
+    app._executor_ready = True
+
+    # Track call order
+    call_log = []
+
+    original_start = fake.start
+    original_import = fake.import_session_zip
+    original_wait = fake.wait_ready
+
+    async def start_spy():
+        call_log.append("start")
+        await original_start()
+
+    async def import_spy(zip_bytes, session_id=None):
+        call_log.append("import")
+        return await original_import(zip_bytes, session_id)
+
+    async def wait_spy(timeout=30.0):
+        call_log.append("wait_ready")
+        return await original_wait(timeout)
+
+    fake.start = start_spy
+    fake.import_session_zip = import_spy
+    fake.wait_ready = wait_spy
+
+    # Mock chat
+    mock_chat = MagicMock()
+    app.query_one = MagicMock(return_value=mock_chat)
+
+    await app._relaunch_executor()
+
+    # The expected sequence for a healthy relaunch with existing session is:
+    # 1. start
+    # 2. import (or create_session)
+    # 3. wait_ready
+    expected_sequence = ["start", "import", "wait_ready"]
+
+    # Filter call_log to just these three so unrelated calls don't break the test
+    relevant_calls = [c for c in call_log if c in expected_sequence]
+    assert relevant_calls == expected_sequence, f"Incorrect relaunch sequence: {relevant_calls}"
