@@ -8,6 +8,7 @@ import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.mcpclient.McpConfig;
+import ai.brokk.project.FileFilteringService;
 import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
 import ai.brokk.util.Environment;
@@ -42,6 +43,8 @@ public class TestProject implements IProject {
     private IProject.CodeAgentTestScope codeAgentTestScope = IProject.CodeAgentTestScope.WORKSPACE;
     private String styleGuide = "";
     private Set<String> exclusionPatterns = Set.of();
+    private FileFilteringService.FilePatternMatcher exclusionMatcher =
+            FileFilteringService.createPatternMatcher(Set.of());
     private boolean gitConfigDeclined = false;
     private @Nullable String jdk;
     private @Nullable IGitRepo repo;
@@ -118,6 +121,7 @@ public class TestProject implements IProject {
 
     public void setExclusionPatterns(Set<String> patterns) {
         this.exclusionPatterns = patterns;
+        this.exclusionMatcher = FileFilteringService.createPatternMatcher(patterns);
     }
 
     public TestProject withAllFilesSupplier(Supplier<Set<ProjectFile>> filesSupplier) {
@@ -147,6 +151,11 @@ public class TestProject implements IProject {
     @Override
     public Set<String> getExclusionPatterns() {
         return exclusionPatterns;
+    }
+
+    @Override
+    public boolean isPathExcluded(String relativePath, boolean isDirectory) {
+        return exclusionMatcher.isPathExcluded(relativePath, isDirectory);
     }
 
     @Override
@@ -320,6 +329,11 @@ public class TestProject implements IProject {
 
     @Override
     public boolean isGitignored(Path relPath) {
+        return gitignoredPredicate != null && gitignoredPredicate.test(relPath);
+    }
+
+    @Override
+    public boolean isGitignored(Path relPath, boolean isDirectory) {
         return gitignoredPredicate != null && gitignoredPredicate.test(relPath);
     }
 

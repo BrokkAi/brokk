@@ -95,7 +95,7 @@ public class FileFilteringServiceTest {
         // Create FileFilteringService for the worktree
         var filteringService = new FileFilteringService(worktreePath, worktreeRepo);
 
-        // Test isGitignored for various paths
+        // Test isGitignored for various paths (original single-arg method)
         assertTrue(
                 filteringService.isGitignored(Path.of("src/debug.log")), "*.log pattern should ignore src/debug.log");
         assertTrue(filteringService.isGitignored(Path.of("build")), "build/ pattern should ignore build directory");
@@ -105,6 +105,18 @@ public class FileFilteringServiceTest {
 
         assertFalse(filteringService.isGitignored(Path.of("src/Main.java")), "Java files should not be ignored");
         assertFalse(filteringService.isGitignored(Path.of("src")), "src directory should not be ignored");
+
+        // Test the two-arg overload with explicit isDirectory flag
+        // This is useful for filesystem walkers that already know the type
+        assertTrue(
+                filteringService.isGitignored(Path.of("build"), true),
+                "build/ pattern should ignore when isDirectory=true");
+        assertTrue(
+                filteringService.isGitignored(Path.of("src/debug.log"), false),
+                "*.log pattern should ignore when isDirectory=false");
+        assertFalse(
+                filteringService.isGitignored(Path.of("src/Main.java"), false),
+                "Java files should not be ignored with explicit flag");
     }
 
     @Test
@@ -196,6 +208,59 @@ public class FileFilteringServiceTest {
     }
 
     @Test
+    void testIsGitIgnoredWithExplicitDirectoryFlag() throws Exception {
+        // Test that isGitignored(path, isDirectory) correctly handles directory-only patterns
+        // like "generated/" which should ignore directories but not files with the same name
+
+        // Create .gitignore with a directory-only pattern
+        Path gitignore = mainRepoPath.resolve(".gitignore");
+        Files.writeString(gitignore, "generated/\n");
+
+        var filteringService = new FileFilteringService(mainRepoPath, mainRepo);
+
+        // When isDirectory=true, "generated/" pattern should match
+        assertTrue(
+                filteringService.isGitignored(Path.of("generated"), true),
+                "generated/ pattern should ignore path when isDirectory=true");
+
+        // When isDirectory=false, "generated/" pattern should NOT match (it's a dir-only pattern)
+        assertFalse(
+                filteringService.isGitignored(Path.of("generated"), false),
+                "generated/ pattern should NOT ignore path when isDirectory=false");
+
+        // Nested paths under a directory pattern
+        assertTrue(
+                filteringService.isGitignored(Path.of("generated/output.txt"), false),
+                "Files under ignored directory should also be ignored");
+
+        // Verify the original single-arg method still works (backward compatibility)
+        // Create an actual directory so Files.isDirectory returns true
+        Path generatedDir = mainRepoPath.resolve("generated");
+        Files.createDirectories(generatedDir);
+        assertTrue(
+                filteringService.isGitignored(Path.of("generated")),
+                "Original isGitignored(Path) should detect directory and apply pattern");
+    }
+
+    @Test
+    void testIsGitIgnoredWithExplicitFlagForFilePatterns() throws Exception {
+        // Test patterns that should match files regardless of isDirectory flag
+
+        Path gitignore = mainRepoPath.resolve(".gitignore");
+        Files.writeString(gitignore, "*.log\n");
+
+        var filteringService = new FileFilteringService(mainRepoPath, mainRepo);
+
+        // *.log pattern should ignore files
+        assertTrue(filteringService.isGitignored(Path.of("debug.log"), false), "*.log pattern should ignore files");
+
+        // *.log pattern behavior for directories (gitignore treats *.log as matching both by default)
+        assertTrue(
+                filteringService.isGitignored(Path.of("debug.log"), true),
+                "*.log pattern should also match directories with that name");
+    }
+
+    @Test
     void testWorktreeIncludesSharedInfoExclude() throws Exception {
         assumeTrue(mainRepo.supportsWorktrees(), "Worktrees not supported, skipping test");
 
@@ -217,12 +282,44 @@ public class FileFilteringServiceTest {
 
         assertTrue(hasSharedInfoExclude, "Worktree should include main repo's shared .git/info/exclude");
 
-        // Verify the pattern is actually applied
+        // Verify the pattern is actually applied using the legacy single-arg method (backward compat)
         Files.writeString(worktreePath.resolve("test.local"), "content");
         var filteringService = new FileFilteringService(worktreePath, worktreeRepo);
 
         assertTrue(
                 filteringService.isGitignored(Path.of("test.local")),
-                "*.local pattern from shared info/exclude should be honored in worktree");
+                "*.local pattern from shared info/exclude should be honored in worktree (single-arg)");
+
+        // Also add a worktree-root .gitignore with a directory pattern
+        Path worktreeGitignore = worktreePath.resolve(".gitignore");
+        Files.writeString(worktreeGitignore, "build/\n");
+
+        // Create build directory and a file inside it
+        Path buildDir = worktreePath.resolve("build");
+        Files.createDirectories(buildDir);
+        Files.writeString(buildDir.resolve("output.class"), "bytecode");
+
+        // Invalidate caches after adding new .gitignore
+        filteringService.invalidateCaches();
+
+        // Test the two-arg overload for shared info/exclude pattern (*.local is a file)
+        assertTrue(
+                filteringService.isGitignored(Path.of("test.local"), false),
+                "*.local pattern from shared info/exclude should be honored via two-arg overload");
+
+        // Test the two-arg overload for worktree-root .gitignore directory pattern
+        assertTrue(
+                filteringService.isGitignored(Path.of("build"), true),
+                "build/ pattern from worktree .gitignore should ignore directory via two-arg overload");
+
+        // Test file under ignored directory via two-arg overload
+        assertTrue(
+                filteringService.isGitignored(Path.of("build/output.class"), false),
+                "Files under ignored directory should be ignored via two-arg overload");
+
+        // Verify a non-ignored path still works correctly
+        assertFalse(
+                filteringService.isGitignored(Path.of("README.md"), false),
+                "Non-ignored file should not be ignored via two-arg overload");
     }
 }
