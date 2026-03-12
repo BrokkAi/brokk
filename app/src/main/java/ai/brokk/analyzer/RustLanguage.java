@@ -223,7 +223,6 @@ public class RustLanguage implements Language {
                 SwingUtilities.invokeLater(
                         () -> chrome.toolError("Error copying Rust crate: " + ex.getMessage(), "Rust Import"));
             }
-            return null;
         });
         return true;
     }

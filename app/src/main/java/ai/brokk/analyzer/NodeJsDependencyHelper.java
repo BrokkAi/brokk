@@ -168,7 +168,6 @@ public final class NodeJsDependencyHelper {
                 SwingUtilities.invokeLater(
                         () -> chrome.toolError("Error copying NPM package: " + ex.getMessage(), "NPM Import"));
             }
-            return null;
         });
         return true;
     }

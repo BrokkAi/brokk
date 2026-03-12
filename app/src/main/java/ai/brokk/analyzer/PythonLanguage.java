@@ -262,7 +262,6 @@ public class PythonLanguage implements Language {
                 SwingUtilities.invokeLater(
                         () -> chrome.toolError("Error copying Python package: " + ex.getMessage(), "Python Import"));
             }
-            return null;
         });
         return true;
     }

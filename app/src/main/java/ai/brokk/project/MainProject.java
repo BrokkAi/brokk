@@ -241,8 +241,9 @@ public final class MainProject extends AbstractProject {
         this.dependencyUpdateScheduler = new DependencyUpdateScheduler(this);
 
         // Initialize shared background executor for app-level tasks
-        this.backgroundExecutor =
-                ExecutorsUtil.newFixedThreadExecutor("MainProject-" + this.root.getFileName() + "-", 4);
+        this.backgroundExecutor = ExecutorsUtil.newFixedThreadExecutor(
+                "MainProject-" + this.root.getFileName() + "-",
+                Math.max(8, Runtime.getRuntime().availableProcessors()));
     }
 
     @TestOnly
