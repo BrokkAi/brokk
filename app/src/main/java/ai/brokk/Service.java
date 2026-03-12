@@ -7,6 +7,7 @@ import ai.brokk.util.Environment;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.File;
@@ -703,8 +704,8 @@ public class Service extends AbstractService implements ExceptionReporter.Report
     }
 
     // Separate mapper configured to ignore unknown properties
-    private static final ObjectMapper SESSION_OBJECT_MAPPER = new ObjectMapper()
-            .configure(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+    private static final ObjectMapper SESSION_OBJECT_MAPPER =
+            new ObjectMapper().configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
 
     private static @Nullable String sessionAuthHeader() {
         String key = MainProject.getBrokkKey();

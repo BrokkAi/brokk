@@ -15,16 +15,7 @@ import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import javax.swing.Box;
-import javax.swing.BoxLayout;
-import javax.swing.JLabel;
-import javax.swing.JMenuItem;
-import javax.swing.JPanel;
-import javax.swing.JPopupMenu;
-import javax.swing.JScrollPane;
-import javax.swing.JTable;
-import javax.swing.ListSelectionModel;
-import javax.swing.SwingUtilities;
+import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.DefaultTableModel;
@@ -252,7 +243,7 @@ public class CommitsTablePanel extends JPanel implements ThemeAware {
                 setToolTipText(null);
             }
 
-            setBorder(javax.swing.BorderFactory.createEmptyBorder(0, 5, 0, 5));
+            setBorder(BorderFactory.createEmptyBorder(0, 5, 0, 5));
             return this;
         }
 

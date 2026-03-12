@@ -309,7 +309,7 @@ public final class ImportPageRanker {
             return cached;
         }
 
-        Set<ProjectFile> resolved = analyzer.as(ai.brokk.analyzer.ImportAnalysisProvider.class)
+        Set<ProjectFile> resolved = analyzer.as(ImportAnalysisProvider.class)
                 .map(p -> p.referencingFilesOf(file))
                 .orElse(Set.of());
         cache.put(file, resolved);

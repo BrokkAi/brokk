@@ -15,6 +15,7 @@ import com.github.jknack.handlebars.EscapingStrategy;
 import com.github.jknack.handlebars.Handlebars;
 import com.github.jknack.handlebars.Template;
 import com.github.jknack.handlebars.helper.ConditionalHelpers;
+import com.github.jknack.handlebars.helper.StringHelpers;
 import dev.langchain4j.data.message.*;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.UserMessage;
@@ -415,7 +416,7 @@ public class CodePrompts {
     static {
         Handlebars handlebars = new Handlebars().with(EscapingStrategy.NOOP);
         handlebars.registerHelpers(ConditionalHelpers.class);
-        handlebars.registerHelpers(com.github.jknack.handlebars.helper.StringHelpers.class);
+        handlebars.registerHelpers(StringHelpers.class);
 
         String codeSystemTemplateText =
                 """

@@ -23,6 +23,7 @@ import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import java.awt.Component;
 import java.awt.Image;
+import java.awt.Toolkit;
 import java.awt.event.ActionEvent;
 import java.io.File;
 import java.io.IOException;
@@ -577,7 +578,7 @@ public class ContextActionsHandler {
     private void doPasteAction() {
         assert !SwingUtilities.isEventDispatchThread();
 
-        var clipboard = java.awt.Toolkit.getDefaultToolkit().getSystemClipboard();
+        var clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
         int maxAttempts = 3;
         int delayMs = 50;
 

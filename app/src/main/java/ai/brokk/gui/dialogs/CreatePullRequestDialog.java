@@ -27,6 +27,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.function.Consumer;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;
@@ -447,9 +448,7 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
         if (blockers.isEmpty()) {
             return null;
         }
-        return "<html>"
-                + blockers.stream().map(b -> "• " + b).collect(java.util.stream.Collectors.joining("<br>"))
-                + "</html>";
+        return "<html>" + blockers.stream().map(b -> "• " + b).collect(Collectors.joining("<br>")) + "</html>";
     }
 
     /** Checks whether the dialog has sufficient information to enable PR creation. */
@@ -872,9 +871,8 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
                 String body = descriptionArea.getText().trim();
 
                 if (!selectedSessionUuids.isEmpty()) {
-                    String ids = selectedSessionUuids.stream()
-                            .map(UUID::toString)
-                            .collect(java.util.stream.Collectors.joining(","));
+                    String ids =
+                            selectedSessionUuids.stream().map(UUID::toString).collect(Collectors.joining(","));
                     body += "\n\nbrokk-session-ids:" + ids;
                 }
 

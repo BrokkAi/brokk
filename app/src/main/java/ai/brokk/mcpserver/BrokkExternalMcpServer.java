@@ -2,6 +2,7 @@ package ai.brokk.mcpserver;
 
 import static java.util.Objects.requireNonNull;
 
+import ai.brokk.BuildInfo;
 import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
 import ai.brokk.LlmOutputMeta;
@@ -17,6 +18,7 @@ import ai.brokk.cli.MemoryConsole;
 import ai.brokk.context.ContextDelta;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments.SummaryFragment;
+import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
 import ai.brokk.project.ModelProperties;
 import ai.brokk.tools.SearchTools;
@@ -24,6 +26,7 @@ import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
 import ai.brokk.tools.WorkspaceTools;
 import ai.brokk.util.BuildTools;
+import ai.brokk.util.BuildVerifier;
 import ai.brokk.util.Environment;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -118,7 +121,7 @@ public class BrokkExternalMcpServer {
 
             for (String arg : args) {
                 if ("--help".equals(arg) || "-h".equals(arg)) {
-                    System.out.println("Brokk MCP Server v" + ai.brokk.BuildInfo.version);
+                    System.out.println("Brokk MCP Server v" + BuildInfo.version);
                     System.out.println("Provides Model Context Protocol (MCP) access to Brokk's agentic tools.");
                     System.out.println();
                     System.out.println("Available Tools:");
@@ -135,7 +138,7 @@ public class BrokkExternalMcpServer {
             AtomicReference<McpSyncServer> serverRef = new AtomicReference<>();
 
             McpSyncServer mcpServer = McpServer.sync(new StdioServerTransportProvider(mapper, System.in, System.out))
-                    .serverInfo("Brokk MCP Server", ai.brokk.BuildInfo.version)
+                    .serverInfo("Brokk MCP Server", BuildInfo.version)
                     .jsonMapper(mapper)
                     .requestTimeout(Duration.ofHours(1))
                     .tools(instance.toolSpecifications())
@@ -352,7 +355,7 @@ public class BrokkExternalMcpServer {
     private boolean isJqOnPath() {
         try {
             Environment.instance.runShellCommand(
-                    "jq --version", cm.getProject().getRoot(), out -> {}, java.time.Duration.ofSeconds(2));
+                    "jq --version", cm.getProject().getRoot(), out -> {}, Duration.ofSeconds(2));
             return true;
         } catch (Environment.SubprocessException | InterruptedException e) {
             return false;
@@ -376,7 +379,7 @@ public class BrokkExternalMcpServer {
         String result = recommendations.fragments().stream()
                 .flatMap(f -> toSummaryFragments(f).stream())
                 .map(f -> "## " + f.description().join() + ":\n" + f.text().join() + "\n\n")
-                .collect(java.util.stream.Collectors.joining());
+                .collect(Collectors.joining());
 
         cm.pushContext(ctx -> ctx.addFragments(recommendations.fragments()));
         return result;
@@ -503,8 +506,7 @@ public class BrokkExternalMcpServer {
         var existingDetails = project.loadBuildDetails().orElse(BuildAgent.BuildDetails.EMPTY);
 
         // 1. Verify buildOnlyCmd
-        ai.brokk.util.BuildVerifier.VerificationResult buildResult =
-                ai.brokk.util.BuildVerifier.verify(project, buildOnlyCmd);
+        BuildVerifier.VerificationResult buildResult = BuildVerifier.verify(project, buildOnlyCmd);
         if (!buildResult.success()) {
             return "Configuration failed: buildOnlyCmd ('" + buildOnlyCmd + "') failed with exit code "
                     + buildResult.exitCode() + ":\n" + buildResult.output();
@@ -527,8 +529,7 @@ public class BrokkExternalMcpServer {
         if (testFileOpt.isPresent()) {
             String interpolatedTestCmd = BuildTools.getBuildLintSomeCommand(cm, bd, List.of(testFileOpt.get()));
 
-            ai.brokk.util.BuildVerifier.VerificationResult testResult =
-                    ai.brokk.util.BuildVerifier.verify(project, interpolatedTestCmd);
+            BuildVerifier.VerificationResult testResult = BuildVerifier.verify(project, interpolatedTestCmd);
             if (!testResult.success()) {
                 return "Configuration failed: testSomeCmd verification failed using command '" + interpolatedTestCmd
                         + "'. Exit code " + testResult.exitCode() + ":\n" + testResult.output();
@@ -536,7 +537,7 @@ public class BrokkExternalMcpServer {
         }
 
         // 3. Persist only if both succeeded
-        project.setCodeAgentTestScope(ai.brokk.project.IProject.CodeAgentTestScope.WORKSPACE);
+        project.setCodeAgentTestScope(IProject.CodeAgentTestScope.WORKSPACE);
         project.setBuildDetails(bd);
         project.saveBuildDetails(bd);
 
@@ -569,8 +570,7 @@ public class BrokkExternalMcpServer {
         var results = new ArrayList<SummaryFragment>();
         var files = fragment.sourceFiles().join();
         for (var file : files) {
-            results.add(new SummaryFragment(
-                    cm, file.toString(), ai.brokk.context.ContextFragment.SummaryType.FILE_SKELETONS));
+            results.add(new SummaryFragment(cm, file.toString(), ContextFragment.SummaryType.FILE_SKELETONS));
         }
         var sources = fragment.sources().join();
         for (var codeUnit : sources) {

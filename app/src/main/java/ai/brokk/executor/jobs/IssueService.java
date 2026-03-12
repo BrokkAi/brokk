@@ -7,6 +7,7 @@ import ai.brokk.agents.BuildAgent;
 import ai.brokk.context.Context;
 import ai.brokk.git.GitRepo;
 import ai.brokk.project.IProject;
+import ai.brokk.util.Json;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import java.io.IOException;
 import java.util.List;
@@ -48,7 +49,7 @@ public final class IssueService {
             return BuildAgent.BuildDetails.EMPTY;
         }
         try {
-            return ai.brokk.util.Json.getMapper().readValue(json, BuildAgent.BuildDetails.class);
+            return Json.getMapper().readValue(json, BuildAgent.BuildDetails.class);
         } catch (Exception e) {
             logger.warn("Failed to parse build settings JSON: {}", e.getMessage());
             return BuildAgent.BuildDetails.EMPTY;

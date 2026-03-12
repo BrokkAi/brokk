@@ -67,7 +67,7 @@ public class CloneOperationTracker {
     private static void cleanupActiveClones() {
         for (Path targetPath : activeClones) {
             try {
-                if (java.nio.file.Files.exists(targetPath)) {
+                if (Files.exists(targetPath)) {
                     logger.info("Cleaning up partial clone on shutdown: {}", targetPath);
                     FileUtil.deleteRecursively(targetPath);
                 }
@@ -79,7 +79,7 @@ public class CloneOperationTracker {
 
     /** Clean up orphaned clone operations from previous application runs. Call this during application startup. */
     public static void cleanupOrphanedClones(Path dependenciesRoot) {
-        if (!java.nio.file.Files.exists(dependenciesRoot)) {
+        if (!Files.exists(dependenciesRoot)) {
             return;
         }
 
@@ -114,7 +114,7 @@ public class CloneOperationTracker {
     /** Create marker file indicating clone operation completed successfully. */
     public static void createCompleteMarker(Path targetPath, String repoUrl, String branch) throws IOException {
         // Remove in-progress marker
-        java.nio.file.Files.deleteIfExists(targetPath.resolve(CLONE_IN_PROGRESS_MARKER));
+        Files.deleteIfExists(targetPath.resolve(CLONE_IN_PROGRESS_MARKER));
 
         // Create complete marker
         Path marker = targetPath.resolve(CLONE_COMPLETE_MARKER);

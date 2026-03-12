@@ -31,6 +31,7 @@ import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.StringWriter;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -1155,7 +1156,7 @@ public class SearchTools {
             boolean isFile = false;
             if (!canonicalPathString.isEmpty()) {
                 var projectFile = new ProjectFile(contextManager.getProject().getRoot(), Path.of(canonicalPathString));
-                isFile = java.nio.file.Files.isRegularFile(projectFile.absPath())
+                isFile = Files.isRegularFile(projectFile.absPath())
                         || repo.getTrackedFiles().contains(projectFile);
             }
 

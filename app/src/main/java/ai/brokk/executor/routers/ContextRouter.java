@@ -688,7 +688,7 @@ public final class ContextRouter implements SimpleHttpServer.CheckedHttpHandler 
                     var msgList = new ArrayList<Map<String, Object>>();
                     for (var msg : log.messages()) {
                         var msgMap = new HashMap<String, Object>();
-                        msgMap.put("role", msg.type().name().toLowerCase(java.util.Locale.ROOT));
+                        msgMap.put("role", msg.type().name().toLowerCase(Locale.ROOT));
                         msgMap.put("text", Messages.getText(msg));
 
                         if (msg instanceof AiMessage ai

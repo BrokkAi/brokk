@@ -22,6 +22,7 @@ import java.io.UncheckedIOException;
 import java.nio.file.FileSystemLoopException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -653,7 +654,7 @@ public interface IProject extends AutoCloseable {
      * by matching them against on-disk dependency directories.
      */
     default Set<Dependency> resolveDependencies(String liveDepsNames) {
-        var liveNamesSet = java.util.Arrays.stream(liveDepsNames.split(","))
+        var liveNamesSet = Arrays.stream(liveDepsNames.split(","))
                 .map(String::trim)
                 .filter(s -> !s.isEmpty())
                 .collect(Collectors.toSet());

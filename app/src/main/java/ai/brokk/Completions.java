@@ -2,6 +2,7 @@ package ai.brokk;
 
 import ai.brokk.analyzer.BrokkFile;
 import ai.brokk.analyzer.CodeUnit;
+import ai.brokk.analyzer.CodeUnitType;
 import ai.brokk.analyzer.ExternalFile;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
@@ -132,9 +133,7 @@ public class Completions {
                         return new ScoredCodeUnit(cu, Integer.MAX_VALUE);
                     }
 
-                    int typeBonus = (cu.kind() == ai.brokk.analyzer.CodeUnitType.CLASS)
-                            ? -ScoringConstants.CLASS_TYPE_BONUS
-                            : 0;
+                    int typeBonus = (cu.kind() == CodeUnitType.CLASS) ? -ScoringConstants.CLASS_TYPE_BONUS : 0;
                     // Tie-breaker: prefer shallower package depths (fewer dots).
                     // This is a penalty, so it increases the score.
                     int depthPenalty =

@@ -20,7 +20,7 @@ import java.security.SecureRandom;
 import java.util.Base64;
 import java.util.HashMap;
 import java.util.Map;
-import javax.swing.SwingUtilities;
+import javax.swing.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -199,14 +199,12 @@ public class OpenAiOAuthService {
                 pendingAuthorizationUrl = null;
                 boolean canShowDialog = ancestor != null || !GraphicsEnvironment.isHeadless();
                 if (canShowDialog) {
-                    SwingUtilities.invokeLater(() -> {
-                        javax.swing.JOptionPane.showMessageDialog(
-                                ancestor,
-                                "Failed to start OAuth callback server on port " + OAUTH_PORT + ".\n"
-                                        + "Please ensure no other application is using this port.",
-                                "OAuth Server Error",
-                                javax.swing.JOptionPane.ERROR_MESSAGE);
-                    });
+                    SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(
+                            ancestor,
+                            "Failed to start OAuth callback server on port " + OAUTH_PORT + ".\n"
+                                    + "Please ensure no other application is using this port.",
+                            "OAuth Server Error",
+                            JOptionPane.ERROR_MESSAGE));
                 } else {
                     throw new IllegalStateException("Failed to start OAuth callback server on port " + OAUTH_PORT, e);
                 }

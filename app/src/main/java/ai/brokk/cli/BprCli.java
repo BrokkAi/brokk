@@ -3,6 +3,7 @@ package ai.brokk.cli;
 import static java.util.Objects.requireNonNull;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
+import ai.brokk.BuildInfo;
 import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
 import ai.brokk.Service;
@@ -62,7 +63,7 @@ import picocli.CommandLine;
 @SuppressWarnings("NullAway.Init") // NullAway is upset that some fields are initialized in picocli's call()
 @CommandLine.Command(
         name = "brokk-cli",
-        version = "Brokk " + ai.brokk.BuildInfo.version,
+        version = "Brokk " + BuildInfo.version,
         mixinStandardHelpOptions = true,
         description = "One-shot Brokk workspace and task runner.")
 public final class BprCli implements Callable<Integer> {

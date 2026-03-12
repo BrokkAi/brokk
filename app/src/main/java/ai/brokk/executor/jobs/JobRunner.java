@@ -35,6 +35,7 @@ import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
@@ -283,7 +284,7 @@ public final class JobRunner {
         logger.info("Shutting down JobRunner");
         runner.shutdownNow();
         try {
-            if (!runner.awaitTermination(5, java.util.concurrent.TimeUnit.SECONDS)) {
+            if (!runner.awaitTermination(5, TimeUnit.SECONDS)) {
                 logger.warn("JobRunner executor did not terminate in time");
             }
         } catch (InterruptedException e) {

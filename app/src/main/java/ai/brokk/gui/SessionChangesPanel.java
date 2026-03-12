@@ -55,6 +55,7 @@ import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -317,7 +318,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware, AnalyzerC
         this.diffContainer.setOpaque(false);
 
         // Create toolbar with navigation and font controls only (no view mode toggle or tools menu)
-        var reviewFeatures = java.util.EnumSet.of(
+        var reviewFeatures = EnumSet.of(
                 ToolbarFeature.CHANGE_NAVIGATION, ToolbarFeature.FILE_NAVIGATION, ToolbarFeature.FONT_CONTROLS);
         this.diffToolbar = new DiffToolbarPanel(reviewFeatures, createToolbarCallbacks());
 
