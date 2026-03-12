@@ -62,16 +62,6 @@ public interface IConsoleIO {
         // no-op by default; GUI consoles may override to prepare the Output panel
     }
 
-    enum MessageSubType {
-        Run,
-        Ask,
-        Code,
-        Architect,
-        Search,
-        BuildError,
-        CommandOutput
-    }
-
     void llmOutput(String token, ChatMessageType type, LlmOutputMeta meta);
 
     /**
