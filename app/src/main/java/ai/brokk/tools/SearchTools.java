@@ -1830,7 +1830,7 @@ public class SearchTools {
         String matchCountLabel = "first %d/%d matches".formatted(matchesTaken, totalMatchesInFile);
 
         String filePath = file.toString().replace('\\', '/');
-        String header = "%s (%d loc) (%s)".formatted(filePath, Lines.count(content), matchCountLabel);
+        String header = "%s (%d loc) (%s)".formatted(filePath, lineCount, matchCountLabel);
 
         List<String> resultLines = new ArrayList<>(outLines.size() + 1);
         resultLines.add(header);
