@@ -230,7 +230,7 @@ public class PythonLanguage implements Language {
             SwingUtilities.invokeLater(() -> currentListener.dependencyImportStarted(pkg.displayName()));
         }
 
-        chrome.getContextManager().submitBackgroundTask("Copying Python package: " + pkg.displayName(), () -> {
+        chrome.getContextManager().submitAnalyzerTask("Copying Python package: " + pkg.displayName(), () -> {
             try {
                 Files.createDirectories(targetRoot.getParent());
                 if (Files.exists(targetRoot)) {
