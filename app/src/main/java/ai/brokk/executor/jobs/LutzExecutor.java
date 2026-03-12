@@ -4,7 +4,7 @@ import static java.util.Objects.requireNonNull;
 
 import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
-import ai.brokk.agents.SearchAgent;
+import ai.brokk.agents.LutzAgent;
 import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.tasks.TaskList;
 import dev.langchain4j.model.chat.StreamingChatModel;
@@ -64,7 +64,7 @@ public final class LutzExecutor {
     private void runSearchPhase(String taskInput, StreamingChatModel plannerModel, ContextManager.TaskScope scope)
             throws InterruptedException {
         var context = cm.liveContext();
-        var searchAgent = new SearchAgent(context, taskInput, plannerModel, SearchPrompts.Objective.LUTZ, scope);
+        var searchAgent = new LutzAgent(context, taskInput, plannerModel, SearchPrompts.Objective.LUTZ, scope);
         var taskListResult = searchAgent.execute();
         scope.append(taskListResult);
     }

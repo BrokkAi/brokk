@@ -41,7 +41,7 @@ import org.junit.jupiter.api.Test;
  * If model resolution fails in your environment, adapt tests to initialize model stubs or
  * provide configured model names via environment.
  */
-public class AskModeSearchAgentTest {
+public class AskModeLutzAgentTest {
 
     private Path tempWorkspace;
     private HeadlessExecutorMain executor;

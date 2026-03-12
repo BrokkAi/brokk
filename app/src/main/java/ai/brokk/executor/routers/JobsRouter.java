@@ -157,10 +157,11 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
 
         boolean isIssueMode = tags.getOrDefault("mode", "").equalsIgnoreCase("ISSUE");
         boolean skipVerificationFlag = isIssueMode && Boolean.TRUE.equals(request.skipVerification());
+        boolean autoCommitFlag = isIssueMode || request.autoCommit();
 
         var jobSpec = new JobSpec(
                 request.taskInput(),
-                request.autoCommit(),
+                autoCommitFlag,
                 request.autoCompress(),
                 plannerModel,
                 request.scanModel(),

@@ -2,12 +2,14 @@ package ai.brokk.util;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.agents.BuildAgent.BuildDetails;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.MultiAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.project.IProject;
 import ai.brokk.testutil.NoOpConsoleIO;
 import ai.brokk.testutil.TestAnalyzer;
 import ai.brokk.testutil.TestContextManager;
@@ -47,7 +49,12 @@ class BuildToolsTest {
         ProjectFile testFile =
                 new ProjectFile(tempDir, tempDir.relativize(testFilePath).toString());
 
-        TestAnalyzer testAnalyzer = new TestAnalyzer();
+        TestAnalyzer testAnalyzer = new TestAnalyzer() {
+            @Override
+            public Set<ProjectFile> getAnalyzedFiles() {
+                return Set.of(testFile);
+            }
+        };
         CodeUnit testCu = CodeUnit.cls(testFile, "myapp.tests.test_logic", "TestLogic");
         testAnalyzer.addDeclaration(testCu);
         testAnalyzer.setSource(testCu, testFile.toString());
@@ -151,7 +158,6 @@ class BuildToolsTest {
 
         TestProject baselineProject = new TestProject(baselineDir);
         baselineProject.setAnalyzerLanguages(Set.of(Languages.PYTHON));
-        baselineProject.withoutRepo();
         TestContextManager baselineCm =
                 new TestContextManager(baselineProject, new NoOpConsoleIO(), Set.of(), new TestAnalyzer());
         ProjectFile baselineTestFile = new ProjectFile(baselineDir, "src/main.py");
@@ -171,7 +177,6 @@ class BuildToolsTest {
         TestProject controlProject = new TestProject(controlDir);
         controlProject.setAnalyzerLanguages(Set.of(Languages.PYTHON));
         controlProject.setExclusionPatterns(Set.of());
-        controlProject.withoutRepo();
         TestContextManager controlCm =
                 new TestContextManager(controlProject, new NoOpConsoleIO(), Set.of(), new TestAnalyzer());
         ProjectFile controlTestFile = new ProjectFile(controlDir, "src/main.py");
@@ -191,19 +196,20 @@ class BuildToolsTest {
         TestProject excludedProject = new TestProject(excludedDir);
         excludedProject.setAnalyzerLanguages(Set.of(Languages.PYTHON));
         excludedProject.setExclusionPatterns(Set.of("legacy"));
-        excludedProject.withoutRepo();
         TestContextManager excludedCm =
                 new TestContextManager(excludedProject, new NoOpConsoleIO(), Set.of(), new TestAnalyzer());
         ProjectFile excludedTestFile = new ProjectFile(excludedDir, "src/main.py");
         String excludedCommand = BuildTools.getBuildLintSomeCommand(excludedCm, details, List.of(excludedTestFile));
 
-        // Baseline has no distutils → command should have uncapped version
-        assertTrue(baselineCommand.contains("--python="), "Baseline command should contain --python=");
-        // Control has distutils → command should have capped version (3.11)
+        // Baseline has no distutils → command should have uncapped version (3.12)
         assertTrue(
-                controlCommand.contains("--python=3.11"),
-                "Control command should contain --python=3.11 due to distutils");
-        // Excluded hides the distutils file → command should match baseline (uncapped)
+                baselineCommand.contains("--python=3.12"), "Baseline command should contain --python=3.12 (uncapped)");
+        // Control has distutils → command should have version affected by distutils detection
+        // With pyproject.toml specifying >=3.8 and distutils present, version is lower bound 3.8
+        assertTrue(
+                controlCommand.contains("--python=3.8"),
+                "Control command should contain --python=3.8 (lower bound, distutils detected)");
+        // Excluded hides the distutils file → command should match baseline (uncapped 3.12)
         assertEquals(
                 baselineCommand,
                 excludedCommand,
@@ -249,5 +255,37 @@ class BuildToolsTest {
         // 4. Assertions
         // Ensure the package has the ./ prefix and the class (function) is present
         assertEquals("go test ./callbacks  -run '^TestCallbacks$'", result);
+    }
+
+    @Test
+    void testDetermineVerificationCommand_AllScopeSkipsPythonVersionForNonPythonProject(@TempDir Path tempDir)
+            throws Exception {
+        TestProject project = new TestProject(tempDir);
+        project.setAnalyzerLanguages(Set.of(Languages.JAVA));
+        project.setCodeAgentTestScope(IProject.CodeAgentTestScope.ALL);
+
+        TestContextManager mockCm = new TestContextManager(project, new NoOpConsoleIO(), Set.of(), new TestAnalyzer());
+
+        BuildDetails details = new BuildDetails("build-cmd", "python{{pyver}} -m pytest", "unused-test-some", Set.of());
+
+        String result = BuildTools.determineVerificationCommand(mockCm.liveContext(), details);
+
+        assertEquals("python -m pytest", result);
+    }
+
+    @Test
+    void testGetBuildLintSomeCommand_SkipsPythonVersionForNonPythonProject(@TempDir Path tempDir) throws Exception {
+        TestProject project = new TestProject(tempDir);
+        project.setAnalyzerLanguages(Set.of(Languages.JAVA));
+
+        TestContextManager mockCm = new TestContextManager(project, new NoOpConsoleIO(), Set.of(), new TestAnalyzer());
+
+        BuildDetails details = new BuildDetails("build-cmd", "unused-test-all", "python{{pyver}} -m pytest", Set.of());
+
+        ProjectFile testFile = new ProjectFile(tempDir, "src/test/java/com/example/AppTest.java");
+
+        String result = BuildTools.getBuildLintSomeCommand(mockCm, details, List.of(testFile));
+
+        assertEquals("python -m pytest", result);
     }
 }

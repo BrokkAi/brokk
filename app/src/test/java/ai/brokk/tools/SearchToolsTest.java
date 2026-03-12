@@ -169,13 +169,10 @@ public class SearchToolsTest {
         // Request limit of 5
         String result = searchTools.findFilenames(List.of("file.*\\.txt"), 5);
 
-        assertTrue(result.contains("WARNING: Result limit reached"), "Should contain truncation warning");
+        assertTrue(result.contains("### WARNING: Result limit reached"), "Should contain truncation warning");
         assertTrue(result.contains("max 5 filenames"), "Warning should mention the limit");
-
-        // Count filenames in the comma-separated list
-        String listPart = result.substring(result.indexOf("Matching filenames: ") + "Matching filenames: ".length());
-        String[] files = listPart.split(", ");
-        assertEquals(5, files.length, "Should return exactly 5 filenames");
+        long bulletCount = result.lines().filter(line -> line.startsWith("- ")).count();
+        assertEquals(5, bulletCount, "Should return exactly 5 filenames");
     }
 
     @Test
@@ -194,40 +191,34 @@ public class SearchToolsTest {
         // 3. Test cases
         // A. Full path with forward slashes
         String resultNix = searchTools.findFilenames(List.of(relativePathNix), 200);
-        assertTrue(
-                resultNix.contains(relativePathNix) || resultNix.contains(relativePathWin),
-                "Should find file with forward-slash path");
+        assertTrue(resultNix.contains("# frontend-mop/src"), "Should group by common prefix");
+        assertTrue(resultNix.contains("- MOP.svelte"), "Should include matching file under prefix");
 
         // B. File name only
         String resultName = searchTools.findFilenames(List.of("MOP.svelte"), 200);
-        assertTrue(
-                resultName.contains(relativePathNix) || resultName.contains(relativePathWin),
-                "Should find file with file name only");
+        assertTrue(resultName.contains("# frontend-mop/src"), "Should group by common prefix");
+        assertTrue(resultName.contains("- MOP.svelte"), "Should include matching file under prefix");
 
         // C. Partial path
         String resultPartial = searchTools.findFilenames(List.of("src/MOP"), 200);
-        assertTrue(
-                resultPartial.contains(relativePathNix) || resultPartial.contains(relativePathWin),
-                "Should find file with partial path");
+        assertTrue(resultPartial.contains("# frontend-mop/src"), "Should group by common prefix");
+        assertTrue(resultPartial.contains("- MOP.svelte"), "Should include matching file under prefix");
 
         // D. Full path with backslashes (Windows-style)
         String resultWin = searchTools.findFilenames(List.of(relativePathWin), 200);
-        assertTrue(
-                resultWin.contains(relativePathNix) || resultWin.contains(relativePathWin),
-                "Should find file with back-slash path pattern");
+        assertTrue(resultWin.contains("# frontend-mop/src"), "Should group by common prefix");
+        assertTrue(resultWin.contains("- MOP.svelte"), "Should include matching file under prefix");
 
         // E. Regex path pattern (frontend-mop/.*\.svelte)
         String regexPattern = "frontend-mop/.*\\.svelte";
         String resultRegex = searchTools.findFilenames(List.of(regexPattern), 200);
-        assertTrue(
-                resultRegex.contains(relativePathNix) || resultRegex.contains(relativePathWin),
-                "Should find file with regex pattern");
+        assertTrue(resultRegex.contains("# frontend-mop/src"), "Should group by common prefix");
+        assertTrue(resultRegex.contains("- MOP.svelte"), "Should include matching file under prefix");
 
         // F. Case-insensitive check
         String resultUpper = searchTools.findFilenames(List.of("MOP.SVELTE"), 200);
-        assertTrue(
-                resultUpper.contains(relativePathNix) || resultUpper.contains(relativePathWin),
-                "Should find file with case-insensitive match");
+        assertTrue(resultUpper.contains("# frontend-mop/src"), "Should group by common prefix");
+        assertTrue(resultUpper.contains("- MOP.svelte"), "Should include matching file under prefix");
     }
 
     @Test

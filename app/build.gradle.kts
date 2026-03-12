@@ -2,6 +2,7 @@ import net.ltgt.gradle.errorprone.errorprone
 import java.time.Duration
 import org.gradle.process.CommandLineArgumentProvider
 import org.apache.tools.ant.types.Commandline
+import org.gradle.api.GradleException
 
 plugins {
     java
@@ -72,6 +73,40 @@ repositories {
     }
     maven {
         url = uri("https://www.jetbrains.com/intellij-repository/releases")
+    }
+}
+
+val verifyNoEmptyJavaSources = tasks.register("verifyNoEmptyJavaSources") {
+    group = "verification"
+    description =
+        "Fails the build if any .java file in the main source set is empty or whitespace-only. " +
+        "This complements Error Prone: as a compiler plugin, Error Prone may not be invoked for truly empty sources " +
+        "or may not be able to retrieve source text for an effectively-empty compilation unit."
+
+    val sources = sourceSets.main.get().allJava.matching {
+        include("**/*.java")
+        exclude("**/package-info.java")
+    }
+
+    inputs.files(sources)
+    outputs.upToDateWhen { true }
+
+    doLast {
+        val emptyFiles = sources.files
+            .asSequence()
+            .filter { it.isFile }
+            .filter { file -> file.useLines { lines -> lines.all { it.isBlank() } } }
+            .toList()
+
+        if (emptyFiles.isNotEmpty()) {
+            val formatted = emptyFiles.joinToString("\n") { file ->
+                val rel = file.relativeToOrNull(projectDir)?.path ?: file.path
+                " - $rel"
+            }
+            throw GradleException(
+                "Empty or whitespace-only .java files detected. Delete them or add valid Java content:\n$formatted"
+            )
+        }
     }
 }
 
@@ -336,6 +371,8 @@ val jdwpDebugArgsProvider = object : CommandLineArgumentProvider {
 
 // Configure main source compilation without ErrorProne (fast incremental)
 tasks.named<JavaCompile>("compileJava") {
+    dependsOn(verifyNoEmptyJavaSources)
+
     options.isIncremental = true
     options.isFork = true
     options.forkOptions.jvmArgs?.addAll(errorProneJvmArgs + listOf(
@@ -364,6 +401,8 @@ tasks.named<JavaCompile>("compileJava") {
 tasks.register<JavaCompile>("compileJavaErrorProne") {
     group = "verification"
     description = "Compile with Error Prone and NullAway enabled"
+
+    dependsOn(verifyNoEmptyJavaSources)
 
     // Ensure generated sources (e.g., BuildConfig) exist before compiling
     dependsOn("generateBuildConfig")

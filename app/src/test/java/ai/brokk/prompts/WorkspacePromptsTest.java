@@ -143,6 +143,15 @@ class WorkspacePromptsTest {
     }
 
     @Test
+    void testFormatTocEmptyWorkspaceMessage() {
+        var ctx = new Context(cm);
+        String toc = WorkspacePrompts.formatToc(ctx);
+
+        assertTrue(toc.contains("The Workspace is currently empty."));
+        assertFalse(toc.contains("Here is a list of the full contents of the Workspace that you can refer to above."));
+    }
+
+    @Test
     void testSortEditableFragmentsByMtimePreservesNonProjectFragmentOrder() throws IOException {
         var file = createTestFile("file.txt", "content");
         cm.addEditableFile(file);

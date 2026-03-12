@@ -2294,7 +2294,45 @@ public class SearchTools {
 
         final List<Pattern> compiledPatterns;
         try {
-            compiledPatterns = compilePatternsWithFlags(patterns, Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
+            List<Pattern> matchingPatterns = new ArrayList<>();
+            List<String> compileErrors = new ArrayList<>();
+            for (String pattern : patterns) {
+                boolean hasBackslash = pattern.contains("\\");
+                boolean normalizedCompiled = false;
+
+                try {
+                    matchingPatterns.addAll(compilePatternsWithFlags(
+                            List.of(toUnixPath(pattern)), Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE));
+                    normalizedCompiled = true;
+                } catch (IllegalArgumentException e) {
+                    if (!hasBackslash) {
+                        compileErrors.add(
+                                e.getMessage() != null
+                                        ? e.getMessage()
+                                        : e.getClass().getSimpleName());
+                    }
+                }
+
+                if (hasBackslash) {
+                    try {
+                        matchingPatterns.addAll(compilePatternsWithFlags(
+                                List.of(pattern), Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE));
+                    } catch (IllegalArgumentException e) {
+                        if (!normalizedCompiled) {
+                            compileErrors.add(
+                                    e.getMessage() != null
+                                            ? e.getMessage()
+                                            : e.getClass().getSimpleName());
+                        }
+                    }
+                }
+            }
+
+            if (!compileErrors.isEmpty()) {
+                throw new IllegalArgumentException(String.join("; ", compileErrors));
+            }
+
+            compiledPatterns = List.copyOf(matchingPatterns);
         } catch (IllegalArgumentException e) {
             return e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
         }
@@ -2307,17 +2345,16 @@ public class SearchTools {
         try {
             allMatches = contextManager.getProject().getAllFiles().stream()
                     .map(ProjectFile::toString) // Use relative path from ProjectFile
+                    .map(path -> toUnixPath(path))
                     .filter(filePath -> {
-                        // Normalise to forward slashes so regex like "frontend-mop/.*\\.svelte"
-                        // work on Windows paths containing back-slashes.
-                        String unixPath = toUnixPath(filePath);
                         for (Pattern pattern : compiledPatterns) {
-                            if (findWithOverflowGuard(pattern, unixPath)) {
+                            if (findWithOverflowGuard(pattern, filePath)) {
                                 return true;
                             }
                         }
                         return false;
                     })
+                    .distinct()
                     .sorted()
                     .toList();
         } catch (RegexMatchOverflowException e) {
@@ -2339,7 +2376,8 @@ public class SearchTools {
                     + effectiveLimit + " matches. " + "Retrying the same tool call will return the same results.\n\n";
         }
 
-        return recordResearchTokens(prefix + "Matching filenames: " + String.join(", ", matchingFiles));
+        return recordResearchTokens(
+                prefix + "Matching filenames by common prefix:\n" + formatFilenamesByPrefix(matchingFiles));
     }
 
     private static boolean findWithOverflowGuard(Pattern pattern, String input) {
@@ -2348,6 +2386,36 @@ public class SearchTools {
         } catch (StackOverflowError e) {
             throw new RegexMatchOverflowException(pattern.pattern(), e);
         }
+    }
+
+    private static String formatFilenamesByPrefix(List<String> matchingFiles) {
+        Map<String, List<String>> grouped = matchingFiles.stream()
+                .collect(Collectors.groupingBy(SearchTools::directoryPrefix, LinkedHashMap::new, Collectors.toList()));
+
+        return grouped.entrySet().stream()
+                .map(entry -> {
+                    String groupPrefix = entry.getKey();
+                    String groupFiles = entry.getValue().stream()
+                            .map(SearchTools::basename)
+                            .map(name -> "- " + name)
+                            .collect(Collectors.joining("\n"));
+
+                    if (groupPrefix.isEmpty()) {
+                        return groupFiles;
+                    }
+                    return "# " + groupPrefix + "\n" + groupFiles;
+                })
+                .collect(Collectors.joining("\n\n"));
+    }
+
+    private static String directoryPrefix(String path) {
+        int lastSlash = path.lastIndexOf('/');
+        return lastSlash > 0 ? path.substring(0, lastSlash) : "";
+    }
+
+    private static String basename(String path) {
+        int lastSlash = path.lastIndexOf('/');
+        return lastSlash >= 0 ? path.substring(lastSlash + 1) : path;
     }
 
     @Tool(

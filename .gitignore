@@ -80,3 +80,6 @@ test-projects
 # For swe-bench-live testing
 .venv
 swe_bench_repos/
+
+
+.gradle-user-home

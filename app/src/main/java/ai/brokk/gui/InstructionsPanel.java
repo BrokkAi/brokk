@@ -13,7 +13,7 @@ import ai.brokk.Llm;
 import ai.brokk.Service;
 import ai.brokk.TaskResult;
 import ai.brokk.agents.CodeAgent;
-import ai.brokk.agents.SearchAgent;
+import ai.brokk.agents.LutzAgent;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.context.Context;
@@ -1941,14 +1941,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     boolean hadIncomplete = hasIncomplete(beforeTasks);
 
                     // SearchAgent now handles scanning internally via execute()
-                    TaskResult result;
-                    try {
-                        var agent = new SearchAgent(context, query, modelToUse, objective, scope);
-                        result = agent.execute();
-                    } catch (InterruptedException ie) {
-                        Thread.currentThread().interrupt();
-                        return TaskResult.from(context, TaskResult.StopReason.INTERRUPTED);
-                    }
+                    var agent = new LutzAgent(context, query, modelToUse, objective, scope);
+                    TaskResult result = agent.execute();
 
                     // Apply results to context
                     context = result.context();

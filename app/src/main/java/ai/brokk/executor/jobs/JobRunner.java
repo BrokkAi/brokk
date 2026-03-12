@@ -10,7 +10,7 @@ import ai.brokk.Service;
 import ai.brokk.TaskResult;
 import ai.brokk.agents.CodeAgent;
 import ai.brokk.agents.IssueRewriterAgent;
-import ai.brokk.agents.SearchAgent;
+import ai.brokk.agents.LutzAgent;
 import ai.brokk.context.Context;
 import ai.brokk.executor.io.HeadlessHttpConsole;
 import ai.brokk.git.GitRepo;
@@ -319,6 +319,7 @@ public final class JobRunner {
             }
         });
         final var previousIo = cm.getIo();
+        final var previousAutoCommit = cm.isAutoCommit();
         cm.setIo(console);
         logger.info("Job {} attaching streaming console", jobId);
 
@@ -345,6 +346,7 @@ public final class JobRunner {
         var future = new CompletableFuture<Void>();
 
         runner.execute(() -> {
+            Throwable[] futureFailure = {null};
             try {
                 // Determine execution mode (default ARCHITECT)
                 Mode mode = parseMode(spec);
@@ -449,6 +451,7 @@ public final class JobRunner {
                         codeModelNameForLog);
 
                 // Execute within submitLlmAction to honor cancellation semantics
+                cm.setAutoCommit(spec.autoCommit());
                 cm.submitLlmAction(() -> {
                             if (cancelled.get()) {
                                 logger.info("Job {} execution cancelled by user", jobId);
@@ -482,7 +485,7 @@ public final class JobRunner {
                                         // PLAN mode: LUTZ Phase 1+2 only (generate task list, no execution)
                                         try (var scope = cm.beginTaskUngrouped(spec.taskInput())) {
                                             var context = cm.liveContext();
-                                            var searchAgent = new SearchAgent(
+                                            var searchAgent = new LutzAgent(
                                                     context,
                                                     spec.taskInput(),
                                                     Objects.requireNonNull(
@@ -514,7 +517,7 @@ public final class JobRunner {
                                             // Optional pre-scan: resolve scan model similarly to SEARCH mode.
                                             if (spec.preScan()) {
                                                 // Construct agent only for potential pre-scan usage (no execute).
-                                                var searchAgent = new SearchAgent(
+                                                var searchAgent = new LutzAgent(
                                                         context,
                                                         spec.taskInput(),
                                                         requireNonNull(
@@ -699,8 +702,8 @@ public final class JobRunner {
                                                     : defaultScanModel(spec);
 
                                             // SearchAgent now handles scanning internally via execute()
-                                            var scanConfig = SearchAgent.ScanConfig.withModel(scanModelToUse);
-                                            var searchAgent = new SearchAgent(
+                                            var scanConfig = LutzAgent.ScanConfig.withModel(scanModelToUse);
+                                            var searchAgent = new LutzAgent(
                                                     context,
                                                     spec.taskInput(),
                                                     requireNonNull(
@@ -822,7 +825,7 @@ public final class JobRunner {
                                                 var scanGoal =
                                                         "Analyzing changes in this PR diff to identify related code context:\n```diff\n"
                                                                 + annotatedDiff + "\n```";
-                                                var searchAgent = new SearchAgent(
+                                                var searchAgent = new LutzAgent(
                                                         context,
                                                         scanGoal,
                                                         requireNonNull(
@@ -1139,8 +1142,6 @@ public final class JobRunner {
                     }
                     store.updateStatus(jobId, current);
                 }
-
-                future.complete(null);
             } catch (Throwable t) {
                 var failure = unwrapFailure(t);
 
@@ -1180,8 +1181,6 @@ public final class JobRunner {
                     } catch (Exception e2) {
                         logger.warn("Failed to persist CANCELLED status for job {}", jobId, e2);
                     }
-
-                    future.complete(null);
                 } else {
                     logger.error("Job {} execution failed", jobId, t);
 
@@ -1212,7 +1211,7 @@ public final class JobRunner {
                         logger.warn("Failed to persist FAILED status for job {}", jobId, e2);
                     }
 
-                    future.completeExceptionally(failure);
+                    futureFailure[0] = failure;
                 }
             } finally {
                 // Clean up
@@ -1226,9 +1225,16 @@ public final class JobRunner {
                 // Restore original console. HeadlessHttpConsole is installed only for the job duration so that
                 // all ContextManager/agents IConsoleIO callbacks flow to the JobStore; then the previous console is
                 // restored.
+                cm.setAutoCommit(previousAutoCommit);
                 cm.setIo(previousIo);
                 activeJobId = null;
                 logger.info("Job {} execution ended", jobId);
+
+                if (futureFailure[0] != null) {
+                    future.completeExceptionally(futureFailure[0]);
+                } else {
+                    future.complete(null);
+                }
             }
         });
 

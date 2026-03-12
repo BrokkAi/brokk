@@ -1,6 +1,5 @@
 package ai.brokk.util;
 
-import ai.brokk.AnalyzerUtil;
 import ai.brokk.ContextManager;
 import ai.brokk.IContextManager;
 import ai.brokk.LlmOutputMeta;
@@ -158,7 +157,7 @@ public class BuildTools {
         context.put(
                 "files",
                 MustacheTemplates.toStringElementList(workspaceTestFiles.stream()
-                        .map(ProjectFile::toString)
+                        .map(f -> f.toString().replace('\\', '/'))
                         .distinct()
                         .toList()));
 
@@ -166,7 +165,7 @@ public class BuildTools {
         List<String> fqClasses = List.of();
         List<String> classes = List.of();
         if (!analyzer.isEmpty()) {
-            var codeUnits = AnalyzerUtil.testFilesToCodeUnits(analyzer, workspaceTestFiles);
+            var codeUnits = analyzer.testFilesToCodeUnits(workspaceTestFiles);
             fqClasses =
                     codeUnits.stream().map(CodeUnit::fqName).distinct().sorted().toList();
             classes = codeUnits.stream()

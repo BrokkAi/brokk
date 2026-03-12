@@ -6,7 +6,7 @@ import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
 import ai.brokk.agents.BuildAgent;
 import ai.brokk.agents.IssueRewriterAgent;
-import ai.brokk.agents.SearchAgent;
+import ai.brokk.agents.LutzAgent;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitWorkflow;
 import ai.brokk.issues.Comment;
@@ -307,8 +307,8 @@ public final class IssueExecutor {
             String taskDescription = "Issue #" + prepared.issueNumber() + ": "
                     + prepared.details().header().title();
             try (var scope = cm.beginTask(issueTaskPrompt, true, taskDescription)) {
-                var scanConfig = new SearchAgent.ScanConfig(true, null, true, false);
-                var searchAgent = new SearchAgent(
+                var scanConfig = new LutzAgent.ScanConfig(true, null, true, false);
+                var searchAgent = new LutzAgent(
                         context,
                         issueTaskPrompt,
                         plannerModel,
@@ -442,7 +442,7 @@ public final class IssueExecutor {
             try {
                 try (var reviewFixScope = cm.beginTaskUngrouped(reviewFixTaskDescription)) {
                     var liveCtx = cm.liveContext();
-                    var reviewFixAgent = new SearchAgent(
+                    var reviewFixAgent = new LutzAgent(
                             liveCtx,
                             reviewFixTaskDescription,
                             plannerModel,

@@ -50,7 +50,7 @@ public final class IssueRewriterAgent {
                     """
                             .formatted(userRequest);
 
-            var agent = new SearchAgent(context, goal, model, SearchPrompts.Objective.ISSUE_DESCRIPTION, scope);
+            var agent = new LutzAgent(context, goal, model, SearchPrompts.Objective.ISSUE_DESCRIPTION, scope);
             var result = agent.execute();
             scope.append(result);
 
