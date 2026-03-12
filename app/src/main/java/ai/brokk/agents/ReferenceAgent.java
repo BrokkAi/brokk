@@ -75,9 +75,9 @@ public class ReferenceAgent {
             }
         }
 
-        // methods, fields
+        // methods
         for (var cu : allDeclarations) {
-            if (!(cu.isFunction() || cu.isField()) || fileCandidates.contains(cu.source())) {
+            if (cu.isFunction() || fileCandidates.contains(cu.source())) {
                 continue;
             }
 
