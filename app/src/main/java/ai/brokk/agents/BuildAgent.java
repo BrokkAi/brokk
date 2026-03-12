@@ -490,7 +490,7 @@ public class BuildAgent {
 
                 Do NOT exclude: configuration files, type definitions (*.d.ts, ddl files, etc), schema files (OpenAPI, GraphQL, Protobuf sources, etc), or test code.
 
-                This project's primary languages are %s. Consider language-specific exclusions that are appropriate.
+                This project's languages are %s. Consider language-specific exclusions that are appropriate.
 
                 Remember to request the `reportBuildDetails` tool to finalize the process ONLY once all information is collected.
                 The reportBuildDetails tool expects exactly five parameters: buildLintCommand, testAllCommand, testSomeCommand, excludedDirectories, and excludedFilePatterns.
@@ -498,10 +498,12 @@ public class BuildAgent {
                         .formatted(
                                 wrapperScriptInstruction,
                                 currentExcludedDirectories,
-                                project.getAnalyzerLanguages().stream()
-                                        .filter(l -> l != Languages.NONE)
-                                        .map(Language::name)
-                                        .collect(Collectors.joining(", ")))));
+                                Optional.of(project.getAnalyzerLanguages().stream()
+                                                .filter(l -> l != Languages.NONE)
+                                                .map(Language::name)
+                                                .collect(Collectors.joining(", ")))
+                                        .filter(s -> !s.isEmpty())
+                                        .orElse("unknown"))));
 
         // Add existing history
         messages.addAll(chatHistory);
