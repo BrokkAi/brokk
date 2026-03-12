@@ -2,6 +2,7 @@ package ai.brokk.difftool.ui;
 
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.util.Icons;
+import java.awt.*;
 import java.util.Set;
 import javax.swing.*;
 import org.apache.logging.log4j.LogManager;
@@ -131,7 +132,7 @@ public class DiffToolbarPanel extends JToolBar {
             fileNavContainer.setLayout(new BoxLayout(fileNavContainer, BoxLayout.X_AXIS));
             fileNavContainer.add(Box.createHorizontalStrut(SECTION_GAP));
             var sep = new JSeparator(SwingConstants.VERTICAL);
-            sep.setMaximumSize(new java.awt.Dimension(SEPARATOR_WIDTH, SEPARATOR_HEIGHT));
+            sep.setMaximumSize(new Dimension(SEPARATOR_WIDTH, SEPARATOR_HEIGHT));
             fileNavContainer.add(sep);
             fileNavContainer.add(Box.createHorizontalStrut(BUTTON_GAP));
             fileNavContainer.add(btnPreviousFile);

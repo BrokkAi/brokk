@@ -21,6 +21,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -32,6 +33,7 @@ import java.util.Properties;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.stream.Collectors;
 import javax.swing.JFrame;
 import org.apache.logging.log4j.LogManager;
@@ -1010,7 +1012,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     public BuildAgent.BuildDetails awaitBuildDetails() {
         try {
             return detailsFuture.get();
-        } catch (java.util.concurrent.ExecutionException e) {
+        } catch (ExecutionException e) {
             logger.error("ExecutionException while awaiting build details completion", e);
             return BuildAgent.BuildDetails.EMPTY;
         } catch (InterruptedException e) {

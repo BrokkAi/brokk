@@ -2,6 +2,7 @@ package ai.brokk.executor.routers;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 
+import ai.brokk.AbstractService;
 import ai.brokk.ContextManager;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.executor.JobReservation;
@@ -41,8 +42,8 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
     private static final Logger logger = LogManager.getLogger(JobsRouter.class);
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
-    private static final ai.brokk.AbstractService.ReasoningLevel[] REASONING_LEVEL_VALUES =
-            ai.brokk.AbstractService.ReasoningLevel.values();
+    private static final AbstractService.ReasoningLevel[] REASONING_LEVEL_VALUES =
+            AbstractService.ReasoningLevel.values();
     private static final Set<String> ALLOWED_REASONING_LEVELS =
             Arrays.stream(REASONING_LEVEL_VALUES).map(Enum::name).collect(Collectors.toUnmodifiableSet());
     private static final String ALLOWED_REASONING_LEVELS_LIST =

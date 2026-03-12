@@ -18,7 +18,9 @@ import com.github.jknack.handlebars.EscapingStrategy;
 import com.github.jknack.handlebars.Handlebars;
 import com.github.jknack.handlebars.Template;
 import com.github.jknack.handlebars.helper.ConditionalHelpers;
+import com.github.jknack.handlebars.helper.StringHelpers;
 import dev.langchain4j.agent.tool.Tool;
+import dev.langchain4j.agent.tool.ToolContext;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.data.message.SystemMessage;
@@ -43,7 +45,7 @@ public class JanitorAgent {
     static {
         Handlebars handlebars = new Handlebars().with(EscapingStrategy.NOOP);
         handlebars.registerHelpers(ConditionalHelpers.class);
-        handlebars.registerHelpers(com.github.jknack.handlebars.helper.StringHelpers.class);
+        handlebars.registerHelpers(StringHelpers.class);
 
         String pruningTemplateText =
                 """
@@ -159,8 +161,7 @@ public class JanitorAgent {
                 messages.add(new UserMessage(retryNote));
             }
 
-            var result = llm.sendRequest(
-                    messages, new dev.langchain4j.agent.tool.ToolContext(toolSpecs, ToolChoice.REQUIRED, tr));
+            var result = llm.sendRequest(messages, new ToolContext(toolSpecs, ToolChoice.REQUIRED, tr));
 
             if (result.error() != null) {
                 stopDetails = TaskResult.StopDetails.fromResponse(result);

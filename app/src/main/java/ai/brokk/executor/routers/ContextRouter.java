@@ -13,6 +13,7 @@ import ai.brokk.executor.jobs.ErrorPayload;
 import ai.brokk.tasks.TaskList;
 import ai.brokk.util.Messages;
 import com.sun.net.httpserver.HttpExchange;
+import dev.langchain4j.data.message.AiMessage;
 import java.io.IOException;
 import java.net.URLConnection;
 import java.net.URLDecoder;
@@ -687,10 +688,10 @@ public final class ContextRouter implements SimpleHttpServer.CheckedHttpHandler 
                     var msgList = new ArrayList<Map<String, Object>>();
                     for (var msg : log.messages()) {
                         var msgMap = new HashMap<String, Object>();
-                        msgMap.put("role", msg.type().name().toLowerCase(java.util.Locale.ROOT));
+                        msgMap.put("role", msg.type().name().toLowerCase(Locale.ROOT));
                         msgMap.put("text", Messages.getText(msg));
 
-                        if (msg instanceof dev.langchain4j.data.message.AiMessage ai
+                        if (msg instanceof AiMessage ai
                                 && ai.reasoningContent() != null
                                 && !ai.reasoningContent().isBlank()) {
                             msgMap.put("reasoning", ai.reasoningContent());

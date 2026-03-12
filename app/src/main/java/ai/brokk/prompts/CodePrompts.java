@@ -15,6 +15,7 @@ import com.github.jknack.handlebars.EscapingStrategy;
 import com.github.jknack.handlebars.Handlebars;
 import com.github.jknack.handlebars.Template;
 import com.github.jknack.handlebars.helper.ConditionalHelpers;
+import com.github.jknack.handlebars.helper.StringHelpers;
 import dev.langchain4j.data.message.*;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.UserMessage;
@@ -37,6 +38,7 @@ import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Blocking;
+import org.jetbrains.annotations.Nullable;
 
 /** Generates prompts for the main coding agent loop, including instructions for SEARCH/REPLACE blocks. */
 public class CodePrompts {
@@ -395,7 +397,7 @@ public class CodePrompts {
             boolean hasMergeMarkers,
             String examples,
             String reminder,
-            @org.jetbrains.annotations.Nullable String goal) {}
+            @Nullable String goal) {}
 
     private record ApplyRetryData(
             String successIndices,
@@ -414,7 +416,7 @@ public class CodePrompts {
     static {
         Handlebars handlebars = new Handlebars().with(EscapingStrategy.NOOP);
         handlebars.registerHelpers(ConditionalHelpers.class);
-        handlebars.registerHelpers(com.github.jknack.handlebars.helper.StringHelpers.class);
+        handlebars.registerHelpers(StringHelpers.class);
 
         String codeSystemTemplateText =
                 """

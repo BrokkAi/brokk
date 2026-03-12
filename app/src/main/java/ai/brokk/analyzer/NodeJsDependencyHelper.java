@@ -13,6 +13,7 @@ import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.nio.file.DirectoryStream;
+import java.nio.file.FileVisitOption;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -181,7 +182,7 @@ public final class NodeJsDependencyHelper {
     }
 
     private static long countNodeFiles(Path root) {
-        try (var stream = Files.walk(root, Integer.MAX_VALUE, java.nio.file.FileVisitOption.FOLLOW_LINKS)) {
+        try (var stream = Files.walk(root, Integer.MAX_VALUE, FileVisitOption.FOLLOW_LINKS)) {
             // do not skip build/dist, that's where you find usually the lib code
             var skipDirs = Set.of("node_modules", ".pnpm", ".git", "coverage", "test", "tests", ".nyc_output");
             return stream.filter(Files::isRegularFile)

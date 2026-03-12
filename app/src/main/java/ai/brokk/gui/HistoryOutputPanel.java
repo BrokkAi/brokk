@@ -1007,7 +1007,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             if (!Files.exists(notificationsFile)) {
                 return;
             }
-            var lines = java.nio.file.Files.readAllLines(notificationsFile, StandardCharsets.UTF_8);
+            var lines = Files.readAllLines(notificationsFile, StandardCharsets.UTF_8);
             for (var line : lines) {
                 if (line == null || line.isBlank()) continue;
                 var parts = line.split("\\|", 4);

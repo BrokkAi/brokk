@@ -27,7 +27,6 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.function.Function;
-import java.util.function.Supplier;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
@@ -386,14 +385,14 @@ public final class IssueExecutor {
             verificationCommand = "verification";
         }
 
-        final var interrupted = new java.util.concurrent.atomic.AtomicReference<InterruptedException>(null);
+        final var interrupted = new AtomicReference<InterruptedException>(null);
 
         IssueService.runSingleFixVerificationGate(
                 jobId,
                 store,
                 console != null ? console : cm.getIo(),
                 verificationCommand,
-                (Supplier<String>) () -> {
+                () -> {
                     try {
                         return Objects.requireNonNullElse(BuildTools.runVerification(cm, buildDetailsOverride), "");
                     } catch (InterruptedException e) {
@@ -402,7 +401,7 @@ public final class IssueExecutor {
                         return "";
                     }
                 },
-                (Consumer<String>) prompt -> {
+                prompt -> {
                     try {
                         cm.executeTask(TaskList.TaskItem.createFixTask(prompt), plannerModel, codeModel);
                     } catch (InterruptedException e) {
@@ -426,7 +425,7 @@ public final class IssueExecutor {
             String githubToken) {
         var total = inlineComments.size();
         var taskIndex = new AtomicInteger(0);
-        var lastTaskDescription = new AtomicReference<String>("");
+        var lastTaskDescription = new AtomicReference<>("");
 
         Consumer<PrReviewService.InlineComment> reviewFixTaskRunner = comment -> {
             int idx = taskIndex.incrementAndGet();

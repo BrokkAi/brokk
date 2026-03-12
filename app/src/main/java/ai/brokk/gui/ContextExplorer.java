@@ -5,6 +5,7 @@ import ai.brokk.SessionManager;
 import ai.brokk.analyzer.DisabledAnalyzer;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.concurrent.AtomicWrites;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.gui.components.MaterialButton;
@@ -522,8 +523,8 @@ public final class ContextExplorer extends JFrame {
                         })
                         .collect(Collectors.joining("\n"));
 
-                var exportPath = sessionsDir.resolve(sessionIdLocal.toString() + ".jsonl");
-                ai.brokk.concurrent.AtomicWrites.save(exportPath, jsonl);
+                var exportPath = sessionsDir.resolve(sessionIdLocal + ".jsonl");
+                AtomicWrites.save(exportPath, jsonl);
                 logger.info("Exported session {} to {}", sessionIdLocal, exportPath);
                 return exportPath;
             }

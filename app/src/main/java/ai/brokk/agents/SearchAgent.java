@@ -36,6 +36,7 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.jetbrains.annotations.Nullable;
@@ -491,10 +492,10 @@ public class SearchAgent {
     }
 
     private static String jsonWithExplanation(String explanation) {
-        return Json.toJson(java.util.Map.of("explanation", explanation));
+        return Json.toJson(Map.of("explanation", explanation));
     }
 
     private static String jsonWithFragmentIds(List<String> fragmentIds) {
-        return Json.toJson(java.util.Map.of("fragment_ids", fragmentIds));
+        return Json.toJson(Map.of("fragment_ids", fragmentIds));
     }
 }

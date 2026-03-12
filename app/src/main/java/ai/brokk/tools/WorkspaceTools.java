@@ -1,5 +1,6 @@
 package ai.brokk.tools;
 
+import ai.brokk.Completions;
 import ai.brokk.LlmOutputMeta;
 import ai.brokk.analyzer.*;
 import ai.brokk.concurrent.ComputedValue;
@@ -449,7 +450,7 @@ public class WorkspaceTools {
                 continue;
             }
 
-            List<ProjectFile> matches = ai.brokk.Completions.expandPath(project, pattern).stream()
+            List<ProjectFile> matches = Completions.expandPath(project, pattern).stream()
                     .filter(ProjectFile.class::isInstance)
                     .map(ProjectFile.class::cast)
                     .toList();

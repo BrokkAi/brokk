@@ -4,8 +4,10 @@ import static java.util.Objects.requireNonNull;
 
 import ai.brokk.Service;
 import ai.brokk.agents.BuildAgent;
+import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.github.BackgroundGitHubAuth;
 import ai.brokk.gui.Chrome;
+import ai.brokk.gui.MaterialOptionPane;
 import ai.brokk.gui.SwingUtil;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.theme.GuiTheme;
@@ -140,7 +142,7 @@ public class SettingsDialog extends BaseThemedDialog implements ThemeAware {
     void loadSettingsInBackground() {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
 
-        ai.brokk.concurrent.LoggingFuture.supplyAsync(() -> SettingsData.load(chrome.getProject()))
+        LoggingFuture.supplyAsync(() -> SettingsData.load(chrome.getProject()))
                 .thenAccept(data -> SwingUtil.runOnEdt(() -> {
                     if (!isDisplayable() || !isShowing()) {
                         return;
@@ -171,7 +173,7 @@ public class SettingsDialog extends BaseThemedDialog implements ThemeAware {
         var project = chrome.getProject();
 
         var future = project.getBuildDetailsFuture();
-        boolean completed = ai.brokk.gui.MaterialOptionPane.showBlockingProgressDialog(
+        boolean completed = MaterialOptionPane.showBlockingProgressDialog(
                 this, "Waiting for build settings inference...", "Project Initialization", future);
 
         if (completed) {

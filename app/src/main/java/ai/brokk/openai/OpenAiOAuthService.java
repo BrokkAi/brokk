@@ -20,10 +20,11 @@ import java.security.SecureRandom;
 import java.util.Base64;
 import java.util.HashMap;
 import java.util.Map;
-import javax.swing.SwingUtilities;
+import javax.swing.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.TestOnly;
 
 /**
  * Service for initiating OpenAI OAuth authorization flow.
@@ -47,8 +48,8 @@ public class OpenAiOAuthService {
 
     private static final Object lock = new Object();
 
-    @org.jetbrains.annotations.TestOnly
-    public static volatile @org.jetbrains.annotations.Nullable Runnable testAuthorizationHook = null;
+    @TestOnly
+    public static volatile @Nullable Runnable testAuthorizationHook = null;
 
     @Nullable
     private static SimpleHttpServer activeServer;
@@ -198,14 +199,12 @@ public class OpenAiOAuthService {
                 pendingAuthorizationUrl = null;
                 boolean canShowDialog = ancestor != null || !GraphicsEnvironment.isHeadless();
                 if (canShowDialog) {
-                    SwingUtilities.invokeLater(() -> {
-                        javax.swing.JOptionPane.showMessageDialog(
-                                ancestor,
-                                "Failed to start OAuth callback server on port " + OAUTH_PORT + ".\n"
-                                        + "Please ensure no other application is using this port.",
-                                "OAuth Server Error",
-                                javax.swing.JOptionPane.ERROR_MESSAGE);
-                    });
+                    SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(
+                            ancestor,
+                            "Failed to start OAuth callback server on port " + OAUTH_PORT + ".\n"
+                                    + "Please ensure no other application is using this port.",
+                            "OAuth Server Error",
+                            JOptionPane.ERROR_MESSAGE));
                 } else {
                     throw new IllegalStateException("Failed to start OAuth callback server on port " + OAUTH_PORT, e);
                 }

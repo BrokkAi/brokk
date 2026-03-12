@@ -352,7 +352,7 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     public Set<CodeUnit> testFilesToCodeUnits(Collection<ProjectFile> files) {
-        var unitsInFiles = ai.brokk.AnalyzerUtil.getTestDeclarationsWithLogging(this, files)
+        var unitsInFiles = AnalyzerUtil.getTestDeclarationsWithLogging(this, files)
                 .filter(CodeUnit::isClass)
                 .collect(Collectors.toSet());
 

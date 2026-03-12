@@ -6,11 +6,14 @@ import ai.brokk.analyzer.SourceRootScanner;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.project.IProject;
+import ai.brokk.util.PathNormalizer;
 import java.awt.BorderLayout;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Insets;
+import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import javax.swing.BorderFactory;
 import javax.swing.JLabel;
@@ -119,10 +122,10 @@ public class JavaAnalyzerSettingsPanel extends AnalyzerSettingsPanel {
         }
 
         int rowCount = tableModel.getRowCount();
-        java.util.LinkedHashSet<String> canonicalRoots = new java.util.LinkedHashSet<>();
+        LinkedHashSet<String> canonicalRoots = new LinkedHashSet<>();
         List<String> invalidRoots = new ArrayList<>();
 
-        java.nio.file.Path masterRoot = project.getMasterRootPathForConfig();
+        Path masterRoot = project.getMasterRootPathForConfig();
 
         for (int i = 0; i < rowCount; i++) {
             String val = (String) tableModel.getValueAt(i, 0);
@@ -130,7 +133,7 @@ public class JavaAnalyzerSettingsPanel extends AnalyzerSettingsPanel {
                 continue;
             }
 
-            String canonical = ai.brokk.util.PathNormalizer.canonicalizeForProject(val, masterRoot);
+            String canonical = PathNormalizer.canonicalizeForProject(val, masterRoot);
             if (canonical.isEmpty()) {
                 continue;
             }

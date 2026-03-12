@@ -1438,8 +1438,8 @@ public class ContextFragments {
         }
 
         private static List<UsageHit> externalUsages(
-                IAnalyzer analyzer, Optional<CodeUnit> definingOwner, java.util.Collection<UsageHit> hits) {
-            java.util.Comparator<UsageHit> stableOrder = Comparator.comparing(
+                IAnalyzer analyzer, Optional<CodeUnit> definingOwner, Collection<UsageHit> hits) {
+            Comparator<UsageHit> stableOrder = Comparator.comparing(
                             (UsageHit h) -> h.file().toString())
                     .thenComparingInt(UsageHit::line)
                     .thenComparingInt(UsageHit::startOffset);

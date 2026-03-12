@@ -2032,8 +2032,8 @@ public class GitRepo implements Closeable, IGitRepo {
         // Check if the path is a file that exists or is tracked
         var projectFile = new ProjectFile(projectRoot, canonicalPath);
         boolean isTrackedFile = getTrackedFiles().contains(projectFile);
-        boolean isExistingFile = java.nio.file.Files.isRegularFile(absPath);
-        boolean isDirectory = java.nio.file.Files.isDirectory(absPath);
+        boolean isExistingFile = Files.isRegularFile(absPath);
+        boolean isDirectory = Files.isDirectory(absPath);
 
         if (isTrackedFile || isExistingFile) {
             return getFileHistory(projectFile, limit);

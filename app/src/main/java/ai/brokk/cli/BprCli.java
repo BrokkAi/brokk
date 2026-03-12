@@ -3,6 +3,7 @@ package ai.brokk.cli;
 import static java.util.Objects.requireNonNull;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
+import ai.brokk.BuildInfo;
 import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
 import ai.brokk.Service;
@@ -40,6 +41,7 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -61,7 +63,7 @@ import picocli.CommandLine;
 @SuppressWarnings("NullAway.Init") // NullAway is upset that some fields are initialized in picocli's call()
 @CommandLine.Command(
         name = "brokk-cli",
-        version = "Brokk " + ai.brokk.BuildInfo.version,
+        version = "Brokk " + BuildInfo.version,
         mixinStandardHelpOptions = true,
         description = "One-shot Brokk workspace and task runner.")
 public final class BprCli implements Callable<Integer> {
@@ -700,15 +702,15 @@ public final class BprCli implements Callable<Integer> {
                         var recDelta = ContextDelta.between(
                                         baseContext, explicitContext.addAsSummaries(finalRec.fragments()))
                                 .join();
-                        var jsonMap = new java.util.LinkedHashMap<String, Object>();
+                        var jsonMap = new LinkedHashMap<String, Object>();
                         jsonMap.put("addedFragments", recDelta.addedFragments().size());
                         jsonMap.put(
                                 "removedFragments", recDelta.removedFragments().size());
 
                         try {
-                            var jsonString = ai.brokk.project.AbstractProject.objectMapper.writeValueAsString(jsonMap);
+                            var jsonString = AbstractProject.objectMapper.writeValueAsString(jsonMap);
                             System.err.println("\nBRK_CONTEXT_METRICS=" + jsonString);
-                        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+                        } catch (JsonProcessingException e) {
                             logger.warn("Failed to serialize context metrics", e);
                         }
                     }

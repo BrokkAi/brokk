@@ -4,6 +4,7 @@ import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
+import org.jetbrains.annotations.Nullable;
 
 public class TaskList {
 
@@ -33,7 +34,7 @@ public class TaskList {
         }
     }
 
-    public record TaskListData(@org.jetbrains.annotations.Nullable String bigPicture, List<TaskItem> tasks) {
+    public record TaskListData(@Nullable String bigPicture, List<TaskItem> tasks) {
         /** Legacy constructor for backward compatibility with single-parameter usage. */
         public TaskListData(List<TaskItem> tasks) {
             this(null, tasks);

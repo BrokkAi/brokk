@@ -3,6 +3,7 @@ package ai.brokk.difftool.ui;
 import ai.brokk.gui.SwingUtil;
 import ai.brokk.gui.mop.ThemeColors;
 import java.awt.*;
+import java.awt.geom.GeneralPath;
 import javax.swing.text.BadLocationException;
 import javax.swing.text.DefaultHighlighter;
 import javax.swing.text.JTextComponent;
@@ -355,7 +356,7 @@ public class JMHighlightPainter extends DefaultHighlighter.DefaultHighlightPaint
                 int width = bounds.x + bounds.width;
 
                 // Draw smooth wavy pattern using quadratic curves
-                var path = new java.awt.geom.GeneralPath();
+                var path = new GeneralPath();
                 path.moveTo(0, y);
 
                 boolean up = true;
