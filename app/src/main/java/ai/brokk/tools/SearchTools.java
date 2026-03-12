@@ -18,7 +18,6 @@ import ai.brokk.git.CommitInfo;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitRepoFactory;
 import ai.brokk.git.IGitRepo;
-import ai.brokk.project.AbstractProject;
 import ai.brokk.util.Lines;
 import ai.brokk.util.Messages;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -28,14 +27,12 @@ import com.github.benmanes.caffeine.cache.Caffeine;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import java.io.ByteArrayInputStream;
-import java.io.File;
 import java.io.StringWriter;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -48,6 +45,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Callable;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.ForkJoinWorkerThread;
@@ -95,12 +93,10 @@ public class SearchTools {
     private static final Pattern STRIP_PARAMS_PATTERN = Pattern.compile("(?<=\\w)\\([^)]*\\)$");
 
     private static final int FILE_SEARCH_LIMIT = 200;
+    private static final int FILE_SKIM_LIMIT = 20;
     private static final int CLASS_COUNT_LIMIT = 10;
 
-    private static final int SEARCH_FILE_CONTENTS_MAX_FILES_DEFAULT = 50;
-    private static final int SEARCH_FILE_CONTENTS_MATCHES_PER_FILE_DEFAULT = 10;
     private static final int SEARCH_FILE_CONTENTS_MAX_CONTEXT_LINES = 5;
-
     private static final int SEARCH_FILE_CONTENTS_MAX_TOTAL_MATCHES = 500;
     private static final int SEARCH_FILE_CONTENTS_MAX_PARAMETER_VALUE = 500;
 
@@ -843,7 +839,8 @@ public class SearchTools {
                             "Case-insensitive regex patterns to search for code symbols. Since ^ and $ are implicitly included, YOU MUST use explicit wildcarding (e.g., .*Foo.*, Abstract.*, [a-z]*DAO) unless you really want exact matches.")
                     List<String> patterns,
             @P("Include test files in results.") boolean includeTests,
-            @P("Maximum number of matching files to return (capped at 200).") int limit) {
+            @P("Maximum number of matching files to return (capped at 200).") int limit)
+            throws InterruptedException {
         // Sanitize patterns: LLM might add `()` to symbols, Joern regex usually doesn't want that unless intentional.
         patterns = stripParams(patterns);
         if (patterns.isEmpty()) {
@@ -851,16 +848,35 @@ public class SearchTools {
         }
 
         var analyzer = getAnalyzer();
-        Set<CodeUnit> allDefinitions = new HashSet<>();
-        for (String pattern : patterns) {
-            if (!pattern.isBlank()) {
-                allDefinitions.addAll(analyzer.searchDefinitions(pattern));
+        Set<CodeUnit> rawDefinitions = ConcurrentHashMap.newKeySet();
+        var tasks = patterns.stream()
+                .filter(pattern -> !pattern.isBlank())
+                .<Callable<Void>>map(pattern -> () -> {
+                    rawDefinitions.addAll(analyzer.searchDefinitions(pattern));
+                    return null;
+                })
+                .toList();
+        for (Future<Void> future : searchToolsPool.invokeAll(tasks)) {
+            try {
+                future.get();
+            } catch (ExecutionException e) {
+                Throwable cause = e.getCause();
+                if (cause instanceof RuntimeException re) {
+                    throw re;
+                }
+                if (cause instanceof Error er) {
+                    throw er;
+                }
+                throw new RuntimeException("Error searching definitions", cause);
             }
         }
-        logger.trace("Raw definitions: {}", allDefinitions);
+        logger.trace("Raw definitions: {}", rawDefinitions);
 
-        if (!includeTests) {
-            allDefinitions = allDefinitions.stream()
+        Set<CodeUnit> allDefinitions;
+        if (includeTests) {
+            allDefinitions = rawDefinitions;
+        } else {
+            allDefinitions = rawDefinitions.stream()
                     .filter(cu -> !ContextManager.isTestFile(cu.source(), analyzer))
                     .collect(Collectors.toSet());
         }
@@ -869,7 +885,7 @@ public class SearchTools {
             return "No definitions found for patterns: " + String.join(", ", patterns);
         }
 
-        int effectiveLimit = min(limit <= 0 ? FILE_SEARCH_LIMIT : limit, FILE_SEARCH_LIMIT);
+        int effectiveLimit = min(max(1, limit), FILE_SEARCH_LIMIT);
 
         // Group by file, then by kind within each file
         var fileGroups = allDefinitions.stream()
@@ -899,7 +915,17 @@ public class SearchTools {
             var filePath = fileEntry.getKey();
             var kindGroups = fileEntry.getValue();
 
-            result.append("<file path=\"").append(filePath).append("\">\n");
+            int loc = kindGroups.values().stream()
+                    .flatMap(List::stream)
+                    .findFirst()
+                    .flatMap(cu -> cu.source().read())
+                    .map(Lines::count)
+                    .orElse(0);
+            result.append("<file path=\"")
+                    .append(filePath)
+                    .append("\" loc=\"")
+                    .append(loc)
+                    .append("\">\n");
 
             // Emit kind sections in a stable order based on analyzer's CodeUnitType
             var kindOrder = List.of("CLASS", "FUNCTION", "FIELD", "MODULE");
@@ -1063,8 +1089,9 @@ public class SearchTools {
             var cuOpt = analyzer.getDefinitions(symbol).stream().findFirst();
             if (cuOpt.isPresent()) {
                 var cu = cuOpt.get();
-                var filepath = cu.source().toString();
-                locationMappings.add(symbol + " -> " + filepath);
+                var filepath = toUnixPath(cu.source().toString());
+                int loc = cu.source().read().map(Lines::count).orElse(0);
+                locationMappings.add("%s -> %s (%d loc)".formatted(symbol, filepath, loc));
             } else {
                 notFound.add(symbol);
             }
@@ -1281,7 +1308,7 @@ public class SearchTools {
                     + repo.getClass().getName() + ").";
         }
 
-        int effectiveLimit = max(1, min(limit <= 0 ? FILE_SEARCH_LIMIT : limit, FILE_SEARCH_LIMIT));
+        int effectiveLimit = min(max(1, limit), FILE_SEARCH_LIMIT);
 
         GitRepo.SearchCommitsResult searchResult;
         try {
@@ -1378,12 +1405,9 @@ public class SearchTools {
         var searchResult = findFilesContainingPatterns(
                 compiledPatterns, contextManager.getProject().getAllFiles());
         // sort to provide deterministic results because getAllFiles() is an unordered Set
-        var allMatches = searchResult.matches().stream()
-                .map(ProjectFile::toString)
-                .sorted()
-                .toList();
+        var allMatches = searchResult.matches().stream().sorted().toList();
 
-        int effectiveLimit = min(limit <= 0 ? FILE_SEARCH_LIMIT : limit, FILE_SEARCH_LIMIT);
+        int effectiveLimit = min(max(1, limit), FILE_SEARCH_LIMIT);
         boolean truncated = allMatches.size() > effectiveLimit;
         var matchingFilenames = allMatches.stream().limit(effectiveLimit).toList();
 
@@ -1403,7 +1427,14 @@ public class SearchTools {
                     + effectiveLimit + " matches. " + "Retrying the same tool call will return the same results.\n\n";
         }
 
-        var msg = prefix + "Files with content matching patterns: " + String.join(", ", matchingFilenames);
+        var matchingStrings = matchingFilenames.stream()
+                .map(pf -> {
+                    String content = pf.read().orElse("");
+                    return "%s (%d loc)".formatted(pf.toString(), Lines.count(content));
+                })
+                .collect(Collectors.joining(", "));
+
+        var msg = prefix + "Files with content matching patterns: " + matchingStrings;
         if (!searchResult.errors().isEmpty()) {
             msg += " (warnings: errors occurred reading %d files; first: %s)"
                     .formatted(
@@ -1593,17 +1624,9 @@ public class SearchTools {
 
         int clampedContext = max(0, min(contextLines, SEARCH_FILE_CONTENTS_MAX_CONTEXT_LINES));
 
-        int effectiveMaxFiles = max(
-                1,
-                min(
-                        maxFiles <= 0 ? SEARCH_FILE_CONTENTS_MAX_FILES_DEFAULT : maxFiles,
-                        SEARCH_FILE_CONTENTS_MAX_PARAMETER_VALUE));
+        int effectiveMaxFiles = min(max(1, maxFiles), SEARCH_FILE_CONTENTS_MAX_PARAMETER_VALUE);
 
-        int effectiveMatchesPerFile = max(
-                1,
-                min(
-                        matchesPerFile <= 0 ? SEARCH_FILE_CONTENTS_MATCHES_PER_FILE_DEFAULT : matchesPerFile,
-                        SEARCH_FILE_CONTENTS_MAX_PARAMETER_VALUE));
+        int effectiveMatchesPerFile = min(max(1, matchesPerFile), SEARCH_FILE_CONTENTS_MAX_PARAMETER_VALUE);
 
         int flags = 0;
         if (caseInsensitive) {
@@ -1708,7 +1731,7 @@ public class SearchTools {
         return recordResearchTokens(output);
     }
 
-    private record FileContentSearchResult(String output, int matches) {}
+    private record FileContentSearchResult(String output, int matches, int totalMatchesInFile) {}
 
     private record LineRef(int lineNo, int startInclusive, int endExclusive) {}
 
@@ -1749,17 +1772,8 @@ public class SearchTools {
         return List.copyOf(refs);
     }
 
-    private static int lineNoForOffset(int[] lineStartOffsets, int matchStartOffset) {
-        int idx = Arrays.binarySearch(lineStartOffsets, matchStartOffset);
-        if (idx >= 0) {
-            return idx + 1;
-        }
-        int insertionPoint = -idx - 1;
-        return insertionPoint;
-    }
-
     @Nullable
-    private static FileContentSearchResult searchFileContentsInFile(
+    private FileContentSearchResult searchFileContentsInFile(
             ProjectFile file, List<Pattern> patterns, int contextLines, int maxMatchesToTake) {
         var contentOpt = file.read();
         if (contentOpt.isEmpty()) {
@@ -1780,21 +1794,31 @@ public class SearchTools {
                 lineRefs.stream().mapToInt(LineRef::startInclusive).toArray();
         int lineCount = lineRefs.size();
 
-        Map<Integer, Integer> firstMatchOffsetByLine = new HashMap<>();
-        // Buffer the search slightly beyond maxMatchesToTake to account for context overlap and sorting
-        int searchThreshold = maxMatchesToTake + contextLines + 1;
+        // 0: unseen, 1: seen but not stored (beyond maxMatchesToTake), 2: stored as a hit line
+        byte[] lineStates = new byte[lineCount + 1];
+        int matchesTaken = 0;
+        int totalMatchesInFile = 0;
 
         for (Pattern pattern : patterns) {
             try {
                 Matcher matcher = pattern.matcher(content);
+                int lineIdx = 0; // 0-based index into lineStartOffsets/lineRefs
                 while (matcher.find()) {
                     int matchStart = matcher.start();
-                    int ln = lineNoForOffset(lineStartOffsets, matchStart);
-                    if (ln < 1 || ln > lineCount) continue;
-                    firstMatchOffsetByLine.merge(ln, matchStart, Math::min);
+                    while (lineIdx + 1 < lineCount && lineStartOffsets[lineIdx + 1] <= matchStart) {
+                        lineIdx++;
+                    }
 
-                    if (firstMatchOffsetByLine.size() >= searchThreshold) {
-                        break;
+                    int lineNo = lineIdx + 1; // convert to 1-based
+                    byte state = lineStates[lineNo];
+                    if (state == 0) {
+                        totalMatchesInFile++;
+                        if (matchesTaken < maxMatchesToTake) {
+                            lineStates[lineNo] = 2;
+                            matchesTaken++;
+                        } else {
+                            lineStates[lineNo] = 1;
+                        }
                     }
                 }
             } catch (StackOverflowError e) {
@@ -1802,21 +1826,17 @@ public class SearchTools {
             }
         }
 
-        if (firstMatchOffsetByLine.isEmpty()) {
+        if (matchesTaken == 0) {
             return null;
         }
 
-        List<Integer> hitLines = firstMatchOffsetByLine.keySet().stream()
-                .sorted()
-                .limit(maxMatchesToTake)
-                .toList();
-
-        int matchesTaken = hitLines.size();
-
         boolean[] toPrint = new boolean[lineCount + 1]; // 1-based indexing for convenience
-        for (int hit : hitLines) {
-            int from = max(1, hit - contextLines);
-            int to = min(lineCount, hit + contextLines);
+        for (int lineNo = 1; lineNo <= lineCount; lineNo++) {
+            if (lineStates[lineNo] != 2) {
+                continue;
+            }
+            int from = max(1, lineNo - contextLines);
+            int to = min(lineCount, lineNo + contextLines);
             for (int ln = from; ln <= to; ln++) {
                 toPrint[ln] = true;
             }
@@ -1829,35 +1849,24 @@ public class SearchTools {
                     "%d: %s".formatted(ref.lineNo(), truncateLine(content, ref.startInclusive(), ref.endExclusive())));
         }
 
-        boolean hitLimit = matchesTaken >= maxMatchesToTake;
-        String matchCountLabel = hitLimit
-                ? "first %d matches".formatted(matchesTaken)
-                : "%d %s".formatted(matchesTaken, matchesTaken == 1 ? "match" : "matches");
+        String matchCountLabel = "first %d/%d matches".formatted(matchesTaken, totalMatchesInFile);
 
         String filePath = file.toString().replace('\\', '/');
-        String header = "%s [%s]".formatted(filePath, matchCountLabel);
+        String header = "%s (%d loc) (%s)".formatted(filePath, lineCount, matchCountLabel);
 
         List<String> resultLines = new ArrayList<>(outLines.size() + 1);
         resultLines.add(header);
         resultLines.addAll(outLines);
 
-        return new FileContentSearchResult(String.join("\n", resultLines), matchesTaken);
+        return new FileContentSearchResult(String.join("\n", resultLines), matchesTaken, totalMatchesInFile);
     }
 
     private record EffectiveLimits(int maxFiles, int matchesPerFile) {}
 
     private static EffectiveLimits clampMaxFilesAndMatchesPerFile(int maxFiles, int matchesPerFile) {
-        int effectiveMaxFiles = max(
-                1,
-                min(
-                        maxFiles <= 0 ? SEARCH_FILE_CONTENTS_MAX_FILES_DEFAULT : maxFiles,
-                        SEARCH_FILE_CONTENTS_MAX_PARAMETER_VALUE));
+        int effectiveMaxFiles = min(max(1, maxFiles), SEARCH_FILE_CONTENTS_MAX_PARAMETER_VALUE);
 
-        int effectiveMatchesPerFile = max(
-                1,
-                min(
-                        matchesPerFile <= 0 ? SEARCH_FILE_CONTENTS_MATCHES_PER_FILE_DEFAULT : matchesPerFile,
-                        SEARCH_FILE_CONTENTS_MAX_PARAMETER_VALUE));
+        int effectiveMatchesPerFile = min(max(1, matchesPerFile), SEARCH_FILE_CONTENTS_MAX_PARAMETER_VALUE);
 
         long product = (long) effectiveMaxFiles * (long) effectiveMatchesPerFile;
         if (product > SEARCH_FILE_CONTENTS_MAX_TOTAL_MATCHES) {
@@ -2032,11 +2041,7 @@ public class SearchTools {
             return "No XML files found matching: " + filepath;
         }
 
-        int effectiveMaxFiles = max(
-                1,
-                min(
-                        maxFiles <= 0 ? SEARCH_FILE_CONTENTS_MAX_FILES_DEFAULT : maxFiles,
-                        SEARCH_FILE_CONTENTS_MAX_PARAMETER_VALUE));
+        int effectiveMaxFiles = min(max(1, maxFiles), SEARCH_FILE_CONTENTS_MAX_PARAMETER_VALUE);
 
         BatchResult<String> batchResult;
         try {
@@ -2342,12 +2347,11 @@ public class SearchTools {
             throw new IllegalArgumentException("No valid patterns provided");
         }
 
-        final List<String> allMatches;
+        final List<ProjectFile> allMatches;
         try {
             allMatches = contextManager.getProject().getAllFiles().stream()
-                    .map(ProjectFile::toString) // Use relative path from ProjectFile
-                    .map(path -> toUnixPath(path))
-                    .filter(filePath -> {
+                    .filter(pf -> {
+                        String filePath = toUnixPath(pf.toString());
                         for (Pattern pattern : compiledPatterns) {
                             if (findWithOverflowGuard(pattern, filePath)) {
                                 return true;
@@ -2363,7 +2367,7 @@ public class SearchTools {
             return "Regex pattern '%s' caused StackOverflowError during filename search".formatted(e.pattern());
         }
 
-        int effectiveLimit = min(limit <= 0 ? FILE_SEARCH_LIMIT : limit, FILE_SEARCH_LIMIT);
+        int effectiveLimit = min(max(1, limit), FILE_SEARCH_LIMIT);
         boolean truncated = allMatches.size() > effectiveLimit;
         var matchingFiles = allMatches.stream().limit(effectiveLimit).toList();
 
@@ -2381,24 +2385,20 @@ public class SearchTools {
                 prefix + "Matching filenames by common prefix:\n" + formatFilenamesByPrefix(matchingFiles));
     }
 
-    private static boolean findWithOverflowGuard(Pattern pattern, String input) {
-        try {
-            return pattern.matcher(input).find();
-        } catch (StackOverflowError e) {
-            throw new RegexMatchOverflowException(pattern.pattern(), e);
-        }
-    }
-
-    private static String formatFilenamesByPrefix(List<String> matchingFiles) {
-        Map<String, List<String>> grouped = matchingFiles.stream()
-                .collect(Collectors.groupingBy(SearchTools::directoryPrefix, LinkedHashMap::new, Collectors.toList()));
+    private String formatFilenamesByPrefix(List<ProjectFile> matchingFiles) {
+        Map<String, List<ProjectFile>> grouped = matchingFiles.stream()
+                .collect(Collectors.groupingBy(
+                        pf -> directoryPrefix(toUnixPath(pf.toString())), LinkedHashMap::new, Collectors.toList()));
 
         return grouped.entrySet().stream()
                 .map(entry -> {
                     String groupPrefix = entry.getKey();
                     String groupFiles = entry.getValue().stream()
-                            .map(SearchTools::basename)
-                            .map(name -> "- " + name)
+                            .map(pf -> {
+                                String content = pf.read().orElse("");
+                                return "- %s (%d loc)"
+                                        .formatted(basename(toUnixPath(pf.toString())), Lines.count(content));
+                            })
                             .collect(Collectors.joining("\n"));
 
                     if (groupPrefix.isEmpty()) {
@@ -2407,6 +2407,14 @@ public class SearchTools {
                     return "# " + groupPrefix + "\n" + groupFiles;
                 })
                 .collect(Collectors.joining("\n\n"));
+    }
+
+    private static boolean findWithOverflowGuard(Pattern pattern, String input) {
+        try {
+            return pattern.matcher(input).find();
+        } catch (StackOverflowError e) {
+            throw new RegexMatchOverflowException(pattern.pattern(), e);
+        }
     }
 
     private static String directoryPrefix(String path) {
@@ -2473,29 +2481,58 @@ public class SearchTools {
     }
 
     /**
-     * Formats files in a directory as a comma-separated string.
+     * Formats files and subdirectories in a directory as a string.
      * Public static to allow reuse by BuildAgent.
      */
     public static String formatFilesInDirectory(
             Collection<ProjectFile> allFiles, Path normalizedDirectoryPath, String originalDirectoryPath) {
-        var files = allFiles.stream()
+        var filesList = allFiles.stream()
                 .parallel()
                 .filter(file -> file.getParent().equals(normalizedDirectoryPath))
                 .sorted()
-                .map(ProjectFile::toString)
+                .toList();
+
+        var subdirs = allFiles.stream()
+                .parallel()
+                .filter(file -> file.getParent().startsWith(normalizedDirectoryPath)
+                        && !file.getParent().equals(normalizedDirectoryPath))
+                .map(file -> {
+                    Path rel = normalizedDirectoryPath.relativize(file.getParent());
+                    return rel.getName(0).toString() + "/";
+                })
+                .distinct()
+                .sorted()
                 .collect(Collectors.joining(", "));
 
-        if (files.isEmpty()) {
-            return "No files found in directory: " + originalDirectoryPath;
+        var files = filesList.stream()
+                .map(file -> {
+                    String content = file.read().orElse("");
+                    return "%s (%d loc)".formatted(file.toString(), Lines.count(content));
+                })
+                .collect(Collectors.joining(", "));
+
+        if (files.isEmpty() && subdirs.isEmpty()) {
+            return "No files or subdirectories found in: " + originalDirectoryPath;
         }
 
-        return "Files in " + originalDirectoryPath + ": " + files;
+        StringBuilder sb = new StringBuilder();
+        if (!subdirs.isEmpty()) {
+            sb.append("Subdirectories in ")
+                    .append(originalDirectoryPath)
+                    .append(": ")
+                    .append(subdirs)
+                    .append("\n");
+        }
+        if (!files.isEmpty()) {
+            sb.append("Files in ").append(originalDirectoryPath).append(": ").append(files);
+        }
+
+        return sb.toString().trim();
     }
 
-    // Only includes project files. Is this what we want?
     @Tool(
             """
-                    Lists files within a specified directory relative to the project root.
+                    Lists files and subdirectories within a specified directory relative to the project root.
                     Use '.' for the root directory.
                     """)
     public String listFiles(
@@ -2510,7 +2547,7 @@ public class SearchTools {
         logger.debug("Listing files for directory path: '{}' (normalized to `{}`)", directoryPath, normalizedPath);
 
         var result = formatFilesInDirectory(contextManager.getProject().getAllFiles(), normalizedPath, directoryPath);
-        if (result.startsWith("No files found")) {
+        if (result.startsWith("No files or subdirectories found")) {
             return result;
         }
         return recordResearchTokens(result);
@@ -2518,76 +2555,55 @@ public class SearchTools {
 
     @Tool(
             """
-                    Returns a hierarchical "bag of identifiers" summary for all files within a specified directory.
+                    Returns a hierarchical "bag of identifiers" summary for files matched by the provided filename/glob patterns.
                     This provides a quick overview of class members and nested structures by listing names only;
                     it is significantly less detailed than getFileSummaries as it omits full signatures and field types.
-                    Subdirectories are listed at the top.
-                    If the summary of all files is too large, it returns only the file and directory names.
+                    Supports glob patterns: '*' matches files in a single directory, '**' matches files recursively.
+                    The result is capped at 20 files.
+                    If the symbol summary is too large, it returns only filenames.
                     """)
-    public String skimDirectory(
-            @P("Directory path relative to the project root (e.g., '.', 'src/main/java').") String directoryPath) {
-        if (directoryPath.isBlank()) {
-            throw new IllegalArgumentException("Directory path cannot be empty");
+    public String skimFiles(
+            @P(
+                            "List of file paths relative to the project root. Supports glob patterns (* for single directory, ** for recursive). E.g., ['src/main/java/com/example/util/*.java', 'tests/foo/**.py']")
+                    List<String> filePaths) {
+        if (filePaths.isEmpty()) {
+            throw new IllegalArgumentException("Cannot skim files: file paths list is empty");
         }
 
         var project = contextManager.getProject();
         var analyzer = getAnalyzer();
-        var targetDir = Path.of(directoryPath).normalize();
 
-        // Check if we're inside the dependencies directory - don't filter by gitignore there
-        Path dependenciesPath = Path.of(AbstractProject.BROKK_DIR, AbstractProject.DEPENDENCIES_DIR);
-        boolean isInDependencies = targetDir.startsWith(dependenciesPath);
+        List<ProjectFile> projectFiles = filePaths.stream()
+                .flatMap(pattern -> Completions.expandPath(project, pattern).stream())
+                .filter(ProjectFile.class::isInstance)
+                .map(ProjectFile.class::cast)
+                .distinct()
+                .sorted()
+                .toList();
 
-        Path absTargetDir = project.getRoot().resolve(targetDir);
-        File[] fsItems = absTargetDir.toFile().listFiles();
-
-        if (fsItems == null || fsItems.length == 0) {
-            return "No files or directories found in: " + directoryPath;
+        if (projectFiles.isEmpty()) {
+            return "No project files found matching the provided patterns: " + String.join(", ", filePaths);
         }
 
-        List<String> subDirs = new ArrayList<>();
-        List<ProjectFile> children = new ArrayList<>();
+        boolean truncatedByFileLimit = projectFiles.size() > FILE_SKIM_LIMIT;
+        List<ProjectFile> filesToSkim =
+                projectFiles.stream().limit(FILE_SKIM_LIMIT).toList();
 
-        for (File item : fsItems) {
-            String name = item.getName();
-            if (!isInDependencies && project.isGitignored(targetDir.resolve(name))) {
-                continue;
-            }
+        int maxTokens = 12_800;
 
-            if (item.isDirectory()) {
-                subDirs.add(name + "/");
-            } else {
-                children.add(new ProjectFile(project.getRoot(), targetDir.resolve(name)));
-            }
-        }
-
-        if (subDirs.isEmpty() && children.isEmpty()) {
-            return "No files or directories found in: " + directoryPath;
-        }
-
-        children.sort(ProjectFile::compareTo);
-        subDirs.sort(String::compareTo);
-
-        int MAX_TOKENS = 12_800; // ~10% of 128k
-
-        // Try full skim (subdirs + symbol summaries)
         StringBuilder fullSkim = new StringBuilder();
         int fullTokens = 0;
         boolean fullTruncated = false;
 
-        if (!subDirs.isEmpty()) {
-            String subDirText = "<subdirectories>\n  " + String.join(", ", subDirs) + "\n</subdirectories>\n\n";
-            fullTokens += Messages.getApproximateTokens(subDirText);
-            fullSkim.append(subDirText);
-        }
-
-        for (var file : children) {
+        for (var file : filesToSkim) {
             String identifiers = analyzer.summarizeSymbols(file);
             String content = identifiers.isBlank() ? "- (no symbols found)" : identifiers;
-            String fileBlock = "<file path=\"" + file.toString().replace('\\', '/') + "\">\n" + content + "\n</file>\n";
+            String fileContent = file.read().orElse("");
+            String fileBlock = "<file path=\"" + file.toString().replace('\\', '/') + "\" loc=\""
+                    + Lines.count(fileContent) + "\">\n" + content + "\n</file>\n";
 
             int blockTokens = Messages.getApproximateTokens(fileBlock);
-            if (fullTokens + blockTokens > MAX_TOKENS) {
+            if (fullTokens + blockTokens > maxTokens) {
                 fullTruncated = true;
                 break;
             }
@@ -2596,37 +2612,35 @@ public class SearchTools {
             fullTokens += blockTokens;
         }
 
+        StringBuilder prefix = new StringBuilder();
+        if (truncatedByFileLimit) {
+            prefix.append("### WARNING: Result limit reached (max ")
+                    .append(FILE_SKIM_LIMIT)
+                    .append(" files). Showing first ")
+                    .append(FILE_SKIM_LIMIT)
+                    .append(" files. Retrying the same tool call will return the same results.\n\n");
+        }
+
         if (!fullTruncated) {
-            return recordResearchTokens(fullSkim.toString());
+            return recordResearchTokens(prefix + fullSkim.toString());
         }
 
-        // Downgrade to filename-only list
-        StringBuilder filenamesOnly = new StringBuilder();
-        filenamesOnly.append("### WARNING: The symbol summary for this directory is too large for the token limit. "
-                + "Switching to filename-only listing.\n\n");
-
-        if (!subDirs.isEmpty()) {
-            filenamesOnly
-                    .append("<subdirectories>\n  ")
-                    .append(String.join(", ", subDirs))
-                    .append("\n</subdirectories>\n\n");
-        }
-
-        String filesCdl = children.stream().map(ProjectFile::toString).collect(Collectors.joining(", "));
-        filenamesOnly.append("Files: ").append(filesCdl);
-
-        String filenamesResult = filenamesOnly.toString();
-        if (Messages.getApproximateTokens(filenamesResult) <= MAX_TOKENS) {
-            return recordResearchTokens(filenamesResult);
-        }
-
-        // Final fallback: Too many files to even list names
-        return """
-                ### ERROR: Too many files to skim. \
-                The directory contains %d subdirectories and %d files, which exceeds the display limit even without summaries. \
-                Please try listing specific subdirectories or using search tools to narrow your scope.\
+        String filesCdl = filesToSkim.stream()
+                .map(file -> {
+                    String content = file.read().orElse("");
+                    return "%s (%d loc)".formatted(file.toString(), Lines.count(content));
+                })
+                .collect(Collectors.joining(", "));
+        String filenamesResult =
                 """
-                .formatted(subDirs.size(), children.size());
+                ### WARNING: The symbol summary for these files is too large for the token limit.
+                Switching to filename-only listing.
+
+                Files: %s
+                """
+                        .formatted(filesCdl);
+
+        return prefix + filenamesResult;
     }
 
     private static <T> T runInSearchToolsPool(Callable<T> callable) throws InterruptedException {

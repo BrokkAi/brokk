@@ -679,7 +679,7 @@ public class ArchitectAgent {
                     var toolResult = ToolExecutionResult.requestError(answerReq, ignoredMsg);
                     // Record the ignored result in the architect message history so planning history reflects
                     // this.
-                    architectMessages.add(toolResult.toExecutionResultMessage());
+                    architectMessages.add(toolResult.toMessage());
                     logger.info("projectFinished ignored due to other tool calls present: {}", ignoredMsg);
                 } else {
                     logger.debug("LLM decided to projectFinished. We'll finalize and stop");
@@ -700,7 +700,7 @@ public class ArchitectAgent {
                 if (multipleRequests) {
                     var ignoredMsg = "Ignored 'abortProject' because other tool calls were present in the same turn.";
                     var toolResult = ToolExecutionResult.requestError(abortReq, ignoredMsg);
-                    architectMessages.add(toolResult.toExecutionResultMessage());
+                    architectMessages.add(toolResult.toMessage());
                     logger.info("abortProject ignored due to other tool calls present: {}", ignoredMsg);
                 } else {
                     logger.debug("LLM decided to abortProject. We'll finalize and stop");
@@ -725,7 +725,7 @@ public class ArchitectAgent {
                 io.afterToolOutput(toolResult);
 
                 context = wst.getContext();
-                architectMessages.add(toolResult.toExecutionResultMessage());
+                architectMessages.add(toolResult.toMessage());
                 logger.debug("Executed tool '{}' => result: {}", req.name(), toolResult.resultText());
             }
 
@@ -763,7 +763,7 @@ public class ArchitectAgent {
                     return resultWithMessages(fatalReason);
                 }
 
-                architectMessages.add(toolResult.toExecutionResultMessage());
+                architectMessages.add(toolResult.toMessage());
                 logger.debug("Executed tool '{}' => result: {}", req.name(), toolResult.resultText());
             }
 

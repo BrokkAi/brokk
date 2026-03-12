@@ -5,8 +5,9 @@ import ai.brokk.IssueProvider;
 import ai.brokk.agents.BuildAgent.BuildDetails;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
-import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.gui.Chrome;
+import ai.brokk.gui.SwingUtil;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
@@ -21,7 +22,6 @@ import ai.brokk.issues.JiraIssueService;
 import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject.DataRetentionPolicy;
 import ai.brokk.util.PathNormalizer;
-import com.google.common.io.Files;
 import java.awt.*;
 import java.io.IOException;
 import java.util.*;
@@ -673,23 +673,53 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         var project = chrome.getProject();
         var projectRoot = project.getRoot();
 
-        // Determine the languages to show: union of detected languages and currently enabled analyzers
-        var detected = findLanguagesInProject(project);
-        var configured = new ArrayList<>(project.getAnalyzerLanguages());
-        // Merge into a single ordered list (alphabetical by name)
-        var langSet = new HashSet<Language>();
-        langSet.addAll(detected);
-        langSet.addAll(configured);
-        var languagesToShow = new ArrayList<>(langSet);
-        languagesToShow.sort(Comparator.comparing(Language::name));
-
         // Ensure currentAnalyzerLanguagesForDialog has initial values if empty
         if (currentAnalyzerLanguagesForDialog.isEmpty()) {
             currentAnalyzerLanguagesForDialog.addAll(project.getAnalyzerLanguages());
         }
 
-        languagesTableModel = new LanguagesTableModel(languagesToShow);
+        languagesTableModel = new LanguagesTableModel(new ArrayList<>());
         var table = new JTable(languagesTableModel);
+
+        // Load languages asynchronously
+        record LanguageLoadResult(List<Language> languages, int maxModelIdx) {}
+
+        LoggingFuture.supplyAsync(() -> {
+                    var detected = Languages.findLanguagesInProject(project);
+                    var configured = new ArrayList<>(project.getAnalyzerLanguages());
+                    var langSet = new HashSet<Language>();
+                    langSet.addAll(detected);
+                    langSet.addAll(configured);
+                    var result = new ArrayList<>(langSet);
+                    result.sort(Comparator.comparing(Language::name));
+
+                    int maxModelIdx = 0;
+                    if (!result.isEmpty()) {
+                        int maxCount = -1;
+                        for (int i = 0; i < result.size(); i++) {
+                            int cnt = project.getAnalyzableFiles(result.get(i)).size();
+                            if (cnt > maxCount) {
+                                maxCount = cnt;
+                                maxModelIdx = i;
+                            }
+                        }
+                    }
+                    return new LanguageLoadResult(result, maxModelIdx);
+                })
+                .thenAccept(loadResult -> SwingUtil.runOnEdt(() -> {
+                    if (languagesTableModel != null) {
+                        languagesTableModel.setRows(loadResult.languages());
+
+                        // Preselect the language with the most associated files so details show immediately.
+                        if (!loadResult.languages().isEmpty()) {
+                            int viewIdx = table.convertRowIndexToView(loadResult.maxModelIdx());
+                            if (viewIdx >= 0) {
+                                table.getSelectionModel().setSelectionInterval(viewIdx, viewIdx);
+                                table.scrollRectToVisible(table.getCellRect(viewIdx, 0, true));
+                            }
+                        }
+                    }
+                }));
         table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         table.setFillsViewportHeight(true);
         table.setRowHeight(24);
@@ -870,8 +900,10 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
             }
 
             // Convert view index to model index when sorter is active
+            if (languagesTableModel == null) return;
             int modelRow = table.convertRowIndexToModel(sel);
-            var lang = languagesToShow.get(modelRow);
+            if (modelRow < 0 || modelRow >= languagesTableModel.rows.size()) return;
+            var lang = languagesTableModel.rows.get(modelRow);
 
             // Create (or reuse) analyzer settings panel for this language
             AnalyzerSettingsPanel settingsPanel = analyzerSettingsCache.computeIfAbsent(
@@ -909,27 +941,6 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         centerPanel.add(rightScrollPane, BorderLayout.CENTER);
 
         panel.add(centerPanel, BorderLayout.CENTER);
-
-        // Preselect the language with the most associated files so details show immediately.
-        if (languagesTableModel.getRowCount() > 0) {
-            int maxModelIdx = 0;
-            int maxCount = -1;
-            for (int i = 0; i < languagesToShow.size(); i++) {
-                int cnt = project.getAnalyzableFiles(languagesToShow.get(i)).size();
-                if (cnt > maxCount) {
-                    maxCount = cnt;
-                    maxModelIdx = i;
-                }
-            }
-            int viewIdx = table.convertRowIndexToView(maxModelIdx);
-            if (viewIdx >= 0) {
-                SwingUtilities.invokeLater(() -> {
-                    table.getSelectionModel().setSelectionInterval(viewIdx, viewIdx);
-                    // Ensure selected row is visible
-                    table.scrollRectToVisible(table.getCellRect(viewIdx, 0, true));
-                });
-            }
-        }
 
         // Set border on the unified exclusions panel
         exclusionsPanel.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
@@ -982,10 +993,15 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
     }
 
     private class LanguagesTableModel extends AbstractTableModel {
-        private final List<Language> rows;
+        private List<Language> rows = Collections.emptyList();
 
         LanguagesTableModel(List<Language> rows) {
             this.rows = rows;
+        }
+
+        void setRows(List<Language> rows) {
+            this.rows = rows;
+            fireTableDataChanged();
         }
 
         @Override
@@ -1279,21 +1295,6 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
     public void applyTheme(GuiTheme guiTheme, boolean wordWrap) {
         // Word wrap not applicable to settings project panel
         SwingUtilities.updateComponentTreeUI(this);
-    }
-
-    private List<Language> findLanguagesInProject(IProject project) {
-        Set<Language> langs = new HashSet<>();
-        Set<ProjectFile> filesToScan = project.hasGit() ? project.getRepo().getTrackedFiles() : project.getAllFiles();
-        for (var pf : filesToScan) {
-            String extension = Files.getFileExtension(pf.absPath().toString());
-            if (!extension.isEmpty()) {
-                var lang = Languages.fromExtension(extension);
-                if (lang != Languages.NONE) {
-                    langs.add(lang);
-                }
-            }
-        }
-        return new ArrayList<>(langs);
     }
 
     // Static inner class DataRetentionPanel (Copied and adapted from SettingsDialog)

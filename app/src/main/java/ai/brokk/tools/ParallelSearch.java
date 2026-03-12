@@ -43,7 +43,22 @@ public class ParallelSearch {
     }
 
     @Tool(
-            "Invoke the Search Agent to find information relevant to the given query. The Search Agent explores the codebase to find relevant identifiers and files. It does NOT have access to Architect conversation history, so your query must include all necessary goal/context explicitly. Searching is slower than adding known files directly, but useful when you don't know exact names or locations.")
+            """
+                    Invoke the Search Agent to find relevant code, files, tests, or build/config context when the exact locations are not already known.
+
+                    Use `callSearchAgent` when:
+                    - the relevant symbols or files are unclear,
+                    - there are multiple plausible places to look,
+                    - or you want to explore several search branches in parallel before deciding what to add to the Workspace.
+
+                    Query guidance:
+                    - Make the query self-contained.
+                    - State the goal, what to find, and any likely locations, clues, or constraints.
+                    - You can ask for either Workspace additions or a direct answer, depending on `mode`.
+                    Use `mode="WORKSPACE"` to have Search Agent add relevant context to the Workspace.
+                    Use `mode="ANSWER"` to get findings back without modifying the Workspace.
+
+                    Prefer direct `add*ToWorkspace` tools instead when you already know exactly what you need.""")
     public String callSearchAgent(
             @P(
                             "A complete, explicit search request for SearchAgent in English (not just keywords). Do not rely on prior Architect conversation history; include the goal, constraints, relevant code locations, and what information you need.")
@@ -116,7 +131,7 @@ public class ParallelSearch {
                             outcomeContext.allFragments().toList());
                 }
 
-                toolExecutionMessages.add(outcome.toolResult().toExecutionResultMessage());
+                toolExecutionMessages.add(outcome.toolResult().toMessage());
 
                 if (outcome.toolResult().status() == ToolExecutionResult.Status.FATAL && firstFatalMessage == null) {
                     firstFatalMessage = outcome.toolResult().resultText();
@@ -136,7 +151,7 @@ public class ParallelSearch {
                                 e.getCause() != null ? e.getCause().getMessage() : "Unknown error"));
                 logger.debug(errorMessage, e);
                 var failure = ToolExecutionResult.requestError(task.request(), errorMessage);
-                toolExecutionMessages.add(failure.toExecutionResultMessage());
+                toolExecutionMessages.add(failure.toMessage());
             }
         }
 

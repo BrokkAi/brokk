@@ -7,6 +7,7 @@ import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.MultiAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.project.IProject;
 import ai.brokk.testutil.NoOpConsoleIO;
 import ai.brokk.testutil.TestAnalyzer;
 import ai.brokk.testutil.TestContextManager;
@@ -146,5 +147,37 @@ class BuildToolsTest {
         // 4. Assertions
         // Ensure the package has the ./ prefix and the class (function) is present
         assertEquals("go test ./callbacks  -run '^TestCallbacks$'", result);
+    }
+
+    @Test
+    void testDetermineVerificationCommand_AllScopeSkipsPythonVersionForNonPythonProject(@TempDir Path tempDir)
+            throws Exception {
+        TestProject project = new TestProject(tempDir);
+        project.setAnalyzerLanguages(Set.of(Languages.JAVA));
+        project.setCodeAgentTestScope(IProject.CodeAgentTestScope.ALL);
+
+        TestContextManager mockCm = new TestContextManager(project, new NoOpConsoleIO(), Set.of(), new TestAnalyzer());
+
+        BuildDetails details = new BuildDetails("build-cmd", "python{{pyver}} -m pytest", "unused-test-some", Set.of());
+
+        String result = BuildTools.determineVerificationCommand(mockCm.liveContext(), details);
+
+        assertEquals("python -m pytest", result);
+    }
+
+    @Test
+    void testGetBuildLintSomeCommand_SkipsPythonVersionForNonPythonProject(@TempDir Path tempDir) throws Exception {
+        TestProject project = new TestProject(tempDir);
+        project.setAnalyzerLanguages(Set.of(Languages.JAVA));
+
+        TestContextManager mockCm = new TestContextManager(project, new NoOpConsoleIO(), Set.of(), new TestAnalyzer());
+
+        BuildDetails details = new BuildDetails("build-cmd", "unused-test-all", "python{{pyver}} -m pytest", Set.of());
+
+        ProjectFile testFile = new ProjectFile(tempDir, "src/test/java/com/example/AppTest.java");
+
+        String result = BuildTools.getBuildLintSomeCommand(mockCm, details, List.of(testFile));
+
+        assertEquals("python -m pytest", result);
     }
 }

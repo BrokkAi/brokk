@@ -333,9 +333,7 @@ public class LutzAgent {
 
         if (!setupResult.newFragments().isEmpty()) {
             checkpointState = SearchState.initial(preparedContext);
-            scanConfig =
-                    new ScanConfig(false, scanConfig.scanModel(), scanConfig.appendToScope(), scanConfig.autoPrune());
-            logger.debug("Referenced fragments resolved: {}. Disabling auto-scan.", setupResult.newFragments());
+            logger.debug("Referenced fragments resolved: {}", setupResult.newFragments());
         }
 
         currentState = currentState.withContext(preparedContext);
@@ -616,7 +614,7 @@ public class LutzAgent {
                     "findFilenames",
                     "searchGitCommitMessages" -> 20;
             case "getClassSkeletons", "getClassSources", "getMethodSources" -> 30;
-            case "getCallGraphTo", "getCallGraphFrom", "getFileContents", "getFileSummaries", "skimDirectory" -> 40;
+            case "getCallGraphTo", "getCallGraphFrom", "getFileContents", "getFileSummaries", "skimFiles" -> 40;
 
             case "callCodeAgent" -> 99;
             case "createOrReplaceTaskList" -> 100;
@@ -866,7 +864,7 @@ public class LutzAgent {
                                     req,
                                     "Tool '" + req.name() + "' is not allowed in this special turn. Allowed tools: "
                                             + allowed);
-                            sessionMessages.add(toolResult.toExecutionResultMessage());
+                            sessionMessages.add(toolResult.toMessage());
                         }
 
                         if (invalidSpecialToolAttempts <= 2) {
@@ -928,14 +926,14 @@ public class LutzAgent {
                         return new TurnOutcome.Final(agent.errorResult(details, context));
                     }
 
-                    sessionMessages.add(toolResult.toExecutionResultMessage());
+                    sessionMessages.add(toolResult.toMessage());
                 }
 
                 agent.io.beforeToolCall(terminalRequest);
                 var termExec = executeTool(terminalRequest);
                 agent.io.afterToolOutput(termExec);
 
-                sessionMessages.add(termExec.toExecutionResultMessage());
+                sessionMessages.add(termExec.toMessage());
 
                 if (termExec.status() != ToolExecutionResult.Status.SUCCESS) {
                     return new TurnOutcome.Final(agent.errorResult(
@@ -1002,7 +1000,7 @@ public class LutzAgent {
                     return new TurnOutcome.Final(agent.errorResult(details, context));
                 }
 
-                sessionMessages.add(toolResult.toExecutionResultMessage());
+                sessionMessages.add(toolResult.toMessage());
                 if (!"dropWorkspaceFragments".equals(req.name())) {
                     executedNonHygiene = true;
                     nonHygieneToolCalls.add(req.name());
@@ -1041,7 +1039,7 @@ public class LutzAgent {
                 var termExec = executeTool(terminalRequest);
                 agent.io.afterToolOutput(termExec);
 
-                sessionMessages.add(termExec.toExecutionResultMessage());
+                sessionMessages.add(termExec.toMessage());
 
                 if (termExec.status() != ToolExecutionResult.Status.SUCCESS) {
                     return new TurnOutcome.Final(agent.errorResult(
@@ -1065,7 +1063,7 @@ public class LutzAgent {
                 var ignored = ToolExecutionResult.requestError(terminalRequest, ignoredMessage);
                 agent.io.beforeToolCall(terminalRequest);
                 agent.io.afterToolOutput(ignored);
-                sessionMessages.add(ignored.toExecutionResultMessage());
+                sessionMessages.add(ignored.toMessage());
             }
 
             Set<ProjectFile> filesAfterSet = agent.workspaceFiles(context);
@@ -1313,7 +1311,7 @@ public class LutzAgent {
             context = result.context();
 
             if (reason == TaskResult.StopReason.SUCCESS) {
-                if (agent.cm.getProject().hasGit()) {
+                if (agent.cm.isAutoCommit() && agent.cm.getProject().hasGit()) {
                     new GitWorkflow(agent.cm).performAutoCommit(instructions);
                 }
                 logger.debug("SearchAgent.callCodeAgent finished successfully");

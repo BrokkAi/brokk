@@ -15,7 +15,6 @@ import ai.brokk.context.ContextFragments;
 import ai.brokk.context.SpecialTextType;
 import ai.brokk.git.GitDistance;
 import ai.brokk.project.ModelProperties.ModelType;
-import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.prompts.WorkspacePrompts;
 import ai.brokk.util.Lines;
 import ai.brokk.util.Messages;
@@ -780,7 +779,8 @@ public class ContextAgent {
         }
         userPrompt.append(filenamePrompt);
 
-        var sys = new SystemMessage(SearchPrompts.Objective.WORKSPACE_ONLY.identity());
+        var sys = new SystemMessage(
+                "You are the Context Agent, a code researcher focused on searching and analyzing large codebases.");
         List<ChatMessage> messages = Stream.concat(
                         Stream.of(sys),
                         Stream.concat(

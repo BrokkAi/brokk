@@ -540,7 +540,7 @@ public class WorkspaceTools {
             "searchSymbols",
             "getSymbolLocations",
             "scanUsages",
-            "skimDirectory");
+            "skimFiles");
 
     /**
      * Filters a list of tool names to remove analyzer-required tools when the project

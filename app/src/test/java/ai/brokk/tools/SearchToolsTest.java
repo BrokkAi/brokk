@@ -222,26 +222,26 @@ public class SearchToolsTest {
     }
 
     @Test
-    void testSkimDirectory() {
+    void testSkimFiles() {
         TestContextManager ctxWithAnalyzer = new TestContextManager(
                 javaTestProject, new TestConsoleIO(), Set.of(), javaAnalyzer, new TestRepo(javaTestProject.getRoot()));
 
         SearchTools tools = new SearchTools(ctxWithAnalyzer);
 
-        // Test skimming the root directory of the test project
-        String result = tools.skimDirectory(".");
+        // Test skimming the root directory of the test project using glob
+        String result = tools.skimFiles(List.of("*.java"));
         assertFalse(result.isEmpty(), "Result should not be empty");
 
-        // Verify it contains file entries in XML-ish format
-        assertTrue(result.contains("<file path=\"A.java\">"), "Should contain A.java entry");
-        assertTrue(result.contains("<file path=\"B.java\">"), "Should contain B.java entry");
+        // Verify it contains file entries in XML-ish format with loc
+        assertTrue(result.contains("<file path=\"A.java\" loc=\""), "Should contain A.java entry with loc");
+        assertTrue(result.contains("<file path=\"B.java\" loc=\""), "Should contain B.java entry with loc");
 
         // Verify it contains some identifiers from the files
         assertTrue(result.contains("A"), "Should mention identifier A");
     }
 
     @Test
-    void testSkimDirectory_dependenciesNotGitignored() throws IOException {
+    void testSkimFiles_dependenciesNotGitignored() throws IOException {
         Path projectRootCopy = createDisposableTestProjectCopy();
         try (TestProject localProject = new TestProject(projectRootCopy, Languages.JAVA)) {
             JavaAnalyzer localAnalyzer = new JavaAnalyzer(localProject);
@@ -262,10 +262,11 @@ public class SearchToolsTest {
             Files.writeString(testFile, "public class DependencyFile {}");
 
             try {
-                // 2. Call skimDirectory on the dependency path
-                String pathString = Path.of(AbstractProject.BROKK_DIR, AbstractProject.DEPENDENCIES_DIR, "testrepo")
+                // 2. Call skimFiles on the dependency path
+                String pathString = Path.of(
+                                AbstractProject.BROKK_DIR, AbstractProject.DEPENDENCIES_DIR, "testrepo", "*.java")
                         .toString();
-                String result = tools.skimDirectory(pathString);
+                String result = tools.skimFiles(List.of(pathString));
 
                 // 3. Verify that the file IS returned (not filtered out by the .brokk gitignore simulation)
                 assertTrue(
@@ -411,7 +412,7 @@ public class SearchToolsTest {
 
         String result = searchTools.searchFileContents(List.of("MATCH"), "**/grep_test.txt", false, false, 1, 200, 200);
 
-        assertTrue(result.contains("grep_test.txt [1 match]"));
+        assertTrue(result.contains("grep_test.txt (4 loc) (first 1/1 matches)"));
         assertTrue(result.contains("1: line1"));
         assertTrue(result.contains("2: line2 MATCH"));
         assertTrue(result.contains("3: line3"));
@@ -503,7 +504,9 @@ public class SearchToolsTest {
 
         String withFlag =
                 searchTools.searchFileContents(List.of("match"), "case_insensitive.txt", true, false, 0, 200, 200);
-        assertTrue(withFlag.contains("case_insensitive.txt [1 match]"), "Should match with case-insensitive flag");
+        assertTrue(
+                withFlag.contains("case_insensitive.txt (3 loc) (first 1/1 matches)"),
+                "Should match with case-insensitive flag and show LOC");
         assertTrue(withFlag.contains("2: Line2 MATCH"), "Should show matching line");
     }
 
@@ -518,7 +521,9 @@ public class SearchToolsTest {
         assertTrue(withoutFlag.contains("No matches found"), "Should not match ^/$ without multiline flag");
 
         String withFlag = searchTools.searchFileContents(List.of("^line2$"), "multiline.txt", false, true, 0, 200, 200);
-        assertTrue(withFlag.contains("multiline.txt [1 match]"), "Should match with multiline flag");
+        assertTrue(
+                withFlag.contains("multiline.txt (3 loc) (first 1/1 matches)"),
+                "Should match with multiline flag and show LOC");
         assertTrue(withFlag.contains("2: line2"), "Should show the anchored match line");
     }
 
@@ -558,17 +563,73 @@ public class SearchToolsTest {
     }
 
     @Test
-    void testSearchSymbols_StripsParams() {
-        // Mock analyzer is static, but we can verify the Tool's sanitization logic
-        // by checking if it calls analyzer with stripped names.
-        // Since we can't easily mock the static analyzer's return for specific calls here,
-        // we'll rely on the logic being covered by the fact that SearchTools.stripParams
-        // is private and used by searchSymbols.
-
+    void testSearchSymbols_StripsParams() throws InterruptedException {
         // This test ensures it doesn't crash and handles the typical LLM mistake
         String result = searchTools.searchSymbols(List.of("com.Foo.bar(int, String)"), false, 200);
         assertTrue(
                 result.contains("No definitions found"), "Should attempt search and find nothing (correctly stripped)");
+    }
+
+    @Test
+    void testSearchSymbols_IncludesLoc() throws IOException, InterruptedException {
+        Path aJava = projectRoot.resolve("A.java");
+        Files.writeString(aJava, "class A {}");
+        ProjectFile pf = new ProjectFile(projectRoot, "A.java");
+        mockProjectFiles.add(pf);
+
+        TestAnalyzer analyzer = new TestAnalyzer();
+        analyzer.addDeclaration(ai.brokk.analyzer.CodeUnit.cls(pf, "", "A"));
+
+        TestContextManager ctx = new TestContextManager(
+                new TestProject(projectRoot, Languages.JAVA).withAllFilesSupplier(() -> mockProjectFiles),
+                new TestConsoleIO(),
+                Set.of(),
+                analyzer,
+                repo);
+        SearchTools tools = new SearchTools(ctx);
+
+        String result = tools.searchSymbols(List.of("A"), false, 200);
+        assertTrue(result.contains("loc=\"1\""), "Should contain loc attribute in file tag. Result: " + result);
+    }
+
+    @Test
+    void testGetSymbolLocations_IncludesLoc() throws IOException {
+        Path aJava = projectRoot.resolve("A.java");
+        Files.writeString(aJava, "class A {}");
+        ProjectFile pf = new ProjectFile(projectRoot, "A.java");
+        mockProjectFiles.add(pf);
+
+        TestAnalyzer analyzer = new TestAnalyzer();
+        analyzer.addDeclaration(ai.brokk.analyzer.CodeUnit.cls(pf, "", "A"));
+
+        TestContextManager ctx = new TestContextManager(
+                new TestProject(projectRoot, Languages.JAVA).withAllFilesSupplier(() -> mockProjectFiles),
+                new TestConsoleIO(),
+                Set.of(),
+                analyzer,
+                repo);
+        SearchTools tools = new SearchTools(ctx);
+
+        String result = tools.getSymbolLocations(List.of("A"));
+        assertTrue(result.contains("A -> A.java (1 loc)"), "Symbol locations should include LOC. Result: " + result);
+    }
+
+    @Test
+    void testFindFilenames_IncludesLoc() throws IOException {
+        Path locTest = projectRoot.resolve("loc_test.txt");
+        Files.writeString(locTest, "content");
+        mockProjectFiles.add(new ProjectFile(projectRoot, "loc_test.txt"));
+        String result = searchTools.findFilenames(List.of("loc_test"), 10);
+        assertTrue(result.contains("loc_test.txt (1 loc)"), "Filename results should include LOC");
+    }
+
+    @Test
+    void testListFiles_IncludesLoc() throws IOException {
+        Path listLoc = projectRoot.resolve("list_loc.txt");
+        Files.writeString(listLoc, "content");
+        mockProjectFiles.add(new ProjectFile(projectRoot, "list_loc.txt"));
+        String result = searchTools.listFiles(".");
+        assertTrue(result.contains("list_loc.txt (1 loc)"), "List files results should include LOC");
     }
 
     @Test
@@ -613,7 +674,7 @@ public class SearchToolsTest {
         String result =
                 searchTools.searchFileContents(List.of("MATCH"), "matches_per_file_test.txt", false, false, 0, 200, 10);
 
-        assertTrue(result.contains("matches_per_file_test.txt [first 10 matches]"));
+        assertTrue(result.contains("matches_per_file_test.txt (20 loc) (first 10/20 matches)"));
         assertTrue(result.contains("10: MATCH 10"));
         assertFalse(result.contains("11: MATCH 11"));
     }
@@ -657,7 +718,7 @@ public class SearchToolsTest {
         // Ask for exactly 3 matches.
         String result = searchTools.searchFileContents(List.of("MATCH"), "exact_limit.txt", false, false, 0, 10, 3);
 
-        assertTrue(result.contains("exact_limit.txt [first 3 matches]"), "Should show hit limit in header");
+        assertTrue(result.contains("exact_limit.txt (3 loc) (first 3/3 matches)"), "Should show hit limit in header");
         assertTrue(result.contains("3: MATCH 3"), "Should contain the last match");
         assertFalse(
                 result.contains("TRUNCATED: reached matchesPerFile"),

@@ -52,6 +52,10 @@ public class CodeUnit implements Comparable<CodeUnit> {
         this(source, kind, packageName, shortName, null);
     }
 
+    public CodeUnit withoutSignature() {
+        return new CodeUnit(source(), kind(), packageName(), shortName());
+    }
+
     /**
      * Returns the fully qualified name constructed from package and short name. For MODULE, shortName is often a fixed
      * placeholder like "_module_", so fqName becomes "packageName._module_".

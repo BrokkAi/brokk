@@ -37,7 +37,6 @@ public class SearchPrompts {
     public enum Objective {
         ANSWER_ONLY(
                 "query",
-                "You are the Search Agent, a code researcher focused on answering questions about this codebase.",
                 "Your goal is to gather enough context to answer the user's question accurately and cite evidence from the repo.",
                 "a comprehensive Markdown answer (via answer(String))",
                 "",
@@ -49,7 +48,6 @@ public class SearchPrompts {
         },
         TASKS_ONLY(
                 "instructions",
-                "You are the Search Agent, a code researcher focused on turning goals into implementation tasks.",
                 "Your goal is to gather enough context to produce a clear, minimal, incremental task list for the Code Agent.",
                 "a task list for the Code Agent (via createOrReplaceTaskList(...))",
                 "",
@@ -61,7 +59,6 @@ public class SearchPrompts {
         },
         LUTZ(
                 "query_or_instructions",
-                "You are the Search Agent, a code researcher that can answer, plan, or hand off implementation.",
                 "Your goal is to gather enough context to either answer the question, produce a task list, or invoke the Code Agent for a small change.",
                 "one of: answer, task list, or Code Agent invocation",
                 """
@@ -77,7 +74,6 @@ public class SearchPrompts {
         },
         WORKSPACE_ONLY(
                 "task",
-                "You are the Search Agent, a code researcher and librarian.",
                 "Your goal is to prepare the Workspace for the Code Agent by finding and curating the minimum sufficient context.",
                 "a curated Workspace ready for the Code Agent",
                 "",
@@ -89,7 +85,6 @@ public class SearchPrompts {
         },
         ISSUE_DESCRIPTION(
                 "problem_report",
-                "You are the Search Agent, a code researcher focused on describing issues with precision.",
                 "Your goal is to gather enough context to describe the issue and produce a formal issue report with evidence from the repo.",
                 "a high-quality GitHub issue (via describeIssue(String, String))",
                 """
@@ -112,7 +107,6 @@ public class SearchPrompts {
         },
         CODE_ONLY(
                 "task",
-                "You are the Search Agent, a code researcher.",
                 "Your goal is to gather enough context for the Code Agent to implement the requested change.",
                 "a curated Workspace ready for the Code Agent",
                 "",
@@ -124,21 +118,13 @@ public class SearchPrompts {
         };
 
         private final String tag;
-        private final String identity;
         private final String mission;
         private final String deliverable;
         private final String taskInstructions;
         private final boolean includeHandoff;
 
-        Objective(
-                String tag,
-                String identity,
-                String mission,
-                String deliverable,
-                String taskInstructions,
-                boolean includeHandoff) {
+        Objective(String tag, String mission, String deliverable, String taskInstructions, boolean includeHandoff) {
             this.tag = tag;
-            this.identity = identity;
             this.mission = mission;
             this.deliverable = deliverable;
             this.taskInstructions = taskInstructions;
@@ -147,10 +133,6 @@ public class SearchPrompts {
 
         public String tag() {
             return tag;
-        }
-
-        public String identity() {
-            return identity;
         }
 
         public String mission() {
@@ -216,18 +198,10 @@ public class SearchPrompts {
         var supportedTypes = supportedTypesForPrompt(context);
 
         record SearchSystemData(
-                String identity,
-                String deliverable,
-                String mission,
-                boolean includeHandoff,
-                @Nullable String supportedTypes) {}
+                String deliverable, String mission, boolean includeHandoff, @Nullable String supportedTypes) {}
 
         var data = new SearchSystemData(
-                objective.identity(),
-                objective.deliverable(),
-                objective.mission(),
-                objective.includeHandoff(),
-                supportedTypes);
+                objective.deliverable(), objective.mission(), objective.includeHandoff(), supportedTypes);
 
         try {
             return new SystemMessage(LUTZ_SYSTEM_TEMPLATE.apply(data));
@@ -316,7 +290,7 @@ public class SearchPrompts {
         String lutzSystemTemplateText =
                 """
                 <instructions>
-                {{identity}}
+                You are the Architect, a senior team lead focused on gathering context and deciding the right final action.
 
                 {{mission}}
 
@@ -337,37 +311,26 @@ public class SearchPrompts {
                   - Summaries can serve as an index: add a summary to see the API/structure, then selectively add method sources or full files only if implementation details are needed.
 
                 Critical rules:
-                  1) Use search and inspection tools to discover relevant code, including classes/methods/usages/call graphs.
-                     Prefer syntax-aware tools{{#if supportedTypes}} in {{supportedTypes}} files{{/if}} because they return higher-precision results with less noise.
-                     - Search tool selection:
-                          Definitions / declarations only?
-                          -> searchSymbols
-                          How known symbols are used, accessed, obtained, injected, or called?
-                          -> scanUsages
-                          JSON or XML?
-                          -> jq or xml tools
-                          String literals, config keys, markdown, comments, reflection sites, environment variables, SQL fragments, or other strings that don't show up in searchSymbols?
-                          -> findFilesContaining / searchFileContents
-                     - NB: you can still use searchSymbols with broad regex patterns even if you only know a concept or partial identifier.
-                     - Summary limitations: Summaries only include declared symbols (classes, methods, fields).
-                       They do NOT surface local variables or hardcoded strings like environment variable names,
-                       system properties, or comments. If findFilesContaining finds a hit in a file but the summary
-                       doesn't reveal the match, you MUST load the full file or method source to see the actual content.
+                  1) Use callSearchAgent to discover relevant code that cannot be inferred from the current Workspace.
                   2) Group related lookups into a single tool call when possible.
-                  3) Your responsibility is to gather and curate the minimum sufficient context, then take the appropriate next step.
+                  3) MAXIMIZE PARALLELISM: You must gather context as fast as possible.
+                     If you need to understand multiple different concepts, files, or symbols,
+                     you must issue multiple tool calls in a single turn. Do not search sequentially
+                     if you can search in parallel.
+                  4) Your responsibility is to gather and curate the minimum sufficient context, then take the appropriate next step.
                      Do not write code, and do not attempt to write the solution or pseudocode for the solution.
                      Your job is to *gather* the materials; the Code Agent's job is to *use* them.
                      Where code changes are needed, add the *target files* to the workspace using `addFilesToWorkspace`
                      and let the Code Agent write the code. (For more localized changes, you can use `addMethodsToWorkspace`
                      or `addClassesToWorkspace`, instead of adding entire files.)
                      Note: Code Agent will also take care of creating new files; you only need to add existing files to the Workspace.
-                  4) When you have enough information to take a final action, do so.
+                  5) When you have enough information to take a final action, do so.
                      There are no bonus points for grooming the perfect Workspace.
 
                 Working efficiently:
-                  - Think before calling tools.
-                  - Make multiple tool calls at once when searching for different types of code. Dropping
-                    fragments should always be done in conjunction with other tools, since you will gain
+                  - Think before calling tools. Before making tool calls, briefly list the distinct pieces of context you need.
+                    Then, dispatch all necessary tool calls simultaneously
+                  - Dropping fragments should also be done in conjunction with other tools, since you will gain
                     no new information from the drop result.
                   - If you already know what to add, use Workspace tools directly; do not search redundantly.
 
@@ -391,7 +354,7 @@ public class SearchPrompts {
         String searchAgentSystemTemplateText =
                 """
                 <instructions>
-                Your role is EXCLUSIVELY to search and analyze existing code.
+                You are the Search Agent, a code researcher focused on searching and analyzing existing code.
 
                 {{mission}}
 
@@ -452,9 +415,9 @@ public class SearchPrompts {
 
                 Workspace context guidance:
                   - If you know where to find what you're looking for, just add it, you don't need to keep searching "just in case".
-                  - If you don't know where to find a piece of information, use search tools or skimDirectory to identify specific files/classes/methods instead of guessing.
+                  - If you don't know where to find a piece of information, use search tools or skimFiles to identify specific files/classes/methods instead of guessing.
                   - The add*ToWorkspace tools do not work with directories or globs or wildcards as parameters;
-                    skimDirectory can help you narrow down your search, after which you should add only those specific items to the Workspace.
+                    skimFiles can help you narrow down your search, after which you should add only those specific items to the Workspace.
                 When to prefer the different content types:
                   - Summaries: when you only need API signatures/types/constants.
                   - Method sources: when you need implementation details for specific methods.
@@ -532,9 +495,6 @@ public class SearchPrompts {
                 - abortSearch(String explanation): the answer cannot be found or the request is out of scope for this codebase. Provide a clear explanation of your decision.
 
                 {{#unless finalTurnOnly~}}
-                You CAN call multiple non-terminal tools in a single turn, and you SHOULD whenever you can
-                usefully do so.
-
                 Terminal actions ({{#if terminalAnswer}}answer, {{/if}}{{#if terminalTasks}}createOrReplaceTaskList, {{/if}}{{#if terminalWorkspace}}workspaceComplete, {{/if}}{{#if terminalCode}}callCodeAgent, {{/if}}{{#if terminalIssue}}describeIssue, {{/if}}abortSearch)
                 must be the ONLY tool in a turn, other than final cleanup via dropWorkspaceFragments.
                 If you include a terminal together with other tools, the terminal will be ignored for this turn.

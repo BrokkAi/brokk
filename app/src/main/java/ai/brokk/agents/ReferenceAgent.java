@@ -27,7 +27,10 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map.Entry;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Blocking;
@@ -47,51 +50,66 @@ public class ReferenceAgent {
 
     @Blocking
     public Set<ContextFragment> resolveReferencedFragments(String goal) throws InterruptedException {
-        Set<ProjectFile> fileCandidates = new HashSet<>();
-        Set<CodeUnit> classCandidates = new HashSet<>();
-        Set<CodeUnit> memberCandidates = new HashSet<>();
+        Set<ProjectFile> fileCandidates = ConcurrentHashMap.newKeySet();
+        Set<CodeUnit> classCandidates = ConcurrentHashMap.newKeySet();
+        Set<CodeUnit> memberCandidates = ConcurrentHashMap.newKeySet();
+        var identifierCounts = new ConcurrentHashMap<String, Integer>();
 
         IAnalyzer analyzer = cm.getAnalyzer();
         var lowerGoal = goal.toLowerCase(Locale.ROOT);
 
         // filenames
-        for (var file : cm.getProject().getAllFiles()) {
+        cm.getProject().getAllFiles().parallelStream().forEach(file -> {
             String fileName = file.getFileName();
             if (Lines.containsBareToken(lowerGoal, fileName.toLowerCase(Locale.ROOT))) {
                 fileCandidates.add(file);
             }
-        }
+        });
 
         var allDeclarations = analyzer.getAllDeclarations();
         // class names
-        for (var cu : allDeclarations) {
+        allDeclarations.parallelStream().forEach(cu -> {
             if (!cu.isClass() || fileCandidates.contains(cu.source())) {
-                continue;
+                return;
             }
 
             String target = cu.identifier();
             if (target.length() >= 3 && Lines.containsBareToken(lowerGoal, target.toLowerCase(Locale.ROOT))) {
-                classCandidates.add(cu);
+                var signatureFree = cu.withoutSignature();
+                if (classCandidates.add(signatureFree)) {
+                    identifierCounts.merge(target, 1, Integer::sum);
+                }
             }
-        }
+        });
 
-        // methods, fields
-        for (var cu : allDeclarations) {
-            if (!(cu.isFunction() || cu.isField()) || fileCandidates.contains(cu.source())) {
-                continue;
+        // methods
+        allDeclarations.parallelStream().forEach(cu -> {
+            if (!cu.isFunction() || fileCandidates.contains(cu.source())) {
+                return;
             }
 
             boolean isOrphanOrAlreadyHandled =
                     analyzer.parentOf(cu).map(classCandidates::contains).orElse(true);
             if (isOrphanOrAlreadyHandled) {
-                continue;
+                return;
             }
 
             String target = cu.identifier();
             if (Lines.containsBareToken(lowerGoal, target.toLowerCase(Locale.ROOT))) {
-                memberCandidates.add(cu);
+                var signatureFree = cu.withoutSignature();
+                if (memberCandidates.add(signatureFree)) {
+                    identifierCounts.merge(target, 1, Integer::sum);
+                }
             }
-        }
+        });
+
+        // remove common identifiers
+        Set<String> whitelistedIdentifiers = identifierCounts.entrySet().stream()
+                .filter(e -> e.getValue() <= 2)
+                .map(Entry::getKey)
+                .collect(Collectors.toSet());
+        classCandidates.removeIf(cu -> !whitelistedIdentifiers.contains(cu.identifier()));
+        memberCandidates.removeIf(cu -> !whitelistedIdentifiers.contains(cu.identifier()));
 
         Set<String> relevantReferences =
                 classifyRelevantReferences(goal, fileCandidates, classCandidates, memberCandidates);

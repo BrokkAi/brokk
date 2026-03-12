@@ -205,7 +205,7 @@ public class SearchAgent {
                     Context before = workspaceTools.getContext();
                     var toolResult = toolRegistry.executeTool(request);
                     io.afterToolOutput(toolResult);
-                    messages.add(toolResult.toExecutionResultMessage());
+                    messages.add(toolResult.toMessage());
 
                     context = workspaceTools.getContext();
                     additionsThisTurn.addAll(
@@ -291,7 +291,7 @@ public class SearchAgent {
         names.add("searchSymbols");
         names.add("scanUsages");
         names.add("getSymbolLocations");
-        names.add("skimDirectory");
+        names.add("skimFiles");
         names.add("findFilesContaining");
         names.add("findFilenames");
         names.add("searchFileContents");

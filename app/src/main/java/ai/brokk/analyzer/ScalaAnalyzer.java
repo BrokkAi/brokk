@@ -17,7 +17,7 @@ import org.treesitter.TSQueryMatch;
 import org.treesitter.TSTree;
 import org.treesitter.TreeSitterScala;
 
-public class ScalaAnalyzer extends TreeSitterAnalyzer {
+public class ScalaAnalyzer extends TreeSitterAnalyzer implements JvmBasedAnalyzer {
 
     public ScalaAnalyzer(IProject project) {
         this(project, ProgressListener.NOOP);

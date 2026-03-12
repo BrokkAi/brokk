@@ -211,7 +211,7 @@ public final class MergeOneFile {
 
                 ToolExecutionResult exec = tr.executeTool(req);
 
-                currentSessionMessages.add(exec.toExecutionResultMessage());
+                currentSessionMessages.add(exec.toMessage());
                 if (!exec.resultText().isBlank()) {
                     io.llmOutput(exec.resultText(), ChatMessageType.AI, LlmOutputMeta.DEFAULT);
                 }

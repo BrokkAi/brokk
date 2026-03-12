@@ -166,7 +166,7 @@ public class TreeSitterStateIOTest {
         var state = TreeSitterStateIO.fromDto(emptyDto);
 
         // Use a recognized language filename to allow successful load inference
-        Path out = tempDir.resolve("java.bin.lz4");
+        Path out = tempDir.resolve("java" + Language.ANALYZER_STATE_SUFFIX);
         TreeSitterStateIO.save(state, out);
 
         assertTrue(Files.exists(out), "Expected final state file to exist");
@@ -231,7 +231,7 @@ public class TreeSitterStateIOTest {
                 new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of(), 99L, CURRENT_SCHEMA_STR, "JAVA");
         var original = TreeSitterStateIO.fromDto(dto);
 
-        Path out = tempDir.resolve("java.bin.lz4");
+        Path out = tempDir.resolve("java" + Language.ANALYZER_STATE_SUFFIX);
         TreeSitterStateIO.save(original, out);
 
         var loadedOpt = TreeSitterStateIO.load(out);
@@ -250,7 +250,7 @@ public class TreeSitterStateIOTest {
             disabledReason = "Flaky on Windows due to transient file locks; replacement behavior covered elsewhere")
     @Test
     void loadReturnsEmptyOnCorruptLz4(@TempDir Path tempDir) throws Exception {
-        Path out = tempDir.resolve("java.bin.lz4");
+        Path out = tempDir.resolve("java" + Language.ANALYZER_STATE_SUFFIX);
 
         Files.writeString(out, "not a compressed file");
 
@@ -276,7 +276,7 @@ public class TreeSitterStateIOTest {
             disabledReason = "Flaky on Windows due to transient file locks; replacement behavior covered elsewhere")
     @Test
     void replacesExistingCorruptFileOnWindows(@TempDir Path tempDir) throws Exception {
-        Path out = tempDir.resolve("java.bin.lz4");
+        Path out = tempDir.resolve("java" + Language.ANALYZER_STATE_SUFFIX);
 
         Files.writeString(out, "this is corrupt content");
 
@@ -299,7 +299,7 @@ public class TreeSitterStateIOTest {
 
     @Test
     void loadReturnsEmptyOnLegacyStateMissingContainsTests(@TempDir Path tempDir) throws Exception {
-        Path out = tempDir.resolve("java.bin.lz4");
+        Path out = tempDir.resolve("java" + Language.ANALYZER_STATE_SUFFIX);
 
         // Manually construct a JSON/Smile graph that looks like AnalyzerStateDto
         // but whose FilePropertiesDto is missing the 'containsTests' field.
@@ -382,7 +382,7 @@ public class TreeSitterStateIOTest {
                 Map.of(), List.of(), List.of(entryDto), List.of(), 555L, CURRENT_SCHEMA_STR, "JAVA");
         var state = TreeSitterStateIO.fromDto(originalDto);
 
-        Path out = tempDir.resolve("java.bin.lz4");
+        Path out = tempDir.resolve("java" + Language.ANALYZER_STATE_SUFFIX);
         TreeSitterStateIO.save(state, out, Languages.JAVA);
 
         var loadedOpt = TreeSitterStateIO.load(out);
@@ -418,7 +418,7 @@ public class TreeSitterStateIOTest {
                     "Original analyzer should have parsed tree");
 
             // 3. Save state to temp file
-            Path stateFile = tempDir.resolve("java.bin.lz4");
+            Path stateFile = tempDir.resolve("java" + Language.ANALYZER_STATE_SUFFIX);
             TreeSitterStateIO.save(analyzer.snapshotState(), stateFile);
             assertTrue(Files.exists(stateFile), "State file should exist after save");
 
@@ -551,7 +551,7 @@ public class TreeSitterStateIOTest {
 
             // 2. Round-trip serialization.
             TreeSitterAnalyzer.AnalyzerState snapshot = analyzer.snapshotState();
-            Path storage = tempDir.resolve("java.bin.lz4");
+            Path storage = tempDir.resolve("java" + Language.ANALYZER_STATE_SUFFIX);
             TreeSitterStateIO.save(snapshot, storage);
 
             var loadedStateOpt = TreeSitterStateIO.load(storage);
@@ -637,7 +637,7 @@ public class TreeSitterStateIOTest {
     @Test
     void deserializeLegacyStateWithComputedSupertypes(@TempDir Path tempDir) throws Exception {
         // Construct DTO components manually to simulate legacy structure
-        Path file = tempDir.resolve("java.bin.lz4");
+        Path file = tempDir.resolve("java" + Language.ANALYZER_STATE_SUFFIX);
         var root = tempDir.toAbsolutePath().normalize();
         var pfDto = new TreeSitterStateIO.ProjectFileDto(root.toString(), "src/Test.java");
         var cuDto = new TreeSitterStateIO.CodeUnitDto(pfDto, CodeUnitType.CLASS, "com.pkg", "Test", null);
@@ -694,7 +694,7 @@ public class TreeSitterStateIOTest {
 
     @Test
     void loadLegacyStateWithPerCodeUnitSupertypes(@TempDir Path tempDir) throws Exception {
-        Path out = tempDir.resolve("java.bin.lz4");
+        Path out = tempDir.resolve("java" + Language.ANALYZER_STATE_SUFFIX);
 
         var pfDto = new TreeSitterStateIO.ProjectFileDto(tempDir.toString(), "Test.java");
         var cuDto = new TreeSitterStateIO.CodeUnitDto(pfDto, CodeUnitType.CLASS, "com.pkg", "Test", null);
@@ -732,7 +732,7 @@ public class TreeSitterStateIOTest {
 
     @Test
     void loadStateWithNullListFieldsDoesNotThrowNPE(@TempDir Path tempDir) throws Exception {
-        Path out = tempDir.resolve("java.bin.lz4");
+        Path out = tempDir.resolve("java" + Language.ANALYZER_STATE_SUFFIX);
 
         var pfDto = new TreeSitterStateIO.ProjectFileDto(tempDir.toString(), "Test.java");
         var cuDto = new TreeSitterStateIO.CodeUnitDto(pfDto, CodeUnitType.CLASS, "com.pkg", "Test", null);
@@ -776,13 +776,13 @@ public class TreeSitterStateIOTest {
 
     @Test
     void testUnknownLanguageReturnsEmpty(@TempDir Path tempDir) throws Exception {
-        Path out = tempDir.resolve("unknown_lang.bin.lz4");
+        Path out = tempDir.resolve("unknown_lang" + Language.ANALYZER_STATE_SUFFIX);
         // No language in DTO + unknown prefix = rebuild
         writeDtoWithSchemaVersion(out, CURRENT_SCHEMA_STR, 1L, null);
         var loaded = TreeSitterStateIO.load(out);
         assertTrue(loaded.isEmpty(), "Expected empty result for unknown language prefix 'unknown_lang'");
 
-        Path arbitrary = tempDir.resolve("state.bin.lz4");
+        Path arbitrary = tempDir.resolve("state" + Language.ANALYZER_STATE_SUFFIX);
         // No language in DTO + arbitrary filename = rebuild
         writeDtoWithSchemaVersion(arbitrary, CURRENT_SCHEMA_STR, 1L, null);
         assertTrue(TreeSitterStateIO.load(arbitrary).isEmpty(), "Expected empty result for arbitrary 'state.bin.lz4'");
@@ -791,7 +791,7 @@ public class TreeSitterStateIOTest {
     @Test
     void testLoadFromArbitraryFilenameWithDtoLanguage(@TempDir Path tempDir) throws Exception {
         // Failing test scenario: generic filename but DTO specifies JAVA.
-        Path out = tempDir.resolve("analyzer-state.bin.lz4");
+        Path out = tempDir.resolve("analyzer-state" + Language.ANALYZER_STATE_SUFFIX);
         AnalyzerStateDto dto =
                 new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of(), 123L, CURRENT_SCHEMA_STR, "JAVA");
 
@@ -810,7 +810,7 @@ public class TreeSitterStateIOTest {
     void schemaMajorVersionMismatchReturnsEmpty(@TempDir Path tempDir) throws Exception {
         // Manually serialize a DTO with a different major version (1.0.0 vs current 2.x.x)
         AnalyzerStateDto dto = new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of(), 1L, "1.0.0", "JAVA");
-        Path out = tempDir.resolve("java.bin.lz4");
+        Path out = tempDir.resolve("java" + Language.ANALYZER_STATE_SUFFIX);
 
         var mapper = new ObjectMapper(new SmileFactory());
         try (var os = Files.newOutputStream(out);
@@ -826,7 +826,7 @@ public class TreeSitterStateIOTest {
     void nonStrictLanguageAcceptsMinorVersionMismatch(@TempDir Path tempDir) throws Exception {
         // Use a version with same major but different minor (2.1.0) to test forward compatibility.
         // We use a filename that maps to a non-strict language (PYTHON) to verify generic acceptance.
-        Path out = tempDir.resolve("python.bin.lz4");
+        Path out = tempDir.resolve("python" + Language.ANALYZER_STATE_SUFFIX);
         writeDtoWithSchemaVersion(out, "2.1.0", 1L);
 
         var loaded = TreeSitterStateIO.load(out);
@@ -838,22 +838,22 @@ public class TreeSitterStateIOTest {
 
     @Test
     void javaStrictSchemaGating(@TempDir Path tempDir) throws Exception {
-        Path v110 = tempDir.resolve("java.bin.lz4");
+        Path v110 = tempDir.resolve("java" + Language.ANALYZER_STATE_SUFFIX);
         writeDtoWithSchemaVersion(v110, "1.1.0", 110L);
         assertTrue(TreeSitterStateIO.load(v110).isEmpty(), "Java should REJECT legacy major schemaVersion 1.1.0");
 
-        Path v200 = tempDir.resolve("java.bin.lz4");
+        Path v200 = tempDir.resolve("java" + Language.ANALYZER_STATE_SUFFIX);
         writeDtoWithSchemaVersion(v200, "2.0.0", 200L);
         assertTrue(TreeSitterStateIO.load(v200).isPresent(), "Java should accept current schemaVersion 2.0.0");
     }
 
     @Test
     void typescriptStrictSchemaGating(@TempDir Path tempDir) throws Exception {
-        Path v110 = tempDir.resolve("typescript.bin.lz4");
+        Path v110 = tempDir.resolve("typescript" + Language.ANALYZER_STATE_SUFFIX);
         writeDtoWithSchemaVersion(v110, "1.1.0", 110L);
         assertTrue(TreeSitterStateIO.load(v110).isEmpty(), "TypeScript should REJECT legacy schemaVersion 1.1.0");
 
-        Path v200 = tempDir.resolve("typescript.bin.lz4");
+        Path v200 = tempDir.resolve("typescript" + Language.ANALYZER_STATE_SUFFIX);
         writeDtoWithSchemaVersion(v200, "2.0.0", 200L);
         assertTrue(TreeSitterStateIO.load(v200).isPresent(), "TypeScript should accept current schemaVersion 2.0.0");
     }
@@ -861,7 +861,7 @@ public class TreeSitterStateIOTest {
     @Test
     void nonStrictLanguageRejectsLegacyMajorSchema(@TempDir Path tempDir) throws Exception {
         // C# is non-strict but we still reject major version mismatches globally in TreeSitterStateIO
-        Path v100 = tempDir.resolve("c_sharp.bin.lz4");
+        Path v100 = tempDir.resolve("c_sharp" + Language.ANALYZER_STATE_SUFFIX);
         writeDtoWithSchemaVersion(v100, "1.0.0", 100L);
 
         assertTrue(
@@ -899,7 +899,7 @@ public class TreeSitterStateIOTest {
 
     @Test
     void loadIgnoresLegacyRawSupertypesField(@TempDir Path tempDir) throws Exception {
-        Path out = tempDir.resolve("java.bin.lz4");
+        Path out = tempDir.resolve("java" + Language.ANALYZER_STATE_SUFFIX);
 
         // Manually construct a CodeUnitPropertiesDto-like map that includes the old 'rawSupertypes' field
         var pfDto = new TreeSitterStateIO.ProjectFileDto(tempDir.toString(), "Test.java");

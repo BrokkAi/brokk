@@ -17,7 +17,7 @@ import java.util.zip.ZipFile;
 import javax.swing.SwingUtilities;
 import org.jetbrains.annotations.Nullable;
 
-public class JavaLanguage implements Language {
+public class JavaLanguage implements JvmLanguage {
     private final Set<String> extensions = Set.of("java");
 
     JavaLanguage() {}
@@ -78,7 +78,7 @@ public class JavaLanguage implements Language {
                     "\\bimport\\s+.*\\.$ident\\b" // import
                     );
         }
-        return Language.super.getSearchPatterns(type);
+        return JvmLanguage.super.getSearchPatterns(type);
     }
 
     @Override

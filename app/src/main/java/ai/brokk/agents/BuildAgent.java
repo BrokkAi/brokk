@@ -331,7 +331,7 @@ public class BuildAgent {
                 ToolExecutionResult execResult = tr.executeTool(request);
                 io.afterToolOutput(execResult);
 
-                ToolExecutionResultMessage resultMessage = execResult.toExecutionResultMessage();
+                ToolExecutionResultMessage resultMessage = execResult.toMessage();
 
                 // Log tool result for debugging
                 logger.debug("Tool '{}' result: {}", toolName, execResult.resultText());
