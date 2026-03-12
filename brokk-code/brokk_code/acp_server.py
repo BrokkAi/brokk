@@ -13,6 +13,7 @@ from brokk_code.event_utils import safe_data
 from brokk_code.executor import ExecutorError, ExecutorManager
 from brokk_code.settings import Settings
 from brokk_code.widgets.token_bar import get_token_bar_markdown
+from brokk_code.workspace import resolve_workspace_dir
 
 logger = logging.getLogger(__name__)
 
@@ -627,29 +628,62 @@ class BrokkAcpBridge:
         self._acp_to_brokk_session: dict[str, str] = {}
         self._active_job_by_session: dict[str, str] = {}
         self._started = False
+        self._active_workspace_dir = getattr(executor, "workspace_dir", None)
 
-    async def ensure_ready(self) -> None:
-        if self._started:
+    def _resolved_workspace_dir(self, cwd: Optional[str] = None) -> Path:
+        requested = (cwd or "").strip()
+        if requested:
+            return resolve_workspace_dir(Path(requested))
+
+        current = getattr(self.executor, "workspace_dir", None)
+        if isinstance(current, Path):
+            return resolve_workspace_dir(current)
+
+        return resolve_workspace_dir(Path.cwd())
+
+    async def _cancel_current_work(self) -> None:
+        for job_id in set(self._active_job_by_session.values()):
+            await self.executor.cancel_job(job_id)
+        self._active_job_by_session.clear()
+
+    def _reset_executor_session_state(self) -> None:
+        self._acp_to_brokk_session.clear()
+        if hasattr(self.executor, "session_id"):
+            self.executor.session_id = None
+        if hasattr(self.executor, "base_url"):
+            self.executor.base_url = None
+
+    async def ensure_ready(self, cwd: Optional[str] = None) -> None:
+        target_workspace_dir = self._resolved_workspace_dir(cwd)
+        if self._started and self._active_workspace_dir == target_workspace_dir:
             return
-        await self.executor.start()
-        # Executor readiness depends on having an active session.
-        await self.executor.create_session(name="ACP Bootstrap Session")
-        ready = await self.executor.wait_ready()
-        if not ready:
-            raise ExecutorError("Brokk executor failed readiness check")
-        self._started = True
 
-    async def start_and_create_session(self, name: str) -> str:
-        """Starts the executor (if needed) and creates the first session to satisfy readiness."""
         if self._started:
-            return await self.executor.create_session(name=name)
+            logger.info(
+                "ACP cwd changed from %s to %s; restarting executor",
+                self._active_workspace_dir,
+                target_workspace_dir,
+            )
+            await self._cancel_current_work()
+            await self.executor.stop()
+            self._started = False
+            self._reset_executor_session_state()
 
+        self.executor.workspace_dir = target_workspace_dir
+        self._active_workspace_dir = target_workspace_dir
         await self.executor.start()
-        session_id = await self.executor.create_session(name=name)
+        self._started = True
+
+    async def _wait_until_ready(self) -> None:
         ready = await self.executor.wait_ready()
         if not ready:
             raise ExecutorError("Brokk executor failed readiness check")
-        self._started = True
+
+    async def start_and_create_session(self, name: str, cwd: Optional[str] = None) -> str:
+        """Starts the executor on-demand and creates the session requested by the client."""
+        await self.ensure_ready(cwd)
+        session_id = await self.executor.create_session(name=name)
+        await self._wait_until_ready()
         return session_id
 
     async def _ensure_session(self, acp_session_id: str) -> str:
@@ -661,6 +695,7 @@ class BrokkAcpBridge:
             self._acp_to_brokk_session[acp_session_id] = acp_session_id
             return acp_session_id
         session_id = await self.executor.create_session(name=f"ACP Session {acp_session_id}")
+        await self._wait_until_ready()
         self._acp_to_brokk_session[acp_session_id] = session_id
         return session_id
 
@@ -688,7 +723,7 @@ class BrokkAcpBridge:
         update_agent_message_text: Callable[[str], Any],
         cwd: str = "",
     ) -> None:
-        await self.ensure_ready()
+        await self.ensure_ready(cwd)
         executor_session_id = await self._ensure_session(session_id)
         await self._switch_executor_session(executor_session_id)
 
@@ -972,7 +1007,7 @@ async def run_acp_server(
             attempts: int = MODEL_DISCOVERY_INITIAL_ATTEMPTS,
         ) -> None:
             async def fetch_payload() -> dict[str, Any]:
-                await bridge.ensure_ready()
+                await bridge.ensure_ready(self._cwd_by_session.get(session_id))
                 return await bridge.executor.get_models()
 
             normalized = await _fetch_normalized_catalog_with_retries(
@@ -1259,7 +1294,7 @@ async def run_acp_server(
             del mcp_servers
             requested_name = str(kwargs.get("title") or kwargs.get("name") or "ACP Session").strip()
             session_name = requested_name or "ACP Session"
-            session_id = await bridge.start_and_create_session(name=session_name)
+            session_id = await bridge.start_and_create_session(name=session_name, cwd=cwd)
             self._ensure_session_defaults(session_id, cwd)
             await self._refresh_model_catalog(session_id)
 
@@ -1333,7 +1368,7 @@ async def run_acp_server(
             **kwargs: Any,
         ) -> Optional[LoadSessionResponse]:
             del mcp_servers, kwargs
-            await bridge.ensure_ready()
+            await bridge.ensure_ready(cwd)
             requested_session_id = session_id
             sessions_payload = await bridge.executor.list_sessions()
             known_session_ids = _known_session_ids(sessions_payload.get("sessions", []))
@@ -1389,7 +1424,7 @@ async def run_acp_server(
             **kwargs: Any,
         ) -> ListSessionsResponse:
             del cursor, kwargs
-            await bridge.ensure_ready()
+            await bridge.ensure_ready(cwd)
             sessions_payload = await bridge.executor.list_sessions()
             executor_sessions = sessions_payload.get("sessions", [])
             sessions = []
