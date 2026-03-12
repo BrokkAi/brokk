@@ -33,6 +33,7 @@ import ai.brokk.tools.ParallelSearch;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
 import ai.brokk.tools.WorkspaceTools;
+import ai.brokk.util.Json;
 import ai.brokk.util.Messages;
 import com.google.common.collect.Streams;
 import dev.langchain4j.agent.tool.P;
@@ -1256,7 +1257,7 @@ public class LutzAgent {
                 @P("Concise, specific issue title.") String title,
                 @P("GitHub-flavored Markdown describing the problem and impact.") String body) {
             agent.terminalCompletionReported = true;
-            var json = ai.brokk.util.Json.getMapper()
+            var json = Json.getMapper()
                     .createObjectNode()
                     .put("title", title)
                     .put("body", body)

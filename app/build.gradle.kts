@@ -443,6 +443,7 @@ tasks.register<JavaCompile>("compileJavaErrorProne") {
         // Always enable NullAway in this task
         error("NullAway")
         enable("RedundantNullCheck")
+        warn("UnnecessarilyFullyQualified")
 
 
         // Core NullAway options

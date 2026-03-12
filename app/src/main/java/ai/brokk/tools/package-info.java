@@ -1,5 +1,7 @@
 /**
  * Tools for use by agents.
  */
-@org.jspecify.annotations.NullMarked
+@NullMarked
 package ai.brokk.tools;
+
+import org.jspecify.annotations.NullMarked;

@@ -15,6 +15,7 @@ import java.nio.file.Path;
 import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
 import javax.swing.JOptionPane;
 import javax.swing.TransferHandler;
@@ -46,7 +47,7 @@ public final class FileDropHandlerFactory {
                 Collection<? extends BrokkFile> files,
                 IContextManager contextManager,
                 IConsoleIO io,
-                java.util.function.Consumer<ContextSizeGuard.Decision> onDecision);
+                Consumer<ContextSizeGuard.Decision> onDecision);
     }
 
     static ContextSizeChecker contextSizeChecker = (files, contextManager, io, onDecision) -> {

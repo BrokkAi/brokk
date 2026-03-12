@@ -1,7 +1,9 @@
 package ai.brokk.analyzer;
 
 import ai.brokk.AnalyzerUtil;
+import ai.brokk.project.FileFilteringService;
 import ai.brokk.project.IProject;
+import java.nio.file.Path;
 import java.util.ArrayDeque;
 import java.util.Collection;
 import java.util.Comparator;
@@ -574,11 +576,11 @@ public interface IAnalyzer {
      * @param path the path to normalize
      * @return a Unix-style relative path string
      */
-    static String toUnixRelativePath(java.nio.file.Path path) {
+    static String toUnixRelativePath(Path path) {
         if (path.toString().isEmpty()) {
             return ".";
         }
-        String unixPath = ai.brokk.project.FileFilteringService.toUnixPath(path);
+        String unixPath = FileFilteringService.toUnixPath(path);
         return unixPath.startsWith("./") ? unixPath : "./" + unixPath;
     }
 

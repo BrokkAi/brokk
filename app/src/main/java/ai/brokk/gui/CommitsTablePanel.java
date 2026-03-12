@@ -6,9 +6,7 @@ import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.gui.util.GitDiffUiUtil;
-import java.awt.BorderLayout;
-import java.awt.Component;
-import java.awt.Font;
+import java.awt.*;
 import java.awt.event.ActionListener;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
@@ -17,19 +15,11 @@ import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import javax.swing.Box;
-import javax.swing.BoxLayout;
-import javax.swing.JLabel;
-import javax.swing.JMenuItem;
-import javax.swing.JPanel;
-import javax.swing.JPopupMenu;
-import javax.swing.JScrollPane;
-import javax.swing.JTable;
-import javax.swing.ListSelectionModel;
-import javax.swing.SwingUtilities;
+import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.DefaultTableModel;
+import org.jetbrains.annotations.Nullable;
 import org.jspecify.annotations.NullMarked;
 
 @NullMarked
@@ -41,8 +31,8 @@ public class CommitsTablePanel extends JPanel implements ThemeAware {
     private final MaterialButton viewAllBtn;
     private boolean suppressSelectionEvents = false;
 
-    private @javax.annotation.Nullable ActionListener guidedReviewListener;
-    private @javax.annotation.Nullable ActionListener captureDiffListener;
+    private @Nullable ActionListener guidedReviewListener;
+    private @Nullable ActionListener captureDiffListener;
 
     public CommitsTablePanel() {
         setLayout(new BorderLayout());
@@ -76,7 +66,7 @@ public class CommitsTablePanel extends JPanel implements ThemeAware {
         table.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
         table.setTableHeader(null);
         table.setShowGrid(false);
-        table.setIntercellSpacing(new java.awt.Dimension(0, 0));
+        table.setIntercellSpacing(new Dimension(0, 0));
         table.setFillsViewportHeight(true);
 
         CommitCellRenderer renderer = new CommitCellRenderer();
@@ -253,7 +243,7 @@ public class CommitsTablePanel extends JPanel implements ThemeAware {
                 setToolTipText(null);
             }
 
-            setBorder(javax.swing.BorderFactory.createEmptyBorder(0, 5, 0, 5));
+            setBorder(BorderFactory.createEmptyBorder(0, 5, 0, 5));
             return this;
         }
 

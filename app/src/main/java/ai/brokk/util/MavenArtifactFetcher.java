@@ -31,6 +31,7 @@ import org.eclipse.aether.spi.connector.transport.TransporterFactory;
 import org.eclipse.aether.transfer.AbstractTransferListener;
 import org.eclipse.aether.transfer.TransferEvent;
 import org.eclipse.aether.transport.http.HttpTransporterFactory;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
 public class MavenArtifactFetcher implements AutoCloseable {
@@ -81,7 +82,7 @@ public class MavenArtifactFetcher implements AutoCloseable {
         return session;
     }
 
-    @org.jetbrains.annotations.Blocking
+    @Blocking
     public Optional<Path> fetch(String coordinates, @Nullable String classifier) {
         Artifact artifact;
         try {
@@ -129,7 +130,7 @@ public class MavenArtifactFetcher implements AutoCloseable {
      * @param artifactId the Maven artifactId
      * @return the latest version if found, empty otherwise
      */
-    @org.jetbrains.annotations.Blocking
+    @Blocking
     public Optional<String> resolveLatestVersion(String groupId, String artifactId) throws InterruptedException {
         var query = "g:%s AND a:%s".formatted(groupId, artifactId);
         var url = "https://search.maven.org/solrsearch/select?q=%s&rows=1&wt=json"

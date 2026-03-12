@@ -15,6 +15,8 @@ import ai.brokk.util.Environment;
 import ai.brokk.util.EnvironmentJava;
 import ai.brokk.util.ShellConfig;
 import java.awt.*;
+import java.awt.event.FocusAdapter;
+import java.awt.event.FocusEvent;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.util.*;
@@ -1310,9 +1312,9 @@ public class SettingsProjectBuildPanel extends JPanel {
     private void setupTimeoutValidation(JComboBox<TimeoutItem> combo, boolean isRunTimeout) {
         Component editor = combo.getEditor().getEditorComponent();
         if (editor instanceof JTextField textField) {
-            textField.addFocusListener(new java.awt.event.FocusAdapter() {
+            textField.addFocusListener(new FocusAdapter() {
                 @Override
-                public void focusLost(java.awt.event.FocusEvent e) {
+                public void focusLost(FocusEvent e) {
                     commitTimeout(combo, isRunTimeout);
                 }
             });

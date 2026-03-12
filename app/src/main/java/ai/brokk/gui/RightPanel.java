@@ -1,6 +1,7 @@
 package ai.brokk.gui;
 
 import ai.brokk.ContextManager;
+import ai.brokk.IContextManager.ContextListener;
 import ai.brokk.SessionManager;
 import ai.brokk.context.Context;
 import ai.brokk.gui.components.MaterialButton;
@@ -180,7 +181,7 @@ public class RightPanel extends JPanel implements ThemeAware {
         }
 
         // Build | Review | Preview | Terminal Tabs
-        buildReviewTabs = new JTabbedPane(JTabbedPane.TOP);
+        buildReviewTabs = new JTabbedPane(SwingConstants.TOP);
         buildReviewTabs.addTab("Build", Icons.HANDYMAN, buildSplitPane);
         buildReviewTabs.addTab("Review", Icons.FLOWSHEET, reviewTabComponent);
 
@@ -200,7 +201,7 @@ public class RightPanel extends JPanel implements ThemeAware {
         tabDragUndockHandler = new TabDragUndockHandler();
         tabDragUndockHandler.register();
 
-        contextManager.addContextListener(new ai.brokk.IContextManager.ContextListener() {
+        contextManager.addContextListener(new ContextListener() {
             @Override
             public void contextChanged(Context newCtx) {
                 SwingUtilities.invokeLater(() -> {
@@ -291,7 +292,7 @@ public class RightPanel extends JPanel implements ThemeAware {
         var listener = new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent e) {
-                var sel = list.getSelectedValue();
+                SessionManager.SessionInfo sel = list.getSelectedValue();
                 if (sel != null && !sel.id().equals(contextManager.getCurrentSessionId())) {
                     contextManager
                             .switchSessionAsync(sel.id())
@@ -431,7 +432,7 @@ public class RightPanel extends JPanel implements ThemeAware {
     }
 
     private JPanel createBranchSelectorHeader() {
-        var header = new JPanel(new BorderLayout(Constants.H_GAP, 0));
+        var header = new JPanel(new BorderLayout(8, 0));
         var lineBorder = BorderFactory.createLineBorder(UIManager.getColor("Component.borderColor"));
         var titledBorder = BorderFactory.createTitledBorder(lineBorder, "Branch");
         header.setBorder(BorderFactory.createCompoundBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4), titledBorder));

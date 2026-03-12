@@ -18,15 +18,7 @@ import com.jediterm.terminal.ui.TerminalActionPresentation;
 import com.jediterm.terminal.ui.settings.DefaultSettingsProvider;
 import com.pty4j.PtyProcess;
 import com.pty4j.PtyProcessBuilder;
-import java.awt.BorderLayout;
-import java.awt.Color;
-import java.awt.Cursor;
-import java.awt.Dimension;
-import java.awt.FlowLayout;
-import java.awt.Font;
-import java.awt.Insets;
-import java.awt.Point;
-import java.awt.Toolkit;
+import java.awt.*;
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
@@ -40,14 +32,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
-import javax.swing.BorderFactory;
-import javax.swing.JLabel;
-import javax.swing.JOptionPane;
-import javax.swing.JPanel;
-import javax.swing.KeyStroke;
-import javax.swing.SwingConstants;
-import javax.swing.SwingUtilities;
-import javax.swing.UIManager;
+import javax.swing.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.NotNull;
@@ -573,10 +558,10 @@ public class TerminalPanel extends JPanel implements ThemeAware {
                     termPanel.setCursorShape(CursorShape.BLINK_VERTICAL_BAR);
                 }
                 var display = w.getTerminalDisplay();
-                if (display instanceof java.awt.Component comp) {
+                if (display instanceof Component comp) {
                     comp.setBackground(colors.bg());
                     comp.setForeground(colors.fg());
-                    if (comp instanceof javax.swing.JComponent jc) {
+                    if (comp instanceof JComponent jc) {
                         jc.setOpaque(true);
                     }
                 }

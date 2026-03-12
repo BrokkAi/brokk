@@ -7,10 +7,12 @@ import ai.brokk.agents.BuildAgent;
 import ai.brokk.context.Context;
 import ai.brokk.git.GitRepo;
 import ai.brokk.project.IProject;
+import ai.brokk.util.Json;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import java.io.IOException;
 import java.util.List;
 import java.util.Objects;
+import java.util.Random;
 import java.util.function.BiConsumer;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
@@ -20,6 +22,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.jetbrains.annotations.Nullable;
+import org.kohsuke.github.GHRepository;
 
 /**
  * Extracted helper logic for ISSUE-mode operations.
@@ -46,7 +49,7 @@ public final class IssueService {
             return BuildAgent.BuildDetails.EMPTY;
         }
         try {
-            return ai.brokk.util.Json.getMapper().readValue(json, BuildAgent.BuildDetails.class);
+            return Json.getMapper().readValue(json, BuildAgent.BuildDetails.class);
         } catch (Exception e) {
             logger.warn("Failed to parse build settings JSON: {}", e.getMessage());
             return BuildAgent.BuildDetails.EMPTY;
@@ -64,13 +67,12 @@ public final class IssueService {
     /**
      * Post a comment to a GitHub issue.
      */
-    public static void postIssueComment(org.kohsuke.github.GHRepository ghRepo, int issueNumber, String body)
-            throws IOException {
+    public static void postIssueComment(GHRepository ghRepo, int issueNumber, String body) throws IOException {
         ghRepo.getIssue(issueNumber).comment(body);
     }
 
     private static final String ALPHANUM = "abcdefghijklmnopqrstuvwxyz0123456789";
-    private static final java.util.Random RANDOM = new java.util.Random();
+    private static final Random RANDOM = new Random();
 
     private static String randomId(int length) {
         var sb = new StringBuilder(length);

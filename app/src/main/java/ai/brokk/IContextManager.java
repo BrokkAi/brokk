@@ -12,6 +12,7 @@ import ai.brokk.git.IGitRepo;
 import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
 import ai.brokk.project.ModelProperties;
+import ai.brokk.tasks.TaskList.TaskItem;
 import ai.brokk.tools.ToolRegistry;
 import com.google.common.collect.Streams;
 import dev.langchain4j.model.chat.StreamingChatModel;
@@ -19,7 +20,9 @@ import java.awt.*;
 import java.awt.datatransfer.Clipboard;
 import java.awt.datatransfer.DataFlavor;
 import java.awt.datatransfer.StringSelection;
+import java.awt.datatransfer.UnsupportedFlavorException;
 import java.io.File;
+import java.io.IOException;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
@@ -100,10 +103,10 @@ public interface IContextManager {
 
         for (int i = 0; i < maxAttempts; i++) {
             try {
-                if (!clipboard.isDataFlavorAvailable(java.awt.datatransfer.DataFlavor.stringFlavor)) {
+                if (!clipboard.isDataFlavorAvailable(DataFlavor.stringFlavor)) {
                     return null;
                 }
-                return (String) clipboard.getData(java.awt.datatransfer.DataFlavor.stringFlavor);
+                return (String) clipboard.getData(DataFlavor.stringFlavor);
             } catch (IllegalStateException e) {
                 if (i == maxAttempts - 1) {
                     logger.warn("Failed to read from clipboard after {} attempts", maxAttempts, e);
@@ -116,7 +119,7 @@ public interface IContextManager {
                     Thread.currentThread().interrupt();
                     return null;
                 }
-            } catch (java.awt.datatransfer.UnsupportedFlavorException | java.io.IOException e) {
+            } catch (UnsupportedFlavorException | IOException e) {
                 logger.debug("Clipboard does not contain string data", e);
                 return null;
             }
@@ -235,8 +238,7 @@ public interface IContextManager {
     }
 
     @Blocking
-    default Context createOrReplaceTaskList(
-            Context context, @Nullable String bigPicture, List<ai.brokk.tasks.TaskList.TaskItem> tasks) {
+    default Context createOrReplaceTaskList(Context context, @Nullable String bigPicture, List<TaskItem> tasks) {
         throw new UnsupportedOperationException();
     }
 

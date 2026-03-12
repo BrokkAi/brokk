@@ -17,6 +17,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
@@ -212,8 +213,7 @@ public final class RepoRouter implements SimpleHttpServer.CheckedHttpHandler {
             // Append session IDs metadata line to body if any sessions are selected
             String finalBody = request.body();
             if (!sessionUuids.isEmpty()) {
-                String ids =
-                        sessionUuids.stream().map(UUID::toString).collect(java.util.stream.Collectors.joining(","));
+                String ids = sessionUuids.stream().map(UUID::toString).collect(Collectors.joining(","));
                 finalBody = finalBody + "\n\nbrokk-session-ids:" + ids;
             }
 
