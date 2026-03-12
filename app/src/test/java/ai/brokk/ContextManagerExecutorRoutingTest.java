@@ -22,7 +22,7 @@ import org.junit.jupiter.api.io.TempDir;
  * Tests that ContextManager routes tasks to the correct executors:
  * - getBackgroundTasks() returns the shared project executor
  * - submitBackgroundTask() uses the shared project executor
- * - submitAnalyzerTask() uses the session-local analyzer executor
+ * - getAnalyzerTaskSubmitter().submit() uses the session-local analyzer executor
  */
 class ContextManagerExecutorRoutingTest {
 
@@ -81,7 +81,7 @@ class ContextManagerExecutorRoutingTest {
         var latch = new CountDownLatch(1);
         var threadName = new AtomicReference<String>();
 
-        contextManager.submitAnalyzerTask("Analyzer test task", () -> {
+        contextManager.getAnalyzerTaskSubmitter().submit("Analyzer test task", () -> {
             threadName.set(Thread.currentThread().getName());
             latch.countDown();
         });
@@ -121,7 +121,7 @@ class ContextManagerExecutorRoutingTest {
         };
         contextManager.setIo(recordingConsole);
 
-        var future = contextManager.submitAnalyzerTask(taskDescription, () -> {
+        var future = contextManager.getAnalyzerTaskSubmitter().submit(taskDescription, () -> {
             threadName.set(Thread.currentThread().getName());
         });
 
@@ -146,7 +146,7 @@ class ContextManagerExecutorRoutingTest {
             bgLatch.countDown();
         });
 
-        contextManager.submitAnalyzerTask("Analyzer task", () -> {
+        contextManager.getAnalyzerTaskSubmitter().submit("Analyzer task", () -> {
             analyzerThreadName.set(Thread.currentThread().getName());
             analyzerLatch.countDown();
         });
@@ -170,7 +170,7 @@ class ContextManagerExecutorRoutingTest {
         var taskCanFinish = new CountDownLatch(1);
         var taskCompleted = new AtomicBoolean(false);
 
-        contextManager.submitAnalyzerTask("Long-running analyzer task", () -> {
+        contextManager.getAnalyzerTaskSubmitter().submit("Long-running analyzer task", () -> {
             taskStarted.countDown();
             try {
                 taskCanFinish.await(10, TimeUnit.SECONDS);

@@ -202,7 +202,7 @@ public class RustLanguage implements Language {
             SwingUtilities.invokeLater(() -> currentListener.dependencyImportStarted(pkg.displayName()));
         }
 
-        chrome.getContextManager().submitAnalyzerTask("Copying Rust crate: " + pkg.displayName(), () -> {
+        chrome.getAnalyzerTaskSubmitter().submit("Copying Rust crate: " + pkg.displayName(), () -> {
             try {
                 Files.createDirectories(targetRoot.getParent());
                 if (Files.exists(targetRoot)) {

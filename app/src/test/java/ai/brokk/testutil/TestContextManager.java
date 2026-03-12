@@ -22,7 +22,6 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicReference;
 import org.jetbrains.annotations.Blocking;
@@ -207,11 +206,6 @@ public final class TestContextManager implements IContextManager {
         return project.getBackgroundExecutor();
     }
 
-    @Override
-    public CompletableFuture<Void> submitAnalyzerTask(String taskDescription, Runnable task) {
-        // For tests, run analyzer tasks on the same executor as background tasks
-        return submitBackgroundTask(taskDescription, task);
-    }
 
     @Override
     public Llm getLlm(StreamingChatModel model, String taskDescription, ai.brokk.TaskResult.Type type) {

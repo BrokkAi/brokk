@@ -208,14 +208,19 @@ public class ContextManager implements IContextManager, AutoCloseable {
     @SuppressWarnings("NullAway.Init")
     private AbstractWatchService watchService;
 
+    private final AnalyzerTaskSubmitter analyzerTaskSubmitter = this::submitAnalyzerTask;
+
     /**
      * Returns the shared app-scoped background executor for general background work.
      * This executor is owned by the project and survives session switches.
-     * Use {@link #submitAnalyzerTask} for analyzer/session-local work instead.
      */
     @Override
     public ExecutorService getBackgroundTasks() {
         return project.getBackgroundExecutor();
+    }
+
+    public AnalyzerTaskSubmitter getAnalyzerTaskSubmitter() {
+        return analyzerTaskSubmitter;
     }
 
     /**
@@ -223,13 +228,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * - Is tied to the current analyzer lifecycle (callbacks, rebuilds)
      * - Should not outlive the current ContextManager session
      * - Includes test runs that update session-specific state
-     *
-     * @param taskDescription a description of the task for logging
-     * @param task the task to execute
-     * @return a CompletableFuture representing pending completion
      */
-    @Override
-    public CompletableFuture<Void> submitAnalyzerTask(String taskDescription, Runnable task) {
+    private CompletableFuture<Void> submitAnalyzerTask(String taskDescription, Runnable task) {
         return submitTrackedTask(
                 taskDescription,
                 () -> {
