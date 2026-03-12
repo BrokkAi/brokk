@@ -11,6 +11,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
 public class Languages {
@@ -484,6 +485,7 @@ public class Languages {
      * Scans the project files to detect which languages are present based on file extensions.
      * Uses tracked files if it's a git repo, otherwise scans all project files.
      */
+    @Blocking
     public static List<Language> findLanguagesInProject(IProject project) {
         Set<Language> langs = new HashSet<>();
         Set<ProjectFile> filesToScan = project.hasGit() ? project.getRepo().getTrackedFiles() : project.getAllFiles();
