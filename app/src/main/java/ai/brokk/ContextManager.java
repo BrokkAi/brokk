@@ -39,6 +39,7 @@ import ai.brokk.prompts.SummarizerPrompts;
 import ai.brokk.tasks.TaskList;
 import ai.brokk.tools.*;
 import ai.brokk.util.*;
+import ai.brokk.util.SerialByKeyExecutor;
 import ai.brokk.watchservice.AbstractWatchService;
 import ai.brokk.watchservice.FileWatcherHelper;
 import ai.brokk.watchservice.NoopWatchService;
@@ -155,8 +156,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
             new LinkedBlockingQueue<>(),
             ExecutorsUtil.createNamedThreadFactory("AnalyzerLocal")));
 
-    private final LoggingExecutorService syncExecutor = createLoggingExecutorService(
-            Executors.newSingleThreadExecutor(ExecutorsUtil.createNamedThreadFactory("SessionSync")));
+    // Session sync state: uses shared project executor with per-context serialization
+    private final AtomicBoolean closing = new AtomicBoolean(false);
+    private final String sessionSyncKey = "sync-" + UUID.randomUUID();
+    private volatile @Nullable SerialByKeyExecutor sessionSyncSerializer;
 
     private final Service.Provider serviceProvider;
 
@@ -198,7 +201,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
     // Publicly exposed flag for the exact TaskScope window
     private final AtomicBoolean taskScopeInProgress = new AtomicBoolean(false);
 
-    private boolean sessionsSyncActive = false;
+    // Cached at GUI/headless creation time; captures whether sync should be active for this context
+    private volatile boolean sessionsSyncActive = false;
     private volatile boolean autoCommit = true;
 
     @SuppressWarnings("NullAway.Init")
@@ -1380,6 +1384,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     public CompletableFuture<Void> closeAsync(long awaitMillis) {
+        // Mark as closing to prevent new sync submissions (except the final one below)
+        closing.set(true);
+
         // Cancel BuildAgent task if still running
         if (buildAgentFuture != null && !buildAgentFuture.isDone()) {
             logger.debug("Cancelling BuildAgent task due to ContextManager shutdown");
@@ -1392,43 +1399,115 @@ public class ContextManager implements IContextManager, AutoCloseable {
         }
         lowMemoryWatcherManager.close();
 
-        submitSessionSyncIfActive(); // Queue a final sync before shutting down the sync executor
+        // Queue a final sync (forced to bypass the closing guard). Because syncs for this
+        // context are serialized by key, this future also represents all prior queued sync work.
+        var finalSyncFuture = submitSessionSyncInternal(true);
 
-        var syncExecutorFuture = syncExecutor.shutdownAndAwait(awaitMillis, "syncExecutor");
         var contextActionFuture = contextActionExecutor.shutdownAndAwait(awaitMillis, "contextActionExecutor");
         var analyzerLocalFuture = analyzerLocalExecutor.shutdownAndAwait(awaitMillis, "analyzerLocalExecutor");
         var userActionsFuture = userActions.shutdownAndAwait(awaitMillis);
+        var shutdownFuture =
+                CompletableFuture.allOf(finalSyncFuture, contextActionFuture, analyzerLocalFuture, userActionsFuture);
 
-        return CompletableFuture.allOf(contextActionFuture, analyzerLocalFuture, userActionsFuture, syncExecutorFuture)
-                .whenComplete((v, t) -> project.close());
+        return CompletableFuture.runAsync(() -> {
+            Throwable failure = null;
+            try {
+                shutdownFuture.join();
+            } catch (CompletionException e) {
+                failure = e.getCause() != null ? e.getCause() : e;
+            } finally {
+                project.close();
+            }
+
+            if (failure != null) {
+                throw new CompletionException(failure);
+            }
+        });
     }
 
+    /**
+     * Submits a session sync operation if sync is active and the context is not closing.
+     * Uses SerialByKeyExecutor to serialize syncs for this ContextManager on the shared project executor.
+     */
     private CompletableFuture<Void> submitSessionSyncIfActive() {
-        if (sessionsSyncActive) {
-            return syncExecutor.submit(() -> {
-                try {
-                    // Perform sync; let SessionSynchronizer surface IO/Interrupted exceptions which we handle here.
-                    new SessionSynchronizer(this).synchronize();
-                    // Only notify UI of sessions list changes when sync completed normally.
-                    project.getMainProject().sessionsListChanged();
-                } catch (InterruptedException ie) {
-                    Thread.currentThread().interrupt();
-                } catch (IOException ioe) {
-                    logger.debug("Remote session sync failed due to I/O error", ioe);
-                }
-                return null;
-            });
-        } else {
+        return submitSessionSyncInternal(false);
+    }
+
+    /**
+     * Internal sync submission that respects the closing guard unless forceEvenIfClosing is true.
+     *
+     * @param forceEvenIfClosing if true, allows submission even after closing has started (used for final sync)
+     * @return a future representing sync completion, or a completed future if sync was skipped
+     */
+    private CompletableFuture<Void> submitSessionSyncInternal(boolean forceEvenIfClosing) {
+        // Capture state before queuing to avoid looking up mutable routing state at execution time
+        if (!sessionsSyncActive) {
             return CompletableFuture.completedFuture(null);
         }
+
+        // Guard against new sync submissions after close has started (unless forced for final sync)
+        if (!forceEvenIfClosing && closing.get()) {
+            logger.debug("Skipping session sync submission: ContextManager is closing");
+            return CompletableFuture.completedFuture(null);
+        }
+
+        // Capture references needed for sync before submitting
+        var synchronizer = createSessionSynchronizer();
+        var mainProject = project.getMainProject();
+
+        // Lazily initialize the SerialByKeyExecutor backed by the shared project executor
+        if (sessionSyncSerializer == null) {
+            synchronized (this) {
+                if (sessionSyncSerializer == null) {
+                    sessionSyncSerializer = new SerialByKeyExecutor(project.getBackgroundExecutor());
+                }
+            }
+        }
+
+        return sessionSyncSerializer.submit(sessionSyncKey, () -> {
+            try {
+                synchronizer.synchronize();
+                mainProject.sessionsListChanged();
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+            } catch (IOException ioe) {
+                logger.debug("Remote session sync failed due to I/O error", ioe);
+            }
+        });
+    }
+
+    /**
+     * Factory method for creating SessionSynchronizer instances.
+     * Package-private to allow test injection.
+     */
+    @TestOnly
+    SessionSynchronizer createSessionSynchronizer() {
+        return new SessionSynchronizer(this);
     }
 
     /**
      * Queues a session sync operation and returns a future for tracking completion.
      * Used by dialogs that need to wait for sync before proceeding.
+     * No-op if the ContextManager is closing.
      */
     public CompletableFuture<Void> syncSessionsAsync() {
         return submitSessionSyncIfActive();
+    }
+
+    /**
+     * Test hook to force sessionsSyncActive state.
+     */
+    @TestOnly
+    void setSessionsSyncActiveForTest(boolean active) {
+        this.sessionsSyncActive = active;
+    }
+
+    /**
+     * Test hook to check if closing flag is set.
+     */
+    @TestOnly
+    boolean isClosing() {
+        return closing.get();
     }
 
     @Override

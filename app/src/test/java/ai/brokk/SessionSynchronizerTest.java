@@ -20,8 +20,13 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -241,5 +246,202 @@ class SessionSynchronizerTest {
             Files.writeString(manifestPath, json);
         }
         return Files.readAllBytes(tempZip);
+    }
+
+    // ==================== ContextManager sync scheduling tests ====================
+
+    /**
+     * A test subclass of ContextManager that allows injecting a fake SessionSynchronizer.
+     */
+    private static class TestableContextManager extends ContextManager {
+        private final SessionSynchronizer fakeSynchronizer;
+
+        TestableContextManager(IProject project, SessionSynchronizer fakeSynchronizer) {
+            super(project);
+            this.fakeSynchronizer = fakeSynchronizer;
+        }
+
+        @Override
+        SessionSynchronizer createSessionSynchronizer() {
+            return fakeSynchronizer;
+        }
+    }
+
+    /**
+     * A fake SessionSynchronizer that tracks calls and can block on a latch.
+     */
+    private static class BlockingSynchronizer extends SessionSynchronizer {
+        private final CountDownLatch blockLatch;
+        private final CountDownLatch startedLatch;
+        private final AtomicInteger syncCount = new AtomicInteger(0);
+        private final AtomicInteger concurrentSyncs = new AtomicInteger(0);
+        private final AtomicInteger maxConcurrentSyncs = new AtomicInteger(0);
+        private final Set<String> workerThreadNames = ConcurrentHashMap.newKeySet();
+
+        BlockingSynchronizer(IContextManager contextManager, CountDownLatch blockLatch, CountDownLatch startedLatch) {
+            super(contextManager);
+            this.blockLatch = blockLatch;
+            this.startedLatch = startedLatch;
+        }
+
+        @Override
+        public void synchronize() throws IOException, InterruptedException {
+            workerThreadNames.add(Thread.currentThread().getName());
+            int current = concurrentSyncs.incrementAndGet();
+            maxConcurrentSyncs.updateAndGet(max -> Math.max(max, current));
+
+            syncCount.incrementAndGet();
+            startedLatch.countDown();
+
+            try {
+                blockLatch.await(30, TimeUnit.SECONDS);
+            } finally {
+                concurrentSyncs.decrementAndGet();
+            }
+        }
+
+        int getSyncCount() {
+            return syncCount.get();
+        }
+
+        int getMaxConcurrentSyncs() {
+            return maxConcurrentSyncs.get();
+        }
+
+        Set<String> getWorkerThreadNames() {
+            return workerThreadNames;
+        }
+    }
+
+    @Test
+    void testOrderedSyncSubmissionOnSharedExecutor() throws Exception {
+        // Setup: Create a MainProject with a real background executor
+        Path projectDir = tempDir.resolve("sync-order-project");
+        Files.createDirectories(projectDir);
+        MainProject mainProject = MainProject.forTests(projectDir);
+
+        CountDownLatch firstSyncBlockLatch = new CountDownLatch(1);
+        CountDownLatch firstSyncStartedLatch = new CountDownLatch(1);
+        CountDownLatch secondSyncStartedLatch = new CountDownLatch(1);
+
+        // Track when the second sync actually starts
+        AtomicInteger secondSyncStartCount = new AtomicInteger(0);
+
+        // Create a synchronizer that blocks on the first call
+        var fakeSynchronizer =
+                new BlockingSynchronizer(
+                        new TestContextManager(mainProject, UUID.randomUUID()),
+                        firstSyncBlockLatch,
+                        firstSyncStartedLatch) {
+                    @Override
+                    public void synchronize() throws IOException, InterruptedException {
+                        int callNum = getSyncCount();
+                        super.synchronize();
+                        if (callNum >= 1) {
+                            secondSyncStartCount.incrementAndGet();
+                            secondSyncStartedLatch.countDown();
+                        }
+                    }
+                };
+
+        try {
+            TestableContextManager cm = new TestableContextManager(mainProject, fakeSynchronizer);
+            cm.setSessionsSyncActiveForTest(true);
+
+            // Submit two sync requests
+            CompletableFuture<Void> first = cm.syncSessionsAsync();
+            CompletableFuture<Void> second = cm.syncSessionsAsync();
+
+            // Wait for first sync to start
+            assertTrue(firstSyncStartedLatch.await(5, TimeUnit.SECONDS), "First sync should start");
+
+            // Verify second sync hasn't started yet (serialization)
+            Thread.sleep(100); // Brief wait to ensure ordering
+            assertEquals(0, secondSyncStartCount.get(), "Second sync should not start while first is blocked");
+
+            // Release the first sync
+            firstSyncBlockLatch.countDown();
+
+            // Wait for both to complete
+            first.get(5, TimeUnit.SECONDS);
+            second.get(5, TimeUnit.SECONDS);
+
+            // Verify serialization: max concurrent should be 1
+            assertEquals(1, fakeSynchronizer.getMaxConcurrentSyncs(), "Max concurrent syncs should be 1 (serialized)");
+
+            // Verify worker threads come from project background executor
+            for (String threadName : fakeSynchronizer.getWorkerThreadNames()) {
+                assertTrue(
+                        threadName.startsWith("MainProject-"),
+                        "Worker thread should be from MainProject executor, was: " + threadName);
+            }
+
+        } finally {
+            firstSyncBlockLatch.countDown(); // Ensure cleanup
+            mainProject.close();
+        }
+    }
+
+    @Test
+    void testShutdownSafetyAndFinalSyncHandling() throws Exception {
+        // Setup: Create a MainProject with a real background executor
+        Path projectDir = tempDir.resolve("sync-shutdown-project");
+        Files.createDirectories(projectDir);
+        MainProject mainProject = MainProject.forTests(projectDir);
+
+        CountDownLatch syncBlockLatch = new CountDownLatch(1);
+        CountDownLatch syncStartedLatch = new CountDownLatch(1);
+        AtomicInteger totalSyncCalls = new AtomicInteger(0);
+
+        var fakeSynchronizer =
+                new BlockingSynchronizer(
+                        new TestContextManager(mainProject, UUID.randomUUID()), syncBlockLatch, syncStartedLatch) {
+                    @Override
+                    public void synchronize() throws IOException, InterruptedException {
+                        totalSyncCalls.incrementAndGet();
+                        super.synchronize();
+                    }
+                };
+
+        try {
+            TestableContextManager cm = new TestableContextManager(mainProject, fakeSynchronizer);
+            cm.setSessionsSyncActiveForTest(true);
+
+            // Start closeAsync - this should trigger the final sync
+            CompletableFuture<Void> closeFuture = cm.closeAsync(5000);
+
+            // Wait for the final sync to start
+            assertTrue(syncStartedLatch.await(5, TimeUnit.SECONDS), "Final sync should start during close");
+            assertTrue(cm.isClosing(), "ContextManager should be marked as closing");
+
+            // Verify that a normal syncSessionsAsync() is skipped while closing
+            int syncCountBeforeNormalCall = totalSyncCalls.get();
+            CompletableFuture<Void> normalSyncDuringClose = cm.syncSessionsAsync();
+            normalSyncDuringClose.get(1, TimeUnit.SECONDS); // Should complete immediately (no-op)
+            assertEquals(
+                    syncCountBeforeNormalCall, totalSyncCalls.get(), "Normal sync should be skipped while closing");
+
+            // Verify background executor is NOT yet shut down while final sync is blocked
+            assertFalse(
+                    mainProject.getBackgroundExecutor().isShutdown(),
+                    "Background executor should not be shut down while final sync is blocked");
+
+            // Verify close future is not yet complete
+            assertFalse(closeFuture.isDone(), "Close future should not complete before final sync is released");
+
+            // Release the final sync
+            syncBlockLatch.countDown();
+
+            // Wait for close to complete
+            closeFuture.get(10, TimeUnit.SECONDS);
+
+            // Verify background executor is shut down after close completes
+            assertTrue(
+                    mainProject.getBackgroundExecutor().isShutdown(),
+                    "Background executor should be shut down after close completes");
+
+        } finally {
+            syncBlockLatch.countDown(); // Ensure cleanup
+        }
     }
 }
