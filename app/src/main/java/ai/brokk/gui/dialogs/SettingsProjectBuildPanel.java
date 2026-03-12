@@ -22,6 +22,7 @@ import java.nio.file.Path;
 import java.util.*;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.Future;
@@ -543,9 +544,15 @@ public class SettingsProjectBuildPanel extends JPanel {
         closeButton.setEnabled(false);
         closeButton.addActionListener(e -> verifyDialog.dispose());
 
+        var cancelButton = new MaterialButton("Cancel");
+
+        var buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 5, 0));
+        buttonPanel.add(cancelButton);
+        buttonPanel.add(closeButton);
+
         var bottomPanel = new JPanel(new BorderLayout(5, 5));
         bottomPanel.add(progressBar, BorderLayout.CENTER);
-        bottomPanel.add(closeButton, BorderLayout.EAST);
+        bottomPanel.add(buttonPanel, BorderLayout.EAST);
         bottomPanel.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
 
         var root = verifyDialog.getContentRoot();
@@ -663,23 +670,31 @@ public class SettingsProjectBuildPanel extends JPanel {
             protected void done() {
                 progressBar.setVisible(false);
                 closeButton.setEnabled(true);
+                cancelButton.setEnabled(false);
                 try {
                     String result = get();
                     outputArea.append("\n--- VERIFICATION COMPLETE ---\n");
                     outputArea.append(result);
-                } catch (Exception e) {
-                    logger.error("Error during build verification", e);
+                } catch (CancellationException | InterruptedException e) {
+                    outputArea.append("\n--- VERIFICATION CANCELLED ---\n");
                     if (e instanceof InterruptedException) {
                         Thread.currentThread().interrupt();
-                        outputArea.append("\n--- VERIFICATION CANCELLED ---\n");
-                    } else {
-                        outputArea.append("\n--- An unexpected error occurred during verification ---\n");
-                        outputArea.append(e.toString());
                     }
+                } catch (Exception e) {
+                    logger.error("Error during build verification", e);
+                    outputArea.append("\n--- An unexpected error occurred during verification ---\n");
+                    outputArea.append(e.toString());
                 }
                 outputArea.setCaretPosition(outputArea.getDocument().getLength());
             }
         };
+
+        cancelButton.addActionListener(e -> {
+            worker.cancel(true);
+            cancelButton.setEnabled(false);
+            closeButton.setEnabled(true);
+        });
+
         worker.execute();
         verifyDialog.setVisible(true); // This blocks until dialog is closed
     }
