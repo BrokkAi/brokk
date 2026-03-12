@@ -9,6 +9,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.Properties;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import org.jetbrains.annotations.Blocking;
 
 public class AtomicWrites {
@@ -81,12 +83,14 @@ public class AtomicWrites {
      */
     @Blocking
     public static void save(Path path, Properties properties, String comment) throws IOException {
-        // Serialize the properties to a string
         StringWriter writer = new StringWriter();
-        properties.store(writer, comment);
-        String content = writer.toString();
+        properties.store(writer, null);
+        // Write comment manually and ensure we don't have the implicit date line
+        String lineSeparator = System.lineSeparator();
+        String content = Stream.concat(
+                        Stream.of("#" + comment), writer.toString().lines().filter(line -> !line.startsWith("#")))
+                .collect(Collectors.joining(lineSeparator, "", lineSeparator));
 
-        // Atomically write the content to the file
         save(path, content);
     }
 
