@@ -156,10 +156,6 @@ class BrokkApiKeyModalScreen(ModalScreen[None]):
             yield LoadingIndicator(id="api-key-modal-spinner", classes="hidden")
             yield Input(password=True, placeholder="API Key (sk-...)", id="api-key-input")
             footer_text = "Press Ctrl+C or Ctrl+D to exit."
-            if self._is_update:
-                footer_text += (
-                    "\n[dim]Note: API key updates will apply to " + "the next executor restart.[/]"
-                )
             yield Static(footer_text, id="api-key-modal-footer")
 
     def on_mount(self) -> None:
