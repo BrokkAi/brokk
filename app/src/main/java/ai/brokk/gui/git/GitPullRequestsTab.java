@@ -1398,7 +1398,10 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         }
 
         activeCiFetcher = new CiStatusFetcherWorker(prsRequiringCiFetch);
-        contextManager.getBackgroundTasks().submit(activeCiFetcher);
+        contextManager.submitBackgroundTask("Fetching CI statuses for PRs", () -> {
+            activeCiFetcher.execute();
+            return null;
+        });
     }
 
     private class PrFilesFetcherWorker extends ExceptionAwareSwingWorker<Map<Integer, List<String>>, Void> {
@@ -2067,7 +2070,10 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                 }
             }
         };
-        contextManager.getBackgroundTasks().submit(activePrFilesFetcher);
+        contextManager.submitBackgroundTask("Fetching changed files for PR #" + pr.getNumber(), () -> {
+            activePrFilesFetcher.execute();
+            return null;
+        });
     }
 
     /**
