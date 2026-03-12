@@ -88,7 +88,7 @@ class TaskListPanel(Vertical):
     def _get_shortcuts_text(self) -> str:
         """Derive a concise help line from BINDINGS."""
         shortcuts: list[str] = []
-        for binding in self.BINDINGS:
+        for binding in TaskListPanel.BINDINGS:
             # Skip navigation and internal-only keys; we add manual entries for these.
             if binding.key in ("left,up", "right,down", "enter,space"):
                 continue
