@@ -44,6 +44,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Callable;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.ForkJoinWorkerThread;
@@ -837,7 +838,8 @@ public class SearchTools {
                             "Case-insensitive regex patterns to search for code symbols. Since ^ and $ are implicitly included, YOU MUST use explicit wildcarding (e.g., .*Foo.*, Abstract.*, [a-z]*DAO) unless you really want exact matches.")
                     List<String> patterns,
             @P("Include test files in results.") boolean includeTests,
-            @P("Maximum number of matching files to return (capped at 200).") int limit) {
+            @P("Maximum number of matching files to return (capped at 200).") int limit)
+            throws InterruptedException {
         // Sanitize patterns: LLM might add `()` to symbols, Joern regex usually doesn't want that unless intentional.
         patterns = stripParams(patterns);
         if (patterns.isEmpty()) {
@@ -845,16 +847,35 @@ public class SearchTools {
         }
 
         var analyzer = getAnalyzer();
-        Set<CodeUnit> allDefinitions = new HashSet<>();
-        for (String pattern : patterns) {
-            if (!pattern.isBlank()) {
-                allDefinitions.addAll(analyzer.searchDefinitions(pattern));
+        Set<CodeUnit> rawDefinitions = ConcurrentHashMap.newKeySet();
+        var tasks = patterns.stream()
+                .filter(pattern -> !pattern.isBlank())
+                .<Callable<Void>>map(pattern -> () -> {
+                    rawDefinitions.addAll(analyzer.searchDefinitions(pattern));
+                    return null;
+                })
+                .toList();
+        for (Future<Void> future : searchToolsPool.invokeAll(tasks)) {
+            try {
+                future.get();
+            } catch (ExecutionException e) {
+                Throwable cause = e.getCause();
+                if (cause instanceof RuntimeException re) {
+                    throw re;
+                }
+                if (cause instanceof Error er) {
+                    throw er;
+                }
+                throw new RuntimeException("Error searching definitions", cause);
             }
         }
-        logger.trace("Raw definitions: {}", allDefinitions);
+        logger.trace("Raw definitions: {}", rawDefinitions);
 
-        if (!includeTests) {
-            allDefinitions = allDefinitions.stream()
+        Set<CodeUnit> allDefinitions;
+        if (includeTests) {
+            allDefinitions = rawDefinitions;
+        } else {
+            allDefinitions = rawDefinitions.stream()
                     .filter(cu -> !ContextManager.isTestFile(cu.source(), analyzer))
                     .collect(Collectors.toSet());
         }

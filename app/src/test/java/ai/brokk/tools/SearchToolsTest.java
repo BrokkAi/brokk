@@ -563,7 +563,7 @@ public class SearchToolsTest {
     }
 
     @Test
-    void testSearchSymbols_StripsParams() {
+    void testSearchSymbols_StripsParams() throws InterruptedException {
         // This test ensures it doesn't crash and handles the typical LLM mistake
         String result = searchTools.searchSymbols(List.of("com.Foo.bar(int, String)"), false, 200);
         assertTrue(
@@ -571,7 +571,7 @@ public class SearchToolsTest {
     }
 
     @Test
-    void testSearchSymbols_IncludesLoc() throws IOException {
+    void testSearchSymbols_IncludesLoc() throws IOException, InterruptedException {
         Path aJava = projectRoot.resolve("A.java");
         Files.writeString(aJava, "class A {}");
         ProjectFile pf = new ProjectFile(projectRoot, "A.java");
