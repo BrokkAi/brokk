@@ -73,6 +73,17 @@ public class EnvironmentPython {
             "out",
             "bazel-out");
 
+    /**
+     * Combined set of directories to skip in fallback mode (includes ALWAYS_SKIP).
+     */
+    private static final Set<String> ALL_FALLBACK_SKIP_DIRECTORIES;
+
+    static {
+        var combined = new HashSet<>(ALWAYS_SKIP_DIRECTORIES);
+        combined.addAll(FALLBACK_SKIP_DIRECTORIES);
+        ALL_FALLBACK_SKIP_DIRECTORIES = Set.copyOf(combined);
+    }
+
     /** Represents a Python major.minor version. */
     private record PyVersion(int major, int minor) {
         @Override
@@ -382,7 +393,9 @@ public class EnvironmentPython {
                         }
 
                         if (effectiveFilter != null) {
-                            // Git-aware path: skip gitignored directories
+                            // Git-aware path: skip gitignored directories only
+                            // Do NOT skip FALLBACK_SKIP_DIRECTORIES here - they may be
+                            // legitimately tracked source directories in some projects
                             if (effectiveFilter.isGitignored(relPath, true)) {
                                 logger.trace("Skipping gitignored directory: {}", relPath);
                                 return FileVisitResult.SKIP_SUBTREE;
@@ -390,7 +403,7 @@ public class EnvironmentPython {
                         } else {
                             // Fallback path: skip common artifact/cache directories
                             // when we don't have gitignore-aware filtering
-                            if (FALLBACK_SKIP_DIRECTORIES.contains(dirName)) {
+                            if (ALL_FALLBACK_SKIP_DIRECTORIES.contains(dirName)) {
                                 logger.trace("Skipping fallback-pruned directory: {}", relPath);
                                 return FileVisitResult.SKIP_SUBTREE;
                             }

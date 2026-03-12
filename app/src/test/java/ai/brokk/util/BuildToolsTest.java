@@ -137,8 +137,9 @@ class BuildToolsTest {
 
     @Test
     void testProjectExclusionPatternsArePassedToEnvironmentPython(@TempDir Path tempDir) throws Exception {
-        // Fake executable checker: pretend 3.8 through 3.13 are all installed
-        java.util.function.Predicate<String> allAvailable = version -> true;
+        // Template that interpolates {{pyver}} so we can see if exclusions affect the result
+        BuildDetails details =
+                new BuildDetails("python -m compileall .", "pytest", "pytest --python={{pyver}}", Set.of());
 
         // BASELINE: pyproject + normal Python source, NO distutils file
         Path baselineDir = tempDir.resolve("baseline");
@@ -150,8 +151,11 @@ class BuildToolsTest {
 
         TestProject baselineProject = new TestProject(baselineDir);
         baselineProject.setAnalyzerLanguages(Set.of(Languages.PYTHON));
-        String baselineVersion = BuildTools.getPythonVersionForProject(baselineDir, baselineProject, allAvailable)
-                .orElse("");
+        baselineProject.withoutRepo();
+        TestContextManager baselineCm =
+                new TestContextManager(baselineProject, new NoOpConsoleIO(), Set.of(), new TestAnalyzer());
+        ProjectFile baselineTestFile = new ProjectFile(baselineDir, "src/main.py");
+        String baselineCommand = BuildTools.getBuildLintSomeCommand(baselineCm, details, List.of(baselineTestFile));
 
         // CONTROL: identical to baseline but with legacy/old_setup.py importing distutils, NO exclusion
         Path controlDir = tempDir.resolve("control");
@@ -167,8 +171,11 @@ class BuildToolsTest {
         TestProject controlProject = new TestProject(controlDir);
         controlProject.setAnalyzerLanguages(Set.of(Languages.PYTHON));
         controlProject.setExclusionPatterns(Set.of());
-        String controlVersion = BuildTools.getPythonVersionForProject(controlDir, controlProject, allAvailable)
-                .orElse("");
+        controlProject.withoutRepo();
+        TestContextManager controlCm =
+                new TestContextManager(controlProject, new NoOpConsoleIO(), Set.of(), new TestAnalyzer());
+        ProjectFile controlTestFile = new ProjectFile(controlDir, "src/main.py");
+        String controlCommand = BuildTools.getBuildLintSomeCommand(controlCm, details, List.of(controlTestFile));
 
         // EXCLUDED: same as control but with "legacy" excluded
         Path excludedDir = tempDir.resolve("excluded");
@@ -184,23 +191,28 @@ class BuildToolsTest {
         TestProject excludedProject = new TestProject(excludedDir);
         excludedProject.setAnalyzerLanguages(Set.of(Languages.PYTHON));
         excludedProject.setExclusionPatterns(Set.of("legacy"));
-        String excludedVersion = BuildTools.getPythonVersionForProject(excludedDir, excludedProject, allAvailable)
-                .orElse("");
+        excludedProject.withoutRepo();
+        TestContextManager excludedCm =
+                new TestContextManager(excludedProject, new NoOpConsoleIO(), Set.of(), new TestAnalyzer());
+        ProjectFile excludedTestFile = new ProjectFile(excludedDir, "src/main.py");
+        String excludedCommand = BuildTools.getBuildLintSomeCommand(excludedCm, details, List.of(excludedTestFile));
 
-        // Baseline has no distutils → should pick highest available version
-        assertNotEquals("", baselineVersion, "Baseline should detect a Python version");
-        // Control has distutils → should cap at 3.11
-        assertEquals("3.11", controlVersion, "Control should cap at 3.11 due to distutils import");
-        // Excluded hides the distutils file → should match baseline (uncapped)
+        // Baseline has no distutils → command should have uncapped version
+        assertTrue(baselineCommand.contains("--python="), "Baseline command should contain --python=");
+        // Control has distutils → command should have capped version (3.11)
+        assertTrue(
+                controlCommand.contains("--python=3.11"),
+                "Control command should contain --python=3.11 due to distutils");
+        // Excluded hides the distutils file → command should match baseline (uncapped)
         assertEquals(
-                baselineVersion,
-                excludedVersion,
-                "With exclusion, version should match baseline (no distutils detected)");
+                baselineCommand,
+                excludedCommand,
+                "With exclusion, command should match baseline (no distutils detected)");
         // Control should differ from excluded (the exclusion made a difference)
         assertNotEquals(
-                controlVersion,
-                excludedVersion,
-                "Exclusion pattern should change Python version selection by skipping distutils in excluded dir");
+                controlCommand,
+                excludedCommand,
+                "Exclusion pattern should change rendered command by skipping distutils in excluded dir");
     }
 
     @Test

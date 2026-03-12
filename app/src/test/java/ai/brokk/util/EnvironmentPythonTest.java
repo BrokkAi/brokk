@@ -366,4 +366,134 @@ public class EnvironmentPythonTest {
         var version = createTestEnvPython(projectPath).getPythonVersion();
         assertEquals(UNCAPPED_VERSION, version, "Project without distutils should not be capped");
     }
+
+    // ===== Regression tests for tracked artifact directories in git repos =====
+
+    @Test
+    void testTrackedBuildDirectoryWithDistutilsCapsVersion() throws Exception {
+        // Regression test: a tracked build/ directory should NOT be skipped in git repos
+        // FALLBACK_SKIP_DIRECTORIES should only apply when there is no git filtering
+        Path repoPath = tempDir.resolve("tracked-build-dir");
+        Files.createDirectories(repoPath);
+
+        try (Git git = Git.init().setDirectory(repoPath.toFile()).call()) {
+            // Create a tracked build/ directory with distutils import
+            Path buildDir = repoPath.resolve("build");
+            Files.createDirectories(buildDir);
+            Files.writeString(buildDir.resolve("setup_gen.py"), "from distutils.core import setup\n");
+
+            // Also create normal source without distutils
+            Path srcDir = repoPath.resolve("src");
+            Files.createDirectories(srcDir);
+            Files.writeString(srcDir.resolve("main.py"), "print('hello')\n");
+
+            // Track both directories (NOT gitignored)
+            git.add().addFilepattern("build/setup_gen.py").call();
+            git.add().addFilepattern("src/main.py").call();
+            git.commit()
+                    .setMessage("Initial commit with tracked build directory")
+                    .setAuthor("Test", "test@example.com")
+                    .setSign(false)
+                    .call();
+        }
+
+        var version = createTestEnvPython(repoPath).getPythonVersion();
+        assertEquals(CAPPED_VERSION, version, "Tracked build/ directory should be scanned and cap version at 3.11");
+    }
+
+    @Test
+    void testTrackedDistDirectoryWithDistutilsCapsVersion() throws Exception {
+        // Same as above but for dist/ directory
+        Path repoPath = tempDir.resolve("tracked-dist-dir");
+        Files.createDirectories(repoPath);
+
+        try (Git git = Git.init().setDirectory(repoPath.toFile()).call()) {
+            Path distDir = repoPath.resolve("dist");
+            Files.createDirectories(distDir);
+            Files.writeString(distDir.resolve("package_setup.py"), "import distutils\n");
+
+            Path srcDir = repoPath.resolve("src");
+            Files.createDirectories(srcDir);
+            Files.writeString(srcDir.resolve("app.py"), "print('app')\n");
+
+            git.add().addFilepattern("dist/package_setup.py").call();
+            git.add().addFilepattern("src/app.py").call();
+            git.commit()
+                    .setMessage("Initial commit with tracked dist directory")
+                    .setAuthor("Test", "test@example.com")
+                    .setSign(false)
+                    .call();
+        }
+
+        var version = createTestEnvPython(repoPath).getPythonVersion();
+        assertEquals(CAPPED_VERSION, version, "Tracked dist/ directory should be scanned and cap version at 3.11");
+    }
+
+    // ===== Test gitignore file pattern (not directory) =====
+
+    @Test
+    void testGitignoredFilePatternDoesNotCapVersion() throws Exception {
+        // Test that a gitignored single file pattern (not directory) is skipped
+        // This exercises the visitFile() gitignore branch
+        Path repoPath = tempDir.resolve("gitignored-file-pattern");
+        Files.createDirectories(repoPath);
+
+        try (Git git = Git.init().setDirectory(repoPath.toFile()).call()) {
+            // Gitignore a specific file pattern, not a directory
+            Files.writeString(repoPath.resolve(".gitignore"), "legacy_setup.py\n");
+            git.add().addFilepattern(".gitignore").call();
+
+            // Create the ignored file with distutils import
+            Path srcDir = repoPath.resolve("src");
+            Files.createDirectories(srcDir);
+            Files.writeString(srcDir.resolve("legacy_setup.py"), "from distutils.core import setup\n");
+
+            // Create a normal source file without distutils
+            Files.writeString(srcDir.resolve("main.py"), "print('hello')\n");
+            git.add().addFilepattern("src/main.py").call();
+
+            git.commit()
+                    .setMessage("Initial commit")
+                    .setAuthor("Test", "test@example.com")
+                    .setSign(false)
+                    .call();
+        }
+
+        var version = createTestEnvPython(repoPath).getPythonVersion();
+        assertEquals(UNCAPPED_VERSION, version, "Gitignored file pattern should skip distutils detection");
+    }
+
+    @Test
+    void testGitignoredFileInTrackedDirectoryDoesNotCapVersion() throws Exception {
+        // More specific: directory is tracked but a specific file within it is gitignored
+        Path repoPath = tempDir.resolve("gitignored-file-in-tracked-dir");
+        Files.createDirectories(repoPath);
+
+        try (Git git = Git.init().setDirectory(repoPath.toFile()).call()) {
+            // Gitignore only setup files, not the directory
+            Files.writeString(repoPath.resolve(".gitignore"), "**/old_setup.py\n");
+            git.add().addFilepattern(".gitignore").call();
+
+            // Create tracked directory with both tracked and ignored files
+            Path legacyDir = repoPath.resolve("legacy");
+            Files.createDirectories(legacyDir);
+            Files.writeString(legacyDir.resolve("old_setup.py"), "from distutils.core import setup\n");
+            Files.writeString(legacyDir.resolve("utils.py"), "print('utils')\n");
+
+            Path srcDir = repoPath.resolve("src");
+            Files.createDirectories(srcDir);
+            Files.writeString(srcDir.resolve("main.py"), "print('hello')\n");
+
+            git.add().addFilepattern("legacy/utils.py").call();
+            git.add().addFilepattern("src/main.py").call();
+            git.commit()
+                    .setMessage("Initial commit")
+                    .setAuthor("Test", "test@example.com")
+                    .setSign(false)
+                    .call();
+        }
+
+        var version = createTestEnvPython(repoPath).getPythonVersion();
+        assertEquals(UNCAPPED_VERSION, version, "Gitignored file in tracked directory should skip distutils detection");
+    }
 }
