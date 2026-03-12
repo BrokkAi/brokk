@@ -3,9 +3,7 @@ package ai.brokk.gui.dialogs;
 import ai.brokk.IConsoleIO;
 import ai.brokk.TaskResult;
 import ai.brokk.agents.BuildAgent;
-import ai.brokk.analyzer.Language;
-import ai.brokk.analyzer.Languages;
-import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.analyzer.*;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.project.IProject;
@@ -16,7 +14,6 @@ import ai.brokk.util.BuildVerifier;
 import ai.brokk.util.Environment;
 import ai.brokk.util.EnvironmentJava;
 import ai.brokk.util.ShellConfig;
-import com.google.common.io.Files;
 import java.awt.*;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
@@ -1086,15 +1083,25 @@ public class SettingsProjectBuildPanel extends JPanel {
     }
 
     private void updateJdkControlsVisibility(@Nullable Language selected) {
-        boolean isJava = selected == Languages.JAVA;
-        setJavaHomeCheckbox.setVisible(isJava);
-        jdkSelector.setVisible(isJava);
+        boolean isJvmVisible = Languages.isJvmLanguage(selected);
+
+        Runnable apply = () -> {
+            setJavaHomeCheckbox.setVisible(isJvmVisible);
+            jdkSelector.setVisible(isJvmVisible);
+        };
+
+        if (SwingUtilities.isEventDispatchThread()) {
+            apply.run();
+        } else {
+            SwingUtilities.invokeLater(apply);
+        }
     }
 
     private Map<String, String> computeEnvFromUi() {
         var env = new HashMap<String, String>();
         var selected = (Language) primaryLanguageComboBox.getSelectedItem();
-        if (selected == Languages.JAVA) {
+
+        if (Languages.isJvmLanguage(selected)) {
             if (setJavaHomeCheckbox.isSelected()) {
                 String sel = jdkSelector.getSelectedJdkPath();
                 if (sel != null && !sel.isBlank()) {
@@ -1106,6 +1113,7 @@ public class SettingsProjectBuildPanel extends JPanel {
                 env.put("JAVA_HOME", EnvironmentJava.JAVA_HOME_SENTINEL);
             }
         }
+
         if (selected == Languages.PYTHON) {
             env.put("VIRTUAL_ENV", ".venv");
         }
@@ -1113,7 +1121,7 @@ public class SettingsProjectBuildPanel extends JPanel {
     }
 
     private void populatePrimaryLanguageComboBox() {
-        var detected = findLanguagesInProject();
+        var detected = Languages.findLanguagesInProject(project);
         var configured = project.computedBuildLanguage();
         if (!detected.contains(configured)) {
             detected.add(configured);
@@ -1121,21 +1129,6 @@ public class SettingsProjectBuildPanel extends JPanel {
         // Sort by display name
         detected.sort(Comparator.comparing(Language::name));
         primaryLanguageComboBox.setModel(new DefaultComboBoxModel<>(detected.toArray(Language[]::new)));
-    }
-
-    private List<Language> findLanguagesInProject() {
-        Set<Language> langs = new HashSet<>();
-        Set<ProjectFile> filesToScan = project.hasGit() ? project.getRepo().getTrackedFiles() : project.getAllFiles();
-        for (var pf : filesToScan) {
-            String extension = Files.getFileExtension(pf.absPath().toString());
-            if (!extension.isEmpty()) {
-                var lang = Languages.fromExtension(extension);
-                if (lang != Languages.NONE) {
-                    langs.add(lang);
-                }
-            }
-        }
-        return new ArrayList<>(langs);
     }
 
     private void initializeExecutorUI() {

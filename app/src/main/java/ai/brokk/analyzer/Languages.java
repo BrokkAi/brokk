@@ -5,10 +5,13 @@ import ai.brokk.gui.Chrome;
 import ai.brokk.gui.dependencies.DependenciesPanel;
 import ai.brokk.project.IProject;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
 public class Languages {
@@ -465,6 +468,38 @@ public class Languages {
 
     public static final List<Language> ALL_LANGUAGES =
             List.of(C_SHARP, JAVA, JAVASCRIPT, PYTHON, C_CPP, GO, RUST, PHP, TYPESCRIPT, SCALA, SQL, NONE);
+
+    public static boolean isJvmLanguage(@Nullable Language language) {
+        if (language == null || language == NONE) return false;
+
+        if (language instanceof JvmLanguage) return true;
+
+        if (language instanceof Language.MultiLanguage multi) {
+            return multi.getLanguages().stream().anyMatch(Languages::isJvmLanguage);
+        }
+
+        return false;
+    }
+
+    /**
+     * Scans the project files to detect which languages are present based on file extensions.
+     * Uses tracked files if it's a git repo, otherwise scans all project files.
+     */
+    @Blocking
+    public static List<Language> findLanguagesInProject(IProject project) {
+        Set<Language> langs = new HashSet<>();
+        Set<ProjectFile> filesToScan = project.hasGit() ? project.getRepo().getTrackedFiles() : project.getAllFiles();
+        for (var pf : filesToScan) {
+            String extension = pf.extension();
+            if (!extension.isEmpty()) {
+                var lang = Languages.fromExtension(extension);
+                if (lang != Languages.NONE) {
+                    langs.add(lang);
+                }
+            }
+        }
+        return new ArrayList<>(langs);
+    }
 
     /**
      * Returns the Language constant corresponding to the given file extension. Comparison is case-insensitive.
