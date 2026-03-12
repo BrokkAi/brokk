@@ -2202,6 +2202,11 @@ public class SessionChangesPanel extends JPanel implements ThemeAware, AnalyzerC
         requestUpdate();
     }
 
+    @Override
+    public void onTrackedFileChange() {
+        requestUpdate();
+    }
+
     public void dispose() {
         cm.removeAnalyzerCallback(this);
         diffCore.clearCache();
