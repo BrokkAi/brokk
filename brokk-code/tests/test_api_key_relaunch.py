@@ -132,6 +132,31 @@ async def test_relaunch_failure_leaves_app_usable(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_relaunch_failure_after_start_leaves_app_not_ready(tmp_path):
+    """Verify that if relaunch fails in a post-start step (like refresh), readiness is False."""
+    fake = RelaunchFakeExecutor(tmp_path)
+    app = BrokkApp(executor=fake, workspace_dir=tmp_path)
+    app._executor_ready = True
+
+    mock_chat = MagicMock()
+    app.query_one = MagicMock(return_value=mock_chat)
+
+    # Simulate a failure during context refresh
+    app._refresh_context_panel = AsyncMock(side_effect=Exception("Refresh failed"))
+
+    await app._relaunch_executor()
+
+    # Verify failure message surfaced
+    calls = [args[0] for args, kwargs in mock_chat.add_system_message.call_args_list]
+    assert any("Failed to relaunch executor" in m for m in calls)
+    assert any("Refresh failed" in m for m in calls)
+
+    # Crucial assertions:
+    assert app._executor_ready is False, "App should not be ready if post-start steps fail"
+    assert app.job_in_progress is False, "App should remain usable for retries"
+
+
+@pytest.mark.asyncio
 async def test_relaunch_sequencing_restores_before_ready_poll(tmp_path):
     """Verify that session restoration happens BEFORE wait_ready is called.
     This is critical because /health/ready returns 503 until a session is loaded.

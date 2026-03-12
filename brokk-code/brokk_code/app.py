@@ -3318,17 +3318,19 @@ class BrokkApp(App):
                     )
 
             # 6. Wait for readiness now that a session is loaded
-            if await self.executor.wait_ready():
-                self._executor_ready = True
-
-                # 7. Final UI refresh
-                await self._refresh_context_panel()
-                if chat:
-                    chat.add_system_message("Executor relaunched successfully.", level="SUCCESS")
-            else:
+            if not await self.executor.wait_ready():
                 raise ExecutorError("New executor failed to become ready.")
 
+            # 7. Final UI refresh
+            await self._refresh_context_panel()
+
+            # Only mark as ready after ALL steps (restore, wait, refresh) succeed
+            self._executor_ready = True
+            if chat:
+                chat.add_system_message("Executor relaunched successfully.", level="SUCCESS")
+
         except Exception as e:
+            self._executor_ready = False
             logger.exception("Failed to relaunch executor")
             if chat:
                 chat.add_system_message(f"Failed to relaunch executor: {e}", level="ERROR")
