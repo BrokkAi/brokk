@@ -549,10 +549,8 @@ public class InlineTestProjectCreator {
 
             if (!detected.isEmpty()) {
                 project.setAnalyzerLanguages(detected);
-                project.setBuildLanguage(detected.iterator().next());
             } else {
                 project.setAnalyzerLanguages(Set.of(Languages.NONE));
-                project.setBuildLanguage(Languages.NONE);
             }
         }
 
