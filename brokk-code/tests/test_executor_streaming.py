@@ -56,6 +56,7 @@ async def test_stream_events_polling_logic():
         empty_events,  # Loop 2 Events (terminal drain 1)
         empty_events,  # Loop 3 Events (terminal drain 2)
         empty_events,  # Loop 4 Events (terminal drain 3 -> exit)
+        status_completed,  # Final status fetch before synthetic yield
     ]
 
     # Use a small sleep to speed up test
@@ -74,9 +75,10 @@ async def test_stream_events_polling_logic():
         async for event in executor.stream_events(job_id):
             collected_events.append(event)
 
-    assert len(collected_events) == 2
+    assert len(collected_events) == 3
     assert collected_events[0]["seq"] == 9
     assert collected_events[1]["seq"] == 10
+    assert collected_events[2] == {"type": "STATE_CHANGE", "data": {"state": "COMPLETED"}}
 
     # Verify calls
     # Call 1: Status
@@ -127,6 +129,7 @@ async def test_stream_events_adaptive_backoff():
         empty_events,  # Iter 3: terminal drain 1
         empty_events,  # terminal drain 2
         empty_events,  # terminal drain 3 -> exit
+        status_completed,  # Final status fetch before synthetic yield
     ]
 
     with (
@@ -189,6 +192,7 @@ async def test_stream_events_drains_terminal_race_and_yields_late_notification()
         empty_events,  # terminal drain 1 after late event
         empty_events,  # terminal drain 2
         empty_events,  # terminal drain 3 -> exit
+        status_completed,  # Final status fetch before synthetic yield
     ]
 
     with (
@@ -203,4 +207,5 @@ async def test_stream_events_drains_terminal_race_and_yields_late_notification()
         async for event in executor.stream_events("job"):
             collected.append(event)
 
-    assert [e["seq"] for e in collected] == [11]
+    assert collected[0]["seq"] == 11
+    assert collected[-1] == {"type": "STATE_CHANGE", "data": {"state": "COMPLETED"}}

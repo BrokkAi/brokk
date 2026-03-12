@@ -12,7 +12,8 @@ class JobSpecTest {
 
     @Test
     void testOfPrReview_CreatesJobWithCorrectTags() {
-        var spec = JobSpec.ofPrReview("gpt-4", "ghp_token123", "octocat", "hello-world", 42);
+        var spec = JobSpec.ofPrReview(
+                "gpt-4", "ghp_token123", "octocat", "hello-world", 42, PrReviewService.Severity.HIGH);
 
         assertEquals("", spec.taskInput());
         assertFalse(spec.autoCommit());
@@ -32,28 +33,28 @@ class JobSpecTest {
 
     @Test
     void testGetPrNumber_ReturnsCorrectInteger() {
-        var spec = JobSpec.ofPrReview("gpt-4", "token", "owner", "repo", 123);
+        var spec = JobSpec.ofPrReview("gpt-4", "token", "owner", "repo", 123, PrReviewService.Severity.HIGH);
 
         assertEquals(123, spec.getPrNumber());
     }
 
     @Test
     void testGetGithubToken_ReturnsCorrectValue() {
-        var spec = JobSpec.ofPrReview("gpt-4", "ghp_secrettoken", "owner", "repo", 1);
+        var spec = JobSpec.ofPrReview("gpt-4", "ghp_secrettoken", "owner", "repo", 1, PrReviewService.Severity.HIGH);
 
         assertEquals("ghp_secrettoken", spec.getGithubToken());
     }
 
     @Test
     void testGetRepoOwner_ReturnsCorrectValue() {
-        var spec = JobSpec.ofPrReview("gpt-4", "token", "myorg", "repo", 1);
+        var spec = JobSpec.ofPrReview("gpt-4", "token", "myorg", "repo", 1, PrReviewService.Severity.HIGH);
 
         assertEquals("myorg", spec.getRepoOwner());
     }
 
     @Test
     void testGetRepoName_ReturnsCorrectValue() {
-        var spec = JobSpec.ofPrReview("gpt-4", "token", "owner", "myrepo", 1);
+        var spec = JobSpec.ofPrReview("gpt-4", "token", "owner", "myrepo", 1, PrReviewService.Severity.HIGH);
 
         assertEquals("myrepo", spec.getRepoName());
     }
@@ -86,22 +87,24 @@ class JobSpecTest {
 
     @Test
     void testOfPrReview_WithLargePrNumber() {
-        var spec = JobSpec.ofPrReview("gpt-4", "token", "owner", "repo", 999999);
+        var spec = JobSpec.ofPrReview("gpt-4", "token", "owner", "repo", 999999, PrReviewService.Severity.HIGH);
 
         assertEquals(999999, spec.getPrNumber());
     }
 
     @Test
     void testTagsImmutable() {
-        var spec = JobSpec.ofPrReview("gpt-4", "token", "owner", "repo", 1);
+        var spec = JobSpec.ofPrReview("gpt-4", "token", "owner", "repo", 1, PrReviewService.Severity.HIGH);
 
         // Verify tags map is immutable by attempting to retrieve it
         var tags = spec.tags();
-        assertEquals(4, tags.size());
+        assertEquals(6, tags.size());
+        assertTrue(tags.containsKey("mode"));
         assertTrue(tags.containsKey("github_token"));
         assertTrue(tags.containsKey("repo_owner"));
         assertTrue(tags.containsKey("repo_name"));
         assertTrue(tags.containsKey("pr_number"));
+        assertTrue(tags.containsKey("severity_threshold"));
     }
 
     @Test

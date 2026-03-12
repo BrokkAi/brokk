@@ -586,6 +586,55 @@ class ExecutorManager:
         except httpx.HTTPError as e:
             raise ExecutorError(f"Failed to import session: {e}")
 
+    async def submit_pr_review_job(
+        self,
+        planner_model: str,
+        github_token: str,
+        owner: str,
+        repo: str,
+        pr_number: int,
+        severity_threshold: str | None = None,
+    ) -> str:
+        """Submits a PR review job to the executor.
+
+        Args:
+            planner_model: The LLM model to use for the review.
+            github_token: GitHub API token for accessing the PR.
+            owner: GitHub repository owner.
+            repo: GitHub repository name.
+            pr_number: The pull request number to review.
+            severity_threshold: Minimum severity for inline comments
+                (CRITICAL, HIGH, MEDIUM, LOW). Defaults to HIGH on the server.
+
+        Returns:
+            The jobId of the created job.
+
+        Raises:
+            ExecutorError: If the executor is not started or the request fails.
+        """
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+
+        payload: dict = {
+            "plannerModel": planner_model,
+            "githubToken": github_token,
+            "owner": owner,
+            "repo": repo,
+            "prNumber": pr_number,
+        }
+        if severity_threshold:
+            payload["severityThreshold"] = severity_threshold
+
+        headers = {"Idempotency-Key": str(uuid.uuid4())}
+
+        try:
+            resp = await self._http_client.post("/v1/jobs/pr-review", json=payload, headers=headers)
+            resp.raise_for_status()
+            return resp.json()["jobId"]
+        except httpx.HTTPError as e:
+            status = getattr(getattr(e, "response", None), "status_code", "N/A")
+            raise ExecutorError(f"Failed POST /v1/jobs/pr-review (status={status}): {e}") from e
+
     async def submit_job(
         self,
         task_input: str,
@@ -673,7 +722,8 @@ class ExecutorManager:
                 status_resp = await self._http_client.get(f"/v1/jobs/{job_id}")
                 status_resp.raise_for_status()
                 status_data = status_resp.json()
-                state = status_data.get("state", "QUEUED")
+                if isinstance(status_data, dict):
+                    state = status_data.get("state", "QUEUED")
                 last_status_check = now
 
             # 2. Fetch events
@@ -681,6 +731,10 @@ class ExecutorManager:
             events_resp = await self._http_client.get(events_url)
             events_resp.raise_for_status()
             events_data = events_resp.json()
+
+            if not isinstance(events_data, dict):
+                await asyncio.sleep(current_sleep)
+                continue
 
             events = events_data.get("events", [])
             after_seq = events_data.get("nextAfter", after_seq)
@@ -718,6 +772,18 @@ class ExecutorManager:
                 current_sleep = min(max_sleep, current_sleep * 2)
                 # Force status check on next loop if we are idling
                 last_status_check = 0.0
+
+        # Final status fetch to guarantee we emit the true terminal state
+        try:
+            final_resp = await self._http_client.get(f"/v1/jobs/{job_id}")
+            final_resp.raise_for_status()
+            final_data = final_resp.json()
+            if isinstance(final_data, dict):
+                state = final_data.get("state", state)
+        except Exception:
+            pass  # fall back to last known state
+
+        yield {"type": "STATE_CHANGE", "data": {"state": state}}
 
     async def _handle_http_error(self, e: httpx.HTTPError, endpoint: str) -> None:
         """Centralized error handling for executor HTTP calls."""

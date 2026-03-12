@@ -183,6 +183,23 @@ class Settings:
 
         return None
 
+    def get_github_token(self) -> Optional[str]:
+        """Returns the GitHub token.
+        Order:
+        1. brokk.properties (githubToken)
+        2. GITHUB_TOKEN environment variable
+        """
+        props = read_brokk_properties()
+        prop_val = props.get("githubToken")
+        if prop_val and prop_val.strip():
+            return prop_val.strip()
+
+        env_val = os.getenv("GITHUB_TOKEN")
+        if env_val and env_val.strip():
+            return env_val.strip()
+
+        return None
+
     def save(self) -> None:
         """Saves current settings to disk atomically.
 

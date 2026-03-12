@@ -263,9 +263,9 @@ public class SearchToolsTest {
 
             try {
                 // 2. Call skimFiles on the dependency path
-                String pathString = Path.of(
-                                AbstractProject.BROKK_DIR, AbstractProject.DEPENDENCIES_DIR, "testrepo", "*.java")
-                        .toString();
+                // Using String.join instead of Path.of to avoid "Illegal char <*>" on Windows
+                String pathString = String.join(
+                        "/", AbstractProject.BROKK_DIR, AbstractProject.DEPENDENCIES_DIR, "testrepo", "*.java");
                 String result = tools.skimFiles(List.of(pathString));
 
                 // 3. Verify that the file IS returned (not filtered out by the .brokk gitignore simulation)

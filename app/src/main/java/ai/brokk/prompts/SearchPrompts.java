@@ -295,8 +295,8 @@ public class SearchPrompts {
                 {{mission}}
 
                 Your responsibilities are:
-                  1.  **Find & Discover:** Use search and inspection tools to locate relevant code (files, classes, methods).
-                  2.  Deliverable: {{deliverable}}
+                  1.  **Deliverable**: {{deliverable}}
+                  2.  **Find & Discover:** Set up the Workspace with relevant context for the Deliverable.
 
                 Remember: **You must never write, create, or modify code.** Your purpose is to *find* existing code, not to *create* or *modify* code.
 
@@ -415,9 +415,9 @@ public class SearchPrompts {
 
                 Workspace context guidance:
                   - If you know where to find what you're looking for, just add it, you don't need to keep searching "just in case".
-                  - If you don't know where to find a piece of information, use search tools or skimFiles to identify specific files/classes/methods instead of guessing.
+                  - If you don't know where to find a piece of information, use callSearchAgent to identify specific files/classes/methods instead of guessing.
                   - The add*ToWorkspace tools do not work with directories or globs or wildcards as parameters;
-                    skimFiles can help you narrow down your search, after which you should add only those specific items to the Workspace.
+                    if you don't know which specific items to add to the Workspace, invoke callSearchAgent.
                 When to prefer the different content types:
                   - Summaries: when you only need API signatures/types/constants.
                   - Method sources: when you need implementation details for specific methods.
@@ -429,7 +429,6 @@ public class SearchPrompts {
                 <empty-project-notice>
                 The project appears to be empty or uninitialized (few or no source files).
                 Adapt your approach:
-                  - Prefer searching the repository structure first (e.g., `skimDirectory`, `findFilenames`) to confirm what exists.
                   - If the user's request requires new code, your role is still to prepare context and produce tasks, not to write code.
                   - For code-change requests, prefer producing a task list that starts with creating the minimal project skeleton and build/test setup.
                 </empty-project-notice>

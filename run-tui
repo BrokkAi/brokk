@@ -48,7 +48,9 @@ JAR="$(ls -t "$LIB_DIR"/brokk*.jar 2>/dev/null | head -n 1)" || true
 
 cd "$SCRIPT_DIR/brokk-code"
 if [[ -n "$JAR" ]]; then
-    exec uv run brokk --jar "$JAR" "$@"
+    echo "Using JAR: $JAR" >&2
+    exec uv run brokk "$@" --jar "$JAR"
 else
+    echo "No local JAR found, falling back to jbang" >&2
     exec uv run brokk "$@"
 fi

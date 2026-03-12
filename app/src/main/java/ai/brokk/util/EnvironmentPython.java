@@ -1,11 +1,21 @@
 package ai.brokk.util;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Splitter;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.FileVisitResult;
+import java.nio.file.FileVisitor;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.*;
+import java.nio.file.attribute.BasicFileAttributes;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.BiPredicate;
+import java.util.function.Predicate;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -35,6 +45,12 @@ public class EnvironmentPython {
     private static final Pattern DISTUTILS_PATTERN =
             Pattern.compile("^\\s*(from\\s+distutils|import\\s+distutils)\\b", Pattern.MULTILINE);
 
+    /**
+     * Directory basenames to always skip regardless of git status.
+     * These are virtual environment directories that are never source code.
+     */
+    private static final Set<String> ALWAYS_SKIP_DIRECTORIES = Set.of(".venv", "venv");
+
     /** Represents a Python major.minor version. */
     private record PyVersion(int major, int minor) {
         @Override
@@ -53,9 +69,37 @@ public class EnvironmentPython {
     private record VersionWithSource(String version, Path sourceFile) {}
 
     private final Path projectRoot;
+    /**
+     * Optional ignore checker that combines project exclusions and gitignore filtering.
+     * When present, the BiPredicate accepts (relativePath, isDirectory) and returns true if the path should be skipped.
+     */
+    private final @Nullable BiPredicate<Path, Boolean> ignoreChecker;
+
+    private final Predicate<String> pythonExecutableChecker;
 
     public EnvironmentPython(Path projectRoot) {
+        this(projectRoot, (BiPredicate<Path, Boolean>) null);
+    }
+
+    EnvironmentPython(Path projectRoot, @Nullable BiPredicate<Path, Boolean> ignoreChecker) {
+        this(projectRoot, ignoreChecker, EnvironmentPython::checkPythonExecutable);
+    }
+
+    /**
+     * Test constructor that allows controlling which Python versions appear "installed".
+     *
+     * @param projectRoot the project root path
+     * @param ignoreChecker optional predicate for checking if a path should be ignored (relativePath, isDirectory) -> shouldSkip
+     * @param pythonExecutableChecker predicate that returns true if a given version (e.g. "3.12") is available
+     */
+    @VisibleForTesting
+    EnvironmentPython(
+            Path projectRoot,
+            @Nullable BiPredicate<Path, Boolean> ignoreChecker,
+            Predicate<String> pythonExecutableChecker) {
         this.projectRoot = projectRoot;
+        this.ignoreChecker = ignoreChecker;
+        this.pythonExecutableChecker = pythonExecutableChecker;
     }
 
     /**
@@ -272,24 +316,81 @@ public class EnvironmentPython {
                 .collect(Collectors.toList());
     }
 
-    /** Check if any Python source file imports distutils. */
+    /** Check if any Python source file imports distutils, respecting the injected ignore checker. */
     private boolean repoImportsDistutils() {
-        try (var fileStream = Files.walk(projectRoot)) {
-            return fileStream
-                    .filter(p -> p.getFileName().toString().endsWith(".py"))
-                    .filter(p -> {
-                        String sp = p.toString();
-                        return !sp.contains(".venv") && !sp.contains("/venv") && !sp.contains(".git");
-                    })
-                    .anyMatch(p -> {
-                        String content = readFile(p);
-                        return content != null
-                                && DISTUTILS_PATTERN.matcher(content).find();
-                    });
+        var found = new AtomicBoolean(false);
+
+        try {
+            Files.walkFileTree(projectRoot, new FileVisitor<Path>() {
+                @Override
+                public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) {
+                    // Always skip .git directory
+                    String dirName =
+                            dir.getFileName() != null ? dir.getFileName().toString() : "";
+                    if (dirName.equals(".git")) {
+                        return FileVisitResult.SKIP_SUBTREE;
+                    }
+
+                    // Always skip virtual environment directories (never source code)
+                    if (ALWAYS_SKIP_DIRECTORIES.contains(dirName)) {
+                        logger.trace("Skipping venv directory: {}", dir);
+                        return FileVisitResult.SKIP_SUBTREE;
+                    }
+
+                    // Skip if directory is ignored (project exclusions + gitignore combined)
+                    if (!dir.equals(projectRoot) && ignoreChecker != null) {
+                        Path relPath = projectRoot.relativize(dir);
+                        if (ignoreChecker.test(relPath, true)) {
+                            logger.trace("Skipping ignored directory: {}", relPath);
+                            return FileVisitResult.SKIP_SUBTREE;
+                        }
+                    }
+
+                    return FileVisitResult.CONTINUE;
+                }
+
+                @Override
+                public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
+                    String fileName =
+                            file.getFileName() != null ? file.getFileName().toString() : "";
+                    if (!fileName.endsWith(".py")) {
+                        return FileVisitResult.CONTINUE;
+                    }
+
+                    Path relPath = projectRoot.relativize(file);
+
+                    if (ignoreChecker != null && ignoreChecker.test(relPath, false)) {
+                        logger.trace("Skipping ignored file: {}", relPath);
+                        return FileVisitResult.CONTINUE;
+                    }
+
+                    String content = readFile(file);
+                    if (content != null && DISTUTILS_PATTERN.matcher(content).find()) {
+                        logger.debug("Found distutils import in: {}", relPath);
+                        found.set(true);
+                        return FileVisitResult.TERMINATE;
+                    }
+
+                    return FileVisitResult.CONTINUE;
+                }
+
+                @Override
+                public FileVisitResult visitFileFailed(Path file, IOException exc) {
+                    logger.trace("Failed to visit file {}: {}", file, exc.getMessage());
+                    return FileVisitResult.CONTINUE;
+                }
+
+                @Override
+                public FileVisitResult postVisitDirectory(Path dir, IOException exc) {
+                    return FileVisitResult.CONTINUE;
+                }
+            });
         } catch (IOException e) {
             logger.debug("Error walking project directory for distutils check", e);
             return false;
         }
+
+        return found.get();
     }
 
     /** Parse a PEP 440 version spec like ">=3.8,<4", ">=3.6", or "~=3.6". */
@@ -374,6 +475,11 @@ public class EnvironmentPython {
 
     /** Check if a Python executable of the given version exists. */
     private boolean pythonExecutableExists(String version) {
+        return pythonExecutableChecker.test(version);
+    }
+
+    /** Default implementation that actually checks for Python executables on PATH. */
+    private static boolean checkPythonExecutable(String version) {
         try {
             var process = new ProcessBuilder("python" + version, "--version")
                     .redirectErrorStream(true)
