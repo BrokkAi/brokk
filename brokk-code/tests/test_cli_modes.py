@@ -1,6 +1,6 @@
 import sys
 from contextlib import contextmanager
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 from typing import Any
 from unittest.mock import patch
 
@@ -12,6 +12,11 @@ import brokk_code.__main__ as main_module
 def _stub_install_warmup(monkeypatch) -> None:
     monkeypatch.setattr(main_module, "ensure_jbang_ready", lambda: "/usr/local/bin/jbang")
     monkeypatch.setattr(main_module, "_run_install_prefetch", lambda _commands: None)
+    monkeypatch.setattr(
+        main_module,
+        "wire_nvim_plugin_setup",
+        lambda **_kwargs: SimpleNamespace(status="unsupported", path=None, detail=None),
+    )
 
 
 def test_main_defaults_to_tui(monkeypatch, tmp_path) -> None:
@@ -193,6 +198,154 @@ def test_main_install_intellij_routes_to_installer(monkeypatch, tmp_path, capsys
     output = capsys.readouterr().out
     assert captured["force"] is True
     assert "Configured IntelliJ ACP integration" in output
+
+
+def test_main_install_nvim_routes_to_installer(monkeypatch, tmp_path, capsys) -> None:
+    captured: dict[str, Any] = {}
+
+    def fake_configure_nvim_codecompanion_acp_settings(*, force: bool = False, settings_path=None):
+        captured["force"] = force
+        return tmp_path / ".config" / "nvim" / "lua" / "brokk" / "brokk_codecompanion.lua"
+
+    _stub_install_warmup(monkeypatch)
+    monkeypatch.setattr(
+        main_module,
+        "configure_nvim_codecompanion_acp_settings",
+        fake_configure_nvim_codecompanion_acp_settings,
+    )
+    monkeypatch.setattr(
+        sys, "argv", ["brokk", "install", "nvim", "--plugin", "codecompanion", "--force"]
+    )
+
+    main_module.main()
+
+    output = capsys.readouterr().out
+    assert captured["force"] is True
+    assert "Configured Neovim CodeCompanion ACP adapter" in output
+
+
+def test_main_install_nvim_conflict_exits_nonzero(monkeypatch) -> None:
+    def fake_configure_nvim_codecompanion_acp_settings(*, force: bool = False, settings_path=None):
+        raise main_module.ExistingBrokkCodeEntryError("exists")
+
+    _stub_install_warmup(monkeypatch)
+    monkeypatch.setattr(
+        main_module,
+        "configure_nvim_codecompanion_acp_settings",
+        fake_configure_nvim_codecompanion_acp_settings,
+    )
+    monkeypatch.setattr(sys, "argv", ["brokk", "install", "nvim", "--plugin", "codecompanion"])
+
+    with pytest.raises(SystemExit) as exc:
+        main_module.main()
+
+    assert exc.value.code == 1
+
+
+def test_main_install_neovim_with_plugin_codecompanion_routes_to_installer(
+    monkeypatch, tmp_path, capsys
+) -> None:
+    captured: dict[str, Any] = {}
+
+    def fake_configure_nvim_codecompanion_acp_settings(*, force: bool = False, settings_path=None):
+        captured["force"] = force
+        return tmp_path / ".config" / "nvim" / "lua" / "brokk" / "brokk_codecompanion.lua"
+
+    _stub_install_warmup(monkeypatch)
+    monkeypatch.setattr(
+        main_module,
+        "configure_nvim_codecompanion_acp_settings",
+        fake_configure_nvim_codecompanion_acp_settings,
+    )
+    monkeypatch.setattr(
+        sys, "argv", ["brokk", "install", "neovim", "--plugin", "codecompanion", "--force"]
+    )
+
+    main_module.main()
+
+    output = capsys.readouterr().out
+    assert captured["force"] is True
+    assert "Configured Neovim CodeCompanion ACP adapter" in output
+
+
+def test_main_install_neovim_with_plugin_avante_routes_to_installer(
+    monkeypatch, tmp_path, capsys
+) -> None:
+    captured: dict[str, Any] = {}
+
+    def fake_configure_nvim_avante_acp_settings(*, force: bool = False, settings_path=None):
+        captured["force"] = force
+        return tmp_path / ".config" / "nvim" / "lua" / "brokk" / "brokk_avante.lua"
+
+    _stub_install_warmup(monkeypatch)
+    monkeypatch.setattr(
+        main_module,
+        "configure_nvim_avante_acp_settings",
+        fake_configure_nvim_avante_acp_settings,
+    )
+    monkeypatch.setattr(
+        sys, "argv", ["brokk", "install", "neovim", "--plugin", "avante", "--force"]
+    )
+
+    main_module.main()
+
+    output = capsys.readouterr().out
+    assert captured["force"] is True
+    assert "Configured Neovim Avante ACP provider" in output
+
+
+def test_main_install_plugin_with_non_neovim_target_exits_nonzero(monkeypatch) -> None:
+    _stub_install_warmup(monkeypatch)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["brokk", "install", "zed", "--plugin", "avante"],
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        main_module.main()
+
+    assert exc.value.code == 1
+
+
+def test_main_install_neovim_routes_to_installer(monkeypatch, tmp_path, capsys) -> None:
+    captured: dict[str, Any] = {}
+
+    def fake_configure_nvim_codecompanion_acp_settings(*, force: bool = False, settings_path=None):
+        captured["force"] = force
+        return tmp_path / ".config" / "nvim" / "lua" / "brokk" / "brokk_codecompanion.lua"
+
+    _stub_install_warmup(monkeypatch)
+    monkeypatch.setattr(
+        main_module,
+        "configure_nvim_codecompanion_acp_settings",
+        fake_configure_nvim_codecompanion_acp_settings,
+    )
+    monkeypatch.setattr(sys, "argv", ["brokk", "install", "neovim", "--force"])
+
+    main_module.main()
+
+    output = capsys.readouterr().out
+    assert captured["force"] is True
+    assert "Configured Neovim CodeCompanion ACP adapter" in output
+
+
+def test_main_install_neovim_with_plugin_codecompanion_conflict_exits_nonzero(monkeypatch) -> None:
+    def fake_configure_nvim_codecompanion_acp_settings(*, force: bool = False, settings_path=None):
+        raise main_module.ExistingBrokkCodeEntryError("exists")
+
+    _stub_install_warmup(monkeypatch)
+    monkeypatch.setattr(
+        main_module,
+        "configure_nvim_codecompanion_acp_settings",
+        fake_configure_nvim_codecompanion_acp_settings,
+    )
+    monkeypatch.setattr(sys, "argv", ["brokk", "install", "neovim", "--plugin", "codecompanion"])
+
+    with pytest.raises(SystemExit) as exc:
+        main_module.main()
+
+    assert exc.value.code == 1
 
 
 def test_main_install_verbose_prints_prefetch_command(monkeypatch, tmp_path, capsys) -> None:
