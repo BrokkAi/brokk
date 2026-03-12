@@ -26,15 +26,19 @@ public interface SearchMetrics {
     /**
      * Record context scan metrics.
      *
-     * @param filesAdded      count of files added
-     * @param skipped         whether the scan was skipped
+     * @param filesAdded count of files added
+     * @param skipped whether the scan was skipped
      * @param filesAddedPaths project-relative paths of files added during context scan (empty if skipped)
-     * @param metadata        response metadata including token usage (may be null)
+     * @param metadata response metadata including token usage (may be null)
      */
     void recordContextScan(
             int filesAdded, boolean skipped, Set<String> filesAddedPaths, @Nullable Llm.ResponseMetadata metadata);
 
-    void startTurn();
+    default void startTurn() {
+        startTurn(System.currentTimeMillis());
+    }
+
+    void startTurn(long requestStartedAtMs);
 
     void recordToolCall(String toolName);
 
@@ -50,12 +54,23 @@ public interface SearchMetrics {
     void recordFilesAddedPaths(Set<String> paths);
 
     /**
-     * End the current turn and compute files removed.
+     * End the current turn and compute files removed using the current wall-clock time as the completion time.
      *
      * @param filesBeforeTurn workspace file set at turn start
      * @param filesAfterTurn workspace file set at turn end
      */
-    void endTurn(Set<String> filesBeforeTurn, Set<String> filesAfterTurn);
+    default void endTurn(Set<String> filesBeforeTurn, Set<String> filesAfterTurn) {
+        endTurn(System.currentTimeMillis(), filesBeforeTurn, filesAfterTurn);
+    }
+
+    /**
+     * End the current turn and compute files removed.
+     *
+     * @param turnCompletedAtMs turn completion timestamp in epoch milliseconds
+     * @param filesBeforeTurn workspace file set at turn start
+     * @param filesAfterTurn workspace file set at turn end
+     */
+    void endTurn(long turnCompletedAtMs, Set<String> filesBeforeTurn, Set<String> filesAfterTurn);
 
     void recordOutcome(TaskResult.StopReason reason, int workspaceSize);
 
@@ -73,7 +88,7 @@ public interface SearchMetrics {
     void recordFinalWorkspaceFragments(List<FragmentInfo> fragmentDescriptions);
 
     /**
-     * Record metrics for the current turn's LLM call.
+     * Record metrics for the current turn's LLM call using the current wall-clock time as the completion time.
      * Called immediately after the LLM request completes.
      *
      * @param timeMs time spent in the LLM call in milliseconds
@@ -82,12 +97,34 @@ public interface SearchMetrics {
      * @param thinkingTokens number of thinking/reasoning tokens
      * @param outputTokens number of output tokens
      */
-    void recordLlmCall(long timeMs, int inputTokens, int cachedInputTokens, int thinkingTokens, int outputTokens);
+    default void recordLlmCall(
+            long timeMs, int inputTokens, int cachedInputTokens, int thinkingTokens, int outputTokens) {
+        recordLlmCall(System.currentTimeMillis(), timeMs, inputTokens, cachedInputTokens, thinkingTokens, outputTokens);
+    }
+
+    /**
+     * Record metrics for the current turn's LLM call.
+     * Called immediately after the LLM request completes.
+     *
+     * @param llmCompletedAtMs timestamp when the LLM response finished, in epoch milliseconds
+     * @param timeMs time spent in the LLM call in milliseconds
+     * @param inputTokens number of input tokens
+     * @param cachedInputTokens number of cached input tokens
+     * @param thinkingTokens number of thinking/reasoning tokens
+     * @param outputTokens number of output tokens
+     */
+    void recordLlmCall(
+            long llmCompletedAtMs,
+            long timeMs,
+            int inputTokens,
+            int cachedInputTokens,
+            int thinkingTokens,
+            int outputTokens);
 
     /**
      * Serialize metrics along with the basic result fields into JSON.
      *
-     * @param query   the original query
+     * @param query the original query
      * @param success whether the search succeeded
      */
     String toJson(String query, boolean success);
@@ -111,8 +148,6 @@ public interface SearchMetrics {
         return new Tracking();
     }
 
-    // Nested implementations moved from separate files
-
     /**
      * Lightweight no-op SearchMetrics singleton.
      */
@@ -127,7 +162,7 @@ public interface SearchMetrics {
                 @Nullable Llm.ResponseMetadata metadata) {}
 
         @Override
-        public void startTurn() {}
+        public void startTurn(long requestStartedAtMs) {}
 
         @Override
         public void recordToolCall(String toolName) {}
@@ -139,7 +174,7 @@ public interface SearchMetrics {
         public void recordFilesAddedPaths(Set<String> paths) {}
 
         @Override
-        public void endTurn(Set<String> filesBeforeTurn, Set<String> filesAfterTurn) {}
+        public void endTurn(long turnCompletedAtMs, Set<String> filesBeforeTurn, Set<String> filesAfterTurn) {}
 
         @Override
         public void recordOutcome(TaskResult.StopReason reason, int workspaceSize) {}
@@ -152,11 +187,15 @@ public interface SearchMetrics {
 
         @Override
         public void recordLlmCall(
-                long timeMs, int inputTokens, int cachedInputTokens, int thinkingTokens, int outputTokens) {}
+                long llmCompletedAtMs,
+                long timeMs,
+                int inputTokens,
+                int cachedInputTokens,
+                int thinkingTokens,
+                int outputTokens) {}
 
         @Override
         public String toJson(String query, boolean success) {
-            // Return empty object as requested in PR review
             return "{}";
         }
     }
@@ -167,30 +206,34 @@ public interface SearchMetrics {
      */
     class Tracking implements SearchMetrics {
         private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
-
         private static final Logger logger = LogManager.getLogger(Tracking.class);
 
-        // Context scan metrics
+        private final long taskStartedAtMs;
+        private long completedAtMsHint;
+
         private int contextScanFilesAdded = 0;
         private boolean contextScanSkipped = false;
         private Set<String> contextScanFilesAddedPaths = new HashSet<>();
         private @Nullable Llm.ResponseMetadata contextScanMetadata = null;
 
-        // Per-turn metrics
         private int turnCounter = 0;
         private final List<TurnMetrics> turns = new ArrayList<>();
         private @Nullable TurnMetrics currentTurn = null;
 
-        // Failure classification
         private @Nullable String failureType = null;
         private @Nullable String stopReason = null;
         private int finalWorkspaceSize = 0;
-
-        // Final workspace files snapshot (project-relative paths)
         private @Nullable Set<String> finalWorkspaceFiles = null;
-
-        // Final workspace fragments information
         private @Nullable List<FragmentInfo> finalWorkspaceFragments = null;
+
+        Tracking() {
+            this(System.currentTimeMillis());
+        }
+
+        Tracking(long taskStartedAtMs) {
+            this.taskStartedAtMs = taskStartedAtMs;
+            this.completedAtMsHint = taskStartedAtMs;
+        }
 
         @Override
         public synchronized void recordContextScan(
@@ -199,14 +242,19 @@ public interface SearchMetrics {
             this.contextScanSkipped = skipped;
             this.contextScanFilesAddedPaths = new HashSet<>(filesAddedPaths);
             this.contextScanMetadata = metadata;
+            if (metadata != null) {
+                completedAtMsHint = Math.max(completedAtMsHint, taskStartedAtMs + Math.max(0L, metadata.elapsedMs()));
+            }
         }
 
         @Override
-        public synchronized void startTurn() {
+        public synchronized void startTurn(long requestStartedAtMs) {
             if (currentTurn != null) {
+                currentTurn.completeTurn(requestStartedAtMs);
                 turns.add(currentTurn);
             }
-            currentTurn = new TurnMetrics(++turnCounter);
+            completedAtMsHint = Math.max(completedAtMsHint, requestStartedAtMs);
+            currentTurn = new TurnMetrics(++turnCounter, requestStartedAtMs);
         }
 
         @Override
@@ -232,23 +280,30 @@ public interface SearchMetrics {
 
         @Override
         public synchronized void recordLlmCall(
-                long timeMs, int inputTokens, int cachedInputTokens, int thinkingTokens, int outputTokens) {
+                long llmCompletedAtMs,
+                long timeMs,
+                int inputTokens,
+                int cachedInputTokens,
+                int thinkingTokens,
+                int outputTokens) {
             if (currentTurn != null) {
-                currentTurn.setTimeMs(timeMs);
-                currentTurn.setTokenUsage(inputTokens, cachedInputTokens, thinkingTokens, outputTokens);
+                currentTurn.recordLlmCall(
+                        llmCompletedAtMs, timeMs, inputTokens, cachedInputTokens, thinkingTokens, outputTokens);
+                completedAtMsHint = Math.max(completedAtMsHint, llmCompletedAtMs);
             }
         }
 
         @Override
-        public synchronized void endTurn(Set<String> filesBeforeTurn, Set<String> filesAfterTurn) {
+        public synchronized void endTurn(
+                long turnCompletedAtMs, Set<String> filesBeforeTurn, Set<String> filesAfterTurn) {
             if (currentTurn != null) {
-                // Compute files removed during this turn
                 Set<String> removed = new HashSet<>(filesBeforeTurn);
                 removed.removeAll(filesAfterTurn);
                 currentTurn.addRemovedFilePaths(removed);
-
+                currentTurn.completeTurn(turnCompletedAtMs);
                 turns.add(currentTurn);
                 currentTurn = null;
+                completedAtMsHint = Math.max(completedAtMsHint, turnCompletedAtMs);
             }
         }
 
@@ -272,30 +327,21 @@ public interface SearchMetrics {
             this.finalWorkspaceFragments = new ArrayList<>(fragmentDescriptions);
         }
 
-        /** Get the turn history with files added per turn. Used by BrokkCli to determine the last file added. */
         public synchronized List<TurnMetrics> getTurns() {
             return new ArrayList<>(turns);
         }
 
-        /** Generate enhanced JSON output with metrics. Maintains backward compatibility. */
         @Override
         public synchronized String toJson(String query, boolean success) {
-            // Compute elapsed_ms as sum of all turn times (LLM call times)
-            long elapsedMs =
-                    this.turns.stream().mapToLong(TurnMetrics::getTime_ms).sum();
+            finalizeCurrentTurnIfNeeded();
 
-            // Build found_files from context scan + all turn additions
-            logger.debug(
-                    "Building found_files: contextScanFilesAddedPaths size={}, paths={}",
-                    contextScanFilesAddedPaths.size(),
-                    contextScanFilesAddedPaths);
+            long elapsedMs = 0;
+            for (var turn : turns) {
+                elapsedMs += turn.getTime_ms();
+            }
+
             Set<String> allFoundFiles = new HashSet<>(contextScanFilesAddedPaths);
-            for (TurnMetrics turn : this.turns) {
-                logger.debug(
-                        "Turn {}: adding {} files: {}",
-                        turn.getTurn(),
-                        turn.getFiles_added_paths().size(),
-                        turn.getFiles_added_paths());
+            for (var turn : turns) {
                 allFoundFiles.addAll(turn.getFiles_added_paths());
             }
             List<String> foundFiles = allFoundFiles.stream().sorted().toList();
@@ -307,10 +353,12 @@ public interface SearchMetrics {
                     new ArrayList<>(contextScanFilesAddedPaths.stream().sorted().toList()),
                     contextScanMetadata);
 
-            // Convert final workspace files to sorted list
             List<String> finalWorkspaceFilesList = finalWorkspaceFiles != null
                     ? finalWorkspaceFiles.stream().sorted().toList()
                     : null;
+
+            long completedAtMs = completedAtMsHint;
+            long wallElapsedMs = Math.max(0L, completedAtMs - taskStartedAtMs);
 
             var result = new SearchResult(
                     query,
@@ -318,12 +366,16 @@ public interface SearchMetrics {
                     elapsedMs,
                     success,
                     contextScan,
-                    new ArrayList<>(this.turns),
+                    new ArrayList<>(turns),
+                    turns.size(),
                     failureType,
                     stopReason,
                     finalWorkspaceSize,
                     finalWorkspaceFilesList,
-                    finalWorkspaceFragments != null ? new ArrayList<>(finalWorkspaceFragments) : null);
+                    finalWorkspaceFragments != null ? new ArrayList<>(finalWorkspaceFragments) : null,
+                    taskStartedAtMs,
+                    completedAtMs,
+                    wallElapsedMs);
 
             try {
                 return OBJECT_MAPPER.writeValueAsString(result);
@@ -332,7 +384,17 @@ public interface SearchMetrics {
             }
         }
 
-        /** Complete search result with all metrics. */
+        private void finalizeCurrentTurnIfNeeded() {
+            if (currentTurn == null) {
+                return;
+            }
+            long turnCompletedAtMs = Math.max(completedAtMsHint, currentTurn.getRequest_started_at_ms());
+            currentTurn.completeTurn(turnCompletedAtMs);
+            turns.add(currentTurn);
+            currentTurn = null;
+            completedAtMsHint = Math.max(completedAtMsHint, turnCompletedAtMs);
+        }
+
         public record SearchResult(
                 String query,
                 List<String> found_files,
@@ -340,38 +402,45 @@ public interface SearchMetrics {
                 boolean success,
                 ContextScanInfo context_scan,
                 List<TurnMetrics> turns_detail,
+                int turns,
                 @Nullable String failure_type,
                 @Nullable String stop_reason,
                 int final_workspace_size,
                 @Nullable List<String> final_workspace_files,
-                @Nullable List<FragmentInfo> final_workspace_fragments) {
-            public int turns() {
-                return turns_detail.size();
-            }
-        }
+                @Nullable List<FragmentInfo> final_workspace_fragments,
+                long started_at_ms,
+                long completed_at_ms,
+                long wall_elapsed_ms) {}
 
-        /** Context scan metrics. */
         public record ContextScanInfo(
                 int files_added,
                 boolean skipped,
                 List<String> files_added_paths,
                 @Nullable Llm.ResponseMetadata token_usage) {}
 
-        /** Metrics for a single search turn. */
         public static class TurnMetrics {
             private final int turn;
+            private final long request_started_at_ms;
             private final List<String> tool_calls = new ArrayList<>();
             private int files_added = 0;
             private final Set<String> files_added_paths = new HashSet<>();
             private final Set<String> files_removed_paths = new HashSet<>();
             private long time_ms = 0;
+            private @Nullable Long llm_duration_ms = null;
+            private @Nullable Long request_completed_at_ms = null;
+            private @Nullable Long llm_completed_at_ms = null;
+            private @Nullable Long turn_completed_at_ms = null;
+            private @Nullable Long turn_duration_ms = null;
+            private @Nullable Long tool_execution_duration_ms = null;
             private int input_tokens = 0;
             private int cached_input_tokens = 0;
             private int thinking_tokens = 0;
             private int output_tokens = 0;
 
-            public TurnMetrics(int turnNumber) {
+            public TurnMetrics(int turnNumber, long requestStartedAtMs) {
                 this.turn = turnNumber;
+                this.request_started_at_ms = requestStartedAtMs;
+                this.request_completed_at_ms = requestStartedAtMs;
             }
 
             public void addToolCall(String toolName) {
@@ -390,20 +459,48 @@ public interface SearchMetrics {
                 files_removed_paths.addAll(paths);
             }
 
-            public void setTimeMs(long timeMs) {
+            public void recordLlmCall(
+                    long llmCompletedAtMs,
+                    long timeMs,
+                    int inputTokens,
+                    int cachedInputTokens,
+                    int thinkingTokens,
+                    int outputTokens) {
                 this.time_ms = timeMs;
-            }
-
-            public void setTokenUsage(int inputTokens, int cachedInputTokens, int thinkingTokens, int outputTokens) {
+                this.llm_duration_ms = timeMs;
+                this.llm_completed_at_ms = llmCompletedAtMs;
+                this.request_completed_at_ms = llmCompletedAtMs;
                 this.input_tokens = inputTokens;
                 this.cached_input_tokens = cachedInputTokens;
                 this.thinking_tokens = thinkingTokens;
                 this.output_tokens = outputTokens;
             }
 
-            // Jackson getters (required for serialization)
+            public void completeTurn(long turnCompletedAtMs) {
+                this.turn_completed_at_ms = turnCompletedAtMs;
+                this.turn_duration_ms = Math.max(0L, turnCompletedAtMs - request_started_at_ms);
+                this.tool_execution_duration_ms =
+                        llm_completed_at_ms == null ? null : Math.max(0L, turnCompletedAtMs - llm_completed_at_ms);
+            }
+
             public int getTurn() {
                 return turn;
+            }
+
+            public long getRequest_started_at_ms() {
+                return request_started_at_ms;
+            }
+
+            public @Nullable Long getRequest_completed_at_ms() {
+                return request_completed_at_ms;
+            }
+
+            public @Nullable Long getLlm_completed_at_ms() {
+                return llm_completed_at_ms;
+            }
+
+            public @Nullable Long getTurn_completed_at_ms() {
+                return turn_completed_at_ms;
             }
 
             public List<String> getTool_calls() {
@@ -424,6 +521,18 @@ public interface SearchMetrics {
 
             public long getTime_ms() {
                 return time_ms;
+            }
+
+            public @Nullable Long getLlm_duration_ms() {
+                return llm_duration_ms;
+            }
+
+            public @Nullable Long getTurn_duration_ms() {
+                return turn_duration_ms;
+            }
+
+            public @Nullable Long getTool_execution_duration_ms() {
+                return tool_execution_duration_ms;
             }
 
             public int getInput_tokens() {

@@ -472,8 +472,11 @@ public final class BprCli implements Callable<Integer> {
             assert codeModel != null : service.getAvailableModels();
         }
 
+        String actionName = determineActionName(deepScan);
+
         // --- Search Workspace Mode ---
         if (searchWorkspace != null && !searchWorkspace.isBlank()) {
+            long actionStartedAtMs = System.currentTimeMillis();
             TaskResult searchResult;
             try (var scope = cm.beginTaskUngrouped(searchWorkspace)) {
                 var searchModel = taskModelOverride == null ? cm.getService().getScanModel() : taskModelOverride;
@@ -487,7 +490,13 @@ public final class BprCli implements Callable<Integer> {
                 scope.append(searchResult);
             }
 
-            return searchResult.stopDetails().reason() == TaskResult.StopReason.SUCCESS ? 0 : 1;
+            var success = searchResult.stopDetails().reason() == TaskResult.StopReason.SUCCESS;
+            return finishCliTask(
+                    actionName,
+                    actionStartedAtMs,
+                    success ? 0 : 1,
+                    success,
+                    searchResult.stopDetails().reason().name());
         }
 
         // --- Name Resolution and Context Building ---
@@ -540,6 +549,8 @@ public final class BprCli implements Callable<Integer> {
                 System.err.println("Deep Scan requires --planmodel to be specified.");
                 return 1;
             }
+
+            long actionStartedAtMs = System.currentTimeMillis();
 
             io.showNotification(IConsoleIO.NotificationRole.INFO, "# Workspace (pre-scan)");
             io.showNotification(
@@ -597,7 +608,14 @@ public final class BprCli implements Callable<Integer> {
                 System.err.println("\nBRK_SEARCHAGENT_METRICS=" + json);
             }
 
-            return recommendations.success() ? 0 : 1;
+            return finishCliTask(
+                    actionName,
+                    actionStartedAtMs,
+                    recommendations.success() ? 0 : 1,
+                    recommendations.success(),
+                    recommendations.success()
+                            ? TaskResult.StopReason.SUCCESS.name()
+                            : TaskResult.StopReason.LLM_ERROR.name());
         }
 
         @Nullable Path cacheTaskFile = null;
@@ -619,6 +637,7 @@ public final class BprCli implements Callable<Integer> {
         var explicitContext = context;
 
         // --- Run Action ---
+        long actionStartedAtMs = System.currentTimeMillis();
         io.showNotification(IConsoleIO.NotificationRole.INFO, "# Workspace (pre-task)");
         io.showNotification(
                 IConsoleIO.NotificationRole.INFO,
@@ -745,13 +764,17 @@ public final class BprCli implements Callable<Integer> {
                             cm, planModel, codeModel, conflict, scope, MergeAgent.DEFAULT_MERGE_INSTRUCTIONS);
                     try {
                         result = mergeAgent.execute();
-                        // Merge orchestrates planning and code models; TaskMeta is ambiguous here.
                         scope.append(result);
                     } catch (Exception e) {
                         io.toolError(getStackTrace(e), "Merge failed: " + e.getMessage());
-                        return 1;
+                        return finishCliTask(actionName, actionStartedAtMs, 1, false, null);
                     }
-                    return 0; // merge is terminal for this CLI command
+                    return finishCliTask(
+                            actionName,
+                            actionStartedAtMs,
+                            0,
+                            result.stopDetails().reason() == TaskResult.StopReason.SUCCESS,
+                            result.stopDetails().reason().name());
                 } else if (searchAnswerPrompt != null) {
                     if (planModel == null) {
                         System.err.println("Error: --search-answer requires --planmodel to be specified.");
@@ -774,10 +797,14 @@ public final class BprCli implements Callable<Integer> {
                             buildError.isEmpty()
                                     ? "Build verification completed successfully."
                                     : "Build verification failed:\n" + buildError);
-                    // we have no `result` since we did not interact with the LLM
-                    System.exit(buildError.isEmpty() ? 0 : 1);
-                    // make the compiler happy
-                    result = null;
+                    return finishCliTask(
+                            actionName,
+                            actionStartedAtMs,
+                            buildError.isEmpty() ? 0 : 1,
+                            buildError.isEmpty(),
+                            buildError.isEmpty()
+                                    ? TaskResult.StopReason.SUCCESS.name()
+                                    : TaskResult.StopReason.BUILD_ERROR.name());
                 } else { // lutzPrompt != null
                     if (planModel == null) {
                         System.err.println("Error: --lutz requires --planmodel to be specified.");
@@ -831,7 +858,7 @@ public final class BprCli implements Callable<Integer> {
             } catch (Throwable th) {
                 logger.error("Internal error", th);
                 io.toolError(requireNonNull(th.getMessage()), "Internal error");
-                return 1; // internal error
+                return finishCliTask(actionName, actionStartedAtMs, 1, false, null);
             }
         }
 
@@ -844,7 +871,12 @@ public final class BprCli implements Callable<Integer> {
             // harness see how we did
         }
 
-        return 0;
+        return finishCliTask(
+                actionName,
+                actionStartedAtMs,
+                0,
+                result.stopDetails().reason() == TaskResult.StopReason.SUCCESS,
+                result.stopDetails().reason().name());
     }
 
     private List<String> resolveFiles(List<String> inputs, String entityType) {
@@ -1003,6 +1035,67 @@ public final class BprCli implements Callable<Integer> {
         }
         return sb.toString();
     }
+
+    private String determineActionName(boolean deepScan) {
+        if (architectPrompt != null) {
+            return "architect";
+        }
+        if (inferContextPrompt != null) {
+            return "infer-context";
+        }
+        if (codePrompt != null) {
+            return "code";
+        }
+        if (searchAnswerPrompt != null) {
+            return "search-answer";
+        }
+        if (lutzPrompt != null) {
+            return "lutz";
+        }
+        if (searchWorkspace != null && !searchWorkspace.isBlank()) {
+            return "search-workspace";
+        }
+        if (deepScan) {
+            return "deep-scan";
+        }
+        if (merge) {
+            return "merge";
+        }
+        if (build) {
+            return "build";
+        }
+        throw new IllegalStateException("No CLI action selected");
+    }
+
+    static String taskMetricsJson(
+            String action, long startedAtMs, long completedAtMs, boolean success, @Nullable String stopReason) {
+        try {
+            return AbstractProject.objectMapper.writeValueAsString(new BprCliTaskMetrics(
+                    action,
+                    startedAtMs,
+                    completedAtMs,
+                    Math.max(0L, completedAtMs - startedAtMs),
+                    success,
+                    stopReason));
+        } catch (JsonProcessingException e) {
+            throw new RuntimeException("Failed to serialize CLI task metrics", e);
+        }
+    }
+
+    private static int finishCliTask(
+            String action, long startedAtMs, int exitCode, boolean success, @Nullable String stopReason) {
+        System.err.println("\nBRK_BPRCLI_TASK_METRICS="
+                + taskMetricsJson(action, startedAtMs, System.currentTimeMillis(), success, stopReason));
+        return exitCode;
+    }
+
+    private record BprCliTaskMetrics(
+            String action,
+            long started_at_ms,
+            long completed_at_ms,
+            long duration_ms,
+            boolean success,
+            @Nullable String stop_reason) {}
 
     private static String getModelsJson() {
         var models = MainProject.loadFavoriteModels();

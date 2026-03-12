@@ -51,7 +51,6 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.SequencedSet;
 import java.util.Set;
 import java.util.StringJoiner;
@@ -409,223 +408,237 @@ public class CodeAgent {
                 break;
             }
 
-            // Select the appropriate model for this turn
-            if (allowPromotion && es.useArchitectModel()) {
-                var architectConfig = contextManager.getService().getModel(ModelProperties.ModelType.ARCHITECT);
-                coder.setModel(architectConfig);
-            } else {
-                coder.setModel(this.model);
+            if (metrics != null) {
+                metrics.startTurn(System.currentTimeMillis());
             }
-
-            // Make the LLM request
-            StreamingResult streamingResult;
-            // Populate TaskMeta because this task engaged an LLM
-            meta = new TaskResult.TaskMeta(
-                    TaskResult.Type.CODE, Service.ModelConfig.from(coder.getModel(), contextManager.getService()));
 
             try {
-                var suppressed = EnumSet.of(SpecialTextType.TASK_LIST);
-                if (!es.showBuildError()) {
-                    suppressed.add(SpecialTextType.BUILD_RESULTS);
-                }
-                var allMessagesForLlm = CodePrompts.instance.collectCodeMessages(
-                        model,
-                        meta,
-                        context,
-                        prologue,
-                        cs.taskMessages(),
-                        requireNonNull(cs.nextRequest(), "nextRequest must be set before sending to LLM"),
-                        suppressed,
-                        userInput.trim());
-                var llmStartNanos = System.nanoTime();
-                streamingResult = coder.sendRequest(allMessagesForLlm);
-                if (metrics != null) {
-                    metrics.llmWaitNanos += System.nanoTime() - llmStartNanos;
-                    Optional.ofNullable(streamingResult.metadata()).ifPresent(metrics::addTokens);
-                    metrics.addApiRetries(streamingResult.retries());
-                }
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                continue; // let main loop interruption check handle
-            }
-
-            // REQUEST PHASE handles the result of sendLlmRequest
-            var requestOutcome = requestPhase(cs, es, streamingResult, metrics);
-            if (requestOutcome instanceof Step.Fatal fatalReq) {
-                stopDetails = fatalReq.stopDetails();
-                break;
-            }
-            cs = requestOutcome.cs();
-            es = requestOutcome.es();
-
-            // PARSE PHASE parses edit blocks
-            var parseOutcome =
-                    parsePhase(cs, es, streamingResult.text(), parser, metrics); // Ensure parser is available
-            if (parseOutcome instanceof Step.Fatal fatalParse) {
-                stopDetails = fatalParse.stopDetails();
-                break;
-            }
-            if (parseOutcome instanceof Step.Retry retryParse) {
-                if (metrics != null) {
-                    metrics.parseRetries++;
-                }
-                cs = retryParse.cs();
-                es = retryParse.es();
-                continue; // Restart main loop
-            }
-            cs = parseOutcome.cs();
-            es = parseOutcome.es();
-
-            // APPLY PHASE applies blocks
-            var blocksToApply = ((Step.Continue) parseOutcome).blocks();
-            var applyOutcome = applyPhase(cs, es, blocksToApply, metrics);
-            if (applyOutcome instanceof Step.Fatal fatalApply) {
-                stopDetails = fatalApply.stopDetails();
-                break;
-            }
-            cs = applyOutcome.cs();
-            es = applyOutcome.es();
-
-            // Incorporate any newly created files into the live context immediately
-            var filesInContext = context.getAllFragmentsInDisplayOrder().stream()
-                    .flatMap(f -> f.sourceFiles().join().stream())
-                    .collect(Collectors.toSet());
-            var newlyCreated = es.changedFiles().stream()
-                    .filter(pf -> !filesInContext.contains(pf))
-                    .collect(Collectors.toSet());
-            if (!newlyCreated.isEmpty()) {
-                // Stage any files that were created during this task, regardless of stop reason
-                try {
-                    contextManager.getRepo().add(newlyCreated);
-                    contextManager.getRepo().invalidateCaches();
-                } catch (GitAPIException e) {
-                    io.toolError("Failed to add newly created files to git: " + e.getMessage());
-                }
-
-                var newFrags = newlyCreated.stream()
-                        .map(pf -> new ContextFragments.ProjectPathFragment(pf, contextManager))
-                        .collect(Collectors.toList());
-                context = context.addFragments(newFrags);
-            }
-
-            // Refresh analyzer + context fragments for any files that were modified (so LLM sees current contents)
-            try {
-                contextManager
-                        .getAnalyzerWrapper()
-                        .updateFiles(es.changedFiles())
-                        .get();
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                continue; // let main loop interruption check handle
-            } catch (ExecutionException e) {
-                throw new RuntimeException(e);
-            }
-            context = context.copyAndRefresh(es.changedFiles());
-
-            if (applyOutcome instanceof Step.Retry retryApply) {
-                cs = retryApply.cs();
-                es = retryApply.es();
-                continue; // Restart main loop
-            }
-
-            // If the response was partial, we must ask the LLM to continue *after* applying the blocks we got
-            if (streamingResult.isPartial()) {
-                UserMessage messageForContinue;
-                String consoleLogForContinue;
-                if (blocksToApply.isEmpty()) {
-                    // Treat "partial with no blocks" as a parse failure
-                    int updatedConsecutiveParseFailures = es.consecutiveParseFailures() + 1;
-                    if (updatedConsecutiveParseFailures > MAX_PARSE_ATTEMPTS) {
-                        reportComplete(
-                                TaskResult.StopReason.PARSE_ERROR,
-                                "Parse error limit reached (partial with no blocks); ending task.");
-                        stopDetails = new TaskResult.StopDetails(
-                                TaskResult.StopReason.PARSE_ERROR, "Parse error limit reached; ending task.");
-                        break;
-                    }
-                    messageForContinue = new UserMessage(
-                            "It looks like the response was cut off before you provided any code blocks. Please continue with your response.");
-                    consoleLogForContinue =
-                            "LLM indicated response was partial before any blocks; counting as parse failure and asking to continue";
-                    es = es.withConsecutiveParseFailures(updatedConsecutiveParseFailures);
+                // Select the appropriate model for this turn
+                if (allowPromotion && es.useArchitectModel()) {
+                    var architectConfig = contextManager.getService().getModel(ModelProperties.ModelType.ARCHITECT);
+                    coder.setModel(architectConfig);
                 } else {
-                    messageForContinue = new UserMessage(getContinueFromLastBlockPrompt(blocksToApply.getLast()));
-                    consoleLogForContinue =
-                            "LLM indicated response was partial after %d clean blocks; asking to continue"
-                                    .formatted(blocksToApply.size());
+                    coder.setModel(this.model);
                 }
-                cs = cs.withNextRequest(messageForContinue);
-                report(consoleLogForContinue);
-                continue;
-            }
 
-            // PARSE-JAVA PHASE: If Java files were edited, run a parse-only check before full build
-            Step parseJavaOutcome;
-            try {
-                parseJavaOutcome = parseJavaPhase(cs, es, metrics);
-            } catch (Throwable e) {
-                var msg = "Parse Java phase encountered an unexpected error";
-                logger.error(msg, e);
-                contextManager.reportException(new JavaPreLintFalsePositiveException(msg, e));
-                parseJavaOutcome = new Step.Continue(cs, es);
-            }
-            if (parseJavaOutcome instanceof Step.Retry retryJava) {
-                cs = retryJava.cs();
-                es = retryJava.es();
-                continue;
-            }
-            if (parseJavaOutcome instanceof Step.Fatal fatalJava) {
-                stopDetails = fatalJava.stopDetails();
-                break;
-            }
-            cs = parseJavaOutcome.cs();
-            es = parseJavaOutcome.es();
+                // Make the LLM request
+                StreamingResult streamingResult;
+                // Populate TaskMeta because this task engaged an LLM
+                meta = new TaskResult.TaskMeta(
+                        TaskResult.Type.CODE, Service.ModelConfig.from(coder.getModel(), contextManager.getService()));
 
-            // VERIFY or finish if build is deferred
-            if (options.contains(Option.DEFER_BUILD)) {
-                if (!es.javaLintDiagnostics().isEmpty()) {
-                    if (es.consecutiveBuildFailures() >= MAX_BUILD_FAILURES) {
-                        reportComplete(
-                                TaskResult.StopReason.BUILD_ERROR,
-                                "Java syntax errors persist after %d attempts; aborting."
-                                        .formatted(MAX_BUILD_FAILURES));
-                        stopDetails = new TaskResult.StopDetails(
-                                TaskResult.StopReason.BUILD_ERROR, "Java syntax issues persist.");
-                        break;
+                try {
+                    var suppressed = EnumSet.of(SpecialTextType.TASK_LIST);
+                    if (!es.showBuildError()) {
+                        suppressed.add(SpecialTextType.BUILD_RESULTS);
+                    }
+                    var allMessagesForLlm = CodePrompts.instance.collectCodeMessages(
+                            model,
+                            meta,
+                            context,
+                            prologue,
+                            cs.taskMessages(),
+                            requireNonNull(cs.nextRequest(), "nextRequest must be set before sending to LLM"),
+                            suppressed,
+                            userInput.trim());
+                    var llmStartNanos = System.nanoTime();
+                    streamingResult = coder.sendRequest(allMessagesForLlm);
+                    if (metrics != null) {
+                        long llmDurationMs = Duration.ofNanos(System.nanoTime() - llmStartNanos)
+                                .toMillis();
+                        metrics.recordLlmResponse(
+                                System.currentTimeMillis(),
+                                llmDurationMs,
+                                streamingResult.metadata(),
+                                streamingResult.retries());
+                    }
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    continue; // let main loop interruption check handle
+                }
+
+                // REQUEST PHASE handles the result of sendLlmRequest
+                var requestOutcome = requestPhase(cs, es, streamingResult, metrics);
+                if (requestOutcome instanceof Step.Fatal fatalReq) {
+                    stopDetails = fatalReq.stopDetails();
+                    break;
+                }
+                cs = requestOutcome.cs();
+                es = requestOutcome.es();
+
+                // PARSE PHASE parses edit blocks
+                var parseOutcome =
+                        parsePhase(cs, es, streamingResult.text(), parser, metrics); // Ensure parser is available
+                if (parseOutcome instanceof Step.Fatal fatalParse) {
+                    stopDetails = fatalParse.stopDetails();
+                    break;
+                }
+                if (parseOutcome instanceof Step.Retry retryParse) {
+                    if (metrics != null) {
+                        metrics.parseRetries++;
+                    }
+                    cs = retryParse.cs();
+                    es = retryParse.es();
+                    continue; // Restart main loop
+                }
+                cs = parseOutcome.cs();
+                es = parseOutcome.es();
+
+                // APPLY PHASE applies blocks
+                var blocksToApply = ((Step.Continue) parseOutcome).blocks();
+                var applyOutcome = applyPhase(cs, es, blocksToApply, metrics);
+                if (applyOutcome instanceof Step.Fatal fatalApply) {
+                    stopDetails = fatalApply.stopDetails();
+                    break;
+                }
+                cs = applyOutcome.cs();
+                es = applyOutcome.es();
+
+                // Incorporate any newly created files into the live context immediately
+                var filesInContext = context.getAllFragmentsInDisplayOrder().stream()
+                        .flatMap(f -> f.sourceFiles().join().stream())
+                        .collect(Collectors.toSet());
+                var newlyCreated = es.changedFiles().stream()
+                        .filter(pf -> !filesInContext.contains(pf))
+                        .collect(Collectors.toSet());
+                if (!newlyCreated.isEmpty()) {
+                    // Stage any files that were created during this task, regardless of stop reason
+                    try {
+                        contextManager.getRepo().add(newlyCreated);
+                        contextManager.getRepo().invalidateCaches();
+                    } catch (GitAPIException e) {
+                        io.toolError("Failed to add newly created files to git: " + e.getMessage());
                     }
 
-                    var diagnosticMessages = formatDiagnosticsReport(es.javaLintDiagnostics());
-                    report(diagnosticMessages);
+                    var newFrags = newlyCreated.stream()
+                            .map(pf -> new ContextFragments.ProjectPathFragment(pf, contextManager))
+                            .collect(Collectors.toList());
+                    context = context.addFragments(newFrags);
+                }
 
-                    UserMessage nextRequestForLintFailure =
-                            new UserMessage("The following Java syntax issues were detected. Please fix them:\n\n"
-                                    + diagnosticMessages);
-                    cs = cs.withNextRequest(nextRequestForLintFailure);
-                    es = es.afterBuildFailure(diagnosticMessages.toString());
+                // Refresh analyzer + context fragments for any files that were modified (so LLM sees current contents)
+                try {
+                    contextManager
+                            .getAnalyzerWrapper()
+                            .updateFiles(es.changedFiles())
+                            .get();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    continue; // let main loop interruption check handle
+                } catch (ExecutionException e) {
+                    throw new RuntimeException(e);
+                }
+                context = context.copyAndRefresh(es.changedFiles());
+
+                if (applyOutcome instanceof Step.Retry retryApply) {
+                    cs = retryApply.cs();
+                    es = retryApply.es();
+                    continue; // Restart main loop
+                }
+
+                // If the response was partial, we must ask the LLM to continue *after* applying the blocks we got
+                if (streamingResult.isPartial()) {
+                    UserMessage messageForContinue;
+                    String consoleLogForContinue;
+                    if (blocksToApply.isEmpty()) {
+                        // Treat "partial with no blocks" as a parse failure
+                        int updatedConsecutiveParseFailures = es.consecutiveParseFailures() + 1;
+                        if (updatedConsecutiveParseFailures > MAX_PARSE_ATTEMPTS) {
+                            reportComplete(
+                                    TaskResult.StopReason.PARSE_ERROR,
+                                    "Parse error limit reached (partial with no blocks); ending task.");
+                            stopDetails = new TaskResult.StopDetails(
+                                    TaskResult.StopReason.PARSE_ERROR, "Parse error limit reached; ending task.");
+                            break;
+                        }
+                        messageForContinue = new UserMessage(
+                                "It looks like the response was cut off before you provided any code blocks. Please continue with your response.");
+                        consoleLogForContinue =
+                                "LLM indicated response was partial before any blocks; counting as parse failure and asking to continue";
+                        es = es.withConsecutiveParseFailures(updatedConsecutiveParseFailures);
+                    } else {
+                        messageForContinue = new UserMessage(getContinueFromLastBlockPrompt(blocksToApply.getLast()));
+                        consoleLogForContinue =
+                                "LLM indicated response was partial after %d clean blocks; asking to continue"
+                                        .formatted(blocksToApply.size());
+                    }
+                    cs = cs.withNextRequest(messageForContinue);
+                    report(consoleLogForContinue);
                     continue;
                 }
 
-                reportComplete(
-                        TaskResult.StopReason.SUCCESS,
-                        es.blocksAppliedWithoutBuild() > 0
-                                ? "Edits applied. Build/check deferred."
-                                : "No edits to apply. Build/check deferred.");
-                stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS);
-                break;
-            }
+                // PARSE-JAVA PHASE: If Java files were edited, run a parse-only check before full build
+                Step parseJavaOutcome;
+                try {
+                    parseJavaOutcome = parseJavaPhase(cs, es, metrics);
+                } catch (Throwable e) {
+                    var msg = "Parse Java phase encountered an unexpected error";
+                    logger.error(msg, e);
+                    contextManager.reportException(new JavaPreLintFalsePositiveException(msg, e));
+                    parseJavaOutcome = new Step.Continue(cs, es);
+                }
+                if (parseJavaOutcome instanceof Step.Retry retryJava) {
+                    cs = retryJava.cs();
+                    es = retryJava.es();
+                    continue;
+                }
+                if (parseJavaOutcome instanceof Step.Fatal fatalJava) {
+                    stopDetails = fatalJava.stopDetails();
+                    break;
+                }
+                cs = parseJavaOutcome.cs();
+                es = parseJavaOutcome.es();
 
-            var verifyOutcome = verifyPhase(cs, es, metrics);
+                // VERIFY or finish if build is deferred
+                if (options.contains(Option.DEFER_BUILD)) {
+                    if (!es.javaLintDiagnostics().isEmpty()) {
+                        if (es.consecutiveBuildFailures() >= MAX_BUILD_FAILURES) {
+                            reportComplete(
+                                    TaskResult.StopReason.BUILD_ERROR,
+                                    "Java syntax errors persist after %d attempts; aborting."
+                                            .formatted(MAX_BUILD_FAILURES));
+                            stopDetails = new TaskResult.StopDetails(
+                                    TaskResult.StopReason.BUILD_ERROR, "Java syntax issues persist.");
+                            break;
+                        }
 
-            if (verifyOutcome instanceof Step.Retry retryVerify) {
-                cs = retryVerify.cs();
-                es = retryVerify.es();
-                continue;
+                        var diagnosticMessages = formatDiagnosticsReport(es.javaLintDiagnostics());
+                        report(diagnosticMessages);
+
+                        UserMessage nextRequestForLintFailure =
+                                new UserMessage("The following Java syntax issues were detected. Please fix them:\n\n"
+                                        + diagnosticMessages);
+                        cs = cs.withNextRequest(nextRequestForLintFailure);
+                        es = es.afterBuildFailure(diagnosticMessages.toString());
+                        continue;
+                    }
+
+                    reportComplete(
+                            TaskResult.StopReason.SUCCESS,
+                            es.blocksAppliedWithoutBuild() > 0
+                                    ? "Edits applied. Build/check deferred."
+                                    : "No edits to apply. Build/check deferred.");
+                    stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS);
+                    break;
+                }
+
+                var verifyOutcome = verifyPhase(cs, es, metrics);
+
+                if (verifyOutcome instanceof Step.Retry retryVerify) {
+                    cs = retryVerify.cs();
+                    es = retryVerify.es();
+                    continue;
+                }
+                if (verifyOutcome instanceof Step.Fatal fatalVerify) {
+                    stopDetails = fatalVerify.stopDetails();
+                    break;
+                }
+                throw new IllegalStateException("verifyPhase returned unexpected Step type " + verifyOutcome);
+            } finally {
+                if (metrics != null) {
+                    metrics.completeCurrentTurn(System.currentTimeMillis());
+                }
             }
-            if (verifyOutcome instanceof Step.Fatal fatalVerify) {
-                stopDetails = fatalVerify.stopDetails();
-                break;
-            }
-            throw new IllegalStateException("verifyPhase returned unexpected Step type " + verifyOutcome);
         }
 
         // everyone reports their own reasons for stopping, except for interruptions
@@ -907,6 +920,7 @@ public class CodeAgent {
         }
 
         String buildError;
+        long verificationStartedAtMs = metrics != null ? System.currentTimeMillis() : 0L;
         try {
             context = BuildTools.runVerification(context, null, es.testFilesOverride());
             buildError = context.getBuildError();
@@ -914,6 +928,11 @@ public class CodeAgent {
             logger.debug("CodeAgent interrupted during build verification.");
             Thread.currentThread().interrupt();
             return new Step.Fatal(new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED));
+        } finally {
+            if (metrics != null) {
+                metrics.recordVerificationStep(
+                        "build_verification", verificationStartedAtMs, System.currentTimeMillis());
+            }
         }
 
         // Base success/failure decision on raw build result, not processed output
@@ -1352,13 +1371,13 @@ public class CodeAgent {
             return new Step.Continue(cs, es);
         }
 
-        // Map from ProjectFile -> diagnostic list for that file
+        long verificationStartedAtMs = metrics != null ? System.currentTimeMillis() : 0L;
+
         var perFileProblems = new ConcurrentHashMap<ProjectFile, List<JavaDiagnostic>>();
 
-        // JDT internals are not threadsafe, even with a per-thread ASTParser
         for (var file : javaFiles) {
             String src = file.read().orElse("");
-            if (src.isBlank()) { // PJ-3: blank files should produce no diagnostics
+            if (src.isBlank()) {
                 continue;
             }
             var diags = parseJavaForDiagnostics(file, src);
@@ -1367,7 +1386,10 @@ public class CodeAgent {
             }
         }
 
-        // Save diagnostics per-file and continue (non-blocking pre-lint)
+        if (metrics != null) {
+            metrics.recordVerificationStep("java_lint", verificationStartedAtMs, System.currentTimeMillis());
+        }
+
         var nextEs = es.withJavaLintDiagnostics(perFileProblems);
         return new Step.Continue(cs, nextEs);
     }
@@ -2044,8 +2066,8 @@ public class CodeAgent {
     static class Metrics {
         private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
-        final long startNanos = System.nanoTime();
-        long llmWaitNanos = 0;
+        final long startedAtMs;
+        long llmWaitMillis = 0;
         int totalInputTokens = 0;
         int totalCachedTokens = 0;
         int totalThinkingTokens = 0;
@@ -2056,9 +2078,52 @@ public class CodeAgent {
         int buildFailures = 0;
         int applyRetries = 0;
         int apiRetries = 0;
+        int turnCounter = 0;
+        final List<TurnMetrics> turnsDetail = new ArrayList<>();
+
+        @Nullable
+        TurnMetrics currentTurn = null;
 
         @Nullable
         TaskResult.StopReason internalStopReason = null;
+
+        Metrics() {
+            this(System.currentTimeMillis());
+        }
+
+        Metrics(long startedAtMs) {
+            this.startedAtMs = startedAtMs;
+        }
+
+        void startTurn(long requestStartedAtMs) {
+            completeCurrentTurn(requestStartedAtMs);
+            currentTurn = new TurnMetrics(++turnCounter, requestStartedAtMs);
+        }
+
+        void recordLlmResponse(
+                long llmCompletedAtMs, long llmDurationMs, @Nullable Llm.ResponseMetadata usage, int retryCount) {
+            llmWaitMillis += llmDurationMs;
+            addTokens(usage);
+            addApiRetries(retryCount);
+            if (currentTurn != null) {
+                currentTurn.recordLlmResponse(llmCompletedAtMs, llmDurationMs);
+            }
+        }
+
+        void recordVerificationStep(String phase, long startedAtMs, long completedAtMs) {
+            if (currentTurn != null) {
+                currentTurn.addVerificationStep(phase, startedAtMs, completedAtMs);
+            }
+        }
+
+        void completeCurrentTurn(long turnCompletedAtMs) {
+            if (currentTurn == null) {
+                return;
+            }
+            currentTurn.complete(turnCompletedAtMs);
+            turnsDetail.add(currentTurn);
+            currentTurn = null;
+        }
 
         void addTokens(@Nullable Llm.ResponseMetadata usage) {
             if (usage == null) {
@@ -2074,15 +2139,28 @@ public class CodeAgent {
             apiRetries += retryCount;
         }
 
-        void print(Set<ProjectFile> changedFiles, TaskResult.StopDetails stopDetails) {
+        String toJson(Set<ProjectFile> changedFiles, TaskResult.StopDetails stopDetails, long completedAtMs) {
+            completeCurrentTurn(completedAtMs);
+
             var changedFilesList =
-                    changedFiles.stream().map(ProjectFile::toString).toList();
+                    changedFiles.stream().map(ProjectFile::toString).sorted().toList();
+
+            long postLlmMillis = turnsDetail.stream()
+                    .map(TurnMetrics::getPostLlmDurationMs)
+                    .filter(Objects::nonNull)
+                    .mapToLong(Long::longValue)
+                    .sum();
+            long verificationMillis = turnsDetail.stream()
+                    .mapToLong(TurnMetrics::getVerificationDurationMs)
+                    .sum();
 
             var jsonMap = new LinkedHashMap<String, Object>();
-            jsonMap.put(
-                    "totalMillis",
-                    Duration.ofNanos(System.nanoTime() - startNanos).toMillis());
-            jsonMap.put("llmMillis", Duration.ofNanos(llmWaitNanos).toMillis());
+            jsonMap.put("totalMillis", Math.max(0L, completedAtMs - startedAtMs));
+            jsonMap.put("llmMillis", llmWaitMillis);
+            jsonMap.put("postLlmMillis", postLlmMillis);
+            jsonMap.put("verificationMillis", verificationMillis);
+            jsonMap.put("startedAtMs", startedAtMs);
+            jsonMap.put("completedAtMs", completedAtMs);
             jsonMap.put("inputTokens", totalInputTokens);
             jsonMap.put("cachedInputTokens", totalCachedTokens);
             jsonMap.put("reasoningTokens", totalThinkingTokens);
@@ -2093,15 +2171,118 @@ public class CodeAgent {
             jsonMap.put("parseRetries", parseRetries);
             jsonMap.put("applyRetries", applyRetries);
             jsonMap.put("apiRetries", apiRetries);
+            jsonMap.put("turnsDetail", turnsDetail);
             jsonMap.put("changedFiles", changedFilesList);
             jsonMap.put("stopReason", (internalStopReason != null ? internalStopReason : stopDetails.reason()).name());
             jsonMap.put("stopExplanation", stopDetails.explanation());
 
             try {
-                var jsonString = OBJECT_MAPPER.writeValueAsString(jsonMap);
-                System.err.println("\nBRK_CODEAGENT_METRICS=" + jsonString);
+                return OBJECT_MAPPER.writeValueAsString(jsonMap);
             } catch (JsonProcessingException e) {
                 throw new RuntimeException(e);
+            }
+        }
+
+        void print(Set<ProjectFile> changedFiles, TaskResult.StopDetails stopDetails) {
+            System.err.println(
+                    "\nBRK_CODEAGENT_METRICS=" + toJson(changedFiles, stopDetails, System.currentTimeMillis()));
+        }
+
+        public static class VerificationStep {
+            private final String phase;
+            private final long startedAtMs;
+            private final long completedAtMs;
+            private final long durationMs;
+
+            VerificationStep(String phase, long startedAtMs, long completedAtMs) {
+                this.phase = phase;
+                this.startedAtMs = startedAtMs;
+                this.completedAtMs = completedAtMs;
+                this.durationMs = Math.max(0L, completedAtMs - startedAtMs);
+            }
+
+            public String getPhase() {
+                return phase;
+            }
+
+            public long getStartedAtMs() {
+                return startedAtMs;
+            }
+
+            public long getCompletedAtMs() {
+                return completedAtMs;
+            }
+
+            public long getDurationMs() {
+                return durationMs;
+            }
+        }
+
+        public static class TurnMetrics {
+            private final int turn;
+            private final long requestStartedAtMs;
+            private @Nullable Long llmCompletedAtMs = null;
+            private @Nullable Long turnCompletedAtMs = null;
+            private @Nullable Long llmDurationMs = null;
+            private final List<VerificationStep> verificationSteps = new ArrayList<>();
+
+            TurnMetrics(int turn, long requestStartedAtMs) {
+                this.turn = turn;
+                this.requestStartedAtMs = requestStartedAtMs;
+            }
+
+            void recordLlmResponse(long llmCompletedAtMs, long llmDurationMs) {
+                this.llmCompletedAtMs = llmCompletedAtMs;
+                this.llmDurationMs = llmDurationMs;
+            }
+
+            void addVerificationStep(String phase, long startedAtMs, long completedAtMs) {
+                verificationSteps.add(new VerificationStep(phase, startedAtMs, completedAtMs));
+            }
+
+            void complete(long turnCompletedAtMs) {
+                this.turnCompletedAtMs = turnCompletedAtMs;
+            }
+
+            public int getTurn() {
+                return turn;
+            }
+
+            public long getRequestStartedAtMs() {
+                return requestStartedAtMs;
+            }
+
+            public @Nullable Long getLlmCompletedAtMs() {
+                return llmCompletedAtMs;
+            }
+
+            public @Nullable Long getTurnCompletedAtMs() {
+                return turnCompletedAtMs;
+            }
+
+            public @Nullable Long getLlmDurationMs() {
+                return llmDurationMs;
+            }
+
+            public @Nullable Long getTotalDurationMs() {
+                return turnCompletedAtMs == null ? null : Math.max(0L, turnCompletedAtMs - requestStartedAtMs);
+            }
+
+            public @Nullable Long getPostLlmDurationMs() {
+                if (llmCompletedAtMs == null || turnCompletedAtMs == null) {
+                    return null;
+                }
+                return Math.max(0L, turnCompletedAtMs - llmCompletedAtMs);
+            }
+
+            public long getVerificationDurationMs() {
+                return verificationSteps.stream()
+                        .mapToLong(VerificationStep::getDurationMs)
+                        .sum();
+            }
+
+            public List<VerificationStep> getVerificationSteps() {
+                return verificationSteps;
             }
         }
     }

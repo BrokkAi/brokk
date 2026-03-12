@@ -159,19 +159,21 @@ public class SearchAgent {
 
             Set<ProjectFile> filesBeforeSet = workspaceFiles(context);
             try {
-                metrics.startTurn();
                 long turnStartTime = System.currentTimeMillis();
+                metrics.startTurn(turnStartTime);
 
                 io.showTransientMessage("Brokk Search is preparing next actions...");
                 var response = llm.sendRequest(messages, toolContext);
 
-                long llmTimeMs = System.currentTimeMillis() - turnStartTime;
+                long llmCompletedAtMs = System.currentTimeMillis();
+                long llmTimeMs = llmCompletedAtMs - turnStartTime;
                 var tokenUsage = response.metadata();
                 int inputTokens = tokenUsage != null ? tokenUsage.inputTokens() : 0;
                 int cachedTokens = tokenUsage != null ? tokenUsage.cachedInputTokens() : 0;
                 int thinkingTokens = tokenUsage != null ? tokenUsage.thinkingTokens() : 0;
                 int outputTokens = tokenUsage != null ? tokenUsage.outputTokens() : 0;
-                metrics.recordLlmCall(llmTimeMs, inputTokens, cachedTokens, thinkingTokens, outputTokens);
+                metrics.recordLlmCall(
+                        llmCompletedAtMs, llmTimeMs, inputTokens, cachedTokens, thinkingTokens, outputTokens);
 
                 if (response.error() != null) {
                     if (response.error() instanceof ContextTooLargeException) {
@@ -223,7 +225,7 @@ public class SearchAgent {
 
                 previousTurnAdditions = List.copyOf(additionsThisTurn);
             } finally {
-                endTurnAndRecordFileChanges(filesBeforeSet, context);
+                endTurnAndRecordFileChanges(filesBeforeSet, context, System.currentTimeMillis());
             }
         }
 
@@ -352,14 +354,15 @@ public class SearchAgent {
         return new TaskResult(context, details);
     }
 
-    private void endTurnAndRecordFileChanges(Set<ProjectFile> filesBeforeSet, Context contextAfterTurn)
+    private void endTurnAndRecordFileChanges(
+            Set<ProjectFile> filesBeforeSet, Context contextAfterTurn, long turnCompletedAtMs)
             throws InterruptedException {
         Set<ProjectFile> filesAfterSet = workspaceFiles(contextAfterTurn);
         Set<ProjectFile> added = new HashSet<>(filesAfterSet);
         added.removeAll(filesBeforeSet);
         metrics.recordFilesAdded(added.size());
         metrics.recordFilesAddedPaths(toRelativePaths(added));
-        metrics.endTurn(toRelativePaths(filesBeforeSet), toRelativePaths(filesAfterSet));
+        metrics.endTurn(turnCompletedAtMs, toRelativePaths(filesBeforeSet), toRelativePaths(filesAfterSet));
     }
 
     private void recordFinalWorkspaceState(Context context) throws InterruptedException {

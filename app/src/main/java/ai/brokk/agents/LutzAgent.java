@@ -550,13 +550,14 @@ public class LutzAgent {
         return terminals;
     }
 
-    private void endTurnAndRecordFileChanges(Set<ProjectFile> filesBeforeSet, Context contextAfterTurn) {
+    private void endTurnAndRecordFileChanges(
+            Set<ProjectFile> filesBeforeSet, Context contextAfterTurn, long turnCompletedAtMs) {
         Set<ProjectFile> filesAfterSet = workspaceFiles(contextAfterTurn);
         Set<ProjectFile> added = new HashSet<>(filesAfterSet);
         added.removeAll(filesBeforeSet);
         metrics.recordFilesAdded(added.size());
         metrics.recordFilesAddedPaths(toRelativePaths(added));
-        metrics.endTurn(toRelativePaths(filesBeforeSet), toRelativePaths(filesAfterSet));
+        metrics.endTurn(turnCompletedAtMs, toRelativePaths(filesBeforeSet), toRelativePaths(filesAfterSet));
     }
 
     private void updateDroppedHistory(Context oldContext, Context newContext) {
@@ -792,7 +793,7 @@ public class LutzAgent {
                         agent.calculateResearchTokensAddedThisTurn(contextAtTurnStartForStagnation, context);
             } finally {
                 agent.recordResearchTokensForTurn(researchTokensThisTurn);
-                agent.endTurnAndRecordFileChanges(filesBeforeSet, context);
+                agent.endTurnAndRecordFileChanges(filesBeforeSet, context, System.currentTimeMillis());
             }
 
             if (stagnationEligible && outcome instanceof TurnOutcome.Continue c) {
@@ -816,20 +817,22 @@ public class LutzAgent {
             while (true) {
                 var prep = preparePrompt(invalidSpecialToolAttempts >= 2);
 
-                agent.metrics.startTurn();
                 long turnStartTime = System.currentTimeMillis();
+                agent.metrics.startTurn(turnStartTime);
 
                 agent.io.showTransientMessage("Brokk Search is preparing the next actions…");
                 var result = agent.llm.sendRequest(
                         prep.messages(), new ToolContext(prep.toolSpecs(), ToolChoice.REQUIRED, tr));
 
-                long llmTimeMs = System.currentTimeMillis() - turnStartTime;
+                long llmCompletedAtMs = System.currentTimeMillis();
+                long llmTimeMs = llmCompletedAtMs - turnStartTime;
                 var tokenUsage = result.metadata();
                 int inputTokens = tokenUsage != null ? tokenUsage.inputTokens() : 0;
                 int cachedTokens = tokenUsage != null ? tokenUsage.cachedInputTokens() : 0;
                 int thinkingTokens = tokenUsage != null ? tokenUsage.thinkingTokens() : 0;
                 int outputTokens = tokenUsage != null ? tokenUsage.outputTokens() : 0;
-                agent.metrics.recordLlmCall(llmTimeMs, inputTokens, cachedTokens, thinkingTokens, outputTokens);
+                agent.metrics.recordLlmCall(
+                        llmCompletedAtMs, llmTimeMs, inputTokens, cachedTokens, thinkingTokens, outputTokens);
 
                 if (result.error() != null) {
                     var details = TaskResult.StopDetails.fromResponse(result);
