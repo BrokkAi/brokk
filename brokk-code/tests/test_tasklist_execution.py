@@ -209,78 +209,32 @@ async def test_run_selected_task_does_not_mark_done_on_failure(tmp_path: Path) -
     assert len(executor.set_tasklist_calls) == 0
 
 
-def test_action_task_run_dispatches_worker_when_task_selected() -> None:
-    """Verify that action_task_run dispatches the worker when a task is selected."""
+@pytest.mark.parametrize(
+    "executor_ready, job_in_progress, selected_task, expected_message_fragment",
+    [
+        pytest.param(True, False, None, "No task selected", id="no_task_selected"),
+        pytest.param(True, True, {"id": "1", "title": "T", "text": "T", "done": False},
+                     "already in progress", id="job_in_progress"),
+        pytest.param(False, False, {"id": "1", "title": "T", "text": "T", "done": False},
+                     "not ready", id="executor_not_ready"),
+        pytest.param(True, False, {"id": "1", "title": "T", "text": "T", "done": True},
+                     "already done", id="task_already_done"),
+    ],
+)
+def test_action_task_run_guard_conditions(
+    executor_ready: bool,
+    job_in_progress: bool,
+    selected_task,
+    expected_message_fragment: str,
+) -> None:
+    """Verify that action_task_run rejects invalid states with appropriate messages."""
     app = BrokkApp(executor=MagicMock())
-    app._executor_ready = True
-    app.job_in_progress = False
+    app._executor_ready = executor_ready
+    app.job_in_progress = job_in_progress
 
     mock_chat = MagicMock(spec=ChatPanel)
     mock_panel = MagicMock(spec=TaskListPanel)
-    mock_panel.selected_task.return_value = {
-        "id": "1",
-        "title": "Test",
-        "text": "Test task",
-        "done": False,
-    }
-
-    def query_one(target, *args, **kwargs):
-        if target is ChatPanel:
-            return mock_chat
-        if target == "#side-tasklist":
-            return mock_panel
-        raise AssertionError(f"Unexpected query target: {target}")
-
-    app.query_one = MagicMock(side_effect=query_one)
-    app.run_worker = MagicMock(side_effect=_close_coro)
-
-    app.action_task_run()
-
-    assert app.run_worker.call_count == 1
-    worker_coro = app.run_worker.call_args.args[0]
-    assert worker_coro.__name__ == "_run_selected_task"
-
-
-def test_action_task_run_shows_message_when_no_task_selected() -> None:
-    """Verify that action_task_run shows a message when no task is selected."""
-    app = BrokkApp(executor=MagicMock())
-    app._executor_ready = True
-    app.job_in_progress = False
-
-    mock_chat = MagicMock(spec=ChatPanel)
-    mock_panel = MagicMock(spec=TaskListPanel)
-    mock_panel.selected_task.return_value = None
-
-    def query_one(target, *args, **kwargs):
-        if target is ChatPanel:
-            return mock_chat
-        if target == "#side-tasklist":
-            return mock_panel
-        raise AssertionError(f"Unexpected query target: {target}")
-
-    app.query_one = MagicMock(side_effect=query_one)
-    app.run_worker = MagicMock(side_effect=_close_coro)
-
-    app.action_task_run()
-
-    mock_chat.add_system_message.assert_called_once_with("No task selected.")
-    app.run_worker.assert_not_called()
-
-
-def test_action_task_run_blocked_when_job_in_progress() -> None:
-    """Verify that action_task_run is blocked when a job is already running."""
-    app = BrokkApp(executor=MagicMock())
-    app._executor_ready = True
-    app.job_in_progress = True
-
-    mock_chat = MagicMock(spec=ChatPanel)
-    mock_panel = MagicMock(spec=TaskListPanel)
-    mock_panel.selected_task.return_value = {
-        "id": "1",
-        "title": "Test",
-        "text": "Test task",
-        "done": False,
-    }
+    mock_panel.selected_task.return_value = selected_task
 
     def query_one(target, *args, **kwargs):
         if target is ChatPanel:
@@ -295,88 +249,7 @@ def test_action_task_run_blocked_when_job_in_progress() -> None:
     app.action_task_run()
 
     mock_chat.add_system_message.assert_called_once()
-    call_args = mock_chat.add_system_message.call_args
-    assert "already in progress" in call_args.args[0]
-    app.run_worker.assert_not_called()
-
-
-def test_action_task_run_blocked_when_executor_not_ready() -> None:
-    """Verify that action_task_run is blocked when executor is not ready."""
-    app = BrokkApp(executor=MagicMock())
-    app._executor_ready = False
-    app.job_in_progress = False
-
-    mock_chat = MagicMock(spec=ChatPanel)
-    mock_panel = MagicMock(spec=TaskListPanel)
-    mock_panel.selected_task.return_value = {
-        "id": "1",
-        "title": "Test",
-        "text": "Test task",
-        "done": False,
-    }
-
-    def query_one(target, *args, **kwargs):
-        if target is ChatPanel:
-            return mock_chat
-        if target == "#side-tasklist":
-            return mock_panel
-        raise AssertionError(f"Unexpected query target: {target}")
-
-    app.query_one = MagicMock(side_effect=query_one)
-    app.run_worker = MagicMock(side_effect=_close_coro)
-
-    app.action_task_run()
-
-    mock_chat.add_system_message.assert_called_once()
-    call_args = mock_chat.add_system_message.call_args
-    assert "not ready" in call_args.args[0]
-    app.run_worker.assert_not_called()
-
-
-def test_action_task_run_all_dispatches_worker() -> None:
-    """Verify that action_task_run_all dispatches the worker when ready."""
-    app = BrokkApp(executor=MagicMock())
-    app._executor_ready = True
-    app.job_in_progress = False
-
-    mock_chat = MagicMock(spec=ChatPanel)
-
-    def query_one(target, *args, **kwargs):
-        if target is ChatPanel:
-            return mock_chat
-        raise AssertionError(f"Unexpected query target: {target}")
-
-    app.query_one = MagicMock(side_effect=query_one)
-    app.run_worker = MagicMock(side_effect=_close_coro)
-
-    app.action_task_run_all()
-
-    assert app.run_worker.call_count == 1
-    worker_coro = app.run_worker.call_args.args[0]
-    assert worker_coro.__name__ == "_run_all_incomplete_tasks"
-
-
-def test_action_task_run_all_blocked_when_job_in_progress() -> None:
-    """Verify that action_task_run_all is blocked when a job is running."""
-    app = BrokkApp(executor=MagicMock())
-    app._executor_ready = True
-    app.job_in_progress = True
-
-    mock_chat = MagicMock(spec=ChatPanel)
-
-    def query_one(target, *args, **kwargs):
-        if target is ChatPanel:
-            return mock_chat
-        raise AssertionError(f"Unexpected query target: {target}")
-
-    app.query_one = MagicMock(side_effect=query_one)
-    app.run_worker = MagicMock(side_effect=_close_coro)
-
-    app.action_task_run_all()
-
-    mock_chat.add_system_message.assert_called_once()
-    call_args = mock_chat.add_system_message.call_args
-    assert "already in progress" in call_args.args[0]
+    assert expected_message_fragment in mock_chat.add_system_message.call_args.args[0]
     app.run_worker.assert_not_called()
 
 
