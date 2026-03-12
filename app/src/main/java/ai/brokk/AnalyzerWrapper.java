@@ -343,9 +343,14 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
             return new DisabledAnalyzer(project);
         }
 
-        Language langHandle = (projectLangsSet.size() == 1)
-                ? projectLangsSet.iterator().next()
-                : new Language.MultiLanguage(projectLangsSet);
+        Language langHandle;
+        if (projectLangsSet.isEmpty()) {
+            langHandle = Languages.NONE;
+        } else if (projectLangsSet.size() == 1) {
+            langHandle = projectLangsSet.iterator().next();
+        } else {
+            langHandle = new Language.MultiLanguage(projectLangsSet);
+        }
         logger.debug("Loading/creating analyzer for languages: {}", langHandle);
 
         /* ── 1.  Pre‑flight notifications & build details ───────────────────────────── */
