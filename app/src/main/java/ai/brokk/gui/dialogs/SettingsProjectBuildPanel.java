@@ -203,7 +203,8 @@ public class SettingsProjectBuildPanel extends JPanel {
         langGbc.fill = GridBagConstraints.HORIZONTAL;
         languagePanel.add(jdkSelector, langGbc);
 
-        updateJdkControlsVisibility(project.getLanguageHandle());
+        boolean hasJvm = project.getAnalyzerLanguages().stream().anyMatch(Languages::isJvmLanguage);
+        updateJdkControlsVisibility(hasJvm);
         setJavaHomeCheckbox.addActionListener(e -> jdkSelector.setEnabled(setJavaHomeCheckbox.isSelected()));
 
         gbc.gridy = row++;
@@ -445,9 +446,8 @@ public class SettingsProjectBuildPanel extends JPanel {
         this.add(Box.createVerticalGlue(), gbc);
 
         // Populate initial values
-        var selectedLang = project.getLanguageHandle();
-        updateJdkControlsVisibility(selectedLang);
-        if (Languages.isJvmLanguage(selectedLang)) {
+        updateJdkControlsVisibility(hasJvm);
+        if (hasJvm) {
             populateJdkControlsFromProject();
         }
 
@@ -817,11 +817,9 @@ public class SettingsProjectBuildPanel extends JPanel {
         long testTimeout = mainProject.getTestCommandTimeoutSeconds();
         selectTimeoutInCombo(testTimeoutComboBox, testTimeout);
 
-        populateJdkControlsFromProject();
-
-        var selectedLang = project.getLanguageHandle();
-        updateJdkControlsVisibility(selectedLang);
-        if (Languages.isJvmLanguage(selectedLang)) {
+        boolean hasJvm = project.getAnalyzerLanguages().stream().anyMatch(Languages::isJvmLanguage);
+        updateJdkControlsVisibility(hasJvm);
+        if (hasJvm) {
             populateJdkControlsFromProject();
         }
 
@@ -860,15 +858,15 @@ public class SettingsProjectBuildPanel extends JPanel {
         var newTestSome = someTestsCommandField.getText();
         var newAfterTaskList = afterTaskListCommandField.getText();
 
-        // Primary language from current handle
-        var selectedPrimaryLang = project.getLanguageHandle();
+        // Analyzer languages
+        var languages = project.getAnalyzerLanguages();
 
         // Build environment variables map
         var envVars = new HashMap<>(baseDetails.environmentVariables());
         // JAVA_HOME is now managed via project.setJdk() and stored in workspace.properties
         envVars.remove("JAVA_HOME");
         envVars.remove("VIRTUAL_ENV");
-        if (selectedPrimaryLang == Languages.PYTHON) {
+        if (languages.contains(Languages.PYTHON)) {
             envVars.put("VIRTUAL_ENV", ".venv");
         }
 
@@ -915,8 +913,8 @@ public class SettingsProjectBuildPanel extends JPanel {
             logger.debug("Applied Test Command Timeout: {} seconds", testTimeout);
         }
 
-        // JDK Controls (only for Java)
-        if (Languages.isJvmLanguage(selectedPrimaryLang)) {
+        // JDK Controls (only for JVM languages)
+        if (languages.stream().anyMatch(Languages::isJvmLanguage)) {
             if (setJavaHomeCheckbox.isSelected()) {
                 String rawPath = jdkSelector.getSelectedJdkPath();
                 if (!validateAndApplyJdkOverride(rawPath)) {
@@ -1053,9 +1051,7 @@ public class SettingsProjectBuildPanel extends JPanel {
         jdkSelector.loadJdksAsync(effectiveJdk);
     }
 
-    private void updateJdkControlsVisibility(@Nullable Language selected) {
-        boolean isJvmVisible = Languages.isJvmLanguage(selected);
-
+    private void updateJdkControlsVisibility(boolean isJvmVisible) {
         Runnable apply = () -> {
             setJavaHomeCheckbox.setVisible(isJvmVisible);
             jdkSelector.setVisible(isJvmVisible);
@@ -1070,9 +1066,9 @@ public class SettingsProjectBuildPanel extends JPanel {
 
     private Map<String, String> computeEnvFromUi() {
         var env = new HashMap<String, String>();
-        var selected = project.getLanguageHandle();
+        var languages = project.getAnalyzerLanguages();
 
-        if (Languages.isJvmLanguage(selected)) {
+        if (languages.stream().anyMatch(Languages::isJvmLanguage)) {
             if (setJavaHomeCheckbox.isSelected()) {
                 String sel = jdkSelector.getSelectedJdkPath();
                 if (sel != null && !sel.isBlank()) {
@@ -1085,7 +1081,7 @@ public class SettingsProjectBuildPanel extends JPanel {
             }
         }
 
-        if (selected == Languages.PYTHON) {
+        if (languages.contains(Languages.PYTHON)) {
             env.put("VIRTUAL_ENV", ".venv");
         }
         return env;
