@@ -12,6 +12,7 @@ import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.project.FileFilteringService;
 import ai.brokk.project.IProject;
+import com.google.common.annotations.VisibleForTesting;
 import com.github.mustachejava.DefaultMustacheFactory;
 import com.github.mustachejava.Mustache;
 import com.github.mustachejava.MustacheFactory;
@@ -33,6 +34,8 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.function.BiPredicate;
+import java.util.function.Predicate;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -138,7 +141,6 @@ public class BuildTools {
         }
 
         var project = cm.getProject();
-        final Path projectRoot = project.getRoot();
         var pythonVersion = pythonVersionOverride != null
                 ? Optional.of(pythonVersionOverride)
                 : getPythonVersionForProject(project);
@@ -198,8 +200,9 @@ public class BuildTools {
         return getPythonVersionForProject(project, null);
     }
 
+    @VisibleForTesting
     static Optional<String> getPythonVersionForProject(
-            IProject project, @Nullable java.util.function.Predicate<String> pythonExecutableChecker) {
+            IProject project, @Nullable Predicate<String> pythonExecutableChecker) {
         if (!project.getAnalyzerLanguages().contains(Languages.PYTHON)) {
             return Optional.empty();
         }
@@ -212,10 +215,7 @@ public class BuildTools {
 
         if (project.hasGit()) {
             try {
-                var repo = project.getRepo();
-                if (repo != null) {
-                    gitFilteringService = new FileFilteringService(projectRoot, repo);
-                }
+                gitFilteringService = new FileFilteringService(projectRoot, project.getRepo());
             } catch (Exception e) {
                 logger.debug("Could not initialize git-aware filtering for Python version detection", e);
             }
@@ -225,7 +225,7 @@ public class BuildTools {
         final @Nullable FileFilteringService effectiveGitFilter = gitFilteringService;
         final var effectiveExclusionMatcher = exclusionMatcher.isEmpty() ? null : exclusionMatcher;
 
-        @Nullable java.util.function.BiPredicate<Path, Boolean> ignoreChecker = null;
+        @Nullable BiPredicate<Path, Boolean> ignoreChecker = null;
         if (effectiveExclusionMatcher != null || effectiveGitFilter != null) {
             ignoreChecker = (relPath, isDirectory) -> {
                 String relPathStr = relPath.toString();

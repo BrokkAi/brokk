@@ -56,20 +56,22 @@ public class EnvironmentPythonTest {
     /** Create EnvironmentPython with git-aware filtering and optional exclusion patterns. */
     private EnvironmentPython createTestEnvPythonWithGitFiltering(
             Path repoPath, @Nullable FileFilteringService.FilePatternMatcher exclusionMatcher) {
-        try (GitRepo gitRepo = new GitRepo(repoPath)) {
-            FileFilteringService filteringService = new FileFilteringService(repoPath, gitRepo);
+        // Do NOT close gitRepo here — it is captured by the ignoreChecker lambda and must remain
+        // open while EnvironmentPython uses it. The GitRepo (and its underlying JGit Repository)
+        // will be GC'd after the EnvironmentPython and its lambda go out of scope.
+        var gitRepo = new GitRepo(repoPath);
+        var filteringService = new FileFilteringService(repoPath, gitRepo);
 
-            BiPredicate<Path, Boolean> ignoreChecker = (relPath, isDir) -> {
-                // Check exclusion patterns first
-                if (exclusionMatcher != null && exclusionMatcher.isPathExcluded(relPath.toString(), isDir)) {
-                    return true;
-                }
-                // Then check gitignore
-                return filteringService.isGitignored(relPath, isDir);
-            };
+        BiPredicate<Path, Boolean> ignoreChecker = (relPath, isDir) -> {
+            // Check exclusion patterns first
+            if (exclusionMatcher != null && exclusionMatcher.isPathExcluded(relPath.toString(), isDir)) {
+                return true;
+            }
+            // Then check gitignore
+            return filteringService.isGitignored(relPath, isDir);
+        };
 
-            return new EnvironmentPython(repoPath, ignoreChecker, EnvironmentPythonTest::allVersionsAvailable);
-        }
+        return new EnvironmentPython(repoPath, ignoreChecker, EnvironmentPythonTest::allVersionsAvailable);
     }
 
     @Test

@@ -13,7 +13,6 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BiPredicate;
 import java.util.function.Predicate;
 import java.util.regex.Matcher;
@@ -350,7 +349,7 @@ public class EnvironmentPython {
     /** Check if any Python source file imports distutils, respecting the injected ignore checker. */
     private boolean repoImportsDistutils() {
         final @Nullable BiPredicate<Path, Boolean> effectiveChecker = ignoreChecker;
-        var found = new AtomicBoolean(false);
+        var found = new boolean[] {false};
 
         try {
             Files.walkFileTree(projectRoot, new FileVisitor<Path>() {
@@ -413,7 +412,7 @@ public class EnvironmentPython {
                     String content = readFile(file);
                     if (content != null && DISTUTILS_PATTERN.matcher(content).find()) {
                         logger.debug("Found distutils import in: {}", relPath);
-                        found.set(true);
+                        found[0] = true;
                         return FileVisitResult.TERMINATE;
                     }
 
@@ -436,7 +435,7 @@ public class EnvironmentPython {
             return false;
         }
 
-        return found.get();
+        return found[0];
     }
 
     /** Parse a PEP 440 version spec like ">=3.8,<4", ">=3.6", or "~=3.6". */
