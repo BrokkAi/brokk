@@ -238,6 +238,16 @@ public final class WorktreeProject extends AbstractProject {
     }
 
     @Override
+    public boolean getPlanFirst() {
+        return parent.getPlanFirst();
+    }
+
+    @Override
+    public void setPlanFirst(boolean enabled) {
+        parent.setPlanFirst(enabled);
+    }
+
+    @Override
     public boolean getSearch() {
         return parent.getSearch();
     }

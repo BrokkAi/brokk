@@ -6,7 +6,6 @@ import static java.util.Objects.requireNonNull;
 
 import ai.brokk.IConsoleIO;
 import ai.brokk.Llm;
-import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.project.IProject;
@@ -478,7 +477,7 @@ public class BuildAgent {
                 Use the `excludedFilePatterns` parameter to specify patterns for files that add cost without value.
                 IMPORTANT pattern format rules:
                 - Only suggest patterns for files that ACTUALLY EXIST in this project
-                - For file extensions, use simple `*.ext` format (e.g., `*.svg`, *.png) - do NOT use `**/*.ext`
+                - For file extensions, use simple `*.ext` format (e.g., `*.svg`, `*.png`) - do NOT use `**/*.ext`
                 - For specific filenames, use the literal name (e.g., `package-lock.json`) - do NOT use `**/filename`
                 - Do NOT duplicate directories here - if a directory is in `excludedDirectories`, don't add it as a pattern
 
@@ -498,11 +497,9 @@ public class BuildAgent {
                         .formatted(
                                 wrapperScriptInstruction,
                                 currentExcludedDirectories,
-                                Optional.of(project.getAnalyzerLanguages().stream()
-                                                .filter(l -> l != Languages.NONE)
-                                                .map(Language::name)
-                                                .collect(Collectors.joining(", ")))
-                                        .filter(s -> !s.isEmpty())
+                                Optional.of(Languages.aggregate(project.getAnalyzerLanguages())
+                                                .name())
+                                        .filter(name -> !name.equalsIgnoreCase("None"))
                                         .orElse("unknown"))));
 
         // Add existing history

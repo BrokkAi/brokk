@@ -633,18 +633,7 @@ public class ContentDiffUtils {
         String revB = "HEAD";
 
         var project = new MainProject(Path.of(projectPath).toAbsolutePath());
-        var projectLangsSet = project.getAnalyzerLanguages().stream()
-                .filter(l -> l != Languages.NONE)
-                .collect(Collectors.toSet());
-
-        Language langHandle;
-        if (projectLangsSet.isEmpty()) {
-            langHandle = Languages.NONE;
-        } else if (projectLangsSet.size() == 1) {
-            langHandle = projectLangsSet.iterator().next();
-        } else {
-            langHandle = new Language.MultiLanguage(projectLangsSet);
-        }
+        Language langHandle = Languages.aggregate(project.getAnalyzerLanguages());
 
         var analyzer = langHandle.loadAnalyzer(project, (completed, total, phase) -> {});
         GitRepo repo = (GitRepo) project.getRepo();
