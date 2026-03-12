@@ -1597,16 +1597,9 @@ public class ContextFragments {
 
         private static ContentSnapshot decodeFrozen(String fullyQualifiedName, byte[] bytes, IAnalyzer analyzer) {
             String text = new String(bytes, StandardCharsets.UTF_8);
-            Set<CodeUnit> units = Set.of();
-            Set<ProjectFile> files = Set.of();
-            try {
-                var unit = analyzer.getDefinitions(fullyQualifiedName).stream()
-                        .findFirst()
-                        .orElseThrow();
-                units = Set.of(unit);
-                var file = unit.source();
-                files = Set.of(file);
-            } catch (Exception e) {
+            Set<CodeUnit> units = Set.copyOf(analyzer.getDefinitions(fullyQualifiedName));
+            Set<ProjectFile> files = units.stream().map(CodeUnit::source).collect(Collectors.toSet());
+            if (units.isEmpty()) {
                 logger.warn("Unable to resolve CodeUnit for fqName: {}", fullyQualifiedName);
             }
 
@@ -1633,40 +1626,46 @@ public class ContextFragments {
 
         private static ContentSnapshot computeSnapshotFor(
                 String fqName, IContextManager contextManager, @Nullable CodeUnit preResolvedUnit) {
-            CodeUnit unitOrNull = preResolvedUnit;
-            if (unitOrNull == null) {
-                var unitOpt = contextManager.getAnalyzerUninterrupted().getDefinitions(fqName).stream()
-                        .findFirst();
-                if (unitOpt.isEmpty()) {
-                    return new ContentSnapshot("", Set.of(), Set.of(), (byte[]) null, false);
-                }
-                unitOrNull = unitOpt.get();
-            }
-
-            final CodeUnit unit = unitOrNull;
-            String text;
             var analyzer = contextManager.getAnalyzerUninterrupted();
-            boolean hasSourceCode = false;
+            List<CodeUnit> units =
+                    preResolvedUnit != null ? List.of(preResolvedUnit) : List.copyOf(analyzer.getDefinitions(fqName));
 
-            var codeOpt = analyzer.getSource(unit, true);
-            if (codeOpt.isPresent()) {
-                text = new AnalyzerUtil.CodeWithSource(codeOpt.get(), unit).text(analyzer);
-                hasSourceCode = true;
-
-                Collection<String> imports = analyzer.as(ImportAnalysisProvider.class)
-                        .map(p -> (Collection<String>) p.relevantImportsFor(unit))
-                        .orElseGet(() -> analyzer.importStatementsOf(unit.source()));
-
-                if (!imports.isEmpty()) {
-                    List<String> orderedImports = new ArrayList<>(imports);
-                    Collections.sort(orderedImports);
-                    text = "<imports>\n" + String.join("\n", orderedImports) + "\n</imports>\n\n" + text;
-                }
-            } else {
-                text = "No source found for %s: %s".formatted(unit.isFunction() ? "method" : "class", fqName);
+            if (units.isEmpty()) {
+                return new ContentSnapshot("", Set.of(), Set.of(), (byte[]) null, false);
             }
 
-            return new ContentSnapshot(text, Set.of(unit), Set.of(unit.source()), (List<Byte>) null, hasSourceCode);
+            Set<String> allImports = new LinkedHashSet<>();
+            List<String> textBlocks = new ArrayList<>();
+            boolean hasAnySourceCode = false;
+
+            for (CodeUnit unit : units) {
+                var codeOpt = analyzer.getSource(unit, true);
+                if (codeOpt.isPresent()) {
+                    textBlocks.add(new AnalyzerUtil.CodeWithSource(codeOpt.get(), unit).text(analyzer));
+                    hasAnySourceCode = true;
+
+                    analyzer.as(ImportAnalysisProvider.class)
+                            .map(p -> (Collection<String>) p.relevantImportsFor(unit))
+                            .orElseGet(() -> analyzer.importStatementsOf(unit.source()))
+                            .forEach(allImports::add);
+                } else {
+                    textBlocks.add("No source found for %s: %s"
+                            .formatted(unit.isFunction() ? "method" : "class", unit.fqName()));
+                }
+            }
+
+            String body = String.join("\n\n", textBlocks);
+            String text;
+            if (!allImports.isEmpty()) {
+                List<String> orderedImports = new ArrayList<>(allImports);
+                Collections.sort(orderedImports);
+                text = "<imports>\n" + String.join("\n", orderedImports) + "\n</imports>\n\n" + body;
+            } else {
+                text = body;
+            }
+
+            Set<ProjectFile> files = units.stream().map(CodeUnit::source).collect(Collectors.toSet());
+            return new ContentSnapshot(text, Set.copyOf(units), files, (List<Byte>) null, hasAnySourceCode);
         }
 
         @Override
@@ -1678,7 +1677,7 @@ public class ContextFragments {
         @Blocking
         public Set<ContextFragment> supportingFragments() {
             IAnalyzer analyzer = contextManager.getAnalyzerUninterrupted();
-            return resolveAncestorFragments(analyzer.getDefinitions(fullyQualifiedName), contextManager);
+            return resolveAncestorFragments(List.copyOf(analyzer.getDefinitions(fullyQualifiedName)), contextManager);
         }
     }
 
