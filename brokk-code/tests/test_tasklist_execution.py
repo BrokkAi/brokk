@@ -213,12 +213,27 @@ async def test_run_selected_task_does_not_mark_done_on_failure(tmp_path: Path) -
     "executor_ready, job_in_progress, selected_task, expected_message_fragment",
     [
         pytest.param(True, False, None, "No task selected", id="no_task_selected"),
-        pytest.param(True, True, {"id": "1", "title": "T", "text": "T", "done": False},
-                     "already in progress", id="job_in_progress"),
-        pytest.param(False, False, {"id": "1", "title": "T", "text": "T", "done": False},
-                     "not ready", id="executor_not_ready"),
-        pytest.param(True, False, {"id": "1", "title": "T", "text": "T", "done": True},
-                     "already done", id="task_already_done"),
+        pytest.param(
+            True,
+            True,
+            {"id": "1", "title": "T", "text": "T", "done": False},
+            "already in progress",
+            id="job_in_progress",
+        ),
+        pytest.param(
+            False,
+            False,
+            {"id": "1", "title": "T", "text": "T", "done": False},
+            "not ready",
+            id="executor_not_ready",
+        ),
+        pytest.param(
+            True,
+            False,
+            {"id": "1", "title": "T", "text": "T", "done": True},
+            "already done",
+            id="task_already_done",
+        ),
     ],
 )
 def test_action_task_run_guard_conditions(

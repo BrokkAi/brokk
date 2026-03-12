@@ -2871,7 +2871,8 @@ class BrokkApp(App):
                                     )
                             elif chat:
                                 chat.add_system_message(
-                                    f"Task '{display_name}' disappeared and could not be marked done.",
+                                    f"Task '{display_name}' disappeared;"
+                                    " could not be marked done.",
                                     level="WARNING",
                                 )
                     except Exception as e:
