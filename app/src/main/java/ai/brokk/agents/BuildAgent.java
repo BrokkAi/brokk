@@ -6,6 +6,7 @@ import static java.util.Objects.requireNonNull;
 
 import ai.brokk.IConsoleIO;
 import ai.brokk.Llm;
+import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.project.IProject;
@@ -396,6 +397,15 @@ public class BuildAgent {
         }
 
         // System Prompt
+        String languageNames = project.getAnalyzerLanguages().stream()
+                .filter(l -> l != Languages.NONE)
+                .map(Language::name)
+                .collect(Collectors.joining(", "));
+
+        if (languageNames.isBlank()) {
+            languageNames = "unknown";
+        }
+
         messages.add(new SystemMessage(
                 """
                 You are an agent tasked with finding build information for the *development* environment of a software project.
@@ -489,15 +499,12 @@ public class BuildAgent {
 
                 Do NOT exclude: configuration files, type definitions (*.d.ts, ddl files, etc), schema files (OpenAPI, GraphQL, Protobuf sources, etc), or test code.
 
-                This project's primary language is %s. Consider language-specific exclusions that are appropriate.
+                This project's languages are %s. Consider language-specific exclusions that are appropriate.
 
                 Remember to request the `reportBuildDetails` tool to finalize the process ONLY once all information is collected.
                 The reportBuildDetails tool expects exactly five parameters: buildLintCommand, testAllCommand, testSomeCommand, excludedDirectories, and excludedFilePatterns.
                 """
-                        .formatted(
-                                wrapperScriptInstruction,
-                                currentExcludedDirectories,
-                                project.getBuildLanguage().name())));
+                        .formatted(wrapperScriptInstruction, currentExcludedDirectories, languageNames)));
 
         // Add existing history
         messages.addAll(chatHistory);
@@ -1002,8 +1009,7 @@ public class BuildAgent {
      * - Otherwise: no defaults
      */
     private Map<String, String> defaultEnvForProject() {
-        var lang = project.getBuildLanguage();
-        if (lang == Languages.PYTHON) {
+        if (project.getAnalyzerLanguages().contains(Languages.PYTHON)) {
             return Map.of("VIRTUAL_ENV", ".venv");
         }
         return Map.of();

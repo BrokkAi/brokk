@@ -329,13 +329,9 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
      */
     private IAnalyzer loadOrCreateAnalyzer() {
         /* ── 0.  Decide which languages we are dealing with ─────────────────────────── */
-        Language langHandle = project.getLanguageHandle();
-        var projectLangs = project.getAnalyzerLanguages().stream()
-                .filter(l -> l != Languages.NONE)
-                .map(Language::name)
-                .collect(Collectors.toList());
-        logger.info("Setting up analyzer for languages: {} in directory: {}", projectLangs, project.getRoot());
-        logger.debug("Loading/creating analyzer for languages: {}", langHandle);
+        Set<Language> projectLangsSet = project.getAnalyzerLanguages();
+        Language langHandle = Languages.aggregate(projectLangsSet);
+
         if (langHandle == Languages.NONE) {
             logger.info("No languages configured, using disabled analyzer for: {}", project.getRoot());
             logger.debug("Analyzer became ready (Disabled), notifying listeners");
@@ -343,6 +339,9 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
             listener.afterEachBuild(false);
             return new DisabledAnalyzer(project);
         }
+
+        logger.info("Setting up analyzer for languages: {} in directory: {}", langHandle.name(), project.getRoot());
+        logger.debug("Loading/creating analyzer for languages: {}", langHandle);
 
         /* ── 1.  Pre‑flight notifications & build details ───────────────────────────── */
         listener.beforeEachBuild();

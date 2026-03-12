@@ -11,6 +11,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import java.util.stream.Collectors;
 import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
@@ -468,6 +469,26 @@ public class Languages {
 
     public static final List<Language> ALL_LANGUAGES =
             List.of(C_SHARP, JAVA, JAVASCRIPT, PYTHON, C_CPP, GO, RUST, PHP, TYPESCRIPT, SCALA, SQL, NONE);
+
+    /**
+     * Aggregates a set of languages into a single Language handle.
+     * Handles empty, single-element, and multi-element sets appropriately.
+     *
+     * @param languages The set of languages to aggregate.
+     * @return A single Language handle (NONE, a concrete language, or a MultiLanguage wrapper).
+     */
+    public static Language aggregate(Set<Language> languages) {
+        Set<Language> filtered =
+                languages.stream().filter(l -> l != Languages.NONE).collect(Collectors.toSet());
+
+        if (filtered.isEmpty()) {
+            return Languages.NONE;
+        }
+        if (filtered.size() == 1) {
+            return filtered.iterator().next();
+        }
+        return new Language.MultiLanguage(filtered);
+    }
 
     public static boolean isJvmLanguage(@Nullable Language language) {
         if (language == null || language == NONE) return false;

@@ -30,7 +30,6 @@ import org.jetbrains.annotations.Nullable;
 /** Lightweight IProject implementation for unit-testing Tree-sitter analyzers. */
 public class TestProject implements IProject {
     private final Path root;
-    private Language language = Languages.NONE;
 
     private long runCommandTimeoutSeconds = Environment.DEFAULT_TIMEOUT.toSeconds();
     private long testCommandTimeoutSeconds = Environment.DEFAULT_TIMEOUT.toSeconds();
@@ -64,7 +63,9 @@ public class TestProject implements IProject {
         assertTrue(Files.exists(root), "TestProject root does not exist: " + root);
         assertTrue(Files.isDirectory(root), "TestProject root is not a directory: " + root);
         this.root = root;
-        this.language = language;
+        if (language != Languages.NONE) {
+            this.analyzerLanguages = Set.of(language);
+        }
     }
 
     public void setBuildDetails(BuildAgent.BuildDetails buildDetails) {
@@ -245,24 +246,12 @@ public class TestProject implements IProject {
 
     @Override
     public Set<Language> getAnalyzerLanguages() {
-        return analyzerLanguages.isEmpty() ? Set.of(language) : analyzerLanguages;
+        return analyzerLanguages.isEmpty() ? Set.of(Languages.NONE) : analyzerLanguages;
     }
 
     @Override
     public void setAnalyzerLanguages(Set<Language> languages) {
         this.analyzerLanguages = Set.copyOf(languages);
-    }
-
-    private Language buildLanguage = Languages.NONE;
-
-    @Override
-    public Language getBuildLanguage() {
-        return buildLanguage;
-    }
-
-    @Override
-    public void setBuildLanguage(@Nullable Language language) {
-        this.buildLanguage = language != null ? language : Languages.NONE;
     }
 
     @Override
