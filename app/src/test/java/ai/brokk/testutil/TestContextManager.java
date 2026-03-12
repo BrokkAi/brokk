@@ -22,8 +22,8 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicReference;
 import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
@@ -202,11 +202,15 @@ public final class TestContextManager implements IContextManager {
                 liveContext(), new ai.brokk.TaskResult.StopDetails(ai.brokk.TaskResult.StopReason.SUCCESS));
     }
 
-    private final ExecutorService backgroundTasks = Executors.newCachedThreadPool();
-
     @Override
     public ExecutorService getBackgroundTasks() {
-        return backgroundTasks;
+        return project.getBackgroundExecutor();
+    }
+
+    @Override
+    public CompletableFuture<Void> submitAnalyzerTask(String taskDescription, Runnable task) {
+        // For tests, run analyzer tasks on the same executor as background tasks
+        return submitBackgroundTask(taskDescription, task);
     }
 
     @Override

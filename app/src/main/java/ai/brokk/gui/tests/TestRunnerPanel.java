@@ -548,7 +548,7 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
         beginRun(fileCount, command, Instant.now());
         var project = chrome.getProject();
         var cm = chrome.getContextManager();
-        cm.submitBackgroundTask("Running tests", () -> {
+        cm.submitAnalyzerTask("Running tests", () -> {
             int exitCode = -1;
             try {
                 ShellConfig execCfg = project.getShellConfig();
@@ -586,7 +586,6 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
                     stopButton.setBackground(UIManager.getColor("Button.background"));
                 });
             }
-            return null;
         });
     }
 

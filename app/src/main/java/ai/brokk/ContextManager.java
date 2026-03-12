@@ -145,19 +145,15 @@ public class ContextManager implements IContextManager, AutoCloseable {
             new LinkedBlockingQueue<>(), // Unbounded queue
             ExecutorsUtil.createNamedThreadFactory("ContextTask")));
 
-    // Internal background tasks (unrelated to user actions)
-    // Lots of threads allowed since AutoContext updates get dropped here
-    // Use unbounded queue to prevent task rejection
-    private final LoggingExecutorService backgroundTasks = createLoggingExecutorService(new ThreadPoolExecutor(
-            max(8, Runtime.getRuntime().availableProcessors()), // Core and Max are same
+    // Analyzer/session-local executor for work that must stay with this session's lifecycle
+    // (e.g., analyzer callbacks, test runs that update session state)
+    private final LoggingExecutorService analyzerLocalExecutor = createLoggingExecutorService(new ThreadPoolExecutor(
+            4,
             max(8, Runtime.getRuntime().availableProcessors()),
             60L,
             TimeUnit.SECONDS,
-            new LinkedBlockingQueue<>(), // Unbounded queue to prevent rejection
-            ExecutorsUtil.createNamedThreadFactory("BackgroundTask")));
-
-    private final LoggingExecutorService historyCompressionExecutor =
-            ExecutorsUtil.newFixedThreadExecutor("HistoryCompress-", 5);
+            new LinkedBlockingQueue<>(),
+            ExecutorsUtil.createNamedThreadFactory("AnalyzerLocal")));
 
     private final LoggingExecutorService syncExecutor = createLoggingExecutorService(
             Executors.newSingleThreadExecutor(ExecutorsUtil.createNamedThreadFactory("SessionSync")));
@@ -208,9 +204,33 @@ public class ContextManager implements IContextManager, AutoCloseable {
     @SuppressWarnings("NullAway.Init")
     private AbstractWatchService watchService;
 
+    /**
+     * Returns the shared app-scoped background executor for general background work.
+     * This executor is owned by the project and survives session switches.
+     * Use {@link #submitAnalyzerTask} for analyzer/session-local work instead.
+     */
     @Override
     public ExecutorService getBackgroundTasks() {
-        return backgroundTasks;
+        return project.getBackgroundExecutor();
+    }
+
+    /**
+     * Submits a task to the analyzer/session-local executor. Use this for work that:
+     * - Is tied to the current analyzer lifecycle (callbacks, rebuilds)
+     * - Should not outlive the current ContextManager session
+     * - Includes test runs that update session-specific state
+     *
+     * @param taskDescription a description of the task for logging
+     * @param task the task to execute
+     * @return a CompletableFuture representing pending completion
+     */
+    @Override
+    public CompletableFuture<Void> submitAnalyzerTask(String taskDescription, Runnable task) {
+        return analyzerLocalExecutor.submit(() -> {
+            logger.debug("Analyzer task starting: {}", taskDescription);
+            task.run();
+            return null;
+        });
     }
 
     @Override
@@ -288,7 +308,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         this.userActions = new UserActionManager(this.io);
 
         // Begin monitoring for excessive memory usage
-        this.lowMemoryWatcherManager = new LowMemoryWatcherManager(this.backgroundTasks);
+        this.lowMemoryWatcherManager = new LowMemoryWatcherManager(getBackgroundTasks());
         this.lowMemoryWatcherManager.registerWithStrongReference(
                 () -> LowMemoryWatcherManager.LowMemoryWarningManager.alertUser(this.io),
                 LowMemoryWatcher.LowMemoryWatcherType.ONLY_AFTER_GC);
@@ -465,13 +485,13 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
                 // Notify analyzer callbacks
                 for (var callback : analyzerCallbacks) {
-                    submitBackgroundTask("Code Intelligence pre-build", callback::beforeEachBuild);
+                    submitAnalyzerTask("Code Intelligence pre-build", callback::beforeEachBuild);
                 }
             }
 
             @Override
             public void afterEachBuild(boolean externalRequest) {
-                submitBackgroundTask("Code Intelligence post-build", () -> {
+                submitAnalyzerTask("Code Intelligence post-build", () -> {
                     if (io instanceof Chrome chrome) {
                         chrome.hideAnalyzerRebuildStatus();
                     }
@@ -499,10 +519,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
                         chrome.notifyActionComplete("Analyzer rebuild completed");
                     }
 
-                    // Notify analyzer callbacks
+                    // Notify analyzer callbacks on the analyzer-local executor
                     for (var callback : analyzerCallbacks) {
-                        submitBackgroundTask(
-                                "Code Intelligence post-build", () -> callback.afterEachBuild(externalRequest));
+                        submitAnalyzerTask(
+                                "Code Intelligence post-build callback",
+                                () -> callback.afterEachBuild(externalRequest));
                     }
                 });
             }
@@ -511,7 +532,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             public void onAnalyzerReady() {
                 logger.debug("Analyzer became ready, triggering symbol lookup refresh");
                 for (var callback : analyzerCallbacks) {
-                    submitBackgroundTask("Code Intelligence ready", callback::onAnalyzerReady);
+                    submitAnalyzerTask("Code Intelligence ready", callback::onAnalyzerReady);
                 }
             }
 
@@ -578,9 +599,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
         project.getRepo().invalidateCaches();
         io.updateGitRepo();
 
-        // Notify analyzer callbacks
+        // Notify analyzer callbacks on the analyzer-local executor
         for (var callback : analyzerCallbacks) {
-            submitBackgroundTask("Update for Git changes", callback::onRepoChange);
+            submitAnalyzerTask("Update for Git changes", callback::onRepoChange);
         }
     }
 
@@ -610,7 +631,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * @param changedFiles Set of files that changed (may be empty for backward compatibility)
      */
     void handleTrackedFileChange(Set<ProjectFile> changedFiles) {
-        submitBackgroundTask("Update for FS changes", () -> {
+        submitAnalyzerTask("Update for FS changes", () -> {
             // Invalidate caches
             project.getRepo().invalidateCaches();
             project.invalidateAllFiles();
@@ -637,16 +658,16 @@ public class ContextManager implements IContextManager, AutoCloseable {
             }
         });
 
-        // Notify analyzer callbacks - they determine their own filtering
+        // Notify analyzer callbacks on the analyzer-local executor
         for (var callback : analyzerCallbacks) {
-            submitBackgroundTask("Update for FS changes", callback::onTrackedFileChange);
+            submitAnalyzerTask("Update for FS changes callback", callback::onTrackedFileChange);
         }
     }
 
     @Override
     public void notifyLiveDependenciesChanged() {
         for (var callback : analyzerCallbacks) {
-            submitBackgroundTask("Update for dependency changes", callback::onLiveDependenciesChanged);
+            submitAnalyzerTask("Update for dependency changes", callback::onLiveDependenciesChanged);
         }
     }
 
@@ -1375,17 +1396,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
         var syncExecutorFuture = syncExecutor.shutdownAndAwait(awaitMillis, "syncExecutor");
         var contextActionFuture = contextActionExecutor.shutdownAndAwait(awaitMillis, "contextActionExecutor");
-        var backgroundFuture = backgroundTasks.shutdownAndAwait(awaitMillis, "backgroundTasks");
+        var analyzerLocalFuture = analyzerLocalExecutor.shutdownAndAwait(awaitMillis, "analyzerLocalExecutor");
         var userActionsFuture = userActions.shutdownAndAwait(awaitMillis);
-        var historyCompressionFuture =
-                historyCompressionExecutor.shutdownAndAwait(awaitMillis, "historyCompressionExecutor");
 
-        return CompletableFuture.allOf(
-                        contextActionFuture,
-                        backgroundFuture,
-                        userActionsFuture,
-                        syncExecutorFuture,
-                        historyCompressionFuture)
+        return CompletableFuture.allOf(contextActionFuture, analyzerLocalFuture, userActionsFuture, syncExecutorFuture)
                 .whenComplete((v, t) -> project.close());
     }
 
@@ -1876,29 +1890,32 @@ public class ContextManager implements IContextManager, AutoCloseable {
     @Override
     public <T> CompletableFuture<T> submitBackgroundTask(String taskDescription, Callable<T> task) {
         taskDescriptions.put(task, taskDescription);
-        return backgroundTasks.submit(() -> {
-            try {
-                io.backgroundOutput(taskDescription);
-                return task.call();
-            } finally {
-                // Remove this task from the map
-                taskDescriptions.remove(task);
-                int remaining = taskDescriptions.size();
-                SwingUtilities.invokeLater(() -> {
-                    if (remaining <= 0) {
-                        io.backgroundOutput("");
-                    } else if (remaining == 1) {
-                        // Find the last remaining task description. If there's a race just end the spin
-                        var lastTaskDescription =
-                                taskDescriptions.values().stream().findFirst().orElse("");
-                        io.backgroundOutput(lastTaskDescription);
-                    } else {
-                        io.backgroundOutput(
-                                "Tasks running: " + remaining, String.join("\n", taskDescriptions.values()));
+        return LoggingFuture.supplyCallableAsync(
+                () -> {
+                    try {
+                        io.backgroundOutput(taskDescription);
+                        return task.call();
+                    } finally {
+                        // Remove this task from the map
+                        taskDescriptions.remove(task);
+                        int remaining = taskDescriptions.size();
+                        SwingUtilities.invokeLater(() -> {
+                            if (remaining <= 0) {
+                                io.backgroundOutput("");
+                            } else if (remaining == 1) {
+                                // Find the last remaining task description. If there's a race just end the spin
+                                var lastTaskDescription = taskDescriptions.values().stream()
+                                        .findFirst()
+                                        .orElse("");
+                                io.backgroundOutput(lastTaskDescription);
+                            } else {
+                                io.backgroundOutput(
+                                        "Tasks running: " + remaining, String.join("\n", taskDescriptions.values()));
+                            }
+                        });
                     }
-                });
-            }
-        });
+                },
+                getBackgroundTasks());
     }
 
     /**
@@ -2448,7 +2465,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      */
     public CompletableFuture<ContextHistory> loadSessionHistoryAsync(UUID sessionId) {
         return LoggingFuture.supplyAsync(
-                () -> project.getSessionManager().loadHistory(sessionId, this), backgroundTasks);
+                () -> project.getSessionManager().loadHistory(sessionId, this), getBackgroundTasks());
     }
 
     /**
@@ -2886,10 +2903,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
         io.disableHistoryPanel();
         var taskHistory = ctx.getTaskHistory();
 
+        // Use the shared project executor for compression work (not session-critical)
+        var backgroundExecutor = project.getBackgroundExecutor();
         var compressionFutures = taskHistory.stream()
                 .map(taskEntry -> {
-                    return LoggingFuture.supplyCallableAsync(
-                                    () -> compressHistory(taskEntry), historyCompressionExecutor)
+                    return LoggingFuture.supplyCallableAsync(() -> compressHistory(taskEntry), backgroundExecutor)
                             .exceptionally(th -> {
                                 logger.warn("History compression task failed", th);
                                 return taskEntry;

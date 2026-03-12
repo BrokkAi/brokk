@@ -268,6 +268,23 @@ public interface IContextManager {
         });
     }
 
+    /**
+     * Submits a task to the analyzer/session-local executor. Use this for work that:
+     * - Is tied to the current analyzer lifecycle (callbacks, rebuilds)
+     * - Should not outlive the current ContextManager session
+     * - Includes test runs that update session-specific state
+     *
+     * <p>The default implementation delegates to {@link #submitBackgroundTask} for
+     * implementations that don't distinguish between app-scoped and session-local work.
+     *
+     * @param taskDescription a description of the task for logging
+     * @param task the task to execute
+     * @return a CompletableFuture representing pending completion
+     */
+    default CompletableFuture<Void> submitAnalyzerTask(String taskDescription, Runnable task) {
+        return submitBackgroundTask(taskDescription, task);
+    }
+
     default Set<ProjectFile> getTestFiles() {
         Set<ProjectFile> allFiles = getRepo().getTrackedFiles();
         var analyzer = getAnalyzerWrapper().getNonBlocking();
