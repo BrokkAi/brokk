@@ -1649,8 +1649,7 @@ public class ContextFragments {
                             .orElseGet(() -> analyzer.importStatementsOf(unit.source()))
                             .forEach(allImports::add);
                 } else {
-                    textBlocks.add("No source found for %s: %s"
-                            .formatted(unit.isFunction() ? "method" : "class", unit.fqName()));
+                    textBlocks.add("No source found for %s: %s".formatted(unit.kind(), unit.fqName()));
                 }
             }
 
