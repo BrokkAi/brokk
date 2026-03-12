@@ -203,3 +203,38 @@ async def test_relaunch_sequencing_restores_before_ready_poll(tmp_path):
     # Filter call_log to just these three so unrelated calls don't break the test
     relevant_calls = [c for c in call_log if c in expected_sequence]
     assert relevant_calls == expected_sequence, f"Incorrect relaunch sequence: {relevant_calls}"
+
+
+@pytest.mark.asyncio
+async def test_concurrent_relaunch_short_circuits(tmp_path):
+    """Verify that overlapping relaunch calls short-circuit to avoid interleaving."""
+    fake = RelaunchFakeExecutor(tmp_path)
+    app = BrokkApp(executor=fake, workspace_dir=tmp_path)
+    app._executor_ready = True
+
+    mock_chat = MagicMock()
+    app.query_one = MagicMock(return_value=mock_chat)
+
+    # Delay the first relaunch to ensure the second one hits the lock
+    original_stop = fake.stop
+
+    async def delayed_stop():
+        await asyncio.sleep(0.1)
+        await original_stop()
+
+    fake.stop = delayed_stop
+
+    # Trigger two relaunches concurrently
+    await asyncio.gather(
+        app._relaunch_executor(),
+        app._relaunch_executor(),
+    )
+
+    # Assertions
+    # Only one relaunch should have actually run
+    assert fake.stop_calls == 1
+    assert fake.start_calls == 1
+
+    # Verify short-circuit message was shown
+    calls = [args[0] for args, kwargs in mock_chat.add_system_message.call_args_list]
+    assert any("already in progress" in m for m in calls)
