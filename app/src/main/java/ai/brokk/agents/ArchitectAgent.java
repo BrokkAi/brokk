@@ -63,7 +63,7 @@ import org.jetbrains.annotations.Nullable;
 public class ArchitectAgent {
     private static final Logger logger = LogManager.getLogger(ArchitectAgent.class);
     private static final int MAX_TURNS = 10;
-    static final String ARCHITECT_METRICS_PREFIX = "BRK_ARCHITECT_METRICS=";
+    static final String ARCHITECT_METRICS_PREFIX = "\nBRK_ARCHITECT_METRICS=";
     private static final String DEFAULT_CODE_AGENT_METRICS_TRIGGER = "callCodeAgent";
     private static final String INITIAL_CODE_AGENT_METRICS_TRIGGER = "initial_code_agent_attempt";
 
