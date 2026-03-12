@@ -81,7 +81,7 @@ public class BuildTools {
             String cmd = System.getenv("BRK_TESTALL_CMD") != null
                     ? System.getenv("BRK_TESTALL_CMD")
                     : details.testAllCommand();
-            return interpolateCommandWithPythonVersion(cmd, project.getRoot(), project);
+            return interpolateCommandWithPythonVersion(cmd, project);
         }
 
         if (testFilesOverride != null && !testFilesOverride.isEmpty()) {
@@ -105,7 +105,7 @@ public class BuildTools {
                 .toList();
 
         if (workspaceTestFiles.isEmpty()) {
-            return interpolateCommandWithPythonVersion(details.buildLintCommand(), project.getRoot(), project);
+            return interpolateCommandWithPythonVersion(details.buildLintCommand(), project);
         }
 
         return getBuildLintSomeCommand(cm, details, workspaceTestFiles);
@@ -141,7 +141,7 @@ public class BuildTools {
         final Path projectRoot = project.getRoot();
         var pythonVersion = pythonVersionOverride != null
                 ? Optional.of(pythonVersionOverride)
-                : getPythonVersionForProject(projectRoot, project);
+                : getPythonVersionForProject(project);
 
         IAnalyzer analyzer = cm.getAnalyzer();
         Map<String, Object> context = new HashMap<>();
@@ -194,22 +194,58 @@ public class BuildTools {
         return result;
     }
 
-    private static Optional<String> getPythonVersionForProject(Path projectRoot, IProject project) {
-        return getPythonVersionForProject(projectRoot, project, null);
+    private static Optional<String> getPythonVersionForProject(IProject project) {
+        return getPythonVersionForProject(project, null);
     }
 
     static Optional<String> getPythonVersionForProject(
-            Path projectRoot,
-            IProject project,
-            @Nullable java.util.function.Predicate<String> pythonExecutableChecker) {
+            IProject project, @Nullable java.util.function.Predicate<String> pythonExecutableChecker) {
         if (!project.getAnalyzerLanguages().contains(Languages.PYTHON)) {
             return Optional.empty();
         }
+
+        Path projectRoot = project.getRoot();
+
+        // Build a combined ignore checker: project exclusions + gitignore (if available)
+        var exclusionMatcher = FileFilteringService.createPatternMatcher(project.getExclusionPatterns());
+        @Nullable FileFilteringService gitFilteringService = null;
+
+        if (project.hasGit()) {
+            try {
+                var repo = project.getRepo();
+                if (repo != null) {
+                    gitFilteringService = new FileFilteringService(projectRoot, repo);
+                }
+            } catch (Exception e) {
+                logger.debug("Could not initialize git-aware filtering for Python version detection", e);
+            }
+        }
+
+        // Create a combined predicate for EnvironmentPython
+        final @Nullable FileFilteringService effectiveGitFilter = gitFilteringService;
+        final var effectiveExclusionMatcher = exclusionMatcher.isEmpty() ? null : exclusionMatcher;
+
+        @Nullable java.util.function.BiPredicate<Path, Boolean> ignoreChecker = null;
+        if (effectiveExclusionMatcher != null || effectiveGitFilter != null) {
+            ignoreChecker = (relPath, isDirectory) -> {
+                String relPathStr = relPath.toString();
+                // Check project-level exclusions first
+                if (effectiveExclusionMatcher != null
+                        && effectiveExclusionMatcher.isPathExcluded(relPathStr, isDirectory)) {
+                    return true;
+                }
+                // Check gitignore
+                if (effectiveGitFilter != null && effectiveGitFilter.isGitignored(relPath, isDirectory)) {
+                    return true;
+                }
+                return false;
+            };
+        }
+
         try {
-            var matcher = FileFilteringService.createPatternMatcher(project.getExclusionPatterns());
             var env = pythonExecutableChecker != null
-                    ? new EnvironmentPython(projectRoot, matcher.isEmpty() ? null : matcher, pythonExecutableChecker)
-                    : new EnvironmentPython(projectRoot, matcher.isEmpty() ? null : matcher);
+                    ? new EnvironmentPython(projectRoot, ignoreChecker, pythonExecutableChecker)
+                    : new EnvironmentPython(projectRoot, ignoreChecker);
             return Optional.of(env.getPythonVersion());
         } catch (Exception e) {
             logger.debug("Unable to determine Python version for project", e);
@@ -217,10 +253,10 @@ public class BuildTools {
         }
     }
 
-    private static String interpolateCommandWithPythonVersion(String command, Path projectRoot, IProject project) {
+    private static String interpolateCommandWithPythonVersion(String command, IProject project) {
         if (command.isEmpty()) return command;
         if (System.getenv("BRK_TESTALL_CMD") != null) command = System.getenv("BRK_TESTALL_CMD");
-        var pythonVersion = getPythonVersionForProject(projectRoot, project).orElse(null);
+        var pythonVersion = getPythonVersionForProject(project).orElse(null);
         return interpolateMustacheTemplate(command, List.of(), "unused", pythonVersion);
     }
 

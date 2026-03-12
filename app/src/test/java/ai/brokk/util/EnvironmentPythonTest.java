@@ -2,11 +2,14 @@ package ai.brokk.util;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import ai.brokk.git.GitRepo;
 import ai.brokk.project.FileFilteringService;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Set;
+import java.util.function.BiPredicate;
 import org.eclipse.jgit.api.Git;
+import org.jetbrains.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -29,12 +32,44 @@ public class EnvironmentPythonTest {
         return true;
     }
 
+    /** Create EnvironmentPython with no ignore checker (fallback mode). */
     private EnvironmentPython createTestEnvPython(Path projectRoot) {
         return new EnvironmentPython(projectRoot, null, EnvironmentPythonTest::allVersionsAvailable);
     }
 
-    private EnvironmentPython createTestEnvPython(Path projectRoot, FileFilteringService.FilePatternMatcher matcher) {
-        return new EnvironmentPython(projectRoot, matcher, EnvironmentPythonTest::allVersionsAvailable);
+    /** Create EnvironmentPython with an ignore checker from a FilePatternMatcher (exclusion patterns only). */
+    private EnvironmentPython createTestEnvPythonWithExclusions(
+            Path projectRoot, FileFilteringService.FilePatternMatcher matcher) {
+        if (matcher.isEmpty()) {
+            return createTestEnvPython(projectRoot);
+        }
+        BiPredicate<Path, Boolean> ignoreChecker =
+                (relPath, isDir) -> matcher.isPathExcluded(relPath.toString(), isDir);
+        return new EnvironmentPython(projectRoot, ignoreChecker, EnvironmentPythonTest::allVersionsAvailable);
+    }
+
+    /** Create EnvironmentPython with git-aware filtering for a repo path. */
+    private EnvironmentPython createTestEnvPythonWithGitFiltering(Path repoPath) {
+        return createTestEnvPythonWithGitFiltering(repoPath, null);
+    }
+
+    /** Create EnvironmentPython with git-aware filtering and optional exclusion patterns. */
+    private EnvironmentPython createTestEnvPythonWithGitFiltering(
+            Path repoPath, @Nullable FileFilteringService.FilePatternMatcher exclusionMatcher) {
+        try (GitRepo gitRepo = new GitRepo(repoPath)) {
+            FileFilteringService filteringService = new FileFilteringService(repoPath, gitRepo);
+
+            BiPredicate<Path, Boolean> ignoreChecker = (relPath, isDir) -> {
+                // Check exclusion patterns first
+                if (exclusionMatcher != null && exclusionMatcher.isPathExcluded(relPath.toString(), isDir)) {
+                    return true;
+                }
+                // Then check gitignore
+                return filteringService.isGitignored(relPath, isDir);
+            };
+
+            return new EnvironmentPython(repoPath, ignoreChecker, EnvironmentPythonTest::allVersionsAvailable);
+        }
     }
 
     @Test
@@ -55,7 +90,8 @@ public class EnvironmentPythonTest {
                     .call();
         }
 
-        var version = createTestEnvPython(repoPath).getPythonVersion();
+        // Use git-aware filtering to verify tracked files are scanned
+        var version = createTestEnvPythonWithGitFiltering(repoPath).getPythonVersion();
         assertEquals(CAPPED_VERSION, version, "Tracked distutils import should cap version at 3.11");
     }
 
@@ -103,7 +139,8 @@ public class EnvironmentPythonTest {
                     .call();
         }
 
-        var version = createTestEnvPython(repoPath).getPythonVersion();
+        // Use git-aware filtering to verify negation patterns work
+        var version = createTestEnvPythonWithGitFiltering(repoPath).getPythonVersion();
         // important.py is un-ignored via negation, so distutils is detected
         assertEquals(CAPPED_VERSION, version, "Gitignore negation should allow distutils detection");
     }
@@ -137,7 +174,7 @@ public class EnvironmentPythonTest {
         Files.writeString(srcDir.resolve("main.py"), "print('hello')\n");
 
         var matcher = FileFilteringService.createPatternMatcher(Set.of("legacy_scripts"));
-        var version = createTestEnvPython(projectPath, matcher).getPythonVersion();
+        var version = createTestEnvPythonWithExclusions(projectPath, matcher).getPythonVersion();
         assertEquals(UNCAPPED_VERSION, version, "Distutils in excluded directory should not cap version");
     }
 
@@ -152,7 +189,7 @@ public class EnvironmentPythonTest {
         Files.writeString(srcDir.resolve("main.py"), "print('hello')\n");
 
         var matcher = FileFilteringService.createPatternMatcher(Set.of("*_setup.py"));
-        var version = createTestEnvPython(projectPath, matcher).getPythonVersion();
+        var version = createTestEnvPythonWithExclusions(projectPath, matcher).getPythonVersion();
         assertEquals(UNCAPPED_VERSION, version, "Distutils in excluded file pattern should not cap version");
     }
 
@@ -170,7 +207,7 @@ public class EnvironmentPythonTest {
         Files.writeString(excludedDir.resolve("other.py"), "print('vendor')\n");
 
         var matcher = FileFilteringService.createPatternMatcher(Set.of("vendor"));
-        var version = createTestEnvPython(projectPath, matcher).getPythonVersion();
+        var version = createTestEnvPythonWithExclusions(projectPath, matcher).getPythonVersion();
         assertEquals(CAPPED_VERSION, version, "Non-excluded distutils should still cap version");
     }
 
@@ -184,7 +221,7 @@ public class EnvironmentPythonTest {
         Files.writeString(srcDir.resolve("setup_helper.py"), "from distutils.core import setup\n");
 
         var matcher = FileFilteringService.createPatternMatcher(Set.of());
-        var version = createTestEnvPython(projectPath, matcher).getPythonVersion();
+        var version = createTestEnvPythonWithExclusions(projectPath, matcher).getPythonVersion();
         assertEquals(CAPPED_VERSION, version, "Empty exclusion patterns should not change capping behavior");
     }
 
@@ -217,8 +254,9 @@ public class EnvironmentPythonTest {
                     .call();
         }
 
+        // Use git-aware filtering combined with exclusion patterns
         var matcher = FileFilteringService.createPatternMatcher(Set.of("vendor"));
-        var version = createTestEnvPython(repoPath, matcher).getPythonVersion();
+        var version = createTestEnvPythonWithGitFiltering(repoPath, matcher).getPythonVersion();
         assertEquals(UNCAPPED_VERSION, version, "Gitignore + project exclusion should skip all distutils");
     }
 
@@ -227,7 +265,7 @@ public class EnvironmentPythonTest {
     @Test
     void testTrackedVenvDirectoryDoesNotCapVersion() throws Exception {
         // Regression test: .venv/venv directories should be skipped even when tracked in git
-        // This catches the bug where FALLBACK_SKIP_DIRECTORIES is only checked in the else branch
+        // These are always skipped regardless of git status
         Path repoPath = tempDir.resolve("tracked-venv");
         Files.createDirectories(repoPath);
 
@@ -252,7 +290,8 @@ public class EnvironmentPythonTest {
                     .call();
         }
 
-        var version = createTestEnvPython(repoPath).getPythonVersion();
+        // Even with git-aware filtering, .venv should always be skipped
+        var version = createTestEnvPythonWithGitFiltering(repoPath).getPythonVersion();
         assertEquals(UNCAPPED_VERSION, version, "Tracked .venv directory should still be skipped (not cap version)");
     }
 
@@ -280,7 +319,8 @@ public class EnvironmentPythonTest {
                     .call();
         }
 
-        var version = createTestEnvPython(repoPath).getPythonVersion();
+        // Even with git-aware filtering, venv should always be skipped
+        var version = createTestEnvPythonWithGitFiltering(repoPath).getPythonVersion();
         assertEquals(UNCAPPED_VERSION, version, "Tracked venv directory should still be skipped (not cap version)");
     }
 
@@ -311,7 +351,8 @@ public class EnvironmentPythonTest {
                     .call();
         }
 
-        var version = createTestEnvPython(repoPath).getPythonVersion();
+        // Use git-aware filtering to verify gitignored directories are skipped
+        var version = createTestEnvPythonWithGitFiltering(repoPath).getPythonVersion();
         assertEquals(UNCAPPED_VERSION, version, "Distutils in gitignored directory should not cap version");
     }
 
@@ -397,7 +438,8 @@ public class EnvironmentPythonTest {
                     .call();
         }
 
-        var version = createTestEnvPython(repoPath).getPythonVersion();
+        // With git-aware filtering, tracked build/ should be scanned (not skipped)
+        var version = createTestEnvPythonWithGitFiltering(repoPath).getPythonVersion();
         assertEquals(CAPPED_VERSION, version, "Tracked build/ directory should be scanned and cap version at 3.11");
     }
 
@@ -425,7 +467,8 @@ public class EnvironmentPythonTest {
                     .call();
         }
 
-        var version = createTestEnvPython(repoPath).getPythonVersion();
+        // With git-aware filtering, tracked dist/ should be scanned (not skipped)
+        var version = createTestEnvPythonWithGitFiltering(repoPath).getPythonVersion();
         assertEquals(CAPPED_VERSION, version, "Tracked dist/ directory should be scanned and cap version at 3.11");
     }
 
@@ -459,7 +502,8 @@ public class EnvironmentPythonTest {
                     .call();
         }
 
-        var version = createTestEnvPython(repoPath).getPythonVersion();
+        // Use git-aware filtering to verify file-level gitignore works
+        var version = createTestEnvPythonWithGitFiltering(repoPath).getPythonVersion();
         assertEquals(UNCAPPED_VERSION, version, "Gitignored file pattern should skip distutils detection");
     }
 
@@ -493,7 +537,8 @@ public class EnvironmentPythonTest {
                     .call();
         }
 
-        var version = createTestEnvPython(repoPath).getPythonVersion();
+        // Use git-aware filtering to verify file-level gitignore in tracked dirs
+        var version = createTestEnvPythonWithGitFiltering(repoPath).getPythonVersion();
         assertEquals(UNCAPPED_VERSION, version, "Gitignored file in tracked directory should skip distutils detection");
     }
 }

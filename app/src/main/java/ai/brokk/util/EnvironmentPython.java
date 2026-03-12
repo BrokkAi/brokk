@@ -1,9 +1,5 @@
 package ai.brokk.util;
 
-import ai.brokk.git.GitRepo;
-import ai.brokk.git.GitRepoFactory;
-import ai.brokk.project.FileFilteringService;
-import ai.brokk.project.FileFilteringService.FilePatternMatcher;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Splitter;
 import java.io.IOException;
@@ -18,6 +14,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.BiPredicate;
 import java.util.function.Predicate;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -102,31 +99,37 @@ public class EnvironmentPython {
     private record VersionWithSource(String version, Path sourceFile) {}
 
     private final Path projectRoot;
-    private final @Nullable FilePatternMatcher exclusionMatcher;
+    /**
+     * Optional ignore checker that combines project exclusions and gitignore filtering.
+     * When present, the BiPredicate accepts (relativePath, isDirectory) and returns true if the path should be skipped.
+     * When null, fallback pruning logic is used instead.
+     */
+    private final @Nullable BiPredicate<Path, Boolean> ignoreChecker;
+
     private final Predicate<String> pythonExecutableChecker;
 
     public EnvironmentPython(Path projectRoot) {
-        this(projectRoot, (FilePatternMatcher) null);
+        this(projectRoot, (BiPredicate<Path, Boolean>) null);
     }
 
-    EnvironmentPython(Path projectRoot, @Nullable FilePatternMatcher exclusionMatcher) {
-        this(projectRoot, exclusionMatcher, EnvironmentPython::checkPythonExecutable);
+    EnvironmentPython(Path projectRoot, @Nullable BiPredicate<Path, Boolean> ignoreChecker) {
+        this(projectRoot, ignoreChecker, EnvironmentPython::checkPythonExecutable);
     }
 
     /**
      * Test constructor that allows controlling which Python versions appear "installed".
      *
      * @param projectRoot the project root path
-     * @param exclusionMatcher optional matcher for project exclusion patterns
+     * @param ignoreChecker optional predicate for checking if a path should be ignored (relativePath, isDirectory) -> shouldSkip
      * @param pythonExecutableChecker predicate that returns true if a given version (e.g. "3.12") is available
      */
     @VisibleForTesting
     EnvironmentPython(
             Path projectRoot,
-            @Nullable FilePatternMatcher exclusionMatcher,
+            @Nullable BiPredicate<Path, Boolean> ignoreChecker,
             Predicate<String> pythonExecutableChecker) {
         this.projectRoot = projectRoot;
-        this.exclusionMatcher = exclusionMatcher;
+        this.ignoreChecker = ignoreChecker;
         this.pythonExecutableChecker = pythonExecutableChecker;
     }
 
@@ -344,24 +347,9 @@ public class EnvironmentPython {
                 .collect(Collectors.toList());
     }
 
-    /** Check if any Python source file imports distutils, respecting gitignore rules. */
+    /** Check if any Python source file imports distutils, respecting the injected ignore checker. */
     private boolean repoImportsDistutils() {
-        // Try to set up gitignore-aware filtering if we have a git repo
-        @Nullable FileFilteringService filteringService = null;
-        @Nullable GitRepo gitRepo = null;
-        if (GitRepoFactory.hasGitRepo(projectRoot)) {
-            try {
-                gitRepo = new GitRepo(projectRoot);
-                filteringService = new FileFilteringService(projectRoot, gitRepo);
-            } catch (Exception e) {
-                logger.debug(
-                        "Could not initialize git-aware filtering for distutils check, falling back to basic filtering",
-                        e);
-            }
-        }
-
-        final @Nullable FileFilteringService effectiveFilter = filteringService;
-        final @Nullable FilePatternMatcher effectiveMatcher = exclusionMatcher;
+        final @Nullable BiPredicate<Path, Boolean> effectiveChecker = ignoreChecker;
         var found = new AtomicBoolean(false);
 
         try {
@@ -375,34 +363,25 @@ public class EnvironmentPython {
                         return FileVisitResult.SKIP_SUBTREE;
                     }
 
-                    // Skip if directory is gitignored or project-excluded (prunes entire subtree)
+                    // Always skip virtual environment directories (never source code)
+                    if (ALWAYS_SKIP_DIRECTORIES.contains(dirName)) {
+                        logger.trace("Skipping venv directory: {}", dir);
+                        return FileVisitResult.SKIP_SUBTREE;
+                    }
+
+                    // Skip if directory is ignored (project exclusions + gitignore combined)
                     if (!dir.equals(projectRoot)) {
                         Path relPath = projectRoot.relativize(dir);
-                        String relPathStr = relPath.toString();
 
-                        // Check project-level exclusions first (user-configured patterns)
-                        if (effectiveMatcher != null && effectiveMatcher.isPathExcluded(relPathStr, true)) {
-                            logger.trace("Skipping project-excluded directory: {}", relPath);
-                            return FileVisitResult.SKIP_SUBTREE;
-                        }
-
-                        // Always skip virtual environment directories (never source code)
-                        if (ALWAYS_SKIP_DIRECTORIES.contains(dirName)) {
-                            logger.trace("Skipping venv directory: {}", relPath);
-                            return FileVisitResult.SKIP_SUBTREE;
-                        }
-
-                        if (effectiveFilter != null) {
-                            // Git-aware path: skip gitignored directories only
-                            // Do NOT skip FALLBACK_SKIP_DIRECTORIES here - they may be
-                            // legitimately tracked source directories in some projects
-                            if (effectiveFilter.isGitignored(relPath, true)) {
-                                logger.trace("Skipping gitignored directory: {}", relPath);
+                        if (effectiveChecker != null) {
+                            // Use injected ignore checker (covers both project exclusions and gitignore)
+                            if (effectiveChecker.test(relPath, true)) {
+                                logger.trace("Skipping ignored directory: {}", relPath);
                                 return FileVisitResult.SKIP_SUBTREE;
                             }
                         } else {
                             // Fallback path: skip common artifact/cache directories
-                            // when we don't have gitignore-aware filtering
+                            // when we don't have any ignore checker
                             if (ALL_FALLBACK_SKIP_DIRECTORIES.contains(dirName)) {
                                 logger.trace("Skipping fallback-pruned directory: {}", relPath);
                                 return FileVisitResult.SKIP_SUBTREE;
@@ -423,17 +402,10 @@ public class EnvironmentPython {
                     }
 
                     Path relPath = projectRoot.relativize(file);
-                    String relPathStr = relPath.toString();
 
-                    // Skip if file is project-excluded
-                    if (effectiveMatcher != null && effectiveMatcher.isPathExcluded(relPathStr, false)) {
-                        logger.trace("Skipping project-excluded file: {}", relPath);
-                        return FileVisitResult.CONTINUE;
-                    }
-
-                    // Skip if file is gitignored
-                    if (effectiveFilter != null && effectiveFilter.isGitignored(relPath, false)) {
-                        logger.trace("Skipping gitignored file: {}", relPath);
+                    // Skip if file is ignored
+                    if (effectiveChecker != null && effectiveChecker.test(relPath, false)) {
+                        logger.trace("Skipping ignored file: {}", relPath);
                         return FileVisitResult.CONTINUE;
                     }
 
@@ -462,10 +434,6 @@ public class EnvironmentPython {
         } catch (IOException e) {
             logger.debug("Error walking project directory for distutils check", e);
             return false;
-        } finally {
-            if (gitRepo != null) {
-                gitRepo.close();
-            }
         }
 
         return found.get();
