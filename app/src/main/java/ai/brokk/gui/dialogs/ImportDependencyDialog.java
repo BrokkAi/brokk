@@ -172,10 +172,12 @@ public class ImportDependencyDialog {
             tabbedPane.addChangeListener(e -> updateImportButtonState());
 
             // Select the tab for one of the project's languages if available
-            project.getAnalyzerLanguages().stream()
-                    .filter(languagePanels::containsKey)
-                    .findFirst()
-                    .ifPresent(lang -> tabbedPane.setSelectedComponent(languagePanels.get(lang)));
+            for (var lang : project.getAnalyzerLanguages()) {
+                if (languagePanels.containsKey(lang)) {
+                    tabbedPane.setSelectedComponent(languagePanels.get(lang));
+                    break;
+                }
+            }
 
             mainPanel.add(tabbedPane, BorderLayout.CENTER);
 
