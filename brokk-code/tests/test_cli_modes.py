@@ -1,3 +1,4 @@
+import subprocess
 import sys
 from contextlib import contextmanager
 from types import ModuleType, SimpleNamespace
@@ -7,6 +8,7 @@ from unittest.mock import patch
 import pytest
 
 import brokk_code.__main__ as main_module
+import brokk_code.git_utils as git_utils_module
 
 
 def _stub_install_warmup(monkeypatch) -> None:
@@ -2018,6 +2020,554 @@ async def test_run_commit_executor_error_exits_nonzero(
     assert "Executor error" in captured.err
     assert "Git error" in captured.err
     mock_manager.stop.assert_awaited_once()
+
+
+def test_main_pr_review_routes_correctly(monkeypatch, tmp_path) -> None:
+    captured: dict[str, Any] = {"ran": False}
+
+    async def fake_run_pr_review_job(**kwargs: Any) -> None:
+        captured["kwargs"] = kwargs
+        captured["ran"] = True
+
+    monkeypatch.setattr(main_module, "run_pr_review_job", fake_run_pr_review_job)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "brokk",
+            "pr",
+            "review",
+            "--pr-number",
+            "42",
+            "--workspace",
+            str(tmp_path),
+            "--github-token",
+            "ghp_test",
+            "--repo-owner",
+            "acme",
+            "--repo-name",
+            "tools",
+            "--planner-model",
+            "custom-model",
+            "--verbose",
+        ],
+    )
+
+    main_module.main()
+
+    assert captured["ran"] is True
+    assert captured["kwargs"]["workspace_dir"] == tmp_path.resolve()
+    assert captured["kwargs"]["pr_number"] == 42
+    assert captured["kwargs"]["github_token"] == "ghp_test"
+    assert captured["kwargs"]["repo_owner"] == "acme"
+    assert captured["kwargs"]["repo_name"] == "tools"
+    assert captured["kwargs"]["planner_model"] == "custom-model"
+    assert captured["kwargs"]["verbose"] is True
+
+
+def test_main_pr_review_missing_pr_number_exits_nonzero(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "brokk",
+            "pr",
+            "review",
+            "--github-token",
+            "ghp_test",
+            "--repo-owner",
+            "acme",
+            "--repo-name",
+            "tools",
+        ],
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        main_module.main()
+
+    assert exc.value.code != 0
+
+
+def test_main_pr_review_missing_github_token_exits_nonzero(monkeypatch, tmp_path) -> None:
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "brokk",
+            "pr",
+            "review",
+            "--pr-number",
+            "42",
+            "--workspace",
+            str(tmp_path),
+            "--repo-owner",
+            "acme",
+            "--repo-name",
+            "tools",
+        ],
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        main_module.main()
+
+    assert exc.value.code == 1
+
+
+def test_main_pr_review_missing_repo_owner_without_inference_exits_nonzero(
+    monkeypatch, tmp_path
+) -> None:
+    monkeypatch.setenv("GITHUB_TOKEN", "token")
+    monkeypatch.setattr(main_module, "infer_github_repo_from_remote", lambda _: (None, None))
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "brokk",
+            "pr",
+            "review",
+            "--pr-number",
+            "42",
+            "--workspace",
+            str(tmp_path),
+            "--repo-name",
+            "tools",
+        ],
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        main_module.main()
+
+    assert exc.value.code == 1
+
+
+def test_main_pr_review_missing_repo_name_without_inference_exits_nonzero(
+    monkeypatch, tmp_path
+) -> None:
+    monkeypatch.setenv("GITHUB_TOKEN", "token")
+    monkeypatch.setattr(main_module, "infer_github_repo_from_remote", lambda _: (None, None))
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "brokk",
+            "pr",
+            "review",
+            "--pr-number",
+            "42",
+            "--workspace",
+            str(tmp_path),
+            "--repo-owner",
+            "acme",
+        ],
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        main_module.main()
+
+    assert exc.value.code == 1
+
+
+def test_main_pr_review_infers_repo_from_https_remote(monkeypatch, tmp_path) -> None:
+    captured: dict[str, Any] = {"ran": False}
+
+    async def fake_run_pr_review_job(**kwargs: Any) -> None:
+        captured["kwargs"] = kwargs
+        captured["ran"] = True
+
+    def fake_subprocess_run(cmd, **kwargs):
+        class FakeResult:
+            returncode = 0
+            stdout = "https://github.com/inferred-owner/inferred-repo.git\n"
+            stderr = ""
+
+        return FakeResult()
+
+    monkeypatch.setattr(main_module, "run_pr_review_job", fake_run_pr_review_job)
+    monkeypatch.setattr(subprocess, "run", fake_subprocess_run)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "brokk",
+            "pr",
+            "review",
+            "--pr-number",
+            "42",
+            "--workspace",
+            str(tmp_path),
+            "--github-token",
+            "ghp_test",
+        ],
+    )
+
+    main_module.main()
+
+    assert captured["ran"] is True
+    assert captured["kwargs"]["repo_owner"] == "inferred-owner"
+    assert captured["kwargs"]["repo_name"] == "inferred-repo"
+
+
+def test_main_pr_review_infers_repo_from_ssh_remote(monkeypatch, tmp_path) -> None:
+    captured: dict[str, Any] = {"ran": False}
+
+    async def fake_run_pr_review_job(**kwargs: Any) -> None:
+        captured["kwargs"] = kwargs
+        captured["ran"] = True
+
+    def fake_subprocess_run(cmd, **kwargs):
+        class FakeResult:
+            returncode = 0
+            stdout = "git@github.com:ssh-owner/ssh-repo.git\n"
+            stderr = ""
+
+        return FakeResult()
+
+    monkeypatch.setattr(main_module, "run_pr_review_job", fake_run_pr_review_job)
+    monkeypatch.setattr(subprocess, "run", fake_subprocess_run)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "brokk",
+            "pr",
+            "review",
+            "--pr-number",
+            "42",
+            "--workspace",
+            str(tmp_path),
+            "--github-token",
+            "ghp_test",
+        ],
+    )
+
+    main_module.main()
+
+    assert captured["ran"] is True
+    assert captured["kwargs"]["repo_owner"] == "ssh-owner"
+    assert captured["kwargs"]["repo_name"] == "ssh-repo"
+
+
+def test_main_pr_review_explicit_params_override_inference(monkeypatch, tmp_path) -> None:
+    captured: dict[str, Any] = {"ran": False}
+
+    async def fake_run_pr_review_job(**kwargs: Any) -> None:
+        captured["kwargs"] = kwargs
+        captured["ran"] = True
+
+    def fake_subprocess_run(cmd, **kwargs):
+        class FakeResult:
+            returncode = 0
+            stdout = "https://github.com/inferred-owner/inferred-repo.git\n"
+            stderr = ""
+
+        return FakeResult()
+
+    monkeypatch.setattr(main_module, "run_pr_review_job", fake_run_pr_review_job)
+    monkeypatch.setattr(subprocess, "run", fake_subprocess_run)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "brokk",
+            "pr",
+            "review",
+            "--pr-number",
+            "42",
+            "--workspace",
+            str(tmp_path),
+            "--github-token",
+            "ghp_test",
+            "--repo-owner",
+            "explicit-owner",
+            "--repo-name",
+            "explicit-repo",
+        ],
+    )
+
+    main_module.main()
+
+    assert captured["ran"] is True
+    assert captured["kwargs"]["repo_owner"] == "explicit-owner"
+    assert captured["kwargs"]["repo_name"] == "explicit-repo"
+
+
+def test_main_pr_review_respects_env_github_token(monkeypatch, tmp_path) -> None:
+    captured: dict[str, Any] = {"ran": False}
+
+    async def fake_run_pr_review_job(**kwargs: Any) -> None:
+        captured["kwargs"] = kwargs
+        captured["ran"] = True
+
+    monkeypatch.setattr(main_module, "run_pr_review_job", fake_run_pr_review_job)
+    monkeypatch.setenv("GITHUB_TOKEN", "env-token")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "brokk",
+            "pr",
+            "review",
+            "--pr-number",
+            "42",
+            "--workspace",
+            str(tmp_path),
+            "--repo-owner",
+            "acme",
+            "--repo-name",
+            "tools",
+        ],
+    )
+
+    main_module.main()
+
+    assert captured["kwargs"]["github_token"] == "env-token"
+
+
+def test_main_pr_review_uses_default_planner_model(monkeypatch, tmp_path) -> None:
+    captured: dict[str, Any] = {"ran": False}
+
+    async def fake_run_pr_review_job(**kwargs: Any) -> None:
+        captured["kwargs"] = kwargs
+        captured["ran"] = True
+
+    monkeypatch.setattr(main_module, "run_pr_review_job", fake_run_pr_review_job)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "brokk",
+            "pr",
+            "review",
+            "--pr-number",
+            "42",
+            "--workspace",
+            str(tmp_path),
+            "--github-token",
+            "ghp_test",
+            "--repo-owner",
+            "acme",
+            "--repo-name",
+            "tools",
+        ],
+    )
+
+    main_module.main()
+
+    assert captured["kwargs"]["planner_model"] == "gpt-5.1"
+
+
+def test_infer_github_repo_from_remote_https_format(monkeypatch, tmp_path) -> None:
+    def fake_subprocess_run(cmd, **kwargs):
+        class FakeResult:
+            returncode = 0
+            stdout = "https://github.com/test-owner/test-repo.git\n"
+            stderr = ""
+
+        return FakeResult()
+
+    monkeypatch.setattr(subprocess, "run", fake_subprocess_run)
+
+    owner, repo = git_utils_module.infer_github_repo_from_remote(tmp_path)
+
+    assert owner == "test-owner"
+    assert repo == "test-repo"
+
+
+def test_infer_github_repo_from_remote_https_no_git_suffix(monkeypatch, tmp_path) -> None:
+    def fake_subprocess_run(cmd, **kwargs):
+        class FakeResult:
+            returncode = 0
+            stdout = "https://github.com/test-owner/test-repo\n"
+            stderr = ""
+
+        return FakeResult()
+
+    monkeypatch.setattr(subprocess, "run", fake_subprocess_run)
+
+    owner, repo = git_utils_module.infer_github_repo_from_remote(tmp_path)
+
+    assert owner == "test-owner"
+    assert repo == "test-repo"
+
+
+def test_infer_github_repo_from_remote_ssh_format(monkeypatch, tmp_path) -> None:
+    def fake_subprocess_run(cmd, **kwargs):
+        class FakeResult:
+            returncode = 0
+            stdout = "git@github.com:ssh-owner/ssh-repo.git\n"
+            stderr = ""
+
+        return FakeResult()
+
+    monkeypatch.setattr(subprocess, "run", fake_subprocess_run)
+
+    owner, repo = git_utils_module.infer_github_repo_from_remote(tmp_path)
+
+    assert owner == "ssh-owner"
+    assert repo == "ssh-repo"
+
+
+def test_infer_github_repo_from_remote_ssh_no_git_suffix(monkeypatch, tmp_path) -> None:
+    def fake_subprocess_run(cmd, **kwargs):
+        class FakeResult:
+            returncode = 0
+            stdout = "git@github.com:ssh-owner/ssh-repo\n"
+            stderr = ""
+
+        return FakeResult()
+
+    monkeypatch.setattr(subprocess, "run", fake_subprocess_run)
+
+    owner, repo = git_utils_module.infer_github_repo_from_remote(tmp_path)
+
+    assert owner == "ssh-owner"
+    assert repo == "ssh-repo"
+
+
+def test_infer_github_repo_from_remote_non_github_returns_none(monkeypatch, tmp_path) -> None:
+    def fake_subprocess_run(cmd, **kwargs):
+        class FakeResult:
+            returncode = 0
+            stdout = "https://gitlab.com/owner/repo.git\n"
+            stderr = ""
+
+        return FakeResult()
+
+    monkeypatch.setattr(subprocess, "run", fake_subprocess_run)
+
+    owner, repo = git_utils_module.infer_github_repo_from_remote(tmp_path)
+
+    assert owner is None
+    assert repo is None
+
+
+def test_infer_github_repo_from_remote_git_failure_returns_none(monkeypatch, tmp_path) -> None:
+    def fake_subprocess_run(cmd, **kwargs):
+        class FakeResult:
+            returncode = 1
+            stdout = ""
+            stderr = "fatal: not a git repository"
+
+        return FakeResult()
+
+    monkeypatch.setattr(subprocess, "run", fake_subprocess_run)
+
+    owner, repo = git_utils_module.infer_github_repo_from_remote(tmp_path)
+
+    assert owner is None
+    assert repo is None
+
+
+def test_infer_github_repo_from_remote_empty_stdout_returns_none(monkeypatch, tmp_path) -> None:
+    def fake_subprocess_run(cmd, **kwargs):
+        class FakeResult:
+            returncode = 0
+            stdout = ""
+            stderr = ""
+
+        return FakeResult()
+
+    monkeypatch.setattr(subprocess, "run", fake_subprocess_run)
+
+    owner, repo = git_utils_module.infer_github_repo_from_remote(tmp_path)
+
+    assert owner is None
+    assert repo is None
+
+
+@pytest.mark.asyncio
+@patch("brokk_code.executor.ExecutorManager")
+async def test_run_pr_review_job_calls_submit_pr_review_job(mock_executor_class, tmp_path) -> None:
+    from unittest.mock import AsyncMock
+
+    call_order: list[str] = []
+    mock_manager = mock_executor_class.return_value
+
+    async def mock_start():
+        call_order.append("start")
+
+    async def mock_create_session(name: str = ""):
+        call_order.append(f"create_session:{name}")
+        return "session-123"
+
+    async def mock_wait_ready(timeout: float = 30.0):
+        call_order.append("wait_ready")
+        return True
+
+    async def mock_submit_pr_review_job(**kwargs):
+        call_order.append(f"submit_pr_review_job:{kwargs}")
+        return "pr-review-job-456"
+
+    async def mock_stream_events(job_id: str):
+        yield {"type": "STATE_CHANGE", "data": {"state": "COMPLETED"}}
+
+    async def mock_stop():
+        call_order.append("stop")
+
+    mock_manager.start = AsyncMock(side_effect=mock_start)
+    mock_manager.create_session = AsyncMock(side_effect=mock_create_session)
+    mock_manager.wait_ready = AsyncMock(side_effect=mock_wait_ready)
+    mock_manager.submit_pr_review_job = AsyncMock(side_effect=mock_submit_pr_review_job)
+    mock_manager.stream_events = mock_stream_events
+    mock_manager.stop = AsyncMock(side_effect=mock_stop)
+
+    await main_module.run_pr_review_job(
+        workspace_dir=tmp_path,
+        pr_number=42,
+        github_token="ghp_test",
+        repo_owner="test-owner",
+        repo_name="test-repo",
+        planner_model="gpt-4",
+    )
+
+    assert "start" in call_order
+    assert any("create_session:PR Review #42" in c for c in call_order)
+    assert "wait_ready" in call_order
+    assert any("submit_pr_review_job" in c for c in call_order)
+
+    submit_call = [c for c in call_order if "submit_pr_review_job" in c][0]
+    assert "planner_model" in submit_call
+    assert "gpt-4" in submit_call
+    assert "ghp_test" in submit_call
+    assert "test-owner" in submit_call
+    assert "test-repo" in submit_call
+    assert "42" in submit_call
+
+
+@pytest.mark.asyncio
+@patch("brokk_code.executor.ExecutorManager")
+async def test_run_pr_review_job_exits_nonzero_on_failed_state(
+    mock_executor_class, tmp_path, capsys
+) -> None:
+    from unittest.mock import AsyncMock
+
+    mock_manager = mock_executor_class.return_value
+    mock_manager.start = AsyncMock()
+    mock_manager.create_session = AsyncMock(return_value="session-123")
+    mock_manager.wait_ready = AsyncMock(return_value=True)
+    mock_manager.submit_pr_review_job = AsyncMock(return_value="job-456")
+
+    async def mock_stream_events(job_id: str):
+        yield {"type": "ERROR", "data": {"message": "GitHub API error"}}
+        yield {"type": "STATE_CHANGE", "data": {"state": "FAILED"}}
+
+    mock_manager.stream_events = mock_stream_events
+    mock_manager.stop = AsyncMock()
+
+    with pytest.raises(SystemExit) as exc:
+        await main_module.run_pr_review_job(
+            workspace_dir=tmp_path,
+            pr_number=42,
+            github_token="ghp_test",
+            repo_owner="test-owner",
+            repo_name="test-repo",
+            planner_model="gpt-4",
+        )
+
+    assert exc.value.code == 1
+    captured = capsys.readouterr()
+    assert "PR review job ended with state FAILED" in captured.err
 
 
 def test_install_calls_ensure_jbang_ready(monkeypatch, tmp_path) -> None:
