@@ -196,13 +196,22 @@ public class BuildTools {
     }
 
     private static Optional<String> getPythonVersionForProject(Path projectRoot, IProject project) {
+        return getPythonVersionForProject(projectRoot, project, null);
+    }
+
+    static Optional<String> getPythonVersionForProject(Path projectRoot,
+                                                       IProject project,
+                                                       @Nullable java.util.function.Predicate<String> pythonExecutableChecker)
+    {
         if (!project.getAnalyzerLanguages().contains(Languages.PYTHON)) {
             return Optional.empty();
         }
         try {
             var matcher = FileFilteringService.createPatternMatcher(project.getExclusionPatterns());
-            return Optional.of(
-                    new EnvironmentPython(projectRoot, matcher.isEmpty() ? null : matcher).getPythonVersion());
+            var env = pythonExecutableChecker != null
+                    ? new EnvironmentPython(projectRoot, matcher.isEmpty() ? null : matcher, pythonExecutableChecker)
+                    : new EnvironmentPython(projectRoot, matcher.isEmpty() ? null : matcher);
+            return Optional.of(env.getPythonVersion());
         } catch (Exception e) {
             logger.debug("Unable to determine Python version for project", e);
             return Optional.empty();

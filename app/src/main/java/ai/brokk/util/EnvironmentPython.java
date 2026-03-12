@@ -371,17 +371,16 @@ public class EnvironmentPython {
                             return FileVisitResult.SKIP_SUBTREE;
                         }
 
-                        if (effectiveFilter != null) {
-                            if (effectiveFilter.isGitignored(relPath, true)) {
-                                logger.trace("Skipping gitignored directory: {}", relPath);
-                                return FileVisitResult.SKIP_SUBTREE;
-                            }
-                        } else {
-                            // Fallback: skip common artifact/cache/venv directories
-                            if (FALLBACK_SKIP_DIRECTORIES.contains(dirName)) {
-                                logger.trace("Skipping fallback-excluded directory: {}", relPath);
-                                return FileVisitResult.SKIP_SUBTREE;
-                            }
+                        // Always skip common artifact/cache/venv directories
+                        if (FALLBACK_SKIP_DIRECTORIES.contains(dirName)) {
+                            logger.trace("Skipping well-known non-source directory: {}", relPath);
+                            return FileVisitResult.SKIP_SUBTREE;
+                        }
+
+                        // Additionally skip gitignored directories when git filtering is available
+                        if (effectiveFilter != null && effectiveFilter.isGitignored(relPath, true)) {
+                            logger.trace("Skipping gitignored directory: {}", relPath);
+                            return FileVisitResult.SKIP_SUBTREE;
                         }
                     }
 
