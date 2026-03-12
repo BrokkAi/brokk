@@ -241,6 +241,7 @@ class JobRunnerTest {
     @Test
     void testLutz_noTasks_doesNotExecuteTasks_emitsSummary() throws InterruptedException {
         List<String> consoleOutputs = new ArrayList<>();
+        List<ai.brokk.LlmOutputMeta> metas = new ArrayList<>();
         ai.brokk.IConsoleIO mockIo = new ai.brokk.IConsoleIO() {
             @Override
             public void toolError(String msg, String title) {}
@@ -249,6 +250,7 @@ class JobRunnerTest {
             public void llmOutput(
                     String token, dev.langchain4j.data.message.ChatMessageType type, ai.brokk.LlmOutputMeta meta) {
                 consoleOutputs.add(token);
+                metas.add(meta);
             }
         };
 
@@ -272,12 +274,16 @@ class JobRunnerTest {
         executor.runLutzFromSearchResult(fakeContext, null, null);
 
         assertTrue(executedTasks.isEmpty(), "No tasks should be executed when task list is empty");
-        assertTrue(
-                consoleOutputs.stream().anyMatch(s -> s.contains("LUTZ Execution Summary")),
-                "Should emit LUTZ summary");
-        assertTrue(
-                consoleOutputs.stream().anyMatch(s -> s.contains("No tasks were identified")),
-                "Should indicate no tasks identified");
+
+        // Verify terminal message contract
+        String lastOutput = consoleOutputs.isEmpty() ? "" : consoleOutputs.getLast();
+        ai.brokk.LlmOutputMeta lastMeta = metas.isEmpty() ? null : metas.getLast();
+
+        assertTrue(lastOutput.contains("## LUTZ Execution Summary"), "Last message should be LUTZ summary");
+        assertTrue(lastOutput.contains("No tasks were identified"), "Should indicate no tasks identified");
+        assertTrue(lastOutput.contains("**Status:** Complete"), "Summary should include Complete status");
+        assertNotNull(lastMeta);
+        assertTrue(lastMeta.isNewMessage(), "Summary should be flagged as a new message for UI/Headless segmentation");
     }
 
     @Test
@@ -298,6 +304,7 @@ class JobRunnerTest {
     @Test
     void testLutz_tasksExist_executesEachIncompleteTask() throws InterruptedException {
         List<String> consoleOutputs = new ArrayList<>();
+        List<ai.brokk.LlmOutputMeta> metas = new ArrayList<>();
         ai.brokk.IConsoleIO mockIo = new ai.brokk.IConsoleIO() {
             @Override
             public void toolError(String msg, String title) {}
@@ -306,6 +313,7 @@ class JobRunnerTest {
             public void llmOutput(
                     String token, dev.langchain4j.data.message.ChatMessageType type, ai.brokk.LlmOutputMeta meta) {
                 consoleOutputs.add(token);
+                metas.add(meta);
             }
         };
 
@@ -338,14 +346,16 @@ class JobRunnerTest {
         assertEquals("2", executedTasks.get(0).id());
         assertEquals("3", executedTasks.get(1).id());
 
-        assertTrue(
-                consoleOutputs.stream().anyMatch(s -> s.contains("LUTZ Execution Summary")),
-                "Should emit LUTZ summary");
-        assertTrue(
-                consoleOutputs.stream().anyMatch(s -> s.contains("3 identified task(s)")), "Should report total tasks");
-        assertTrue(
-                consoleOutputs.stream().anyMatch(s -> s.contains("2 newly executed")),
-                "Should report newly executed tasks");
+        // Verify terminal message contract
+        String lastOutput = consoleOutputs.isEmpty() ? "" : consoleOutputs.getLast();
+        ai.brokk.LlmOutputMeta lastMeta = metas.isEmpty() ? null : metas.getLast();
+
+        assertTrue(lastOutput.contains("## LUTZ Execution Summary"), "Last message should be LUTZ summary");
+        assertTrue(lastOutput.contains("3 identified task(s)"), "Should report total tasks in summary");
+        assertTrue(lastOutput.contains("2 newly executed"), "Should report newly executed tasks in summary");
+        assertTrue(lastOutput.contains("**Status:** Complete"), "Summary should include Complete status");
+        assertNotNull(lastMeta);
+        assertTrue(lastMeta.isNewMessage(), "Summary should be flagged as a new message");
     }
 
     @Test
