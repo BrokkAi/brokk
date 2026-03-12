@@ -94,6 +94,47 @@ class ContextManagerExecutorRoutingTest {
     }
 
     @Test
+    void submitAnalyzerTask_triggersBackgroundOutput() throws Exception {
+        contextManager.close();
+
+        Path projectDir = tempDir.resolve("tracking-project");
+        Files.createDirectories(projectDir);
+        project = MainProject.forTests(projectDir);
+        contextManager = new ContextManager(project);
+
+        var taskDescription = "Analyzer task with status tracking";
+        var statusShown = new CountDownLatch(1);
+        var statusCleared = new CountDownLatch(1);
+        var sawTaskDescription = new AtomicBoolean(false);
+        var threadName = new AtomicReference<String>();
+
+        var recordingConsole = new TestConsoleIO() {
+            @Override
+            public void backgroundOutput(String backgroundTaskDescription) {
+                if (taskDescription.equals(backgroundTaskDescription)) {
+                    sawTaskDescription.set(true);
+                    statusShown.countDown();
+                } else if (backgroundTaskDescription.isEmpty() && sawTaskDescription.get()) {
+                    statusCleared.countDown();
+                }
+            }
+        };
+        contextManager.setIo(recordingConsole);
+
+        var future = contextManager.submitAnalyzerTask(taskDescription, () -> {
+            threadName.set(Thread.currentThread().getName());
+        });
+
+        assertTrue(statusShown.await(5, TimeUnit.SECONDS), "Analyzer task should publish background status");
+        future.get(5, TimeUnit.SECONDS);
+        assertTrue(statusCleared.await(5, TimeUnit.SECONDS), "Analyzer task should clear background status");
+        assertNotNull(threadName.get());
+        assertTrue(
+                threadName.get().startsWith("AnalyzerLocal"),
+                "Analyzer task should run on AnalyzerLocal executor thread, but ran on: " + threadName.get());
+    }
+
+    @Test
     void backgroundAndAnalyzerTasks_runOnDifferentExecutors() throws Exception {
         var bgLatch = new CountDownLatch(1);
         var analyzerLatch = new CountDownLatch(1);

@@ -230,11 +230,13 @@ public class ContextManager implements IContextManager, AutoCloseable {
      */
     @Override
     public CompletableFuture<Void> submitAnalyzerTask(String taskDescription, Runnable task) {
-        return analyzerLocalExecutor.submit(() -> {
-            logger.debug("Analyzer task starting: {}", taskDescription);
-            task.run();
-            return null;
-        });
+        return submitTrackedTask(
+                taskDescription,
+                () -> {
+                    task.run();
+                    return null;
+                },
+                analyzerLocalExecutor);
     }
 
     @Override
@@ -1965,9 +1967,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
             }
         });
     }
-    /** Submits a background task to the internal background executor (non-user actions). */
-    @Override
-    public <T> CompletableFuture<T> submitBackgroundTask(String taskDescription, Callable<T> task) {
+
+    private <T> CompletableFuture<T> submitTrackedTask(
+            String taskDescription, Callable<T> task, ExecutorService executor) {
         taskDescriptions.put(task, taskDescription);
         return LoggingFuture.supplyCallableAsync(
                 () -> {
@@ -1975,14 +1977,12 @@ public class ContextManager implements IContextManager, AutoCloseable {
                         io.backgroundOutput(taskDescription);
                         return task.call();
                     } finally {
-                        // Remove this task from the map
                         taskDescriptions.remove(task);
                         int remaining = taskDescriptions.size();
                         SwingUtilities.invokeLater(() -> {
                             if (remaining <= 0) {
                                 io.backgroundOutput("");
                             } else if (remaining == 1) {
-                                // Find the last remaining task description. If there's a race just end the spin
                                 var lastTaskDescription = taskDescriptions.values().stream()
                                         .findFirst()
                                         .orElse("");
@@ -1994,7 +1994,13 @@ public class ContextManager implements IContextManager, AutoCloseable {
                         });
                     }
                 },
-                getBackgroundTasks());
+                executor);
+    }
+
+    /** Submits a background task to the internal background executor (non-user actions). */
+    @Override
+    public <T> CompletableFuture<T> submitBackgroundTask(String taskDescription, Callable<T> task) {
+        return submitTrackedTask(taskDescription, task, getBackgroundTasks());
     }
 
     /**
