@@ -295,6 +295,11 @@ public abstract class AbstractDiffPanel extends AbstractContentPanel implements 
      */
     public abstract void reDisplay();
 
+    /**
+     * Returns the first visible line number in the current view (1-based).
+     */
+    public abstract int getFirstVisibleLine();
+
     // Blame support - every diff panel must implement these methods
 
     /**

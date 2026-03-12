@@ -1067,6 +1067,13 @@ public class SessionChangesPanel extends JPanel implements ThemeAware, AnalyzerC
 
         var root = cm.getProject().getRoot();
 
+        // Save current scroll location/line number if possible
+        int savedLine = -1;
+        var currentPanel = getCurrentContentPanel();
+        if (currentPanel instanceof AbstractDiffPanel adp) {
+            savedLine = adp.getFirstVisibleLine();
+        }
+
         // If the file set changed significantly and we aren't showing a review, clear the excerpt
         if (!nextComparisons.equals(this.fileComparisons)) {
             activeExcerpt = null;
@@ -1086,7 +1093,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware, AnalyzerC
                 selectedFile = fileComparisons.get(currentIndex).file();
             }
 
-            int nextIndex = 0;
+            int nextIndex = -1;
             if (selectedFile != null) {
                 for (int i = 0; i < nextComparisons.size(); i++) {
                     if (selectedFile.equals(nextComparisons.get(i).file())) {
@@ -1095,7 +1102,16 @@ public class SessionChangesPanel extends JPanel implements ThemeAware, AnalyzerC
                     }
                 }
             }
-            this.diffCore.showFile(nextIndex);
+
+            if (nextIndex != -1) {
+                if (savedLine > 0) {
+                    this.diffCore.showLocation(nextComparisons.get(nextIndex).file(), savedLine);
+                } else {
+                    this.diffCore.showFile(nextIndex);
+                }
+            } else {
+                this.diffCore.showFile(0);
+            }
         } else {
             diffContainer.removeAll();
             diffContainer.add(new JLabel("No file changes to display", SwingConstants.CENTER), BorderLayout.CENTER);
