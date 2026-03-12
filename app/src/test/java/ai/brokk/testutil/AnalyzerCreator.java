@@ -19,6 +19,18 @@ public class AnalyzerCreator {
      * @return the corresponding TreeSitterAnalyzer.
      * @throws NoSupportedAnalyzerForTestProjectException if the detected language does not create an analyzer extending {@link TreeSitterAnalyzer}
      */
+    /**
+     * Extracts a single "primary" language from the project's supported languages.
+     * Useful for tests that were previously using getBuildLanguage().
+     */
+    public static Language getPrimaryLanguage(IProject project) {
+        return project.getAnalyzerLanguages().stream()
+                .filter(l -> l != Languages.NONE)
+                .sorted(Comparator.comparing(Language::internalName))
+                .findFirst()
+                .orElse(Languages.NONE);
+    }
+
     public static TreeSitterAnalyzer createTreeSitterAnalyzer(IProject project) {
         var languages = project.getAnalyzerLanguages().stream()
                 .filter(l -> l != Languages.NONE)
