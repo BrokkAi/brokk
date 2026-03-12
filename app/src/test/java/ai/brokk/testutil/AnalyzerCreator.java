@@ -11,7 +11,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 public class AnalyzerCreator {
-    
+
     public static TreeSitterAnalyzer createTreeSitterAnalyzer(IProject project) {
         var languages = project.getAnalyzerLanguages().stream()
                 .filter(l -> l != Languages.NONE)
