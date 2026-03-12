@@ -1831,7 +1831,6 @@ public class BufferDiffPanel extends AbstractDiffPanel {
     @Override
     public int getFirstVisibleLine() {
         var panel = getSelectedFilePanel();
-        if (panel == null) return 1;
         var editor = panel.getEditor();
         var scrollPane = panel.getScrollPane();
         Point p = scrollPane.getViewport().getViewPosition();

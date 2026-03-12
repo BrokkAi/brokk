@@ -1105,7 +1105,8 @@ public class SessionChangesPanel extends JPanel implements ThemeAware, AnalyzerC
 
             if (nextIndex != -1) {
                 if (savedLine > 0) {
-                    this.diffCore.showLocation(nextComparisons.get(nextIndex).file(), savedLine);
+                    this.diffCore.showLocation(
+                            requireNonNull(nextComparisons.get(nextIndex).file()), savedLine);
                 } else {
                     this.diffCore.showFile(nextIndex);
                 }
