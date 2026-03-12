@@ -152,7 +152,7 @@ public class BuildTools {
         context.put(
                 "files",
                 MustacheTemplates.toStringElementList(workspaceTestFiles.stream()
-                        .map(ProjectFile::toString)
+                        .map(f -> f.toString().replace('\\', '/'))
                         .distinct()
                         .toList()));
 
