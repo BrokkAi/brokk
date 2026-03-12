@@ -310,7 +310,7 @@ public class SearchPrompts {
                   - Summaries can serve as an index: add a summary to see the API/structure, then selectively add method sources or full files only if implementation details are needed.
 
                 Critical rules:
-                  1) Use callCodeAgent to discover relevant code that cannot be inferred from the current Workspace.
+                  1) Use callSearchAgent to discover relevant code that cannot be inferred from the current Workspace.
                   2) Group related lookups into a single tool call when possible.
                   3) MAXIMIZE PARALLELISM: You must gather context as fast as possible.
                      If you need to understand multiple different concepts, files, or symbols,
