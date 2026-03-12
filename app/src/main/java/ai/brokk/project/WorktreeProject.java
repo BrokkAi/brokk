@@ -243,8 +243,8 @@ public final class WorktreeProject extends AbstractProject {
     }
 
     @Override
-    public void setPlanFirst(boolean enabled) {
-        parent.setPlanFirst(enabled);
+    public void setPlanFirst(boolean v) {
+        parent.setPlanFirst(v);
     }
 
     @Override
