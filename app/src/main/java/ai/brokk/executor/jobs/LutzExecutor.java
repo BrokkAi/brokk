@@ -130,7 +130,9 @@ public final class LutzExecutor {
         }
 
         logger.debug("LUTZ orchestration: all generated tasks executed");
-        reportFinalSummary("All identified tasks have been successfully executed.");
+        String finalMessage = "All %d identified task(s) have been successfully processed (%d newly executed)."
+                .formatted(generatedTasks.size(), incompleteTasks.size());
+        reportFinalSummary(finalMessage);
     }
 
     private void reportFinalSummary(String message) {

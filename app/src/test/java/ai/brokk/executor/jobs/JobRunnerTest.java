@@ -297,7 +297,19 @@ class JobRunnerTest {
 
     @Test
     void testLutz_tasksExist_executesEachIncompleteTask() throws InterruptedException {
-        LutzExecutor executor = new LutzExecutor(null, () -> false, null);
+        List<String> consoleOutputs = new ArrayList<>();
+        ai.brokk.IConsoleIO mockIo = new ai.brokk.IConsoleIO() {
+            @Override
+            public void toolError(String msg, String title) {}
+
+            @Override
+            public void llmOutput(
+                    String token, dev.langchain4j.data.message.ChatMessageType type, ai.brokk.LlmOutputMeta meta) {
+                consoleOutputs.add(token);
+            }
+        };
+
+        LutzExecutor executor = new LutzExecutor(null, () -> false, mockIo);
         List<TaskList.TaskItem> executedTasks = new ArrayList<>();
 
         TaskList.TaskItem task1 = new TaskList.TaskItem("1", "title1", "text1", true); // already done
@@ -325,11 +337,31 @@ class JobRunnerTest {
         assertEquals(2, executedTasks.size(), "Two tasks should have been executed");
         assertEquals("2", executedTasks.get(0).id());
         assertEquals("3", executedTasks.get(1).id());
+
+        assertTrue(
+                consoleOutputs.stream().anyMatch(s -> s.contains("LUTZ Execution Summary")),
+                "Should emit LUTZ summary");
+        assertTrue(
+                consoleOutputs.stream().anyMatch(s -> s.contains("3 identified task(s)")), "Should report total tasks");
+        assertTrue(
+                consoleOutputs.stream().anyMatch(s -> s.contains("2 newly executed")),
+                "Should report newly executed tasks");
     }
 
     @Test
     void testLutz_cancellationPropagates() {
-        LutzExecutor executor = new LutzExecutor(null, () -> true, null);
+        List<String> consoleOutputs = new ArrayList<>();
+        ai.brokk.IConsoleIO mockIo = new ai.brokk.IConsoleIO() {
+            @Override
+            public void toolError(String msg, String title) {}
+
+            @Override
+            public void llmOutput(
+                    String token, dev.langchain4j.data.message.ChatMessageType type, ai.brokk.LlmOutputMeta meta) {
+                consoleOutputs.add(token);
+            }
+        };
+        LutzExecutor executor = new LutzExecutor(null, () -> true, mockIo);
 
         TaskList.TaskItem task1 = new TaskList.TaskItem("1", "title1", "text1", false);
 
@@ -346,12 +378,26 @@ class JobRunnerTest {
         org.junit.jupiter.api.Assertions.assertThrows(JobRunner.IssueCancelledException.class, () -> {
             executor.runLutzFromSearchResult(fakeContext, null, null);
         });
+        assertTrue(
+                consoleOutputs.stream().noneMatch(s -> s.contains("LUTZ Execution Summary")),
+                "Should NOT emit LUTZ summary on cancellation");
     }
 
     @Test
     void testLutz_cancellationDuringTaskExecutionPropagates() {
+        List<String> consoleOutputs = new ArrayList<>();
+        ai.brokk.IConsoleIO mockIo = new ai.brokk.IConsoleIO() {
+            @Override
+            public void toolError(String msg, String title) {}
+
+            @Override
+            public void llmOutput(
+                    String token, dev.langchain4j.data.message.ChatMessageType type, ai.brokk.LlmOutputMeta meta) {
+                consoleOutputs.add(token);
+            }
+        };
         AtomicBoolean cancelled = new AtomicBoolean(false);
-        LutzExecutor executor = new LutzExecutor(null, cancelled::get, null);
+        LutzExecutor executor = new LutzExecutor(null, cancelled::get, mockIo);
 
         TaskList.TaskItem task1 = new TaskList.TaskItem("1", "title1", "text1", false);
 
@@ -372,5 +418,8 @@ class JobRunnerTest {
         org.junit.jupiter.api.Assertions.assertThrows(JobRunner.IssueCancelledException.class, () -> {
             executor.runLutzFromSearchResult(fakeContext, null, mockModel);
         });
+        assertTrue(
+                consoleOutputs.stream().noneMatch(s -> s.contains("LUTZ Execution Summary")),
+                "Should NOT emit LUTZ summary on cancellation");
     }
 }
