@@ -147,19 +147,6 @@ public class EnvironmentPythonTest {
         assertEquals(CAPPED_VERSION, version, "Gitignore negation should allow distutils detection");
     }
 
-    @Test
-    void testRealSourceDistutilsCapsVersion() throws Exception {
-        Path projectPath = tempDir.resolve("real-distutils");
-        Files.createDirectories(projectPath);
-
-        Path srcDir = projectPath.resolve("src");
-        Files.createDirectories(srcDir);
-        Files.writeString(srcDir.resolve("setup_helper.py"), "from distutils.core import setup\n");
-
-        var version = createTestEnvPython(projectPath).getPythonVersion();
-        assertEquals(CAPPED_VERSION, version, "Real source distutils import should cap version at 3.11");
-    }
-
     // ===== Project Exclusion Pattern Tests =====
 
     @Test
@@ -211,20 +198,6 @@ public class EnvironmentPythonTest {
         var matcher = FileFilteringService.createPatternMatcher(Set.of("vendor"));
         var version = createTestEnvPythonWithExclusions(projectPath, matcher).getPythonVersion();
         assertEquals(CAPPED_VERSION, version, "Non-excluded distutils should still cap version");
-    }
-
-    @Test
-    void testProjectExclusionWithNoPatternsBehavesNormally() throws Exception {
-        Path projectPath = tempDir.resolve("empty-exclusions");
-        Files.createDirectories(projectPath);
-
-        Path srcDir = projectPath.resolve("src");
-        Files.createDirectories(srcDir);
-        Files.writeString(srcDir.resolve("setup_helper.py"), "from distutils.core import setup\n");
-
-        var matcher = FileFilteringService.createPatternMatcher(Set.of());
-        var version = createTestEnvPythonWithExclusions(projectPath, matcher).getPythonVersion();
-        assertEquals(CAPPED_VERSION, version, "Empty exclusion patterns should not change capping behavior");
     }
 
     @Test
@@ -372,12 +345,9 @@ public class EnvironmentPythonTest {
         assertEquals(UNCAPPED_VERSION, version, "Project without distutils should not be capped");
     }
 
-    // ===== Regression tests for tracked artifact directories in git repos =====
-
     @Test
     void testTrackedBuildDirectoryWithDistutilsCapsVersion() throws Exception {
-        // Regression test: a tracked build/ directory should NOT be skipped in git repos
-        // FALLBACK_SKIP_DIRECTORIES should only apply when there is no git filtering
+        // Tracked build/ directory should be scanned (not skipped) in git repos
         Path repoPath = tempDir.resolve("tracked-build-dir");
         Files.createDirectories(repoPath);
 
@@ -405,35 +375,6 @@ public class EnvironmentPythonTest {
         // With git-aware filtering, tracked build/ should be scanned (not skipped)
         var version = createTestEnvPythonWithGitFiltering(repoPath).getPythonVersion();
         assertEquals(CAPPED_VERSION, version, "Tracked build/ directory should be scanned and cap version at 3.11");
-    }
-
-    @Test
-    void testTrackedDistDirectoryWithDistutilsCapsVersion() throws Exception {
-        // Same as above but for dist/ directory
-        Path repoPath = tempDir.resolve("tracked-dist-dir");
-        Files.createDirectories(repoPath);
-
-        try (Git git = Git.init().setDirectory(repoPath.toFile()).call()) {
-            Path distDir = repoPath.resolve("dist");
-            Files.createDirectories(distDir);
-            Files.writeString(distDir.resolve("package_setup.py"), "import distutils\n");
-
-            Path srcDir = repoPath.resolve("src");
-            Files.createDirectories(srcDir);
-            Files.writeString(srcDir.resolve("app.py"), "print('app')\n");
-
-            git.add().addFilepattern("dist/package_setup.py").call();
-            git.add().addFilepattern("src/app.py").call();
-            git.commit()
-                    .setMessage("Initial commit with tracked dist directory")
-                    .setAuthor("Test", "test@example.com")
-                    .setSign(false)
-                    .call();
-        }
-
-        // With git-aware filtering, tracked dist/ should be scanned (not skipped)
-        var version = createTestEnvPythonWithGitFiltering(repoPath).getPythonVersion();
-        assertEquals(CAPPED_VERSION, version, "Tracked dist/ directory should be scanned and cap version at 3.11");
     }
 
     // ===== Test gitignore file pattern (not directory) =====

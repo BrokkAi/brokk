@@ -43,7 +43,8 @@ public class TestProject implements IProject {
     private IProject.CodeAgentTestScope codeAgentTestScope = IProject.CodeAgentTestScope.WORKSPACE;
     private String styleGuide = "";
     private Set<String> exclusionPatterns = Set.of();
-    private FileFilteringService.FilePatternMatcher exclusionMatcher = FileFilteringService.createPatternMatcher(Set.of());
+    private FileFilteringService.FilePatternMatcher exclusionMatcher =
+            FileFilteringService.createPatternMatcher(Set.of());
     private boolean gitConfigDeclined = false;
     private @Nullable String jdk;
     private @Nullable IGitRepo repo;
