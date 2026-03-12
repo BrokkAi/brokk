@@ -3279,23 +3279,57 @@ class BrokkApp(App):
         if chat:
             chat.set_job_running(True)
 
-        try:
-            # 1. Cancel any active job and block new submissions
-            self.job_in_progress = True
-            if self.current_job_id:
-                await self.executor.cancel_job(self.current_job_id)
+        # 1. Block new submissions
+        self.job_in_progress = True
+        session_zip: Optional[bytes] = None
+        current_sid = self.executor.session_id
 
-            # 2. Stop the current process
+        try:
+            # 2. Capture current state if possible
+            if self._executor_ready and current_sid:
+                try:
+                    if self.current_job_id:
+                        await self.executor.cancel_job(self.current_job_id)
+                    session_zip = await self.executor.download_session_zip(current_sid)
+                except Exception as e:
+                    logger.warning("Failed to capture session state for relaunch: %s", e)
+
+            # 3. Stop the current process
             self._executor_ready = False
             self._executor_started = False
             await self.executor.stop()
 
-            # 3. Start fresh
-            # We reuse _start_executor logic which handles session resumption and readiness
-            await self._start_executor()
+            # 4. Start fresh
+            await self.executor.start()
+            self._executor_started = True
 
-            if chat:
-                chat.add_system_message("Executor relaunched successfully.", level="SUCCESS")
+            if await self.executor.wait_ready():
+                self._executor_ready = True
+
+                # 5. Restore session state
+                restored = False
+                if session_zip and current_sid:
+                    try:
+                        await self.executor.import_session_zip(session_zip, session_id=current_sid)
+                        restored = True
+                    except Exception as e:
+                        logger.warning("Failed to restore session after relaunch: %s", e)
+
+                if not restored:
+                    await self.executor.create_session()
+                    if chat:
+                        chat.add_system_message(
+                            "Session state could not be restored; started a new session.",
+                            level="WARNING",
+                        )
+
+                # 6. Final UI refresh
+                await self._refresh_context_panel()
+                if chat:
+                    chat.add_system_message("Executor relaunched successfully.", level="SUCCESS")
+            else:
+                raise ExecutorError("New executor failed to become ready.")
+
         except Exception as e:
             logger.exception("Failed to relaunch executor")
             if chat:
