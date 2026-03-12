@@ -1,6 +1,5 @@
 package ai.brokk.agents;
 
-import static java.util.Objects.requireNonNull;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
 import ai.brokk.AbstractService;
@@ -9,7 +8,6 @@ import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
 import ai.brokk.Llm;
 import ai.brokk.LlmOutputMeta;
-import ai.brokk.MutedConsoleIO;
 import ai.brokk.TaskEntry;
 import ai.brokk.TaskResult;
 import ai.brokk.TaskResult.StopReason;
@@ -20,15 +18,14 @@ import ai.brokk.context.ContextFragment;
 import ai.brokk.context.SpecialTextType;
 import ai.brokk.exception.GlobalExceptionHandler;
 import ai.brokk.prompts.ArchitectPrompts;
-import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.prompts.WorkspacePrompts;
 import ai.brokk.tools.DependencyTools;
+import ai.brokk.tools.ParallelSearch;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
 import ai.brokk.tools.WorkspaceTools;
 import ai.brokk.util.BuildTools;
 import ai.brokk.util.BuildVerifier;
-import ai.brokk.util.LogDescription;
 import ai.brokk.util.Messages;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
@@ -51,16 +48,11 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Future;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -86,25 +78,10 @@ public class ArchitectAgent {
 
     private final IConsoleIO io;
 
-    // Lock to ensure only one SearchAgent streams output at a time during parallel execution
-    private final AtomicBoolean searchAgentEchoInUse = new AtomicBoolean(false);
-
-    // Size of the current SearchAgent batch (0 or 1 means no batch). Used to drive minimal UX messaging.
-    private volatile int currentBatchSize = 0;
-
-    // Helper record to associate a SearchAgent task Future with its request and result
-    private record SearchTask(ToolExecutionRequest request, Future<SearchTaskResult> future) {}
-
-    // Result of executing a single search request: both the tool execution result and the SearchAgent result
-    private record SearchTaskResult(
-            ToolExecutionResult toolResult, TaskResult taskResult, SearchPrompts.Objective objective) {}
-
-    // Lightweight carrier for the thread-local: just the SearchAgent result and objective (no tool result)
-    private record SearchAgentOutput(TaskResult taskResult, SearchPrompts.Objective objective) {}
-
     private record PlanningTurn(
             ToolRegistry toolRegistry,
             WorkspaceTools workspaceTools,
+            ParallelSearch parallelSearch,
             List<ChatMessage> messages,
             Llm.StreamingResult result) {}
 
@@ -151,15 +128,6 @@ public class ArchitectAgent {
 
     @Nullable
     private String verifyCommand;
-
-    private static final ThreadLocal<SearchAgentOutput> threadlocalSearchResult = new ThreadLocal<>();
-
-    private static SearchPrompts.Objective parseSearchObjective(String mode) {
-        return switch (mode.toUpperCase(Locale.ROOT)) {
-            case "ANSWER" -> SearchPrompts.Objective.ANSWER_ONLY;
-            default -> SearchPrompts.Objective.WORKSPACE_ONLY;
-        };
-    }
 
     /**
      * Constructs a BrokkAgent that can handle multi-step tasks and sub-tasks.
@@ -522,107 +490,6 @@ public class ArchitectAgent {
     }
 
     /**
-     * A tool that invokes the Search Agent to perform deep repository analysis based on a query. The Search Agent
-     * uses specialized tools (symbols, usages, grep) to find relevant code and documentation, adding them to the Workspace.
-     */
-    @Tool(
-            "Invoke the Search Agent to find information relevant to the given query. The Search Agent explores the codebase to find relevant identifiers and files. Searching is slower than adding known files directly, but useful when you don't know exact names or locations. ")
-    public String callSearchAgent(
-            @P("The search query or question for the SearchAgent. Query in English (not just keywords)") String query,
-            @P(
-                            "The search mode: WORKSPACE to direct SearchAgent to add relevant fragments to the Workspace; ANSWER to answer the question and leave the Workspace untouched")
-                    String mode)
-            throws ToolRegistry.FatalLlmException, InterruptedException {
-        logger.debug("callSearchAgent invoked with query: {}, mode: {}", query, mode);
-
-        var objective = parseSearchObjective(mode);
-
-        // Acquire echo lock - only first caller gets to stream output
-        boolean shouldEcho = searchAgentEchoInUse.compareAndSet(false, true);
-        try {
-            // Use MutedConsoleIO for background search agents to prevent MOP interleaving, but keep notifications
-            IConsoleIO saIo = shouldEcho ? cm.getIo() : new MutedConsoleIO(cm.getIo());
-
-            // Only the winner prints the "engaged" message
-            if (shouldEcho) {
-                io.llmOutput("**Search Agent** engaged:\n" + query, ChatMessageType.CUSTOM, LlmOutputMeta.newMessage());
-            }
-
-            // Use ScanConfig.noAppend() to avoid individual scope entries during parallel batching
-            var searchAgent = new SearchAgent(
-                    context.clearHistory(),
-                    query,
-                    planningModel,
-                    objective,
-                    scope,
-                    saIo,
-                    SearchAgent.ScanConfig.noAppend());
-            var result = searchAgent.execute();
-            // DO NOT set this.context here, it is not threadsafe; the main agent loop will update it via the
-            // thread-local
-            threadlocalSearchResult.set(new SearchAgentOutput(result, objective));
-
-            if (result.stopDetails().reason() == StopReason.LLM_ERROR) {
-                throw new ToolRegistry.FatalLlmException(result.stopDetails().explanation());
-            }
-
-            if (result.stopDetails().reason() != StopReason.SUCCESS) {
-                logger.debug("SearchAgent returned non-success for query {}: {}", query, result.stopDetails());
-                return result.stopDetails().toString();
-            }
-
-            var lastEntry = result.context().getTaskHistory().getLast();
-            var reasoningSummary = lastEntry.description();
-
-            String stringResult;
-            if (objective == SearchPrompts.Objective.WORKSPACE_ONLY) {
-                var delta = ContextDelta.between(
-                                context.clearHistory(), result.context().clearHistory())
-                        .join();
-                var addedFragmentList = delta.addedFragments().stream()
-                        .map(f -> "- " + f.shortDescription().join())
-                        .collect(Collectors.joining("\n"));
-
-                stringResult =
-                        """
-                        # Search results
-                        Search Agent successfully completed; the workspace has been updated as requested.
-
-                        ## Reasoning summary
-                        %s
-
-                        ## Added fragments
-                        %s
-                        """
-                                .formatted(
-                                        reasoningSummary, addedFragmentList.isEmpty() ? "(None)" : addedFragmentList);
-            } else {
-                stringResult =
-                        """
-                        %s
-
-                        ## Reasoning summary
-                        %s
-                        """
-                                .formatted(result.stopDetails().explanation(), reasoningSummary);
-            }
-
-            logger.debug(stringResult);
-            return stringResult;
-        } finally {
-            if (shouldEcho) {
-                if (currentBatchSize > 1) {
-                    io.llmOutput(
-                            "Waiting for the other " + (currentBatchSize - 1) + " SearchAgents...",
-                            ChatMessageType.AI,
-                            LlmOutputMeta.newMessage());
-                }
-                searchAgentEchoInUse.set(false);
-            }
-        }
-    }
-
-    /**
      * Run the multi-step project until we either produce a final answer, abort, or run out of tasks. This uses an
      * iterative approach, letting the LLM decide which tool to call each time.
      */
@@ -672,7 +539,7 @@ public class ArchitectAgent {
      */
     public TaskResult executeWithScan() throws InterruptedException {
         var prune = Messages.getApproximateTokens(context) > cm.getService().getMaxInputTokens(planningModel) * 0.2;
-        context = SearchAgent.setupContext(context, goal, prune).context();
+        context = LutzAgent.setupContext(context, goal, prune).context();
 
         // Run Architect proper
         TaskResult archResult = this.execute();
@@ -760,6 +627,7 @@ public class ArchitectAgent {
 
             var tr = turn.toolRegistry();
             var wst = turn.workspaceTools();
+            var parallelSearch = turn.parallelSearch();
             var result = turn.result();
 
             totalUsage = TokenUsage.sum(
@@ -811,7 +679,7 @@ public class ArchitectAgent {
                     var toolResult = ToolExecutionResult.requestError(answerReq, ignoredMsg);
                     // Record the ignored result in the architect message history so planning history reflects
                     // this.
-                    architectMessages.add(toolResult.toExecutionResultMessage());
+                    architectMessages.add(toolResult.toMessage());
                     logger.info("projectFinished ignored due to other tool calls present: {}", ignoredMsg);
                 } else {
                     logger.debug("LLM decided to projectFinished. We'll finalize and stop");
@@ -832,7 +700,7 @@ public class ArchitectAgent {
                 if (multipleRequests) {
                     var ignoredMsg = "Ignored 'abortProject' because other tool calls were present in the same turn.";
                     var toolResult = ToolExecutionResult.requestError(abortReq, ignoredMsg);
-                    architectMessages.add(toolResult.toExecutionResultMessage());
+                    architectMessages.add(toolResult.toMessage());
                     logger.info("abortProject ignored due to other tool calls present: {}", ignoredMsg);
                 } else {
                     logger.debug("LLM decided to abortProject. We'll finalize and stop");
@@ -857,123 +725,29 @@ public class ArchitectAgent {
                 io.afterToolOutput(toolResult);
 
                 context = wst.getContext();
-                architectMessages.add(toolResult.toExecutionResultMessage());
+                architectMessages.add(toolResult.toMessage());
                 logger.debug("Executed tool '{}' => result: {}", req.name(), toolResult.resultText());
             }
 
             // Handle search agent requests with batched history
             if (!searchAgentReqs.isEmpty()) {
-                // Create a planning history entry once before launching searches
                 addPlanningToHistory();
-
-                // Mark current batch size so the streaming SA can print the waiting message at the right time
-                currentBatchSize = searchAgentReqs.size();
-
-                if (currentBatchSize > 1) {
-                    io.llmOutput(
-                            "Search Agent: running " + currentBatchSize
-                                    + " queries in parallel; only the first will stream.",
-                            ChatMessageType.AI,
-                            LlmOutputMeta.newMessage());
+                var searchResult = parallelSearch.execute(searchAgentReqs, tr);
+                if (searchResult.stopDetails().reason() == StopReason.LLM_ERROR) {
+                    return resultWithMessages(
+                            StopReason.LLM_ERROR, searchResult.stopDetails().explanation());
                 }
 
-                // Submit search agent tasks to run in the background
-                var searchAgentTasks = new ArrayList<SearchTask>();
-                final var trForSearchBatch = tr;
-                for (var req : searchAgentReqs) {
-                    Callable<SearchTaskResult> task = () -> {
-                        // Ensure a clean slate for this thread before invoking the tool
-                        threadlocalSearchResult.remove();
-                        io.beforeToolCall(req);
-                        var toolResult = trForSearchBatch.executeTool(req);
-                        io.afterToolOutput(toolResult);
-                        var saOutput = requireNonNull(threadlocalSearchResult.get());
-                        logger.debug("Finished SearchAgent task for request: {}", req.name());
-                        return new SearchTaskResult(toolResult, saOutput.taskResult(), saOutput.objective());
-                    };
-                    var taskDescription = "SearchAgent: " + LogDescription.getShortDescription(req.arguments());
-                    var future = cm.submitBackgroundTask(taskDescription, task);
-                    searchAgentTasks.add(new SearchTask(req, future));
-                }
-
-                // Collect search results in request order for deterministic merge
-                boolean interrupted = false;
-                int failedCount = 0;
-
-                // Track the first SearchAgent TaskResult to use as the base for history
-                TaskResult baseSaResult = null;
-                Context combinedContext = context;
-
-                for (int i = 0; i < currentBatchSize; i++) {
-                    var searchTask = searchAgentTasks.get(i);
-                    var request = searchTask.request();
-                    var future = searchTask.future();
-                    try {
-                        if (interrupted) {
-                            future.cancel(true);
-                            failedCount++;
-                            continue;
-                        }
-                        var searchOutcome = future.get();
-
-                        // Record tool result into the conversational transcript
-                        architectMessages.add(searchOutcome.toolResult().toExecutionResultMessage());
-
-                        // Set base result from the first SearchAgent
-                        if (baseSaResult == null) {
-                            baseSaResult = searchOutcome.taskResult();
-                        }
-
-                        // Merge context fragments
-                        var outcomeContext = searchOutcome.taskResult().context();
-                        if (searchOutcome.objective() == SearchPrompts.Objective.WORKSPACE_ONLY) {
-                            combinedContext = combinedContext.addFragments(
-                                    outcomeContext.allFragments().toList());
-                        }
-
-                        // Count failures by SearchAgent stop reason
-                        if (searchOutcome.taskResult().stopDetails().reason() != StopReason.SUCCESS) {
-                            failedCount++;
-                        }
-
-                        logger.debug(
-                                "Collected result for tool '{}' => result: {}",
-                                request.name(),
-                                searchOutcome.toolResult().resultText());
-                    } catch (InterruptedException e) {
-                        logger.warn("SearchAgent task for request '{}' was interrupted", request.name());
-                        interrupted = true;
-                        failedCount++;
-                        // cancel remaining
-                        for (int j = i; j < currentBatchSize; j++) {
-                            searchAgentTasks.get(j).future().cancel(true);
-                        }
-                    } catch (ExecutionException e) {
-                        logger.warn("Error executing SearchAgent task '{}'", request.name(), e.getCause());
-                        failedCount++;
-                        // Record failure for this request but continue processing others
-                        var errorMessage = "Error executing Search Agent: %s"
-                                .formatted(Objects.toString(
-                                        e.getCause() != null ? e.getCause().getMessage() : "Unknown error",
-                                        "Unknown execution error"));
-                        var failure = ToolExecutionResult.requestError(request, errorMessage);
-                        architectMessages.add(failure.toExecutionResultMessage());
-                    }
-                }
-
-                if (interrupted) {
-                    currentBatchSize = 0;
-                    throw new InterruptedException();
-                }
-
-                // Post-batch message with workspace merge summary
-                outputSearchBatchSummary(context, combinedContext, currentBatchSize, failedCount);
-                context = combinedContext.addHistoryEntry(
-                        io.getLlmRawMessages(), TaskResult.Type.SEARCH, planningModel, "Multiple concurrent searches");
+                context = context.addFragments(
+                        searchResult.context().allFragments().toList());
+                architectMessages.addAll(searchResult.toolExecutionMessages());
+                context = context.addHistoryEntry(
+                        searchResult.mopMessages(),
+                        List.of(),
+                        TaskResult.Type.SEARCH,
+                        planningModel,
+                        searchResult.historyDescription());
                 scope.append(context);
-
-                // Reset batch size after all SAs are finished
-                currentBatchSize = 0;
             }
 
             // code agent calls are done serially
@@ -989,7 +763,7 @@ public class ArchitectAgent {
                     return resultWithMessages(fatalReason);
                 }
 
-                architectMessages.add(toolResult.toExecutionResultMessage());
+                architectMessages.add(toolResult.toMessage());
                 logger.debug("Executed tool '{}' => result: {}", req.name(), toolResult.resultText());
             }
 
@@ -1046,12 +820,14 @@ public class ArchitectAgent {
                     buildPrompt(workspaceTokenSize, maxInputTokensForPrompt, workspaceContentMessages, harnessNote);
 
             WorkspaceTools wst = new WorkspaceTools(this.context);
+            ParallelSearch parallelSearch = new ParallelSearch(cm, goal);
 
             var depTools = DependencyTools.isSupported(cm.getProject())
                     ? Optional.of(new DependencyTools(cm))
                     : Optional.<DependencyTools>empty();
 
-            var builder = cm.getToolRegistry().builder().register(this).register(wst);
+            var builder =
+                    cm.getToolRegistry().builder().register(this).register(wst).register(parallelSearch);
             depTools.ifPresent(builder::register);
             ToolRegistry tr = builder.build();
 
@@ -1110,7 +886,7 @@ public class ArchitectAgent {
 
             // happy path
             if (result.error() == null) {
-                return new PlanningTurnOutcome.Success(new PlanningTurn(tr, wst, messages, result));
+                return new PlanningTurnOutcome.Success(new PlanningTurn(tr, wst, parallelSearch, messages, result));
             }
 
             // llm error
@@ -1229,47 +1005,6 @@ public class ArchitectAgent {
             case "addUrlContentsToWorkspace" -> 5;
             default -> 7; // all other tools have lowest priority
         };
-    }
-
-    /**
-     * Prints a concise summary after a batch of SearchAgents complete, including whether Workspace changed.
-     * Only prints when batchSize > 1 to avoid noisy UX for single searches.
-     */
-    private void outputSearchBatchSummary(Context baseContext, Context mergedContext, int batchSize, int failedCount) {
-        if (batchSize <= 1) {
-            return;
-        }
-
-        var baseFrags = baseContext.allFragments().toList();
-        var mergedFrags = mergedContext.allFragments().toList();
-
-        int addedCount = 0;
-        for (var f : mergedFrags) {
-            boolean found = false;
-            for (var bf : baseFrags) {
-                if (bf.hasSameSource(f)) {
-                    found = true;
-                    break;
-                }
-            }
-            if (!found) {
-                addedCount++;
-            }
-        }
-
-        String mergeSummary = (addedCount == 0)
-                ? "No Workspace changes."
-                : "Merged results from all searches into the Workspace: added " + addedCount + " fragment"
-                        + (addedCount == 1 ? "" : "s") + ".";
-
-        String summaryMessage;
-        if (failedCount == 0) {
-            summaryMessage = "All " + batchSize + " SearchAgents finished successfully. " + mergeSummary;
-        } else {
-            summaryMessage = "All " + batchSize + " SearchAgents are finished. " + failedCount + " Searches failed. "
-                    + mergeSummary;
-        }
-        io.llmOutput(summaryMessage, ChatMessageType.AI, LlmOutputMeta.newMessage());
     }
 
     /**

@@ -51,7 +51,7 @@ public class TestAnalyzer
     public List<CodeUnit> getTopLevelDeclarations(ProjectFile file) {
         return allClasses.stream()
                 .filter(cu -> cu.source().equals(file))
-                .filter(cu -> cu.isClass() || cu.isModule())
+                .filter(cu -> cu.isClass() || cu.isModule() || cu.isFunction())
                 .collect(Collectors.toList());
     }
 

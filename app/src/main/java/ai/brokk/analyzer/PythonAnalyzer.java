@@ -394,35 +394,46 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
                         while (cursor.nextMatch(match)) {
                             for (var cap : match.getCaptures()) {
                                 String captureName = query.getCaptureNameForId(cap.getIndex());
-                                if (!TEST_MARKER.equals(captureName)) {
-                                    continue;
-                                }
 
                                 TSNode node = cap.getNode();
                                 if (node == null || node.isNull()) {
                                     continue;
                                 }
 
-                                // Case A: Function name starting with test_
-                                if (IDENTIFIER.equals(node.getType())) {
-                                    TSNode parent = node.getParent();
-                                    if (parent != null && FUNCTION_DEFINITION.equals(parent.getType())) {
-                                        TSNode nameNode = parent.getChildByFieldName(FIELD_NAME);
-                                        if (nameNode != null
-                                                && nameNode.getStartByte() == node.getStartByte()
-                                                && nameNode.getEndByte() == node.getEndByte()) {
-                                            String text = sourceContent.substringFrom(node);
-                                            if (text.startsWith("test_")) {
-                                                return true;
+                                if (TEST_MARKER.equals(captureName)) {
+                                    // Case A: Function name starting with test_
+                                    if (IDENTIFIER.equals(node.getType())) {
+                                        TSNode parent = node.getParent();
+                                        if (parent != null && FUNCTION_DEFINITION.equals(parent.getType())) {
+                                            TSNode nameNode = parent.getChildByFieldName(FIELD_NAME);
+                                            if (nameNode != null
+                                                    && nameNode.getStartByte() == node.getStartByte()
+                                                    && nameNode.getEndByte() == node.getEndByte()) {
+                                                String text = sourceContent.substringFrom(node);
+                                                if (text.startsWith("test_")) {
+                                                    return true;
+                                                }
                                             }
+                                        }
+                                    }
+
+                                    // Case B: Pytest marks
+                                    if (DECORATOR.equals(node.getType())) {
+                                        if (isPytestMark(node, sourceContent)) {
+                                            return true;
                                         }
                                     }
                                 }
 
-                                // Case B: Pytest marks
-                                if (DECORATOR.equals(node.getType())) {
-                                    if (isPytestMark(node, sourceContent)) {
-                                        return true;
+                                // Case C: Logic from testFilesToCodeUnits - check for Test prefix on classes/functions
+                                if (CaptureNames.CLASS_DEFINITION.equals(captureName)
+                                        || CaptureNames.FUNCTION_DEFINITION.equals(captureName)) {
+                                    TSNode nameNode = node.getChildByFieldName(FIELD_NAME);
+                                    if (nameNode != null && !nameNode.isNull()) {
+                                        String name = sourceContent.substringFrom(nameNode);
+                                        if (name.startsWith("test_") || name.startsWith("Test")) {
+                                            return true;
+                                        }
                                     }
                                 }
                             }

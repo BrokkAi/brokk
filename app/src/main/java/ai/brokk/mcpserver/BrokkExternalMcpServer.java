@@ -69,7 +69,7 @@ public class BrokkExternalMcpServer {
             "merge",
             "searchSymbols",
             "scanUsages",
-            "skimDirectory",
+            "skimFiles",
             "getFileSummaries",
             "getClassSkeletons",
             "getClassSources",

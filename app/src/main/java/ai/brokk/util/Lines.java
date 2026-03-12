@@ -3,8 +3,10 @@ package ai.brokk.util;
 import static java.lang.Math.max;
 import static java.lang.Math.min;
 
+import ai.brokk.analyzer.ProjectFile;
 import java.util.ArrayList;
 import java.util.List;
+import org.jetbrains.annotations.Blocking;
 
 public final class Lines {
     public static final int MAX_CHARS_PER_LINE = 2048; // Claude Code is 2000
@@ -156,6 +158,33 @@ public final class Lines {
 
     private static boolean isBareTokenChar(char c) {
         return Character.isLetterOrDigit(c) || c == '_' || c == '$';
+    }
+
+    public static int count(String content) {
+        if (content.isEmpty()) {
+            return 0;
+        }
+        int count = 1;
+        for (int i = 0; i < content.length(); i++) {
+            char c = content.charAt(i);
+            if (c == '\n') {
+                count++;
+            } else if (c == '\r') {
+                count++;
+                if (i + 1 < content.length() && content.charAt(i + 1) == '\n') {
+                    i++;
+                }
+            }
+        }
+        if (content.endsWith("\n") || content.endsWith("\r")) {
+            count--;
+        }
+        return count;
+    }
+
+    @Blocking
+    public static int countForFile(ProjectFile file) {
+        return file.read().map(Lines::count).orElse(0);
     }
 
     public record RangeResult(String text, int lineCount) {}

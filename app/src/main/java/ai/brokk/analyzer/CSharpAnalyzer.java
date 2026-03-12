@@ -2,15 +2,18 @@ package ai.brokk.analyzer;
 
 import static ai.brokk.analyzer.csharp.CSharpTreeSitterNodeTypes.*;
 
+import ai.brokk.AnalyzerUtil;
 import ai.brokk.analyzer.cache.AnalyzerCache;
 import ai.brokk.analyzer.csharp.CSharpTreeSitterNodeTypes;
 import ai.brokk.project.IProject;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -345,6 +348,15 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
     @Override
     protected @Nullable CodeUnit createImplicitConstructor(CodeUnit enclosingClass, String classCaptureName) {
         return null;
+    }
+
+    @Override
+    public Set<CodeUnit> testFilesToCodeUnits(Collection<ProjectFile> files) {
+        var unitsInFiles = ai.brokk.AnalyzerUtil.getTestDeclarationsWithLogging(this, files)
+                .filter(CodeUnit::isClass)
+                .collect(Collectors.toSet());
+
+        return AnalyzerUtil.coalesceNestedUnits(this, unitsInFiles);
     }
 
     @Override

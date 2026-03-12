@@ -30,7 +30,7 @@ class McpServerCommandTest {
                     "merge",
                     "searchSymbols",
                     "scanUsages",
-                    "skimDirectory",
+                    "skimFiles",
                     "getFileSummaries",
                     "getClassSkeletons",
                     "getClassSources",

@@ -51,7 +51,7 @@ import org.junit.jupiter.api.Test;
  * - Emits search/summary events, not code edits
  * - Maintains read-only semantics
  */
-class SearchModeSearchAgentTest {
+class SearchModeLutzAgentTest {
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 

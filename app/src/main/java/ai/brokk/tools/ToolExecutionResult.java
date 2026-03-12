@@ -80,7 +80,7 @@ public final class ToolExecutionResult {
      *
      * @return A ToolExecutionResultMessage.
      */
-    public ToolExecutionResultMessage toExecutionResultMessage() {
+    public ToolExecutionResultMessage toMessage() {
         String text =
                 switch (status) {
                     case SUCCESS -> resultText;

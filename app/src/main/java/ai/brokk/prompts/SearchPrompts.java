@@ -2,6 +2,7 @@ package ai.brokk.prompts;
 
 import ai.brokk.TaskResult;
 import ai.brokk.agents.BuildAgent;
+import ai.brokk.agents.LutzAgent;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
@@ -35,7 +36,6 @@ public class SearchPrompts {
     public enum Objective {
         ANSWER_ONLY(
                 "query",
-                "You are the Search Agent, a code researcher focused on answering questions about this codebase.",
                 "Your goal is to gather enough context to answer the user's question accurately and cite evidence from the repo.",
                 "a comprehensive Markdown answer (via answer(String))",
                 "",
@@ -47,7 +47,6 @@ public class SearchPrompts {
         },
         TASKS_ONLY(
                 "instructions",
-                "You are the Search Agent, a code researcher focused on turning goals into implementation tasks.",
                 "Your goal is to gather enough context to produce a clear, minimal, incremental task list for the Code Agent.",
                 "a task list for the Code Agent (via createOrReplaceTaskList(...))",
                 "",
@@ -59,7 +58,6 @@ public class SearchPrompts {
         },
         LUTZ(
                 "query_or_instructions",
-                "You are the Search Agent, a code researcher that can answer, plan, or hand off implementation.",
                 "Your goal is to gather enough context to either answer the question, produce a task list, or invoke the Code Agent for a small change.",
                 "one of: answer, task list, or Code Agent invocation",
                 """
@@ -75,7 +73,6 @@ public class SearchPrompts {
         },
         WORKSPACE_ONLY(
                 "task",
-                "You are the Search Agent, a code researcher and librarian.",
                 "Your goal is to prepare the Workspace for the Code Agent by finding and curating the minimum sufficient context.",
                 "a curated Workspace ready for the Code Agent",
                 "",
@@ -87,7 +84,6 @@ public class SearchPrompts {
         },
         ISSUE_DESCRIPTION(
                 "problem_report",
-                "You are the Search Agent, a code researcher focused on describing issues with precision.",
                 "Your goal is to gather enough context to describe the issue and produce a formal issue report with evidence from the repo.",
                 "a high-quality GitHub issue (via describeIssue(String, String))",
                 """
@@ -110,7 +106,6 @@ public class SearchPrompts {
         },
         CODE_ONLY(
                 "task",
-                "You are the Search Agent, a code researcher.",
                 "Your goal is to gather enough context for the Code Agent to implement the requested change.",
                 "a curated Workspace ready for the Code Agent",
                 "",
@@ -122,21 +117,13 @@ public class SearchPrompts {
         };
 
         private final String tag;
-        private final String identity;
         private final String mission;
         private final String deliverable;
         private final String taskInstructions;
         private final boolean includeHandoff;
 
-        Objective(
-                String tag,
-                String identity,
-                String mission,
-                String deliverable,
-                String taskInstructions,
-                boolean includeHandoff) {
+        Objective(String tag, String mission, String deliverable, String taskInstructions, boolean includeHandoff) {
             this.tag = tag;
-            this.identity = identity;
             this.mission = mission;
             this.deliverable = deliverable;
             this.taskInstructions = taskInstructions;
@@ -145,10 +132,6 @@ public class SearchPrompts {
 
         public String tag() {
             return tag;
-        }
-
-        public String identity() {
-            return identity;
         }
 
         public String mission() {
@@ -210,35 +193,70 @@ public class SearchPrompts {
         return new UserMessage(text);
     }
 
-    public SystemMessage searchSystemPrompt(Context context, Objective objective) {
-        var supportedTypes = context.getContextManager().getProject().getAnalyzerLanguages().stream()
-                .map(Language::name)
-                .collect(Collectors.joining(", "));
+    public SystemMessage lutzSystemPrompt(Context context, Objective objective) {
+        var supportedTypes = supportedTypesForPrompt(context);
 
         record SearchSystemData(
-                String identity,
-                String objective,
-                String deliverable,
-                String mission,
-                boolean includeHandoff,
-                String supportedTypes) {}
+                String deliverable, String mission, boolean includeHandoff, @Nullable String supportedTypes) {}
 
         var data = new SearchSystemData(
-                objective.identity(),
-                objective.name(),
-                objective.deliverable(),
-                objective.mission(),
-                objective.includeHandoff(),
-                supportedTypes);
+                objective.deliverable(), objective.mission(), objective.includeHandoff(), supportedTypes);
 
         try {
-            return new SystemMessage(SEARCH_SYSTEM_TEMPLATE.apply(data));
+            return new SystemMessage(LUTZ_SYSTEM_TEMPLATE.apply(data));
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
     }
 
+    public SystemMessage searchSystemPrompt(Context context, Objective objective, List<String> allowedTools) {
+        var terminals = objective.terminals();
+        var data = new SearchAgentSystemData(
+                objective.deliverable(),
+                objective.mission(),
+                supportedTypesForPrompt(context),
+                hasAnyTool(allowedTools, SYNTAX_AWARE_SEARCH_TOOLS),
+                hasAnyTool(allowedTools, STRUCTURED_DATA_TOOLS),
+                hasAnyTool(allowedTools, GIT_HISTORY_TOOLS),
+                terminals.contains(Terminal.ANSWER),
+                terminals.contains(Terminal.WORKSPACE));
+
+        try {
+            return new SystemMessage(SEARCH_AGENT_SYSTEM_TEMPLATE.apply(data));
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
+    private static String supportedTypesForPrompt(Context context) {
+        var languages = context.getContextManager().getProject().getAnalyzerLanguages();
+        if (languages.isEmpty()) {
+            return "";
+        }
+        return languages.stream().map(Language::name).collect(Collectors.joining(", "));
+    }
+
+    private static boolean hasAnyTool(List<String> allowedTools, Set<String> toolNames) {
+        return allowedTools.stream().anyMatch(toolNames::contains);
+    }
+
     public record SpecialTurnTooling(String turnType, List<String> allowedTools) {}
+
+    private static final Set<String> SYNTAX_AWARE_SEARCH_TOOLS =
+            Set.of("searchSymbols", "scanUsages", "getSymbolLocations");
+    private static final Set<String> STRUCTURED_DATA_TOOLS = Set.of("jq", "xmlSkim", "xmlSelect");
+    private static final Set<String> GIT_HISTORY_TOOLS =
+            Set.of("searchGitCommitMessages", "getGitLog", "explainCommit");
+
+    private record SearchAgentSystemData(
+            String deliverable,
+            String mission,
+            @Nullable String supportedTypes,
+            boolean hasSyntaxAwareTools,
+            boolean hasStructuredDataTools,
+            boolean hasGitHistoryTools,
+            boolean answerObjective,
+            boolean workspaceObjective) {}
 
     private record DirectiveData(
             String goal,
@@ -259,7 +277,8 @@ public class SearchPrompts {
             boolean finalTurnOnly,
             @Nullable SpecialTurnTooling specialTooling) {}
 
-    private static final Template SEARCH_SYSTEM_TEMPLATE;
+    private static final Template LUTZ_SYSTEM_TEMPLATE;
+    private static final Template SEARCH_AGENT_SYSTEM_TEMPLATE;
     private static final Template DIRECTIVE_TEMPLATE;
 
     static {
@@ -267,24 +286,18 @@ public class SearchPrompts {
         handlebars.registerHelpers(ConditionalHelpers.class);
         handlebars.registerHelpers(com.github.jknack.handlebars.helper.StringHelpers.class);
 
-        String searchSystemTemplateText =
+        String lutzSystemTemplateText =
                 """
                 <instructions>
-                {{identity}}
-
-                Objective: {{objective}}
-                Deliverable: {{deliverable}}
+                You are the Architect, a senior team lead focused on gathering context and deciding the right final action.
 
                 {{mission}}
 
                 Your responsibilities are:
                   1.  **Find & Discover:** Use search and inspection tools to locate relevant code (files, classes, methods).
-                  2.  **Curate & Prune:** Prune the Workspace of irrelevant content.
-                {{#if includeHandoff~}}
-                  3.  **Handoff:** Your final output is a clean workspace ready for the Code Agent.
-                {{~/if}}
+                  2.  Deliverable: {{deliverable}}
 
-                Remember: **You must never write, create, or modify code.** Your purpose is to *find* existing code, not *create* new code.
+                Remember: **You must never write, create, or modify code.** Your purpose is to *find* existing code, not to *create* or *modify* code.
 
                 Memory model (reliability):
                   - Durable memory is ONLY the Workspace (fragments + SpecialText such as Discarded Context).
@@ -297,37 +310,26 @@ public class SearchPrompts {
                   - Summaries can serve as an index: add a summary to see the API/structure, then selectively add method sources or full files only if implementation details are needed.
 
                 Critical rules:
-                  1) Use search and inspection tools to discover relevant code, including classes/methods/usages/call graphs.
-                     Prefer syntax-aware tools in {{supportedTypes}} files because they return higher-precision results with less noise.
-                     - Search tool selection:
-                          Definitions / declarations only?
-                          -> searchSymbols
-                          How known symbols are used, accessed, obtained, injected, or called?
-                          -> scanUsages
-                          JSON or XML?
-                          -> jq or xml tools
-                          String literals, config keys, markdown, comments, reflection sites, environment variables, SQL fragments, or other strings that don't show up in searchSymbols?
-                          -> findFilesContaining / searchFileContents
-                     - NB: you can still use searchSymbols with broad regex patterns even if you only know a concept or partial identifier.
-                     - Summary limitations: Summaries only include declared symbols (classes, methods, fields).
-                       They do NOT surface local variables or hardcoded strings like environment variable names,
-                       system properties, or comments. If findFilesContaining finds a hit in a file but the summary
-                       doesn't reveal the match, you MUST load the full file or method source to see the actual content.
+                  1) Use callSearchAgent to discover relevant code that cannot be inferred from the current Workspace.
                   2) Group related lookups into a single tool call when possible.
-                  3) Your responsibility is to gather and curate the minimum sufficient context, then take the appropriate next step.
+                  3) MAXIMIZE PARALLELISM: You must gather context as fast as possible.
+                     If you need to understand multiple different concepts, files, or symbols,
+                     you must issue multiple tool calls in a single turn. Do not search sequentially
+                     if you can search in parallel.
+                  4) Your responsibility is to gather and curate the minimum sufficient context, then take the appropriate next step.
                      Do not write code, and do not attempt to write the solution or pseudocode for the solution.
                      Your job is to *gather* the materials; the Code Agent's job is to *use* them.
                      Where code changes are needed, add the *target files* to the workspace using `addFilesToWorkspace`
                      and let the Code Agent write the code. (For more localized changes, you can use `addMethodsToWorkspace`
                      or `addClassesToWorkspace`, instead of adding entire files.)
                      Note: Code Agent will also take care of creating new files; you only need to add existing files to the Workspace.
-                  4) When you have enough information to take a final action, do so.
+                  5) When you have enough information to take a final action, do so.
                      There are no bonus points for grooming the perfect Workspace.
 
                 Working efficiently:
-                  - Think before calling tools.
-                  - Make multiple tool calls at once when searching for different types of code. Dropping
-                    fragments should always be done in conjunction with other tools, since you will gain
+                  - Think before calling tools. Before making tool calls, briefly list the distinct pieces of context you need.
+                    Then, dispatch all necessary tool calls simultaneously
+                  - Dropping fragments should also be done in conjunction with other tools, since you will gain
                     no new information from the drop result.
                   - If you already know what to add, use Workspace tools directly; do not search redundantly.
 
@@ -343,7 +345,54 @@ public class SearchPrompts {
                 </instructions>
                 """;
         try {
-            SEARCH_SYSTEM_TEMPLATE = handlebars.compileInline(searchSystemTemplateText);
+            LUTZ_SYSTEM_TEMPLATE = handlebars.compileInline(lutzSystemTemplateText);
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+
+        String searchAgentSystemTemplateText =
+                """
+                <instructions>
+                You are the Search Agent, a code researcher focused on searching and analyzing existing code.
+
+                {{mission}}
+
+                Your strengths:
+                    - Rapidly finding files using glob patterns
+                    - Searching code and text with powerful regex patterns
+                    - Reading and analyzing file contents
+
+                Guidelines:
+                    - Use addFilesToWorkspace or addLineRangeToWorkspace when you know the specific file path or range you need to read.
+                    - When you identify a specific class or method, prefer adding its summary or source (addClassSummariesToWorkspace, addMethodsToWorkspace) to keep the Workspace lean.
+                {{#if hasSyntaxAwareTools}}
+                    - Prefer syntax-aware tools (searchSymbols, scanUsages, getSymbolLocations){{#if supportedTypes}} for {{supportedTypes}} files{{/if}} for higher-signal symbol and usage discovery.
+                {{/if}}
+                {{#if hasStructuredDataTools}}
+                    - Prefer structured query tools (jq, xmlSelect) for JSON or XML when structure matters.
+                {{/if}}
+                {{#if hasGitHistoryTools}}
+                    - Use Git-history tools only when repository history is relevant to the request.
+                {{/if}}
+                    - Preserve project-relative paths and fully-qualified symbols in your final response.
+                    - For clear communication, avoid using emojis.
+                {{#if answerObjective}}
+                    - Finalize with `answer(String)` once you have enough evidence; if you hit a dead end, use `abortSearch(String)` instead of guessing.
+                {{/if}}
+                {{#if workspaceObjective}}
+                    - Finalize with `workspaceComplete()` once the Workspace contains the minimum sufficient context; use `abortSearch(String)` if the request cannot be satisfied.
+                {{/if}}
+
+                NOTE: You are meant to be a fast agent that returns output as quickly as possible. In order to achieve this you must:
+                    - Make efficient use of the tools that you have at your disposal: be smart about how you search for symbols and implementations.
+                    - Wherever possible you should try to spawn multiple parallel tool calls for searching and reading code.
+
+                Complete the user's search request efficiently and report your findings clearly.
+                </instructions>
+                """
+                        .stripIndent();
+        try {
+            SEARCH_AGENT_SYSTEM_TEMPLATE = handlebars.compileInline(searchAgentSystemTemplateText);
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
@@ -365,9 +414,9 @@ public class SearchPrompts {
 
                 Workspace context guidance:
                   - If you know where to find what you're looking for, just add it, you don't need to keep searching "just in case".
-                  - If you don't know where to find a piece of information, use search tools or skimDirectory to identify specific files/classes/methods instead of guessing.
+                  - If you don't know where to find a piece of information, use search tools or skimFiles to identify specific files/classes/methods instead of guessing.
                   - The add*ToWorkspace tools do not work with directories or globs or wildcards as parameters;
-                    skimDirectory can help you narrow down your search, after which you should add only those specific items to the Workspace.
+                    skimFiles can help you narrow down your search, after which you should add only those specific items to the Workspace.
                 When to prefer the different content types:
                   - Summaries: when you only need API signatures/types/constants.
                   - Method sources: when you need implementation details for specific methods.
@@ -445,9 +494,6 @@ public class SearchPrompts {
                 - abortSearch(String explanation): the answer cannot be found or the request is out of scope for this codebase. Provide a clear explanation of your decision.
 
                 {{#unless finalTurnOnly~}}
-                You CAN call multiple non-terminal tools in a single turn, and you SHOULD whenever you can
-                usefully do so.
-
                 Terminal actions ({{#if terminalAnswer}}answer, {{/if}}{{#if terminalTasks}}createOrReplaceTaskList, {{/if}}{{#if terminalWorkspace}}workspaceComplete, {{/if}}{{#if terminalCode}}callCodeAgent, {{/if}}{{#if terminalIssue}}describeIssue, {{/if}}abortSearch)
                 must be the ONLY tool in a turn, other than final cleanup via dropWorkspaceFragments.
                 If you include a terminal together with other tools, the terminal will be ignored for this turn.
@@ -510,7 +556,7 @@ public class SearchPrompts {
             List<McpPrompts.McpTool> mcpTools,
             List<ChatMessage> sessionMessages,
             Map<ProjectFile, String> relatedSymbols,
-            ai.brokk.agents.SearchAgent.DropMode dropMode,
+            LutzAgent.DropMode dropMode,
             int turnsLeftAfterThisTurn,
             @Nullable SpecialTurnTooling specialTooling) {
 
@@ -526,7 +572,7 @@ public class SearchPrompts {
 
         var messages = new ArrayList<ChatMessage>();
 
-        messages.add(searchSystemPrompt(context, objective));
+        messages.add(lutzSystemPrompt(context, objective));
 
         // Describe available MCP tools
         var mcpToolPrompt = McpPrompts.mcpToolPrompt(mcpTools);
@@ -625,7 +671,7 @@ public class SearchPrompts {
             String goal,
             SearchPrompts.Objective objective,
             List<McpPrompts.McpTool> mcpTools,
-            ai.brokk.agents.SearchAgent.DropMode dropMode,
+            LutzAgent.DropMode dropMode,
             int turnsLeftAfterThisTurn,
             SpecialTurnTooling specialTooling) {
 
@@ -637,7 +683,7 @@ public class SearchPrompts {
         var workspaceMessages = WorkspacePrompts.getMessagesInAddedOrder(context, suppressed);
 
         var messages = new ArrayList<ChatMessage>();
-        messages.add(searchSystemPrompt(context, objective));
+        messages.add(lutzSystemPrompt(context, objective));
 
         var mcpToolPrompt = McpPrompts.mcpToolPrompt(mcpTools);
         if (mcpToolPrompt != null) {

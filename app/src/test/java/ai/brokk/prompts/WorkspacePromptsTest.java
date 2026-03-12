@@ -134,12 +134,22 @@ class WorkspacePromptsTest {
         // TOC should always show a single editable section and never split by changed/unchanged
         String toc = WorkspacePrompts.formatToc(ctx);
         assertTrue(toc.contains("<workspace_editable>"), "Should have a single editable section");
+        assertTrue(toc.contains("loc=\"1\""), "Should include loc attribute in TOC entry");
         assertFalse(
                 toc.contains("<workspace_editable_unchanged>"),
                 "Toc should no longer include an 'unchanged' editable section");
         assertFalse(
                 toc.contains("<workspace_editable_changed>"),
                 "Toc should no longer include a 'changed' editable section");
+    }
+
+    @Test
+    void testFormatTocEmptyWorkspaceMessage() {
+        var ctx = new Context(cm);
+        String toc = WorkspacePrompts.formatToc(ctx);
+
+        assertTrue(toc.contains("The Workspace is currently empty."));
+        assertFalse(toc.contains("Here is a list of the full contents of the Workspace that you can refer to above."));
     }
 
     @Test

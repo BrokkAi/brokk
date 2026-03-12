@@ -10,6 +10,8 @@ import ai.brokk.analyzer.ExternalFile;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.concurrent.ComputedValue;
 import ai.brokk.util.Lines;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import java.io.IOException;
 import java.time.Duration;
 import java.util.*;
@@ -32,6 +34,14 @@ import org.jetbrains.annotations.Nullable;
  */
 public interface ContextFragment {
     Logger logger = LogManager.getLogger(ContextFragment.class);
+
+    Cache<String, Integer> lineCountCache =
+            Caffeine.newBuilder().maximumSize(1000).build();
+
+    @Blocking
+    default int lineCount() {
+        return lineCountCache.get(id(), k -> Lines.count(text().join()));
+    }
 
     @Blocking
     default boolean contentEquals(ContextFragment other) {
@@ -75,7 +85,8 @@ public interface ContextFragment {
 
         private static final EnumSet<FragmentType> EDITABLE_TYPES = EnumSet.of(PROJECT_PATH, USAGE, CODE, LINE_RANGE);
 
-        private static final EnumSet<FragmentType> PROJECT_GUIDE_TYPES = EnumSet.of(PROJECT_PATH, CODE, SKELETON);
+        private static final EnumSet<FragmentType> PROJECT_GUIDE_TYPES =
+                EnumSet.of(PROJECT_PATH, CODE, LINE_RANGE, SKELETON);
 
         public boolean isPath() {
             return PATH_TYPES.contains(this);
@@ -149,15 +160,25 @@ public interface ContextFragment {
      */
     ComputedValue<String> text();
 
+    @Blocking
+    default String format() {
+        return """
+               <fragment description="%s">
+               %s
+               </fragment>
+               """
+                .formatted(description().join(), text().join());
+    }
+
     /**
      * fragment toc entry, usually id + description
      */
+    @Blocking
     default String formatToc(boolean isPinned) {
-        // Non-blocking best-effort rendering
         String idOrPinned = isPinned ? "pinned=\"true\"" : "fragmentid=\"%s\"".formatted(id());
         return """
-                <fragment-toc description="%s" %s />"""
-                .formatted(description().renderNowOr(""), idOrPinned);
+                <fragment-toc description="%s" loc="%d" %s />"""
+                .formatted(description().join(), lineCount(), idOrPinned);
     }
 
     default boolean isText() {

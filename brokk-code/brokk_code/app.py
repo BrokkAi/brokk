@@ -1039,10 +1039,17 @@ class BrokkApp(App):
             return
 
         msg = build_welcome_message(self.get_slash_commands(), self.latest_pypi_version)
-        if refresh:
-            chat.update_welcome(msg)
-        else:
-            chat.add_welcome(get_braille_icon(), msg)
+        try:
+            if refresh:
+                chat.update_welcome(msg)
+            else:
+                chat.add_welcome(get_braille_icon(), msg)
+        except Exception:
+            # Safely ignore races during teardown/unmount if the chat log or other
+            # expected widgets are gone.
+            logger.debug(
+                "Failed to show/refresh welcome message (likely unmounting)", exc_info=True
+            )
 
     def _maybe_statusline(self) -> Optional[StatusLine]:
         """Safely attempt to get the StatusLine, returning None if the UI isn't mounted."""

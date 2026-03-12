@@ -403,7 +403,7 @@ public final class TreeSitterStateIO {
 
         if (language == null) {
             String fileName = file.getFileName().toString();
-            String suffix = ".bin.lz4";
+            String suffix = Language.ANALYZER_STATE_SUFFIX;
             if (fileName.endsWith(suffix)) {
                 String prefix = fileName.substring(0, fileName.length() - suffix.length());
                 try {

@@ -59,7 +59,11 @@ public final class WorkspacePrompts {
             TOC_TEMPLATE = handlebars.compileInline(
                     """
                     <workspace_toc>
+                    {{#if isEmptyWorkspace~}}
+                    The Workspace is currently empty.
+                    {{~else~}}
                     Here is a list of the full contents of the Workspace that you can refer to above.
+                    {{~/if}}
                     {{#if hasPins~}}I have pinned some of them; these may not be dropped. If it has a fragmentid instead of a pin marker, you may drop it.{{~/if}}
                     {{#if readOnlyContents~}}
                     <workspace_readonly>
@@ -216,13 +220,21 @@ public final class WorkspacePrompts {
                 .map(cf -> cf.formatToc(ctx.isPinned(cf)))
                 .collect(Collectors.joining("\n"));
 
-        record TocData(boolean hasPins, String readOnlyContents, String editableContents, boolean showBuild) {}
+        boolean hasNoWorkspaceContents =
+                readOnlyContents.isBlank() && editableContents.isBlank() && buildFragment.isEmpty();
+        record TocData(
+                boolean hasPins,
+                String readOnlyContents,
+                String editableContents,
+                boolean showBuild,
+                boolean isEmptyWorkspace) {}
 
         var data = new TocData(
                 ctx.getPinnedFragments().findAny().isPresent(),
                 readOnlyContents,
                 editableContents,
-                !hideBuild && buildFragment.isPresent());
+                !hideBuild && buildFragment.isPresent(),
+                hasNoWorkspaceContents);
 
         try {
             return TOC_TEMPLATE.apply(data);
@@ -528,17 +540,7 @@ public final class WorkspacePrompts {
                         continue;
                     }
                 }
-                String formatted;
-                // don't integrate pinning here, leave that for the TOC. This keeps the earlier message contents
-                // stable for the prefix cache.
-                formatted =
-                        """
-                                <fragment description="%s">
-                                %s
-                                </fragment>
-                                """
-                                .formatted(cf.description().join(), cf.text().join());
-                textBuilder.append(formatted).append("\n\n");
+                textBuilder.append(cf.format()).append("\n\n");
                 continue;
             }
 
