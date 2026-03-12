@@ -13,6 +13,8 @@ import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.concurrent.AtomicWrites;
+import ai.brokk.concurrent.ExecutorsUtil;
+import ai.brokk.concurrent.LoggingExecutorService;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitRepoFactory;
 import ai.brokk.gui.theme.GuiTheme;
@@ -51,6 +53,8 @@ import java.util.Properties;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import javax.swing.SwingUtilities;
 import org.apache.logging.log4j.LogManager;
@@ -84,6 +88,8 @@ public final class MainProject extends AbstractProject {
     private FileChannel cacheLockChannel = null;
 
     private final DependencyUpdateScheduler dependencyUpdateScheduler;
+
+    private final LoggingExecutorService backgroundExecutor;
 
     private static final long DEFAULT_DISK_CACHE_SIZE = 10L * 1024L * 1024L; // 10 MB
 
@@ -233,6 +239,10 @@ public final class MainProject extends AbstractProject {
 
         // Initialize dependency update scheduler
         this.dependencyUpdateScheduler = new DependencyUpdateScheduler(this);
+
+        // Initialize shared background executor for app-level tasks
+        this.backgroundExecutor =
+                ExecutorsUtil.newFixedThreadExecutor("MainProject-" + this.root.getFileName() + "-", 4);
     }
 
     @TestOnly
@@ -2117,8 +2127,23 @@ public final class MainProject extends AbstractProject {
 
     @Override
     public void close() {
-        // Close dependency update scheduler
+        // Close dependency update scheduler first (may submit tasks to backgroundExecutor)
         dependencyUpdateScheduler.close();
+
+        // Shut down the background executor and wait for in-flight tasks to complete
+        // before tearing down project resources they may depend on
+        backgroundExecutor.shutdown();
+        try {
+            if (!backgroundExecutor.awaitTermination(10, TimeUnit.SECONDS)) {
+                logger.warn(
+                        "Background executor did not terminate in 10 seconds for {}, forcing shutdown",
+                        root.getFileName());
+                backgroundExecutor.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            backgroundExecutor.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
 
         // Close disk cache if open
         try {
@@ -2144,6 +2169,11 @@ public final class MainProject extends AbstractProject {
      */
     public DependencyUpdateScheduler getDependencyUpdateScheduler() {
         return dependencyUpdateScheduler;
+    }
+
+    @Override
+    public ExecutorService getBackgroundExecutor() {
+        return backgroundExecutor;
     }
 
     public Path getWorktreeStoragePath() {

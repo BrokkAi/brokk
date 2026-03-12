@@ -21,6 +21,9 @@ import java.util.Collections;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
@@ -54,6 +57,7 @@ public class TestProject implements IProject {
     private Set<IProject.Dependency> liveDependencies = Set.of();
     private @Nullable Predicate<Path> gitignoredPredicate;
     private MainProject.DataRetentionPolicy dataRetentionPolicy = MainProject.DataRetentionPolicy.MINIMAL;
+    private @Nullable ExecutorService backgroundExecutor;
 
     public TestProject(Path root) {
         this(root, Languages.NONE);
@@ -329,6 +333,41 @@ public class TestProject implements IProject {
     @Override
     public MainProject.DataRetentionPolicy getDataRetentionPolicy() {
         return dataRetentionPolicy;
+    }
+
+    /**
+     * Returns a background executor for this test project. Creates a single-threaded executor
+     * lazily on first access. Tests that call this should also call {@link #close()} to clean up.
+     */
+    @Override
+    public ExecutorService getBackgroundExecutor() {
+        if (backgroundExecutor == null) {
+            backgroundExecutor = Executors.newSingleThreadExecutor(r -> {
+                var t = new Thread(r, "TestProject-bg");
+                t.setDaemon(true);
+                return t;
+            });
+        }
+        return backgroundExecutor;
+    }
+
+    /**
+     * Shuts down the background executor if it was created. Safe to call multiple times.
+     */
+    @Override
+    public void close() {
+        if (backgroundExecutor != null) {
+            backgroundExecutor.shutdown();
+            try {
+                if (!backgroundExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
+                    backgroundExecutor.shutdownNow();
+                }
+            } catch (InterruptedException e) {
+                backgroundExecutor.shutdownNow();
+                Thread.currentThread().interrupt();
+            }
+            backgroundExecutor = null;
+        }
     }
 
     /**

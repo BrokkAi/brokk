@@ -16,6 +16,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.ExecutorService;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import javax.swing.SwingUtilities;
@@ -170,6 +171,11 @@ public final class WorktreeProject extends AbstractProject {
     @Override
     public IStringDiskCache getDiskCache() {
         return parent.getDiskCache();
+    }
+
+    @Override
+    public ExecutorService getBackgroundExecutor() {
+        return parent.getBackgroundExecutor();
     }
 
     @Override

@@ -54,6 +54,21 @@ public interface IProject extends AutoCloseable {
     }
 
     /**
+     * Returns a shared, app-scoped executor for general background work not tied to a specific
+     * session or context. This executor is owned by MainProject; WorktreeProject delegates to
+     * its parent.
+     *
+     * <p>The returned executor uses daemon threads with a consistent naming prefix and handles
+     * uncaught exceptions via GlobalExceptionHandler. Callers should NOT shut this executor
+     * down; it is managed by MainProject's lifecycle.
+     *
+     * @return a LoggingExecutorService for submitting background tasks
+     */
+    default java.util.concurrent.ExecutorService getBackgroundExecutor() {
+        throw new UnsupportedOperationException();
+    }
+
+    /**
      * Gets the set of Brokk Language enums configured for the project.
      *
      * @return A set of Language enums.
