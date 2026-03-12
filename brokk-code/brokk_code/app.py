@@ -2753,6 +2753,11 @@ class BrokkApp(App):
                 )
             return
 
+        if selected.get("done", False):
+            if chat:
+                chat.add_system_message("Selected task is already done.", level="INFO")
+            return
+
         self._dismiss_tasklist_modal()
         self.run_worker(self._run_selected_task(selected))
 
