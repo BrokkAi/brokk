@@ -1308,6 +1308,7 @@ class ChatPanel(Vertical):
                 "WARNING": "bold yellow",
                 "ERROR": "bold red",
                 "COST": "bold green",
+                "SUCCESS": "bold green",
             }
             style = style_map.get(level.upper(), "italic grey50")
             prefix = f"[{level}] " if level != "INFO" else ""

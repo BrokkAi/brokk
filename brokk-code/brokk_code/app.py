@@ -17,7 +17,9 @@ from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import Button, Input, ListItem, ListView, Static, TextArea
 
+from brokk_code.event_utils import is_failure_state, safe_data
 from brokk_code.executor import ExecutorError, ExecutorManager
+from brokk_code.git_utils import infer_github_repo_from_remote
 from brokk_code.prompt_history import append_prompt, load_history
 from brokk_code.settings import (
     DEFAULT_THEME,
@@ -1890,6 +1892,193 @@ class BrokkApp(App):
 
         return list(dict.fromkeys(attached_fragment_ids))
 
+    _VALID_SEVERITIES = {"CRITICAL", "HIGH", "MEDIUM", "LOW"}
+
+    def _handle_review_command(self, parts: List[str]) -> None:
+        """Handle the /review slash command.
+
+        Supported syntaxes:
+          /review <pr_number> [--severity LEVEL]
+          /review <owner> <repo> <pr_number> [--severity LEVEL]
+
+        LEVEL is one of CRITICAL, HIGH, MEDIUM, LOW (default: HIGH).
+        """
+        chat = self._maybe_chat()
+        if not chat:
+            return
+
+        if not self._executor_ready:
+            chat.add_system_message(
+                "Executor is not ready. Cannot submit PR review.",
+                level="ERROR",
+            )
+            return
+
+        # Extract --severity flag before positional parsing
+        raw_args = parts[1:] if len(parts) > 1 else []
+        severity_threshold: Optional[str] = None
+        positional: List[str] = []
+        i = 0
+        while i < len(raw_args):
+            if raw_args[i] == "--severity" and i + 1 < len(raw_args):
+                val = raw_args[i + 1].upper()
+                if val not in self._VALID_SEVERITIES:
+                    chat.add_system_message(
+                        f"Invalid severity: {raw_args[i + 1]}. "
+                        f"Must be one of: {', '.join(sorted(self._VALID_SEVERITIES))}",
+                        level="ERROR",
+                    )
+                    return
+                severity_threshold = val
+                i += 2
+            else:
+                positional.append(raw_args[i])
+                i += 1
+
+        args = positional
+
+        if len(args) == 0:
+            chat.add_system_message(
+                "Usage: /review <pr_number> [--severity LEVEL] "
+                "or /review <owner> <repo> <pr_number> [--severity LEVEL]",
+                level="WARNING",
+            )
+            return
+
+        pr_number: Optional[int] = None
+        owner: Optional[str] = None
+        repo: Optional[str] = None
+
+        if len(args) == 1:
+            # /review <pr_number> - infer owner/repo
+            try:
+                pr_number = int(args[0])
+            except ValueError:
+                chat.add_system_message(
+                    f"Invalid PR number: {args[0]}. Expected an integer.",
+                    level="ERROR",
+                )
+                return
+            owner, repo = infer_github_repo_from_remote(self.executor.workspace_dir)
+            if not owner or not repo:
+                chat.add_system_message(
+                    "Could not infer GitHub owner/repo from git remote. "
+                    "Use: /review <owner> <repo> <pr_number>",
+                    level="ERROR",
+                )
+                return
+        elif len(args) == 3:
+            # /review <owner> <repo> <pr_number>
+            owner = args[0]
+            repo = args[1]
+            try:
+                pr_number = int(args[2])
+            except ValueError:
+                chat.add_system_message(
+                    f"Invalid PR number: {args[2]}. Expected an integer.",
+                    level="ERROR",
+                )
+                return
+        else:
+            chat.add_system_message(
+                "Usage: /review <pr_number> [--severity LEVEL] "
+                "or /review <owner> <repo> <pr_number> [--severity LEVEL]",
+                level="WARNING",
+            )
+            return
+
+        # Get GitHub token from brokk.properties or environment
+        github_token = self.settings.get_github_token()
+        if not github_token:
+            chat.add_system_message(
+                "GitHub token not found. Set githubToken in brokk.properties "
+                "or the GITHUB_TOKEN environment variable.",
+                level="ERROR",
+            )
+            return
+
+        severity_msg = f" (severity>={severity_threshold})" if severity_threshold else ""
+        chat.add_system_message(
+            f"Submitting PR review for {owner}/{repo}#{pr_number}{severity_msg}..."
+        )
+        self.run_worker(
+            self._run_pr_review_job(
+                pr_number=pr_number,
+                github_token=github_token,
+                repo_owner=owner,
+                repo_name=repo,
+                severity_threshold=severity_threshold,
+            )
+        )
+
+    async def _run_pr_review_job(
+        self,
+        pr_number: int,
+        github_token: str,
+        repo_owner: str,
+        repo_name: str,
+        severity_threshold: Optional[str] = None,
+    ) -> None:
+        """Run a PR review job and stream events to the chat."""
+        self.current_job_cost = 0.0
+        self.job_in_progress = True
+        chat = self._maybe_chat()
+        if chat:
+            chat.set_job_running(True)
+            chat.set_response_pending()
+
+        job_failed = False
+        saw_completed = False
+        try:
+            self.current_job_id = await self.executor.submit_pr_review_job(
+                planner_model=self.current_model,
+                github_token=github_token,
+                owner=repo_owner,
+                repo=repo_name,
+                pr_number=pr_number,
+                severity_threshold=severity_threshold,
+            )
+            async for event in self.executor.stream_events(self.current_job_id):
+                if not isinstance(event, dict):
+                    continue
+                event_type = event.get("type")
+                # Skip raw LLM token stream — it contains the review JSON,
+                # not user-facing content
+                if event_type in ("LLM_TOKEN", "TOKEN"):
+                    continue
+                if event_type == "STATE_CHANGE":
+                    data = safe_data(event)
+                    state = data.get("state")
+                    if state == "COMPLETED":
+                        saw_completed = True
+                    elif state and is_failure_state(state):
+                        job_failed = True
+                    continue
+                if event_type == "ERROR":
+                    job_failed = True
+                self._handle_event(event)
+        except Exception as e:
+            logger.exception("PR review job failed")
+            job_failed = True
+            if chat:
+                err_type = type(e).__name__
+                chat.add_system_message(
+                    f"PR review job failed ({err_type}): {e}",
+                    level="ERROR",
+                )
+        finally:
+            if chat:
+                if saw_completed and not job_failed:
+                    pr_url = f"https://github.com/{repo_owner}/{repo_name}/pull/{pr_number}"
+                    chat.add_system_message_markup(
+                        f"PR review posted: [link={pr_url}]{pr_url}[/link]",
+                        level="SUCCESS",
+                    )
+                chat.set_response_finished()
+                chat.set_job_running(False)
+            self.job_in_progress = False
+            self.current_job_id = None
+
     async def _login_openai(self) -> None:
         """Async helper to initiate OpenAI OAuth login flow."""
         chat = self._maybe_chat()
@@ -2027,8 +2216,11 @@ class BrokkApp(App):
                 self.current_job_id = None
 
     def _handle_event(self, event: Dict[str, Any]) -> None:
+        if not isinstance(event, dict):
+            logger.warning("Ignoring non-dict event: %s", type(event).__name__)
+            return
         event_type = event.get("type")
-        data = event.get("data", {})
+        data = safe_data(event)
         chat = self._maybe_chat()
 
         if event_type == "LLM_TOKEN":
@@ -2060,7 +2252,7 @@ class BrokkApp(App):
             if chat and not is_cost and not is_confirm:
                 chat.add_system_message(msg, level=level)
         elif event_type == "ERROR":
-            msg = data.get("message", "Unknown error")
+            msg = data.get("message", "") or "Unknown error"
             if chat:
                 chat.add_system_message(msg, level="ERROR")
             # Note: set_job_running(False) happens in _run_job finally block
@@ -2207,6 +2399,10 @@ class BrokkApp(App):
             {"command": "/commit", "description": "Commit current changes"},
             {"command": "/pr", "description": "Create a pull request"},
             {"command": "/info", "description": "Show current configuration and status"},
+            {
+                "command": "/review",
+                "description": "Submit a PR review job (supports --severity LEVEL)",
+            },
             {"command": "/quit", "description": "Exit the application"},
             {"command": "/exit", "description": "Exit the application"},
         ]
@@ -2351,6 +2547,8 @@ class BrokkApp(App):
             if len(parts) > 1:
                 base_branch = parts[1]
             self.run_worker(self._create_pull_request(base_branch))
+        elif base == "/review":
+            self._handle_review_command(parts)
         elif base in ("/quit", "/exit"):
             self.action_quit()
         else:

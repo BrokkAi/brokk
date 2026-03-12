@@ -737,6 +737,8 @@ public final class JobRunner {
                                             throw new IllegalArgumentException("REVIEW requires pr_number in tags");
                                         }
 
+                                        var severityThreshold = spec.getSeverityThreshold();
+
                                         try (var scope = cm.beginTaskUngrouped("PR Review #" + prNumber)) {
                                             var context = cm.liveContext();
 
@@ -865,7 +867,8 @@ public final class JobRunner {
                                                     plannerModel,
                                                     annotatedDiff,
                                                     prDetails.title(),
-                                                    prDetails.body());
+                                                    prDetails.body(),
+                                                    severityThreshold);
                                             TaskResult reviewResult = review.taskResult();
                                             scope.append(reviewResult);
 
@@ -923,7 +926,7 @@ public final class JobRunner {
 
                                             var filteredComments = PrReviewService.filterInlineComments(
                                                     reviewResponse.comments(),
-                                                    DEFAULT_REVIEW_SEVERITY_THRESHOLD,
+                                                    severityThreshold,
                                                     DEFAULT_REVIEW_MAX_INLINE_COMMENTS);
 
                                             for (var comment : filteredComments) {
