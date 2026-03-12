@@ -5,15 +5,21 @@ import ai.brokk.IssueProvider;
 import ai.brokk.SessionManager;
 import ai.brokk.SessionRegistry;
 import ai.brokk.analyzer.Language;
+import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.mcpclient.McpConfig;
 import ai.brokk.project.MainProject.DataRetentionPolicy;
 import ai.brokk.util.IStringDiskCache;
 import ai.brokk.util.ShellConfig;
+import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
+import javax.swing.SwingUtilities;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
 public final class WorktreeProject extends AbstractProject {
@@ -22,6 +28,48 @@ public final class WorktreeProject extends AbstractProject {
     public WorktreeProject(Path root, MainProject parent) {
         super(root, parent.getMasterRootPathForConfig());
         this.parent = parent;
+    }
+
+    /**
+     * Copies analyzer cache files from the parent's storage locations to the worktree if they don't
+     * already exist. This allows the worktree to start with a warm analyzer state.
+     *
+     * <p>This must be called off the EDT after project instantiation.
+     */
+    @Blocking
+    public void warmStartAnalyzerCachesFromParent() {
+        assert !SwingUtilities.isEventDispatchThread() : "warmStartAnalyzerCachesFromParent called on EDT";
+        warmStartAnalyzerCachesFromParent(parent.getAnalyzerLanguages());
+    }
+
+    @Blocking
+    void warmStartAnalyzerCachesFromParent(Set<Language> parentLanguages) {
+        assert !SwingUtilities.isEventDispatchThread() : "warmStartAnalyzerCachesFromParent called on EDT";
+
+        Set<Language> effectiveLanguages = parentLanguages.stream()
+                .flatMap(l -> l instanceof Language.MultiLanguage ml ? ml.getLanguages().stream() : Stream.of(l))
+                .filter(l -> l != Languages.NONE)
+                .collect(Collectors.toSet());
+
+        for (Language lang : effectiveLanguages) {
+            try {
+                Path source = lang.getStoragePath(parent);
+                Path target = lang.getStoragePath(this);
+
+                if (Files.exists(source) && !Files.exists(target)) {
+                    Path targetParent = target.getParent();
+                    if (targetParent != null && !Files.exists(targetParent)) {
+                        Files.createDirectories(targetParent);
+                    }
+                    Files.copy(source, target);
+                    logger.debug(
+                            "Copied analyzer cache for {} from {} to {}", lang.name(), source.getFileName(), target);
+                }
+            } catch (IOException | RuntimeException e) {
+                logger.warn(
+                        "Failed to copy analyzer cache for {} from parent project: {}", lang.name(), e.getMessage());
+            }
+        }
     }
 
     @Override

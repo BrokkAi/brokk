@@ -12,6 +12,7 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.concurrent.LoggingExecutorService;
 import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.project.IProject;
+import ai.brokk.project.WorktreeProject;
 import ai.brokk.watchservice.AbstractWatchService;
 import ai.brokk.watchservice.AbstractWatchService.EventBatch;
 import java.io.IOException;
@@ -108,6 +109,10 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
      */
     private void submitInitialAnalyzerBuild() {
         analyzerExecutor.submit(() -> {
+            if (project instanceof WorktreeProject wp) {
+                wp.warmStartAnalyzerCachesFromParent();
+            }
+
             long start = System.currentTimeMillis();
             IAnalyzer analyzer = loadOrCreateAnalyzer();
             long durationMs = System.currentTimeMillis() - start;
@@ -684,7 +689,7 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
         try {
             Path storage = lang.getStoragePath(project);
 
-            // Primary (current) file: .bin.lz4
+            // Primary (current) file
             try {
                 if (Files.deleteIfExists(storage)) {
                     logger.info("Deleted persisted analyzer state: {}", storage);
@@ -694,22 +699,22 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
             }
 
             // Also remove legacy gzip-based filenames that may linger from older versions.
-            // Derive a stable base name from the storage file name (strip .lz4 extension if present)
-            // and look for .gz and .gzip siblings.
             Path fileNamePath = storage.getFileName();
             if (fileNamePath == null) {
                 return;
             }
 
+            // Derive the legacy stem from the current storage filename by stripping ONLY the trailing ".lz4"
+            // Example: 'java.bin.lz4' -> legacyStem 'java.bin'
             String name = fileNamePath.toString();
-            String base = name.endsWith(".lz4") ? name.substring(0, name.length() - 4) : name;
+            String legacyStem = name.endsWith(".lz4") ? name.substring(0, name.length() - 4) : name;
 
             Path parent = storage.getParent();
             if (parent == null) {
                 parent = project.getRoot();
             }
 
-            Path legacyGz = parent.resolve(base + ".gz");
+            Path legacyGz = parent.resolve(legacyStem + ".gz");
             try {
                 if (Files.deleteIfExists(legacyGz)) {
                     logger.info("Deleted legacy analyzer state file: {}", legacyGz);
@@ -718,7 +723,7 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
                 logger.debug("Failed to delete legacy analyzer state file {}: {}", legacyGz, e.getMessage());
             }
 
-            Path legacyGzip = parent.resolve(base + ".gzip");
+            Path legacyGzip = parent.resolve(legacyStem + ".gzip");
             try {
                 if (Files.deleteIfExists(legacyGzip)) {
                     logger.info("Deleted legacy analyzer state file: {}", legacyGzip);
