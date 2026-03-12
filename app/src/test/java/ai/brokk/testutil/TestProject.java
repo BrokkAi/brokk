@@ -8,6 +8,7 @@ import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.mcpclient.McpConfig;
+import ai.brokk.project.FileFilteringService;
 import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
 import ai.brokk.util.Environment;
@@ -147,6 +148,12 @@ public class TestProject implements IProject {
     @Override
     public Set<String> getExclusionPatterns() {
         return exclusionPatterns;
+    }
+
+    @Override
+    public boolean isPathExcluded(String relativePath, boolean isDirectory) {
+        if (exclusionPatterns.isEmpty()) return false;
+        return FileFilteringService.createPatternMatcher(exclusionPatterns).isPathExcluded(relativePath, isDirectory);
     }
 
     @Override
@@ -320,6 +327,11 @@ public class TestProject implements IProject {
 
     @Override
     public boolean isGitignored(Path relPath) {
+        return gitignoredPredicate != null && gitignoredPredicate.test(relPath);
+    }
+
+    @Override
+    public boolean isGitignored(Path relPath, boolean isDirectory) {
         return gitignoredPredicate != null && gitignoredPredicate.test(relPath);
     }
 

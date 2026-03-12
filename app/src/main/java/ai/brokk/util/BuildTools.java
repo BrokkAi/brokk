@@ -10,12 +10,11 @@ import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
-import ai.brokk.project.FileFilteringService;
 import ai.brokk.project.IProject;
-import com.google.common.annotations.VisibleForTesting;
 import com.github.mustachejava.DefaultMustacheFactory;
 import com.github.mustachejava.Mustache;
 import com.github.mustachejava.MustacheFactory;
+import com.google.common.annotations.VisibleForTesting;
 import dev.langchain4j.data.message.ChatMessageType;
 import java.io.IOException;
 import java.io.StringReader;
@@ -34,9 +33,9 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiPredicate;
 import java.util.function.Predicate;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
@@ -207,40 +206,11 @@ public class BuildTools {
             return Optional.empty();
         }
 
-        Path projectRoot = project.getRoot();
+        var projectRoot = project.getRoot();
 
-        // Build a combined ignore checker: project exclusions + gitignore (if available)
-        var exclusionMatcher = FileFilteringService.createPatternMatcher(project.getExclusionPatterns());
-        @Nullable FileFilteringService gitFilteringService = null;
-
-        if (project.hasGit()) {
-            try {
-                gitFilteringService = new FileFilteringService(projectRoot, project.getRepo());
-            } catch (Exception e) {
-                logger.debug("Could not initialize git-aware filtering for Python version detection", e);
-            }
-        }
-
-        // Create a combined predicate for EnvironmentPython
-        final @Nullable FileFilteringService effectiveGitFilter = gitFilteringService;
-        final var effectiveExclusionMatcher = exclusionMatcher.isEmpty() ? null : exclusionMatcher;
-
-        @Nullable BiPredicate<Path, Boolean> ignoreChecker = null;
-        if (effectiveExclusionMatcher != null || effectiveGitFilter != null) {
-            ignoreChecker = (relPath, isDirectory) -> {
-                String relPathStr = relPath.toString();
-                // Check project-level exclusions first
-                if (effectiveExclusionMatcher != null
-                        && effectiveExclusionMatcher.isPathExcluded(relPathStr, isDirectory)) {
-                    return true;
-                }
-                // Check gitignore
-                if (effectiveGitFilter != null && effectiveGitFilter.isGitignored(relPath, isDirectory)) {
-                    return true;
-                }
-                return false;
-            };
-        }
+        @Nullable
+        BiPredicate<Path, Boolean> ignoreChecker =
+                (project.hasGit() || !project.getExclusionPatterns().isEmpty()) ? project::shouldSkipPath : null;
 
         try {
             var env = pythonExecutableChecker != null
