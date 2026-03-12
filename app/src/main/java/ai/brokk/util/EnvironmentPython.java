@@ -371,7 +371,8 @@ public class EnvironmentPython {
                             return FileVisitResult.SKIP_SUBTREE;
                         }
 
-                        // Always skip common artifact/cache/venv directories
+                        // Always skip common artifact/cache/venv directories regardless of git status
+                        // This ensures .venv, venv, node_modules, etc. are skipped even if tracked
                         if (FALLBACK_SKIP_DIRECTORIES.contains(dirName)) {
                             logger.trace("Skipping well-known non-source directory: {}", relPath);
                             return FileVisitResult.SKIP_SUBTREE;

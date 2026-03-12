@@ -222,6 +222,68 @@ public class EnvironmentPythonTest {
         assertEquals(UNCAPPED_VERSION, version, "Gitignore + project exclusion should skip all distutils");
     }
 
+    // ===== Venv directory pruning tests (should be skipped regardless of git status) =====
+
+    @Test
+    void testTrackedVenvDirectoryDoesNotCapVersion() throws Exception {
+        // Regression test: .venv/venv directories should be skipped even when tracked in git
+        // This catches the bug where FALLBACK_SKIP_DIRECTORIES is only checked in the else branch
+        Path repoPath = tempDir.resolve("tracked-venv");
+        Files.createDirectories(repoPath);
+
+        try (Git git = Git.init().setDirectory(repoPath.toFile()).call()) {
+            // Create a tracked .venv directory with distutils import
+            Path venvDir = repoPath.resolve(".venv");
+            Files.createDirectories(venvDir);
+            Files.writeString(venvDir.resolve("setup.py"), "from distutils.core import setup\n");
+
+            // Also create normal source without distutils
+            Path srcDir = repoPath.resolve("src");
+            Files.createDirectories(srcDir);
+            Files.writeString(srcDir.resolve("main.py"), "print('hello')\n");
+
+            // Track both directories (NOT gitignored)
+            git.add().addFilepattern(".venv/setup.py").call();
+            git.add().addFilepattern("src/main.py").call();
+            git.commit()
+                    .setMessage("Initial commit with tracked .venv")
+                    .setAuthor("Test", "test@example.com")
+                    .setSign(false)
+                    .call();
+        }
+
+        var version = createTestEnvPython(repoPath).getPythonVersion();
+        assertEquals(UNCAPPED_VERSION, version, "Tracked .venv directory should still be skipped (not cap version)");
+    }
+
+    @Test
+    void testTrackedVenvDirectoryWithoutDotDoesNotCapVersion() throws Exception {
+        // Same as above but for "venv" (without leading dot)
+        Path repoPath = tempDir.resolve("tracked-venv-no-dot");
+        Files.createDirectories(repoPath);
+
+        try (Git git = Git.init().setDirectory(repoPath.toFile()).call()) {
+            Path venvDir = repoPath.resolve("venv");
+            Files.createDirectories(venvDir);
+            Files.writeString(venvDir.resolve("old_distutils.py"), "import distutils\n");
+
+            Path srcDir = repoPath.resolve("src");
+            Files.createDirectories(srcDir);
+            Files.writeString(srcDir.resolve("app.py"), "print('app')\n");
+
+            git.add().addFilepattern("venv/old_distutils.py").call();
+            git.add().addFilepattern("src/app.py").call();
+            git.commit()
+                    .setMessage("Initial commit with tracked venv")
+                    .setAuthor("Test", "test@example.com")
+                    .setSign(false)
+                    .call();
+        }
+
+        var version = createTestEnvPython(repoPath).getPythonVersion();
+        assertEquals(UNCAPPED_VERSION, version, "Tracked venv directory should still be skipped (not cap version)");
+    }
+
     // ===== Gitignored path tests =====
 
     @Test

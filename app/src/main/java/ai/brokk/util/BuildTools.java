@@ -199,10 +199,10 @@ public class BuildTools {
         return getPythonVersionForProject(projectRoot, project, null);
     }
 
-    static Optional<String> getPythonVersionForProject(Path projectRoot,
-                                                       IProject project,
-                                                       @Nullable java.util.function.Predicate<String> pythonExecutableChecker)
-    {
+    static Optional<String> getPythonVersionForProject(
+            Path projectRoot,
+            IProject project,
+            @Nullable java.util.function.Predicate<String> pythonExecutableChecker) {
         if (!project.getAnalyzerLanguages().contains(Languages.PYTHON)) {
             return Optional.empty();
         }
