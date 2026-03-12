@@ -6,6 +6,7 @@ import static java.util.Objects.requireNonNull;
 
 import ai.brokk.IConsoleIO;
 import ai.brokk.Llm;
+import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.project.IProject;
@@ -396,6 +397,15 @@ public class BuildAgent {
         }
 
         // System Prompt
+        String languageNames = project.getAnalyzerLanguages().stream()
+                .filter(l -> l != Languages.NONE)
+                .map(Language::name)
+                .collect(Collectors.joining(", "));
+
+        if (languageNames.isBlank()) {
+            languageNames = "unknown";
+        }
+
         messages.add(new SystemMessage(
                 """
                 You are an agent tasked with finding build information for the *development* environment of a software project.
@@ -494,13 +504,7 @@ public class BuildAgent {
                 Remember to request the `reportBuildDetails` tool to finalize the process ONLY once all information is collected.
                 The reportBuildDetails tool expects exactly five parameters: buildLintCommand, testAllCommand, testSomeCommand, excludedDirectories, and excludedFilePatterns.
                 """
-                        .formatted(
-                                wrapperScriptInstruction,
-                                currentExcludedDirectories,
-                                Optional.of(Languages.aggregate(project.getAnalyzerLanguages())
-                                                .name())
-                                        .filter(name -> !name.equalsIgnoreCase("None"))
-                                        .orElse("unknown"))));
+                        .formatted(wrapperScriptInstruction, currentExcludedDirectories, languageNames)));
 
         // Add existing history
         messages.addAll(chatHistory);

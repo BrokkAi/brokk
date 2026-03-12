@@ -635,7 +635,14 @@ public class ContentDiffUtils {
         var project = new MainProject(Path.of(projectPath).toAbsolutePath());
         Language langHandle = Languages.aggregate(project.getAnalyzerLanguages());
 
-        var analyzer = langHandle.loadAnalyzer(project, (completed, total, phase) -> {});
+        var analyzer = langHandle.loadAnalyzer(project, (completed, total, phase) -> {
+            if (total > 0) {
+                System.err.printf("\rAnalyzer progress: %s [%d/%d]", phase, completed, total);
+                if (completed == total) System.err.println();
+            } else {
+                System.err.println("Analyzer phase: " + phase);
+            }
+        });
         GitRepo repo = (GitRepo) project.getRepo();
         String oldCommitId = repo.resolveToCommit(revA).name();
         String newCommitId = repo.resolveToCommit(revB).name();

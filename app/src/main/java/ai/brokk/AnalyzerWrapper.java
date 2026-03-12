@@ -329,7 +329,7 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
      */
     private IAnalyzer loadOrCreateAnalyzer() {
         /* ── 0.  Decide which languages we are dealing with ─────────────────────────── */
-        var projectLangsSet = project.getAnalyzerLanguages();
+        Set<Language> projectLangsSet = project.getAnalyzerLanguages();
         Language langHandle = Languages.aggregate(projectLangsSet);
 
         if (langHandle == Languages.NONE) {
