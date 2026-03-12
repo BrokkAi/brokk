@@ -6,6 +6,7 @@ import static java.util.Objects.requireNonNull;
 
 import ai.brokk.IConsoleIO;
 import ai.brokk.Llm;
+import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.project.IProject;
@@ -477,7 +478,7 @@ public class BuildAgent {
                 Use the `excludedFilePatterns` parameter to specify patterns for files that add cost without value.
                 IMPORTANT pattern format rules:
                 - Only suggest patterns for files that ACTUALLY EXIST in this project
-                - For file extensions, use simple `*.ext` format (e.g., `*.svg`, `*.png`) - do NOT use `**/*.ext`
+                - For file extensions, use simple `*.ext` format (e.g., `*.svg`, *.png) - do NOT use `**/*.ext`
                 - For specific filenames, use the literal name (e.g., `package-lock.json`) - do NOT use `**/filename`
                 - Do NOT duplicate directories here - if a directory is in `excludedDirectories`, don't add it as a pattern
 
@@ -489,7 +490,7 @@ public class BuildAgent {
 
                 Do NOT exclude: configuration files, type definitions (*.d.ts, ddl files, etc), schema files (OpenAPI, GraphQL, Protobuf sources, etc), or test code.
 
-                This project's primary language is %s. Consider language-specific exclusions that are appropriate.
+                This project's primary languages are %s. Consider language-specific exclusions that are appropriate.
 
                 Remember to request the `reportBuildDetails` tool to finalize the process ONLY once all information is collected.
                 The reportBuildDetails tool expects exactly five parameters: buildLintCommand, testAllCommand, testSomeCommand, excludedDirectories, and excludedFilePatterns.
@@ -497,7 +498,10 @@ public class BuildAgent {
                         .formatted(
                                 wrapperScriptInstruction,
                                 currentExcludedDirectories,
-                                project.getLanguageHandle().name())));
+                                project.getAnalyzerLanguages().stream()
+                                        .filter(l -> l != Languages.NONE)
+                                        .map(Language::name)
+                                        .collect(Collectors.joining(", ")))));
 
         // Add existing history
         messages.addAll(chatHistory);
@@ -1002,8 +1006,7 @@ public class BuildAgent {
      * - Otherwise: no defaults
      */
     private Map<String, String> defaultEnvForProject() {
-        var lang = project.getLanguageHandle();
-        if (lang == Languages.PYTHON) {
+        if (project.getAnalyzerLanguages().contains(Languages.PYTHON)) {
             return Map.of("VIRTUAL_ENV", ".venv");
         }
         return Map.of();

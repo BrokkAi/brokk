@@ -64,11 +64,6 @@ public class TestProject implements IProject {
         this.language = language;
     }
 
-    @Override
-    public Language getLanguageHandle() {
-        return language;
-    }
-
     public void setBuildDetails(BuildAgent.BuildDetails buildDetails) {
         this.buildDetails = buildDetails;
         this.buildDetailsExplicitlySet = true;

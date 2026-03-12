@@ -422,6 +422,13 @@ public interface IProject extends AutoCloseable {
         throw new UnsupportedOperationException();
     }
 
+    @Blocking
+    default List<String> getSourceRoots(Language language) {
+        return SourceRootScanner.scan(this, language);
+    }
+
+    default void setSourceRoots(Language language, List<String> roots) {}
+
     default boolean isGitConfigDeclined() {
         return false;
     }
@@ -544,16 +551,6 @@ public interface IProject extends AutoCloseable {
         throw new UnsupportedOperationException();
     }
 
-    default Language getLanguageHandle() {
-        var projectLangs = getAnalyzerLanguages().stream()
-                .filter(l -> l != Languages.NONE)
-                .collect(Collectors.toUnmodifiableSet());
-        if (projectLangs.isEmpty()) {
-            return Languages.NONE;
-        }
-        return (projectLangs.size() == 1) ? projectLangs.iterator().next() : new Language.MultiLanguage(projectLangs);
-    }
-
     /**
      * Obtains the user-defined run command timeout if set, or the default value otherwise.
      * @return the default timeout for how long a shell command may run for.
@@ -569,25 +566,6 @@ public interface IProject extends AutoCloseable {
     default long getTestCommandTimeoutSeconds() {
         return Environment.DEFAULT_TEST_COMMAND_TIMEOUT_SECONDS;
     }
-
-    /**
-     * Returns the list of source roots configured for this project for the given language.
-     *
-     * @param language the language to get source roots for.
-     * @return a list of relative or absolute paths as strings.
-     */
-    @Blocking
-    default List<String> getSourceRoots(Language language) {
-        return SourceRootScanner.scan(this, language);
-    }
-
-    /**
-     * Configures the source roots for this project for the given language.
-     *
-     * @param language the language to set source roots for.
-     * @param roots the list of source root paths.
-     */
-    default void setSourceRoots(Language language, List<String> roots) {}
 
     enum CodeAgentTestScope {
         ALL,

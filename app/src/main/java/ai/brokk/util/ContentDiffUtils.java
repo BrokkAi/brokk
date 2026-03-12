@@ -5,6 +5,8 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.CodeUnitType;
 import ai.brokk.analyzer.IAnalyzer;
+import ai.brokk.analyzer.Language;
+import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.IGitRepo;
@@ -631,7 +633,13 @@ public class ContentDiffUtils {
         String revB = "HEAD";
 
         var project = new MainProject(Path.of(projectPath).toAbsolutePath());
-        var analyzer = project.getLanguageHandle().loadAnalyzer(project);
+        var langs = project.getAnalyzerLanguages().stream()
+                .filter(l -> l != Languages.NONE)
+                .collect(Collectors.toSet());
+        Language langHandle = (langs.isEmpty())
+                ? Languages.NONE
+                : (langs.size() == 1) ? langs.iterator().next() : new Language.MultiLanguage(langs);
+        var analyzer = langHandle.loadAnalyzer(project, (completed, total, phase) -> {});
         GitRepo repo = (GitRepo) project.getRepo();
         String oldCommitId = repo.resolveToCommit(revA).name();
         String newCommitId = repo.resolveToCommit(revB).name();
