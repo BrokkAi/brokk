@@ -346,6 +346,7 @@ public final class JobRunner {
         var future = new CompletableFuture<Void>();
 
         runner.execute(() -> {
+            Throwable[] futureFailure = {null};
             try {
                 // Determine execution mode (default ARCHITECT)
                 Mode mode = parseMode(spec);
@@ -1141,8 +1142,6 @@ public final class JobRunner {
                     }
                     store.updateStatus(jobId, current);
                 }
-
-                future.complete(null);
             } catch (Throwable t) {
                 var failure = unwrapFailure(t);
 
@@ -1182,8 +1181,6 @@ public final class JobRunner {
                     } catch (Exception e2) {
                         logger.warn("Failed to persist CANCELLED status for job {}", jobId, e2);
                     }
-
-                    future.complete(null);
                 } else {
                     logger.error("Job {} execution failed", jobId, t);
 
@@ -1214,7 +1211,7 @@ public final class JobRunner {
                         logger.warn("Failed to persist FAILED status for job {}", jobId, e2);
                     }
 
-                    future.completeExceptionally(failure);
+                    futureFailure[0] = failure;
                 }
             } finally {
                 // Clean up
@@ -1232,6 +1229,12 @@ public final class JobRunner {
                 cm.setIo(previousIo);
                 activeJobId = null;
                 logger.info("Job {} execution ended", jobId);
+
+                if (futureFailure[0] != null) {
+                    future.completeExceptionally(futureFailure[0]);
+                } else {
+                    future.complete(null);
+                }
             }
         });
 
