@@ -332,9 +332,7 @@ public class LutzAgent {
 
         if (!setupResult.newFragments().isEmpty()) {
             checkpointState = SearchState.initial(preparedContext);
-            scanConfig =
-                    new ScanConfig(false, scanConfig.scanModel(), scanConfig.appendToScope(), scanConfig.autoPrune());
-            logger.debug("Referenced fragments resolved: {}. Disabling auto-scan.", setupResult.newFragments());
+            logger.debug("Referenced fragments resolved: {}", setupResult.newFragments());
         }
 
         currentState = currentState.withContext(preparedContext);
