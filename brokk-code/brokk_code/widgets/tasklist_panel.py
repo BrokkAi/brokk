@@ -93,18 +93,14 @@ class TaskListPanel(Vertical):
             if binding.key in ("left,up", "right,down", "enter,space"):
                 continue
 
-            key_display = binding.key.upper()
-            if "SHIFT+" in key_display:
-                key_display = key_display.replace("SHIFT+", "")
+            # Format the key display, preserving SHIFT+ but making it Title Case for readability
+            key_display = binding.key.upper().replace("SHIFT+", "Shift+")
             shortcuts.append(f"[b]{key_display}[/b] {binding.description}")
 
         manual = [
             "[bold bright_magenta]Esc[/] Close",
             "[b]Up/Down[/b] Move",
-            "[b]Space[/b] Toggle",
-            "[b]Enter[/b] Toggle",
-            "[b]R[/b] Run",
-            "[b]Shift+R[/b] Run All",
+            "[b]Space/Enter[/b] Toggle",
         ]
         return "  ".join(manual + shortcuts)
 
