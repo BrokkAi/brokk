@@ -682,6 +682,8 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         var table = new JTable(languagesTableModel);
 
         // Load languages asynchronously
+        record LanguageLoadResult(List<Language> languages, int maxModelIdx) {}
+
         LoggingFuture.supplyAsync(() -> {
                     var detected = Languages.findLanguagesInProject(project);
                     var configured = new ArrayList<>(project.getAnalyzerLanguages());
@@ -690,25 +692,27 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
                     langSet.addAll(configured);
                     var result = new ArrayList<>(langSet);
                     result.sort(Comparator.comparing(Language::name));
-                    return result;
+
+                    int maxModelIdx = 0;
+                    if (!result.isEmpty()) {
+                        int maxCount = -1;
+                        for (int i = 0; i < result.size(); i++) {
+                            int cnt = project.getAnalyzableFiles(result.get(i)).size();
+                            if (cnt > maxCount) {
+                                maxCount = cnt;
+                                maxModelIdx = i;
+                            }
+                        }
+                    }
+                    return new LanguageLoadResult(result, maxModelIdx);
                 })
-                .thenAccept(languagesToShow -> SwingUtil.runOnEdt(() -> {
+                .thenAccept(loadResult -> SwingUtil.runOnEdt(() -> {
                     if (languagesTableModel != null) {
-                        languagesTableModel.setRows(languagesToShow);
+                        languagesTableModel.setRows(loadResult.languages());
 
                         // Preselect the language with the most associated files so details show immediately.
-                        if (!languagesToShow.isEmpty()) {
-                            int maxModelIdx = 0;
-                            int maxCount = -1;
-                            for (int i = 0; i < languagesToShow.size(); i++) {
-                                int cnt = project.getAnalyzableFiles(languagesToShow.get(i))
-                                        .size();
-                                if (cnt > maxCount) {
-                                    maxCount = cnt;
-                                    maxModelIdx = i;
-                                }
-                            }
-                            int viewIdx = table.convertRowIndexToView(maxModelIdx);
+                        if (!loadResult.languages().isEmpty()) {
+                            int viewIdx = table.convertRowIndexToView(loadResult.maxModelIdx());
                             if (viewIdx >= 0) {
                                 table.getSelectionModel().setSelectionInterval(viewIdx, viewIdx);
                                 table.scrollRectToVisible(table.getCellRect(viewIdx, 0, true));
