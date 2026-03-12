@@ -29,7 +29,7 @@ class TaskListPanel(Vertical):
         Binding("e", "task_edit", "Edit", show=False),
         Binding("d", "task_delete", "Delete", show=False),
         Binding("r", "task_run", "Run", show=False),
-        Binding("shift+r", "task_run_all", "Run All", show=False),
+        Binding("R", "task_run_all", "Run All", show=False),
     ]
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
@@ -93,8 +93,12 @@ class TaskListPanel(Vertical):
             if binding.key in ("left,up", "right,down", "enter,space"):
                 continue
 
-            # Format the key display, preserving SHIFT+ but making it Title Case for readability
-            key_display = binding.key.upper().replace("SHIFT+", "Shift+")
+            # Format the key display; uppercase single letter means Shift+<key>
+            key = binding.key
+            if len(key) == 1 and key.isupper():
+                key_display = f"Shift+{key}"
+            else:
+                key_display = key.title()
             shortcuts.append(f"[b]{key_display}[/b] {binding.description}")
 
         manual = [
