@@ -274,15 +274,26 @@ public class CodeFragmentTest {
         var fragment = new ContextFragments.CodeFragment(contextManager, "com.example.Overloads.verify");
         String text = fragment.text().join();
 
-        // Should contain both methods
-        assertCodeContains(text, "void verify(IProject p, String s) {}");
-        assertCodeContains(text, "void verify(IProject p, String s, Map m) {}");
-
-        // Should contain combined and deduped imports
-        assertCodeContains(text, "<imports>\nimport ai.brokk.project.IProject;\nimport java.util.Map;\n</imports>");
-
         assertEquals(Set.of(v1, v2), fragment.sources().join());
         assertEquals(Set.of(file), fragment.referencedFiles().join());
+
+        assertCodeEquals(
+                """
+                <imports>
+import ai.brokk.project.IProject;
+import java.util.Map;
+</imports>
+
+<methods class="com.example.Overloads.verify" file="Overloads.java">
+public static void verify(IProject p, String s) {}
+</methods>
+
+
+<methods class="com.example.Overloads.verify" file="Overloads.java">
+public static void verify(IProject p, String s, Map m) {}
+</methods>
+""",
+                text);
     }
 
     @Test
