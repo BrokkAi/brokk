@@ -236,7 +236,7 @@ def _default_zed_settings_path() -> Path:
                 return appdata_path / "Zed" / "settings.json"
         return Path.home() / "AppData" / "Roaming" / "Zed" / "settings.json"
     if sys.platform == "darwin":
-        return Path.home() / "Library" / "Application Support" / "Zed" / "settings.json"
+        return Path.home() / ".config" / "zed" / "settings.json"
     return Path.home() / ".config" / "zed" / "settings.json"
 
 

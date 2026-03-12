@@ -6,20 +6,24 @@ import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.MultiAnalyzer;
 import ai.brokk.analyzer.TreeSitterAnalyzer;
 import ai.brokk.project.IProject;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.Map;
 
 public class AnalyzerCreator {
 
-    /**
-     * Creates the TreeSitterAnalyzer for the given project if one supports the project language.
-     *
-     * @param project the project to instantiate a TreeSitter analyzer for.
-     * @return the corresponding TreeSitterAnalyzer.
-     * @throws NoSupportedAnalyzerForTestProjectException if the detected language does not create an analyzer extending {@link TreeSitterAnalyzer}
-     */
     public static TreeSitterAnalyzer createTreeSitterAnalyzer(IProject project) {
-        var language = project.getBuildLanguage();
+        var languages = project.getAnalyzerLanguages().stream()
+                .filter(l -> l != Languages.NONE)
+                .sorted(Comparator.comparing(Language::internalName))
+                .toList();
+
+        if (languages.isEmpty()) {
+            throw new NoSupportedAnalyzerForTestProjectException(Languages.NONE);
+        }
+
+        // Pick the first deterministic language
+        var language = languages.getFirst();
         var analyzer = language.createAnalyzer(project);
         return (TreeSitterAnalyzer) analyzer.subAnalyzer(language)
                 .orElseThrow(() -> new NoSupportedAnalyzerForTestProjectException(language));
@@ -50,11 +54,6 @@ public class AnalyzerCreator {
 
         if (activeLanguages.isEmpty()) {
             return Languages.NONE.createAnalyzer(project);
-        }
-
-        // Set the primary build language if not already set
-        if (project.getBuildLanguage() == Languages.NONE) {
-            project.setBuildLanguage(activeLanguages.getFirst());
         }
 
         if (activeLanguages.size() == 1) {

@@ -13,13 +13,18 @@ import ai.brokk.project.IProject;
 import com.github.mustachejava.DefaultMustacheFactory;
 import com.github.mustachejava.Mustache;
 import com.github.mustachejava.MustacheFactory;
+import com.google.common.annotations.VisibleForTesting;
 import java.io.StringReader;
 import java.io.StringWriter;
+import java.nio.file.Path;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.function.BiPredicate;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
@@ -60,12 +65,13 @@ public class BuildTools {
             return null;
         }
 
-        IProject.CodeAgentTestScope testScope = cm.getProject().getCodeAgentTestScope();
+        var project = cm.getProject();
+        IProject.CodeAgentTestScope testScope = project.getCodeAgentTestScope();
         if (testScope == IProject.CodeAgentTestScope.ALL) {
             String cmd = System.getenv("BRK_TESTALL_CMD") != null
                     ? System.getenv("BRK_TESTALL_CMD")
                     : details.testAllCommand();
-            return interpolateCommandWithPythonVersion(cmd, cm.getProject());
+            return interpolateCommandWithPythonVersion(cmd, project);
         }
 
         if (testFilesOverride != null && !testFilesOverride.isEmpty()) {
@@ -89,7 +95,7 @@ public class BuildTools {
                 .toList();
 
         if (workspaceTestFiles.isEmpty()) {
-            return interpolateCommandWithPythonVersion(details.buildLintCommand(), cm.getProject());
+            return interpolateCommandWithPythonVersion(details.buildLintCommand(), project);
         }
 
         return getBuildLintSomeCommand(cm, details, workspaceTestFiles);
@@ -121,13 +127,14 @@ public class BuildTools {
             return details.buildLintCommand();
         }
 
-        IProject project = cm.getProject();
-        String pythonVersion =
-                pythonVersionOverride != null ? pythonVersionOverride : getPythonVersionForProject(project);
+        var project = cm.getProject();
+        var pythonVersion = pythonVersionOverride != null
+                ? Optional.of(pythonVersionOverride)
+                : getPythonVersionForProject(project);
 
         IAnalyzer analyzer = cm.getAnalyzer();
         Map<String, Object> context = new HashMap<>();
-        context.put("pyver", pythonVersion == null ? "" : pythonVersion);
+        context.put("pyver", pythonVersion.orElse(""));
 
         // Always calculate all potential lists to support mixed templates
         // 1. Packages
@@ -176,26 +183,38 @@ public class BuildTools {
         return result;
     }
 
-    private static boolean shouldResolvePythonVersion(IProject project) {
-        return project.getAnalyzerLanguages().contains(Languages.PYTHON);
+    private static Optional<String> getPythonVersionForProject(IProject project) {
+        return getPythonVersionForProject(project, null);
     }
 
-    private static @Nullable String getPythonVersionForProject(IProject project) {
-        if (!shouldResolvePythonVersion(project)) {
-            return null;
+    @VisibleForTesting
+    static Optional<String> getPythonVersionForProject(
+            IProject project, @Nullable Predicate<String> pythonExecutableChecker) {
+        if (!project.getAnalyzerLanguages().contains(Languages.PYTHON)) {
+            return Optional.empty();
         }
+
+        var projectRoot = project.getRoot();
+
+        @Nullable
+        BiPredicate<Path, Boolean> ignoreChecker =
+                (project.hasGit() || !project.getExclusionPatterns().isEmpty()) ? project::shouldSkipPath : null;
+
         try {
-            return new EnvironmentPython(project.getRoot()).getPythonVersion();
+            var env = pythonExecutableChecker != null
+                    ? new EnvironmentPython(projectRoot, ignoreChecker, pythonExecutableChecker)
+                    : new EnvironmentPython(projectRoot, ignoreChecker);
+            return Optional.of(env.getPythonVersion());
         } catch (Exception e) {
             logger.debug("Unable to determine Python version for project", e);
-            return null;
+            return Optional.empty();
         }
     }
 
     private static String interpolateCommandWithPythonVersion(String command, IProject project) {
         if (command.isEmpty()) return command;
         if (System.getenv("BRK_TESTALL_CMD") != null) command = System.getenv("BRK_TESTALL_CMD");
-        String pythonVersion = getPythonVersionForProject(project);
+        var pythonVersion = getPythonVersionForProject(project).orElse(null);
         return interpolateMustacheTemplate(command, List.of(), "unused", pythonVersion);
     }
 

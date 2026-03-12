@@ -14,6 +14,7 @@ from typing import Any, Iterator
 
 from rich.console import Console
 
+from brokk_code.avante_config import configure_nvim_avante_acp_settings
 from brokk_code.event_utils import is_failure_state, safe_data
 from brokk_code.executor import (
     BUNDLED_EXECUTOR_VERSION,
@@ -27,6 +28,8 @@ from brokk_code.mcp_config import (
     configure_claude_code_mcp_settings,
     configure_codex_mcp_settings,
 )
+from brokk_code.nvim_config import configure_nvim_codecompanion_acp_settings
+from brokk_code.nvim_init_patch import wire_nvim_plugin_setup
 from brokk_code.settings import Settings
 from brokk_code.workspace import resolve_workspace_dir
 from brokk_code.zed_config import ExistingBrokkCodeEntryError, configure_zed_acp_settings
@@ -37,6 +40,24 @@ _HEADLESS_EXECUTOR_MAIN_CLASS = "ai.brokk.executor.HeadlessExecutorMain"
 _MCP_SERVER_MAIN_CLASS = "ai.brokk.mcpserver.BrokkExternalMcpServer"
 _MCP_JBANG_PACKAGE = "brokk-headless@brokkai/brokk-releases"
 _JBANG_PREFETCH_TIMEOUT_SECONDS = 120.0
+
+
+def _resolve_neovim_plugin(*, plugin: str | None) -> str:
+    if plugin:
+        return plugin
+    if not sys.stdin.isatty():
+        return "codecompanion"
+
+    console = Console()
+    console.print("Choose a Neovim plugin integration:")
+    console.print("1) CodeCompanion (ACP adapter)")
+    console.print("2) Avante (ACP provider)")
+    choice = console.input("Selection [1/2] (default: 1): ").strip().lower()
+    if choice in {"", "1", "codecompanion"}:
+        return "codecompanion"
+    if choice in {"2", "avante"}:
+        return "avante"
+    raise ValueError(f"Invalid plugin selection: '{choice}'")
 
 
 def _validate_github_params(
@@ -333,8 +354,18 @@ def _build_parser() -> argparse.ArgumentParser:
     install_parser = subparsers.add_parser("install", help="Install integration settings")
     install_parser.add_argument(
         "target",
-        choices=["zed", "intellij", "mcp"],
+        choices=["zed", "intellij", "nvim", "neovim", "mcp"],
         help="Install target for integration settings",
+    )
+    install_parser.add_argument(
+        "--plugin",
+        choices=["codecompanion", "avante"],
+        default=None,
+        help=(
+            "Neovim plugin integration to install (codecompanion or avante). "
+            "Only used for install targets nvim/neovim; when omitted, an interactive "
+            "selection menu is shown in TTY sessions."
+        ),
     )
     install_parser.add_argument(
         "--force",
@@ -1142,6 +1173,8 @@ def main():
         messages: list[str] = []
         prefetch_commands: list[tuple[str, list[str]]] = []
         try:
+            if args.plugin and args.target not in {"nvim", "neovim"}:
+                raise ValueError("--plugin is only valid for install targets nvim/neovim")
             jbang_binary = resolve_jbang_binary() if args.verbose else ensure_jbang_ready()
             if args.verbose and not jbang_binary:
                 jbang_binary = "jbang"
@@ -1161,6 +1194,122 @@ def main():
                     executor_version=args.executor_version,
                 )
                 messages = [f"Configured IntelliJ ACP integration in {settings_path}"]
+            elif args.target in {"nvim", "neovim"}:
+                selected_plugin = _resolve_neovim_plugin(plugin=args.plugin)
+                if selected_plugin == "codecompanion":
+                    settings_path = configure_nvim_codecompanion_acp_settings(force=args.force)
+                    patch_result = wire_nvim_plugin_setup(
+                        plugin_repo="olimorris/codecompanion.nvim",
+                        module_name="brokk.brokk_codecompanion",
+                    )
+                    messages = [
+                        f"Configured Neovim CodeCompanion ACP adapter in {settings_path}",
+                        "",
+                        "What this is:",
+                        "- CodeCompanion is a Neovim AI/chat plugin.",
+                        "- Brokk runs as an ACP agent server (`brokk acp`).",
+                        "- The generated file wires CodeCompanion -> Brokk over ACP.",
+                        "",
+                        "Next steps:",
+                        "1. Install codecompanion.nvim in Neovim (plugin manager):",
+                        "   https://github.com/olimorris/codecompanion.nvim",
+                        "2. Read setup docs if needed:",
+                        "   https://codecompanion.olimorris.dev/",
+                    ]
+                    if patch_result.status == "patched":
+                        messages.extend(
+                            [
+                                f"3. Updated {patch_result.path} to load Brokk automatically.",
+                            ]
+                        )
+                    elif patch_result.status == "already_configured":
+                        messages.extend(
+                            [
+                                f"3. {patch_result.path} already loads Brokk.",
+                            ]
+                        )
+                    else:
+                        messages.extend(
+                            [
+                                "3. Auto-wiring skipped to avoid risky edits.",
+                                "   Add this in your lazy.nvim spec for codecompanion.nvim:",
+                                "   opts = function()",
+                                "     return require('brokk.brokk_codecompanion')",
+                                "   end",
+                            ]
+                        )
+                    messages.extend(
+                        [
+                            "4. Use the Brokk adapter in CodeCompanion chat:",
+                            "   :CodeCompanionChat adapter=brokk",
+                            "   (the generated module sets brokk as the default chat adapter)",
+                            "",
+                            "Troubleshooting:",
+                            "- If you see 'Copilot Adapter: No token found', ",
+                            "CodeCompanion is still",
+                            "  using its default adapter and your Brokk module is not loaded",
+                            "  in setup yet.",
+                            "",
+                            "Note: this command writes adapter config and may patch init.lua only",
+                            "when it",
+                            "can do a conservative, safe edit. It does not install Neovim plugins.",
+                        ]
+                    )
+                else:
+                    settings_path = configure_nvim_avante_acp_settings(force=args.force)
+                    patch_result = wire_nvim_plugin_setup(
+                        plugin_repo="yetone/avante.nvim",
+                        module_name="brokk.brokk_avante",
+                    )
+                    messages = [
+                        f"Configured Neovim Avante ACP provider in {settings_path}",
+                        "",
+                        "What this is:",
+                        "- Avante is a Neovim AI coding assistant plugin.",
+                        "- Brokk runs as an ACP agent server (`brokk acp`).",
+                        "- The generated file wires Avante -> Brokk over ACP.",
+                        "",
+                        "Next steps:",
+                        "1. Install avante.nvim in Neovim (plugin manager):",
+                        "   https://github.com/yetone/avante.nvim",
+                    ]
+                    if patch_result.status == "patched":
+                        messages.extend(
+                            [
+                                f"2. Updated {patch_result.path} to load Brokk automatically.",
+                            ]
+                        )
+                    elif patch_result.status == "already_configured":
+                        messages.extend(
+                            [
+                                f"2. {patch_result.path} already loads Brokk.",
+                            ]
+                        )
+                    else:
+                        messages.extend(
+                            [
+                                "2. Auto-wiring skipped to avoid risky edits.",
+                                "   Load the generated Brokk provider in your config:",
+                                "   local brokk = require('brokk.brokk_avante')",
+                                "   require('avante').setup(",
+                                "       vim.tbl_deep_extend('force', brokk, {}))",
+                            ]
+                        )
+                    messages.extend(
+                        [
+                            "3. Use Brokk by setting provider='brokk' in Avante setup",
+                            "   (the generated module already does this)",
+                            "",
+                            "Note: this command writes provider config and may patch init.lua only",
+                            "when it",
+                            "can do a conservative, safe edit. It does not install Neovim plugins.",
+                        ]
+                    )
+                prefetch_commands = _build_install_prefetch_commands(
+                    target=args.target,
+                    jbang_binary=jbang_binary,
+                    executor_version=args.executor_version,
+                )
             elif args.target == "mcp":
                 claude_settings_path = configure_claude_code_mcp_settings(
                     force=args.force, jbang_path=jbang_binary

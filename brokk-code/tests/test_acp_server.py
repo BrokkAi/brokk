@@ -26,6 +26,7 @@ from brokk_code.acp_server import (
     normalize_mode,
     resolve_model_selection,
 )
+from brokk_code.workspace import resolve_workspace_dir
 
 
 def _text_block(value: str) -> dict[str, str]:
@@ -459,27 +460,26 @@ async def test_ensure_ready_bootstraps_session_before_wait_ready() -> None:
     calls: list[str] = []
 
     class StubExecutor:
+        def __init__(self) -> None:
+            self.workspace_dir = Path("/initial")
+
         async def start(self) -> None:
             calls.append("start")
 
-        async def create_session(self, name: str = "ignored") -> str:
-            calls.append(f"create_session:{name}")
-            return "session-1"
-
-        async def wait_ready(self) -> bool:
-            calls.append("wait_ready")
-            return True
-
     bridge = BrokkAcpBridge(StubExecutor())  # type: ignore[arg-type]
-    await bridge.ensure_ready()
+    await bridge.ensure_ready("/tmp/project")
 
-    assert calls == ["start", "create_session:ACP Bootstrap Session", "wait_ready"]
+    assert calls == ["start"]
+    assert bridge.executor.workspace_dir == resolve_workspace_dir(Path("/tmp/project"))
 
 
 async def test_start_and_create_session_avoids_bootstrap_on_first_call() -> None:
     calls: list[str] = []
 
     class StubExecutor:
+        def __init__(self) -> None:
+            self.workspace_dir = Path("/initial")
+
         async def start(self) -> None:
             calls.append("start")
 
@@ -496,6 +496,63 @@ async def test_start_and_create_session_avoids_bootstrap_on_first_call() -> None
 
     assert session_id == "session-real"
     assert calls == ["start", "create_session:Requested Session", "wait_ready"]
+
+
+async def test_ensure_ready_noops_when_workspace_is_unchanged(tmp_path: Path) -> None:
+    calls: list[str] = []
+
+    class StubExecutor:
+        def __init__(self, workspace_dir: Path) -> None:
+            self.workspace_dir = workspace_dir
+
+        async def start(self) -> None:
+            calls.append("start")
+
+    bridge = BrokkAcpBridge(StubExecutor(tmp_path))  # type: ignore[arg-type]
+
+    await bridge.ensure_ready(str(tmp_path))
+    await bridge.ensure_ready(str(tmp_path))
+
+    assert calls == ["start"]
+
+
+async def test_ensure_ready_restarts_executor_when_workspace_changes(tmp_path: Path) -> None:
+    calls: list[str] = []
+    first = tmp_path / "first"
+    second = tmp_path / "second"
+    first.mkdir()
+    second.mkdir()
+
+    class StubExecutor:
+        def __init__(self, workspace_dir: Path) -> None:
+            self.workspace_dir = workspace_dir
+            self.session_id = "session-1"
+            self.base_url = "http://127.0.0.1:9999"
+
+        async def start(self) -> None:
+            calls.append(f"start:{self.workspace_dir}")
+
+        async def stop(self) -> None:
+            calls.append("stop")
+
+        async def cancel_job(self, job_id: str) -> None:
+            calls.append(f"cancel_job:{job_id}")
+
+    bridge = BrokkAcpBridge(StubExecutor(first))  # type: ignore[arg-type]
+    bridge._active_job_by_session["acp-1"] = "job-1"
+
+    await bridge.ensure_ready(str(first))
+    await bridge.ensure_ready(str(second))
+
+    assert calls == [
+        f"start:{first.resolve()}",
+        "cancel_job:job-1",
+        "stop",
+        f"start:{second.resolve()}",
+    ]
+    assert bridge.executor.workspace_dir == second.resolve()
+    assert bridge.executor.session_id is None
+    assert bridge.executor.base_url is None
 
 
 async def test_prompt_standard_flow_calls_submit_job_and_streams_tokens(tmp_path: Path) -> None:

@@ -152,7 +152,8 @@ def test_configure_zed_acp_settings_default_path_darwin(monkeypatch, tmp_path) -
     monkeypatch.setattr(sys, "platform", "darwin")
     monkeypatch.setattr(Path, "home", lambda: fake_home)
     written_path = configure_zed_acp_settings()
-    assert written_path == fake_home / "Library" / "Application Support" / "Zed" / "settings.json"
+    # macOS now uses XDG-style path for Zed settings
+    assert written_path == fake_home / ".config" / "zed" / "settings.json"
     assert written_path.exists()
 
 

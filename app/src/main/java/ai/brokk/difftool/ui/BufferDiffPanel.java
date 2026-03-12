@@ -1828,6 +1828,20 @@ public class BufferDiffPanel extends AbstractDiffPanel {
         }
     }
 
+    @Override
+    public int getFirstVisibleLine() {
+        var panel = getSelectedFilePanel();
+        var editor = panel.getEditor();
+        var scrollPane = panel.getScrollPane();
+        Point p = scrollPane.getViewport().getViewPosition();
+        int offset = editor.viewToModel2D(p);
+        try {
+            return editor.getLineOfOffset(offset) + 1; // 1-based
+        } catch (BadLocationException e) {
+            return 1;
+        }
+    }
+
     /**
      * Scrolls the right panel (new content side) to center the specified line.
      *

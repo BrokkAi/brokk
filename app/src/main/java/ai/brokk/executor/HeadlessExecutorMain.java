@@ -24,6 +24,8 @@ import ai.brokk.project.ModelProperties;
 import com.google.common.base.Splitter;
 import com.sun.net.httpserver.HttpExchange;
 import java.io.IOException;
+import java.io.PrintWriter;
+import java.io.StringWriter;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashMap;
@@ -415,6 +417,48 @@ public final class HeadlessExecutorMain {
         this.sessionLoaded = value;
     }
 
+    @TestOnly
+    static String formatFatalStartupError(Throwable throwable) {
+        var rootCause = throwable;
+        while (rootCause.getCause() != null && rootCause.getCause() != rootCause) {
+            rootCause = rootCause.getCause();
+        }
+
+        var details = new StringBuilder("Fatal error starting HeadlessExecutorMain");
+        if (throwable.getMessage() != null && !throwable.getMessage().isBlank()) {
+            details.append(": ").append(throwable.getMessage());
+        }
+        if (rootCause != throwable) {
+            details.append(System.lineSeparator())
+                    .append("Root cause: ")
+                    .append(rootCause.getClass().getSimpleName());
+            if (rootCause.getMessage() != null && !rootCause.getMessage().isBlank()) {
+                details.append(": ").append(rootCause.getMessage());
+            }
+        }
+
+        details.append(System.lineSeparator()).append("Exception chain:");
+        var seen = new HashSet<Throwable>();
+        var current = throwable;
+        while (current != null && seen.add(current)) {
+            details.append(System.lineSeparator())
+                    .append("  - ")
+                    .append(current.getClass().getName());
+            if (current.getMessage() != null && !current.getMessage().isBlank()) {
+                details.append(": ").append(current.getMessage());
+            }
+            current = current.getCause();
+        }
+
+        details.append(System.lineSeparator()).append("Stack trace:");
+        var sw = new StringWriter();
+        try (var pw = new PrintWriter(sw)) {
+            throwable.printStackTrace(pw);
+        }
+        details.append(System.lineSeparator()).append(sw);
+        return details.toString();
+    }
+
     public static void main(String[] args) {
         try {
             // Must be set before any Swing/AWT code paths are touched.
@@ -674,7 +718,9 @@ public final class HeadlessExecutorMain {
             logger.info("HeadlessExecutorMain interrupted", e);
             Thread.currentThread().interrupt();
         } catch (Exception e) {
-            System.out.println("Fatal error starting HeadlessExecutorMain: " + e.getMessage());
+            var formattedError = formatFatalStartupError(e);
+            System.err.println(formattedError);
+            System.out.println(formattedError);
             logger.error("Fatal error in HeadlessExecutorMain", e);
             System.exit(1);
         }

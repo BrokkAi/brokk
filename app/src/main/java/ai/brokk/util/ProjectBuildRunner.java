@@ -1,5 +1,6 @@
 package ai.brokk.util;
 
+import ai.brokk.IConsoleIO.NotificationRole;
 import ai.brokk.IContextManager;
 import ai.brokk.LlmOutputMeta;
 import ai.brokk.agents.BuildAgent.BuildDetails;
@@ -18,6 +19,7 @@ import java.time.Duration;
 import java.util.Collection;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicReference;
 import org.apache.logging.log4j.LogManager;
@@ -95,7 +97,7 @@ public class ProjectBuildRunner {
         if (!success) {
             cm.getIo()
                     .showNotification(
-                            ai.brokk.IConsoleIO.NotificationRole.ERROR,
+                            NotificationRole.ERROR,
                             "Startup warmup build failed. Check the build results in your context.");
         }
     }
@@ -186,7 +188,7 @@ public class ProjectBuildRunner {
         }
     }
 
-    private Context executeWithLock(java.util.concurrent.Callable<Context> action) throws Exception {
+    private Context executeWithLock(Callable<Context> action) throws Exception {
         boolean noConcurrentBuilds = "true".equalsIgnoreCase(System.getenv("BRK_NO_CONCURRENT_BUILDS"));
         if (noConcurrentBuilds) {
             BuildLock lock = acquireBuildLock();
@@ -314,6 +316,7 @@ public class ProjectBuildRunner {
         try {
             Files.createDirectories(lockDir);
         } catch (IOException e) {
+            logger.debug("Error creating build lock directory {}", lockDir, e);
             return null;
         }
         String repoNameForLock = getOriginRepositoryName();
@@ -323,6 +326,7 @@ public class ProjectBuildRunner {
             var lock = channel.lock();
             return new BuildLock(channel, lock, lockFile);
         } catch (IOException ioe) {
+            logger.warn("Error acquiring build lock {}", lockFile, ioe);
             return null;
         }
     }

@@ -1,0 +1,55 @@
+name: Brokk Code PyPI Publish
+
+on:
+  push:
+    tags:
+      - 'brokk-code-*'
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build brokk-code distributions
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Build distributions
+        working-directory: brokk-code
+        run: uv build
+
+      - name: Upload distribution artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: brokk-code-dist
+          path: brokk-code/dist/
+          if-no-files-found: error
+
+  publish:
+    name: Publish brokk-code to PyPI
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/brokk
+    permissions:
+      id-token: write
+
+    steps:
+      - name: Download distribution artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: brokk-code-dist
+          path: dist/
+
+      - name: Publish package distributions to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1

@@ -490,7 +490,6 @@ public class InlineTestProjectCreator {
                 var project = new ExistingRootTestProject(projectRoot);
                 project.setRepo(existingGitRepoStrategy.getRepo());
                 initializeLanguages(project, projectRoot);
-                project.getAnalyzer();
                 return project;
             }
 
@@ -538,7 +537,6 @@ public class InlineTestProjectCreator {
             }
 
             initializeLanguages(project, newTemporaryDirectory);
-            project.getAnalyzer();
             return project;
         }
 
@@ -549,10 +547,8 @@ public class InlineTestProjectCreator {
 
             if (!detected.isEmpty()) {
                 project.setAnalyzerLanguages(detected);
-                project.setBuildLanguage(detected.iterator().next());
             } else {
                 project.setAnalyzerLanguages(Set.of(Languages.NONE));
-                project.setBuildLanguage(Languages.NONE);
             }
         }
 
