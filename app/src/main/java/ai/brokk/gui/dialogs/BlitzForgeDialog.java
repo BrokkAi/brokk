@@ -1482,7 +1482,7 @@ public class BlitzForgeDialog extends BaseThemedDialog {
 
                 String buildFailureText;
                 if (buildFirst) {
-                    buildFailureText = BuildTools.runVerification(cm);
+                    buildFailureText = cm.getProject().getBuildRunner().runVerification(cm);
                 } else {
                     buildFailureText = "";
                 }

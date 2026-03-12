@@ -15,6 +15,7 @@ import ai.brokk.mcpclient.McpConfig;
 import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.util.Environment;
 import ai.brokk.util.IStringDiskCache;
+import ai.brokk.util.ProjectBuildRunner;
 import ai.brokk.util.ShellConfig;
 import java.awt.Rectangle;
 import java.io.IOException;
@@ -40,6 +41,10 @@ import org.jetbrains.annotations.VisibleForTesting;
 public interface IProject extends AutoCloseable {
 
     default IGitRepo getRepo() {
+        throw new UnsupportedOperationException();
+    }
+
+    default ProjectBuildRunner getBuildRunner() {
         throw new UnsupportedOperationException();
     }
 

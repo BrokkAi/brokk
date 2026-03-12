@@ -14,7 +14,6 @@ import ai.brokk.issues.GitHubIssueService;
 import ai.brokk.issues.IssueDetails;
 import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.tasks.TaskList;
-import ai.brokk.util.BuildTools;
 import ai.brokk.util.ImageUtil;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import java.io.IOException;
@@ -89,7 +88,7 @@ public final class IssueExecutor {
         var interrupted = new AtomicReference<InterruptedException>(null);
         var updated = cm.pushContext(ctx -> {
             try {
-                return BuildTools.runExplicitCommand(ctx, command, override);
+                return cm.getProject().getBuildRunner().runExplicitCommand(ctx, command, override);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 interrupted.set(e);
@@ -394,7 +393,8 @@ public final class IssueExecutor {
                 verificationCommand,
                 () -> {
                     try {
-                        return Objects.requireNonNullElse(BuildTools.runVerification(cm, buildDetailsOverride), "");
+                        return Objects.requireNonNullElse(
+                                cm.getProject().getBuildRunner().runVerification(cm, buildDetailsOverride), "");
                     } catch (InterruptedException e) {
                         Thread.currentThread().interrupt();
                         interrupted.set(e);

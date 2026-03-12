@@ -514,7 +514,7 @@ class BuildAgentTest {
                 return "ok";
             };
 
-            var updated = BuildTools.runExplicitCommand(ctx, cmd, project.awaitBuildDetails());
+            var updated = project.getBuildRunner().runExplicitCommand(ctx, cmd, project.awaitBuildDetails());
 
             assertTrue(updated.getBuildError().isBlank(), "Build error should be blank on success");
             assertTrue(io.getOutputLog().contains(cmd), "Console output should contain the command banner");
@@ -542,7 +542,7 @@ class BuildAgentTest {
                 throw new Environment.FailureException("boom", "stdout:\nfail", 1);
             };
 
-            var updated = BuildTools.runExplicitCommand(ctx, cmd, project.awaitBuildDetails());
+            var updated = project.getBuildRunner().runExplicitCommand(ctx, cmd, project.awaitBuildDetails());
 
             assertFalse(updated.getBuildError().isBlank(), "Build error should be non-blank on failure");
             assertTrue(io.getOutputLog().contains(cmd), "Console output should contain the command banner");
@@ -575,7 +575,7 @@ class BuildAgentTest {
                 };
             };
 
-            var updated = BuildTools.runExplicitCommand(ctx, cmd, project.awaitBuildDetails());
+            var updated = project.getBuildRunner().runExplicitCommand(ctx, cmd, project.awaitBuildDetails());
 
             assertFalse(updated.getBuildError().contains("null"), "Build error must not contain the literal 'null'");
         } finally {
@@ -596,7 +596,7 @@ class BuildAgentTest {
 
         var ctxWithError = ctx.withBuildResult(false, "previous failure");
 
-        var updated = BuildTools.runExplicitCommand(ctxWithError, "   ", project.awaitBuildDetails());
+        var updated = project.getBuildRunner().runExplicitCommand(ctxWithError, "   ", project.awaitBuildDetails());
 
         assertTrue(updated.getBuildError().isBlank(), "Blank command should clear any existing build error");
 
@@ -826,7 +826,7 @@ class BuildAgentTest {
                 return "ok";
             };
 
-            BuildTools.runExplicitCommand(ctx, "test-cmd", project.awaitBuildDetails());
+            project.getBuildRunner().runExplicitCommand(ctx, "test-cmd", project.awaitBuildDetails());
 
             assertEquals(
                     Duration.ofSeconds(120), capturedTimeout.get(), "Test command should use test-specific timeout");
@@ -854,7 +854,7 @@ class BuildAgentTest {
                 return "ok";
             };
 
-            BuildTools.runExplicitCommand(ctx, "test-cmd", project.awaitBuildDetails());
+            project.getBuildRunner().runExplicitCommand(ctx, "test-cmd", project.awaitBuildDetails());
 
             assertEquals(
                     Environment.UNLIMITED_TIMEOUT,
@@ -884,7 +884,7 @@ class BuildAgentTest {
                 return "ok";
             };
 
-            BuildTools.runVerification(ctx);
+            project.getBuildRunner().runVerification(ctx);
 
             assertEquals(
                     Duration.ofSeconds(45),
