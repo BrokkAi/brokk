@@ -254,6 +254,30 @@ def test_settings_api_key_ordering(tmp_path, monkeypatch):
     assert settings.get_brokk_api_key() == "properties-key"
 
 
+def test_get_github_token(tmp_path, monkeypatch):
+    from brokk_code.settings import get_brokk_properties_path
+
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    import sys
+
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+
+    settings = Settings()
+
+    assert settings.get_github_token() is None
+
+    monkeypatch.setenv("GITHUB_TOKEN", "env-gh-token")
+    assert settings.get_github_token() == "env-gh-token"
+
+    props_path = get_brokk_properties_path()
+    props_path.parent.mkdir(parents=True, exist_ok=True)
+    props_path.write_text("githubToken=props-gh-token\n")
+
+    assert settings.get_github_token() == "props-gh-token"
+
+
 def test_settings_save_to_properties(tmp_path, monkeypatch):
     from brokk_code.settings import read_brokk_properties, write_brokk_api_key
 
