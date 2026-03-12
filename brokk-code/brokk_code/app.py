@@ -2492,9 +2492,8 @@ class BrokkApp(App):
                 try:
                     await asyncio.to_thread(write_brokk_api_key, key)
                     self.executor.brokk_api_key = key
-                    chat.add_system_message(
-                        "API key updated. New key will be used on the next executor launch."
-                    )
+                    chat.add_system_message("API key updated. Relaunching executor...")
+                    self.run_worker(self._relaunch_executor())
                     return True
                 except Exception as e:
                     logger.error("Failed to update API key: %s", e)
@@ -3273,6 +3272,38 @@ class BrokkApp(App):
         if version:
             self.latest_pypi_version = version
             self._show_welcome_message(refresh=True)
+
+    async def _relaunch_executor(self) -> None:
+        """Restarts the executor process during runtime without exiting the app."""
+        chat = self._maybe_chat()
+        if chat:
+            chat.set_job_running(True)
+
+        try:
+            # 1. Cancel any active job and block new submissions
+            self.job_in_progress = True
+            if self.current_job_id:
+                await self.executor.cancel_job(self.current_job_id)
+
+            # 2. Stop the current process
+            self._executor_ready = False
+            self._executor_started = False
+            await self.executor.stop()
+
+            # 3. Start fresh
+            # We reuse _start_executor logic which handles session resumption and readiness
+            await self._start_executor()
+
+            if chat:
+                chat.add_system_message("Executor relaunched successfully.", level="SUCCESS")
+        except Exception as e:
+            logger.exception("Failed to relaunch executor")
+            if chat:
+                chat.add_system_message(f"Failed to relaunch executor: {e}", level="ERROR")
+        finally:
+            self.job_in_progress = False
+            if chat:
+                chat.set_job_running(False)
 
     async def on_unmount(self) -> None:
         """Ensure cleanup even if app exits via other means."""
