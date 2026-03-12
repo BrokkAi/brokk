@@ -1,7 +1,9 @@
 import asyncio
 from pathlib import Path
-from unittest.mock import MagicMock, AsyncMock
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
+
 from brokk_code.app import BrokkApp
 from brokk_code.executor import ExecutorError
 
@@ -59,9 +61,6 @@ async def test_api_key_update_triggers_relaunch(tmp_path):
     # Mock chat to avoid UI dependency issues
     mock_chat = MagicMock()
     app.query_one = MagicMock(return_value=mock_chat)
-
-    # 1. Simulate the /api-key command logic
-    new_key = "sk-updated-456"
 
     # We trigger the internal relaunch logic directly as it would be from the modal callback
     await app._relaunch_executor()
