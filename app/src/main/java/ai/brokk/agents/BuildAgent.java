@@ -264,7 +264,7 @@ public class BuildAgent {
 
             // Prioritize terminal actions (report or abort)
             ToolExecutionRequest reportRequest = null;
-            ToolExecutionRequest reportAbortRequest = null;
+            ToolExecutionRequest abortRequest = null;
             List<ToolExecutionRequest> otherRequests = new ArrayList<>();
 
             for (var request : requests) {
@@ -273,7 +273,7 @@ public class BuildAgent {
                 if (toolName.equals("reportBuildDetails")) {
                     reportRequest = request;
                 } else if (toolName.equals("abortBuildDetails")) {
-                    reportAbortRequest = request;
+                    abortRequest = request;
                 } else {
                     otherRequests.add(request);
                 }
@@ -313,9 +313,9 @@ public class BuildAgent {
                     }
                 }
                 return details;
-            } else if (reportAbortRequest != null) {
-                io.beforeToolCall(reportAbortRequest);
-                ToolExecutionResult termResult = tr.executeTool(reportAbortRequest);
+            } else if (abortRequest != null) {
+                io.beforeToolCall(abortRequest);
+                ToolExecutionResult termResult = tr.executeTool(abortRequest);
                 io.afterToolOutput(termResult);
 
                 assert abortReason != null;
