@@ -131,7 +131,7 @@ public class ParallelSearch {
                             outcomeContext.allFragments().toList());
                 }
 
-                toolExecutionMessages.add(outcome.toolResult().toExecutionResultMessage());
+                toolExecutionMessages.add(outcome.toolResult().toMessage());
 
                 if (outcome.toolResult().status() == ToolExecutionResult.Status.FATAL && firstFatalMessage == null) {
                     firstFatalMessage = outcome.toolResult().resultText();
@@ -151,7 +151,7 @@ public class ParallelSearch {
                                 e.getCause() != null ? e.getCause().getMessage() : "Unknown error"));
                 logger.debug(errorMessage, e);
                 var failure = ToolExecutionResult.requestError(task.request(), errorMessage);
-                toolExecutionMessages.add(failure.toExecutionResultMessage());
+                toolExecutionMessages.add(failure.toMessage());
             }
         }
 

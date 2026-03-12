@@ -865,7 +865,7 @@ public class LutzAgent {
                                     req,
                                     "Tool '" + req.name() + "' is not allowed in this special turn. Allowed tools: "
                                             + allowed);
-                            sessionMessages.add(toolResult.toExecutionResultMessage());
+                            sessionMessages.add(toolResult.toMessage());
                         }
 
                         if (invalidSpecialToolAttempts <= 2) {
@@ -927,14 +927,14 @@ public class LutzAgent {
                         return new TurnOutcome.Final(agent.errorResult(details, context));
                     }
 
-                    sessionMessages.add(toolResult.toExecutionResultMessage());
+                    sessionMessages.add(toolResult.toMessage());
                 }
 
                 agent.io.beforeToolCall(terminalRequest);
                 var termExec = executeTool(terminalRequest);
                 agent.io.afterToolOutput(termExec);
 
-                sessionMessages.add(termExec.toExecutionResultMessage());
+                sessionMessages.add(termExec.toMessage());
 
                 if (termExec.status() != ToolExecutionResult.Status.SUCCESS) {
                     return new TurnOutcome.Final(agent.errorResult(
@@ -1001,7 +1001,7 @@ public class LutzAgent {
                     return new TurnOutcome.Final(agent.errorResult(details, context));
                 }
 
-                sessionMessages.add(toolResult.toExecutionResultMessage());
+                sessionMessages.add(toolResult.toMessage());
                 if (!"dropWorkspaceFragments".equals(req.name())) {
                     executedNonHygiene = true;
                     nonHygieneToolCalls.add(req.name());
@@ -1040,7 +1040,7 @@ public class LutzAgent {
                 var termExec = executeTool(terminalRequest);
                 agent.io.afterToolOutput(termExec);
 
-                sessionMessages.add(termExec.toExecutionResultMessage());
+                sessionMessages.add(termExec.toMessage());
 
                 if (termExec.status() != ToolExecutionResult.Status.SUCCESS) {
                     return new TurnOutcome.Final(agent.errorResult(
@@ -1064,7 +1064,7 @@ public class LutzAgent {
                 var ignored = ToolExecutionResult.requestError(terminalRequest, ignoredMessage);
                 agent.io.beforeToolCall(terminalRequest);
                 agent.io.afterToolOutput(ignored);
-                sessionMessages.add(ignored.toExecutionResultMessage());
+                sessionMessages.add(ignored.toMessage());
             }
 
             Set<ProjectFile> filesAfterSet = agent.workspaceFiles(context);
