@@ -239,8 +239,20 @@ class JobRunnerTest {
     }
 
     @Test
-    void testLutz_noTasks_doesNotExecuteTasks() throws InterruptedException {
-        LutzExecutor executor = new LutzExecutor(null, () -> false, null);
+    void testLutz_noTasks_doesNotExecuteTasks_emitsSummary() throws InterruptedException {
+        List<String> consoleOutputs = new ArrayList<>();
+        ai.brokk.IConsoleIO mockIo = new ai.brokk.IConsoleIO() {
+            @Override
+            public void toolError(String msg, String title) {}
+
+            @Override
+            public void llmOutput(
+                    String token, dev.langchain4j.data.message.ChatMessageType type, ai.brokk.LlmOutputMeta meta) {
+                consoleOutputs.add(token);
+            }
+        };
+
+        LutzExecutor executor = new LutzExecutor(null, () -> false, mockIo);
         List<TaskList.TaskItem> executedTasks = new ArrayList<>();
 
         LutzExecutor.LutzContext fakeContext = new LutzExecutor.LutzContext() {
@@ -260,6 +272,12 @@ class JobRunnerTest {
         executor.runLutzFromSearchResult(fakeContext, null, null);
 
         assertTrue(executedTasks.isEmpty(), "No tasks should be executed when task list is empty");
+        assertTrue(
+                consoleOutputs.stream().anyMatch(s -> s.contains("LUTZ Execution Summary")),
+                "Should emit LUTZ summary");
+        assertTrue(
+                consoleOutputs.stream().anyMatch(s -> s.contains("No tasks were identified")),
+                "Should indicate no tasks identified");
     }
 
     @Test

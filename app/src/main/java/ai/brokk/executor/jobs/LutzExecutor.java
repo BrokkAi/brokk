@@ -86,11 +86,9 @@ public final class LutzExecutor {
             throws InterruptedException {
         var generatedTasks = lutzContext.getTasks();
         if (generatedTasks.isEmpty()) {
-            var msg = "SearchAgent phase complete; no tasks to execute.";
+            var msg = "Search complete. No tasks were identified for execution.";
             logger.info("LUTZ orchestration: {}", msg);
-            if (console != null) {
-                console.showNotification(IConsoleIO.NotificationRole.INFO, msg);
-            }
+            reportFinalSummary(msg);
             return;
         }
 
@@ -132,5 +130,23 @@ public final class LutzExecutor {
         }
 
         logger.debug("LUTZ orchestration: all generated tasks executed");
+        reportFinalSummary("All identified tasks have been successfully executed.");
+    }
+
+    private void reportFinalSummary(String message) {
+        if (console == null) return;
+
+        String summary =
+                """
+
+                ## LUTZ Execution Summary
+                %s
+
+                **Status:** Complete
+                """
+                        .formatted(message);
+
+        console.llmOutput(
+                summary, dev.langchain4j.data.message.ChatMessageType.AI, ai.brokk.LlmOutputMeta.newMessage());
     }
 }
