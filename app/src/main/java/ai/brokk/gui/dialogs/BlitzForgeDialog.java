@@ -972,8 +972,8 @@ public class BlitzForgeDialog extends BaseThemedDialog {
             costEstimateLabel.setForeground(disabled);
         }
 
-        // Run heavy work off the EDT using the background executor.
-        cm.getBackgroundTasks().submit(() -> {
+        // Run heavy work off the EDT using submitBackgroundTask.
+        cm.submitBackgroundTask("Compute cost estimate", () -> {
             double cost;
             boolean hadError = false;
             try {
@@ -1031,6 +1031,7 @@ public class BlitzForgeDialog extends BaseThemedDialog {
                     costEstimateLabel.setText(String.format("Cost Estimate: $%.2f", finalCost));
                 }
             });
+            return null;
         });
     }
 
@@ -1100,8 +1101,8 @@ public class BlitzForgeDialog extends BaseThemedDialog {
         // Increment generation so that older tasks become stale.
         int generation = tokenWarningGeneration.incrementAndGet();
 
-        // Run heavy work off the EDT using the background executor.
-        cm.getBackgroundTasks().submit(() -> {
+        // Run heavy work off the EDT using submitBackgroundTask.
+        cm.submitBackgroundTask("Compute token warning", () -> {
             long workspaceTokens = 0L;
             long historyTokens = 0L;
             boolean hadError = false;
@@ -1145,6 +1146,7 @@ public class BlitzForgeDialog extends BaseThemedDialog {
                     tokenWarningLabel.setVisible(false);
                 }
             });
+            return null;
         });
     }
 
