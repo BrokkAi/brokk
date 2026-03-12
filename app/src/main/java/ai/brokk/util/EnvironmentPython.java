@@ -49,14 +49,18 @@ public class EnvironmentPython {
             Pattern.compile("^\\s*(from\\s+distutils|import\\s+distutils)\\b", Pattern.MULTILINE);
 
     /**
-     * Directory basenames to skip in fallback (non-git) traversal.
-     * This is a curated set of names that are unambiguously generated or cache output.
-     * We intentionally avoid broad names like "packages", "cache", "vendor", "bin", "obj"
-     * that can be legitimate source trees in some projects.
+     * Directory basenames to always skip regardless of git status.
+     * These are virtual environment directories that are never source code.
+     */
+    private static final Set<String> ALWAYS_SKIP_DIRECTORIES = Set.of(".venv", "venv");
+
+    /**
+     * Directory basenames to skip only in fallback (non-git) traversal.
+     * This broader set includes common build artifact/cache directories that are
+     * safe to skip when we don't have gitignore-aware filtering, but could be
+     * legitimate tracked source directories in some projects.
      */
     private static final Set<String> FALLBACK_SKIP_DIRECTORIES = Set.of(
-            ".venv",
-            "venv",
             ".gradle",
             "node_modules",
             "__pycache__",
@@ -371,17 +375,25 @@ public class EnvironmentPython {
                             return FileVisitResult.SKIP_SUBTREE;
                         }
 
-                        // Always skip common artifact/cache/venv directories regardless of git status
-                        // This ensures .venv, venv, node_modules, etc. are skipped even if tracked
-                        if (FALLBACK_SKIP_DIRECTORIES.contains(dirName)) {
-                            logger.trace("Skipping well-known non-source directory: {}", relPath);
+                        // Always skip virtual environment directories (never source code)
+                        if (ALWAYS_SKIP_DIRECTORIES.contains(dirName)) {
+                            logger.trace("Skipping venv directory: {}", relPath);
                             return FileVisitResult.SKIP_SUBTREE;
                         }
 
-                        // Additionally skip gitignored directories when git filtering is available
-                        if (effectiveFilter != null && effectiveFilter.isGitignored(relPath, true)) {
-                            logger.trace("Skipping gitignored directory: {}", relPath);
-                            return FileVisitResult.SKIP_SUBTREE;
+                        if (effectiveFilter != null) {
+                            // Git-aware path: skip gitignored directories
+                            if (effectiveFilter.isGitignored(relPath, true)) {
+                                logger.trace("Skipping gitignored directory: {}", relPath);
+                                return FileVisitResult.SKIP_SUBTREE;
+                            }
+                        } else {
+                            // Fallback path: skip common artifact/cache directories
+                            // when we don't have gitignore-aware filtering
+                            if (FALLBACK_SKIP_DIRECTORIES.contains(dirName)) {
+                                logger.trace("Skipping fallback-pruned directory: {}", relPath);
+                                return FileVisitResult.SKIP_SUBTREE;
+                            }
                         }
                     }
 
