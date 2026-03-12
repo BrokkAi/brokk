@@ -487,7 +487,7 @@ public class BuildAgent {
                 Use the `excludedFilePatterns` parameter to specify patterns for files that add cost without value.
                 IMPORTANT pattern format rules:
                 - Only suggest patterns for files that ACTUALLY EXIST in this project
-                - For file extensions, use simple `*.ext` format (e.g., `*.svg`, *.png) - do NOT use `**/*.ext`
+                - For file extensions, use simple `*.ext` format (e.g., `*.svg`, `*.png`) - do NOT use `**/*.ext`
                 - For specific filenames, use the literal name (e.g., `package-lock.json`) - do NOT use `**/filename`
                 - Do NOT duplicate directories here - if a directory is in `excludedDirectories`, don't add it as a pattern
 
