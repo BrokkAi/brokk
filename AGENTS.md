@@ -47,7 +47,8 @@ with try/catch is unnecessary and futile; don't do that.
 1. **No Unicode**: Don't use unicode characters in code. No fancy quotes, no fancy dashes, no fancy spaces, just plain ASCII.
 1. **No DI, no Proxy, no mocking frameworks**: these usually lead to bad patterns where you spend more time refactoring tests than actually doing useful things. instead we give interfaces default implementations (UnsupportedOperationException is fine) to minimize boilerplate in tests.
 1. **No StringBuilder**: prefer joins or interpolated text blocks where possible. Use stripIndent() with text blocks.
-1. **No overcautious Exception Handling**: Don't catch exceptions unless you have context-specific handling to apply; otherwise, let exceptions propagate up where they will be logged by a global handler.
+1. **No Overcautious Exception Handling**: Don't catch exceptions unless you have context-specific handling to apply; otherwise, let exceptions propagate up where they will be logged by a global handler.
+1. **No Unnecessarily Fully Qualified Symbmols**: use imports.
 
 ## Project-specific guidelines
 
