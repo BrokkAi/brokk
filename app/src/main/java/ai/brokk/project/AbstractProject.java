@@ -2,7 +2,6 @@ package ai.brokk.project;
 
 import ai.brokk.IAnalyzerWrapper;
 import ai.brokk.agents.BuildAgent;
-import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.concurrent.AtomicWrites;
@@ -503,7 +502,6 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     }
 
     private static final String PROP_JDK_HOME = "jdk.home";
-    private static final String PROP_BUILD_LANGUAGE = "build.language";
     private static final String PROP_COMMAND_EXECUTOR = "commandExecutor";
     private static final String PROP_EXECUTOR_ARGS = "commandExecutorArgs";
 
@@ -534,47 +532,6 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
             workspaceProps.remove(PROP_JDK_HOME);
         } else {
             workspaceProps.setProperty(PROP_JDK_HOME, jdkHome);
-        }
-        saveWorkspaceProperties();
-    }
-
-    @Override
-    @Blocking
-    public Language getBuildLanguage() {
-        var configured = workspaceProps.getProperty(PROP_BUILD_LANGUAGE);
-        if (configured != null && !configured.isBlank()) {
-            try {
-                return Languages.valueOf(configured);
-            } catch (IllegalArgumentException e) {
-                logger.warn("Invalid build language '{}' in workspace properties for {}", configured, root);
-            }
-        }
-        return computeMostCommonLanguage();
-    }
-
-    @Override
-    public final synchronized Language computedBuildLanguage() {
-        var configured = workspaceProps.getProperty(PROP_BUILD_LANGUAGE);
-        if (configured != null && !configured.isBlank()) {
-            try {
-                return Languages.valueOf(configured);
-            } catch (IllegalArgumentException e) {
-                // fall through to cache check
-            }
-        }
-        // If cache is populated, compute from it; otherwise return NONE
-        if (filesByRelPathCache != null) {
-            return computeMostCommonLanguage(filesByRelPathCache.values());
-        }
-        return Languages.NONE;
-    }
-
-    @Override
-    public void setBuildLanguage(@Nullable Language language) {
-        if (language == null) {
-            workspaceProps.remove(PROP_BUILD_LANGUAGE);
-        } else {
-            workspaceProps.setProperty(PROP_BUILD_LANGUAGE, language.name());
         }
         saveWorkspaceProperties();
     }
@@ -732,30 +689,6 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         if (Double.isNaN(p) || Double.isInfinite(p)) return -1.0;
         if (p <= 0.0 || p >= 1.0) return -1.0;
         return Math.max(0.05, Math.min(0.95, p));
-    }
-
-    private Language computeMostCommonLanguage() {
-        return computeMostCommonLanguage(getAllFiles());
-    }
-
-    private Language computeMostCommonLanguage(java.util.Collection<ProjectFile> files) {
-        try {
-            var counts = files.stream()
-                    .map(pf -> com.google.common.io.Files.getFileExtension(
-                            pf.absPath().toString()))
-                    .filter(ext -> !ext.isEmpty())
-                    .map(Languages::fromExtension)
-                    .filter(lang -> lang != Languages.NONE)
-                    .collect(Collectors.groupingBy(lang -> lang, Collectors.counting()));
-
-            return counts.entrySet().stream()
-                    .max(Map.Entry.comparingByValue())
-                    .map(Map.Entry::getKey)
-                    .orElse(Languages.NONE);
-        } catch (Exception e) {
-            logger.warn("Failed to compute most common language for {}: {}", root, e.getMessage());
-            return Languages.NONE;
-        }
     }
 
     @Override

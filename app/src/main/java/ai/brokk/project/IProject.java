@@ -360,25 +360,6 @@ public interface IProject extends AutoCloseable {
      */
     default void invalidateAutoDetectedLanguages() {}
 
-    // Primary build language configuration
-    @Blocking
-    default Language getBuildLanguage() {
-        throw new UnsupportedOperationException();
-    }
-
-    /**
-     * EDT-safe accessor for build language. Returns the configured language if available,
-     * or Languages.NONE as a safe fallback if the cache is not yet populated.
-     * Use this method on the EDT instead of getBuildLanguage().
-     */
-    default Language computedBuildLanguage() {
-        throw new UnsupportedOperationException();
-    }
-
-    default void setBuildLanguage(@Nullable Language language) {
-        throw new UnsupportedOperationException();
-    }
-
     // Command executor configuration: custom shell/interpreter for command execution
     default ShellConfig getShellConfig() {
         return ShellConfig.basic();

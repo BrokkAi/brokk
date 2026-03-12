@@ -78,7 +78,6 @@ public class SettingsProjectBuildPanel extends JPanel {
     private MaterialButton inferBuildDetailsButton = new MaterialButton("Infer Build Details");
     private JCheckBox setJavaHomeCheckbox = new JCheckBox("Set JAVA_HOME to");
     private JdkSelector jdkSelector = new JdkSelector();
-    private JComboBox<Language> primaryLanguageComboBox = new JComboBox<>();
 
     // Executor configuration UI
     private JTextField executorArgsField = new JTextField(20);
@@ -181,26 +180,13 @@ public class SettingsProjectBuildPanel extends JPanel {
         this.add(bannerPanel, gbc);
         gbc.insets = new Insets(5, 0, 5, 0);
 
-        // --- 1. Language Configuration Panel ---
+        // --- 1. JDK Configuration Panel ---
         var languagePanel = new JPanel(new GridBagLayout());
-        languagePanel.setBorder(BorderFactory.createTitledBorder("Language Configuration"));
+        languagePanel.setBorder(BorderFactory.createTitledBorder("JDK Configuration"));
         var langGbc = new GridBagConstraints();
         langGbc.insets = new Insets(2, 2, 2, 2);
         langGbc.fill = GridBagConstraints.HORIZONTAL;
         int langRow = 0;
-
-        // Primary language
-        langGbc.gridx = 0;
-        langGbc.gridy = langRow;
-        langGbc.weightx = 0.0;
-        langGbc.anchor = GridBagConstraints.WEST;
-        langGbc.fill = GridBagConstraints.NONE;
-        languagePanel.add(new JLabel("Primary language:"), langGbc);
-        langGbc.gridx = 1;
-        langGbc.gridy = langRow++;
-        langGbc.weightx = 1.0;
-        langGbc.fill = GridBagConstraints.HORIZONTAL;
-        languagePanel.add(primaryLanguageComboBox, langGbc);
 
         // JDK selection controls
         langGbc.gridx = 0;
@@ -217,14 +203,7 @@ public class SettingsProjectBuildPanel extends JPanel {
         langGbc.fill = GridBagConstraints.HORIZONTAL;
         languagePanel.add(jdkSelector, langGbc);
 
-        primaryLanguageComboBox.addActionListener(e -> {
-            var sel = (Language) primaryLanguageComboBox.getSelectedItem();
-            updateJdkControlsVisibility(sel);
-            if (sel == Languages.JAVA) {
-                populateJdkControlsFromProject();
-            }
-        });
-        updateJdkControlsVisibility(project.computedBuildLanguage());
+        updateJdkControlsVisibility(project.getLanguageHandle());
         setJavaHomeCheckbox.addActionListener(e -> jdkSelector.setEnabled(setJavaHomeCheckbox.isSelected()));
 
         gbc.gridy = row++;
@@ -466,11 +445,9 @@ public class SettingsProjectBuildPanel extends JPanel {
         this.add(Box.createVerticalGlue(), gbc);
 
         // Populate initial values
-        populatePrimaryLanguageComboBox();
-        var selectedLang = project.computedBuildLanguage();
-        primaryLanguageComboBox.setSelectedItem(selectedLang);
+        var selectedLang = project.getLanguageHandle();
         updateJdkControlsVisibility(selectedLang);
-        if (selectedLang == Languages.JAVA) {
+        if (Languages.isJvmLanguage(selectedLang)) {
             populateJdkControlsFromProject();
         }
 
@@ -842,10 +819,9 @@ public class SettingsProjectBuildPanel extends JPanel {
 
         populateJdkControlsFromProject();
 
-        var selectedLang = project.computedBuildLanguage();
-        primaryLanguageComboBox.setSelectedItem(selectedLang);
+        var selectedLang = project.getLanguageHandle();
         updateJdkControlsVisibility(selectedLang);
-        if (selectedLang == Languages.JAVA) {
+        if (Languages.isJvmLanguage(selectedLang)) {
             populateJdkControlsFromProject();
         }
 
@@ -884,8 +860,8 @@ public class SettingsProjectBuildPanel extends JPanel {
         var newTestSome = someTestsCommandField.getText();
         var newAfterTaskList = afterTaskListCommandField.getText();
 
-        // Primary language
-        var selectedPrimaryLang = (Language) primaryLanguageComboBox.getSelectedItem();
+        // Primary language from current handle
+        var selectedPrimaryLang = project.getLanguageHandle();
 
         // Build environment variables map
         var envVars = new HashMap<>(baseDetails.environmentVariables());
@@ -940,7 +916,7 @@ public class SettingsProjectBuildPanel extends JPanel {
         }
 
         // JDK Controls (only for Java)
-        if (selectedPrimaryLang == Languages.JAVA) {
+        if (Languages.isJvmLanguage(selectedPrimaryLang)) {
             if (setJavaHomeCheckbox.isSelected()) {
                 String rawPath = jdkSelector.getSelectedJdkPath();
                 if (!validateAndApplyJdkOverride(rawPath)) {
@@ -950,11 +926,6 @@ public class SettingsProjectBuildPanel extends JPanel {
                 project.setJdk(null);
                 logger.debug("Removed JDK Home override");
             }
-        }
-
-        if (selectedPrimaryLang != null && selectedPrimaryLang != project.computedBuildLanguage()) {
-            project.setBuildLanguage(selectedPrimaryLang);
-            logger.debug("Applied Primary Language: {}", selectedPrimaryLang);
         }
 
         // Apply executor configuration
@@ -1099,7 +1070,7 @@ public class SettingsProjectBuildPanel extends JPanel {
 
     private Map<String, String> computeEnvFromUi() {
         var env = new HashMap<String, String>();
-        var selected = (Language) primaryLanguageComboBox.getSelectedItem();
+        var selected = project.getLanguageHandle();
 
         if (Languages.isJvmLanguage(selected)) {
             if (setJavaHomeCheckbox.isSelected()) {
@@ -1118,17 +1089,6 @@ public class SettingsProjectBuildPanel extends JPanel {
             env.put("VIRTUAL_ENV", ".venv");
         }
         return env;
-    }
-
-    private void populatePrimaryLanguageComboBox() {
-        var detected = Languages.findLanguagesInProject(project);
-        var configured = project.computedBuildLanguage();
-        if (!detected.contains(configured)) {
-            detected.add(configured);
-        }
-        // Sort by display name
-        detected.sort(Comparator.comparing(Language::name));
-        primaryLanguageComboBox.setModel(new DefaultComboBoxModel<>(detected.toArray(Language[]::new)));
     }
 
     private void initializeExecutorUI() {

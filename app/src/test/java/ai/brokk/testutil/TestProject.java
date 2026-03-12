@@ -64,6 +64,11 @@ public class TestProject implements IProject {
         this.language = language;
     }
 
+    @Override
+    public Language getLanguageHandle() {
+        return language;
+    }
+
     public void setBuildDetails(BuildAgent.BuildDetails buildDetails) {
         this.buildDetails = buildDetails;
         this.buildDetailsExplicitlySet = true;
@@ -242,18 +247,6 @@ public class TestProject implements IProject {
     @Override
     public void setAnalyzerLanguages(Set<Language> languages) {
         this.analyzerLanguages = Set.copyOf(languages);
-    }
-
-    private Language buildLanguage = Languages.NONE;
-
-    @Override
-    public Language getBuildLanguage() {
-        return buildLanguage;
-    }
-
-    @Override
-    public void setBuildLanguage(@Nullable Language language) {
-        this.buildLanguage = language != null ? language : Languages.NONE;
     }
 
     @Override

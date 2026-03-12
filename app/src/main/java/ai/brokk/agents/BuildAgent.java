@@ -263,7 +263,7 @@ public class BuildAgent {
 
             // Prioritize terminal actions (report or abort)
             ToolExecutionRequest reportRequest = null;
-            ToolExecutionRequest abortRequest = null;
+            ToolExecutionRequest reportAbortRequest = null;
             List<ToolExecutionRequest> otherRequests = new ArrayList<>();
 
             for (var request : requests) {
@@ -272,7 +272,7 @@ public class BuildAgent {
                 if (toolName.equals("reportBuildDetails")) {
                     reportRequest = request;
                 } else if (toolName.equals("abortBuildDetails")) {
-                    abortRequest = request;
+                    reportAbortRequest = request;
                 } else {
                     otherRequests.add(request);
                 }
@@ -312,9 +312,9 @@ public class BuildAgent {
                     }
                 }
                 return details;
-            } else if (abortRequest != null) {
-                io.beforeToolCall(abortRequest);
-                ToolExecutionResult termResult = tr.executeTool(abortRequest);
+            } else if (reportAbortRequest != null) {
+                io.beforeToolCall(reportAbortRequest);
+                ToolExecutionResult termResult = tr.executeTool(reportAbortRequest);
                 io.afterToolOutput(termResult);
 
                 assert abortReason != null;
@@ -497,7 +497,7 @@ public class BuildAgent {
                         .formatted(
                                 wrapperScriptInstruction,
                                 currentExcludedDirectories,
-                                project.getBuildLanguage().name())));
+                                project.getLanguageHandle().name())));
 
         // Add existing history
         messages.addAll(chatHistory);
@@ -1002,7 +1002,7 @@ public class BuildAgent {
      * - Otherwise: no defaults
      */
     private Map<String, String> defaultEnvForProject() {
-        var lang = project.getBuildLanguage();
+        var lang = project.getLanguageHandle();
         if (lang == Languages.PYTHON) {
             return Map.of("VIRTUAL_ENV", ".venv");
         }
