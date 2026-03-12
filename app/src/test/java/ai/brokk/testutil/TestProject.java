@@ -43,6 +43,7 @@ public class TestProject implements IProject {
     private IProject.CodeAgentTestScope codeAgentTestScope = IProject.CodeAgentTestScope.WORKSPACE;
     private String styleGuide = "";
     private Set<String> exclusionPatterns = Set.of();
+    private FileFilteringService.FilePatternMatcher exclusionMatcher = FileFilteringService.createPatternMatcher(Set.of());
     private boolean gitConfigDeclined = false;
     private @Nullable String jdk;
     private @Nullable IGitRepo repo;
@@ -119,6 +120,7 @@ public class TestProject implements IProject {
 
     public void setExclusionPatterns(Set<String> patterns) {
         this.exclusionPatterns = patterns;
+        this.exclusionMatcher = FileFilteringService.createPatternMatcher(patterns);
     }
 
     public TestProject withAllFilesSupplier(Supplier<Set<ProjectFile>> filesSupplier) {
@@ -152,8 +154,7 @@ public class TestProject implements IProject {
 
     @Override
     public boolean isPathExcluded(String relativePath, boolean isDirectory) {
-        if (exclusionPatterns.isEmpty()) return false;
-        return FileFilteringService.createPatternMatcher(exclusionPatterns).isPathExcluded(relativePath, isDirectory);
+        return exclusionMatcher.isPathExcluded(relativePath, isDirectory);
     }
 
     @Override

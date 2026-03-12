@@ -13,6 +13,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BiPredicate;
 import java.util.function.Predicate;
 import java.util.regex.Matcher;
@@ -50,36 +51,6 @@ public class EnvironmentPython {
      */
     private static final Set<String> ALWAYS_SKIP_DIRECTORIES = Set.of(".venv", "venv");
 
-    /**
-     * Directory basenames to skip only in fallback (non-git) traversal.
-     * This broader set includes common build artifact/cache directories that are
-     * safe to skip when we don't have gitignore-aware filtering, but could be
-     * legitimate tracked source directories in some projects.
-     */
-    private static final Set<String> FALLBACK_SKIP_DIRECTORIES = Set.of(
-            ".gradle",
-            "node_modules",
-            "__pycache__",
-            ".pytest_cache",
-            ".mypy_cache",
-            ".tox",
-            "build",
-            "dist",
-            "target",
-            "out",
-            "bazel-out");
-
-    /**
-     * Combined set of directories to skip in fallback mode (includes ALWAYS_SKIP).
-     */
-    private static final Set<String> ALL_FALLBACK_SKIP_DIRECTORIES;
-
-    static {
-        var combined = new HashSet<>(ALWAYS_SKIP_DIRECTORIES);
-        combined.addAll(FALLBACK_SKIP_DIRECTORIES);
-        ALL_FALLBACK_SKIP_DIRECTORIES = Set.copyOf(combined);
-    }
-
     /** Represents a Python major.minor version. */
     private record PyVersion(int major, int minor) {
         @Override
@@ -101,7 +72,6 @@ public class EnvironmentPython {
     /**
      * Optional ignore checker that combines project exclusions and gitignore filtering.
      * When present, the BiPredicate accepts (relativePath, isDirectory) and returns true if the path should be skipped.
-     * When null, fallback pruning logic is used instead.
      */
     private final @Nullable BiPredicate<Path, Boolean> ignoreChecker;
 
@@ -348,8 +318,7 @@ public class EnvironmentPython {
 
     /** Check if any Python source file imports distutils, respecting the injected ignore checker. */
     private boolean repoImportsDistutils() {
-        final @Nullable BiPredicate<Path, Boolean> effectiveChecker = ignoreChecker;
-        var found = new boolean[] {false};
+        var found = new AtomicBoolean(false);
 
         try {
             Files.walkFileTree(projectRoot, new FileVisitor<Path>() {
@@ -369,22 +338,11 @@ public class EnvironmentPython {
                     }
 
                     // Skip if directory is ignored (project exclusions + gitignore combined)
-                    if (!dir.equals(projectRoot)) {
+                    if (!dir.equals(projectRoot) && ignoreChecker != null) {
                         Path relPath = projectRoot.relativize(dir);
-
-                        if (effectiveChecker != null) {
-                            // Use injected ignore checker (covers both project exclusions and gitignore)
-                            if (effectiveChecker.test(relPath, true)) {
-                                logger.trace("Skipping ignored directory: {}", relPath);
-                                return FileVisitResult.SKIP_SUBTREE;
-                            }
-                        } else {
-                            // Fallback path: skip common artifact/cache directories
-                            // when we don't have any ignore checker
-                            if (ALL_FALLBACK_SKIP_DIRECTORIES.contains(dirName)) {
-                                logger.trace("Skipping fallback-pruned directory: {}", relPath);
-                                return FileVisitResult.SKIP_SUBTREE;
-                            }
+                        if (ignoreChecker.test(relPath, true)) {
+                            logger.trace("Skipping ignored directory: {}", relPath);
+                            return FileVisitResult.SKIP_SUBTREE;
                         }
                     }
 
@@ -393,7 +351,6 @@ public class EnvironmentPython {
 
                 @Override
                 public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
-                    // Only check .py files
                     String fileName =
                             file.getFileName() != null ? file.getFileName().toString() : "";
                     if (!fileName.endsWith(".py")) {
@@ -402,17 +359,15 @@ public class EnvironmentPython {
 
                     Path relPath = projectRoot.relativize(file);
 
-                    // Skip if file is ignored
-                    if (effectiveChecker != null && effectiveChecker.test(relPath, false)) {
+                    if (ignoreChecker != null && ignoreChecker.test(relPath, false)) {
                         logger.trace("Skipping ignored file: {}", relPath);
                         return FileVisitResult.CONTINUE;
                     }
 
-                    // Check for distutils import
                     String content = readFile(file);
                     if (content != null && DISTUTILS_PATTERN.matcher(content).find()) {
                         logger.debug("Found distutils import in: {}", relPath);
-                        found[0] = true;
+                        found.set(true);
                         return FileVisitResult.TERMINATE;
                     }
 
@@ -435,7 +390,7 @@ public class EnvironmentPython {
             return false;
         }
 
-        return found[0];
+        return found.get();
     }
 
     /** Parse a PEP 440 version spec like ">=3.8,<4", ">=3.6", or "~=3.6". */

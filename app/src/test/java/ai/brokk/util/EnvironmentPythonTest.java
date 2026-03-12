@@ -358,44 +358,6 @@ public class EnvironmentPythonTest {
         assertEquals(UNCAPPED_VERSION, version, "Distutils in gitignored directory should not cap version");
     }
 
-    // ===== Fallback pruning tests =====
-
-    @Test
-    void testFallbackPrunedDirectoryDoesNotCapVersion() throws Exception {
-        // Non-git project with distutils only in a fallback-pruned directory
-        Path projectPath = tempDir.resolve("fallback-pruned");
-        Files.createDirectories(projectPath);
-
-        // .gradle is in FALLBACK_SKIP_DIRECTORIES
-        Path gradleDir = projectPath.resolve(".gradle");
-        Files.createDirectories(gradleDir);
-        Files.writeString(gradleDir.resolve("setup.py"), "from distutils.core import setup\n");
-
-        Path srcDir = projectPath.resolve("src");
-        Files.createDirectories(srcDir);
-        Files.writeString(srcDir.resolve("main.py"), "print('hello')\n");
-
-        var version = createTestEnvPython(projectPath).getPythonVersion();
-        assertEquals(UNCAPPED_VERSION, version, "Distutils in fallback-pruned directory should not cap version");
-    }
-
-    @Test
-    void testFallbackPrunedNodeModulesDoesNotCapVersion() throws Exception {
-        Path projectPath = tempDir.resolve("fallback-node-modules");
-        Files.createDirectories(projectPath);
-
-        Path nodeModulesDir = projectPath.resolve("node_modules");
-        Files.createDirectories(nodeModulesDir);
-        Files.writeString(nodeModulesDir.resolve("some_tool.py"), "import distutils\n");
-
-        Path srcDir = projectPath.resolve("src");
-        Files.createDirectories(srcDir);
-        Files.writeString(srcDir.resolve("app.py"), "print('app')\n");
-
-        var version = createTestEnvPython(projectPath).getPythonVersion();
-        assertEquals(UNCAPPED_VERSION, version, "Distutils in node_modules should not cap version");
-    }
-
     @Test
     void testNoDistutilsReturnsUncappedVersion() throws Exception {
         Path projectPath = tempDir.resolve("no-distutils");
