@@ -2298,9 +2298,8 @@ class BrokkApp(App):
         if chat:
             chat.set_job_running(True)
 
-        review_json_buffer = ""
         job_failed = False
-        saw_completed = False
+        review_loaded = False
 
         try:
             self.current_job_id = await self.executor.submit_review_job(
@@ -2315,17 +2314,29 @@ class BrokkApp(App):
                 event_type = event.get("type")
                 data = safe_data(event)
 
-                # Accumulate review JSON from LLM tokens
-                if event_type in ("LLM_TOKEN", "TOKEN"):
-                    token = data.get("token", "")
-                    review_json_buffer += token
+                # The backend emits REVIEW_COMPLETE with the full review data
+                if event_type == "REVIEW_COMPLETE":
+                    try:
+                        guided_review = parse_guided_review(data)
+                        review_loaded = True
+                        if review_panel:
+                            review_panel.set_loading(False)
+                            review_panel.update_review(guided_review)
+                        if chat:
+                            chat.add_system_message(
+                                "Guided review completed successfully.", level="SUCCESS"
+                            )
+                    except Exception as e:
+                        logger.exception("Failed to process review data")
+                        if chat:
+                            chat.add_system_message(f"Failed to process review: {e}", level="ERROR")
+                        if review_panel:
+                            review_panel.set_loading(False)
                     continue
 
                 if event_type == "STATE_CHANGE":
                     state = data.get("state")
-                    if state == "COMPLETED":
-                        saw_completed = True
-                    elif state and is_failure_state(state):
+                    if state and is_failure_state(state):
                         job_failed = True
                     continue
 
@@ -2335,44 +2346,16 @@ class BrokkApp(App):
                 # Handle other events (notifications, costs, etc.)
                 self._handle_event(event)
 
-            # Parse and display the review if successful
-            if saw_completed and not job_failed and review_json_buffer.strip():
-                try:
-                    import json
-
-                    review_data = json.loads(review_json_buffer)
-                    guided_review = parse_guided_review(review_data)
-
+            # Post-loop: handle failure or missing review
+            if not review_loaded:
+                if job_failed:
                     if review_panel:
                         review_panel.set_loading(False)
-                        review_panel.update_review(guided_review)
-
                     if chat:
-                        chat.add_system_message(
-                            "Guided review completed successfully.", level="SUCCESS"
-                        )
-                except json.JSONDecodeError as e:
-                    logger.exception("Failed to parse review JSON")
-                    if chat:
-                        chat.add_system_message(
-                            f"Failed to parse review response: {e}", level="ERROR"
-                        )
+                        chat.add_system_message("Review job failed.", level="ERROR")
+                else:
                     if review_panel:
                         review_panel.set_loading(False)
-                except Exception as e:
-                    logger.exception("Failed to process review")
-                    if chat:
-                        chat.add_system_message(f"Failed to process review: {e}", level="ERROR")
-                    if review_panel:
-                        review_panel.set_loading(False)
-            elif job_failed:
-                if review_panel:
-                    review_panel.set_loading(False)
-                if chat:
-                    chat.add_system_message("Review job failed.", level="ERROR")
-            else:
-                if review_panel:
-                    review_panel.set_loading(False)
 
         except Exception as e:
             logger.exception("Review job failed")
