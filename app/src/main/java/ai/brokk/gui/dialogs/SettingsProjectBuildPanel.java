@@ -848,17 +848,19 @@ public class SettingsProjectBuildPanel extends JPanel {
     private void updateBuildDetailsFieldsFromAgent(
             BuildAgent.BuildDetails details, @Nullable Set<String> llmAddedPatterns) {
         SwingUtilities.invokeLater(() -> {
-            // Update this panel's fields - only overwrite if agent provided a value
+            // Update this panel's fields
+            buildCleanCommandCheck.setSelected(details.buildLintEnabled());
+            buildCleanCommandField.setEnabled(details.buildLintEnabled());
             if (!details.buildLintCommand().isBlank()) {
-                buildCleanCommandCheck.setSelected(true);
                 buildCleanCommandField.setText(details.buildLintCommand());
-                buildCleanCommandField.setEnabled(true);
             }
+
+            allTestsCommandCheck.setSelected(details.testAllEnabled());
+            allTestsCommandField.setEnabled(details.testAllEnabled());
             if (!details.testAllCommand().isBlank()) {
-                allTestsCommandCheck.setSelected(true);
                 allTestsCommandField.setText(details.testAllCommand());
-                allTestsCommandField.setEnabled(true);
             }
+
             if (!details.afterTaskListCommand().isBlank()) {
                 afterTaskListCommandField.setText(details.afterTaskListCommand());
             }
