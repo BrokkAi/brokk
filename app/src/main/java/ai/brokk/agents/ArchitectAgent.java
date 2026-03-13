@@ -24,7 +24,6 @@ import ai.brokk.tools.ParallelSearch;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
 import ai.brokk.tools.WorkspaceTools;
-import ai.brokk.util.BuildTools;
 import ai.brokk.util.BuildVerifier;
 import ai.brokk.util.Messages;
 import dev.langchain4j.agent.tool.P;
@@ -312,7 +311,7 @@ public class ArchitectAgent {
 
                 if (verifyCommand != null) {
                     BuildAgent.@Nullable BuildDetails override = cm.getProject().awaitBuildDetails();
-                    context = BuildTools.runExplicitCommand(context, verifyCommand, override);
+                    context = cm.getProject().getBuildRunner().runExplicitCommand(context, verifyCommand, override);
                     if (!context.getBuildError().isBlank()) {
                         codeAgentJustSucceeded = false;
                         reason = StopReason.BUILD_ERROR;

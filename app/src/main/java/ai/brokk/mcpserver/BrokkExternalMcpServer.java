@@ -489,7 +489,7 @@ public class BrokkExternalMcpServer {
 
     @Tool("Run build verification (compile and test) without making changes.")
     public String runBuild() throws InterruptedException {
-        String error = BuildTools.runVerification(cm);
+        String error = cm.getProject().getBuildRunner().runVerification(cm);
         return error.isEmpty() ? "Build successful" : "Build failed:\n\n" + error;
     }
 

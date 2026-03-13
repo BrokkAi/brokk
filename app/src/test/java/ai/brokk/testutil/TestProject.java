@@ -12,6 +12,7 @@ import ai.brokk.project.FileFilteringService;
 import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
 import ai.brokk.util.Environment;
+import ai.brokk.util.ProjectBuildRunner;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
@@ -58,6 +59,8 @@ public class TestProject implements IProject {
     private @Nullable Predicate<Path> gitignoredPredicate;
     private MainProject.DataRetentionPolicy dataRetentionPolicy = MainProject.DataRetentionPolicy.MINIMAL;
     private @Nullable ExecutorService backgroundExecutor;
+    private final ai.brokk.SessionManager sessionManager;
+    private final ProjectBuildRunner buildRunner;
 
     public TestProject(Path root) {
         this(root, Languages.NONE);
@@ -67,6 +70,8 @@ public class TestProject implements IProject {
         assertTrue(Files.exists(root), "TestProject root does not exist: " + root);
         assertTrue(Files.isDirectory(root), "TestProject root is not a directory: " + root);
         this.root = root;
+        this.sessionManager = new ai.brokk.SessionManager(root);
+        this.buildRunner = new ProjectBuildRunner(this);
         if (language != Languages.NONE) {
             this.analyzerLanguages = Set.of(language);
         }
@@ -170,6 +175,11 @@ public class TestProject implements IProject {
         } catch (UnsupportedOperationException e) {
             return false;
         }
+    }
+
+    @Override
+    public ProjectBuildRunner getBuildRunner() {
+        return buildRunner;
     }
 
     @Override
@@ -335,6 +345,11 @@ public class TestProject implements IProject {
         return dataRetentionPolicy;
     }
 
+    @Override
+    public ai.brokk.SessionManager getSessionManager() {
+        return sessionManager;
+    }
+
     /**
      * Returns a background executor for this test project. Creates a single-threaded executor
      * lazily on first access. Tests that call this should also call {@link #close()} to clean up.
@@ -352,10 +367,11 @@ public class TestProject implements IProject {
     }
 
     /**
-     * Shuts down the background executor if it was created. Safe to call multiple times.
+     * Releases resources held by this test project. Safe to call multiple times.
      */
     @Override
     public void close() {
+        buildRunner.close();
         if (backgroundExecutor != null) {
             backgroundExecutor.shutdown();
             try {
@@ -368,6 +384,7 @@ public class TestProject implements IProject {
             }
             backgroundExecutor = null;
         }
+        sessionManager.close();
     }
 
     /**

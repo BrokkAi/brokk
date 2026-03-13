@@ -364,6 +364,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
         finalizeSessionActivation(currentSessionId);
         migrateToSessionsV3IfNeeded().thenRun(this::submitSessionSyncIfActive);
+        project.getBuildRunner().triggerStartupWarmupBuild(this);
     }
 
     private CompletableFuture<Void> migrateToSessionsV3IfNeeded() {
@@ -1680,7 +1681,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             String afterCmd = details.afterTaskListCommand();
             if (!afterCmd.isBlank()) {
                 Context ctx1 = liveContext();
-                var context = BuildTools.runExplicitCommand(ctx1, afterCmd, details);
+                var context = project.getBuildRunner().runExplicitCommand(ctx1, afterCmd, details);
                 if (!context.getBuildError().isBlank()) {
                     pushContext(ctx -> context);
                     String goal = "The post-task-list verification command failed. Fix the build errors.";
@@ -1921,7 +1922,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     public CompletableFuture<String> summarize(String input, int words) {
         return LoggingFuture.supplyCallableVirtual(() -> {
             var msgs = SummarizerPrompts.instance.collectMessages(input, words);
-            // Use quickModel for summarization
+            // Use quickestModel for summarization
             Llm.StreamingResult result = getLlm(getService().quickestModel(), input, TaskResult.Type.SUMMARIZE)
                     .sendRequest(msgs);
 

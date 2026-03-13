@@ -31,7 +31,6 @@ import ai.brokk.project.MainProject;
 import ai.brokk.project.WorktreeProject;
 import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.tools.WorkspaceTools;
-import ai.brokk.util.BuildTools;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.google.common.collect.Streams;
 import dev.langchain4j.model.chat.StreamingChatModel;
@@ -768,7 +767,7 @@ public final class BprCli implements Callable<Integer> {
                     context = result.context();
                     scope.append(result);
                 } else if (build) {
-                    String buildError = BuildTools.runVerification(cm);
+                    String buildError = cm.getProject().getBuildRunner().runVerification(cm);
                     io.showNotification(
                             IConsoleIO.NotificationRole.INFO,
                             buildError.isEmpty()

@@ -12,6 +12,7 @@ import ai.brokk.git.IGitRepo;
 import ai.brokk.git.LocalFileRepo;
 import ai.brokk.util.EnvironmentJava;
 import ai.brokk.util.PathNormalizer;
+import ai.brokk.util.ProjectBuildRunner;
 import ai.brokk.util.ShellConfig;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -63,6 +64,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     protected final Path masterRootPathForConfig;
     protected final Path propertiesFile;
     protected final Properties projectProps;
+    protected final ProjectBuildRunner buildRunner;
 
     // File filtering service that encapsulates baseline exclusions + gitignore handling.
     protected final FileFilteringService fileFilteringService;
@@ -112,6 +114,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         this.propertiesFile = this.root.resolve(BROKK_DIR).resolve(PROJECT_PROPERTIES_FILE);
         this.projectProps = new Properties();
         this.fileFilteringService = new FileFilteringService(this.root, this.repo);
+        this.buildRunner = new ProjectBuildRunner(this);
 
         initializeProject();
         initializeProjectProperties();
@@ -177,6 +180,11 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     @Override
     public final IGitRepo getRepo() {
         return repo;
+    }
+
+    @Override
+    public ProjectBuildRunner getBuildRunner() {
+        return buildRunner;
     }
 
     @Override
@@ -705,6 +713,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
 
     @Override
     public void close() {
+        buildRunner.close();
         if (repo instanceof AutoCloseable autoCloseableRepo) {
             try {
                 autoCloseableRepo.close();
