@@ -557,18 +557,57 @@ public class SessionChangesPanel extends JPanel implements ThemeAware, AnalyzerC
                 if (targetLine > 0) {
                     panel.resetAutoScrollFlag();
                     panel.diff(false);
+
+                    int snappedLine = targetLine;
+                    var diffNode = panel.getDiffNode();
+                    if (diffNode != null) {
+                        var patch = diffNode.getPatch();
+                        if (patch != null && !patch.getDeltas().isEmpty()) {
+                            int closestDist = Integer.MAX_VALUE;
+                            for (var delta : patch.getDeltas()) {
+                                var chunk = (targetSide == ReviewParser.DiffSide.OLD)
+                                        ? delta.getSource()
+                                        : delta.getTarget();
+                                // Chunk position is 0-based; our targetLine is 1-based.
+                                int chunkStart = chunk.getPosition() + 1;
+                                int chunkEnd = chunkStart + Math.max(0, chunk.size() - 1);
+
+                                int dist;
+                                if (chunk.size() > 0 && targetLine >= chunkStart && targetLine <= chunkEnd) {
+                                    dist = 0; // Inside a non-empty diff chunk
+                                } else {
+                                    dist = Math.min(Math.abs(targetLine - chunkStart), Math.abs(targetLine - chunkEnd));
+                                }
+
+                                if (dist < closestDist) {
+                                    closestDist = dist;
+                                    // If inside, keep targetLine. Else, snap to the nearest boundary.
+                                    if (dist == 0) {
+                                        snappedLine = targetLine;
+                                        break;
+                                    } else {
+                                        snappedLine =
+                                                (Math.abs(targetLine - chunkStart) < Math.abs(targetLine - chunkEnd))
+                                                        ? chunkStart
+                                                        : chunkEnd;
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     if (panel instanceof BufferDiffPanel bp) {
                         var side = (targetSide == ReviewParser.DiffSide.OLD)
                                 ? BufferDiffPanel.PanelSide.LEFT
                                 : BufferDiffPanel.PanelSide.RIGHT;
-                        bp.scrollToLine(targetLine, side);
+                        bp.scrollToLine(snappedLine, side);
                     } else if (panel instanceof UnifiedDiffPanel up) {
                         up.clearExcerptHighlight();
-                        up.scrollToLine(targetLine, targetSide);
+                        up.scrollToLine(snappedLine, targetSide);
                         if (activeExcerpt != null) {
                             String[] lines = activeExcerpt.excerpt().split("\\r?\\n", -1);
-                            int endLine = targetLine + Math.max(0, lines.length - 1);
-                            up.highlightExcerptLines(targetLine, endLine, targetSide);
+                            int endLine = snappedLine + Math.max(0, lines.length - 1);
+                            up.highlightExcerptLines(snappedLine, endLine, targetSide);
                         }
                     }
                 } else {
