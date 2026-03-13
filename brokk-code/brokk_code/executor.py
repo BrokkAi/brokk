@@ -1266,6 +1266,68 @@ class ExecutorManager:
             await self._handle_http_error(e, "/v1/repo/pr/create")
             raise  # Should not be reached
 
+    async def submit_review_job(
+        self,
+        scope: str,
+        planner_model: str,
+    ) -> str:
+        """Submits a guided review job to the executor.
+
+        Args:
+            scope: Review scope - 'uncommitted', 'session', or a commit range.
+            planner_model: The LLM model to use for the review.
+
+        Returns:
+            The jobId of the created review job.
+
+        Raises:
+            ExecutorError: If the executor is not started or the request fails.
+        """
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+
+        payload = {
+            "scope": scope,
+            "plannerModel": planner_model,
+        }
+
+        headers = {"Idempotency-Key": str(uuid.uuid4())}
+        effective_session_id = self.session_id
+        if effective_session_id:
+            headers["X-Session-Id"] = effective_session_id
+
+        try:
+            resp = await self._http_client.post("/v1/review/submit", json=payload, headers=headers)
+            resp.raise_for_status()
+            return resp.json()["jobId"]
+        except httpx.HTTPError as e:
+            await self._handle_http_error(e, "/v1/review/submit")
+            raise  # Should not be reached
+
+    async def get_review_diff(self, scope: str) -> Dict[str, Any]:
+        """Fetches the unified diff for a review scope.
+
+        Args:
+            scope: Review scope - 'uncommitted', 'session', or a commit range.
+
+        Returns:
+            Dict containing files with their diff text:
+            {files: [{path: str, diff_text: str}, ...]}
+
+        Raises:
+            ExecutorError: If the executor is not started or the request fails.
+        """
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+
+        try:
+            resp = await self._http_client.get("/v1/review/diff", params={"scope": scope})
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            await self._handle_http_error(e, "/v1/review/diff")
+            raise  # Should not be reached
+
     async def cancel_job(self, job_id: str):
         """Cancels an active job."""
         if not self._http_client:
