@@ -785,30 +785,43 @@ public class BuildAgent {
 
         // 2. Testsome command
         for (var module : details.modules()) {
-            if (!module.testSomeCommand().isBlank()) {
-                var testFiles = project.getRepo().getTrackedFiles().stream()
-                        .filter(f -> f.toString().toLowerCase(Locale.ROOT).contains("test"))
-                        .toList();
+            String template = module.testSomeCommand();
+            if (template.isBlank()) {
+                continue;
+            }
 
-                if (!testFiles.isEmpty()) {
-                    var randomTestFile = testFiles.get(new Random().nextInt(testFiles.size()));
-                    String relPath = randomTestFile.toString();
-                    String template = module.testSomeCommand();
+            var testFiles = project.getRepo().getTrackedFiles().stream()
+                    .filter(f -> f.toString().toLowerCase(Locale.ROOT).contains("test"))
+                    .toList();
 
-                    String interpolatedCmd = null;
-                    if (template.contains("{{#files}}")) {
-                        interpolatedCmd = BuildTools.interpolateMustacheTemplate(template, List.of(relPath), "files");
-                    }
+            if (testFiles.isEmpty()) {
+                continue;
+            }
 
-                    if (interpolatedCmd != null) {
-                        var result = BuildVerifier.verify(project, interpolatedCmd, details.environmentVariables());
-                        if (!result.success()) {
-                            return "Test command failed (exit code %d):\n%s"
-                                    .formatted(result.exitCode(), Objects.toString(result.output(), ""));
-                        }
-                    }
+            var randomTestFile = testFiles.get(new Random().nextInt(testFiles.size()));
+            String relPath = randomTestFile.toString();
+            String fileName = randomTestFile.getFileName();
+            String simpleName = fileName.contains(".") ? fileName.substring(0, fileName.lastIndexOf('.')) : fileName;
+
+            String interpolatedCmd = null;
+            if (template.contains("{{#files}}")) {
+                interpolatedCmd = BuildTools.interpolateMustacheTemplate(template, List.of(relPath), "files");
+            } else if (template.contains("{{#classes}}")) {
+                interpolatedCmd = BuildTools.interpolateMustacheTemplate(template, List.of(simpleName), "classes");
+            } else if (template.contains("{{#fqclasses}}")) {
+                interpolatedCmd = BuildTools.interpolateMustacheTemplate(template, List.of(simpleName), "fqclasses");
+            } else if (template.contains("{{#packages}}")) {
+                interpolatedCmd = BuildTools.interpolateMustacheTemplate(template, List.of(relPath), "packages");
+            }
+
+            if (interpolatedCmd != null) {
+                var result = BuildVerifier.verify(project, interpolatedCmd, details.environmentVariables());
+                if (!result.success()) {
+                    return "Test command failed (exit code %d):\n%s"
+                            .formatted(result.exitCode(), Objects.toString(result.output(), ""));
                 }
-                break;
+                // Break on first successful validation
+                return null;
             }
         }
 
