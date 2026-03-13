@@ -2,6 +2,7 @@ package ai.brokk.util;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import ai.brokk.agents.BuildAgent.BuildDetails;
@@ -24,7 +25,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 class BuildToolsTest {
-
     @Test
     void testMixedTemplateInterpolation(@TempDir Path tempDir) throws Exception {
         // 1. Set up a realistic Python structure:
@@ -255,6 +255,104 @@ class BuildToolsTest {
         // 4. Assertions
         // Ensure the package has the ./ prefix and the class (function) is present
         assertEquals("go test ./callbacks  -run '^TestCallbacks$'", result);
+    }
+
+    @Test
+    void testParseModulesJson() {
+        String json = """
+            [
+              {
+                "alias": "core",
+                "relativePath": "app/core",
+                "language": "Java",
+                "buildLintCommand": "mvn compile",
+                "testAllCommand": "mvn test",
+                "testSomeCommand": "mvn test -Dtest={{#classes}}{{value}}{{/classes}}"
+              },
+              {
+                "alias": "web",
+                "relativePath": "app/web",
+                "language": "TypeScript",
+                "buildLintCommand": "npm run build",
+                "testAllCommand": "npm test"
+              }
+            ]
+            """;
+
+        List<BuildAgent.ModuleBuildEntry> modules = BuildTools.parseModulesJson(json);
+
+        assertEquals(2, modules.size());
+
+        var core = modules.get(0);
+        assertEquals("core", core.alias());
+        // ModuleBuildEntry normalizes paths to forward-slash and adds a trailing slash if not present
+        assertEquals("app/core/", core.relativePath());
+        assertEquals("Java", core.language());
+        assertEquals("mvn test", core.testAllCommand());
+        assertEquals("mvn test -Dtest={{#classes}}{{value}}{{/classes}}", core.testSomeCommand());
+
+        var web = modules.get(1);
+        assertEquals("web", web.alias());
+        assertEquals("app/web/", web.relativePath());
+        assertEquals("TypeScript", web.language());
+        assertEquals("npm test", web.testAllCommand());
+        assertEquals("", web.testSomeCommand());
+    }
+
+    @Test
+    void testParseModulesJsonComplex() {
+        String json = """
+            [
+              {
+                "alias": "service",
+                "relativePath": "./services/api/",
+                "language": "Go",
+                "buildLintCommand": "go build",
+                "testAllCommand": "go test ./...",
+                "testSomeCommand": "go test {{#packages}}{{value}}{{/packages}}"
+              }
+            ]
+            """;
+
+        List<BuildAgent.ModuleBuildEntry> modules = BuildTools.parseModulesJson(json);
+        assertEquals(1, modules.size());
+        var m = modules.getFirst();
+        assertEquals("services/api/", m.relativePath());
+        assertEquals("Go", m.language());
+        assertEquals("go test {{#packages}}{{value}}{{/packages}}", m.testSomeCommand());
+    }
+
+    @Test
+    void testParseModulesJson_InvalidReturnsEmpty() {
+        List<BuildAgent.ModuleBuildEntry> modules = BuildTools.parseModulesJson("invalid-json");
+        assertTrue(modules.isEmpty());
+    }
+
+    @Test
+    void testParseModulesJsonFullFieldVerification() {
+        String json = """
+            [
+              {
+                "alias": "full-service",
+                "relativePath": "services/full",
+                "buildLintCommand": "make build",
+                "testAllCommand": "make test",
+                "testSomeCommand": "make test TARGET={{#classes}}{{value}}{{/classes}}",
+                "language": "C++"
+              }
+            ]
+            """;
+
+        List<BuildAgent.ModuleBuildEntry> modules = BuildTools.parseModulesJson(json);
+        assertEquals(1, modules.size());
+
+        var m = modules.getFirst();
+        assertEquals("full-service", m.alias());
+        assertEquals("services/full/", m.relativePath());
+        assertEquals("make build", m.buildLintCommand());
+        assertEquals("make test", m.testAllCommand());
+        assertEquals("make test TARGET={{#classes}}{{value}}{{/classes}}", m.testSomeCommand());
+        assertEquals("C++", m.language());
     }
 
     @Test

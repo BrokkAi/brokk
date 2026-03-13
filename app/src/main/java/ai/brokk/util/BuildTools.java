@@ -37,6 +37,7 @@ import org.jetbrains.annotations.Nullable;
 
 public class BuildTools {
     private static final Logger logger = LogManager.getLogger(BuildTools.class);
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     /** Determine the best verification command using the provided Context. */
     @Blocking
@@ -120,8 +121,6 @@ public class BuildTools {
         return cm.submitBackgroundTask(
                 "Determine build verification command", () -> determineVerificationCommand(cm.liveContext()));
     }
-
-    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     public static String getBuildLintSomeCommand(
             IContextManager cm,
@@ -226,13 +225,7 @@ public class BuildTools {
         List<BuildAgent.ModuleBuildEntry> modules = details.modules();
         String modulesJson = System.getenv("BRK_MODULES_JSON");
         if (modulesJson != null && !modulesJson.isBlank()) {
-            try {
-                var tf = OBJECT_MAPPER.getTypeFactory();
-                var type = tf.constructCollectionType(List.class, BuildAgent.ModuleBuildEntry.class);
-                modules = OBJECT_MAPPER.readValue(modulesJson, type);
-            } catch (Exception e) {
-                logger.error("Failed to deserialize BRK_MODULES_JSON: {}", e.getMessage());
-            }
+            modules = parseModulesJson(modulesJson);
         }
 
         return new BuildDetails(
@@ -246,6 +239,18 @@ public class BuildTools {
                 details.maxBuildAttempts(),
                 details.afterTaskListCommand(),
                 modules);
+    }
+
+    @VisibleForTesting
+    public static List<BuildAgent.ModuleBuildEntry> parseModulesJson(String json) {
+        try {
+            var tf = OBJECT_MAPPER.getTypeFactory();
+            var type = tf.constructCollectionType(List.class, BuildAgent.ModuleBuildEntry.class);
+            return OBJECT_MAPPER.readValue(json, type);
+        } catch (Exception e) {
+            logger.error("Failed to deserialize BRK_MODULES_JSON: {}", e.getMessage());
+            return List.of();
+        }
     }
 
     private static Optional<String> getPythonVersionForProject(IProject project) {
