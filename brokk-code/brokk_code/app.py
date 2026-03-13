@@ -2222,9 +2222,9 @@ class BrokkApp(App):
         """Handle the /review slash command for local guided reviews.
 
         Supported syntaxes:
-          /review              - Review branch changes vs merge-base (default)
-          /review session      - Review branch changes vs merge-base
-          /review uncommitted  - Review uncommitted working tree changes
+          /review              - Review all branch changes vs merge-base incl. uncommitted (default)
+          /review session      - Review all branch changes vs merge-base incl. uncommitted
+          /review uncommitted  - Review only uncommitted working tree changes (HEAD vs WORKING)
         """
         chat = self._maybe_chat()
         if not chat:

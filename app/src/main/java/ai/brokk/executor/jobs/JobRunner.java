@@ -997,7 +997,7 @@ public final class JobRunner {
                                                             "Cannot find merge base with " + defaultBranch);
                                                 }
                                                 fromRef = mergeBase;
-                                                toRef = "HEAD";
+                                                toRef = "WORKING";
                                             } else if (reviewScopeStr.contains("..")) {
                                                 var parts = reviewScopeStr.split("\\.\\.", 2);
                                                 fromRef = parts[0];

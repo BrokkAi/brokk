@@ -180,7 +180,7 @@ public final class ReviewRouter implements SimpleHttpServer.CheckedHttpHandler {
                     throw new IllegalArgumentException("Cannot find merge base with " + defaultBranch);
                 }
                 fromRef = mergeBase;
-                toRef = "HEAD";
+                toRef = "WORKING";
             } else if (scope.contains("..")) {
                 var parts = scope.split("\\.\\.", 2);
                 fromRef = parts[0];
