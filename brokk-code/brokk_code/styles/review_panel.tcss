@@ -1,0 +1,144 @@
+/* Styling for GuidedReviewPanel and ReviewSectionWidget */
+
+GuidedReviewPanel {
+    width: 1fr;
+    height: 1fr;
+    background: $surface;
+}
+
+GuidedReviewPanel #review-header {
+    width: 1fr;
+    height: auto;
+    padding: 1;
+    background: $primary-background;
+    border-bottom: solid $primary;
+}
+
+GuidedReviewPanel #review-title {
+    text-style: bold;
+    color: $text;
+}
+
+GuidedReviewPanel #review-scroll {
+    width: 1fr;
+    height: 1fr;
+}
+
+GuidedReviewPanel #review-content {
+    width: 1fr;
+    height: auto;
+    padding: 1;
+}
+
+GuidedReviewPanel #review-overview {
+    width: 1fr;
+    height: auto;
+    margin: 0 0 1 0;
+}
+
+GuidedReviewPanel .review-section-group {
+    width: 1fr;
+    height: auto;
+    margin: 1 0 0 0;
+}
+
+GuidedReviewPanel .review-group-title {
+    width: 1fr;
+    height: auto;
+    text-style: bold;
+    color: $secondary;
+    margin: 0 0 1 0;
+    padding: 0 1;
+}
+
+GuidedReviewPanel #review-loading {
+    width: 1fr;
+    height: auto;
+    content-align: center middle;
+    padding: 2;
+}
+
+GuidedReviewPanel #review-empty {
+    width: 1fr;
+    height: auto;
+    content-align: center middle;
+    padding: 2;
+    color: $text-muted;
+    text-style: italic;
+}
+
+GuidedReviewPanel #review-help {
+    width: 1fr;
+    height: auto;
+    dock: bottom;
+    padding: 0 1;
+    background: $surface;
+    color: $text-muted;
+    border-top: solid $surface-lighten-1;
+}
+
+GuidedReviewPanel .hidden {
+    display: none;
+}
+
+/* ReviewSectionWidget styling */
+
+ReviewSectionWidget {
+    width: 1fr;
+    height: auto;
+    margin: 0 0 1 0;
+}
+
+ReviewSectionWidget.collapsed .review-section-body {
+    display: none;
+}
+
+ReviewSectionWidget .review-section-header {
+    width: 1fr;
+    height: auto;
+    padding: 0 1;
+    background: $surface;
+    border: round $surface-lighten-1;
+}
+
+ReviewSectionWidget .review-section-header:hover {
+    background: $surface-lighten-1;
+}
+
+ReviewSectionWidget .review-section-header:focus {
+    background: $primary-darken-2;
+}
+
+ReviewSectionWidget.active .review-section-header {
+    background: $primary-darken-2;
+    border: round $primary;
+}
+
+ReviewSectionWidget .review-section-body {
+    width: 1fr;
+    height: auto;
+    padding: 1 1 1 2;
+}
+
+ReviewSectionWidget .review-section-content {
+    width: 1fr;
+    height: auto;
+}
+
+ReviewSectionWidget .review-excerpt-list {
+    width: 1fr;
+    height: auto;
+    margin: 1 0 0 0;
+    padding: 0 0 0 1;
+    border-left: solid $surface-lighten-1;
+}
+
+ReviewSectionWidget .review-excerpt-item {
+    width: 1fr;
+    height: auto;
+    color: $text-muted;
+}
+
+ReviewSectionWidget .review-excerpt-item:hover {
+    color: $text;
+}
