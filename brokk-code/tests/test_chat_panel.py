@@ -1100,8 +1100,9 @@ async def test_costs_command_opens_modal():
 @pytest.mark.asyncio
 async def test_session_costs_modal_excludes_legacy_carryover_from_model_aggregates():
     """Synthetic legacy carryover should not appear as a real model aggregate."""
-    from brokk_code.app import SessionCostsModalScreen
     from textual.app import App, ComposeResult
+
+    from brokk_code.app import SessionCostsModalScreen
 
     class TestApp(App):
         def compose(self) -> ComposeResult:
