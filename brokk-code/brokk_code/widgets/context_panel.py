@@ -104,7 +104,7 @@ class ContextPanel(Vertical):
         Binding("u", "clear_selection", "Unselect", show=False),
         Binding("d", "drop_selected", "Drop", show=False),
         Binding("o", "drop_others", "Drop Others", show=False),
-        Binding("shift+d", "drop_all", "Drop All", show=False),
+        Binding("D", "drop_all", "Drop All", show=False),
         Binding("p", "toggle_pin_selected", "Pin", show=False),
         Binding("r", "toggle_readonly_selected", "Readonly", show=False),
         Binding("h", "compress_history", "Compress History", show=False),
@@ -141,14 +141,16 @@ class ContextPanel(Vertical):
     def _get_shortcuts_text(self) -> str:
         """Derive a concise help line from BINDINGS."""
         shortcuts = []
-        for binding in self.BINDINGS:
+        for binding in ContextPanel.BINDINGS:
             # Skip navigation and internal-only keys
             if binding.key in ("left,up", "right,down", "enter", "space"):
                 continue
-            # Format keys nicely (e.g. shift+d -> D)
-            key_display = binding.key.upper()
-            if "SHIFT+" in key_display:
-                key_display = key_display.replace("SHIFT+", "")
+            # Format the key display; uppercase single letter means Shift+<key>
+            key = binding.key
+            if len(key) == 1 and key.isupper():
+                key_display = f"Shift+{key}"
+            else:
+                key_display = key.upper()
             shortcuts.append(f"[b]{key_display}[/b] {binding.description}")
 
         # Add manual entries for the ones we skipped above but want to show
