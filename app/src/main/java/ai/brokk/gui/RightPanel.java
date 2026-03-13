@@ -274,7 +274,7 @@ public class RightPanel extends JPanel implements ThemeAware {
         var sessionManager = contextManager.getProject().getSessionManager();
         for (var s : sessions) {
             var sessionId = s.id();
-            contextManager.getMaintenanceTasks().submit(() -> {
+            contextManager.submitMaintenanceTask("Loading session stats for " + s.name(), () -> {
                 var stats = sessionManager.countSessionStats(sessionId);
                 taskCounts.put(sessionId, stats.tasks());
                 SwingUtilities.invokeLater(list::repaint);

@@ -152,10 +152,20 @@ public interface IContextManager {
         default void onLiveDependenciesChanged() {}
     }
 
+    /**
+     * @deprecated Use {@link #submitBackgroundTask(String, Callable)} or
+     *             {@link #submitBackgroundTask(String, Runnable)} instead of accessing the executor directly.
+     */
+    @Deprecated
     default ExecutorService getBackgroundTasks() {
         throw new UnsupportedOperationException();
     }
 
+    /**
+     * @deprecated Use {@link #submitMaintenanceTask(String, Callable)} or
+     *             {@link #submitMaintenanceTask(String, Runnable)} instead of accessing the executor directly.
+     */
+    @Deprecated
     default ExecutorService getMaintenanceTasks() {
         return getBackgroundTasks();
     }
