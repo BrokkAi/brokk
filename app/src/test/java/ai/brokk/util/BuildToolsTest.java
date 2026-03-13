@@ -470,10 +470,10 @@ class BuildToolsTest {
                 "mvn test -pl backend -Dtest={{#classes}}{{value}}{{/classes}}",
                 "Java");
 
-        BuildDetails details = new BuildDetails(
-                "", true, "", true, "", Set.of(), Map.of(), null, "", List.of(backendModule));
+        BuildDetails details =
+                new BuildDetails("", true, "", true, "", Set.of(), Map.of(), null, "", List.of(backendModule));
 
-        // This should match despite the backslashes in ProjectFile.toString() 
+        // This should match despite the backslashes in ProjectFile.toString()
         // because BuildTools normalizes paths using toUnixPath/replace
         String result = BuildTools.getBuildLintSomeCommand(mockCm, details, List.of(windowsFile));
 

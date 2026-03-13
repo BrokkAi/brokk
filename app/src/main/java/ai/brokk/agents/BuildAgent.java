@@ -865,15 +865,16 @@ public class BuildAgent {
 
         @JsonCreator
         public ModuleBuildEntry(
-                @JsonProperty("alias") String alias,
-                @JsonProperty("relativePath") String relativePath,
-                @JsonProperty("buildLintCommand") String buildLintCommand,
-                @JsonProperty("testAllCommand") String testAllCommand,
-                @JsonProperty("testSomeCommand") String testSomeCommand,
-                @JsonProperty("language") String language) {
-            this.alias = alias;
+                @JsonProperty("alias") @Nullable String alias,
+                @JsonProperty("relativePath") @Nullable String relativePath,
+                @JsonProperty("buildLintCommand") @Nullable String buildLintCommand,
+                @JsonProperty("testAllCommand") @Nullable String testAllCommand,
+                @JsonProperty("testSomeCommand") @Nullable String testSomeCommand,
+                @JsonProperty("language") @Nullable String language) {
+            this.alias = alias != null ? alias : "";
             // Normalize path segments and ensure consistent forward slashes
-            String normalized = toUnixPath(Paths.get(relativePath).normalize());
+            String normalized = toUnixPath(
+                    Paths.get(relativePath != null ? relativePath : ".").normalize());
             if (normalized.equals(".") || normalized.isEmpty() || normalized.equals("/")) {
                 this.relativePath = ".";
             } else {
@@ -915,14 +916,17 @@ public class BuildAgent {
 
         @VisibleForTesting
         public BuildDetails(
-                String buildLintCommand, String testAllCommand, String testSomeCommand, Set<String> exclusionPatterns) {
+                @Nullable String buildLintCommand,
+                @Nullable String testAllCommand,
+                @Nullable String testSomeCommand,
+                @Nullable Set<String> exclusionPatterns) {
             this(
-                    buildLintCommand,
+                    buildLintCommand != null ? buildLintCommand : "",
                     true,
-                    testAllCommand,
+                    testAllCommand != null ? testAllCommand : "",
                     true,
-                    testSomeCommand,
-                    exclusionPatterns,
+                    testSomeCommand != null ? testSomeCommand : "",
+                    exclusionPatterns != null ? exclusionPatterns : Set.of(),
                     Map.of(),
                     null,
                     "",
@@ -930,19 +934,19 @@ public class BuildAgent {
         }
 
         public BuildDetails(
-                String buildLintCommand,
-                String testAllCommand,
-                String testSomeCommand,
-                Set<String> exclusionPatterns,
-                Map<String, String> environmentVariables) {
+                @Nullable String buildLintCommand,
+                @Nullable String testAllCommand,
+                @Nullable String testSomeCommand,
+                @Nullable Set<String> exclusionPatterns,
+                @Nullable Map<String, String> environmentVariables) {
             this(
-                    buildLintCommand,
+                    buildLintCommand != null ? buildLintCommand : "",
                     true,
-                    testAllCommand,
+                    testAllCommand != null ? testAllCommand : "",
                     true,
-                    testSomeCommand,
-                    exclusionPatterns,
-                    environmentVariables,
+                    testSomeCommand != null ? testSomeCommand : "",
+                    exclusionPatterns != null ? exclusionPatterns : Set.of(),
+                    environmentVariables != null ? environmentVariables : Map.of(),
                     null,
                     "",
                     List.of());
@@ -950,23 +954,23 @@ public class BuildAgent {
 
         /** Backward compatibility for legacy callers (e.g. AbstractProject). */
         public BuildDetails(
-                String buildLintCommand,
-                String testAllCommand,
-                String testSomeCommand,
-                Set<String> exclusionPatterns,
-                Map<String, String> environmentVariables,
+                @Nullable String buildLintCommand,
+                @Nullable String testAllCommand,
+                @Nullable String testSomeCommand,
+                @Nullable Set<String> exclusionPatterns,
+                @Nullable Map<String, String> environmentVariables,
                 @Nullable Integer maxBuildAttempts,
-                String afterTaskListCommand) {
+                @Nullable String afterTaskListCommand) {
             this(
-                    buildLintCommand,
+                    buildLintCommand != null ? buildLintCommand : "",
                     true,
-                    testAllCommand,
+                    testAllCommand != null ? testAllCommand : "",
                     true,
-                    testSomeCommand,
-                    exclusionPatterns,
-                    environmentVariables,
+                    testSomeCommand != null ? testSomeCommand : "",
+                    exclusionPatterns != null ? exclusionPatterns : Set.of(),
+                    environmentVariables != null ? environmentVariables : Map.of(),
                     maxBuildAttempts,
-                    afterTaskListCommand,
+                    afterTaskListCommand != null ? afterTaskListCommand : "",
                     List.of());
         }
 
@@ -999,8 +1003,6 @@ public class BuildAgent {
                 patterns.addAll(excludedDirectories);
             }
 
-            List<ModuleBuildEntry> finalModules = modules != null ? modules : List.of();
-
             return new BuildDetails(
                     buildLintCommand != null ? buildLintCommand : "",
                     buildLintEnabled != null ? buildLintEnabled : true,
@@ -1011,7 +1013,7 @@ public class BuildAgent {
                     environmentVariables != null ? environmentVariables : Map.of(),
                     maxBuildAttempts,
                     afterTaskListCommand != null ? afterTaskListCommand : "",
-                    finalModules);
+                    modules != null ? modules : List.of());
         }
     }
 
