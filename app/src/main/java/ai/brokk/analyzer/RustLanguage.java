@@ -40,7 +40,7 @@ public class RustLanguage implements Language {
 
     @Override
     public Set<String> commonBuildFiles() {
-        return Set.of("Cargo.toml", "Cargo.lock");
+        return Set.of("Cargo.toml");
     }
 
     @Override
