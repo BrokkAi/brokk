@@ -411,12 +411,35 @@ public final class BprCli implements Callable<Integer> {
         String testAllCmd = System.getenv("BRK_TESTALL_CMD");
         String buildLintCmd = System.getenv("BRK_BUILD_CMD");
         String testSomeCmd = System.getenv("BRK_TESTSOME_CMD");
+
+        boolean buildLintEnabled = System.getenv("BRK_BUILDLINT_ENABLED") == null
+                || Boolean.parseBoolean(System.getenv("BRK_BUILDLINT_ENABLED"));
+        boolean testAllEnabled = System.getenv("BRK_TESTALL_ENABLED") == null
+                || Boolean.parseBoolean(System.getenv("BRK_TESTALL_ENABLED"));
+
+        List<BuildAgent.ModuleBuildEntry> modules = List.of();
+        String modulesJson = System.getenv("BRK_MODULES_JSON");
+        if (modulesJson != null && !modulesJson.isBlank()) {
+            try {
+                var tf = AbstractProject.objectMapper.getTypeFactory();
+                var type = tf.constructCollectionType(List.class, BuildAgent.ModuleBuildEntry.class);
+                modules = AbstractProject.objectMapper.readValue(modulesJson, type);
+            } catch (Exception e) {
+                logger.error("Failed to deserialize BRK_MODULES_JSON: {}", e.getMessage());
+            }
+        }
+
         var buildDetails = new BuildAgent.BuildDetails(
                 buildLintCmd != null ? buildLintCmd : "",
+                buildLintEnabled,
                 testAllCmd != null ? testAllCmd : "",
+                testAllEnabled,
                 testSomeCmd != null ? testSomeCmd : "",
                 Set.of(),
-                Map.of("VIRTUAL_ENV", ".venv")); // venv is hardcoded to override swebench task runner
+                Map.of("VIRTUAL_ENV", ".venv"), // venv is hardcoded to override swebench task runner
+                null,
+                "",
+                modules);
         logger.info("Build Details: " + buildDetails);
         project.setBuildDetails(buildDetails);
 
