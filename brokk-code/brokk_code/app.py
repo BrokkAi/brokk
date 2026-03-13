@@ -156,10 +156,6 @@ class BrokkApiKeyModalScreen(ModalScreen[None]):
             yield LoadingIndicator(id="api-key-modal-spinner", classes="hidden")
             yield Input(password=True, placeholder="API Key (sk-...)", id="api-key-input")
             footer_text = "Press Ctrl+C or Ctrl+D to exit."
-            if self._is_update:
-                footer_text += (
-                    "\n[dim]Note: API key updates will apply to " + "the next executor restart.[/]"
-                )
             yield Static(footer_text, id="api-key-modal-footer")
 
     def on_mount(self) -> None:
@@ -982,6 +978,7 @@ class BrokkApp(App):
         self._refresh_context_lock = asyncio.Lock()
         self._reported_refresh_errors: set[str] = set()
         self._session_switch_lock = asyncio.Lock()
+        self._relaunch_lock = asyncio.Lock()
         self._reasoning_target: str = "planner"
         self.latest_pypi_version: Optional[str] = None
 
@@ -2492,9 +2489,8 @@ class BrokkApp(App):
                 try:
                     await asyncio.to_thread(write_brokk_api_key, key)
                     self.executor.brokk_api_key = key
-                    chat.add_system_message(
-                        "API key updated. New key will be used on the next executor launch."
-                    )
+                    chat.add_system_message("API key updated. Relaunching executor...")
+                    self.run_worker(self._relaunch_executor())
                     return True
                 except Exception as e:
                     logger.error("Failed to update API key: %s", e)
@@ -3273,6 +3269,81 @@ class BrokkApp(App):
         if version:
             self.latest_pypi_version = version
             self._show_welcome_message(refresh=True)
+
+    async def _relaunch_executor(self) -> None:
+        """Relaunch the executor process, attempting to preserve session state."""
+        chat = self._maybe_chat()
+        if self._relaunch_lock.locked():
+            if chat:
+                chat.add_system_message("Executor relaunch already in progress.")
+            return
+
+        async with self._relaunch_lock:
+            self.job_in_progress = True
+            if chat:
+                chat.set_job_running(True)
+
+            session_zip: Optional[bytes] = None
+            current_sid = self.executor.session_id
+
+            try:
+                # 1. Capture current state if possible
+                if self._executor_ready and current_sid:
+                    try:
+                        if self.current_job_id:
+                            await self.executor.cancel_job(self.current_job_id)
+                        session_zip = await self.executor.download_session_zip(current_sid)
+                    except Exception as e:
+                        logger.warning("Failed to capture session state for relaunch: %s", e)
+
+                # 2. Stop the current process
+                self._executor_ready = False
+                self._executor_started = False
+                await self.executor.stop()
+
+                # 3. Start fresh
+                await self.executor.start()
+                self._executor_started = True
+
+                # 4. Restore session state OR create new session BEFORE waiting for readiness.
+                # Java /health/ready requires a session to be loaded.
+                restored = False
+                if session_zip and current_sid:
+                    try:
+                        await self.executor.import_session_zip(session_zip, session_id=current_sid)
+                        restored = True
+                    except Exception as e:
+                        logger.warning("Failed to restore session after relaunch: %s", e)
+
+                if not restored:
+                    await self.executor.create_session()
+                    if chat:
+                        chat.add_system_message(
+                            "Session state could not be restored; started a new session.",
+                            level="WARNING",
+                        )
+
+                # 5. Wait for readiness now that a session is loaded
+                if not await self.executor.wait_ready():
+                    raise ExecutorError("New executor failed to become ready.")
+
+                # 6. Final UI refresh
+                await self._refresh_context_panel()
+
+                # Only mark as ready after ALL steps (restore, wait, refresh) succeed
+                self._executor_ready = True
+                if chat:
+                    chat.add_system_message("Executor relaunched successfully.", level="SUCCESS")
+
+            except Exception as e:
+                self._executor_ready = False
+                logger.exception("Failed to relaunch executor")
+                if chat:
+                    chat.add_system_message(f"Failed to relaunch executor: {e}", level="ERROR")
+            finally:
+                self.job_in_progress = False
+                if chat:
+                    chat.set_job_running(False)
 
     async def on_unmount(self) -> None:
         """Ensure cleanup even if app exits via other means."""

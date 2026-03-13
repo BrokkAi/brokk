@@ -758,6 +758,17 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
     }
 
     @Override
+    public int getFirstVisibleLine() {
+        Point p = scrollPane.getViewport().getViewPosition();
+        int offset = textArea.viewToModel2D(p);
+        try {
+            return textArea.getLineOfOffset(offset) + 1; // 1-based
+        } catch (BadLocationException e) {
+            return 1;
+        }
+    }
+
+    @Override
     public void applyEditorFontSize(float size) {
         if (customLineNumberList != null) {
             applyFontToEditorAndGutter(textArea, customLineNumberList, size);

@@ -324,14 +324,23 @@ public class LutzAgent {
         SetupContextResult setupResult = setupContext(contextBeforeSetup, goal, shouldPrune);
         Context preparedContext = setupResult.context();
 
+        boolean contextChanged = !contextBeforeSetup.equals(preparedContext);
+        boolean shouldPublish = scanConfig.appendToScope() && contextChanged;
+        boolean hasNewReferences = !setupResult.newFragments().isEmpty();
+
         if (shouldPrune) {
-            if (scanConfig.appendToScope() && !contextBeforeSetup.equals(preparedContext)) {
+            // Janitor activity: publish combined pruning + reference results as one history entry
+            if (shouldPublish) {
                 scope.append(preparedContext);
             }
             recordDropBaseline(preparedContext);
+        } else if (hasNewReferences && shouldPublish) {
+            // No pruning took place, but the ReferenceAgent added fragments that the user
+            // should see as an explicit context change in the history
+            scope.publish(preparedContext);
         }
 
-        if (!setupResult.newFragments().isEmpty()) {
+        if (hasNewReferences) {
             checkpointState = SearchState.initial(preparedContext);
             logger.debug("Referenced fragments resolved: {}", setupResult.newFragments());
         }
@@ -1008,7 +1017,9 @@ public class LutzAgent {
             }
 
             if (!searchAgentReqs.isEmpty()) {
+                // record the current planning; show the search agent output inside a new task
                 context = agent.appendUiMessagesToHistory(context);
+                agent.scope.append(context);
                 var searchResult = parallelSearch.execute(searchAgentReqs, tr);
                 if (searchResult.stopDetails().reason() == TaskResult.StopReason.LLM_ERROR) {
                     return new TurnOutcome.Final(agent.errorResult(
@@ -1281,6 +1292,7 @@ public class LutzAgent {
                 agent.recordDropBaseline(prunedContext);
             }
 
+            // record the current planning; show the code agent output inside a new task
             var oldContext = context;
             context = agent.appendUiMessagesToHistory(context);
             if (!oldContext.equals(context)) {

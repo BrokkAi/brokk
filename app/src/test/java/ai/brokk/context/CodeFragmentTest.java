@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.analyzer.CodeUnit;
+import ai.brokk.analyzer.CodeUnitType;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.testutil.TestAnalyzer;
 import ai.brokk.testutil.TestConsoleIO;
@@ -252,6 +253,46 @@ public class CodeFragmentTest {
                 void run() {}
                 </methods>
                 """,
+                text);
+    }
+
+    @Test
+    void testCodeFragmentIncludesMultipleOverloads() {
+        ProjectFile file = new ProjectFile(tempDir, "Overloads.java");
+        CodeUnit v1 = new CodeUnit(file, CodeUnitType.FUNCTION, "com.example", "Overloads.verify", "(IProject,String)");
+        CodeUnit v2 =
+                new CodeUnit(file, CodeUnitType.FUNCTION, "com.example", "Overloads.verify", "(IProject,String,Map)");
+
+        analyzer.addDeclaration(v1);
+        analyzer.addDeclaration(v2);
+        analyzer.setSource(v1, "public static void verify(IProject p, String s) {}");
+        analyzer.setSource(v2, "public static void verify(IProject p, String s, Map m) {}");
+
+        analyzer.setRelevantImports(v1, Set.of("import ai.brokk.project.IProject;"));
+        analyzer.setRelevantImports(v2, Set.of("import ai.brokk.project.IProject;", "import java.util.Map;"));
+
+        var fragment = new ContextFragments.CodeFragment(contextManager, "com.example.Overloads.verify");
+        String text = fragment.text().join();
+
+        assertEquals(Set.of(v1, v2), fragment.sources().join());
+        assertEquals(Set.of(file), fragment.referencedFiles().join());
+
+        assertCodeEquals(
+                """
+                <imports>
+import ai.brokk.project.IProject;
+import java.util.Map;
+</imports>
+
+<methods class="com.example.Overloads.verify" file="Overloads.java">
+public static void verify(IProject p, String s) {}
+</methods>
+
+
+<methods class="com.example.Overloads.verify" file="Overloads.java">
+public static void verify(IProject p, String s, Map m) {}
+</methods>
+""",
                 text);
     }
 

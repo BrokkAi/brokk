@@ -316,6 +316,7 @@ public class ProjectBuildRunner {
         try {
             Files.createDirectories(lockDir);
         } catch (IOException e) {
+            logger.warn("Error creating build lock directory {}", lockDir, e);
             return null;
         }
         String repoNameForLock = getOriginRepositoryName();
@@ -325,6 +326,7 @@ public class ProjectBuildRunner {
             var lock = channel.lock();
             return new BuildLock(channel, lock, lockFile);
         } catch (IOException ioe) {
+            logger.warn("Error acquiring build lock {}", lockFile, ioe);
             return null;
         }
     }

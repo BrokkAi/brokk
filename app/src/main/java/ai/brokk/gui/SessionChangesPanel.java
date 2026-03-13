@@ -1067,6 +1067,13 @@ public class SessionChangesPanel extends JPanel implements ThemeAware, AnalyzerC
 
         var root = cm.getProject().getRoot();
 
+        // Save current scroll location/line number if possible
+        int savedLine = -1;
+        var currentPanel = getCurrentContentPanel();
+        if (currentPanel instanceof AbstractDiffPanel adp) {
+            savedLine = adp.getFirstVisibleLine();
+        }
+
         // If the file set changed significantly and we aren't showing a review, clear the excerpt
         if (!nextComparisons.equals(this.fileComparisons)) {
             activeExcerpt = null;
@@ -1081,12 +1088,11 @@ public class SessionChangesPanel extends JPanel implements ThemeAware, AnalyzerC
         if (!nextComparisons.isEmpty()) {
             // Attempt to restore selection if the same file exists in the new list
             int currentIndex = diffCore.getCurrentIndex();
-            ProjectFile selectedFile = null;
-            if (currentIndex >= 0 && currentIndex < fileComparisons.size()) {
-                selectedFile = fileComparisons.get(currentIndex).file();
-            }
+            ProjectFile selectedFile = (currentIndex >= 0 && currentIndex < fileComparisons.size())
+                    ? fileComparisons.get(currentIndex).file()
+                    : null;
 
-            int nextIndex = 0;
+            int nextIndex = -1;
             if (selectedFile != null) {
                 for (int i = 0; i < nextComparisons.size(); i++) {
                     if (selectedFile.equals(nextComparisons.get(i).file())) {
@@ -1095,7 +1101,18 @@ public class SessionChangesPanel extends JPanel implements ThemeAware, AnalyzerC
                     }
                 }
             }
-            this.diffCore.showFile(nextIndex);
+
+            if (nextIndex != -1) {
+                var info = nextComparisons.get(nextIndex);
+                var file = info.file();
+                if (savedLine > 0 && file != null) {
+                    this.diffCore.showLocation(file, savedLine);
+                } else {
+                    this.diffCore.showFile(nextIndex);
+                }
+            } else if (!nextComparisons.isEmpty()) {
+                this.diffCore.showFile(0);
+            }
         } else {
             diffContainer.removeAll();
             diffContainer.add(new JLabel("No file changes to display", SwingConstants.CENTER), BorderLayout.CENTER);
@@ -2199,6 +2216,11 @@ public class SessionChangesPanel extends JPanel implements ThemeAware, AnalyzerC
     @Override
     public void onRepoChange() {
         cachedBranchLoad = null;
+        requestUpdate();
+    }
+
+    @Override
+    public void onTrackedFileChange() {
         requestUpdate();
     }
 

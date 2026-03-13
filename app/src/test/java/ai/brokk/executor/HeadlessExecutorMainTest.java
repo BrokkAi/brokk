@@ -2,8 +2,10 @@ package ai.brokk.executor;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.executor.routers.RouterUtil;
+import java.io.IOException;
 import org.junit.jupiter.api.Test;
 
 class HeadlessExecutorMainTest {
@@ -109,5 +111,20 @@ class HeadlessExecutorMainTest {
         var result = RouterUtil.parseSessionPath("/v1/jobs/abc123");
         assertEquals(RouterUtil.SessionPathStatus.NOT_FOUND, result.status());
         assertNull(result.sessionId());
+    }
+
+    @Test
+    void testFormatFatalStartupErrorIncludesRootCauseAndStackTrace() {
+        var rootCause = new IOException("disk full");
+        var throwable = new IllegalStateException("executor failed", rootCause);
+
+        var result = HeadlessExecutorMain.formatFatalStartupError(throwable);
+
+        assertTrue(result.contains("Fatal error starting HeadlessExecutorMain: executor failed"));
+        assertTrue(result.contains("Root cause: IOException: disk full"));
+        assertTrue(result.contains("Exception chain:"));
+        assertTrue(result.contains("java.lang.IllegalStateException: executor failed"));
+        assertTrue(result.contains("java.io.IOException: disk full"));
+        assertTrue(result.contains("Stack trace:"));
     }
 }
