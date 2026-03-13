@@ -198,8 +198,10 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         // Build details - use pre-loaded data
         if (data.buildDetails() != null) {
             updateExclusionPatterns(data.buildDetails().exclusionPatterns());
+            buildPanelInstance.populateUiFromDetails(data.buildDetails());
         } else {
             updateExclusionPatterns(Set.of());
+            buildPanelInstance.loadBuildPanelSettings();
         }
     }
 

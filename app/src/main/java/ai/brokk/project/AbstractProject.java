@@ -934,12 +934,15 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
             // Return a re-wrapped BuildDetails with canonicalized content
             return Optional.of(new BuildAgent.BuildDetails(
                     details.buildLintCommand(),
+                    details.buildLintEnabled(),
                     details.testAllCommand(),
+                    details.testAllEnabled(),
                     details.testSomeCommand(),
                     canonicalExclusions,
                     canonicalEnv,
                     details.maxBuildAttempts(),
-                    details.afterTaskListCommand()));
+                    details.afterTaskListCommand(),
+                    details.modules()));
         } catch (JsonProcessingException e) {
             logger.error("Failed to deserialize BuildDetails from JSON: {}", json, e);
         }

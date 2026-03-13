@@ -882,15 +882,17 @@ public class SettingsProjectBuildPanel extends JPanel {
     }
 
     public void loadBuildPanelSettings() {
-        BuildAgent.BuildDetails details;
         try {
-            details = project.awaitBuildDetails();
+            var buildDetails = project.awaitBuildDetails();
+            populateUiFromDetails(buildDetails);
         } catch (Exception e) {
             logger.warn("Could not load build details for settings panel, using EMPTY. Error: {}", e.getMessage(), e);
-            details = BuildAgent.BuildDetails.EMPTY; // Fallback to EMPTY
+            populateUiFromDetails(BuildAgent.BuildDetails.EMPTY);
             chrome.toolError("Error loading build details: " + e.getMessage() + ". Using defaults.");
         }
+    }
 
+    public void populateUiFromDetails(BuildAgent.BuildDetails details) {
         buildCleanCommandCheck.setSelected(details.buildLintEnabled());
         buildCleanCommandField.setText(details.buildLintCommand());
         buildCleanCommandField.setEnabled(details.buildLintEnabled());
@@ -944,7 +946,7 @@ public class SettingsProjectBuildPanel extends JPanel {
         }
         executorArgsField.setText(executorArgs);
 
-        logger.trace("Build panel settings loaded/reloaded with details: {}", details);
+        logger.trace("Build panel settings populated with details: {}", details);
     }
 
     public boolean applySettings() {
