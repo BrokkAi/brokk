@@ -2067,18 +2067,26 @@ class BrokkApp(App):
 
     _VALID_SEVERITIES = {"CRITICAL", "HIGH", "MEDIUM", "LOW"}
 
-    def _handle_review_command(self, parts: List[str]) -> None:
-        """Handle the /review slash command.
+    def _handle_review_command(self, parts: List[str], *, from_alias: bool = False) -> None:
+        """Handle the /pr review slash command.
 
         Supported syntaxes:
-          /review <pr_number> [--severity LEVEL]
-          /review <owner> <repo> <pr_number> [--severity LEVEL]
+          /pr review <pr_number> [--severity LEVEL]
+          /pr review <owner> <repo> <pr_number> [--severity LEVEL]
 
         LEVEL is one of CRITICAL, HIGH, MEDIUM, LOW (default: HIGH).
+
+        When from_alias=True, the command was invoked via the deprecated /review alias.
         """
         chat = self._maybe_chat()
         if not chat:
             return
+
+        if from_alias:
+            chat.add_system_message(
+                "/review is deprecated; use /pr review instead.",
+                level="WARNING",
+            )
 
         if not self._executor_ready:
             chat.add_system_message(
@@ -2088,6 +2096,8 @@ class BrokkApp(App):
             return
 
         # Extract --severity flag before positional parsing
+        # When called from /pr review, parts[0] is "review" and args start at parts[1]
+        # When called from /review alias, parts[0] is "/review" and args start at parts[1]
         raw_args = parts[1:] if len(parts) > 1 else []
         severity_threshold: Optional[str] = None
         positional: List[str] = []
@@ -2112,8 +2122,8 @@ class BrokkApp(App):
 
         if len(args) == 0:
             chat.add_system_message(
-                "Usage: /review <pr_number> [--severity LEVEL] "
-                "or /review <owner> <repo> <pr_number> [--severity LEVEL]",
+                "Usage: /pr review <pr_number> [--severity LEVEL] "
+                "or /pr review <owner> <repo> <pr_number> [--severity LEVEL]",
                 level="WARNING",
             )
             return
@@ -2123,7 +2133,7 @@ class BrokkApp(App):
         repo: Optional[str] = None
 
         if len(args) == 1:
-            # /review <pr_number> - infer owner/repo
+            # /pr review <pr_number> - infer owner/repo
             try:
                 pr_number = int(args[0])
             except ValueError:
@@ -2136,12 +2146,12 @@ class BrokkApp(App):
             if not owner or not repo:
                 chat.add_system_message(
                     "Could not infer GitHub owner/repo from git remote. "
-                    "Use: /review <owner> <repo> <pr_number>",
+                    "Use: /pr review <owner> <repo> <pr_number>",
                     level="ERROR",
                 )
                 return
         elif len(args) == 3:
-            # /review <owner> <repo> <pr_number>
+            # /pr review <owner> <repo> <pr_number>
             owner = args[0]
             repo = args[1]
             try:
@@ -2154,8 +2164,8 @@ class BrokkApp(App):
                 return
         else:
             chat.add_system_message(
-                "Usage: /review <pr_number> [--severity LEVEL] "
-                "or /review <owner> <repo> <pr_number> [--severity LEVEL]",
+                "Usage: /pr review <pr_number> [--severity LEVEL] "
+                "or /pr review <owner> <repo> <pr_number> [--severity LEVEL]",
                 level="WARNING",
             )
             return
@@ -2517,11 +2527,11 @@ class BrokkApp(App):
             {"command": "/sessions", "description": "List and switch between sessions"},
             {"command": "/commit", "description": "Commit current changes"},
             {"command": "/pr", "description": "Create a pull request"},
-            {"command": "/info", "description": "Show current configuration and status"},
             {
-                "command": "/review",
+                "command": "/pr review",
                 "description": "Submit a PR review job (supports --severity LEVEL)",
             },
+            {"command": "/info", "description": "Show current configuration and status"},
             {"command": "/quit", "description": "Exit the application"},
             {"command": "/exit", "description": "Exit the application"},
         ]
@@ -2654,19 +2664,27 @@ class BrokkApp(App):
                 return
             self.run_worker(self._show_costs())
         elif base == "/pr":
-            if not self._executor_ready:
-                chat.add_system_message(
-                    "Executor is not ready. Cannot create pull request.",
-                    level="ERROR",
-                )
-                return
-            # Parse optional base branch: /pr [base-branch]
-            base_branch: Optional[str] = None
-            if len(parts) > 1:
-                base_branch = parts[1]
-            self.run_worker(self._create_pull_request(base_branch))
+            # /pr supports subcommands: /pr review ... or /pr [base-branch] for create
+            if len(parts) > 1 and parts[1].lower() == "review":
+                # /pr review <args...> - route to review handler
+                # Build parts list as ["review", ...remaining args...]
+                review_parts = parts[1:]  # ["review", ...]
+                self._handle_review_command(review_parts)
+            else:
+                # /pr [base-branch] - PR creation flow
+                if not self._executor_ready:
+                    chat.add_system_message(
+                        "Executor is not ready. Cannot create pull request.",
+                        level="ERROR",
+                    )
+                    return
+                base_branch: Optional[str] = None
+                if len(parts) > 1:
+                    base_branch = parts[1]
+                self.run_worker(self._create_pull_request(base_branch))
         elif base == "/review":
-            self._handle_review_command(parts)
+            # Deprecated alias for /pr review
+            self._handle_review_command(parts, from_alias=True)
         elif base in ("/quit", "/exit"):
             self.action_quit()
         else:
@@ -3065,8 +3083,7 @@ class BrokkApp(App):
                                     )
                             elif chat:
                                 chat.add_system_message(
-                                    f"Task '{display_name}' disappeared;"
-                                    " could not be marked done.",
+                                    f"Task '{display_name}' disappeared; could not be marked done.",
                                     level="WARNING",
                                 )
                     except Exception as e:
