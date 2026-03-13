@@ -39,6 +39,11 @@ public class RustLanguage implements Language {
     }
 
     @Override
+    public Set<String> commonBuildFiles() {
+        return Set.of("Cargo.toml", "Cargo.lock");
+    }
+
+    @Override
     public String name() {
         return "Rust";
     }
