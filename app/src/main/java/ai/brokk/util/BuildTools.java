@@ -204,30 +204,37 @@ public class BuildTools {
     public static BuildDetails getEffectiveBuildDetails(IProject project) throws InterruptedException {
         BuildDetails details = project.awaitBuildDetails();
 
+        boolean buildLintEnabled = System.getenv("BRK_BUILDLINT_ENABLED") != null
+                ? Boolean.parseBoolean(System.getenv("BRK_BUILDLINT_ENABLED"))
+                : details.buildLintEnabled();
+
+        boolean testAllEnabled = System.getenv("BRK_TESTALL_ENABLED") != null
+                ? Boolean.parseBoolean(System.getenv("BRK_TESTALL_ENABLED"))
+                : details.testAllEnabled();
+
+        List<BuildAgent.ModuleBuildEntry> modules = details.modules();
         String modulesJson = System.getenv("BRK_MODULES_JSON");
         if (modulesJson != null && !modulesJson.isBlank()) {
             try {
                 var tf = OBJECT_MAPPER.getTypeFactory();
                 var type = tf.constructCollectionType(List.class, BuildAgent.ModuleBuildEntry.class);
-                List<BuildAgent.ModuleBuildEntry> modules = OBJECT_MAPPER.readValue(modulesJson, type);
-
-                return new BuildDetails(
-                        details.buildLintCommand(),
-                        details.buildLintEnabled(),
-                        details.testAllCommand(),
-                        details.testAllEnabled(),
-                        details.testSomeCommand(),
-                        details.exclusionPatterns(),
-                        details.environmentVariables(),
-                        details.maxBuildAttempts(),
-                        details.afterTaskListCommand(),
-                        modules);
+                modules = OBJECT_MAPPER.readValue(modulesJson, type);
             } catch (Exception e) {
                 logger.error("Failed to deserialize BRK_MODULES_JSON: {}", e.getMessage());
             }
         }
 
-        return details;
+        return new BuildDetails(
+                details.buildLintCommand(),
+                buildLintEnabled,
+                details.testAllCommand(),
+                testAllEnabled,
+                details.testSomeCommand(),
+                details.exclusionPatterns(),
+                details.environmentVariables(),
+                details.maxBuildAttempts(),
+                details.afterTaskListCommand(),
+                modules);
     }
 
     private static Optional<String> getPythonVersionForProject(IProject project) {
