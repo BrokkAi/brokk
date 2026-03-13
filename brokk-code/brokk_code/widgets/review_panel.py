@@ -97,23 +97,31 @@ class ReviewSectionWidget(Static):
     def expanded(self) -> bool:
         return self._expanded
 
+    @property
+    def _has_body(self) -> bool:
+        return bool(self._section.content or self._section.excerpts)
+
     def compose(self) -> ComposeResult:
-        title_text = self._collapsible_title(self._section.title, self._expanded)
+        if self._has_body:
+            title_text = self._collapsible_title(self._section.title, self._expanded)
+        else:
+            title_text = f"[bold]{self._section.title}[/bold]"
         yield Static(title_text, classes="review-section-header", markup=True)
-        with Vertical(classes="review-section-body"):
-            if self._section.content:
-                yield Static(
-                    DotMarkdown(self._section.content),
-                    classes="review-section-content",
-                )
-            if self._section.excerpts:
-                with Vertical(classes="review-excerpt-list"):
-                    for excerpt in self._section.excerpts:
-                        yield Static(
-                            self._format_excerpt(excerpt),
-                            classes="review-excerpt-item",
-                            markup=True,
-                        )
+        if self._has_body:
+            with Vertical(classes="review-section-body"):
+                if self._section.content:
+                    yield Static(
+                        DotMarkdown(self._section.content),
+                        classes="review-section-content",
+                    )
+                if self._section.excerpts:
+                    with Vertical(classes="review-excerpt-list"):
+                        for excerpt in self._section.excerpts:
+                            yield Static(
+                                self._format_excerpt(excerpt),
+                                classes="review-excerpt-item",
+                                markup=True,
+                            )
 
     def _collapsible_title(self, label: str, expanded: bool) -> str:
         """Returns a consistent title for collapsible sections."""
@@ -142,6 +150,8 @@ class ReviewSectionWidget(Static):
 
     def _toggle(self) -> None:
         """Toggle the expanded/collapsed state."""
+        if not self._has_body:
+            return
         self._expanded = not self._expanded
         self.toggle_class("collapsed")
         header = self.query_one(".review-section-header", Static)
@@ -258,9 +268,7 @@ class GuidedReviewPanel(Vertical, can_focus=True):
 
     def _get_help_text(self) -> str:
         """Build help text from bindings."""
-        return (
-            "[b]↑/↓[/b] Nav  [b]Enter[/b] Toggle  [b]Esc[/b] Close"
-        )
+        return "[b]↑/↓[/b] Nav  [b]Enter[/b] Toggle  [b]Esc[/b] Close"
 
     def on_mount(self) -> None:
         """Initial state setup."""
@@ -447,7 +455,6 @@ class GuidedReviewPanel(Vertical, can_focus=True):
             widget.toggle()
         except Exception:
             pass
-
 
     def _post_navigation(self) -> None:
         """Post a navigation message for the current section."""
