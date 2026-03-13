@@ -17,6 +17,7 @@ import ai.brokk.executor.routers.JobsRouter;
 import ai.brokk.executor.routers.ModelsRouter;
 import ai.brokk.executor.routers.OpenAiAuthRouter;
 import ai.brokk.executor.routers.RepoRouter;
+import ai.brokk.executor.routers.ReviewRouter;
 import ai.brokk.executor.routers.RouterUtil;
 import ai.brokk.executor.routers.SessionsRouter;
 import ai.brokk.project.MainProject;
@@ -302,6 +303,10 @@ public final class HeadlessExecutorMain {
 
         var openAiAuthRouter = new OpenAiAuthRouter();
         this.server.registerAuthenticatedContext("/v1/openai/oauth", openAiAuthRouter);
+
+        var reviewRouter = new ReviewRouter(
+                this.contextManager, this.jobStore, this.jobRunner, this.jobReservation, this.headlessInit);
+        this.server.registerAuthenticatedContext("/v1/review", reviewRouter);
 
         logger.info("HeadlessExecutorMain initialized successfully");
     }
@@ -644,6 +649,8 @@ public final class HeadlessExecutorMain {
             System.out.println("    POST /v1/repo/commit              - commit current changes");
             System.out.println("    GET  /v1/completions              - file and symbol completions");
             System.out.println("    GET  /v1/favorites                - user's favorite model configs");
+            System.out.println("    POST /v1/review/submit            - submit guided code review job");
+            System.out.println("    GET  /v1/review/diff              - get unified diff for review scope");
             System.out.println();
 
             // Create and start executor

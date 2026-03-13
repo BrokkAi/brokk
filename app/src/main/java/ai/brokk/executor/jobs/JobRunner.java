@@ -11,6 +11,8 @@ import ai.brokk.TaskResult;
 import ai.brokk.agents.CodeAgent;
 import ai.brokk.agents.IssueRewriterAgent;
 import ai.brokk.agents.LutzAgent;
+import ai.brokk.agents.ReviewAgent;
+import ai.brokk.agents.ReviewScope;
 import ai.brokk.context.Context;
 import ai.brokk.executor.io.HeadlessHttpConsole;
 import ai.brokk.git.GitRepo;
@@ -18,12 +20,14 @@ import ai.brokk.issues.GitHubIssueService;
 import ai.brokk.issues.IssueHeader;
 import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.tasks.TaskList;
+import ai.brokk.util.ReviewParser;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.openai.OpenAiChatRequestParameters;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -231,6 +235,7 @@ public final class JobRunner {
         ASK,
         SEARCH,
         REVIEW,
+        GUIDED_REVIEW,
         LUTZ,
         PLAN,
         ISSUE,
@@ -240,7 +245,7 @@ public final class JobRunner {
 
     static SearchPrompts.Objective objectiveForMode(Mode mode) {
         return switch (mode) {
-            case ASK, SEARCH, REVIEW -> SearchPrompts.Objective.ANSWER_ONLY;
+            case ASK, SEARCH, REVIEW, GUIDED_REVIEW -> SearchPrompts.Objective.ANSWER_ONLY;
             case LUTZ -> SearchPrompts.Objective.LUTZ;
             case PLAN, ARCHITECT, CODE, ISSUE, ISSUE_DIAGNOSE, ISSUE_WRITER -> SearchPrompts.Objective.TASKS_ONLY;
         };
@@ -416,6 +421,7 @@ public final class JobRunner {
                                 yield plannerName.isBlank() ? "(unused)" : plannerName.trim();
                             }
                             case REVIEW -> service.nameOf(requireNonNull(reviewPlannerModel));
+                            case GUIDED_REVIEW -> spec.plannerModel().trim();
                             case ISSUE_DIAGNOSE, ISSUE_WRITER -> "(unused)";
                         };
                 String codeModelNameForLog =
@@ -426,12 +432,13 @@ public final class JobRunner {
                             case PLAN -> "(default, ignored for PLAN)";
                             case CODE -> service.nameOf(requireNonNull(codeModeModel));
                             case REVIEW -> "(default, ignored for REVIEW)";
+                            case GUIDED_REVIEW -> "(unused)";
                             case ISSUE_DIAGNOSE, ISSUE_WRITER -> "(unused)";
                         };
                 boolean usesDefaultCodeModel =
                         switch (mode) {
                             case ARCHITECT, LUTZ, ISSUE -> !hasCodeModelOverride;
-                            case ASK, SEARCH, PLAN, REVIEW -> true;
+                            case ASK, SEARCH, PLAN, REVIEW, GUIDED_REVIEW -> true;
                             case CODE -> !hasCodeModelOverride;
                             case ISSUE_DIAGNOSE, ISSUE_WRITER -> true;
                         };
@@ -968,6 +975,106 @@ public final class JobRunner {
                                                     skippedComments);
                                         }
                                     }
+                                    case GUIDED_REVIEW -> {
+                                        String reviewScopeStr = spec.tags().getOrDefault("review_scope", "uncommitted");
+
+                                        try (var taskScope =
+                                                cm.beginTaskUngrouped("Guided Review: " + reviewScopeStr)) {
+                                            String fromRef;
+                                            String toRef;
+
+                                            if (reviewScopeStr.equalsIgnoreCase("uncommitted")
+                                                    || reviewScopeStr.equalsIgnoreCase("WORKING")) {
+                                                fromRef = "HEAD";
+                                                toRef = "WORKING";
+                                            } else if (reviewScopeStr.contains("..")) {
+                                                var parts = reviewScopeStr.split("\\.\\.", 2);
+                                                fromRef = parts[0];
+                                                toRef = parts.length > 1 ? parts[1] : "HEAD";
+                                            } else {
+                                                fromRef = reviewScopeStr;
+                                                toRef = "HEAD";
+                                            }
+
+                                            var reviewScope = ReviewScope.fromBaseline(cm, fromRef, toRef);
+
+                                            var plannerModel = resolveModelOrThrow(
+                                                    spec.plannerModel(), spec.reasoningLevel(), spec.temperature());
+                                            var modelConfig = Service.ModelConfig.from(plannerModel, cm.getService());
+
+                                            var reviewAgent = new ReviewAgent(reviewScope, modelConfig, false, cm);
+
+                                            reviewAgent.setProgressUpdater((stage, progress) -> {
+                                                try {
+                                                    var progressData = new LinkedHashMap<String, Object>();
+                                                    progressData.put("stage", stage);
+                                                    progressData.put("percent", progress);
+                                                    store.appendEvent(
+                                                            jobId, JobEvent.of("REVIEW_PROGRESS", progressData));
+                                                } catch (IOException e) {
+                                                    logger.warn(
+                                                            "Failed to emit review progress event for job {}: {}",
+                                                            jobId,
+                                                            e.getMessage());
+                                                }
+                                            });
+
+                                            var result = reviewAgent.execute();
+
+                                            var review = result.review();
+                                            var reviewData = new LinkedHashMap<String, Object>();
+                                            reviewData.put("overview", review.overview());
+
+                                            var keyChanges = new ArrayList<Map<String, Object>>();
+                                            for (var kc : review.keyChanges()) {
+                                                var kcMap = new LinkedHashMap<String, Object>();
+                                                kcMap.put("title", kc.title());
+                                                kcMap.put("content", kc.description());
+                                                kcMap.put("excerpts", convertExcerpts(kc.excerpts()));
+                                                keyChanges.add(kcMap);
+                                            }
+                                            reviewData.put("keyChanges", keyChanges);
+
+                                            var designNotes = new ArrayList<Map<String, Object>>();
+                                            for (var dn : review.designNotes()) {
+                                                var dnMap = new LinkedHashMap<String, Object>();
+                                                dnMap.put("title", dn.title());
+                                                dnMap.put("content", dn.description());
+                                                dnMap.put("excerpts", convertExcerpts(dn.excerpts()));
+                                                dnMap.put("recommendation", dn.recommendation());
+                                                designNotes.add(dnMap);
+                                            }
+                                            reviewData.put("designNotes", designNotes);
+
+                                            var tacticalNotes = new ArrayList<Map<String, Object>>();
+                                            for (var tn : review.tacticalNotes()) {
+                                                var tnMap = new LinkedHashMap<String, Object>();
+                                                tnMap.put("title", tn.title());
+                                                tnMap.put("content", tn.description());
+                                                if (tn.excerpt() != null) {
+                                                    tnMap.put("excerpts", convertExcerpts(List.of(tn.excerpt())));
+                                                }
+                                                tnMap.put("recommendation", tn.recommendation());
+                                                tacticalNotes.add(tnMap);
+                                            }
+                                            reviewData.put("tacticalNotes", tacticalNotes);
+
+                                            var additionalTests = new ArrayList<Map<String, Object>>();
+                                            for (var at : review.additionalTests()) {
+                                                var atMap = new LinkedHashMap<String, Object>();
+                                                atMap.put("title", at.title());
+                                                atMap.put("recommendation", at.recommendation());
+                                                additionalTests.add(atMap);
+                                            }
+                                            reviewData.put("additionalTests", additionalTests);
+
+                                            store.appendEvent(jobId, JobEvent.of("REVIEW_COMPLETE", reviewData));
+
+                                            taskScope.append(new TaskResult(
+                                                    result.context(),
+                                                    new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS)));
+                                        }
+                                    }
                                     case ISSUE -> {
                                         StreamingChatModel issuePlannerModel = requireNonNull(
                                                 architectPlannerModel, "plannerModel required for ISSUE jobs");
@@ -1392,6 +1499,22 @@ public final class JobRunner {
 
         ctx = ctx.addHistoryEntry(cm.getIo().getLlmRawMessages(), TaskResult.Type.ASK, model, question);
         return new TaskResult(ctx, stop);
+    }
+
+    private static List<Map<String, Object>> convertExcerpts(List<ReviewParser.CodeExcerpt> excerpts) {
+        var result = new ArrayList<Map<String, Object>>();
+        for (var excerpt : excerpts) {
+            var map = new LinkedHashMap<String, Object>();
+            map.put("file", excerpt.file().toString());
+            map.put("line", excerpt.line());
+            map.put("side", excerpt.side().name());
+            map.put("text", excerpt.excerpt());
+            if (excerpt.codeUnit() != null) {
+                map.put("codeUnit", excerpt.codeUnit().fqName());
+            }
+            result.add(map);
+        }
+        return result;
     }
 
     private static Throwable unwrapFailure(Throwable throwable) {
