@@ -176,6 +176,7 @@ public class SessionManager implements AutoCloseable {
     private final Path sessionsDir;
     private final Map<UUID, SessionInfo> sessionsCache;
     private final Map<UUID, CopyOnWriteArrayList<CostEvent>> costLedgerCache = new ConcurrentHashMap<>();
+    private final Map<UUID, Double> cachedSessionCostTotals = new ConcurrentHashMap<>();
     private final Set<CompletableFuture<?>> inFlightForeignDownloads = ConcurrentHashMap.newKeySet();
 
     public SessionManager(Path sessionsDir) {
@@ -207,6 +208,7 @@ public class SessionManager implements AutoCloseable {
                         .forEach(zipPath -> readSessionInfoFromZip(zipPath).ifPresent(sessionInfo -> {
                             if (isVersionSupported(sessionInfo.version())) {
                                 sessions.put(sessionInfo.id(), sessionInfo);
+                                cachedSessionCostTotals.put(sessionInfo.id(), readPersistedCostTotal(zipPath));
                             }
                         }));
             }
@@ -274,6 +276,7 @@ public class SessionManager implements AutoCloseable {
         var currentTime = System.currentTimeMillis();
         var newSessionInfo = new SessionInfo(sessionId, name, currentTime, currentTime, SESSIONS_FORMAT_VERSION);
         sessionsCache.put(sessionId, newSessionInfo);
+        cachedSessionCostTotals.put(sessionId, 0.0);
 
         sessionExecutorByKey.submit(sessionId.toString(), () -> {
             Path sessionHistoryPath = getSessionHistoryPath(sessionId);
@@ -375,23 +378,23 @@ public class SessionManager implements AutoCloseable {
     /** Returns the total session cost from ledger events only. */
     @Blocking
     public double getTotalSessionCost(UUID sessionId) {
-        return readCostEvents(sessionId).stream()
-                .mapToDouble(CostEvent::costUsd)
-                .sum();
+        double total = readCostEvents(sessionId).stream().mapToDouble(CostEvent::costUsd).sum();
+        cachedSessionCostTotals.put(sessionId, total);
+        return total;
     }
 
     /**
-     * Returns the current session cost from ledger events only.
+     * Returns the current in-memory session cost total.
      */
-    @Blocking
     public double getCachedSessionCost(UUID sessionId) {
-        return getTotalSessionCost(sessionId);
+        return cachedSessionCostTotals.getOrDefault(sessionId, 0.0);
     }
 
     public void recordCostEvent(UUID sessionId, CostEvent event) {
         costLedgerCache
                 .computeIfAbsent(sessionId, k -> new CopyOnWriteArrayList<>())
                 .add(event);
+        cachedSessionCostTotals.merge(sessionId, event.costUsd(), Double::sum);
 
         sessionExecutorByKey.submit(sessionId.toString(), () -> {
             try {
@@ -479,6 +482,8 @@ public class SessionManager implements AutoCloseable {
 
     public void deleteSession(UUID sessionId) {
         sessionsCache.remove(sessionId);
+        costLedgerCache.remove(sessionId);
+        cachedSessionCostTotals.remove(sessionId);
         sessionExecutorByKey.submit(sessionId.toString(), () -> {
             Path historyZipPath = getSessionHistoryPath(sessionId);
             Path tombstonePath = getTombstonePath(sessionId);
@@ -509,6 +514,8 @@ public class SessionManager implements AutoCloseable {
      */
     public void moveSessionToUnreadable(UUID sessionId) {
         sessionsCache.remove(sessionId);
+        costLedgerCache.remove(sessionId);
+        cachedSessionCostTotals.remove(sessionId);
 
         // Check for re-entrancy: if we're already on a SessionManager executor thread, execute directly
         if (SessionExecutorThreadFactory.isOnSessionExecutorThread()) {
@@ -656,6 +663,8 @@ public class SessionManager implements AutoCloseable {
         copyFuture.get(); // Wait for copy to complete
 
         sessionsCache.put(newSessionId, newSessionInfo);
+        costLedgerCache.remove(newSessionId);
+        cachedSessionCostTotals.put(newSessionId, 0.0);
         sessionExecutorByKey.submit(newSessionId.toString(), () -> {
             try {
                 Path newHistoryPath = getSessionHistoryPath(newSessionId);
@@ -1009,6 +1018,8 @@ public class SessionManager implements AutoCloseable {
 
     private void quarantineUnreadableSessionZip(UUID sessionId, Path zipPath) {
         sessionsCache.remove(sessionId);
+        costLedgerCache.remove(sessionId);
+        cachedSessionCostTotals.remove(sessionId);
 
         if (SessionExecutorThreadFactory.isOnSessionExecutorThread()) {
             moveZipToUnreadableSync(zipPath, sessionId);
@@ -1209,6 +1220,39 @@ public class SessionManager implements AutoCloseable {
         inFlightForeignDownloads.add(future);
         future.whenComplete((unused, throwable) -> inFlightForeignDownloads.remove(future));
         return future;
+    }
+
+    private double readPersistedCostTotal(Path zipPath) {
+        if (!Files.exists(zipPath)) {
+            return 0.0;
+        }
+        try (var fs = FileSystems.newFileSystem(zipPath, Map.of())) {
+            Path ledgerPath = fs.getPath(COST_LEDGER_FILENAME);
+            if (!Files.exists(ledgerPath)) {
+                return 0.0;
+            }
+            try (var reader = Files.newBufferedReader(ledgerPath)) {
+                double total = 0.0;
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    if (line.isBlank()) {
+                        continue;
+                    }
+                    try {
+                        total += AbstractProject.objectMapper.readValue(line, CostEvent.class).costUsd();
+                    } catch (IOException e) {
+                        logger.warn(
+                                "Skipping malformed cost ledger line while loading cached total from {}: {}",
+                                zipPath.getFileName(),
+                                e.getMessage());
+                    }
+                }
+                return total;
+            }
+        } catch (IOException e) {
+            logger.warn("Error reading cached session cost from {}: {}", zipPath.getFileName(), e.getMessage());
+            return 0.0;
+        }
     }
 
     /**

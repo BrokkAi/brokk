@@ -140,6 +140,55 @@ public class SessionManagerCostLedgerTest {
     }
 
     @Test
+    void testCachedSessionCostUsesInMemoryTotal() throws Exception {
+        SessionManager sessionManager = new SessionManager(tempDir);
+        UUID sessionId = sessionManager.newSession("Cached Cost").id();
+
+        CostEvent event1 = new CostEvent(
+                UUID.randomUUID().toString(),
+                System.currentTimeMillis(),
+                sessionId,
+                "Op 1",
+                "CODE",
+                "gpt-4",
+                "standard",
+                10,
+                0,
+                0,
+                5,
+                1.25);
+        CostEvent event2 = new CostEvent(
+                UUID.randomUUID().toString(),
+                System.currentTimeMillis() + 10,
+                sessionId,
+                "Op 2",
+                "CODE",
+                "gpt-4",
+                "standard",
+                20,
+                0,
+                0,
+                10,
+                0.75);
+
+        assertEquals(0.0, sessionManager.getCachedSessionCost(sessionId), 0.001);
+
+        sessionManager.recordCostEvent(sessionId, event1);
+        assertEquals(1.25, sessionManager.getCachedSessionCost(sessionId), 0.001);
+
+        sessionManager.recordCostEvent(sessionId, event2);
+        assertEquals(2.0, sessionManager.getCachedSessionCost(sessionId), 0.001);
+
+        sessionManager
+                .getSessionExecutorByKey()
+                .submit(sessionId.toString(), () -> null)
+                .get(5, TimeUnit.SECONDS);
+
+        SessionManager reloaded = new SessionManager(tempDir);
+        assertEquals(2.0, reloaded.getCachedSessionCost(sessionId), 0.001);
+    }
+
+    @Test
     void testLegacyManifestCostIsIgnoredWithoutMigration() throws Exception {
         SessionManager sessionManager = new SessionManager(tempDir);
         SessionManager.SessionInfo sessionInfo = sessionManager.newSession("Legacy Migration");
