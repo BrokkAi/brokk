@@ -352,7 +352,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     private CompletableFuture<Void> migrateToSessionsV3IfNeeded() {
         if (project instanceof MainProject mainProject && !mainProject.isMigrationsToSessionsV3Complete()) {
-            return submitBackgroundTask("Quarantine unreadable sessions", () -> {
+            return submitMaintenanceTask("Quarantine unreadable sessions", () -> {
                 var sessionManager = project.getSessionManager();
 
                 // Scan .zip files directly and quarantine unreadable ones; exercise history loading to trigger
@@ -439,7 +439,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 && !project.getRemoteProjectName().isBlank();
 
         // Load saved context history or create a new one
-        CompletableFuture<Void> contextTask = submitBackgroundTask("Loading saved context", () -> {
+        CompletableFuture<Void> contextTask = submitMaintenanceTask("Loading saved context", () -> {
             try {
                 initializeCurrentSessionAndHistory(false);
             } finally {
@@ -625,7 +625,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * @param changedFiles Set of files that changed (may be empty for backward compatibility)
      */
     void handleTrackedFileChange(Set<ProjectFile> changedFiles) {
-        submitBackgroundTask("Update for FS changes", () -> {
+        submitMaintenanceTask("Update for FS changes", () -> {
             // Invalidate caches
             project.getRepo().invalidateCaches();
             project.invalidateAllFiles();
@@ -667,7 +667,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     /** Submits a background task to clean up old LLM session history directories. */
     private void cleanupOldHistoryAsync() {
-        submitBackgroundTask("Cleaning up LLM history", this::cleanupOldHistory);
+        submitMaintenanceTask("Cleaning up LLM history", this::cleanupOldHistory);
     }
 
     /**
@@ -1855,7 +1855,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * @return A CompletableFuture that will return the description string.
      */
     public CompletableFuture<String> submitSummarizePastedImage(Image pastedImage) {
-        return submitBackgroundTask("Summarizing pasted image", () -> {
+        return submitMaintenanceTask("Summarizing pasted image", () -> {
             try {
                 // Convert AWT Image to LangChain4j Image (requires Base64 encoding)
                 var l4jImage = ImageUtil.toL4JImage(pastedImage);
@@ -1951,7 +1951,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         }
 
         // No details found, run the BuildAgent asynchronously
-        buildAgentFuture = submitBackgroundTask("Inferring build details", () -> {
+        buildAgentFuture = submitMaintenanceTask("Inferring build details", () -> {
             io.showNotification(IConsoleIO.NotificationRole.INFO, "Inferring project build details");
 
             // Check if task was cancelled before starting
@@ -2005,7 +2005,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     public void reloadService() {
         if (isReloadingService.compareAndSet(false, true)) {
             // Run reinit in the background so callers don't block; notify UI listeners when finished.
-            submitBackgroundTask("Reloading service", () -> {
+            submitMaintenanceTask("Reloading service", () -> {
                 try {
                     serviceProvider.reinit(project);
                     // Notify registered listeners on the EDT so they can safely update Swing UI.
@@ -2075,7 +2075,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * Returns a CompletableFuture for the style guide content.
      */
     public CompletableFuture<String> ensureGuidesAsync() {
-        return submitBackgroundTask("Loading project guides", () -> {
+        return submitMaintenanceTask("Loading project guides", () -> {
             // Handle style guide off EDT
             String existingStyleGuide = project.getStyleGuide();
             if (!existingStyleGuide.isEmpty()) {
@@ -2230,7 +2230,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * Returns a CompletableFuture for the regenerated style guide content.
      */
     public CompletableFuture<String> regenerateStyleGuideAsync() {
-        return submitBackgroundTask("Regenerating style guide", () -> {
+        return submitMaintenanceTask("Regenerating style guide", () -> {
             if (!project.hasGit()) {
                 logger.info("No Git repository found, skipping style guide regeneration.");
                 styleGenerationSkipped = true;
@@ -2675,7 +2675,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * @return A CompletableFuture representing the completion of the session rename task
      */
     public CompletableFuture<Void> renameSessionAsync(UUID sessionId, Future<String> newNameFuture) {
-        return submitBackgroundTask("Renaming session", () -> {
+        return submitMaintenanceTask("Renaming session", () -> {
             try {
                 String newName = newNameFuture.get(Context.CONTEXT_ACTION_SUMMARY_TIMEOUT_SECONDS, TimeUnit.SECONDS);
                 project.getSessionManager().renameSession(sessionId, newName);
@@ -2848,7 +2848,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             return; // Only relevant when using the Brokk proxy
         }
 
-        submitBackgroundTask("Balance Check", () -> {
+        submitMaintenanceTask("Balance Check", () -> {
             try {
                 float balance = serviceProvider.get().getUserBalance();
                 logger.debug("Checked balance: ${}", String.format("%.2f", balance));
