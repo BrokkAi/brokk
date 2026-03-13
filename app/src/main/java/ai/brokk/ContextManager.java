@@ -1916,6 +1916,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
         return submitTrackedTask(backgroundTasks, taskDescription, task);
     }
 
+    @Override
+    public <T> CompletableFuture<T> submitMaintenanceTask(String taskDescription, Callable<T> task) {
+        return submitTrackedTask(maintenanceTasks, taskDescription, task);
+    }
+
     /**
      * Ensures build details are loaded or inferred using BuildAgent if necessary. Runs asynchronously in the
      * background.

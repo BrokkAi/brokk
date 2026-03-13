@@ -268,6 +268,21 @@ public interface IContextManager {
         });
     }
 
+    default <T> CompletableFuture<T> submitMaintenanceTask(String taskDescription, Callable<T> task) {
+        try {
+            return CompletableFuture.completedFuture(task.call());
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    default CompletableFuture<Void> submitMaintenanceTask(String taskDescription, Runnable task) {
+        return submitMaintenanceTask(taskDescription, () -> {
+            task.run();
+            return null;
+        });
+    }
+
     default Set<ProjectFile> getTestFiles() {
         Set<ProjectFile> allFiles = getRepo().getTrackedFiles();
         var analyzer = getAnalyzerWrapper().getNonBlocking();
