@@ -2222,9 +2222,9 @@ class BrokkApp(App):
         """Handle the /review slash command for local guided reviews.
 
         Supported syntaxes:
-          /review              - Review uncommitted changes (default)
-          /review uncommitted  - Review uncommitted changes
-          /review session      - Review current session's changes
+          /review              - Review branch changes vs merge-base (default)
+          /review session      - Review branch changes vs merge-base
+          /review uncommitted  - Review uncommitted working tree changes
         """
         chat = self._maybe_chat()
         if not chat:
@@ -2238,7 +2238,7 @@ class BrokkApp(App):
             return
 
         # Parse scope from arguments
-        scope = "uncommitted"
+        scope = "session"
         if len(parts) > 1:
             arg = parts[1].lower()
             if arg in ("uncommitted", "session"):
@@ -2273,22 +2273,20 @@ class BrokkApp(App):
         if isinstance(current_screen, ReviewModalScreen):
             current_screen.dismiss(None)
 
+    def _get_review_panel(self) -> Optional[GuidedReviewPanel]:
+        """Returns the GuidedReviewPanel from the current modal screen, or None."""
+        try:
+            if isinstance(self.screen, ReviewModalScreen):
+                return self.screen.query_one(GuidedReviewPanel)
+        except Exception:
+            pass
+        return None
+
     async def _run_review(self, scope: str) -> None:
         """Run a guided review job and display results in the review panel."""
         from brokk_code.review_models import parse_guided_review
 
         chat = self._maybe_chat()
-
-        # Get the review panel from the modal
-        review_panel: Optional[GuidedReviewPanel] = None
-        try:
-            if isinstance(self.screen, ReviewModalScreen):
-                review_panel = self.screen.query_one(GuidedReviewPanel)
-        except Exception:
-            pass
-
-        if review_panel:
-            review_panel.set_loading(True)
 
         if chat:
             chat.add_system_message(f"Starting guided review (scope: {scope})...")
@@ -2298,6 +2296,11 @@ class BrokkApp(App):
         if chat:
             chat.set_job_running(True)
 
+        # Defer panel lookup until after the first await so the modal is mounted
+        panel = self._get_review_panel()
+        if panel:
+            panel.set_loading(True)
+
         job_failed = False
         review_loaded = False
 
@@ -2306,6 +2309,11 @@ class BrokkApp(App):
                 scope=scope,
                 planner_model=self.current_model,
             )
+
+            # Re-fetch panel after the first await; modal is now guaranteed mounted
+            panel = self._get_review_panel()
+            if panel:
+                panel.set_loading(True)
 
             async for event in self.executor.stream_events(self.current_job_id):
                 if not isinstance(event, dict):
@@ -2319,9 +2327,10 @@ class BrokkApp(App):
                     try:
                         guided_review = parse_guided_review(data)
                         review_loaded = True
-                        if review_panel:
-                            review_panel.set_loading(False)
-                            review_panel.update_review(guided_review)
+                        panel = self._get_review_panel()
+                        if panel:
+                            panel.set_loading(False)
+                            panel.update_review(guided_review)
                         if chat:
                             chat.add_system_message(
                                 "Guided review completed successfully.", level="SUCCESS"
@@ -2330,8 +2339,9 @@ class BrokkApp(App):
                         logger.exception("Failed to process review data")
                         if chat:
                             chat.add_system_message(f"Failed to process review: {e}", level="ERROR")
-                        if review_panel:
-                            review_panel.set_loading(False)
+                        panel = self._get_review_panel()
+                        if panel:
+                            panel.set_loading(False)
                     continue
 
                 if event_type == "STATE_CHANGE":
@@ -2348,14 +2358,15 @@ class BrokkApp(App):
 
             # Post-loop: handle failure or missing review
             if not review_loaded:
+                panel = self._get_review_panel()
                 if job_failed:
-                    if review_panel:
-                        review_panel.set_loading(False)
+                    if panel:
+                        panel.set_loading(False)
                     if chat:
                         chat.add_system_message("Review job failed.", level="ERROR")
                 else:
-                    if review_panel:
-                        review_panel.set_loading(False)
+                    if panel:
+                        panel.set_loading(False)
 
         except Exception as e:
             logger.exception("Review job failed")
@@ -2366,8 +2377,9 @@ class BrokkApp(App):
                     f"Review job failed ({err_type}): {e}",
                     level="ERROR",
                 )
-            if review_panel:
-                review_panel.set_loading(False)
+            panel = self._get_review_panel()
+            if panel:
+                panel.set_loading(False)
         finally:
             if chat:
                 chat.set_job_running(False)

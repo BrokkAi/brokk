@@ -987,6 +987,17 @@ public final class JobRunner {
                                                     || reviewScopeStr.equalsIgnoreCase("WORKING")) {
                                                 fromRef = "HEAD";
                                                 toRef = "WORKING";
+                                            } else if (reviewScopeStr.equalsIgnoreCase("session")) {
+                                                var repo = (GitRepo)
+                                                        cm.getProject().getRepo();
+                                                var defaultBranch = repo.getDefaultBranch();
+                                                String mergeBase = repo.getMergeBase("HEAD", defaultBranch);
+                                                if (mergeBase == null) {
+                                                    throw new IllegalStateException(
+                                                            "Cannot find merge base with " + defaultBranch);
+                                                }
+                                                fromRef = mergeBase;
+                                                toRef = "HEAD";
                                             } else if (reviewScopeStr.contains("..")) {
                                                 var parts = reviewScopeStr.split("\\.\\.", 2);
                                                 fromRef = parts[0];

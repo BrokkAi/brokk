@@ -139,6 +139,9 @@ public class ReviewAgent {
 
         // Prepare the initial context with the diff pinned
         String diff = changes.toReviewDiff(cm.getAnalyzer());
+        if (diff.isBlank()) {
+            throw new IllegalStateException("No changes found to review for the given scope.");
+        }
         var diffFragment = SpecialTextType.REVIEW_DIFF.create(cm, diff);
 
         try (var scope = cm.beginTask("Code Review", true, "Performing code review")) {
