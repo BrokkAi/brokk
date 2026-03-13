@@ -62,6 +62,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     protected static final Logger log = LoggerFactory.getLogger(TreeSitterAnalyzer.class);
     // Native library loading is assumed automatic by the io.github.bonede.tree_sitter library.
 
+    private volatile boolean isStale = false;
+
     // Adaptive concurrency for I/O: derived from OS file-descriptor limits with conservative headroom.
     private static final int IO_VT_CAP = Environment.computeAdaptiveIoConcurrencyCap();
     // Semaphore further gates simultaneous file openings to avoid EMFILE even under short bursts.
@@ -978,6 +980,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
     @Override
     public SequencedSet<CodeUnit> getDefinitions(String fqName) {
+        if (this.isStale) {
+            log.warn("Accessing stale analyzer snapshot in getDefinitions");
+        }
         String normalizedFqName = normalizeFullName(fqName);
 
         if (normalizedFqName.contains("(")) {
@@ -1081,6 +1086,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     }
 
     private Set<CodeUnit> searchDefinitionsInternal(Pattern compiledPattern, @Nullable String substringFilter) {
+        if (this.isStale) {
+            log.warn("Accessing stale analyzer snapshot in searchDefinitionsInternal");
+        }
         var threadLocalMatcher = ThreadLocal.withInitial(() -> compiledPattern.matcher(""));
         return this.state.codeUnitState.keySet().parallelStream()
                 .filter(cu -> substringFilter == null
@@ -1092,6 +1100,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
     @Override
     public Set<CodeUnit> autocompleteDefinitions(String query) {
+        if (this.isStale) {
+            log.warn("Accessing stale analyzer snapshot in autocompleteDefinitions");
+        }
         if (query.isEmpty()) {
             return Set.of();
         }
@@ -1190,6 +1201,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
     @Override
     public Map<CodeUnit, String> getSkeletons(ProjectFile file) {
+        if (this.isStale) {
+            log.warn("Accessing stale analyzer snapshot in getSkeletons");
+        }
         // Only process files relevant to this analyzer's language
         if (!isRelevantFile(file)) {
             return Map.of();
@@ -1351,6 +1365,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
     @Override
     public Optional<String> getSource(CodeUnit codeUnit, boolean includeComments) {
+        if (this.isStale) {
+            log.warn("Accessing stale analyzer snapshot in getSource");
+        }
         var sources = getSources(codeUnit, includeComments);
         if (sources.isEmpty()) {
             return Optional.empty();
@@ -3718,6 +3735,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 snapshotNanos);
 
         var filteredCache = new AnalyzerCache(this.cache, changedFiles);
+        this.isStale = true;
         return newSnapshot(typedState, getProgressListener(), filteredCache);
     }
 
