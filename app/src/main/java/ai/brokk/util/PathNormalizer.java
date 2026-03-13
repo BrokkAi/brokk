@@ -111,6 +111,7 @@ public final class PathNormalizer {
                 .filter(s -> !s.isEmpty())
                 .map(s -> canonicalizeForProject(s, root))
                 .filter(s -> !s.isEmpty())
+                .sorted()
                 .collect(Collectors.toCollection(LinkedHashSet::new));
     }
 

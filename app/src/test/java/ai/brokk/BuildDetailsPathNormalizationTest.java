@@ -77,8 +77,8 @@ public class BuildDetailsPathNormalizationTest {
 
         var parsed1 = parseDetailsFromProps(props1);
 
-        // Assert: canonicalized exclusions in order
-        var expectedCanonicalOrder = List.of("bin", "gradle", "build", "subdir/vendor", "/nbdist", "absUnder");
+        // Assert: canonicalized exclusions in sorted order
+        var expectedCanonicalOrder = List.of("/nbdist", "absUnder", "bin", "build", "gradle", "subdir/vendor");
         assertEquals(expectedCanonicalOrder.size(), parsed1.exclusionPatterns().size(), "Unexpected excludes size");
         assertIterableEquals(
                 expectedCanonicalOrder, parsed1.exclusionPatterns(), "Exclusions not canonicalized as expected");
@@ -132,15 +132,16 @@ public class BuildDetailsPathNormalizationTest {
         var loaded = project.loadBuildDetails().orElseThrow();
 
         // Assert: canonicalization occurred on load
-        // Expected: "build", "/nbdist" remains absolute (outside project), "foo", "out"
-        Set<String> expectedCanonical = Set.of("build", "/nbdist", "foo", "out");
-        assertEquals(expectedCanonical, loaded.exclusionPatterns(), "Loaded exclusions should be canonicalized");
+        // Expected: "/nbdist" remains absolute (outside project), "build", "foo", "out"
+        var expectedCanonicalList = List.of("/nbdist", "build", "foo", "out");
+        Set<String> expectedCanonical = new LinkedHashSet<>(expectedCanonicalList);
+        assertIterableEquals(expectedCanonicalList, loaded.exclusionPatterns(), "Loaded exclusions should be canonicalized");
 
         // Act: save back and ensure canonical JSON now persisted
         project.saveBuildDetails(loaded);
         Properties props2 = loadProps(propsFile);
         var persisted = parseDetailsFromProps(props2);
-        assertEquals(expectedCanonical, persisted.exclusionPatterns(), "Persisted exclusions should be canonical");
+        assertIterableEquals(expectedCanonicalList, persisted.exclusionPatterns(), "Persisted exclusions should be canonical");
 
         // Optional stability check on rewrite
         String jsonAfterRewrite = props2.getProperty("buildDetailsJson");
