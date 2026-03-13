@@ -1883,10 +1883,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
         });
     }
 
-    @Override
-    public <T> CompletableFuture<T> submitBackgroundTask(String taskDescription, Callable<T> task) {
+    private <T> CompletableFuture<T> submitTrackedTask(
+            LoggingExecutorService executor, String taskDescription, Callable<T> task) {
         taskDescriptions.put(task, taskDescription);
-        return backgroundTasks.submit(() -> {
+        return executor.submit(() -> {
             try {
                 io.backgroundOutput(taskDescription);
                 return task.call();
@@ -1909,6 +1909,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 });
             }
         });
+    }
+
+    @Override
+    public <T> CompletableFuture<T> submitBackgroundTask(String taskDescription, Callable<T> task) {
+        return submitTrackedTask(backgroundTasks, taskDescription, task);
     }
 
     /**
