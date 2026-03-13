@@ -652,18 +652,22 @@ public class ArchitectAgent {
 
             // carry forward into outer loop
             ToolExecutionRequest answerReq = null, abortReq = null;
-            var searchAgentReqs = new ArrayList<ToolExecutionRequest>();
-            var codeAgentReqs = new ArrayList<ToolExecutionRequest>();
-            var otherReqs = new ArrayList<ToolExecutionRequest>();
-            for (var req : deduplicatedRequests) {
-                switch (req.name()) {
-                    case "projectFinished" -> answerReq = req;
-                    case "abortProject" -> abortReq = req;
-                    case "callSearchAgent" -> searchAgentReqs.add(req);
-                    case "callCodeAgent" -> codeAgentReqs.add(req);
-                    default -> otherReqs.add(req);
+            var terminalPartition =
+                    ToolRegistry.partitionByNames(deduplicatedRequests, Set.of("projectFinished", "abortProject"));
+            for (var req : terminalPartition.matchingRequests()) {
+                if ("projectFinished".equals(req.name())) {
+                    answerReq = req;
+                } else if ("abortProject".equals(req.name())) {
+                    abortReq = req;
                 }
             }
+
+            var searchPartition =
+                    ToolRegistry.partitionByNames(terminalPartition.otherRequests(), Set.of("callSearchAgent"));
+            var codePartition = ToolRegistry.partitionByNames(searchPartition.otherRequests(), Set.of("callCodeAgent"));
+            var searchAgentReqs = new ArrayList<>(searchPartition.matchingRequests());
+            var codeAgentReqs = new ArrayList<>(codePartition.matchingRequests());
+            var otherReqs = new ArrayList<>(codePartition.otherRequests());
 
             // If we see "projectFinished" or "abortProject", handle it and then exit.
             // If these final/abort calls are present together with other tool calls in the same LLM response,
@@ -683,8 +687,12 @@ public class ArchitectAgent {
                     logger.debug("LLM decided to projectFinished. We'll finalize and stop");
 
                     io.beforeToolCall(answerReq);
-                    var toolResult = tr.executeTool(answerReq);
+                    var executionRegistry = ToolRegistry.fromBase(tr)
+                            .register(new WorkspaceTools(context))
+                            .build();
+                    var toolResult = executionRegistry.executeTool(answerReq);
                     io.afterToolOutput(toolResult);
+                    llm.recordToolExecution(toolResult);
 
                     io.llmOutput(
                             "Project final answer: " + toolResult.resultText(),
@@ -704,8 +712,12 @@ public class ArchitectAgent {
                     logger.debug("LLM decided to abortProject. We'll finalize and stop");
 
                     io.beforeToolCall(abortReq);
-                    var toolResult = tr.executeTool(abortReq);
+                    var executionRegistry = ToolRegistry.fromBase(tr)
+                            .register(new WorkspaceTools(context))
+                            .build();
+                    var toolResult = executionRegistry.executeTool(abortReq);
                     io.afterToolOutput(toolResult);
+                    llm.recordToolExecution(toolResult);
 
                     io.llmOutput(
                             "Project aborted: " + toolResult.resultText(), ChatMessageType.AI, LlmOutputMeta.DEFAULT);
@@ -717,10 +729,15 @@ public class ArchitectAgent {
             otherReqs.sort(Comparator.comparingInt(req -> getPriorityRank(req.name())));
             for (var req : otherReqs) {
                 io.beforeToolCall(req);
-                ToolExecutionResult toolResult = tr.executeTool(req);
+                var executionRegistry = ToolRegistry.fromBase(tr)
+                        .register(new WorkspaceTools(context))
+                        .build();
+                ToolExecutionResult toolResult = executionRegistry.executeTool(req);
                 io.afterToolOutput(toolResult);
+                llm.recordToolExecution(toolResult);
 
-                if (isWorkspaceTool(req, tr) && toolResult.status() == ToolExecutionResult.Status.SUCCESS) {
+                if (isWorkspaceTool(req, executionRegistry)
+                        && toolResult.status() == ToolExecutionResult.Status.SUCCESS) {
                     if ("dropWorkspaceFragments".equals(req.name())) {
                         context = ((WorkspaceTools.DropWorkspaceOutput) toolResult.result()).context();
                     } else {
@@ -756,8 +773,12 @@ public class ArchitectAgent {
             var initialContext = context;
             for (var req : codeAgentReqs) {
                 io.beforeToolCall(req);
-                ToolExecutionResult toolResult = tr.executeTool(req);
+                var executionRegistry = ToolRegistry.fromBase(tr)
+                        .register(new WorkspaceTools(context))
+                        .build();
+                ToolExecutionResult toolResult = executionRegistry.executeTool(req);
                 io.afterToolOutput(toolResult);
+                llm.recordToolExecution(toolResult);
 
                 if (toolResult.status() == ToolExecutionResult.Status.FATAL) {
                     var fatalReason = this.lastFatalReason != null ? this.lastFatalReason : StopReason.LLM_ERROR;

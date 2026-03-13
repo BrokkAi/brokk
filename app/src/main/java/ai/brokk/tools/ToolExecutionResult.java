@@ -14,11 +14,13 @@ public final class ToolExecutionResult {
     private final ToolExecutionRequest request;
     private final Status status;
     private final ToolOutput result;
+    private final long elapsedMs;
 
-    private ToolExecutionResult(ToolExecutionRequest request, Status status, ToolOutput result) {
+    private ToolExecutionResult(ToolExecutionRequest request, Status status, ToolOutput result, long elapsedMs) {
         this.request = request;
         this.status = status;
         this.result = result;
+        this.elapsedMs = elapsedMs;
     }
 
     /** Overall status of the tool execution. */
@@ -36,32 +38,63 @@ public final class ToolExecutionResult {
     // --- Factory Methods ---
 
     public static ToolExecutionResult create(ToolExecutionRequest request, Status status, @Nullable String resultText) {
+        return create(request, status, resultText, 0L);
+    }
+
+    public static ToolExecutionResult create(
+            ToolExecutionRequest request, Status status, @Nullable String resultText, long elapsedMs) {
         String finalText = (resultText == null || resultText.isBlank()) ? status.toString() : resultText;
-        return create(request, status, new ToolOutput.TextOutput(finalText));
+        return create(request, status, new ToolOutput.TextOutput(finalText), elapsedMs);
     }
 
     public static ToolExecutionResult create(ToolExecutionRequest request, Status status, ToolOutput result) {
-        return new ToolExecutionResult(request, status, result);
+        return create(request, status, result, 0L);
+    }
+
+    public static ToolExecutionResult create(
+            ToolExecutionRequest request, Status status, ToolOutput result, long elapsedMs) {
+        return new ToolExecutionResult(request, status, result, elapsedMs);
     }
 
     public static ToolExecutionResult success(ToolExecutionRequest request, @Nullable String resultText) {
         return create(request, Status.SUCCESS, resultText);
     }
 
+    public static ToolExecutionResult success(
+            ToolExecutionRequest request, @Nullable String resultText, long elapsedMs) {
+        return create(request, Status.SUCCESS, resultText, elapsedMs);
+    }
+
     public static ToolExecutionResult success(ToolExecutionRequest request, ToolOutput output) {
         return create(request, Status.SUCCESS, output);
+    }
+
+    public static ToolExecutionResult success(ToolExecutionRequest request, ToolOutput output, long elapsedMs) {
+        return create(request, Status.SUCCESS, output, elapsedMs);
     }
 
     public static ToolExecutionResult requestError(ToolExecutionRequest request, String errorMessage) {
         return create(request, Status.REQUEST_ERROR, errorMessage);
     }
 
+    public static ToolExecutionResult requestError(ToolExecutionRequest request, String errorMessage, long elapsedMs) {
+        return create(request, Status.REQUEST_ERROR, errorMessage, elapsedMs);
+    }
+
     public static ToolExecutionResult internalError(ToolExecutionRequest request, String errorMessage) {
         return create(request, Status.INTERNAL_ERROR, errorMessage);
     }
 
+    public static ToolExecutionResult internalError(ToolExecutionRequest request, String errorMessage, long elapsedMs) {
+        return create(request, Status.INTERNAL_ERROR, errorMessage, elapsedMs);
+    }
+
     public static ToolExecutionResult fatal(ToolExecutionRequest request, String errorMessage) {
         return create(request, Status.FATAL, errorMessage);
+    }
+
+    public static ToolExecutionResult fatal(ToolExecutionRequest request, String errorMessage, long elapsedMs) {
+        return create(request, Status.FATAL, errorMessage, elapsedMs);
     }
 
     // --- Convenience Accessors ---
@@ -113,6 +146,10 @@ public final class ToolExecutionResult {
         return result;
     }
 
+    public long elapsedMs() {
+        return elapsedMs;
+    }
+
     @Override
     public boolean equals(@Nullable Object obj) {
         if (obj == this) return true;
@@ -120,12 +157,13 @@ public final class ToolExecutionResult {
         var that = (ToolExecutionResult) obj;
         return Objects.equals(this.request, that.request)
                 && Objects.equals(this.status, that.status)
-                && Objects.equals(this.result, that.result);
+                && Objects.equals(this.result, that.result)
+                && this.elapsedMs == that.elapsedMs;
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(request, status, result);
+        return Objects.hash(request, status, result, elapsedMs);
     }
 
     @Override
@@ -133,6 +171,7 @@ public final class ToolExecutionResult {
         return "ToolExecutionResult[" + "request="
                 + request + ", " + "status="
                 + status + ", " + "result="
-                + result + ']';
+                + result + ", " + "elapsedMs="
+                + elapsedMs + ']';
     }
 }

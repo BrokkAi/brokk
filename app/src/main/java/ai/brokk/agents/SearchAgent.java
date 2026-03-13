@@ -6,6 +6,7 @@ import ai.brokk.Llm;
 import ai.brokk.LlmOutputMeta;
 import ai.brokk.TaskResult;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextDelta;
 import ai.brokk.context.ContextFragment;
@@ -25,7 +26,7 @@ import ai.brokk.util.Json;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolContext;
-import dev.langchain4j.data.message.AiMessage;
+import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.data.message.UserMessage;
@@ -39,6 +40,8 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.stream.Collectors;
 import org.jetbrains.annotations.Nullable;
 
@@ -51,6 +54,21 @@ public class SearchAgent {
     private record TerminalStopOutput(String llmText, TaskResult.StopDetails stopDetails) implements ToolOutput {}
 
     private static final int MAX_TURNS = 20;
+    private static final Set<String> TERMINAL_TOOL_NAMES = Set.of("answer", "workspaceComplete", "abortSearch");
+    private static final Set<String> PARALLEL_SAFE_SEARCH_TOOL_NAMES = Set.of(
+            "searchSymbols",
+            "scanUsages",
+            "getSymbolLocations",
+            "skimFiles",
+            "findFilesContaining",
+            "findFilenames",
+            "searchFileContents",
+            "searchGitCommitMessages",
+            "getGitLog",
+            "explainCommit",
+            "xmlSkim",
+            "xmlSelect",
+            "jq");
 
     private final IContextManager cm;
     private final String goal;
@@ -192,7 +210,8 @@ public class SearchAgent {
                             TaskResult.StopReason.TOOL_ERROR, "Model returned no tool calls."));
                 }
 
-                if (isFinalTurn && !containsTerminalTool(ai)) {
+                var terminalPartition = ToolRegistry.partitionByNames(ai.toolExecutionRequests(), TERMINAL_TOOL_NAMES);
+                if (isFinalTurn && terminalPartition.matchingRequests().isEmpty()) {
                     return errorResult(new TaskResult.StopDetails(
                             TaskResult.StopReason.TOOL_ERROR,
                             "Final turn requires a terminal tool call (for example, %s)."
@@ -200,13 +219,53 @@ public class SearchAgent {
                 }
 
                 var additionsThisTurn = new ArrayList<ContextFragment>();
+                var parallelPartition =
+                        ToolRegistry.partitionByNames(ai.toolExecutionRequests(), PARALLEL_SAFE_SEARCH_TOOL_NAMES);
+                var parallelRequests = parallelPartition.matchingRequests();
+                Map<ToolExecutionRequest, CompletableFuture<ToolExecutionResult>> parallelFutures =
+                        new LinkedHashMap<>();
+                if (parallelRequests.size() > 1) {
+                    for (var request : parallelRequests) {
+                        metrics.recordToolCall(request.name());
+                        io.beforeToolCall(request);
+                        Context snapshotContext = context;
+                        parallelFutures.put(
+                                request, LoggingFuture.supplyCallableVirtual(() -> ToolRegistry.fromBase(toolRegistry)
+                                        .register(new WorkspaceTools(snapshotContext))
+                                        .build()
+                                        .executeTool(request)));
+                    }
+                }
+                Runnable cancelOutstandingParallelFutures = () -> parallelFutures.values().stream()
+                        .filter(f -> !f.isDone())
+                        .forEach(f -> f.cancel(true));
 
                 for (var request : ai.toolExecutionRequests()) {
-                    metrics.recordToolCall(request.name());
-                    io.beforeToolCall(request);
                     Context before = context;
-                    var toolResult = toolRegistry.executeTool(request);
-                    io.afterToolOutput(toolResult);
+                    ToolExecutionResult toolResult;
+                    if (parallelFutures.containsKey(request)) {
+                        try {
+                            toolResult = parallelFutures.get(request).join();
+                        } catch (CompletionException e) {
+                            Throwable cause = e.getCause();
+                            if (cause instanceof InterruptedException ie) {
+                                throw ie;
+                            }
+                            String msg = cause == null ? "Unknown error" : cause.getMessage();
+                            toolResult =
+                                    ToolExecutionResult.internalError(request, msg == null ? "Unknown error" : msg);
+                        }
+                        io.afterToolOutput(toolResult);
+                    } else {
+                        metrics.recordToolCall(request.name());
+                        io.beforeToolCall(request);
+                        var executionRegistry = ToolRegistry.fromBase(toolRegistry)
+                                .register(new WorkspaceTools(context))
+                                .build();
+                        toolResult = executionRegistry.executeTool(request);
+                        io.afterToolOutput(toolResult);
+                    }
+                    llm.recordToolExecution(toolResult);
                     messages.add(toolResult.toMessage());
 
                     if (toolResult.result() instanceof WorkspaceTools.WorkspaceMutationOutput output) {
@@ -218,11 +277,13 @@ public class SearchAgent {
                             ContextDelta.between(before, context).join().addedFragments());
 
                     if (toolResult.status() == ToolExecutionResult.Status.FATAL) {
+                        cancelOutstandingParallelFutures.run();
                         return errorResult(
                                 new TaskResult.StopDetails(TaskResult.StopReason.LLM_ERROR, toolResult.resultText()));
                     }
 
                     if (isTerminalTool(request.name()) && toolResult.result() instanceof TerminalStopOutput tso) {
+                        cancelOutstandingParallelFutures.run();
                         return createResult(tso.stopDetails());
                     }
                 }
@@ -269,10 +330,6 @@ public class SearchAgent {
                 </turn>
                 """
                 .formatted(goal, additionsBlock, nextToolRequest, tocContent);
-    }
-
-    private boolean containsTerminalTool(AiMessage message) {
-        return message.toolExecutionRequests().stream().anyMatch(req -> isTerminalTool(req.name()));
     }
 
     private boolean isTerminalTool(String toolName) {

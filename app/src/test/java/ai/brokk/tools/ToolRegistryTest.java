@@ -217,6 +217,7 @@ class ToolRegistryTest {
         assertEquals("LLM visible text", result.resultText());
         assertInstanceOf(RichOutput.class, result.result());
         assertEquals("side-channel-value", ((RichOutput) result.result()).value());
+        assertTrue(result.elapsedMs() >= 0);
     }
 
     @Test
@@ -233,6 +234,23 @@ class ToolRegistryTest {
         assertEquals(ToolExecutionResult.Status.REQUEST_ERROR, result.status());
         assertInstanceOf(ToolOutput.TextOutput.class, result.result());
         assertTrue(result.resultText().contains("Missing required parameter"));
+        assertTrue(result.elapsedMs() >= 0);
+    }
+
+    @Test
+    void partitionByNames_preservesOrderAndSplitsCorrectly() {
+        var r1 =
+                ToolExecutionRequest.builder().id("1").name("a").arguments("{}").build();
+        var r2 =
+                ToolExecutionRequest.builder().id("2").name("b").arguments("{}").build();
+        var r3 =
+                ToolExecutionRequest.builder().id("3").name("a").arguments("{}").build();
+        var r4 =
+                ToolExecutionRequest.builder().id("4").name("c").arguments("{}").build();
+
+        var partitioned = ToolRegistry.partitionByNames(List.of(r1, r2, r3, r4), List.of("a", "c"));
+        assertEquals(List.of(r1, r3, r4), partitioned.matchingRequests());
+        assertEquals(List.of(r2), partitioned.otherRequests());
     }
 
     @Test
