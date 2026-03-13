@@ -339,22 +339,22 @@ class GuidedReviewPanel(Vertical, can_focus=True):
             )
             content.mount(Static(overview_panel, id="review-overview"))
 
-        # Key Changes - yellow border
+        # Key Changes
         if self._review.key_changes:
             self._mount_section_group(
-                content, "Key Changes", self._review.key_changes, "key-change", "yellow"
+                content, "Key Changes", self._review.key_changes, "key-change"
             )
 
-        # Design Notes - cyan border
+        # Design Notes
         if self._review.design_notes:
             self._mount_section_group(
-                content, "Design Notes", self._review.design_notes, "design-note", "cyan"
+                content, "Design Notes", self._review.design_notes, "design-note"
             )
 
-        # Tactical Notes - magenta border
+        # Tactical Notes
         if self._review.tactical_notes:
             self._mount_section_group(
-                content, "Tactical Notes", self._review.tactical_notes, "tactical-note", "magenta"
+                content, "Tactical Notes", self._review.tactical_notes, "tactical-note"
             )
 
         # Additional Tests
