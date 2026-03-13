@@ -20,6 +20,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.awt.Rectangle;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.util.Objects;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -895,19 +896,15 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         try {
             var details = objectMapper.readValue(json, BuildAgent.BuildDetails.class);
 
-            // Canonicalize exclusion patterns that look like paths
-            var canonicalExclusions = new LinkedHashSet<String>();
-            for (String pattern : details.exclusionPatterns()) {
-                // Only canonicalize patterns that look like directory paths (contain / or \\)
-                if (pattern.contains("/") || pattern.contains("\\")) {
-                    String c = PathNormalizer.canonicalizeForProject(pattern, getMasterRootPathForConfig());
-                    if (!c.isBlank()) {
-                        canonicalExclusions.add(c);
-                    }
-                } else {
-                    canonicalExclusions.add(pattern);
-                }
-            }
+            // Canonicalize exclusion patterns
+            Path masterRoot = getMasterRootPathForConfig();
+            var canonicalExclusions = details.exclusionPatterns().stream()
+                    .filter(Objects::nonNull)
+                    .map(String::trim)
+                    .filter(s -> !s.isEmpty())
+                    .map(s -> PathNormalizer.canonicalizeForProject(s, masterRoot))
+                    .filter(s -> !s.isEmpty())
+                    .collect(Collectors.toCollection(LinkedHashSet::new));
 
             // Normalize environment variables and migrate JAVA_HOME to workspace properties
             Map<String, String> envIn = details.environmentVariables();

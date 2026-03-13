@@ -547,13 +547,14 @@ class BuildToolsTest {
 
         // Assert: Both commands are present, interpolated correctly, and joined by &&
         assertTrue(result.contains("mvn test -pl backend -Dtest=AppTest"), "Should contain backend command");
-        assertTrue(result.contains("npm test -w frontend -- frontend/test/app.test.js"), "Should contain frontend command");
+        assertTrue(
+                result.contains("npm test -w frontend -- frontend/test/app.test.js"),
+                "Should contain frontend command");
         assertTrue(result.contains(" && "), "Commands should be joined by &&");
 
         // Verify order (sorted by relativePath)
         assertEquals(
-                "mvn test -pl backend -Dtest=AppTest && npm test -w frontend -- frontend/test/app.test.js",
-                result);
+                "mvn test -pl backend -Dtest=AppTest && npm test -w frontend -- frontend/test/app.test.js", result);
     }
 
     @Test

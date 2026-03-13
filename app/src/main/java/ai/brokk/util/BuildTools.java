@@ -149,9 +149,10 @@ public class BuildTools {
         }
 
         List<String> commands = new ArrayList<>();
-        List<Map.Entry<BuildAgent.ModuleBuildEntry, List<ProjectFile>>> sortedEntries = moduleToFiles.entrySet().stream()
-                .sorted(Comparator.comparing(e -> e.getKey().relativePath()))
-                .toList();
+        List<Map.Entry<BuildAgent.ModuleBuildEntry, List<ProjectFile>>> sortedEntries =
+                moduleToFiles.entrySet().stream()
+                        .sorted(Comparator.comparing(e -> e.getKey().relativePath()))
+                        .toList();
 
         for (var entry : sortedEntries) {
             var module = entry.getKey();
@@ -190,7 +191,8 @@ public class BuildTools {
         context.put("pyver", pythonVersion.orElse(""));
 
         // 1. Packages
-        List<String> packages = analyzer.getTestModules(testFiles).stream().distinct().toList();
+        List<String> packages =
+                analyzer.getTestModules(testFiles).stream().distinct().toList();
         context.put("packages", MustacheTemplates.toStringElementList(packages));
 
         // 2. Files

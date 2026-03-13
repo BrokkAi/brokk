@@ -25,6 +25,7 @@ import ai.brokk.util.DependencyUpdateScheduler;
 import ai.brokk.util.Environment;
 import ai.brokk.util.GlobalUiSettings;
 import ai.brokk.util.IStringDiskCache;
+import ai.brokk.util.PathNormalizer;
 import ai.brokk.util.StringDiskCache;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.google.common.annotations.VisibleForTesting;
@@ -2310,8 +2311,13 @@ public final class MainProject extends AbstractProject {
         canonicalEnv.remove("VIRTUAL_ENV");
 
         // Sort and deduplicate exclusion patterns for consistent storage
+        Path masterRoot = getMasterRootPathForConfig();
         Set<String> canonicalExclusions = details.exclusionPatterns().stream()
-                .filter(s -> !s.isBlank())
+                .filter(Objects::nonNull)
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .map(s -> PathNormalizer.canonicalizeForProject(s, masterRoot))
+                .filter(s -> !s.isEmpty())
                 .sorted()
                 .collect(Collectors.toCollection(LinkedHashSet::new));
 
