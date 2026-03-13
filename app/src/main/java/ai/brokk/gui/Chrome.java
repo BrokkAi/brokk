@@ -3,7 +3,6 @@ package ai.brokk.gui;
 import static ai.brokk.gui.Constants.*;
 import static java.util.Objects.requireNonNull;
 
-import ai.brokk.AnalyzerTaskSubmitter;
 import ai.brokk.Brokk;
 import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
@@ -1429,10 +1428,6 @@ public class Chrome
 
     public ContextManager getContextManager() {
         return contextManager;
-    }
-
-    public AnalyzerTaskSubmitter getAnalyzerTaskSubmitter() {
-        return contextManager.getAnalyzerTaskSubmitter();
     }
 
     public ProjectFilesPanel getProjectFilesPanel() {

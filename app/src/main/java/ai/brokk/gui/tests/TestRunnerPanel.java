@@ -548,7 +548,7 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
         beginRun(fileCount, command, Instant.now());
         var project = chrome.getProject();
         var cm = chrome.getContextManager();
-        chrome.getAnalyzerTaskSubmitter().submit("Running tests", () -> {
+        chrome.getContextManager().getAnalyzerTaskSubmitter().submit("Running tests", () -> {
             int exitCode = -1;
             try {
                 ShellConfig execCfg = project.getShellConfig();

@@ -147,7 +147,7 @@ public final class NodeJsDependencyHelper {
             SwingUtilities.invokeLater(() -> currentListener.dependencyImportStarted(pkg.displayName()));
         }
 
-        chrome.getAnalyzerTaskSubmitter().submit("Copying NPM package: " + pkg.displayName(), () -> {
+        chrome.getContextManager().getAnalyzerTaskSubmitter().submit("Copying NPM package: " + pkg.displayName(), () -> {
             try {
                 Files.createDirectories(requireNonNull(targetRoot.getParent()));
                 if (Files.exists(targetRoot)) {
