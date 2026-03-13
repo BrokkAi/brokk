@@ -434,7 +434,6 @@ tasks.register<JavaCompile>("compileJavaErrorProne") {
         // Disable specific Error Prone checks
         disable("FutureReturnValueIgnored")
         disable("MissingSummary")
-        disable("EmptyBlockTag")
         disable("NonCanonicalType")
 
         // Exclude dev/ directory from all ErrorProne checks
@@ -444,6 +443,7 @@ tasks.register<JavaCompile>("compileJavaErrorProne") {
         error("NullAway")
         enable("RedundantNullCheck")
         warn("UnnecessarilyFullyQualified")
+        warn("EmptyBlockTag")
 
 
         // Core NullAway options
@@ -491,13 +491,12 @@ tasks.register<JavaCompile>("fix") {
 
     options.errorprone {
         errorproneArgs.addAll(
-            "-XepPatchChecks:UnnecessarilyFullyQualified",
+            "-XepPatchChecks:UnnecessarilyFullyQualified,MissingOverride,RemoveUnusedImports,RedundantNullCheck,RedundantThrows,OperatorPrecedence,UnnecessaryParentheses,EmptyBlockTag",
             "-XepPatchLocation:IN_PLACE"
         )
 
         disable("FutureReturnValueIgnored")
         disable("MissingSummary")
-        disable("EmptyBlockTag")
         disable("NonCanonicalType")
 
         excludedPaths = ".*/src/main/java/(dev/|eu/).*"
@@ -505,6 +504,7 @@ tasks.register<JavaCompile>("fix") {
         error("NullAway")
         enable("RedundantNullCheck")
         warn("UnnecessarilyFullyQualified")
+        warn("EmptyBlockTag")
 
         option("NullAway:AnnotatedPackages", "ai.brokk")
         option("NullAway:ExcludedFieldAnnotations",
@@ -567,17 +567,26 @@ tasks.register("analyze") {
     group = "verification"
     description = "Run static analysis (NullAway + spotless) without tests"
 
-    dependsOn("compileJavaErrorProne", "spotlessCheck")
+    dependsOn("fix", "compileJavaErrorProne", "spotlessCheck")
 }
 
 // Make check task run ErrorProne compilation, Python linting, and all tests for CI validation
 tasks.named("check") {
+    dependsOn("fix")
     dependsOn("compileJavaErrorProne")
     val skipPythonTasks = project.rootProject.hasProperty("skipPython")
     if (!skipPythonTasks) {
         dependsOn(rootProject.tasks.named("brokkCodeRuffCheck"))
         dependsOn(rootProject.tasks.named("pytest"))
     }
+}
+
+// Ensure fix runs before other verification tasks when they run together
+tasks.named("compileJavaErrorProne") {
+    mustRunAfter("fix")
+}
+tasks.matching { it.name == "spotlessCheck" || it.name == "test" || it.name == "compileTestJava" }.configureEach {
+    mustRunAfter("fix")
 }
 
 
