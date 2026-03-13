@@ -19,6 +19,7 @@ import com.github.mustachejava.MustacheFactory;
 import java.io.StringReader;
 import java.io.StringWriter;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -125,35 +126,60 @@ public class BuildTools {
             @Nullable String pythonVersionOverride)
             throws InterruptedException {
 
-        String testSomeTemplate = System.getenv("BRK_TESTSOME_CMD");
-        if (testSomeTemplate == null) {
-            // Find the most specific module that contains these test files
-            var module = details.modules().stream()
-                    .filter(m -> !m.testSomeCommand().isBlank())
-                    .filter(m -> !m.relativePath().equals("."))
-                    .filter(m -> workspaceTestFiles.stream()
-                            .allMatch(f -> FileFilteringService.toUnixPath(f.getRelPath())
-                                    .startsWith(m.relativePath())))
-                    .max(Comparator.comparingInt(m -> m.relativePath().length()));
+        String envOverride = System.getenv("BRK_TESTSOME_CMD");
+        if (envOverride != null && !envOverride.isBlank()) {
+            return interpolateModuleCommand(cm, envOverride, workspaceTestFiles, pythonVersionOverride);
+        }
 
-            testSomeTemplate =
-                    module.map(BuildAgent.ModuleBuildEntry::testSomeCommand).orElse("");
+        // Group files by their most specific module
+        Map<BuildAgent.ModuleBuildEntry, List<ProjectFile>> moduleToFiles = new HashMap<>();
+        for (ProjectFile f : workspaceTestFiles) {
+            String unixPath = FileFilteringService.toUnixPath(f.getRelPath());
+            var bestModule = details.modules().stream()
+                    .filter(m -> {
+                        String rel = m.relativePath();
+                        return rel.equals(".") || rel.isEmpty() || unixPath.startsWith(rel);
+                    })
+                    .max(Comparator.comparingInt(m -> m.relativePath().length()))
+                    .orElse(null);
 
-            if (testSomeTemplate.isBlank()) {
-                testSomeTemplate = details.modules().stream()
-                        .filter(m -> !m.testSomeCommand().isBlank())
-                        .filter(m ->
-                                m.relativePath().equals(".") || m.relativePath().isEmpty())
-                        .findFirst()
-                        .map(BuildAgent.ModuleBuildEntry::testSomeCommand)
-                        .orElse("");
+            if (bestModule != null) {
+                moduleToFiles.computeIfAbsent(bestModule, k -> new ArrayList<>()).add(f);
             }
         }
 
-        if (testSomeTemplate.isBlank()) {
+        List<String> commands = new ArrayList<>();
+        List<Map.Entry<BuildAgent.ModuleBuildEntry, List<ProjectFile>>> sortedEntries = moduleToFiles.entrySet().stream()
+                .sorted(Comparator.comparing(e -> e.getKey().relativePath()))
+                .toList();
+
+        for (var entry : sortedEntries) {
+            var module = entry.getKey();
+            var files = entry.getValue();
+            String template = module.testSomeCommand();
+            if (!template.isBlank()) {
+                String interpolated = interpolateModuleCommand(cm, template, files, pythonVersionOverride);
+                if (!interpolated.isBlank()) {
+                    commands.add(interpolated);
+                }
+            }
+        }
+
+        String compositeCommand = String.join(" && ", commands);
+
+        if (compositeCommand.isBlank()) {
             return details.buildLintEnabled() ? details.buildLintCommand() : "";
         }
 
+        return compositeCommand;
+    }
+
+    private static String interpolateModuleCommand(
+            IContextManager cm,
+            String template,
+            Collection<ProjectFile> testFiles,
+            @Nullable String pythonVersionOverride)
+            throws InterruptedException {
         var project = cm.getProject();
         var pythonVersion = pythonVersionOverride != null
                 ? Optional.of(pythonVersionOverride)
@@ -163,16 +189,14 @@ public class BuildTools {
         Map<String, Object> context = new HashMap<>();
         context.put("pyver", pythonVersion.orElse(""));
 
-        // Always calculate all potential lists to support mixed templates
         // 1. Packages
-        List<String> packages =
-                analyzer.getTestModules(workspaceTestFiles).stream().distinct().toList();
+        List<String> packages = analyzer.getTestModules(testFiles).stream().distinct().toList();
         context.put("packages", MustacheTemplates.toStringElementList(packages));
 
         // 2. Files
         context.put(
                 "files",
-                MustacheTemplates.toStringElementList(workspaceTestFiles.stream()
+                MustacheTemplates.toStringElementList(testFiles.stream()
                         .map(f -> f.toString().replace('\\', '/'))
                         .distinct()
                         .toList()));
@@ -181,7 +205,7 @@ public class BuildTools {
         List<String> fqClasses = List.of();
         List<String> classes = List.of();
         if (!analyzer.isEmpty()) {
-            var codeUnits = analyzer.testFilesToCodeUnits(workspaceTestFiles);
+            var codeUnits = analyzer.testFilesToCodeUnits(testFiles);
             fqClasses =
                     codeUnits.stream().map(CodeUnit::fqName).distinct().sorted().toList();
             classes = codeUnits.stream()
@@ -193,18 +217,15 @@ public class BuildTools {
         context.put("fqclasses", MustacheTemplates.toStringElementList(fqClasses));
         context.put("classes", MustacheTemplates.toStringElementList(classes));
 
-        // Perform multi-variable interpolation
         MustacheFactory mf = new DefaultMustacheFactory();
-        Mustache mustache = mf.compile(new StringReader(testSomeTemplate), "dynamic_template");
+        Mustache mustache = mf.compile(new StringReader(template), "dynamic_template");
 
         StringWriter writer = new StringWriter();
         mustache.execute(writer, context);
         String result = writer.toString();
 
-        // If the result is blank, or it is identical to a template that contains mustache tags,
-        // it means no sections matched or no targets were found; fall back to build/lint command.
-        if (result.isBlank() || (testSomeTemplate.contains("{{") && result.equals(testSomeTemplate))) {
-            return details.buildLintEnabled() ? details.buildLintCommand() : "";
+        if (result.isBlank() || (template.contains("{{") && result.equals(template))) {
+            return "";
         }
 
         return result;
