@@ -371,11 +371,11 @@ class SessionSynchronizerTest {
             // Verify serialization: max concurrent should be 1
             assertEquals(1, fakeSynchronizer.getMaxConcurrentSyncs(), "Max concurrent syncs should be 1 (serialized)");
 
-            // Verify worker threads come from project background executor
+            // Verify worker threads come from the dedicated sync executor
             for (String threadName : fakeSynchronizer.getWorkerThreadNames()) {
                 assertTrue(
-                        threadName.startsWith("MainProject-"),
-                        "Worker thread should be from MainProject executor, was: " + threadName);
+                        threadName.startsWith("SessionSync"),
+                        "Worker thread should be from SessionSync executor, was: " + threadName);
             }
 
         } finally {
@@ -414,19 +414,16 @@ class SessionSynchronizerTest {
 
             // Wait for the final sync to start
             assertTrue(syncStartedLatch.await(5, TimeUnit.SECONDS), "Final sync should start during close");
-            assertTrue(cm.isClosing(), "ContextManager should be marked as closing");
 
-            // Verify that a normal syncSessionsAsync() is skipped while closing
-            int syncCountBeforeNormalCall = totalSyncCalls.get();
+            // After closeAsync, new sync submissions to the shut-down syncExecutor should be rejected
             CompletableFuture<Void> normalSyncDuringClose = cm.syncSessionsAsync();
-            normalSyncDuringClose.get(1, TimeUnit.SECONDS); // Should complete immediately (no-op)
-            assertEquals(
-                    syncCountBeforeNormalCall, totalSyncCalls.get(), "Normal sync should be skipped while closing");
+            assertTrue(normalSyncDuringClose.isCompletedExceptionally(),
+                    "Sync submitted after close should be rejected");
 
-            // Verify background executor is NOT yet shut down while final sync is blocked
+            // ContextManager does not own project.close() — background executor should NOT be shut down
             assertFalse(
                     mainProject.getBackgroundExecutor().isShutdown(),
-                    "Background executor should not be shut down while final sync is blocked");
+                    "Background executor should not be shut down by ContextManager");
 
             // Verify close future is not yet complete
             assertFalse(closeFuture.isDone(), "Close future should not complete before final sync is released");
@@ -437,13 +434,14 @@ class SessionSynchronizerTest {
             // Wait for close to complete
             closeFuture.get(10, TimeUnit.SECONDS);
 
-            // Verify background executor is shut down after close completes
-            assertTrue(
+            // Background executor should still be running — it's owned by the project, not ContextManager
+            assertFalse(
                     mainProject.getBackgroundExecutor().isShutdown(),
-                    "Background executor should be shut down after close completes");
+                    "Background executor should not be shut down after ContextManager close");
 
         } finally {
             syncBlockLatch.countDown(); // Ensure cleanup
+            mainProject.close();
         }
     }
 }

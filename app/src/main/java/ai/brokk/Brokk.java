@@ -23,6 +23,7 @@ import ai.brokk.gui.theme.ThemeBorderManager;
 import ai.brokk.project.AbstractProject;
 import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
+import ai.brokk.project.WorktreeProject;
 import ai.brokk.util.BrokkConfigPaths;
 import ai.brokk.util.Environment;
 import ai.brokk.util.Messages;
@@ -937,22 +938,45 @@ public class Brokk {
             removedChrome.getFrame().setVisible(false);
         }
 
+        // Capture project reference before async close (ContextManager no longer owns project.close())
+        final Chrome finalChrome = removedChrome;
+        final @Nullable IProject closedProject =
+                removedChrome != null ? removedChrome.getContextManager().getProject() : null;
+
         // Async cleanup then dispatch to appropriate handler
         var closeFuture =
                 removedChrome != null ? removedChrome.closeAsync() : CompletableFuture.<Void>completedFuture(null);
 
-        final Chrome finalChrome = removedChrome;
         // Callback runs off-EDT; helpers schedule their Swing work on EDT internally
         closeFuture.whenComplete((v, ex) -> {
             if (ex != null) {
                 logger.error("Error during Chrome async close for {}", projectPath, ex);
             }
             if (reOpeningProjects.contains(projectPath)) {
-                handleReopenAfterClose(projectPath);
+                handleReopenAfterClose(projectPath, closedProject);
             } else {
-                handleNormalCloseCompletion(projectPath, finalChrome);
+                handleNormalCloseCompletion(projectPath, finalChrome, closedProject);
             }
         });
+    }
+
+    /**
+     * Closes the project with proper ownership semantics: worktree projects are closed
+     * immediately, while main projects are only closed when no other context still uses them.
+     */
+    private static void closeProjectWithOwnership(IProject project) {
+        var mainProject = project.getMainProject();
+
+        if (project instanceof WorktreeProject wt) {
+            wt.close();
+        }
+
+        boolean stillInUse = openProjectWindows.values().stream()
+                .anyMatch(chrome -> chrome.getContextManager().getProject().getMainProject() == mainProject);
+
+        if (!stillInUse) {
+            mainProject.close();
+        }
     }
 
     private static void handleWorktreeAssociations(Chrome chrome, Path projectPath) {
@@ -993,7 +1017,11 @@ public class Brokk {
         }
     }
 
-    private static void handleReopenAfterClose(Path projectPath) {
+    private static void handleReopenAfterClose(Path projectPath, @Nullable IProject closedProject) {
+        if (closedProject != null) {
+            closeProjectWithOwnership(closedProject);
+        }
+
         CompletableFuture.runAsync(() -> MainProject.removeFromOpenProjectsListAndClearActiveSession(projectPath))
                 .exceptionally(ex -> {
                     logger.error("Error removing project before reopen: {}", projectPath, ex);
@@ -1015,7 +1043,13 @@ public class Brokk {
                         SwingUtilities::invokeLater);
     }
 
-    private static void handleNormalCloseCompletion(Path projectPath, @Nullable Chrome chrome) {
+    private static void handleNormalCloseCompletion(Path projectPath,
+                                                     @Nullable Chrome chrome,
+                                                     @Nullable IProject closedProject) {
+        if (closedProject != null) {
+            closeProjectWithOwnership(closedProject);
+        }
+
         SwingUtilities.invokeLater(() -> {
             if (chrome != null) {
                 chrome.getFrame().dispose();
@@ -1258,6 +1292,12 @@ public class Brokk {
      */
     public static void exit() {
         logger.info("Exit requested. Closing all open project contexts...");
+
+        // Capture project references before async close (ContextManager no longer owns project.close())
+        var projects = openProjectWindows.values().stream()
+                .map(chrome -> chrome.getContextManager().getProject())
+                .toList();
+
         var futures = openProjectWindows.values().stream()
                 .map(chrome -> {
                     try {
@@ -1274,7 +1314,19 @@ public class Brokk {
 
         try {
             CompletableFuture.allOf(futures).join();
-            logger.info("All project contexts closed. Exiting.");
+            logger.info("All project contexts closed. Closing projects...");
+
+            // Close worktree projects first, then deduplicated main projects
+            var mainProjects = new LinkedHashSet<MainProject>();
+            for (var project : projects) {
+                if (project instanceof WorktreeProject wt) {
+                    wt.close();
+                }
+                mainProjects.add(project.getMainProject());
+            }
+            for (var mainProject : mainProjects) {
+                mainProject.close();
+            }
         } finally {
             // Ensure fragment executor is terminated so no lingering threads keep the JVM alive
             try {
