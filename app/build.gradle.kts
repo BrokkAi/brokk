@@ -567,12 +567,11 @@ tasks.register("analyze") {
     group = "verification"
     description = "Run static analysis (NullAway + spotless) without tests"
 
-    dependsOn("fix", "compileJavaErrorProne", "spotlessCheck")
+    dependsOn("compileJavaErrorProne", "spotlessCheck")
 }
 
 // Make check task run ErrorProne compilation, Python linting, and all tests for CI validation
 tasks.named("check") {
-    dependsOn("fix")
     dependsOn("compileJavaErrorProne")
     val skipPythonTasks = project.rootProject.hasProperty("skipPython")
     if (!skipPythonTasks) {
