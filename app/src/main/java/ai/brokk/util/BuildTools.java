@@ -4,20 +4,18 @@ import ai.brokk.ContextManager;
 import ai.brokk.IContextManager;
 import ai.brokk.agents.BuildAgent;
 import ai.brokk.agents.BuildAgent.BuildDetails;
-import ai.brokk.project.FileFilteringService;
-import ai.brokk.project.FileFilteringService;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.project.FileFilteringService;
 import ai.brokk.project.IProject;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.mustachejava.DefaultMustacheFactory;
 import com.github.mustachejava.Mustache;
 import com.github.mustachejava.MustacheFactory;
-import com.google.common.annotations.VisibleForTesting;
 import java.io.StringReader;
 import java.io.StringWriter;
 import java.nio.file.Path;
@@ -36,6 +34,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.VisibleForTesting;
 
 public class BuildTools {
     private static final Logger logger = LogManager.getLogger(BuildTools.class);
@@ -133,11 +132,12 @@ public class BuildTools {
                     .filter(m -> !m.testSomeCommand().isBlank())
                     .filter(m -> !m.relativePath().equals("."))
                     .filter(m -> workspaceTestFiles.stream()
-                            .allMatch(f -> FileFilteringService.toUnixPath(f.getRelPath()).startsWith(m.relativePath())))
+                            .allMatch(f -> FileFilteringService.toUnixPath(f.getRelPath())
+                                    .startsWith(m.relativePath())))
                     .max(Comparator.comparingInt(m -> m.relativePath().length()));
 
-            testSomeTemplate = module.map(BuildAgent.ModuleBuildEntry::testSomeCommand)
-                    .orElse(details.testSomeCommand());
+            testSomeTemplate =
+                    module.map(BuildAgent.ModuleBuildEntry::testSomeCommand).orElse(details.testSomeCommand());
         }
 
         if (testSomeTemplate.isBlank()) {

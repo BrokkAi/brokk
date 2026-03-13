@@ -259,7 +259,8 @@ class BuildToolsTest {
 
     @Test
     void testParseModulesJson() {
-        String json = """
+        String json =
+                """
             [
               {
                 "alias": "core",
@@ -301,7 +302,8 @@ class BuildToolsTest {
 
     @Test
     void testParseModulesJsonComplex() {
-        String json = """
+        String json =
+                """
             [
               {
                 "alias": "service",
@@ -330,7 +332,8 @@ class BuildToolsTest {
 
     @Test
     void testParseModulesJsonFullFieldVerification() {
-        String json = """
+        String json =
+                """
             [
               {
                 "alias": "full-service",
@@ -404,7 +407,7 @@ class BuildToolsTest {
 
         TestContextManager mockCm = new TestContextManager(project, new NoOpConsoleIO(), Set.of(), testAnalyzer);
 
-        // Define modules for backend and frontend. 
+        // Define modules for backend and frontend.
         // Note: ModuleBuildEntry constructor normalizes relativePath to include a trailing slash.
         BuildAgent.ModuleBuildEntry backendModule = new BuildAgent.ModuleBuildEntry(
                 "backend",
