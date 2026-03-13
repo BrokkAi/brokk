@@ -9,11 +9,11 @@ This repository contains multiple subprojects with different languages and stand
 
 ## Null Safety
 
-1. **Null Away**: This project is built with Null Away: fields, parameter, and return values are non-null by default. 
-Annotate exceptions to this rule with @Nullable (imported from org.jetbrains.annotations). Use requireNonNull 
+1. **Null Away**: This project is built with Null Away: fields, parameter, and return values are non-null by default.
+Annotate exceptions to this rule with @Nullable (imported from org.jetbrains.annotations). Use requireNonNull
 (static import from java.util.Objects) when the static type is @Nullable but our code path expects it to be non-null.
-Less often, it is useful to use castNonNull (static import from org.checkerframework.checker.nullness.util.NullnessUtil) 
-when we can prove a value is not null but the compiler doesn't realize it, e.g. accessing get(true) in a Map 
+Less often, it is useful to use castNonNull (static import from org.checkerframework.checker.nullness.util.NullnessUtil)
+when we can prove a value is not null but the compiler doesn't realize it, e.g. accessing get(true) in a Map
 returned by Collectors.partitioningBy. You do not need either requireNonNull or castNonNull when a field, parameter,
 or return value is not annotated @Nullable.
 1. **RedundantNullCheck**: Try to resolve `RedundantNullCheck` warnings by either removing the redundant null check or by annotating the reported variable or method with @Nullable (imported from org.jetbrains.annotations). Do NOT suppress the `RedundantNullCheck` warnings.
@@ -73,7 +73,11 @@ with try/catch is unnecessary and futile; don't do that.
    then use a normal CompletableFuture, but in this case you must be VERY careful that you don't leave exceptions silently ignored.
    Deal with any log-and-ignore subpaths with GlobalExceptionHandler.handle(Throwable) instead of logging manually.
 3. Avoid SwingWorker in favor of virtual threads using ExecutorsUtil.newVirtualThreadExecutor, or LoggingFuture.supplyAsync.
-4. ContextManager.submitBackgroundTask is for tasks that run long enough to be noticeable by the user. For shorter
-   tasks use LoggingFuture.supplyAsync / LoggingFuture.supplyVirtualAsync, depending on whether the task expects to be cpu- or i/o-bound.
+4. For tasks that run long enough to be noticeable by the user, use one of two tracked-task executors:
+   - `submitBackgroundTask` — reserved for analyzer callbacks, test execution, and build operations.
+   - `submitMaintenanceTask` — for everything else (I/O, network, LLM calls, dependency imports, git operations, UI bookkeeping).
+   Both have identical signatures and status-tracking behavior; the split prevents maintenance work from competing
+   with critical-path analyzer/build operations for threads.
+   For shorter tasks use LoggingFuture.supplyAsync / LoggingFuture.supplyVirtualAsync, depending on whether the task expects to be cpu- or i/o-bound.
 5. Use ai.brokk.concurrent.AtomicWrites.save(Path, XXX) for writing to disk, where XXX may be a byte[], a String,
    or a lambda that takes an OutputStream parameter.
