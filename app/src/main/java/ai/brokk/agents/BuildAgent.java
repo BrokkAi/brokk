@@ -166,10 +166,15 @@ public class BuildAgent {
                         return false;
                     }
 
-                    // If a subdirectory contains its own .git folder, it's a separate project boundary
-                    Path parent = pf.absPath().getParent();
-                    if (parent != null && Files.exists(parent.resolve(".git"))) {
-                        return false;
+                    // If any ancestor directory between the file and project root contains a .git folder,
+                    // it indicates a nested repository boundary.
+                    Path current = pf.absPath().getParent();
+                    Path root = project.getRoot();
+                    while (current != null && !current.equals(root)) {
+                        if (Files.exists(current.resolve(".git"))) {
+                            return false;
+                        }
+                        current = current.getParent();
                     }
 
                     return BuildToolConventions.isBuildFile(pf.getFileName());
