@@ -55,6 +55,7 @@ import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 import javax.swing.SwingUtilities;
 import org.apache.logging.log4j.LogManager;
@@ -90,6 +91,7 @@ public final class MainProject extends AbstractProject {
     private final DependencyUpdateScheduler dependencyUpdateScheduler;
 
     private final LoggingExecutorService backgroundExecutor;
+    private final AtomicBoolean closed = new AtomicBoolean(false);
 
     private static final long DEFAULT_DISK_CACHE_SIZE = 10L * 1024L * 1024L; // 10 MB
 
@@ -240,7 +242,8 @@ public final class MainProject extends AbstractProject {
         // Initialize dependency update scheduler
         this.dependencyUpdateScheduler = new DependencyUpdateScheduler(this);
 
-        // Initialize shared background executor for app-level tasks
+        // Shared background executor for app-level tasks (session sync, PR fetches, etc.).
+        // Fixed pool of max(8, cpus) balances concurrency with resource usage across all sessions.
         this.backgroundExecutor = ExecutorsUtil.newFixedThreadExecutor(
                 "MainProject-" + this.root.getFileName() + "-",
                 Math.max(8, Runtime.getRuntime().availableProcessors()));
@@ -2128,6 +2131,13 @@ public final class MainProject extends AbstractProject {
 
     @Override
     public void close() {
+        // Guard against multiple closes — WorktreeProject CMs share this MainProject's
+        // backgroundExecutor, and Brokk.java closes worktree windows before the main window,
+        // but the ordering is not guaranteed. Making close() idempotent avoids double-shutdown.
+        if (!closed.compareAndSet(false, true)) {
+            return;
+        }
+
         // Close dependency update scheduler first (may submit tasks to backgroundExecutor)
         dependencyUpdateScheduler.close();
 

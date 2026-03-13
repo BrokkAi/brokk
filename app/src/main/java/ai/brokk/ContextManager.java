@@ -147,7 +147,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
             ExecutorsUtil.createNamedThreadFactory("ContextTask")));
 
     // Analyzer/session-local executor for work that must stay with this session's lifecycle
-    // (e.g., analyzer callbacks, test runs that update session state)
+    // (e.g., analyzer callbacks, test runs that update session state).
+    // Core=4 keeps a small ready pool for responsive analyzer callbacks without over-subscribing;
+    // max scales to CPU count for parallel analyzer work during rebuilds.
     private final LoggingExecutorService analyzerLocalExecutor = createLoggingExecutorService(new ThreadPoolExecutor(
             4,
             max(8, Runtime.getRuntime().availableProcessors()),
@@ -1419,6 +1421,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
                                                      userActionsFuture,
                                                      historyCompressionFuture);
 
+        // Uses ForkJoinPool.commonPool() intentionally: all session-local executors are being
+        // shut down above, and the project-level executor is closed inside project.close().
+        // The common pool is appropriate for this short join-and-cleanup task.
         return CompletableFuture.runAsync(() -> {
             Throwable failure = null;
             try {
@@ -2002,6 +2007,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
             }
         };
 
+        // All current callers pass a LoggingExecutorService; prefer its submit() to get
+        // structured logging. The fallback handles any future callers with a plain executor.
         if (executor instanceof LoggingExecutorService les) {
             return les.submit(wrappedTask);
         }
