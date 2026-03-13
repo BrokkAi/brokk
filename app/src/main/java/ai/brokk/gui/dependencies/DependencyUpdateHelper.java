@@ -128,7 +128,7 @@ public final class DependencyUpdateHelper {
                 String.format("Updating %s dependency '%s' in the background...", dependencyKindLabel, depName));
 
         var future =
-                cm.submitBackgroundTask(String.format("Update %s dependency %s", dependencyKindLabel, depName), () -> {
+                cm.submitMaintenanceTask(String.format("Update %s dependency %s", dependencyKindLabel, depName), () -> {
                     var analyzer = cm.getAnalyzerWrapper();
                     analyzer.pause();
                     try {
@@ -196,7 +196,7 @@ public final class DependencyUpdateHelper {
         var project = chrome.getProject();
         var cm = chrome.getContextManager();
 
-        var future = cm.submitBackgroundTask("Auto-update local dependencies", () -> {
+        var future = cm.submitMaintenanceTask("Auto-update local dependencies", () -> {
             var analyzer = cm.getAnalyzerWrapper();
             analyzer.pause();
             try {
@@ -259,7 +259,7 @@ public final class DependencyUpdateHelper {
         var project = chrome.getProject();
         var cm = chrome.getContextManager();
 
-        var future = cm.submitBackgroundTask("Auto-update Git dependencies", () -> {
+        var future = cm.submitMaintenanceTask("Auto-update Git dependencies", () -> {
             var analyzer = cm.getAnalyzerWrapper();
             analyzer.pause();
             try {

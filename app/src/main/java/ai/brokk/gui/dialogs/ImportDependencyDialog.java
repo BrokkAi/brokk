@@ -435,7 +435,7 @@ public class ImportDependencyDialog {
 
             requireNonNull(validateGitRepoButton).setEnabled(false);
 
-            chrome.getContextManager().submitBackgroundTask("Loading branches and tags", () -> {
+            chrome.getContextManager().submitMaintenanceTask("Loading branches and tags", () -> {
                 try {
                     String normalizedUrl = url;
                     if (!normalizedUrl.endsWith(".git")) {
@@ -535,7 +535,7 @@ public class ImportDependencyDialog {
             dialog.dispose();
             bringDependenciesDialogToFront();
 
-            chrome.getContextManager().submitBackgroundTask("Copying directory: " + sourcePath.getFileName(), () -> {
+            chrome.getContextManager().submitMaintenanceTask("Copying directory: " + sourcePath.getFileName(), () -> {
                 try {
                     Files.createDirectories(dependenciesRoot);
                     if (Files.exists(targetPath)) {
@@ -606,7 +606,7 @@ public class ImportDependencyDialog {
             dialog.dispose();
             bringDependenciesDialogToFront();
 
-            chrome.getContextManager().submitBackgroundTask("Cloning repository: " + repoUrl, () -> {
+            chrome.getContextManager().submitMaintenanceTask("Cloning repository: " + repoUrl, () -> {
                 try {
                     Files.createDirectories(dependenciesRoot);
 

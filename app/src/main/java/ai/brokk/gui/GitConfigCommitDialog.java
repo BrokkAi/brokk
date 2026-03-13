@@ -128,7 +128,7 @@ public class GitConfigCommitDialog extends JDialog {
         noButton.setEnabled(false);
         commitMessageArea.setEnabled(false);
 
-        contextManager.submitBackgroundTask("Setting up .gitignore and committing", () -> {
+        contextManager.submitMaintenanceTask("Setting up .gitignore and committing", () -> {
             var result = GitIgnoreConfigurator.setupGitIgnoreAndStageFiles(project, chrome);
 
             if (result.errorMessage().isPresent()) {

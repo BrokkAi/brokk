@@ -345,7 +345,7 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
             return;
         }
 
-        contextManager.submitBackgroundTask("Fetching commits for " + contextName, () -> {
+        contextManager.submitMaintenanceTask("Fetching commits for " + contextName, () -> {
             try {
                 var repo = contextManager.getProject().getRepo();
                 if (!(repo instanceof GitRepo gitRepo)) {
@@ -779,7 +779,7 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
             return;
         }
 
-        contextManager.submitBackgroundTask("Finding overlapping sessions", () -> {
+        contextManager.submitMaintenanceTask("Finding overlapping sessions", () -> {
             List<UUID> sessionIds = ReviewScope.findOverlappingSessions(contextManager, commits);
             var sessionInfos = new ArrayList<SessionManager.SessionInfo>();
             var taskCounts = new HashMap<UUID, Integer>();

@@ -250,7 +250,7 @@ public class Chrome
 
         if (getProject().hasGit()) {
             // Initial refreshes are now done in the background
-            contextManager.submitBackgroundTask("Loading project state", () -> {
+            contextManager.submitMaintenanceTask("Loading project state", () -> {
                 updateGitRepo();
                 projectFilesPanel.requestUpdate();
                 return null;
@@ -1865,7 +1865,7 @@ public class Chrome
      * Shows the git configuration dialog with editable commit message.
      */
     private void showGitConfigDialog() {
-        contextManager.submitBackgroundTask("Checking .gitignore", () -> {
+        contextManager.submitMaintenanceTask("Checking .gitignore", () -> {
             if (!getProject().isGitIgnoreSet()) {
                 SwingUtilities.invokeLater(() -> {
                     var dialog = new GitConfigCommitDialog(frame, this, contextManager, getProject());
@@ -2464,7 +2464,7 @@ public class Chrome
      */
     public void refreshGitAsync(@Nullable String branchName) {
         if (SwingUtilities.isEventDispatchThread()) {
-            contextManager.submitBackgroundTask("Refreshing Git", () -> {
+            contextManager.submitMaintenanceTask("Refreshing Git", () -> {
                 refreshGit(branchName);
                 return null;
             });

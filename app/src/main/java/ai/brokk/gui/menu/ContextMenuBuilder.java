@@ -412,7 +412,7 @@ public class ContextMenuBuilder {
         logger.info("Open in preview for symbol: {}", context.symbolName());
 
         var symbolName = context.symbolName();
-        context.contextManager().submitBackgroundTask("Open in preview for " + symbolName, () -> {
+        context.contextManager().submitMaintenanceTask("Open in preview for " + symbolName, () -> {
             var definition = findSymbolDefinition(context);
             definition.ifPresent(codeUnit -> openPreview(codeUnit, context));
         });
@@ -422,7 +422,7 @@ public class ContextMenuBuilder {
         logger.info("Open in project tree for symbol: {}", context.symbolName());
 
         var symbolName = context.symbolName();
-        context.contextManager().submitBackgroundTask("Open in project tree for " + symbolName, () -> {
+        context.contextManager().submitMaintenanceTask("Open in project tree for " + symbolName, () -> {
             var definition = findSymbolDefinition(context);
             if (definition.isPresent()) {
                 var projectFile = definition.get().source();
@@ -484,7 +484,7 @@ public class ContextMenuBuilder {
     private void openPreview(CodeUnit symbol, SymbolMenuContext context) {
         logger.debug("Opening symbol in preview: {} in file: {}", symbol.fqName(), symbol.source());
 
-        context.contextManager().submitBackgroundTask("Open preview for " + symbol.fqName(), () -> {
+        context.contextManager().submitMaintenanceTask("Open preview for " + symbol.fqName(), () -> {
             SwingUtilities.invokeLater(() -> {
                 // Try to get the symbol's source range to position the preview
                 var analyzer = context.contextManager().getAnalyzerWrapper().getNonBlocking();
@@ -585,7 +585,7 @@ public class ContextMenuBuilder {
         }
 
         var fqn = context.fqn() != null ? context.fqn() : context.symbolName();
-        context.contextManager().submitBackgroundTask("Capture Source Code", () -> {
+        context.contextManager().submitMaintenanceTask("Capture Source Code", () -> {
             var definition = findSymbolDefinition(context);
             if (definition.isPresent()) {
                 SourceCaptureUtil.captureSourceForCodeUnit(definition.get(), context.contextManager());
@@ -617,7 +617,7 @@ public class ContextMenuBuilder {
         }
 
         var taskLabel = FileManagerUtil.fileManagerActionLabel();
-        context.contextManager().submitBackgroundTask(taskLabel, () -> {
+        context.contextManager().submitMaintenanceTask(taskLabel, () -> {
             try {
                 FileManagerUtil.revealPath(target);
             } catch (IOException | UnsupportedOperationException ex) {

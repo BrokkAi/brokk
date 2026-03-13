@@ -35,11 +35,12 @@ Logging and error reporting for these executors is centralized via `LoggingExecu
 
 - Use `ContextManager.beginTask` to open a TaskScope, then append one or more `TaskResult`s. Close (or try-with-resources) to commit exactly one history entry:
   - Changed files are made editable before the history entry is pushed.
-  - If canceled before any AI output, nothing is pushed to the history stack.  
+  - If canceled before any AI output, nothing is pushed to the history stack.
 
 ### Background tasks
 
-- Submit non-user work with `ContextManager.submitBackgroundTask(...)`.
+- Submit analyzer/test/build work with `ContextManager.submitBackgroundTask(...)`.
+- Submit all other non-user work with `ContextManager.submitMaintenanceTask(...)`.
 - Background tasks are not targeted by the Stop button and can ignore InterruptedException (won't happen, it's just noise in the code).
 - Prefer `getAnalyzerUninterrupted()` in background code; reserve `getAnalyzer()` (interruptible) for cancelable user actions.
 

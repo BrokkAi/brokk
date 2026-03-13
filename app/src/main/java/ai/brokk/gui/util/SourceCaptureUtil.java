@@ -21,7 +21,7 @@ public class SourceCaptureUtil {
      * @param contextManager The context manager to submit the task to
      */
     public static void captureSourceForCodeUnit(CodeUnit codeUnit, ContextManager contextManager) {
-        contextManager.submitBackgroundTask("Capture Source Code", () -> {
+        contextManager.submitMaintenanceTask("Capture Source Code", () -> {
             try {
                 var analyzer = contextManager.getAnalyzer();
                 contextManager.sourceCodeForCodeUnit(analyzer, codeUnit);

@@ -92,7 +92,7 @@ public final class DiffService {
             var revision = history.getGitState(k.prev().id())
                     .map(ContextHistory.GitState::commitHash)
                     .orElse("HEAD");
-            return cm.submitBackgroundTask("Computing diff", () -> diff(k.curr(), castNonNull(k.prev()), revision));
+            return cm.submitMaintenanceTask("Computing diff", () -> diff(k.curr(), castNonNull(k.prev()), revision));
         });
     }
 

@@ -189,7 +189,7 @@ public class ImportLanguagePanel extends JPanel {
     }
 
     private void loadPackages() {
-        chrome.getContextManager().submitBackgroundTask("Discovering " + language.name() + " dependencies", () -> {
+        chrome.getContextManager().submitMaintenanceTask("Discovering " + language.name() + " dependencies", () -> {
             try {
                 var pkgs = language.listDependencyPackages(chrome.getProject());
                 SwingUtilities.invokeLater(() -> populate(pkgs));

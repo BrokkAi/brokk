@@ -305,7 +305,7 @@ public class GitLogTab extends JPanel implements ThemeAware {
             // Immediate visual feedback
             fetchButton.setLoading(true, "Fetching…");
 
-            contextManager.submitBackgroundTask("Fetching all remotes", () -> {
+            contextManager.submitMaintenanceTask("Fetching all remotes", () -> {
                 try {
                     var pm = new IoProgressMonitor(contextManager.getIo());
                     // network call
@@ -323,7 +323,7 @@ public class GitLogTab extends JPanel implements ThemeAware {
                         requestUpdate(); // local rescan
                     });
                 }
-                return null; // submitBackgroundTask expects a Callable result
+                return null; // submitMaintenanceTask expects a Callable result
             });
         });
 
@@ -369,7 +369,7 @@ public class GitLogTab extends JPanel implements ThemeAware {
                 // Then check/fetch in background and refresh if updates found
                 var ref = RemoteBranchRef.parse(branchName);
                 if (ref != null) {
-                    contextManager.submitBackgroundTask("Checking " + branchName, () -> {
+                    contextManager.submitMaintenanceTask("Checking " + branchName, () -> {
                         try {
                             if (getRepo().remote().branchNeedsFetch(ref.remoteName(), ref.branchName())) {
                                 logger.info(
@@ -668,7 +668,7 @@ public class GitLogTab extends JPanel implements ThemeAware {
                 },
                 "");
 
-        contextManager.submitBackgroundTask("Fetching git branches", () -> {
+        contextManager.submitMaintenanceTask("Fetching git branches", () -> {
             try {
                 String currentGitBranch = getRepo().getCurrentBranch(); // Get current branch from Git
                 List<String> localBranches = getRepo().listLocalBranches();
@@ -795,7 +795,7 @@ public class GitLogTab extends JPanel implements ThemeAware {
 
     /** Update commits list for the given branch and highlights unpushed commits if applicable. */
     private void updateCommitsForBranch(String branchName) {
-        contextManager.submitBackgroundTask("Fetching commits for " + branchName, () -> {
+        contextManager.submitMaintenanceTask("Fetching commits for " + branchName, () -> {
             try {
                 List<CommitInfo> commits;
                 Set<String> unpushedCommitIds = new HashSet<>();
@@ -1353,7 +1353,7 @@ public class GitLogTab extends JPanel implements ThemeAware {
 
     /** Selects the current branch in the branch table. Called after PR checkout to highlight the new branch. */
     public void selectCurrentBranch() {
-        contextManager.submitBackgroundTask("Finding current branch", () -> {
+        contextManager.submitMaintenanceTask("Finding current branch", () -> {
             try {
                 var currentBranch = getRepo().getCurrentBranch();
                 SwingUtilities.invokeLater(() -> {

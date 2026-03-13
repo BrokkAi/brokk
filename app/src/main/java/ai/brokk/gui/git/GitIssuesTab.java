@@ -156,7 +156,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
         this.currentDescriptionFuture = null;
 
         // Load dynamic statuses after issueService and statusFilter are initialized
-        var future = contextManager.submitBackgroundTask("Load Available Issue Statuses", () -> {
+        var future = contextManager.submitMaintenanceTask("Load Available Issue Statuses", () -> {
             List<String> fetchedStatuses = null;
             try {
                 // Ensure issueService is available
@@ -816,7 +816,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
         issueBodyTextPane.setText(
                 "<html><body><p><i>Loading description for " + header.id() + "...</i></p></body></html>");
 
-        var future = contextManager.submitBackgroundTask("Fetching/Rendering Issue Details for " + header.id(), () -> {
+        var future = contextManager.submitMaintenanceTask("Fetching/Rendering Issue Details for " + header.id(), () -> {
             try {
                 IssueDetails details = issueService.loadDetails(header.id());
                 String htmlBody = details.htmlBody();
@@ -888,7 +888,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
             issueTableModel.setRowCount(0);
         });
 
-        currentSearchFuture = contextManager.submitBackgroundTask("Fetching GitHub Issues", () -> {
+        currentSearchFuture = contextManager.submitMaintenanceTask("Fetching GitHub Issues", () -> {
             try {
                 // Read filter values
                 final String currentSearchQuery = searchBox.getText().strip();
@@ -1062,7 +1062,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
         loadMoreButton.setEnabled(false);
         searchBox.setLoading(true, "Loading more issues...");
 
-        var future = contextManager.submitBackgroundTask("Loading more issues", () -> {
+        var future = contextManager.submitMaintenanceTask("Loading more issues", () -> {
             try {
                 var result =
                         StreamingPaginationHelper.loadPrebatchedBatch(iterator, StreamingPaginationHelper.BATCH_SIZE);
@@ -1353,7 +1353,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
         }
         IssueHeader header = displayedIssues.get(selectedRow);
 
-        var future = contextManager.submitBackgroundTask("Fetching issue details for copy: " + header.id(), () -> {
+        var future = contextManager.submitMaintenanceTask("Fetching issue details for copy: " + header.id(), () -> {
             try {
                 IssueDetails details = issueService.loadDetails(header.id());
                 String body = details.markdownBody();

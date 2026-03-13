@@ -1009,7 +1009,7 @@ public class BrokkDiffPanel extends JPanel
             }
         }
 
-        contextManager.submitBackgroundTask("Capture diffs", () -> {
+        contextManager.submitMaintenanceTask("Capture diffs", () -> {
             var combinedBuilder = new StringBuilder();
             var filesForFragment = new LinkedHashSet<ProjectFile>();
             String primaryDisplayName = null;
@@ -1083,7 +1083,7 @@ public class BrokkDiffPanel extends JPanel
             var fragment = new ContextFragments.StringFragment(
                     contextManager, combinedBuilder.toString(), description, syntaxStyle, filesForFragment);
 
-            contextManager.submitBackgroundTask("Add fragments to context", () -> {
+            contextManager.submitMaintenanceTask("Add fragments to context", () -> {
                 contextManager.addFragments(fragment);
                 contextManager
                         .getIo()

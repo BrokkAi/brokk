@@ -108,7 +108,7 @@ public class BuildTools {
     }
 
     public static CompletableFuture<@Nullable String> determineVerificationCommandAsync(ContextManager cm) {
-        return cm.submitBackgroundTask(
+        return cm.submitMaintenanceTask(
                 "Determine build verification command", () -> determineVerificationCommand(cm.liveContext()));
     }
 

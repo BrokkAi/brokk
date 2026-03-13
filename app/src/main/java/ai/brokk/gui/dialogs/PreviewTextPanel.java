@@ -187,7 +187,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
             SwingUtilities.invokeLater(() -> requireNonNull(attachButton).setIcon(Icons.ATTACH_FILE));
             var finalAttachButton = attachButton; // Final reference for lambda
 
-            cm.submitBackgroundTask("Determining files in the current context", () -> {
+            cm.submitMaintenanceTask("Determining files in the current context", () -> {
                 var files = cm.getFilesInContext();
 
                 SwingUtilities.invokeLater(() -> {
@@ -329,7 +329,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
 
         // Fetch declarations in the background if it's a project file
         if (file != null) {
-            fileDeclarations = cm.submitBackgroundTask("Fetch Declarations", () -> {
+            fileDeclarations = cm.submitMaintenanceTask("Fetch Declarations", () -> {
                 var analyzer = cm.getAnalyzerUninterrupted();
                 return analyzer.isEmpty() ? Collections.emptySet() : analyzer.getDeclarations(file);
             });
@@ -634,7 +634,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
                         sourceItem.addActionListener(
                                 action -> SourceCaptureUtil.captureSourceForCodeUnit(codeUnit, cm));
                         if (constructorSourceItem != null) {
-                            constructorSourceItem.addActionListener(action -> cm.submitBackgroundTask(
+                            constructorSourceItem.addActionListener(action -> cm.submitMaintenanceTask(
                                     "Capture Source",
                                     () -> SourceCaptureUtil.captureSourceForCodeUnit(constructorCu, cm)));
                         }
@@ -667,10 +667,10 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
                     }
 
                     if (usagesAvailable) {
-                        usageItem.addActionListener(action -> cm.submitBackgroundTask(
+                        usageItem.addActionListener(action -> cm.submitMaintenanceTask(
                                 "Capture Usages", () -> cm.usageForIdentifier(codeUnit.fqName(), true)));
                         if (constructorUsageItem != null) {
-                            constructorUsageItem.addActionListener(action -> cm.submitBackgroundTask(
+                            constructorUsageItem.addActionListener(action -> cm.submitMaintenanceTask(
                                     "Capture Usages",
                                     () -> cm.usageForIdentifier(codeUnit.fqName() + "." + identifier, true)));
                         }
@@ -772,7 +772,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
         // Only try to get symbols if we have a file and its corresponding fragment is a PathFragment
         if (file != null) {
             // Submit the task to fetch symbols in the background
-            symbolsFuture = cm.submitBackgroundTask("Fetch File Symbols", () -> {
+            symbolsFuture = cm.submitMaintenanceTask("Fetch File Symbols", () -> {
                 var analyzer = cm.getAnalyzerUninterrupted();
                 return analyzer.getSymbols(analyzer.getDeclarations(file));
             });

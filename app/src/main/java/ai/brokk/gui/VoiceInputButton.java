@@ -363,7 +363,7 @@ public class VoiceInputButton extends JButton {
         }
 
         // We do the STT in the background so as not to block the UI
-        contextManager.submitBackgroundTask("Transcribing Audio", () -> {
+        contextManager.submitMaintenanceTask("Transcribing Audio", () -> {
             IConsoleIO iConsoleIO1 = contextManager.getIo();
             iConsoleIO1.showNotification(NotificationRole.INFO, "Transcribing audio");
             try {

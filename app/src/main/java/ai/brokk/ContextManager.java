@@ -161,8 +161,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     // Short bookkeeping tasks only (balance checks, session ops, history cleanup, service reload)
     private final LoggingExecutorService maintenanceTasks = createLoggingExecutorService(new ThreadPoolExecutor(
-            2,
-            2,
+            4,
+            4,
             60L,
             TimeUnit.SECONDS,
             new LinkedBlockingQueue<>(),
@@ -2067,7 +2067,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * Returns a CompletableFuture for the style guide content.
      */
     public CompletableFuture<String> ensureGuidesAsync() {
-        return submitBackgroundTask("Loading project guides", () -> {
+        return submitMaintenanceTask("Loading project guides", () -> {
             // Handle style guide off EDT
             String existingStyleGuide = project.getStyleGuide();
             if (!existingStyleGuide.isEmpty()) {
@@ -2222,7 +2222,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * Returns a CompletableFuture for the regenerated style guide content.
      */
     public CompletableFuture<String> regenerateStyleGuideAsync() {
-        return submitBackgroundTask("Regenerating style guide", () -> {
+        return submitMaintenanceTask("Regenerating style guide", () -> {
             if (!project.hasGit()) {
                 logger.info("No Git repository found, skipping style guide regeneration.");
                 styleGenerationSkipped = true;

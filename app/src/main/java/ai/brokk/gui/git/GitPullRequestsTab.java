@@ -495,7 +495,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                     viewPrDiffButton.setEnabled(singlePrSelected);
                     updatePrTableContextMenuState();
 
-                    this.contextManager.submitBackgroundTask("Updating PR #" + prNumber + " local status", () -> {
+                    this.contextManager.submitMaintenanceTask("Updating PR #" + prNumber + " local status", () -> {
                         SwingUtilities.invokeLater(() -> {
                             int currentRow = prTable.getSelectedRow();
                             if (currentRow != -1
@@ -803,7 +803,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                     }
 
                     if (!futuresToCancelAndAwait.isEmpty()) {
-                        contextManager.submitBackgroundTask("Finalizing cancellations and refreshing PR data", () -> {
+                        contextManager.submitMaintenanceTask("Finalizing cancellations and refreshing PR data", () -> {
                             for (Future<?> f : futuresToCancelAndAwait) {
                                 try {
                                     f.get();
@@ -844,7 +844,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                     }
 
                     if (!futuresToCancelAndAwait.isEmpty()) {
-                        contextManager.submitBackgroundTask("Finalizing cancellations and refreshing PR data", () -> {
+                        contextManager.submitMaintenanceTask("Finalizing cancellations and refreshing PR data", () -> {
                             for (Future<?> f : futuresToCancelAndAwait) {
                                 try {
                                     f.get();
@@ -1017,7 +1017,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         labelChoices.clear();
         assigneeChoices.clear();
 
-        var future = contextManager.submitBackgroundTask("Fetching GitHub Pull Requests", () -> {
+        var future = contextManager.submitMaintenanceTask("Fetching GitHub Pull Requests", () -> {
             try {
                 var project = contextManager.getProject();
                 GitHubAuth auth = GitHubAuth.getOrCreateInstance(project);
@@ -1108,7 +1108,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         loadMoreButton.setEnabled(false);
         refreshPrButton.setToolTipText("Loading more PRs...");
 
-        var future = contextManager.submitBackgroundTask("Loading more PRs", () -> {
+        var future = contextManager.submitMaintenanceTask("Loading more PRs", () -> {
             try {
                 var result = StreamingPaginationHelper.loadBatch(iterator, StreamingPaginationHelper.BATCH_SIZE);
 
@@ -1635,7 +1635,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         prCommitsTableModel.setRowCount(0);
         prCommitsTableModel.addRow(new Object[] {"Loading commits..."});
 
-        var future = contextManager.submitBackgroundTask("Fetching commits for PR #" + prNumber, () -> {
+        var future = contextManager.submitMaintenanceTask("Fetching commits for PR #" + prNumber, () -> {
             List<ICommitInfo> newCommitList = new ArrayList<>();
             try {
                 var project = contextManager.getProject();

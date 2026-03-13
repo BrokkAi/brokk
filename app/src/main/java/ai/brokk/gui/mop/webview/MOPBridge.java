@@ -434,7 +434,7 @@ public final class MOPBridge {
         }
 
         // Use Chrome's background task system instead of raw ai.brokk.concurrent.LoggingFuture.supplyAsync()
-        contextManager.submitBackgroundTask("Symbol lookup for " + symbolNames.size() + " symbols", () -> {
+        contextManager.submitMaintenanceTask("Symbol lookup for " + symbolNames.size() + " symbols", () -> {
             // Assert background task is not running on EDT
             assert !SwingUtilities.isEventDispatchThread() : "Background task running on EDT";
 
@@ -518,7 +518,7 @@ public final class MOPBridge {
         }
 
         // Use Chrome's background task system for file path lookup
-        contextManager.submitBackgroundTask("File path lookup for " + filePaths.size() + " paths", () -> {
+        contextManager.submitMaintenanceTask("File path lookup for " + filePaths.size() + " paths", () -> {
             // Assert background task is not running on EDT
             assert !SwingUtilities.isEventDispatchThread() : "Background task running on EDT";
 

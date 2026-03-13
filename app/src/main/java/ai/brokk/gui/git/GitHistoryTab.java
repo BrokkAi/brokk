@@ -134,7 +134,7 @@ public class GitHistoryTab extends JPanel {
             viewDiffItem.setEnabled(single);
             viewInLogItem.setEnabled(single);
 
-            contextManager.submitBackgroundTask("Determining files in context", () -> {
+            contextManager.submitMaintenanceTask("Determining files in context", () -> {
                 var files = contextManager.getFilesInContext(); // blocking
                 SwingUtilities.invokeLater(() -> {
                     if (single) {
@@ -208,7 +208,7 @@ public class GitHistoryTab extends JPanel {
     }
 
     private void loadFileHistory() {
-        contextManager.submitBackgroundTask("Loading file history: " + file, () -> {
+        contextManager.submitMaintenanceTask("Loading file history: " + file, () -> {
             try {
                 var history = getRepo().getFileHistoryWithPaths(file);
                 SwingUtilities.invokeLater(() -> {
