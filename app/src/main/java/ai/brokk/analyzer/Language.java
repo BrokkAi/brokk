@@ -19,6 +19,10 @@ public interface Language {
 
     Set<String> getExtensions();
 
+    default Set<String> commonBuildFiles() {
+        return Set.of();
+    }
+
     String name(); // Human-friendly
 
     String internalName(); // Filesystem-safe

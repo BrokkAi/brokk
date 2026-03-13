@@ -470,6 +470,12 @@ public class Languages {
     public static final List<Language> ALL_LANGUAGES =
             List.of(C_SHARP, JAVA, JAVASCRIPT, PYTHON, C_CPP, GO, RUST, PHP, TYPESCRIPT, SCALA, SQL, NONE);
 
+    public static Set<String> getAllCommonBuildFiles() {
+        return ALL_LANGUAGES.stream()
+                .flatMap(l -> l.commonBuildFiles().stream())
+                .collect(Collectors.toSet());
+    }
+
     /**
      * Aggregates a set of languages into a single Language handle.
      * Handles empty, single-element, and multi-element sets appropriately.
