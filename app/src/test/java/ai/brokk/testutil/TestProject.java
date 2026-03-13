@@ -351,6 +351,7 @@ public class TestProject implements IProject {
         return backgroundExecutor;
     }
 
+
     /**
      * Shuts down the background executor if it was created. Safe to call multiple times.
      */

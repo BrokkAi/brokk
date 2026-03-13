@@ -2988,11 +2988,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
         io.disableHistoryPanel();
         var taskHistory = ctx.getTaskHistory();
 
-        // Use the shared project executor for compression work (not session-critical)
-        var backgroundExecutor = project.getBackgroundExecutor();
         var compressionFutures = taskHistory.stream()
                 .map(taskEntry -> {
-                    return LoggingFuture.supplyCallableAsync(() -> compressHistory(taskEntry), backgroundExecutor)
+                    return LoggingFuture.supplyCallableAsync(() -> compressHistory(taskEntry))
                             .exceptionally(th -> {
                                 logger.warn("History compression task failed", th);
                                 return taskEntry;
