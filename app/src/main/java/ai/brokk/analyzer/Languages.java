@@ -85,6 +85,11 @@ public class Languages {
         }
 
         @Override
+        public Set<String> commonBuildFiles() {
+            return Set.of("package.json", "package-lock.json", "yarn.lock", "pnpm-lock.yaml");
+        }
+
+        @Override
         public String name() {
             return "JavaScript";
         }
@@ -380,6 +385,11 @@ public class Languages {
         @Override
         public Set<String> getExtensions() {
             return extensions;
+        }
+
+        @Override
+        public Set<String> commonBuildFiles() {
+            return Set.of("package.json", "package-lock.json", "yarn.lock", "pnpm-lock.yaml");
         }
 
         @Override
