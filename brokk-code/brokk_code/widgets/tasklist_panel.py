@@ -28,6 +28,8 @@ class TaskListPanel(Vertical):
         Binding("a", "task_add", "Add", show=False),
         Binding("e", "task_edit", "Edit", show=False),
         Binding("d", "task_delete", "Delete", show=False),
+        Binding("r", "task_run", "Run", show=False),
+        Binding("R", "task_run_all", "Run All", show=False),
     ]
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
@@ -86,21 +88,23 @@ class TaskListPanel(Vertical):
     def _get_shortcuts_text(self) -> str:
         """Derive a concise help line from BINDINGS."""
         shortcuts: list[str] = []
-        for binding in self.BINDINGS:
+        for binding in TaskListPanel.BINDINGS:
             # Skip navigation and internal-only keys; we add manual entries for these.
             if binding.key in ("left,up", "right,down", "enter,space"):
                 continue
 
-            key_display = binding.key.upper()
-            if "SHIFT+" in key_display:
-                key_display = key_display.replace("SHIFT+", "")
+            # Format the key display; uppercase single letter means Shift+<key>
+            key = binding.key
+            if len(key) == 1 and key.isupper():
+                key_display = f"Shift+{key}"
+            else:
+                key_display = key.title()
             shortcuts.append(f"[b]{key_display}[/b] {binding.description}")
 
         manual = [
             "[bold bright_magenta]Esc[/] Close",
             "[b]Up/Down[/b] Move",
-            "[b]Space[/b] Toggle",
-            "[b]Enter[/b] Toggle",
+            "[b]Space/Enter[/b] Toggle",
         ]
         return "  ".join(manual + shortcuts)
 
@@ -132,6 +136,16 @@ class TaskListPanel(Vertical):
         app = self.app
         if app is not None and hasattr(app, "action_task_delete"):
             app.action_task_delete()
+
+    def action_task_run(self) -> None:
+        app = self.app
+        if app is not None and hasattr(app, "action_task_run"):
+            app.action_task_run()
+
+    def action_task_run_all(self) -> None:
+        app = self.app
+        if app is not None and hasattr(app, "action_task_run_all"):
+            app.action_task_run_all()
 
     def refresh_tasklist(self, context_data: Dict[str, Any]) -> None:
         """Finds the TASK_LIST fragment and updates the display using context overview."""

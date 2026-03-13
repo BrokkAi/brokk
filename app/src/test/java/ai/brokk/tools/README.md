@@ -2,6 +2,43 @@
 
 This package contains command-line benchmark and evaluation tools for testing Brokk's analyzer capabilities.
 
+## SearchFileContentsBenchmark
+
+A CLI benchmark tool that compares `SearchTools.searchFileContents` against `rg` on a real project.
+
+### Purpose
+
+Use this benchmark to establish baseline search performance and track improvements to Brokk's grep-like fallback.
+
+### Usage
+
+Run via Gradle:
+
+```bash
+# Show help
+./gradlew :app:runSearchFileContentsBenchmark -Pargs="--help"
+
+# Benchmark this repository
+./gradlew :app:runSearchFileContentsBenchmark -Pargs="--project /path/to/brokk"
+```
+
+### CLI Options
+
+| Option | Required | Default | Description |
+|--------|----------|---------|-------------|
+| `--project` | Yes | - | Path to project root to benchmark |
+| `--glob` | No | `**/*.java` | File glob for both internal search and rg |
+| `--warm-up-iterations` | No | `1` | Warm-up iterations per scenario |
+| `--iterations` | No | `5` | Measured iterations per scenario |
+| `--max-files` | No | `50` | `maxFiles` passed to `searchFileContents` |
+| `--matches-per-file` | No | `10` | `matchesPerFile` for internal and `rg -m` |
+| `--context-lines` | No | `0` | `contextLines` passed to `searchFileContents` |
+
+### Notes
+
+- `rg` must be installed and available on `PATH`; the benchmark fails fast otherwise.
+- Built-in scenarios include miss/sparse-hit/dense-hit literal patterns.
+
 ## UsageBenchEval
 
 A CLI benchmark tool that evaluates `FuzzyUsageFinder` against labeled datasets, computing precision, recall, and F1 metrics.

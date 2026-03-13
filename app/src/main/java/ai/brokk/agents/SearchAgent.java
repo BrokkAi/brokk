@@ -21,7 +21,6 @@ import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolOutput;
 import ai.brokk.tools.ToolRegistry;
 import ai.brokk.tools.WorkspaceTools;
-import ai.brokk.util.Json;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolContext;
@@ -457,24 +456,28 @@ public class SearchAgent {
 
     @Tool("Abort search immediately.")
     public TerminalStopOutput abortSearch(@P("Reason for abort.") String explanation) {
-        var details = jsonWithExplanation(explanation);
-        var stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.LLM_ABORTED, details);
+        var stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.LLM_ABORTED, explanation);
         io.llmOutput(explanation, ChatMessageType.AI, LlmOutputMeta.DEFAULT);
-        return new TerminalStopOutput(details, stopDetails);
+        return new TerminalStopOutput(explanation, stopDetails);
     }
 
     @Tool("Provide final answer.")
-    public TerminalStopOutput answer(@P("Comprehensive final answer in Markdown.") String explanation) {
-        var details = jsonWithExplanation(explanation);
-        var stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS, details);
-        io.llmOutput("# Answer\n\n" + explanation, ChatMessageType.AI, LlmOutputMeta.newMessage());
-        return new TerminalStopOutput(details, stopDetails);
+    public TerminalStopOutput answer(
+            @P("Comprehensive final answer in Markdown.") String explanation,
+            @P("Captured cost/benefit tradeoffs: what was not pursued or remains uncertain (empty string if none).")
+                    String furtherInvestigation) {
+        var result = formatPlaintextResult(explanation, furtherInvestigation);
+        var stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS, result);
+        io.llmOutput(result, ChatMessageType.AI, LlmOutputMeta.newMessage());
+        return new TerminalStopOutput(result, stopDetails);
     }
 
     @Tool("Signal workspace preparation is complete.")
     public ToolOutput workspaceComplete(
             @P("Selected workspace fragments as IDs, or exact fragment descriptions.")
-                    List<String> fragmentIdsOrDescriptions) {
+                    List<String> fragmentIdsOrDescriptions,
+            @P("Captured cost/benefit tradeoffs: what was not pursued or remains uncertain (empty string if none).")
+                    String furtherInvestigation) {
         var acceptedIds = new LinkedHashSet<String>();
         if (pendingWorkspaceCompleteIds != null) {
             acceptedIds.addAll(pendingWorkspaceCompleteIds);
@@ -492,7 +495,8 @@ public class SearchAgent {
                     Invalid fragment selections: %s
                     Accepted fragment IDs: %s
                     Accepted selections are saved and do not need to be repeated.
-                    Call workspaceComplete one more time with only corrected selections.
+                    Call workspaceComplete one more time with corrected selections and a furtherInvestigation string
+                    (use an empty string if there is nothing to add).
                     """
                             .formatted(resolved.badSelections(), acceptedIds);
             io.llmOutput(retryMessage, ChatMessageType.AI, LlmOutputMeta.DEFAULT);
@@ -502,10 +506,11 @@ public class SearchAgent {
         workspaceCompleteRetryOffered = false;
         pendingWorkspaceCompleteIds = null;
 
-        var details = jsonWithFragmentIds(List.copyOf(acceptedIds));
-        var stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS, details);
-        io.llmOutput(details, ChatMessageType.AI, LlmOutputMeta.newMessage());
-        return new TerminalStopOutput(details, stopDetails);
+        var explanation = "Selected Fragments: " + String.join(", ", acceptedIds);
+        var result = formatPlaintextResult(explanation, furtherInvestigation);
+        var stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS, result);
+        io.llmOutput(result, ChatMessageType.AI, LlmOutputMeta.newMessage());
+        return new TerminalStopOutput(result, stopDetails);
     }
 
     private record FragmentSelectionResolution(List<String> acceptedIds, List<String> badSelections) {}
@@ -552,11 +557,18 @@ public class SearchAgent {
         return new FragmentSelectionResolution(List.copyOf(accepted), List.copyOf(bad));
     }
 
-    private static String jsonWithExplanation(String explanation) {
-        return Json.toJson(Map.of("explanation", explanation));
-    }
+    private static String formatPlaintextResult(String mainContent, String furtherInvestigation) {
+        if (furtherInvestigation.isBlank()) {
+            return "# Answer\n\n" + mainContent.trim();
+        }
+        return """
+                # Answer
+                %s
 
-    private static String jsonWithFragmentIds(List<String> fragmentIds) {
-        return Json.toJson(Map.of("fragment_ids", fragmentIds));
+                ### Further Investigation
+                %s
+                """
+                .formatted(mainContent.trim(), furtherInvestigation.trim())
+                .strip();
     }
 }

@@ -919,7 +919,7 @@ public class EditBlock {
      *
      * @param ctx          The context.
      * @param filename     The filename string to resolve (potentially partial).
-     * @param maybeNewFile
+     * @param maybeNewFile if this is maybe a new file.
      * @return The resolved ProjectFile.
      * @throws SymbolAmbiguousException if the filename matches multiple files.
      * @throws SymbolInvalidException   if the file name is not a valid path (possibly absolute) or is null.

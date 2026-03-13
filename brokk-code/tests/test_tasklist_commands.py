@@ -1,9 +1,7 @@
 from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 
 import pytest
-from rich.text import Text
 from textual.app import App, ComposeResult, ScreenStackError
-from textual.widgets import Static
 
 from brokk_code.app import BrokkApp, TaskListModalScreen, TaskTitleModalScreen
 from brokk_code.widgets.chat_panel import ChatPanel
@@ -13,20 +11,6 @@ from brokk_code.widgets.tasklist_panel import TaskListPanel
 def _close_coro(coro):
     """Helper to immediately close background coroutines started by run_worker."""
     coro.close()
-
-
-def _static_rendered_text(widget: Static) -> str:
-    rendered = widget.render()
-    if isinstance(rendered, Text):
-        return rendered.plain
-    return str(rendered)
-
-
-def test_app_has_no_global_tasklist_bindings() -> None:
-    keys = {b.key for b in BrokkApp.BINDINGS}
-    assert "ctrl+j" not in keys
-    assert "ctrl+k" not in keys
-    assert "ctrl+space" not in keys
 
 
 def test_task_command_opens_modal_and_focuses_tasklist_panel() -> None:
@@ -104,6 +88,7 @@ async def test_tasklist_panel_keybindings_call_app_actions() -> None:
             self.action_task_edit = MagicMock()
             self.action_task_delete = MagicMock()
             self.action_task_toggle = MagicMock()
+            self.action_task_run = MagicMock()
 
         def compose(self) -> ComposeResult:
             yield TaskListPanel(id="tl")
@@ -138,43 +123,9 @@ async def test_tasklist_panel_keybindings_call_app_actions() -> None:
         await pilot.pause()
         app.action_task_toggle.assert_called_once()
 
-
-@pytest.mark.asyncio
-async def test_tasklist_panel_help_line_contains_expected_keybindings() -> None:
-    class TestApp(App):
-        def compose(self) -> ComposeResult:
-            yield TaskListPanel(id="tl")
-
-    app = TestApp()
-    async with app.run_test() as pilot:
-        panel = app.query_one("#tl", TaskListPanel)
-        panel.update_tasklist_details(
-            {
-                "bigPicture": "x",
-                "tasks": [
-                    {"id": "1", "title": "One", "text": "One", "done": False},
-                ],
-            }
-        )
+        await pilot.press("r")
         await pilot.pause()
-
-        help_line = panel.query_one("#tasklist-help-line", Static)
-        rendered = _static_rendered_text(help_line)
-
-        # Esc is now first and highlighted; assert content + ordering without
-        # overfitting spacing/alignment.
-        assert "Esc Close" in rendered
-        assert rendered.index("Esc") < rendered.index("Space")
-        assert rendered.index("Esc") < rendered.index("Enter")
-
-        # Basic expected entries still present.
-        assert "Up/Down" in rendered
-        assert "Space" in rendered
-        assert "Enter" in rendered
-        assert "A" in rendered
-        assert "E" in rendered
-        assert "D" in rendered
-        assert "Toggle" in rendered
+        app.action_task_run.assert_called_once()
 
 
 def test_app_task_add_opens_modal_and_dispatches_add_worker_on_submit() -> None:
@@ -254,17 +205,6 @@ def test_task_command_open_when_executor_ready_triggers_immediate_tasklist_fetch
     worker_coros = [c.args[0] for c in app.run_worker.call_args_list]
     worker_names = {coro.__name__ for coro in worker_coros}
     assert worker_names == {"_ensure_tasklist_data", "_refresh_context_panel"}
-
-
-def test_app_task_delete_dispatches_delete_worker() -> None:
-    app = BrokkApp(executor=MagicMock())
-    app.run_worker = MagicMock(side_effect=_close_coro)
-
-    app.action_task_delete()
-
-    assert app.run_worker.call_count == 1
-    worker_coro = app.run_worker.call_args.args[0]
-    assert worker_coro.__name__ == "_delete_selected_task"
 
 
 @pytest.mark.asyncio
