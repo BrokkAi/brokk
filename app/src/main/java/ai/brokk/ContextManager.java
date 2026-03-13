@@ -292,7 +292,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         this.userActions = new UserActionManager(this.io);
 
         // Begin monitoring for excessive memory usage
-        this.lowMemoryWatcherManager = new LowMemoryWatcherManager(this.backgroundTasks);
+        this.lowMemoryWatcherManager = new LowMemoryWatcherManager(this.maintenanceTasks);
         this.lowMemoryWatcherManager.registerWithStrongReference(
                 () -> LowMemoryWatcherManager.LowMemoryWarningManager.alertUser(this.io),
                 LowMemoryWatcher.LowMemoryWatcherType.ONLY_AFTER_GC);
@@ -615,7 +615,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * @param changedFiles Set of files that changed (may be empty for backward compatibility)
      */
     void handleTrackedFileChange(Set<ProjectFile> changedFiles) {
-        submitBackgroundTask("Update for FS changes", () -> {
+        submitMaintenanceTask("Update for FS changes", () -> {
             // Invalidate caches
             project.getRepo().invalidateCaches();
             project.invalidateAllFiles();
@@ -1847,7 +1847,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * @return A CompletableFuture that will return the description string.
      */
     public CompletableFuture<String> submitSummarizePastedImage(Image pastedImage) {
-        return submitBackgroundTask("Summarizing pasted image", () -> {
+        return submitMaintenanceTask("Summarizing pasted image", () -> {
             try {
                 // Convert AWT Image to LangChain4j Image (requires Base64 encoding)
                 var l4jImage = ImageUtil.toL4JImage(pastedImage);
@@ -1943,7 +1943,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         }
 
         // No details found, run the BuildAgent asynchronously
-        buildAgentFuture = submitBackgroundTask("Inferring build details", () -> {
+        buildAgentFuture = submitMaintenanceTask("Inferring build details", () -> {
             io.showNotification(IConsoleIO.NotificationRole.INFO, "Inferring project build details");
 
             // Check if task was cancelled before starting
@@ -2465,7 +2465,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      */
     public CompletableFuture<ContextHistory> loadSessionHistoryAsync(UUID sessionId) {
         return LoggingFuture.supplyAsync(
-                () -> project.getSessionManager().loadHistory(sessionId, this), backgroundTasks);
+                () -> project.getSessionManager().loadHistory(sessionId, this), maintenanceTasks);
     }
 
     /**
