@@ -340,7 +340,7 @@ public class TestProject implements IProject {
      * lazily on first access. Tests that call this should also call {@link #close()} to clean up.
      */
     @Override
-    public ExecutorService getBackgroundExecutor() {
+    public synchronized ExecutorService getBackgroundExecutor() {
         if (backgroundExecutor == null) {
             backgroundExecutor = Executors.newSingleThreadExecutor(r -> {
                 var t = new Thread(r, "TestProject-bg");
@@ -350,7 +350,6 @@ public class TestProject implements IProject {
         }
         return backgroundExecutor;
     }
-
 
     /**
      * Shuts down the background executor if it was created. Safe to call multiple times.

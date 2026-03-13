@@ -268,7 +268,6 @@ public interface IContextManager {
         });
     }
 
-
     default Set<ProjectFile> getTestFiles() {
         Set<ProjectFile> allFiles = getRepo().getTrackedFiles();
         var analyzer = getAnalyzerWrapper().getNonBlocking();

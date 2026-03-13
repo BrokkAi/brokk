@@ -69,7 +69,6 @@ public interface IProject extends AutoCloseable {
         throw new UnsupportedOperationException();
     }
 
-
     /**
      * Gets the set of Brokk Language enums configured for the project.
      *

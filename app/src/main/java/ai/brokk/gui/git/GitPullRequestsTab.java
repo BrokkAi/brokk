@@ -812,7 +812,6 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                                     // Ignored - cancellation expected
                                 }
                             }
-                            return null;
                         });
                     }
                 },
@@ -853,7 +852,6 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                                     // Ignored - cancellation expected
                                 }
                             }
-                            return null;
                         });
                     }
                 },
@@ -1093,7 +1091,6 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                     });
                 }
             }
-            return null;
         });
         trackCancellableFuture(future);
     }
@@ -1140,7 +1137,6 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                     }
                 });
             }
-            return null;
         });
         trackCancellableFuture(future);
     }
@@ -1399,10 +1395,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
 
         activeCiFetcher = new CiStatusFetcherWorker(prsRequiringCiFetch);
         var ciFetcher = activeCiFetcher;
-        contextManager.submitBackgroundTask("Fetching CI statuses for PRs", () -> {
-            ciFetcher.execute();
-            return null;
-        });
+        contextManager.submitBackgroundTask("Fetching CI statuses for PRs", () -> ciFetcher.execute());
     }
 
     private class PrFilesFetcherWorker extends ExceptionAwareSwingWorker<Map<Integer, List<String>>, Void> {
@@ -1777,7 +1770,6 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                     prFilesTableModel.setRowCount(0); // Clear files on error too
                 });
             }
-            return null;
         });
         trackCancellableFuture(future);
     }
@@ -2072,10 +2064,8 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
             }
         };
         var prFilesFetcher = activePrFilesFetcher;
-        contextManager.submitBackgroundTask("Fetching changed files for PR #" + pr.getNumber(), () -> {
-            prFilesFetcher.execute();
-            return null;
-        });
+        contextManager.submitBackgroundTask("Fetching changed files for PR #" + pr.getNumber(),
+                                            () -> prFilesFetcher.execute());
     }
 
     /**

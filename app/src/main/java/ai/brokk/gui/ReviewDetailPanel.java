@@ -268,7 +268,6 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
                             onNext.run();
                         });
                     }
-                    return null;
                 });
             });
             menu.add(editItem);

@@ -1031,7 +1031,6 @@ public class BlitzForgeDialog extends BaseThemedDialog {
                     costEstimateLabel.setText(String.format("Cost Estimate: $%.2f", finalCost));
                 }
             });
-            return null;
         });
     }
 
@@ -1146,7 +1145,6 @@ public class BlitzForgeDialog extends BaseThemedDialog {
                     tokenWarningLabel.setVisible(false);
                 }
             });
-            return null;
         });
     }
 

@@ -278,7 +278,6 @@ public class RightPanel extends JPanel implements ThemeAware {
                 var stats = sessionManager.countSessionStats(sessionId);
                 taskCounts.put(sessionId, stats.tasks());
                 SwingUtilities.invokeLater(list::repaint);
-                return null;
             });
         }
 

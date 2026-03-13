@@ -1490,7 +1490,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * Factory method for creating SessionSynchronizer instances.
      * Package-private to allow test injection.
      */
-    @TestOnly
     SessionSynchronizer createSessionSynchronizer() {
         return new SessionSynchronizer(this);
     }

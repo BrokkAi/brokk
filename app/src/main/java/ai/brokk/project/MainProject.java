@@ -2177,7 +2177,6 @@ public final class MainProject extends AbstractProject {
         return backgroundExecutor;
     }
 
-
     public Path getWorktreeStoragePath() {
         return Path.of(
                 System.getProperty("user.home"),
