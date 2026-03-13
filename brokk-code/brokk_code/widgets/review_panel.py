@@ -158,13 +158,9 @@ class GuidedReviewPanel(Vertical, can_focus=True):
 
     BINDINGS = [
         Binding("up", "cursor_prev", "Previous Section", show=False),
-        Binding("k", "cursor_prev", "Previous Section", show=False),
         Binding("down", "cursor_next", "Next Section", show=False),
-        Binding("j", "cursor_next", "Next Section", show=False),
         Binding("enter", "toggle_section", "Toggle Section", show=False),
         Binding("space", "toggle_section", "Toggle Section", show=False),
-        Binding("o", "expand_all", "Expand All", show=False),
-        Binding("O", "collapse_all", "Collapse All", show=False),
     ]
 
     DEFAULT_CSS = """
@@ -263,7 +259,7 @@ class GuidedReviewPanel(Vertical, can_focus=True):
     def _get_help_text(self) -> str:
         """Build help text from bindings."""
         return (
-            "[b]j/k[/b] Nav  [b]Enter[/b] Toggle  [b]o/O[/b] Expand/Collapse All  [b]Esc[/b] Close"
+            "[b]↑/↓[/b] Nav  [b]Enter[/b] Toggle  [b]Esc[/b] Close"
         )
 
     def on_mount(self) -> None:
@@ -452,25 +448,6 @@ class GuidedReviewPanel(Vertical, can_focus=True):
         except Exception:
             pass
 
-    def action_expand_all(self) -> None:
-        """Expand all sections."""
-        for section_id in self._section_ids:
-            try:
-                widget = self.query_one(f"#{section_id}", ReviewSectionWidget)
-                if not widget.expanded:
-                    widget.toggle()
-            except Exception:
-                pass
-
-    def action_collapse_all(self) -> None:
-        """Collapse all sections."""
-        for section_id in self._section_ids:
-            try:
-                widget = self.query_one(f"#{section_id}", ReviewSectionWidget)
-                if widget.expanded:
-                    widget.toggle()
-            except Exception:
-                pass
 
     def _post_navigation(self) -> None:
         """Post a navigation message for the current section."""

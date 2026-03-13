@@ -976,8 +976,7 @@ public final class JobRunner {
                                         }
                                     }
                                     case GUIDED_REVIEW -> {
-                                        try (var taskScope =
-                                                cm.beginTaskUngrouped("Guided Review")) {
+                                        try (var taskScope = cm.beginTaskUngrouped("Guided Review")) {
                                             var repo = (GitRepo) cm.getProject().getRepo();
                                             var defaultBranch = repo.getDefaultBranch();
                                             String mergeBase = repo.getMergeBase("HEAD", defaultBranch);
