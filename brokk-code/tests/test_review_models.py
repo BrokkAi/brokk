@@ -1,7 +1,5 @@
 """Tests for review_models.py parsing logic."""
 
-import pytest
-
 from brokk_code.review_models import (
     CodeExcerpt,
     GuidedReview,

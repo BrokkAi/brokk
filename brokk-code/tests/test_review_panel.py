@@ -3,8 +3,6 @@
 import pytest
 from textual.app import App, ComposeResult
 
-from textual.widgets import Static
-
 from brokk_code.review_models import CodeExcerpt, GuidedReview, ReviewSection
 from brokk_code.widgets.review_panel import GuidedReviewPanel, ReviewSectionWidget
 
@@ -67,7 +65,10 @@ def make_sample_review() -> GuidedReview:
         design_notes=[
             ReviewSection(
                 title="Consider abstraction",
-                content="The code could benefit from abstraction.\n\n**Recommendation:** Use interfaces.",
+                content=(
+                    "The code could benefit from abstraction.\n\n"
+                    "**Recommendation:** Use interfaces."
+                ),
                 excerpts=[
                     CodeExcerpt(
                         file_path="src/utils.py",
@@ -100,7 +101,7 @@ def make_sample_review() -> GuidedReview:
 async def test_guided_review_panel_empty_state():
     """Test that an empty panel shows the empty message."""
     app = ReviewPanelTestApp()
-    async with app.run_test() as pilot:
+    async with app.run_test() as _:
         panel = app.query_one("#review-panel", GuidedReviewPanel)
         empty_label = panel.query_one("#review-empty")
         assert "hidden" not in empty_label.classes
@@ -127,7 +128,7 @@ async def test_guided_review_panel_displays_review():
     """Test that a review is displayed correctly."""
     review = make_sample_review()
     app = ReviewPanelTestApp(review)
-    async with app.run_test() as pilot:
+    async with app.run_test() as _:
         panel = app.query_one("#review-panel", GuidedReviewPanel)
 
         # Check overview is displayed
@@ -145,7 +146,7 @@ async def test_guided_review_panel_section_ids():
     """Test that section IDs are generated correctly."""
     review = make_sample_review()
     app = ReviewPanelTestApp(review)
-    async with app.run_test() as pilot:
+    async with app.run_test() as _:
         panel = app.query_one("#review-panel", GuidedReviewPanel)
 
         assert "key-change-0" in panel._section_ids
@@ -239,7 +240,7 @@ async def test_review_section_widget_renders_content():
         excerpts=[],
     )
     app = ReviewSectionTestApp(section)
-    async with app.run_test() as pilot:
+    async with app.run_test() as _:
         widget = app.query_one("#test-section", ReviewSectionWidget)
 
         # Verify the section title is in the widget
@@ -268,7 +269,7 @@ async def test_review_section_widget_renders_excerpts():
         ],
     )
     app = ReviewSectionTestApp(section)
-    async with app.run_test() as pilot:
+    async with app.run_test() as _:
         widget = app.query_one("#test-section", ReviewSectionWidget)
 
         excerpts = widget.query(".review-excerpt-item")
@@ -306,7 +307,7 @@ async def test_review_section_widget_collapsed_initial():
         excerpts=[],
     )
     app = ReviewSectionTestApp(section, expanded=False)
-    async with app.run_test() as pilot:
+    async with app.run_test() as _:
         widget = app.query_one("#test-section", ReviewSectionWidget)
 
         assert widget.expanded is False
@@ -329,9 +330,8 @@ async def test_review_section_widget_excerpt_format_single_line():
         ],
     )
     app = ReviewSectionTestApp(section)
-    async with app.run_test() as pilot:
+    async with app.run_test() as _:
         widget = app.query_one("#test-section", ReviewSectionWidget)
-        excerpt_item = widget.query_one(".review-excerpt-item", Static)
         # Use _format_excerpt directly to verify the format
         formatted = widget._format_excerpt(section.excerpts[0])
         assert "src/file.py:42" in formatted
@@ -355,7 +355,7 @@ async def test_review_section_widget_excerpt_format_range():
         ],
     )
     app = ReviewSectionTestApp(section)
-    async with app.run_test() as pilot:
+    async with app.run_test() as _:
         widget = app.query_one("#test-section", ReviewSectionWidget)
         # Use _format_excerpt directly to verify the format
         formatted = widget._format_excerpt(section.excerpts[0])

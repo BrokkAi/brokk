@@ -291,7 +291,8 @@ public class ReviewParser {
 
     public record DesignFeedback(String title, String description, List<CodeExcerpt> excerpts, String recommendation) {}
 
-    public record TacticalFeedback(String title, String description, CodeExcerpt excerpt, String recommendation) {}
+    public record TacticalFeedback(
+            String title, String description, @Nullable CodeExcerpt excerpt, String recommendation) {}
 
     public record TestFeedback(String title, String recommendation) {}
 

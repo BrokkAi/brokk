@@ -3,7 +3,6 @@
 from typing import List, Optional
 
 from rich.panel import Panel
-from rich.text import Text
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical, VerticalScroll

@@ -9,7 +9,7 @@ import webbrowser
 from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Awaitable, Callable, Dict, List, Optional
+from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from textual import events
 from textual.app import App, ComposeResult, ScreenStackError
