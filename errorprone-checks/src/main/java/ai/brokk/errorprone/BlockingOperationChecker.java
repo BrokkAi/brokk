@@ -45,7 +45,7 @@ public final class BlockingOperationChecker extends BugChecker implements BugChe
      * to match any implementing class. For final classes (like LoggingFuture), a direct FQCN match is used.
      */
     private static final Map<String, List<String>> SAFE_BACKGROUND_CONTEXTS = Map.of(
-            "ai.brokk.IContextManager", List.of("submitBackgroundTask"),
+            "ai.brokk.IContextManager", List.of("submitBackgroundTask", "submitMaintenanceTask"),
             "ai.brokk.concurrent.LoggingFuture", List.of("supplyAsync", "supplyCallableAsync"));
 
     private static boolean hasDirectAnnotation(Symbol sym, String fqcn) {
