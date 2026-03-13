@@ -94,7 +94,7 @@ public final class DiffService {
                     .map(ContextHistory.GitState::commitHash)
                     .orElse("HEAD");
             return LoggingFuture.supplyAsync(
-                    () -> diff(k.curr(), castNonNull(k.prev()), revision), cm.getBackgroundTasks());
+                    () -> diff(k.curr(), castNonNull(k.prev()), revision), cm.getMaintenanceTasks());
         });
     }
 
