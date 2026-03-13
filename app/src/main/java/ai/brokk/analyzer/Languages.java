@@ -480,10 +480,12 @@ public class Languages {
     public static final List<Language> ALL_LANGUAGES =
             List.of(C_SHARP, JAVA, JAVASCRIPT, PYTHON, C_CPP, GO, RUST, PHP, TYPESCRIPT, SCALA, SQL, NONE);
 
+    private static final Set<String> ALL_COMMON_BUILD_FILES = ALL_LANGUAGES.stream()
+            .flatMap(l -> l.commonBuildFiles().stream())
+            .collect(Collectors.collectingAndThen(Collectors.toSet(), Collections::unmodifiableSet));
+
     public static Set<String> getAllCommonBuildFiles() {
-        return ALL_LANGUAGES.stream()
-                .flatMap(l -> l.commonBuildFiles().stream())
-                .collect(Collectors.toSet());
+        return ALL_COMMON_BUILD_FILES;
     }
 
     /**
