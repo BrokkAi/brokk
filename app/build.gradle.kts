@@ -431,6 +431,11 @@ tasks.register<JavaCompile>("compileJavaErrorProne") {
 
     // Enable ErrorProne and NullAway
     options.errorprone {
+        errorproneArgs.addAll(
+            "-XepPatchChecks:UnnecessarilyFullyQualified",
+            "-XepPatchLocation:IN_PLACE"
+        )
+
         // Disable specific Error Prone checks
         disable("FutureReturnValueIgnored")
         disable("MissingSummary")
