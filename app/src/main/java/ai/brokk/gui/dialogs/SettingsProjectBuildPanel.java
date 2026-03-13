@@ -1436,7 +1436,7 @@ public class SettingsProjectBuildPanel extends JPanel {
         }
     }
 
-    private class ModuleEditDialog extends BaseThemedDialog {
+    private static class ModuleEditDialog extends BaseThemedDialog {
         private final JTextField aliasField = new JTextField();
         private final JTextField pathField = new JTextField();
         private final JComboBox<String> languageComboBox = new JComboBox<>();
