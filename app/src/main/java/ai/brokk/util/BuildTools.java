@@ -126,11 +126,6 @@ public class BuildTools {
             @Nullable String pythonVersionOverride)
             throws InterruptedException {
 
-        String envOverride = System.getenv("BRK_TESTSOME_CMD");
-        if (envOverride != null && !envOverride.isBlank()) {
-            return interpolateModuleCommand(cm, envOverride, workspaceTestFiles, pythonVersionOverride);
-        }
-
         // Group files by their most specific module
         Map<BuildAgent.ModuleBuildEntry, List<ProjectFile>> moduleToFiles = new HashMap<>();
         for (ProjectFile f : workspaceTestFiles) {
@@ -255,10 +250,35 @@ public class BuildTools {
                 ? Boolean.parseBoolean(System.getenv("BRK_TESTALL_ENABLED"))
                 : details.testAllEnabled();
 
-        List<BuildAgent.ModuleBuildEntry> modules = details.modules();
+        List<BuildAgent.ModuleBuildEntry> modules = new ArrayList<>(details.modules());
         String modulesJson = System.getenv("BRK_MODULES_JSON");
         if (modulesJson != null && !modulesJson.isBlank()) {
-            modules = parseModulesJson(modulesJson);
+            modules = new ArrayList<>(parseModulesJson(modulesJson));
+        }
+
+        String testSomeOverride = System.getenv("BRK_TESTSOME_CMD");
+        if (testSomeOverride != null && !testSomeOverride.isBlank()) {
+            boolean found = false;
+            for (int i = 0; i < modules.size(); i++) {
+                var m = modules.get(i);
+                if (".".equals(m.relativePath())) {
+                    modules.set(
+                            i,
+                            new BuildAgent.ModuleBuildEntry(
+                                    m.alias(),
+                                    m.relativePath(),
+                                    m.buildLintCommand(),
+                                    m.testAllCommand(),
+                                    testSomeOverride,
+                                    m.language()));
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                modules.add(new BuildAgent.ModuleBuildEntry(
+                        "root", ".", details.buildLintCommand(), details.testAllCommand(), testSomeOverride, ""));
+            }
         }
 
         return new BuildDetails(
