@@ -159,6 +159,15 @@ public class ContextManager implements IContextManager, AutoCloseable {
     private final LoggingExecutorService historyCompressionExecutor =
             ExecutorsUtil.newFixedThreadExecutor("HistoryCompress-", 5);
 
+    // Lightweight maintenance tasks (balance checks, session ops, style guides, etc.)
+    private final LoggingExecutorService maintenanceTasks = createLoggingExecutorService(new ThreadPoolExecutor(
+            2,
+            2,
+            60L,
+            TimeUnit.SECONDS,
+            new LinkedBlockingQueue<>(),
+            ExecutorsUtil.createNamedThreadFactory("MaintenanceTask")));
+
     private final LoggingExecutorService syncExecutor = createLoggingExecutorService(
             Executors.newSingleThreadExecutor(ExecutorsUtil.createNamedThreadFactory("SessionSync")));
 
