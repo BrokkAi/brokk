@@ -20,6 +20,7 @@ import java.io.StringReader;
 import java.io.StringWriter;
 import java.nio.file.Path;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -133,13 +134,14 @@ public class BuildTools {
         if (testSomeTemplate == null) {
             // Find the most specific module that contains these test files
             var module = details.modules().stream()
-                    .filter(m -> !m.relativePath().equals(".")
-                            && !m.testSomeCommand().isBlank())
+                    .filter(m -> !m.testSomeCommand().isBlank())
+                    .filter(m -> !m.relativePath().equals("."))
                     .filter(m -> workspaceTestFiles.stream()
                             .allMatch(f -> f.toString().replace('\\', '/').startsWith(m.relativePath())))
-                    .findFirst();
+                    .max(Comparator.comparingInt(m -> m.relativePath().length()));
 
-            testSomeTemplate = module.isPresent() ? module.get().testSomeCommand() : details.testSomeCommand();
+            testSomeTemplate = module.map(BuildAgent.ModuleBuildEntry::testSomeCommand)
+                    .orElse(details.testSomeCommand());
         }
 
         boolean buildLintEnabled = System.getenv("BRK_BUILDLINT_ENABLED") != null

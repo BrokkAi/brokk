@@ -290,6 +290,63 @@ class BuildToolsTest {
     }
 
     @Test
+    void testGetBuildLintSomeCommand_ModuleSelection(@TempDir Path tempDir) throws Exception {
+        // Create actual directories to satisfy BuildAgent's directory verification if needed,
+        // though BuildTools specifically handles the path prefix logic.
+        Files.createDirectories(tempDir.resolve("backend/src/test/java/com"));
+        Files.createDirectories(tempDir.resolve("frontend/test"));
+
+        TestProject project = new TestProject(tempDir);
+        ProjectFile backendFile = new ProjectFile(tempDir, "backend/src/test/java/com/AppTest.java");
+        ProjectFile frontendFile = new ProjectFile(tempDir, "frontend/test/app.test.js");
+
+        TestAnalyzer testAnalyzer = new TestAnalyzer();
+        // Mocking backend class to provide 'AppTest' for {{#classes}}
+        testAnalyzer.addDeclaration(CodeUnit.cls(backendFile, "com", "AppTest"));
+
+        TestContextManager mockCm = new TestContextManager(project, new NoOpConsoleIO(), Set.of(), testAnalyzer);
+
+        // Define modules for backend and frontend. 
+        // Note: ModuleBuildEntry constructor normalizes relativePath to include a trailing slash.
+        BuildAgent.ModuleBuildEntry backendModule = new BuildAgent.ModuleBuildEntry(
+                "backend",
+                "backend",
+                "mvn compile",
+                "mvn test",
+                "mvn test -pl backend -Dtest={{#classes}}{{value}}{{/classes}}",
+                "Java");
+
+        BuildAgent.ModuleBuildEntry frontendModule = new BuildAgent.ModuleBuildEntry(
+                "frontend",
+                "frontend",
+                "npm run build",
+                "npm test",
+                "npm test -w frontend -- {{#files}}{{value}}{{/files}}",
+                "JavaScript");
+
+        BuildDetails details = new BuildDetails(
+                "build-root",
+                true,
+                "test-all-root",
+                true,
+                "test-some-root",
+                Set.of(),
+                Map.of(),
+                null,
+                "",
+                List.of(backendModule, frontendModule));
+
+        // 1. Verify backend selection (interpolates AppTest via classes)
+        // BuildTools matches module by checking if file path starts with module relativePath
+        String backendResult = BuildTools.getBuildLintSomeCommand(mockCm, details, List.of(backendFile));
+        assertEquals("mvn test -pl backend -Dtest=AppTest", backendResult);
+
+        // 2. Verify frontend selection (interpolates path via files)
+        String frontendResult = BuildTools.getBuildLintSomeCommand(mockCm, details, List.of(frontendFile));
+        assertEquals("npm test -w frontend -- frontend/test/app.test.js", frontendResult);
+    }
+
+    @Test
     void testBuildSystemDetectionAndExcludes() {
         // GO
         assertEquals(BuildToolConventions.BuildSystem.GO, BuildToolConventions.determineBuildSystem(List.of("go.mod")));
