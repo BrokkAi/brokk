@@ -3598,15 +3598,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         long cleanupStart = System.nanoTime();
 
         // 1. Identify all CodeUnits and files to remove
-        Set<CodeUnit> codeUnitsToRemove = new HashSet<>();
-        for (ProjectFile file : relevantFiles) {
-            FileProperties props = base.fileState().get(file);
-            if (props != null) {
-                for (CodeUnit topCu : props.topLevelCodeUnits()) {
-                    collectCodeUnitAndDescendants(topCu, base.codeUnitState(), codeUnitsToRemove);
-                }
-            }
-        }
+        Set<CodeUnit> codeUnitsToRemove = base.codeUnitState().keySet().stream()
+                .filter(cu -> relevantFiles.contains(cu.source()))
+                .collect(Collectors.toSet());
 
         // 2. Perform cleanup once
         var newSymbolIndex = new ConcurrentHashMap<>(base.symbolIndex());
@@ -3725,17 +3719,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
         var filteredCache = new AnalyzerCache(this.cache, changedFiles);
         return newSnapshot(typedState, getProgressListener(), filteredCache);
-    }
-
-    private void collectCodeUnitAndDescendants(
-            CodeUnit cu, Map<CodeUnit, CodeUnitProperties> state, Set<CodeUnit> out) {
-        if (!out.add(cu)) return;
-        CodeUnitProperties props = state.get(cu);
-        if (props != null) {
-            for (CodeUnit child : props.children()) {
-                collectCodeUnitAndDescendants(child, state, out);
-            }
-        }
     }
 
     /**
