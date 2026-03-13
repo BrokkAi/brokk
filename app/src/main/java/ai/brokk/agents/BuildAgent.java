@@ -161,8 +161,18 @@ public class BuildAgent {
                 .filter(pf -> {
                     Path rel = pf.getRelPath();
                     int depth = rel.getNameCount();
-                    // depth 1 is root. depth 2 to 5 means nested subdirectories.
-                    return depth > 1 && depth <= 5 && commonBuildFiles.contains(pf.getFileName());
+                    // depth 1 is root. depth 2 to 8 means nested subdirectories.
+                    // We stop at 8 to avoid performance issues in extremely deep trees while supporting monorepos.
+                    if (depth <= 1 || depth > 8) {
+                        return false;
+                    }
+
+                    // If a subdirectory contains its own .git folder, it's a separate project boundary
+                    if (Files.exists(pf.absPath().getParent().resolve(".git"))) {
+                        return false;
+                    }
+
+                    return commonBuildFiles.contains(pf.getFileName());
                 })
                 .map(ProjectFile::toString)
                 .sorted()
