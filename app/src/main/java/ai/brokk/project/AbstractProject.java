@@ -937,7 +937,6 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
                     details.buildLintEnabled(),
                     details.testAllCommand(),
                     details.testAllEnabled(),
-                    details.testSomeCommand(),
                     canonicalExclusions,
                     canonicalEnv,
                     details.maxBuildAttempts(),
@@ -981,12 +980,14 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
 
         var canonicalDetails = new BuildAgent.BuildDetails(
                 details.buildLintCommand(),
+                details.buildLintEnabled(),
                 details.testAllCommand(),
-                details.testSomeCommand(),
+                details.testAllEnabled(),
                 canonicalExclusions,
                 canonicalEnv,
                 details.maxBuildAttempts(),
-                details.afterTaskListCommand());
+                details.afterTaskListCommand(),
+                details.modules());
 
         try {
             String json = objectMapper.writeValueAsString(canonicalDetails);

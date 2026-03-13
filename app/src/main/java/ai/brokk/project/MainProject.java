@@ -2320,7 +2320,6 @@ public final class MainProject extends AbstractProject {
                 details.buildLintEnabled(),
                 details.testAllCommand(),
                 details.testAllEnabled(),
-                details.testSomeCommand(),
                 canonicalExclusions,
                 canonicalEnv,
                 details.maxBuildAttempts(),

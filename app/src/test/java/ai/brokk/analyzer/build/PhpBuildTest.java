@@ -46,9 +46,14 @@ public class PhpBuildTest {
 
             BuildDetails details = new BuildDetails(
                     "vendor/bin/phpunit",
+                    true,
                     "vendor/bin/phpunit",
-                    "vendor/bin/phpunit --filter {{#classes}}{{value}}{{/classes}}",
-                    Set.of());
+                    true,
+                    Set.of(),
+                    java.util.Collections.emptyMap(),
+                    null,
+                    "",
+                    List.of(new ai.brokk.agents.BuildAgent.ModuleBuildEntry("root", ".", "vendor/bin/phpunit", "vendor/bin/phpunit", "vendor/bin/phpunit --filter {{#classes}}{{value}}{{/classes}}", "")));
 
             String command = BuildTools.getBuildLintSomeCommand(cm, details, List.of(testFile));
 
@@ -67,7 +72,16 @@ public class PhpBuildTest {
                 .addFileContents(code2, "T2.php")
                 .build()) {
             TestContextManager cm = new TestContextManager(project, new NoOpConsoleIO(), Set.of(), project.getAnalyzer());
-            BuildDetails details = new BuildDetails("", "", "phpunit --filter {{#classes}}{{value}}{{^last}}|{{/last}}{{/classes}}", Set.of());
+            BuildDetails details = new BuildDetails(
+                    "",
+                    true,
+                    "",
+                    true,
+                    Set.of(),
+                    java.util.Collections.emptyMap(),
+                    null,
+                    "",
+                    List.of(new ai.brokk.agents.BuildAgent.ModuleBuildEntry("root", ".", "", "", "phpunit --filter {{#classes}}{{value}}{{^last}}|{{/last}}{{/classes}}", "")));
 
             String command = BuildTools.getBuildLintSomeCommand(cm, details, List.copyOf(project.getAllFiles()));
             assertEquals("phpunit --filter T1|T2", command.trim());

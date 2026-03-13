@@ -1251,10 +1251,14 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
 
             var newDetails = new BuildDetails(
                     currentDetails.buildLintCommand(),
+                    currentDetails.buildLintEnabled(),
                     currentDetails.testAllCommand(),
-                    currentDetails.testSomeCommand(),
+                    currentDetails.testAllEnabled(),
                     exclusionPatterns,
-                    currentDetails.environmentVariables());
+                    currentDetails.environmentVariables(),
+                    currentDetails.maxBuildAttempts(),
+                    currentDetails.afterTaskListCommand(),
+                    currentDetails.modules());
 
             if (!newDetails.equals(currentDetails)) {
                 project.saveBuildDetails(newDetails);

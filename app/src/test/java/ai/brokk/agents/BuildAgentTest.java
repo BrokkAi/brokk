@@ -508,7 +508,7 @@ class BuildAgentTest {
             Files.writeString(tempDir.resolve("README.md"), "x");
             var project = new TestProject(tempDir);
             project.setBuildDetails(
-                    new BuildAgent.BuildDetails("lint", "testAll", "testSome", Set.of(), java.util.Map.of(), null, ""));
+                    new BuildAgent.BuildDetails("lint", "testAll", Set.of(), java.util.Map.of(), null, ""));
             var io = new TestConsoleIO();
             var cm = new TestContextManager(project, io, Set.of(), new ai.brokk.testutil.TestAnalyzer());
             var ctx = cm.liveContext();
@@ -538,7 +538,7 @@ class BuildAgentTest {
             Files.writeString(tempDir.resolve("README.md"), "x");
             var project = new TestProject(tempDir);
             project.setBuildDetails(
-                    new BuildAgent.BuildDetails("lint", "testAll", "testSome", Set.of(), java.util.Map.of(), null, ""));
+                    new BuildAgent.BuildDetails("lint", "testAll", Set.of(), java.util.Map.of(), null, ""));
             var io = new TestConsoleIO();
             var cm = new TestContextManager(project, io, Set.of(), new ai.brokk.testutil.TestAnalyzer());
             var ctx = cm.liveContext();
@@ -565,8 +565,7 @@ class BuildAgentTest {
         try {
             Files.writeString(tempDir.resolve("README.md"), "x");
             var project = new TestProject(tempDir);
-            project.setBuildDetails(
-                    new BuildAgent.BuildDetails("lint", "testAll", "testSome", Set.of(), java.util.Map.of()));
+            project.setBuildDetails(new BuildAgent.BuildDetails("lint", "testAll", Set.of(), java.util.Map.of()));
             var io = new TestConsoleIO();
             var cm = new TestContextManager(project, io, Set.of(), new ai.brokk.testutil.TestAnalyzer());
             var ctx = cm.liveContext();
@@ -594,8 +593,7 @@ class BuildAgentTest {
     void testRunExplicitCommandBlankClearsPreviousBuildError(@TempDir Path tempDir) throws Exception {
         Files.writeString(tempDir.resolve("README.md"), "x");
         var project = new TestProject(tempDir);
-        project.setBuildDetails(
-                new BuildAgent.BuildDetails("lint", "testAll", "testSome", Set.of(), java.util.Map.of(), null, ""));
+        project.setBuildDetails(new BuildAgent.BuildDetails("lint", "testAll", Set.of(), java.util.Map.of(), null, ""));
 
         var io = new TestConsoleIO();
         var cm = new TestContextManager(project, io, Set.of(), new ai.brokk.testutil.TestAnalyzer());
@@ -825,8 +823,7 @@ class BuildAgentTest {
             Files.writeString(tempDir.resolve("README.md"), "x");
             var project = new TestProject(tempDir);
             project.setTestCommandTimeoutSeconds(120L); // Custom test timeout
-            project.setBuildDetails(
-                    new BuildAgent.BuildDetails("lint", "testAll", "testSome", Set.of(), java.util.Map.of()));
+            project.setBuildDetails(new BuildAgent.BuildDetails("lint", "testAll", Set.of(), java.util.Map.of()));
             var io = new TestConsoleIO();
             var cm = new TestContextManager(project, io, Set.of(), new ai.brokk.testutil.TestAnalyzer());
             var ctx = cm.liveContext();
@@ -853,8 +850,7 @@ class BuildAgentTest {
             Files.writeString(tempDir.resolve("README.md"), "x");
             var project = new TestProject(tempDir);
             project.setTestCommandTimeoutSeconds(-1L); // Unlimited timeout
-            project.setBuildDetails(
-                    new BuildAgent.BuildDetails("lint", "testAll", "testSome", Set.of(), java.util.Map.of()));
+            project.setBuildDetails(new BuildAgent.BuildDetails("lint", "testAll", Set.of(), java.util.Map.of()));
             var io = new TestConsoleIO();
             var cm = new TestContextManager(project, io, Set.of(), new ai.brokk.testutil.TestAnalyzer());
             var ctx = cm.liveContext();
@@ -883,8 +879,7 @@ class BuildAgentTest {
             Files.writeString(tempDir.resolve("README.md"), "x");
             var project = new TestProject(tempDir);
             project.setRunCommandTimeoutSeconds(45L); // Custom run timeout
-            project.setBuildDetails(
-                    new BuildAgent.BuildDetails("lint-cmd", "testAll", "testSome", Set.of(), java.util.Map.of()));
+            project.setBuildDetails(new BuildAgent.BuildDetails("lint-cmd", "testAll", Set.of(), java.util.Map.of()));
             var io = new TestConsoleIO();
             var cm = new TestContextManager(project, io, Set.of(), new ai.brokk.testutil.TestAnalyzer());
             var ctx = cm.liveContext();
@@ -1108,8 +1103,10 @@ class BuildAgentTest {
         ProjectFile file1 = new ProjectFile(tempDir, "main_test.go");
         ProjectFile file2 = new ProjectFile(tempDir, "auth/auth_test.go");
 
+        BuildAgent.ModuleBuildEntry mod = new BuildAgent.ModuleBuildEntry(
+                "root", ".", "go build", "go test ./...", "go test {{#packages}}{{value}} {{/packages}}", "");
         BuildAgent.BuildDetails details = new BuildAgent.BuildDetails(
-                "go build", "go test ./...", "go test {{#packages}}{{value}} {{/packages}}", Set.of());
+                "go build", true, "go test ./...", true, Set.of(), Map.of(), null, "", List.of(mod));
 
         String result = BuildTools.getBuildLintSomeCommand(cm, details, List.of(file1, file2));
 
@@ -1137,11 +1134,15 @@ class BuildAgentTest {
         ProjectFile file1 = new ProjectFile(tempDir, "tests/test_foo.py");
         ProjectFile file2 = new ProjectFile(tempDir, "auth/test_login.py");
 
-        BuildAgent.BuildDetails details = new BuildAgent.BuildDetails(
+        BuildAgent.ModuleBuildEntry mod = new BuildAgent.ModuleBuildEntry(
+                "root",
+                ".",
                 "python -m compile",
                 "python -m pytest",
                 "python -m pytest {{#packages}}{{value}} {{/packages}}",
-                Set.of());
+                "");
+        BuildAgent.BuildDetails details = new BuildAgent.BuildDetails(
+                "python -m compile", true, "python -m pytest", true, Set.of(), Map.of(), null, "", List.of(mod));
 
         String result = BuildTools.getBuildLintSomeCommand(cm, details, List.of(file1, file2));
 
@@ -1177,11 +1178,15 @@ class BuildAgentTest {
         analyzer.addDeclaration(CodeUnit.cls(file1, "com.example", "App"));
         analyzer.addDeclaration(CodeUnit.cls(file2, "com.example.util", "Helper"));
 
-        BuildAgent.BuildDetails details = new BuildAgent.BuildDetails(
+        BuildAgent.ModuleBuildEntry mod = new BuildAgent.ModuleBuildEntry(
+                "root",
+                ".",
                 "mvn compile",
                 "mvn test",
                 "mvn test -Dtest={{#packages}}{{value}}.*{{^last}} {{/last}}{{/packages}}",
-                Set.of());
+                "");
+        BuildAgent.BuildDetails details = new BuildAgent.BuildDetails(
+                "mvn compile", true, "mvn test", true, Set.of(), Map.of(), null, "", List.of(mod));
 
         String result = BuildTools.getBuildLintSomeCommand(cm, details, List.of(file1, file2));
 
@@ -1228,11 +1233,15 @@ class BuildAgentTest {
         analyzer.addDeclaration(new CodeUnit(file1, CodeUnitType.FUNCTION, "crate", "test_lib"));
         analyzer.addDeclaration(new CodeUnit(file2, CodeUnitType.FUNCTION, "crate::foo", "test_foo"));
 
-        BuildAgent.BuildDetails details = new BuildAgent.BuildDetails(
+        BuildAgent.ModuleBuildEntry mod = new BuildAgent.ModuleBuildEntry(
+                "root",
+                ".",
                 "cargo check",
                 "cargo test",
                 "cargo test {{#packages}}{{value}}{{^last}} {{/last}}{{/packages}}",
-                Set.of());
+                "");
+        BuildAgent.BuildDetails details = new BuildAgent.BuildDetails(
+                "cargo check", true, "cargo test", true, Set.of(), Map.of(), null, "", List.of(mod));
 
         String result = BuildTools.getBuildLintSomeCommand(cm, details, List.of(file1, file2));
 
@@ -1250,7 +1259,7 @@ class BuildAgentTest {
             Environment.shellCommandRunnerFactory = (command, root) -> (outputConsumer, timeout) -> "ok";
 
             var agent = new BuildAgent(project, null, null, new TestConsoleIO());
-            var details = new BuildAgent.BuildDetails("lint-cmd", "test-all", "", Set.of(), Map.of());
+            var details = new BuildAgent.BuildDetails("lint-cmd", "test-all", Set.of(), Map.of());
 
             String result = agent.validateBuildDetails(details);
             assertNull(result, "validateBuildDetails should return null when commands pass");
@@ -1272,7 +1281,7 @@ class BuildAgentTest {
             };
 
             var agent = new BuildAgent(project, null, null, new TestConsoleIO());
-            var details = new BuildAgent.BuildDetails("lint-cmd", "test-all", "", Set.of(), Map.of());
+            var details = new BuildAgent.BuildDetails("lint-cmd", "test-all", Set.of(), Map.of());
 
             String result = agent.validateBuildDetails(details);
             assertNotNull(result, "validateBuildDetails should return error when lint fails");
@@ -1289,7 +1298,7 @@ class BuildAgentTest {
 
         var agent = new BuildAgent(project, null, null, new TestConsoleIO());
         // Both commands are blank - should skip validation entirely and return null
-        var details = new BuildAgent.BuildDetails("", "", "", Set.of(), Map.of());
+        var details = new BuildAgent.BuildDetails("", "", Set.of(), Map.of());
 
         String result = agent.validateBuildDetails(details);
         assertNull(result, "validateBuildDetails should return null when all commands are blank");

@@ -39,9 +39,14 @@ public class GoBuildTest {
             // Define the Go build details with mustache templates
             BuildDetails details = new BuildDetails(
                     "go build ./...",
+                    true,
                     "go test ./...",
-                    "go test {{#packages}}{{value}}{{/packages}} -run '^{{#classes}}{{value}}{{/classes}}$'",
-                    Set.of());
+                    true,
+                    Set.of(),
+                    java.util.Collections.emptyMap(),
+                    null,
+                    "",
+                    List.of(new ai.brokk.agents.BuildAgent.ModuleBuildEntry("root", ".", "go build ./...", "go test ./...", "go test {{#packages}}{{value}}{{/packages}} -run '^{{#classes}}{{value}}{{/classes}}$'", "")));
 
             // Act
             String command = BuildTools.getBuildLintSomeCommand(cm, details, List.of(testFile));
@@ -63,7 +68,16 @@ public class GoBuildTest {
 
         try (var project = InlineTestProjectCreator.code(code, "mypkg/multi_test.go").build()) {
             TestContextManager cm = new TestContextManager(project, new NoOpConsoleIO(), Set.of(), project.getAnalyzer());
-            BuildDetails details = new BuildDetails("", "", "go test ./mypkg -run '^{{#classes}}{{value}}{{^last}}|{{/last}}{{/classes}}$'", Set.of());
+            BuildDetails details = new BuildDetails(
+                    "",
+                    true,
+                    "",
+                    true,
+                    Set.of(),
+                    java.util.Collections.emptyMap(),
+                    null,
+                    "",
+                    List.of(new ai.brokk.agents.BuildAgent.ModuleBuildEntry("root", ".", "", "", "go test ./mypkg -run '^{{#classes}}{{value}}{{^last}}|{{/last}}{{/classes}}$'", "")));
 
             String command = BuildTools.getBuildLintSomeCommand(cm, details, List.copyOf(project.getAllFiles()));
             assertEquals("go test ./mypkg -run '^TestOne|TestTwo$'", command.trim());

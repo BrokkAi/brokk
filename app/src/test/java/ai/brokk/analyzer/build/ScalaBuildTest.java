@@ -45,9 +45,14 @@ public class ScalaBuildTest {
 
             BuildDetails details = new BuildDetails(
                     "sbt compile",
+                    true,
                     "sbt test",
-                    "sbt \"testOnly {{#classes}}{{value}}{{/classes}}\"",
-                    Set.of());
+                    true,
+                    Set.of(),
+                    java.util.Collections.emptyMap(),
+                    null,
+                    "",
+                    List.of(new ai.brokk.agents.BuildAgent.ModuleBuildEntry("root", ".", "sbt compile", "sbt test", "sbt \"testOnly {{#classes}}{{value}}{{/classes}}\"", "")));
 
             String command = BuildTools.getBuildLintSomeCommand(cm, details, List.of(testFile));
 
@@ -67,7 +72,16 @@ public class ScalaBuildTest {
                 .build()) {
             TestContextManager cm = new TestContextManager(project, new NoOpConsoleIO(), Set.of(), project.getAnalyzer());
             // Remove trailing space inside {{#classes}} loop to match expected output
-            BuildDetails details = new BuildDetails("", "", "sbt \"testOnly {{#classes}}{{value}}{{^last}} {{/last}}{{/classes}}\"", Set.of());
+            BuildDetails details = new BuildDetails(
+                    "",
+                    true,
+                    "",
+                    true,
+                    Set.of(),
+                    java.util.Collections.emptyMap(),
+                    null,
+                    "",
+                    List.of(new ai.brokk.agents.BuildAgent.ModuleBuildEntry("root", ".", "", "", "sbt \"testOnly {{#classes}}{{value}}{{^last}} {{/last}}{{/classes}}\"", "")));
 
             String command = BuildTools.getBuildLintSomeCommand(cm, details, List.copyOf(project.getAllFiles()));
             assertEquals("sbt \"testOnly T1 T2\"", command.trim());

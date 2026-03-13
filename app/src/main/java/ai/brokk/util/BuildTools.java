@@ -137,7 +137,17 @@ public class BuildTools {
                     .max(Comparator.comparingInt(m -> m.relativePath().length()));
 
             testSomeTemplate =
-                    module.map(BuildAgent.ModuleBuildEntry::testSomeCommand).orElse(details.testSomeCommand());
+                    module.map(BuildAgent.ModuleBuildEntry::testSomeCommand).orElse("");
+
+            if (testSomeTemplate.isBlank()) {
+                testSomeTemplate = details.modules().stream()
+                        .filter(m -> !m.testSomeCommand().isBlank())
+                        .filter(m ->
+                                m.relativePath().equals(".") || m.relativePath().isEmpty())
+                        .findFirst()
+                        .map(BuildAgent.ModuleBuildEntry::testSomeCommand)
+                        .orElse("");
+            }
         }
 
         if (testSomeTemplate.isBlank()) {
@@ -226,7 +236,6 @@ public class BuildTools {
                 buildLintEnabled,
                 details.testAllCommand(),
                 testAllEnabled,
-                details.testSomeCommand(),
                 details.exclusionPatterns(),
                 details.environmentVariables(),
                 details.maxBuildAttempts(),

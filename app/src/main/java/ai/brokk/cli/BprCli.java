@@ -429,12 +429,15 @@ public final class BprCli implements Callable<Integer> {
             }
         }
 
+        if (testSomeCmd != null && !testSomeCmd.isBlank() && modules.isEmpty()) {
+            modules = List.of(new BuildAgent.ModuleBuildEntry("root", ".", "", "", testSomeCmd, ""));
+        }
+
         var buildDetails = new BuildAgent.BuildDetails(
                 buildLintCmd != null ? buildLintCmd : "",
                 buildLintEnabled,
                 testAllCmd != null ? testAllCmd : "",
                 testAllEnabled,
-                testSomeCmd != null ? testSomeCmd : "",
                 Set.of(),
                 Map.of("VIRTUAL_ENV", ".venv"), // venv is hardcoded to override swebench task runner
                 null,

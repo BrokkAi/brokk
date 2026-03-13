@@ -39,9 +39,14 @@ public class TypeScriptBuildTest {
             // Template using {{#files}}
             BuildDetails detailsFiles = new BuildDetails(
                     "npm run build",
+                    true,
                     "npm test",
-                    "npx playwright test {{#files}}{{value}} {{/files}}",
-                    Set.of());
+                    true,
+                    Set.of(),
+                    java.util.Collections.emptyMap(),
+                    null,
+                    "",
+                    List.of(new ai.brokk.agents.BuildAgent.ModuleBuildEntry("root", ".", "npm run build", "npm test", "npx playwright test {{#files}}{{value}} {{/files}}", "")));
 
             String commandFiles = BuildTools.getBuildLintSomeCommand(cm, detailsFiles, List.of(testFile));
             assertEquals("npx playwright test tests/logic.test.ts", commandFiles.trim());
@@ -51,9 +56,14 @@ public class TypeScriptBuildTest {
             // so {{#classes}} should resolve to the module name (the filename).
             BuildDetails detailsClasses = new BuildDetails(
                     "npm run build",
+                    true,
                     "npm test",
-                    "npx jest --findRelatedTests {{#classes}}{{value}} {{/classes}}",
-                    Set.of());
+                    true,
+                    Set.of(),
+                    java.util.Collections.emptyMap(),
+                    null,
+                    "",
+                    List.of(new ai.brokk.agents.BuildAgent.ModuleBuildEntry("root", ".", "npm run build", "npm test", "npx jest --findRelatedTests {{#classes}}{{value}} {{/classes}}", "")));
 
             String commandClasses = BuildTools.getBuildLintSomeCommand(cm, detailsClasses, List.of(testFile));
             assertEquals("npx jest --findRelatedTests logic.test.ts", commandClasses.trim());
@@ -67,7 +77,16 @@ public class TypeScriptBuildTest {
                 .addFileContents("import { test } from '@playwright/test'; test('b', () => {})", "b.test.ts")
                 .build()) {
             TestContextManager cm = new TestContextManager(project, new NoOpConsoleIO(), Set.of(), project.getAnalyzer());
-            BuildDetails details = new BuildDetails("", "", "npx jest {{#classes}}{{value}} {{/classes}}", Set.of());
+            BuildDetails details = new BuildDetails(
+                    "",
+                    true,
+                    "",
+                    true,
+                    Set.of(),
+                    java.util.Collections.emptyMap(),
+                    null,
+                    "",
+                    List.of(new ai.brokk.agents.BuildAgent.ModuleBuildEntry("root", ".", "", "", "npx jest {{#classes}}{{value}} {{/classes}}", "")));
 
             String command = BuildTools.getBuildLintSomeCommand(cm, details, List.copyOf(project.getAllFiles()));
             assertEquals("npx jest a.test.ts b.test.ts", command.trim());

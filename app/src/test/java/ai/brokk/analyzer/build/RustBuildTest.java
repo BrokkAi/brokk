@@ -39,9 +39,14 @@ public class RustBuildTest {
             // Rust test filtering often uses a pattern that matches the module and/or function name.
             BuildDetails details = new BuildDetails(
                     "cargo build",
+                    true,
                     "cargo test",
-                    "cargo test {{#classes}}{{value}}{{^last}} {{/last}}{{/classes}}",
-                    Set.of());
+                    true,
+                    Set.of(),
+                    java.util.Collections.emptyMap(),
+                    null,
+                    "",
+                    List.of(new ai.brokk.agents.BuildAgent.ModuleBuildEntry("root", ".", "cargo build", "cargo test", "cargo test {{#classes}}{{value}}{{^last}} {{/last}}{{/classes}}", "")));
 
             // Act
             String command = BuildTools.getBuildLintSomeCommand(cm, details, List.of(testFile)).trim();
@@ -65,7 +70,16 @@ public class RustBuildTest {
 
         try (var project = InlineTestProjectCreator.code(code, "src/lib.rs").build()) {
             TestContextManager cm = new TestContextManager(project, new NoOpConsoleIO(), Set.of(), project.getAnalyzer());
-            BuildDetails details = new BuildDetails("", "", "cargo test {{#classes}}{{value}}{{^last}} {{/last}}{{/classes}}", Set.of());
+            BuildDetails details = new BuildDetails(
+                    "",
+                    true,
+                    "",
+                    true,
+                    Set.of(),
+                    java.util.Collections.emptyMap(),
+                    null,
+                    "",
+                    List.of(new ai.brokk.agents.BuildAgent.ModuleBuildEntry("root", ".", "", "", "cargo test {{#classes}}{{value}}{{^last}} {{/last}}{{/classes}}", "")));
 
             String command = BuildTools.getBuildLintSomeCommand(cm, details, List.copyOf(project.getAllFiles()));
             assertEquals("cargo test test_a test_b", command.trim());

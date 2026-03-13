@@ -437,20 +437,23 @@ public class ArchitectAgent {
     }
 
     @Tool(
-            "Set the project's build/test commands (build/lint, test-all, test-some) and excluded directories. Saves to project config. Optionally validates the build/lint command.")
+            "Set the project's build/test commands (build/lint, test-all) and excluded directories. Saves to project config. Optionally validates the build/lint command.")
     public String setBuildDetails(
             @P("Command to build/lint the project (e.g., 'mvn test', 'gradle test', 'npm test').")
                     String buildLintCommand,
             @P("Command to run all tests.") String testAllCommand,
-            @P("Command to run a subset of tests (e.g., a single module/file/class).") String testSomeCommand,
             @P("Directories to exclude from analysis/build context.") List<String> excludedDirectories) {
         var existingDetails = cm.getProject().awaitBuildDetails();
         var details = new BuildAgent.BuildDetails(
                 buildLintCommand,
+                existingDetails.buildLintEnabled(),
                 testAllCommand,
-                testSomeCommand,
+                existingDetails.testAllEnabled(),
                 new LinkedHashSet<>(excludedDirectories),
-                existingDetails.environmentVariables());
+                existingDetails.environmentVariables(),
+                existingDetails.maxBuildAttempts(),
+                existingDetails.afterTaskListCommand(),
+                existingDetails.modules());
         cm.getProject().saveBuildDetails(details);
 
         cm.getIo().showNotification(IConsoleIO.NotificationRole.INFO, "Saved build details.");

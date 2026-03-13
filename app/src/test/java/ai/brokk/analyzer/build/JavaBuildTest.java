@@ -39,9 +39,14 @@ public class JavaBuildTest {
             // Create BuildDetails with a template using {{#classes}}
             BuildDetails details = new BuildDetails(
                     "mvn compile",
+                    true,
                     "mvn test",
-                    "mvn test -Dtest={{#classes}}{{value}}{{^last}},{{/last}}{{/classes}}",
-                    Set.of()
+                    true,
+                    Set.of(),
+                    java.util.Collections.emptyMap(),
+                    null,
+                    "",
+                    List.of(new ai.brokk.agents.BuildAgent.ModuleBuildEntry("root", ".", "mvn compile", "mvn test", "mvn test -Dtest={{#classes}}{{value}}{{^last}},{{/last}}{{/classes}}", ""))
             );
 
             // Assert interpolation
@@ -61,7 +66,16 @@ public class JavaBuildTest {
                 .build()) {
             TestContextManager cm = new TestContextManager(project.getRoot(), new NoOpConsoleIO(), project.getAnalyzer());
             // This is the standard Gradle template recommended in BuildAgent system prompt
-            BuildDetails details = new BuildDetails("", "", "gradle test{{#classes}} --tests {{value}}{{/classes}}", Set.of());
+            BuildDetails details = new BuildDetails(
+                    "",
+                    true,
+                    "",
+                    true,
+                    Set.of(),
+                    java.util.Collections.emptyMap(),
+                    null,
+                    "",
+                    List.of(new ai.brokk.agents.BuildAgent.ModuleBuildEntry("root", ".", "", "", "gradle test{{#classes}} --tests {{value}}{{/classes}}", "")));
 
             String command = BuildTools.getBuildLintSomeCommand(cm, details, List.copyOf(project.getAllFiles()));
             // Ensure there is a space between the flags
@@ -79,7 +93,16 @@ public class JavaBuildTest {
                 .addFileContents(code2, "src/test/java/com/example/Test2.java")
                 .build()) {
             TestContextManager cm = new TestContextManager(project.getRoot(), new NoOpConsoleIO(), project.getAnalyzer());
-            BuildDetails details = new BuildDetails("", "", "mvn test -Dtest={{#classes}}{{value}}{{^last}},{{/last}}{{/classes}}", Set.of());
+            BuildDetails details = new BuildDetails(
+                    "",
+                    true,
+                    "",
+                    true,
+                    Set.of(),
+                    java.util.Collections.emptyMap(),
+                    null,
+                    "",
+                    List.of(new ai.brokk.agents.BuildAgent.ModuleBuildEntry("root", ".", "", "", "mvn test -Dtest={{#classes}}{{value}}{{^last}},{{/last}}{{/classes}}", "")));
 
             String command = BuildTools.getBuildLintSomeCommand(cm, details, List.copyOf(project.getAllFiles()));
             assertEquals("mvn test -Dtest=Test1,Test2", command);

@@ -708,6 +708,11 @@ public class BuildAgent {
         this.llmAddedPatterns.addAll(filePatterns);
         this.llmAddedPatterns.retainAll(deduplicatedPatterns);
 
+        List<ModuleBuildEntry> finalModules = new ArrayList<>(modules);
+        if (!testSomeCommand.isBlank() && finalModules.isEmpty()) {
+            finalModules.add(new ModuleBuildEntry("root", ".", buildLintCommand, testAllCommand, testSomeCommand, ""));
+        }
+
         logger.debug("Final exclusionPatterns (existing + LLM, deduplicated): {}", deduplicatedPatterns);
         logger.debug("New patterns from this LLM run: {}", llmAddedPatterns);
         this.reportedDetails = new BuildDetails(
@@ -715,12 +720,11 @@ public class BuildAgent {
                 buildLintEnabled,
                 testAllCommand,
                 testAllEnabled,
-                testSomeCommand,
                 deduplicatedPatterns,
                 defaultEnvForProject(),
                 null,
                 "",
-                modules);
+                finalModules);
         logger.debug("reportBuildDetails tool executed. Exclusion patterns: {}", deduplicatedPatterns);
         return "Build details report received and processed.";
     }
@@ -780,28 +784,31 @@ public class BuildAgent {
         }
 
         // 2. Testsome command
-        if (!details.testSomeCommand().isBlank()) {
-            var testFiles = project.getRepo().getTrackedFiles().stream()
-                    .filter(f -> f.toString().toLowerCase(Locale.ROOT).contains("test"))
-                    .toList();
+        for (var module : details.modules()) {
+            if (!module.testSomeCommand().isBlank()) {
+                var testFiles = project.getRepo().getTrackedFiles().stream()
+                        .filter(f -> f.toString().toLowerCase(Locale.ROOT).contains("test"))
+                        .toList();
 
-            if (!testFiles.isEmpty()) {
-                var randomTestFile = testFiles.get(new Random().nextInt(testFiles.size()));
-                String relPath = randomTestFile.toString();
-                String template = details.testSomeCommand();
+                if (!testFiles.isEmpty()) {
+                    var randomTestFile = testFiles.get(new Random().nextInt(testFiles.size()));
+                    String relPath = randomTestFile.toString();
+                    String template = module.testSomeCommand();
 
-                String interpolatedCmd = null;
-                if (template.contains("{{#files}}")) {
-                    interpolatedCmd = BuildTools.interpolateMustacheTemplate(template, List.of(relPath), "files");
-                }
+                    String interpolatedCmd = null;
+                    if (template.contains("{{#files}}")) {
+                        interpolatedCmd = BuildTools.interpolateMustacheTemplate(template, List.of(relPath), "files");
+                    }
 
-                if (interpolatedCmd != null) {
-                    var result = BuildVerifier.verify(project, interpolatedCmd, details.environmentVariables());
-                    if (!result.success()) {
-                        return "Test command failed (exit code %d):\n%s"
-                                .formatted(result.exitCode(), Objects.toString(result.output(), ""));
+                    if (interpolatedCmd != null) {
+                        var result = BuildVerifier.verify(project, interpolatedCmd, details.environmentVariables());
+                        if (!result.success()) {
+                            return "Test command failed (exit code %d):\n%s"
+                                    .formatted(result.exitCode(), Objects.toString(result.output(), ""));
+                        }
                     }
                 }
+                break;
             }
         }
 
@@ -904,7 +911,6 @@ public class BuildAgent {
             boolean buildLintEnabled,
             String testAllCommand,
             boolean testAllEnabled,
-            String testSomeCommand,
             @JsonDeserialize(as = LinkedHashSet.class) @JsonSetter(nulls = Nulls.AS_EMPTY)
                     Set<String> exclusionPatterns,
             @JsonDeserialize(as = LinkedHashMap.class) @JsonSetter(nulls = Nulls.AS_EMPTY)
@@ -918,14 +924,12 @@ public class BuildAgent {
         public BuildDetails(
                 @Nullable String buildLintCommand,
                 @Nullable String testAllCommand,
-                @Nullable String testSomeCommand,
                 @Nullable Set<String> exclusionPatterns) {
             this(
                     buildLintCommand != null ? buildLintCommand : "",
                     true,
                     testAllCommand != null ? testAllCommand : "",
                     true,
-                    testSomeCommand != null ? testSomeCommand : "",
                     exclusionPatterns != null ? exclusionPatterns : Set.of(),
                     Map.of(),
                     null,
@@ -936,7 +940,6 @@ public class BuildAgent {
         public BuildDetails(
                 @Nullable String buildLintCommand,
                 @Nullable String testAllCommand,
-                @Nullable String testSomeCommand,
                 @Nullable Set<String> exclusionPatterns,
                 @Nullable Map<String, String> environmentVariables) {
             this(
@@ -944,7 +947,6 @@ public class BuildAgent {
                     true,
                     testAllCommand != null ? testAllCommand : "",
                     true,
-                    testSomeCommand != null ? testSomeCommand : "",
                     exclusionPatterns != null ? exclusionPatterns : Set.of(),
                     environmentVariables != null ? environmentVariables : Map.of(),
                     null,
@@ -956,7 +958,6 @@ public class BuildAgent {
         public BuildDetails(
                 @Nullable String buildLintCommand,
                 @Nullable String testAllCommand,
-                @Nullable String testSomeCommand,
                 @Nullable Set<String> exclusionPatterns,
                 @Nullable Map<String, String> environmentVariables,
                 @Nullable Integer maxBuildAttempts,
@@ -966,7 +967,6 @@ public class BuildAgent {
                     true,
                     testAllCommand != null ? testAllCommand : "",
                     true,
-                    testSomeCommand != null ? testSomeCommand : "",
                     exclusionPatterns != null ? exclusionPatterns : Set.of(),
                     environmentVariables != null ? environmentVariables : Map.of(),
                     maxBuildAttempts,
@@ -975,10 +975,11 @@ public class BuildAgent {
         }
 
         public static final BuildDetails EMPTY =
-                new BuildDetails("", false, "", false, "", Set.of(), Map.of(), null, "", List.of());
+                new BuildDetails("", false, "", false, Set.of(), Map.of(), null, "", List.of());
 
         /**
          * Migrate legacy excludedDirectories to exclusionPatterns.
+         * Migrate legacy testSomeCommand to a root module if modules is empty.
          * Called during JSON deserialization for backward compatibility.
          */
         @JsonCreator
@@ -1003,17 +1004,22 @@ public class BuildAgent {
                 patterns.addAll(excludedDirectories);
             }
 
+            List<ModuleBuildEntry> finalModules = modules != null ? new ArrayList<>(modules) : new ArrayList<>();
+            if (testSomeCommand != null && !testSomeCommand.isBlank() && finalModules.isEmpty()) {
+                finalModules.add(
+                        new ModuleBuildEntry("root", ".", buildLintCommand, testAllCommand, testSomeCommand, ""));
+            }
+
             return new BuildDetails(
                     buildLintCommand != null ? buildLintCommand : "",
                     buildLintEnabled != null ? buildLintEnabled : true,
                     testAllCommand != null ? testAllCommand : "",
                     testAllEnabled != null ? testAllEnabled : true,
-                    testSomeCommand != null ? testSomeCommand : "",
                     patterns,
                     environmentVariables != null ? environmentVariables : Map.of(),
                     maxBuildAttempts,
                     afterTaskListCommand != null ? afterTaskListCommand : "",
-                    modules != null ? modules : List.of());
+                    finalModules);
         }
     }
 

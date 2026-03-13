@@ -38,9 +38,14 @@ public class PythonBuildTest {
 
             BuildDetails details = new BuildDetails(
                     "build-cmd",
+                    true,
                     "pytest",
-                    "pytest {{#classes}}{{value}} {{/classes}}",
-                    Set.of());
+                    true,
+                    Set.of(),
+                    java.util.Collections.emptyMap(),
+                    null,
+                    "",
+                    List.of(new ai.brokk.agents.BuildAgent.ModuleBuildEntry("root", ".", "build-cmd", "pytest", "pytest {{#classes}}{{value}} {{/classes}}", "")));
 
             String command = BuildTools.getBuildLintSomeCommand(cm, details, List.of(testFile));
 
@@ -60,7 +65,16 @@ public class PythonBuildTest {
 
         try (var project = InlineTestProjectCreator.code(code, "tests/test_multi.py").build()) {
             TestContextManager cm = new TestContextManager(project, new NoOpConsoleIO(), Set.of(), project.getAnalyzer());
-            BuildDetails details = new BuildDetails("", "", "pytest {{#classes}}{{value}} {{/classes}}", Set.of());
+            BuildDetails details = new BuildDetails(
+                    "",
+                    true,
+                    "",
+                    true,
+                    Set.of(),
+                    java.util.Collections.emptyMap(),
+                    null,
+                    "",
+                    List.of(new ai.brokk.agents.BuildAgent.ModuleBuildEntry("root", ".", "", "", "pytest {{#classes}}{{value}} {{/classes}}", "")));
 
             String command = BuildTools.getBuildLintSomeCommand(cm, details, List.copyOf(project.getAllFiles()));
             assertEquals("pytest test_one test_two", command.trim());

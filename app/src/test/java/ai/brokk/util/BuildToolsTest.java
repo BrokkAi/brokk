@@ -63,11 +63,15 @@ class BuildToolsTest {
         // Use TestContextManager instead of anonymous IContextManager
         TestContextManager mockCm = new TestContextManager(project, new NoOpConsoleIO(), Set.of(), testAnalyzer);
 
-        BuildDetails details = new BuildDetails(
+        BuildAgent.ModuleBuildEntry mod = new BuildAgent.ModuleBuildEntry(
+                "root",
+                ".",
                 "python -m compileall .",
                 "pytest",
                 "pytest {{#packages}}{{value}}{{/packages}} -k {{#classes}}{{value}}{{/classes}}",
-                Set.of());
+                "");
+        BuildDetails details = new BuildDetails(
+                "python -m compileall .", true, "pytest", true, Set.of(), Map.of(), null, "", List.of(mod));
 
         String result = BuildTools.getBuildLintSomeCommand(mockCm, details, List.of(testFile));
 
@@ -91,11 +95,15 @@ class BuildToolsTest {
         TestContextManager mockCm = new TestContextManager(project, new NoOpConsoleIO(), Set.of(), testAnalyzer);
 
         // Go style template
-        BuildDetails details = new BuildDetails(
+        BuildAgent.ModuleBuildEntry mod = new BuildAgent.ModuleBuildEntry(
+                "root",
+                ".",
                 "go build",
                 "go test ./...",
                 "go test . -run '^{{#classes}}{{value}}{{^last}}|{{/last}}{{/classes}}$'",
-                Set.of());
+                "");
+        BuildDetails details =
+                new BuildDetails("go build", true, "go test ./...", true, Set.of(), Map.of(), null, "", List.of(mod));
 
         String result = BuildTools.getBuildLintSomeCommand(mockCm, details, List.of(testFile));
 
@@ -109,7 +117,10 @@ class BuildToolsTest {
         TestContextManager mockCm = new TestContextManager(project, new NoOpConsoleIO(), Set.of(), testAnalyzer);
 
         // A static command without any mustache tags
-        BuildDetails details = new BuildDetails("build-cmd", "test-all-cmd", "pytest -q", Set.of());
+        BuildAgent.ModuleBuildEntry mod =
+                new BuildAgent.ModuleBuildEntry("root", ".", "build-cmd", "test-all-cmd", "pytest -q", "");
+        BuildDetails details =
+                new BuildDetails("build-cmd", true, "test-all-cmd", true, Set.of(), Map.of(), null, "", List.of(mod));
 
         // Even with empty workspace test files, it should return the static command verbatim
         String result = BuildTools.getBuildLintSomeCommand(mockCm, details, List.of());
@@ -130,8 +141,10 @@ class BuildToolsTest {
         TestContextManager mockCm = new TestContextManager(project, new NoOpConsoleIO(), Set.of(), testAnalyzer);
 
         // Template that uses {{pyver}} - if Python version was probed, it would be "3.11"
+        BuildAgent.ModuleBuildEntry mod = new BuildAgent.ModuleBuildEntry(
+                "root", ".", "javac *.java", "java -jar test.jar", "java -jar test.jar --pyver={{pyver}}", "");
         BuildDetails details = new BuildDetails(
-                "javac *.java", "java -jar test.jar", "java -jar test.jar --pyver={{pyver}}", Set.of());
+                "javac *.java", true, "java -jar test.jar", true, Set.of(), Map.of(), null, "", List.of(mod));
 
         ProjectFile testFile = new ProjectFile(tempDir, "Test.java");
 
@@ -146,8 +159,10 @@ class BuildToolsTest {
     @Test
     void testProjectExclusionPatternsArePassedToEnvironmentPython(@TempDir Path tempDir) throws Exception {
         // Template that interpolates {{pyver}} so we can see if exclusions affect the result
-        BuildDetails details =
-                new BuildDetails("python -m compileall .", "pytest", "pytest --python={{pyver}}", Set.of());
+        BuildAgent.ModuleBuildEntry mod = new BuildAgent.ModuleBuildEntry(
+                "root", ".", "python -m compileall .", "pytest", "pytest --python={{pyver}}", "");
+        BuildDetails details = new BuildDetails(
+                "python -m compileall .", true, "pytest", true, Set.of(), Map.of(), null, "", List.of(mod));
 
         // BASELINE: pyproject + normal Python source, NO distutils file
         Path baselineDir = tempDir.resolve("baseline");
@@ -244,11 +259,15 @@ class BuildToolsTest {
         TestContextManager mockCm = new TestContextManager(project, new NoOpConsoleIO(), Set.of(), multiAnalyzer);
 
         // User's reported template
-        BuildDetails details = new BuildDetails(
+        BuildAgent.ModuleBuildEntry mod = new BuildAgent.ModuleBuildEntry(
+                "root",
+                ".",
                 "go build",
                 "go test ./...",
                 "go test {{#packages}}{{value}} {{/packages}} -run '^{{#classes}}{{value}}{{^last}}|{{/last}}{{/classes}}$'",
-                Set.of());
+                "");
+        BuildDetails details =
+                new BuildDetails("go build", true, "go test ./...", true, Set.of(), Map.of(), null, "", List.of(mod));
 
         // 3. Interpolate
         String result = BuildTools.getBuildLintSomeCommand(mockCm, details, List.of(testFile));
@@ -369,7 +388,10 @@ class BuildToolsTest {
 
         TestContextManager mockCm = new TestContextManager(project, new NoOpConsoleIO(), Set.of(), new TestAnalyzer());
 
-        BuildDetails details = new BuildDetails("build-cmd", "python{{pyver}} -m pytest", "unused-test-some", Set.of());
+        BuildAgent.ModuleBuildEntry mod = new BuildAgent.ModuleBuildEntry(
+                "root", ".", "build-cmd", "python{{pyver}} -m pytest", "unused-test-some", "");
+        BuildDetails details = new BuildDetails(
+                "build-cmd", true, "python{{pyver}} -m pytest", true, Set.of(), Map.of(), null, "", List.of(mod));
 
         String result = BuildTools.determineVerificationCommand(mockCm.liveContext(), details);
 
@@ -383,7 +405,10 @@ class BuildToolsTest {
 
         TestContextManager mockCm = new TestContextManager(project, new NoOpConsoleIO(), Set.of(), new TestAnalyzer());
 
-        BuildDetails details = new BuildDetails("build-cmd", "unused-test-all", "python{{pyver}} -m pytest", Set.of());
+        BuildAgent.ModuleBuildEntry mod = new BuildAgent.ModuleBuildEntry(
+                "root", ".", "build-cmd", "unused-test-all", "python{{pyver}} -m pytest", "");
+        BuildDetails details = new BuildDetails(
+                "build-cmd", true, "unused-test-all", true, Set.of(), Map.of(), null, "", List.of(mod));
 
         ProjectFile testFile = new ProjectFile(tempDir, "src/test/java/com/example/AppTest.java");
 
@@ -432,7 +457,6 @@ class BuildToolsTest {
                 true,
                 "test-all-root",
                 true,
-                "test-some-root",
                 Set.of(),
                 Map.of(),
                 null,
@@ -471,7 +495,7 @@ class BuildToolsTest {
                 "Java");
 
         BuildDetails details =
-                new BuildDetails("", true, "", true, "", Set.of(), Map.of(), null, "", List.of(backendModule));
+                new BuildDetails("", true, "", true, Set.of(), Map.of(), null, "", List.of(backendModule));
 
         // This should match despite the backslashes in ProjectFile.toString()
         // because BuildTools normalizes paths using toUnixPath/replace

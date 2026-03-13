@@ -976,7 +976,6 @@ public class SettingsProjectBuildPanel extends JPanel {
                 blEnabled,
                 newTestAll,
                 taEnabled,
-                "", // Global testSome is deprecated in UI
                 diskDetails.exclusionPatterns(),
                 envVars,
                 diskDetails.maxBuildAttempts(),

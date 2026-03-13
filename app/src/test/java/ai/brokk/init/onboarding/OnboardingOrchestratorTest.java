@@ -338,7 +338,6 @@ class OnboardingOrchestratorTest {
         var buildDetails = new BuildAgent.BuildDetails(
                 "mvn clean install",
                 "mvn test",
-                "mvn test -Dtest={{#classes}}",
                 Set.of("target/", "*.class"),
                 Map.of("JAVA_HOME", "/usr/lib/jvm/java-21"));
 
@@ -349,7 +348,6 @@ class OnboardingOrchestratorTest {
         var retrieved = project.awaitBuildDetails();
         assertEquals("mvn clean install", retrieved.buildLintCommand());
         assertEquals("mvn test", retrieved.testAllCommand());
-        assertEquals("mvn test -Dtest={{#classes}}", retrieved.testSomeCommand());
         assertTrue(retrieved.exclusionPatterns().contains("target/"));
         assertEquals("/usr/lib/jvm/java-21", retrieved.environmentVariables().get("JAVA_HOME"));
     }
