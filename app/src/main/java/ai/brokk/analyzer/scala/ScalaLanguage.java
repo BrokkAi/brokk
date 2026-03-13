@@ -18,11 +18,6 @@ public class ScalaLanguage implements JvmLanguage {
     }
 
     @Override
-    public Set<String> commonBuildFiles() {
-        return Set.of("build.sbt");
-    }
-
-    @Override
     public String name() {
         return "Scala";
     }

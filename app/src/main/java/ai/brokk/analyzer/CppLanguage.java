@@ -12,11 +12,6 @@ public class CppLanguage implements Language {
     }
 
     @Override
-    public Set<String> commonBuildFiles() {
-        return Set.of("CMakeLists.txt", "Makefile");
-    }
-
-    @Override
     public String name() {
         return "C/C++";
     }

@@ -85,11 +85,6 @@ public class Languages {
         }
 
         @Override
-        public Set<String> commonBuildFiles() {
-            return Set.of("package.json", "package-lock.json", "yarn.lock", "pnpm-lock.yaml");
-        }
-
-        @Override
         public String name() {
             return "JavaScript";
         }
@@ -388,11 +383,6 @@ public class Languages {
         }
 
         @Override
-        public Set<String> commonBuildFiles() {
-            return Set.of("package.json", "package-lock.json", "yarn.lock", "pnpm-lock.yaml");
-        }
-
-        @Override
         public String name() {
             return "Typescript";
         }
@@ -479,14 +469,6 @@ public class Languages {
 
     public static final List<Language> ALL_LANGUAGES =
             List.of(C_SHARP, JAVA, JAVASCRIPT, PYTHON, C_CPP, GO, RUST, PHP, TYPESCRIPT, SCALA, SQL, NONE);
-
-    private static final Set<String> ALL_COMMON_BUILD_FILES = ALL_LANGUAGES.stream()
-            .flatMap(l -> l.commonBuildFiles().stream())
-            .collect(Collectors.collectingAndThen(Collectors.toSet(), Collections::unmodifiableSet));
-
-    public static Set<String> getAllCommonBuildFiles() {
-        return ALL_COMMON_BUILD_FILES;
-    }
 
     /**
      * Aggregates a set of languages into a single Language handle.

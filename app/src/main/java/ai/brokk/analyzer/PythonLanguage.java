@@ -34,11 +34,6 @@ public class PythonLanguage implements Language {
     }
 
     @Override
-    public Set<String> commonBuildFiles() {
-        return Set.of("requirements.txt", "Pipfile", "pyproject.toml", "setup.py");
-    }
-
-    @Override
     public String name() {
         return "Python";
     }
