@@ -7,6 +7,7 @@ import signal
 import time
 import webbrowser
 from datetime import datetime
+from enum import StrEnum
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
@@ -35,6 +36,12 @@ from brokk_code.widgets.tasklist_panel import TaskListPanel
 from brokk_code.workspace import resolve_workspace_dir
 
 logger = logging.getLogger(__name__)
+
+
+class _JobLifecycleResult(StrEnum):
+    SUCCEEDED = "SUCCEEDED"
+    FAILED = "FAILED"
+    CANCELLED = "CANCELLED"
 
 
 class ContextModalScreen(ModalScreen[None]):
@@ -973,6 +980,7 @@ class BrokkApp(App):
         self._pending_min_wait_until: float = 0.0
         self._resubmit_grace_s: float = 0.2
         self._last_ctrl_c_time: float = 0
+        self._task_run_cancelled: bool = False
         self._executor_started: bool = False
         self._executor_ready: bool = False
         self._refresh_context_lock = asyncio.Lock()
@@ -1012,8 +1020,14 @@ class BrokkApp(App):
         """Safely attempt to get the ChatPanel, returning None if the UI isn't mounted."""
         try:
             return self.query_one(ChatPanel)
-        except (ScreenStackError, Exception):
-            return None
+        except Exception:
+            pass
+        for screen in reversed(self.screen_stack):
+            try:
+                return screen.query_one(ChatPanel)
+            except Exception:
+                continue
+        return None
 
     def _capture_exit_transcript(self) -> None:
         """Snapshot the transcript before the TUI unmounts."""
@@ -1540,13 +1554,35 @@ class BrokkApp(App):
             panel.update_tasklist_details(tasklist_data)
 
     async def _ensure_tasklist_data(self) -> Optional[Dict[str, Any]]:
-        panel = self._active_tasklist_panel()
-        data = panel.tasklist_data_for_update()
-        if data is not None:
-            return data
+        """Returns a mutable copy of the current tasklist data suitable for updates.
+
+        Callers may freely modify the returned dict without affecting previously
+        persisted snapshots or the panel's internal state.
+        """
+        from copy import deepcopy
+
+        panel: Optional[TaskListPanel]
+        try:
+            panel = self._active_tasklist_panel()
+        except Exception:
+            panel = None
+
+        if panel is not None:
+            data = panel.tasklist_data_for_update()
+            if data is not None:
+                return data
+
         data = await self.executor.get_tasklist()
         self._update_tasklist_details_all(data)
-        return panel.tasklist_data_for_update()
+
+        if panel is not None:
+            updated = panel.tasklist_data_for_update()
+            if updated is not None:
+                return updated
+
+        # Return a deep copy so callers can mutate without affecting the executor's
+        # internal state or previously persisted snapshots.
+        return deepcopy(data)
 
     async def _persist_tasklist(self, data: Dict[str, Any]) -> Dict[str, Any]:
         saved = await self.executor.set_tasklist(data)
@@ -1555,6 +1591,11 @@ class BrokkApp(App):
 
     async def _toggle_selected_task(self) -> None:
         chat = self.query_one(ChatPanel)
+        if self.job_in_progress:
+            chat.add_system_message(
+                "Cannot modify tasks while a job is in progress.", level="WARNING"
+            )
+            return
         panel = self._active_tasklist_panel()
         selected = panel.selected_task()
         if not selected:
@@ -1582,6 +1623,11 @@ class BrokkApp(App):
 
     async def _delete_selected_task(self) -> None:
         chat = self.query_one(ChatPanel)
+        if self.job_in_progress:
+            chat.add_system_message(
+                "Cannot modify tasks while a job is in progress.", level="WARNING"
+            )
+            return
         panel = self._active_tasklist_panel()
         selected = panel.selected_task()
         if not selected:
@@ -1611,6 +1657,11 @@ class BrokkApp(App):
 
     async def _add_task(self, title: str) -> None:
         chat = self.query_one(ChatPanel)
+        if self.job_in_progress:
+            chat.add_system_message(
+                "Cannot modify tasks while a job is in progress.", level="WARNING"
+            )
+            return
         normalized_title = title.strip()
         if not normalized_title:
             chat.add_system_message("Task title cannot be blank.", level="ERROR")
@@ -1628,6 +1679,11 @@ class BrokkApp(App):
 
     async def _edit_selected_task(self, title: str) -> None:
         chat = self.query_one(ChatPanel)
+        if self.job_in_progress:
+            chat.add_system_message(
+                "Cannot modify tasks while a job is in progress.", level="WARNING"
+            )
+            return
         panel = self._active_tasklist_panel()
         selected = panel.selected_task()
         if not selected:
@@ -1663,6 +1719,126 @@ class BrokkApp(App):
             await self._persist_tasklist(data)
         except Exception as e:
             chat.add_system_message(f"Failed to edit task: {e}", level="ERROR")
+
+    async def _execute_job_lifecycle(
+        self, task_input: str, mode: str, manage_job_state: bool = True
+    ) -> _JobLifecycleResult:
+        """Performs the full job lifecycle: prepare, submit, stream, and finalize.
+
+        If manage_job_state is True, this method handles setting/clearing job_in_progress
+        and notifying the chat panel of job start/end. Callers performing sequential
+        jobs (like Run All) should manage this state themselves and pass False.
+        """
+        chat = self._maybe_chat()
+        self.current_job_cost = 0.0
+        self._task_run_cancelled = False
+
+        if manage_job_state:
+            self.job_in_progress = True
+            if chat:
+                chat.set_job_running(True)
+                chat.set_response_pending()
+
+        attached_fragment_ids: List[str] = []
+        try:
+            attached_fragment_ids = await self._attach_mentions_to_context(task_input)
+            self.current_job_id = await self.executor.submit_job(
+                task_input,
+                self.current_model,
+                code_model=self.code_model,
+                reasoning_level=self.reasoning_level,
+                reasoning_level_code=self.reasoning_level_code,
+                mode=mode,
+                auto_commit=self.auto_commit,
+            )
+            async for event in self.executor.stream_events(self.current_job_id):
+                self._handle_event(event)
+
+            return (
+                _JobLifecycleResult.CANCELLED
+                if self._task_run_cancelled
+                else _JobLifecycleResult.SUCCEEDED
+            )
+
+        except Exception as e:
+            if (
+                self.current_job_id is None
+                and attached_fragment_ids
+                and hasattr(self.executor, "drop_context_fragments")
+            ):
+                try:
+                    await self.executor.drop_context_fragments(attached_fragment_ids)
+                except Exception:
+                    logger.exception(
+                        "Failed to rollback context fragments after submit_job failure: %s",
+                        attached_fragment_ids,
+                    )
+
+            if not self._task_run_cancelled:
+                if chat:
+                    err_type = type(e).__name__
+                    chat.add_system_message(
+                        f"Job failed or interrupted ({err_type}): {e}",
+                        level="ERROR",
+                    )
+                else:
+                    logger.error("Job failed or interrupted (%s): %s", type(e).__name__, e)
+                return _JobLifecycleResult.FAILED
+            return _JobLifecycleResult.CANCELLED
+        finally:
+            if manage_job_state:
+                if chat:
+                    chat.set_response_finished()
+                    chat.set_job_running(False)
+                self.job_in_progress = False
+            self.current_job_id = None
+
+    async def _run_selected_task(self, task: Dict[str, Any]) -> None:
+        """Runs a single task and marks it done on success."""
+        chat = self._maybe_chat()
+        task_id = str(task.get("id", "")).strip()
+        task_text = str(task.get("text", "")).strip()
+        task_title = str(task.get("title", "")).strip()
+
+        # Prefer text, fall back to title
+        task_input = task_text if task_text else task_title
+        if not task_input:
+            if chat:
+                chat.add_system_message("Task has no text or title to run.", level="ERROR")
+            return
+
+        display_name = task_title if task_title else task_input[:50]
+        if chat:
+            chat.add_system_message(f"Running task: {display_name}")
+
+        result = await self._execute_job_lifecycle(task_input, mode="CODE", manage_job_state=False)
+
+        if result == _JobLifecycleResult.SUCCEEDED and task_id:
+            try:
+                data = await self._ensure_tasklist_data()
+                if data:
+                    found = False
+                    for t in data.get("tasks", []):
+                        if str(t.get("id", "")).strip() == task_id:
+                            t["done"] = True
+                            found = True
+                            break
+                    if found:
+                        await self._persist_tasklist(data)
+                        if chat:
+                            chat.add_system_message(
+                                f"Task '{display_name}' completed and marked as done."
+                            )
+                    elif chat:
+                        chat.add_system_message(
+                            f"Task '{display_name}' disappeared and could not be marked done.",
+                            level="WARNING",
+                        )
+            except Exception as e:
+                if chat:
+                    chat.add_system_message(f"Failed to mark task as done: {e}", level="WARNING")
+        elif result == _JobLifecycleResult.CANCELLED and chat:
+            chat.add_system_message(f"Task '{display_name}' was cancelled.")
 
     def on_chat_panel_mode_selected(self, message: ChatPanel.ModeSelected) -> None:
         self._set_mode(message.mode.upper())
@@ -2121,96 +2297,42 @@ class BrokkApp(App):
             chat.add_system_message(f"Failed to start OpenAI login: {e}", level="ERROR")
 
     async def _run_job(self, task_input: str) -> None:
-        # Reset per-job cost accumulator
-        self.current_job_cost = 0.0
-        self.job_in_progress = True
-        chat = self._maybe_chat()
-        if chat:
-            chat.set_job_running(True)
-            chat.set_response_pending()
+        await self._execute_job_lifecycle(task_input, mode=self.current_mode)
 
-        attached_fragment_ids: List[str] = []
-        try:
-            attached_fragment_ids = await self._attach_mentions_to_context(task_input)
-            self.current_job_id = await self.executor.submit_job(
-                task_input,
-                self.current_model,
-                code_model=self.code_model,
-                reasoning_level=self.reasoning_level,
-                reasoning_level_code=self.reasoning_level_code,
-                mode=self.current_mode,
-                auto_commit=self.auto_commit,
-            )
-            async for event in self.executor.stream_events(self.current_job_id):
-                self._handle_event(event)
-        except Exception as e:
-            if (
-                self.current_job_id is None
-                and attached_fragment_ids
-                and hasattr(self.executor, "drop_context_fragments")
-            ):
-                try:
-                    await self.executor.drop_context_fragments(attached_fragment_ids)
-                except Exception:
-                    logger.exception(
-                        "Failed to rollback context fragments after submit_job failure: %s",
-                        attached_fragment_ids,
-                    )
+        # Yield to the event loop to allow any rapid subsequent submissions
+        # triggered by the cancellation to be processed before we check _pending_prompt.
+        await asyncio.sleep(0)
 
-            if chat:
-                err_type = type(e).__name__
-                chat.add_system_message(
-                    f"Job failed or interrupted ({err_type}): {e}",
-                    level="ERROR",
-                )
-            else:
-                logger.error("Job failed or interrupted (%s): %s", type(e).__name__, e)
-        finally:
-            if chat:
-                chat.set_response_finished()
-                chat.set_job_running(False)
+        if self._pending_prompt:
+            # Wait for both the grace window (since cancellation)
+            # and the stability debounce (since last keystroke/submit).
+            debounce_window = 0.05  # 50ms
+            while True:
+                now = time.monotonic()
+                current_gen = self._pending_generation
+                elapsed_since_update = now - self._pending_updated_at
 
-            # Yield to the event loop to allow any rapid subsequent submissions
-            # triggered by the cancellation to be processed before we check _pending_prompt.
-            await asyncio.sleep(0)
+                # We must be past the absolute grace timestamp AND stable
+                # for the debounce window
+                if (
+                    now >= self._pending_min_wait_until
+                    and elapsed_since_update >= debounce_window
+                    and self._pending_generation == current_gen
+                ):
+                    break
+                await asyncio.sleep(0.01)
 
-            if self._pending_prompt:
-                # Wait for both the grace window (since cancellation)
-                # and the stability debounce (since last keystroke/submit).
-                debounce_window = 0.05  # 50ms
-                while True:
-                    now = time.monotonic()
-                    current_gen = self._pending_generation
-                    elapsed_since_update = now - self._pending_updated_at
+            next_prompt = self._pending_prompt
+            self._pending_prompt = None
+            self._pending_updated_at = 0
+            self._pending_generation = 0
+            self._pending_min_wait_until = 0.0
 
-                    # We must be past the absolute grace timestamp AND stable
-                    # for the debounce window
-                    if (
-                        now >= self._pending_min_wait_until
-                        and elapsed_since_update >= debounce_window
-                        and self._pending_generation == current_gen
-                    ):
-                        break
-                    await asyncio.sleep(0.01)
-
-                next_prompt = self._pending_prompt
-                self._pending_prompt = None
-                self._pending_updated_at = 0
-                self._pending_generation = 0
-                self._pending_min_wait_until = 0.0
-
-                # Recurse within the same worker context to prevent
-                # the app from flickering to 'idle' and allowing race-condition submits.
-                # We keep job_in_progress = True during this transition.
-                if next_prompt:
-                    await self._run_job(next_prompt)
-                else:
-                    self.job_in_progress = False
-                    self.current_job_id = None
-            else:
-                # Only mark idle once we are sure no more prompts are queued
-                self.job_in_progress = False
-                self.current_job_id = None
+            # Recurse within the same worker context to prevent
+            # the app from flickering to 'idle' and allowing race-condition submits.
+            # We keep job_in_progress = True during this transition by calling _run_job.
+            if next_prompt:
+                await self._run_job(next_prompt)
 
     def _handle_event(self, event: Dict[str, Any]) -> None:
         if not isinstance(event, dict):
@@ -2742,6 +2864,16 @@ class BrokkApp(App):
             self.run_worker(self._ensure_tasklist_data())
             self.run_worker(self._refresh_context_panel())
 
+    def _dismiss_tasklist_modal(self) -> None:
+        """Dismiss the task list modal if it is currently active."""
+        try:
+            current_screen = self.screen
+        except ScreenStackError:
+            return
+        if isinstance(current_screen, TaskListModalScreen):
+            self._restore_tasklist_focus()
+            current_screen.dismiss(None)
+
     def _restore_tasklist_focus(self) -> None:
         widget = self._tasklist_restore_focus_widget
         self._tasklist_restore_focus_widget = None
@@ -2791,6 +2923,183 @@ class BrokkApp(App):
             self.run_worker(self._edit_selected_task(result))
 
         self.push_screen(TaskTitleModalScreen("Edit Task", initial=initial), on_done)
+
+    def action_task_run(self) -> None:
+        """Runs the currently selected task via the executor."""
+        chat = self._maybe_chat()
+        panel = self._active_tasklist_panel()
+        selected = panel.selected_task()
+        if not selected:
+            if chat:
+                chat.add_system_message("No task selected.")
+            return
+
+        if not self._executor_ready:
+            if chat:
+                chat.add_system_message("Executor is not ready. Cannot run task.", level="ERROR")
+            return
+
+        if self.job_in_progress:
+            if chat:
+                chat.add_system_message(
+                    "A job is already in progress. Please wait or cancel it first.",
+                    level="WARNING",
+                )
+            return
+
+        if selected.get("done", False):
+            if chat:
+                chat.add_system_message("Selected task is already done.", level="INFO")
+            return
+
+        self._dismiss_tasklist_modal()
+        self.run_worker(self._run_selected_task(selected))
+
+    def action_task_run_all(self) -> None:
+        """Runs all incomplete tasks in order via the executor."""
+        chat = self._maybe_chat()
+
+        if not self._executor_ready:
+            if chat:
+                chat.add_system_message("Executor is not ready. Cannot run tasks.", level="ERROR")
+            return
+
+        if self.job_in_progress:
+            if chat:
+                chat.add_system_message(
+                    "A job is already in progress. Please wait or cancel it first.",
+                    level="WARNING",
+                )
+            return
+
+        self._dismiss_tasklist_modal()
+        self.run_worker(self._run_all_incomplete_tasks())
+
+    async def _run_all_incomplete_tasks(self) -> None:
+        """Runs all incomplete tasks sequentially, marking each done on success."""
+        chat = self._maybe_chat()
+        self.job_in_progress = True
+        if chat:
+            chat.set_job_running(True)
+
+        try:
+            # Reset cancellation flag at the start of a run-all sequence
+            self._task_run_cancelled = False
+
+            # Fetch current task list
+            try:
+                data = await self._ensure_tasklist_data()
+            except Exception as e:
+                if chat:
+                    chat.add_system_message(f"Failed to fetch task list: {e}", level="ERROR")
+                return
+
+            if not data:
+                if chat:
+                    chat.add_system_message("No task list active.")
+                return
+
+            tasks = data.get("tasks", [])
+            incomplete_tasks = [t for t in tasks if not t.get("done", False)]
+
+            if not incomplete_tasks:
+                if chat:
+                    chat.add_system_message("No incomplete tasks to run.")
+                return
+
+            if chat:
+                chat.add_system_message(f"Running {len(incomplete_tasks)} incomplete task(s)...")
+
+            for i, task in enumerate(incomplete_tasks):
+                # Check for cancellation before starting each task
+                if self._task_run_cancelled:
+                    remaining = len(incomplete_tasks) - i
+                    if chat:
+                        chat.add_system_message(
+                            f"Task run cancelled. {remaining} task(s) not executed.",
+                            level="WARNING",
+                        )
+                    break
+
+                task_id = str(task.get("id", "")).strip()
+                task_text = str(task.get("text", "")).strip()
+                task_title = str(task.get("title", "")).strip()
+
+                # Prefer text, fall back to title
+                task_input = task_text if task_text else task_title
+                if not task_input:
+                    if chat:
+                        chat.add_system_message(
+                            f"Task {i + 1} has no text or title, skipping.", level="WARNING"
+                        )
+                    continue
+
+                display_name = task_title if task_title else task_input[:50]
+                if chat:
+                    chat.add_system_message(
+                        f"Running task {i + 1}/{len(incomplete_tasks)}: {display_name}"
+                    )
+
+                # Use manage_job_state=False so the sequence-level busy state is preserved
+                result = await self._execute_job_lifecycle(
+                    task_input, mode="CODE", manage_job_state=False
+                )
+
+                # Mark task as done only if execution succeeded
+                if result == _JobLifecycleResult.SUCCEEDED and task_id:
+                    try:
+                        # Re-fetch to get latest state
+                        current_data = await self._ensure_tasklist_data()
+                        if current_data:
+                            found = False
+                            for t in current_data.get("tasks", []):
+                                if str(t.get("id", "")).strip() == task_id:
+                                    t["done"] = True
+                                    found = True
+                                    break
+                            if found:
+                                await self._persist_tasklist(current_data)
+                                if chat:
+                                    chat.add_system_message(
+                                        f"Task '{display_name}' marked as done."
+                                    )
+                            elif chat:
+                                chat.add_system_message(
+                                    f"Task '{display_name}' disappeared;"
+                                    " could not be marked done.",
+                                    level="WARNING",
+                                )
+                    except Exception as e:
+                        if chat:
+                            chat.add_system_message(
+                                f"Failed to mark task as done: {e}", level="WARNING"
+                            )
+
+                # Abort on failure or cancellation
+                if result != _JobLifecycleResult.SUCCEEDED:
+                    remaining = len(incomplete_tasks) - i - 1
+                    if result == _JobLifecycleResult.CANCELLED:
+                        if remaining > 0 and chat:
+                            chat.add_system_message(
+                                f"Task run cancelled. {remaining} remaining task(s) not executed.",
+                                level="WARNING",
+                            )
+                    else:  # FAILED
+                        if remaining > 0 and chat:
+                            chat.add_system_message(
+                                f"Aborting remaining tasks. {remaining} task(s) not executed.",
+                                level="WARNING",
+                            )
+                    return
+
+            if chat:
+                chat.add_system_message(
+                    f"Completed all {len(incomplete_tasks)} task(s) successfully."
+                )
+        finally:
+            self.job_in_progress = False
+            if chat:
+                chat.set_job_running(False)
 
     def action_toggle_output(self) -> None:
         """Toggles visibility of reasoning and tool output."""
@@ -2848,6 +3157,7 @@ class BrokkApp(App):
             self._pending_updated_at = 0
             self._pending_generation = 0
             self._pending_min_wait_until = 0.0
+            self._task_run_cancelled = True  # Signal to stop run-all sequence
             if chat_panel:
                 chat_panel.add_system_message("Cancelling job...")
             await self.executor.cancel_job(self.current_job_id)

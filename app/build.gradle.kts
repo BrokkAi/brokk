@@ -491,7 +491,7 @@ tasks.register<JavaCompile>("fix") {
 
     options.errorprone {
         errorproneArgs.addAll(
-            "-XepPatchChecks:UnnecessarilyFullyQualified,MissingOverride,RemoveUnusedImports,RedundantNullCheck,RedundantThrows,OperatorPrecedence,UnnecessaryParentheses,EmptyBlockTag",
+            "-XepPatchChecks:UnnecessarilyFullyQualified,MissingOverride,RemoveUnusedImports,RedundantNullCheck,RedundantThrows,OperatorPrecedence,UnnecessaryParentheses,EmptyBlockTag,ClassCanBeStatic",
             "-XepPatchLocation:IN_PLACE"
         )
 
