@@ -1,5 +1,6 @@
 package ai.brokk.util;
 
+import com.google.common.collect.ImmutableSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
@@ -24,12 +25,12 @@ public class BuildToolConventions {
         MAKE(Set.of("makefile"), Set.of()),
         UNKNOWN(Set.of(), Set.of());
 
-        private final Set<String> markerFiles;
-        private final Set<String> markerSuffixes;
+        private final ImmutableSet<String> markerFiles;
+        private final ImmutableSet<String> markerSuffixes;
 
         BuildSystem(Set<String> markerFiles, Set<String> markerSuffixes) {
-            this.markerFiles = Set.copyOf(markerFiles);
-            this.markerSuffixes = Set.copyOf(markerSuffixes);
+            this.markerFiles = ImmutableSet.copyOf(markerFiles);
+            this.markerSuffixes = ImmutableSet.copyOf(markerSuffixes);
         }
 
         private boolean matches(String filename) {
