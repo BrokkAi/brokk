@@ -44,6 +44,7 @@ import java.io.StringWriter;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.*;
@@ -788,6 +789,51 @@ public class BuildAgent {
         }
 
         return result;
+    }
+
+    /**
+     * Represents a submodule build configuration.
+     */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record ModuleBuildEntry(
+            @JsonProperty("alias") String alias,
+            @JsonProperty("relativePath") String relativePath,
+            @JsonProperty("buildLintCommand") String buildLintCommand,
+            @JsonProperty("testAllCommand") String testAllCommand,
+            @JsonProperty("testSomeCommand") String testSomeCommand,
+            @JsonProperty("language") String language) {
+
+        @JsonCreator
+        public ModuleBuildEntry(
+                @JsonProperty("alias") String alias,
+                @JsonProperty("relativePath") String relativePath,
+                @JsonProperty("buildLintCommand") String buildLintCommand,
+                @JsonProperty("testAllCommand") String testAllCommand,
+                @JsonProperty("testSomeCommand") String testSomeCommand,
+                @JsonProperty("language") String language) {
+            this.alias = alias;
+            // Normalize path segments and ensure consistent forward slashes
+            String normalized = toUnixPath(Paths.get(relativePath).normalize());
+            if (normalized.equals(".") || normalized.isEmpty() || normalized.equals("/")) {
+                this.relativePath = ".";
+            } else {
+                // Ensure non-root paths end with / to prevent substring collisions (e.g., "app" vs "appendix")
+                this.relativePath = normalized.endsWith("/") ? normalized : normalized + "/";
+            }
+            this.buildLintCommand = buildLintCommand;
+            this.testAllCommand = testAllCommand;
+            this.testSomeCommand = testSomeCommand;
+            this.language = language;
+        }
+
+        public ModuleBuildEntry(
+                String alias,
+                String relativePath,
+                String buildLintCommand,
+                String testAllCommand,
+                String testSomeCommand) {
+            this(alias, relativePath, buildLintCommand, testAllCommand, testSomeCommand, "");
+        }
     }
 
     /** Holds semi-structured information about a project's build process */
