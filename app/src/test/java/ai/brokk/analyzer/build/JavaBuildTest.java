@@ -51,6 +51,25 @@ public class JavaBuildTest {
     }
 
     @Test
+    void testGradleTestSelectionInterpolation() throws Exception {
+        String code1 = "package com.example; public class Test1 { @org.junit.jupiter.api.Test void t() {} }";
+        String code2 = "package com.example; public class Test2 { @org.junit.jupiter.api.Test void t() {} }";
+
+        try (var project = InlineTestProjectCreator.empty()
+                .addFileContents(code1, "src/test/java/com/example/Test1.java")
+                .addFileContents(code2, "src/test/java/com/example/Test2.java")
+                .build()) {
+            TestContextManager cm = new TestContextManager(project.getRoot(), new NoOpConsoleIO(), project.getAnalyzer());
+            // This is the standard Gradle template recommended in BuildAgent system prompt
+            BuildDetails details = new BuildDetails("", "", "gradle test{{#classes}} --tests {{value}}{{/classes}}", Set.of());
+
+            String command = BuildTools.getBuildLintSomeCommand(cm, details, List.copyOf(project.getAllFiles()));
+            // Ensure there is a space between the flags
+            assertEquals("gradle test --tests Test1 --tests Test2", command);
+        }
+    }
+
+    @Test
     void testMultipleClassesTemplateInterpolation() throws Exception {
         String code1 = "package com.example; public class Test1 { @org.junit.jupiter.api.Test void t() {} }";
         String code2 = "package com.example; public class Test2 { @org.junit.jupiter.api.Test void t() {} }";

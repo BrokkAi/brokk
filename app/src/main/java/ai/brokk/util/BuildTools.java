@@ -301,8 +301,10 @@ public class BuildTools {
         Map<String, Object> context = new HashMap<>();
         context.put(listKey, MustacheTemplates.toStringElementList(items));
         context.put("pyver", pythonVersion == null ? "" : pythonVersion);
+
         StringWriter writer = new StringWriter();
         mustache.execute(writer, context);
+
         return writer.toString();
     }
 }
