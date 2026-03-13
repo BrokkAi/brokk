@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
+import ai.brokk.agents.BuildAgent;
 import ai.brokk.agents.BuildAgent.BuildDetails;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.Languages;
@@ -289,6 +290,7 @@ class BuildToolsTest {
         // ModuleBuildEntry normalizes paths to forward-slash and adds a trailing slash if not present
         assertEquals("app/core/", core.relativePath());
         assertEquals("Java", core.language());
+        assertEquals("mvn compile", core.buildLintCommand());
         assertEquals("mvn test", core.testAllCommand());
         assertEquals("mvn test -Dtest={{#classes}}{{value}}{{/classes}}", core.testSomeCommand());
 
@@ -445,6 +447,37 @@ class BuildToolsTest {
         // 2. Verify frontend selection (interpolates path via files)
         String frontendResult = BuildTools.getBuildLintSomeCommand(mockCm, details, List.of(frontendFile));
         assertEquals("npm test -w frontend -- frontend/test/app.test.js", frontendResult);
+    }
+
+    @Test
+    void testGetBuildLintSomeCommand_ModuleSelection_WindowsPaths(@TempDir Path tempDir) throws Exception {
+        TestProject project = new TestProject(tempDir);
+
+        // Simulate Windows paths with backslashes in the ProjectFile
+        // Note: ProjectFile.toString() on Windows returns backslashes.
+        ProjectFile windowsFile = new ProjectFile(tempDir, "backend\\src\\test\\java\\AppTest.java");
+
+        TestAnalyzer testAnalyzer = new TestAnalyzer();
+        testAnalyzer.addDeclaration(CodeUnit.cls(windowsFile, "com.example", "AppTest"));
+        TestContextManager mockCm = new TestContextManager(project, new NoOpConsoleIO(), Set.of(), testAnalyzer);
+
+        // Module defined with Unix-style forward slashes
+        BuildAgent.ModuleBuildEntry backendModule = new BuildAgent.ModuleBuildEntry(
+                "backend",
+                "backend/",
+                "mvn compile",
+                "mvn test",
+                "mvn test -pl backend -Dtest={{#classes}}{{value}}{{/classes}}",
+                "Java");
+
+        BuildDetails details = new BuildDetails(
+                "", true, "", true, "", Set.of(), Map.of(), null, "", List.of(backendModule));
+
+        // This should match despite the backslashes in ProjectFile.toString() 
+        // because BuildTools normalizes paths using toUnixPath/replace
+        String result = BuildTools.getBuildLintSomeCommand(mockCm, details, List.of(windowsFile));
+
+        assertEquals("mvn test -pl backend -Dtest=AppTest", result);
     }
 
     @Test

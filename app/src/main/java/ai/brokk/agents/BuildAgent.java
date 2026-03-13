@@ -880,10 +880,10 @@ public class BuildAgent {
                 // Ensure non-root paths end with / to prevent substring collisions (e.g., "app" vs "appendix")
                 this.relativePath = normalized.endsWith("/") ? normalized : normalized + "/";
             }
-            this.buildLintCommand = buildLintCommand;
-            this.testAllCommand = testAllCommand;
-            this.testSomeCommand = testSomeCommand;
-            this.language = language;
+            this.buildLintCommand = buildLintCommand != null ? buildLintCommand : "";
+            this.testAllCommand = testAllCommand != null ? testAllCommand : "";
+            this.testSomeCommand = testSomeCommand != null ? testSomeCommand : "";
+            this.language = language != null ? language : "";
         }
 
         public ModuleBuildEntry(
