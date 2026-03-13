@@ -54,6 +54,7 @@ public class WorkspaceToolsTest {
         var wst = new WorkspaceTools(new Context(cm));
         var result = wst.addLineRangeToWorkspace(filePath, 2, 4);
         assertTrue(result.llmText().contains("Added: %s (lines 2-4)".formatted(filePath)));
+        assertEquals(1, result.addedFragments().size());
 
         var ctx = result.context();
         var fragment = ctx.allFragments()
@@ -136,6 +137,26 @@ public class WorkspaceToolsTest {
         var result = wst.addLineRangeToWorkspace("missing.txt", 1, 10);
         assertTrue(result.llmText().contains("File not found: missing.txt"));
         assertEquals(0L, result.context().allFragments().count());
+    }
+
+    @Test
+    void dropWorkspaceFragments_reportsRemovedFragmentsAndPreservesReport() throws Exception {
+        var cm = new TestContextManager(tempDir, new TestConsoleIO());
+        var ctx = new Context(cm);
+
+        Files.writeString(tempDir.resolve("to-drop.txt"), "content");
+        var file = cm.toFile("to-drop.txt");
+        var fragment = new ContextFragments.ProjectPathFragment(file, cm);
+        ctx = ctx.addFragments(fragment);
+
+        var wst = new WorkspaceTools(ctx);
+        var removal = new WorkspaceTools.FragmentRemoval(fragment.id(), "facts", "reason");
+        var result = wst.dropWorkspaceFragments(List.of(removal));
+
+        assertEquals(1, result.removedFragments().size());
+        assertEquals(fragment.id(), result.removedFragments().getFirst().id());
+        assertTrue(result.dropReport().droppedFragmentIds().contains(fragment.id()));
+        assertTrue(result.context().findWithSameSource(fragment).isEmpty());
     }
 
     @Test

@@ -1046,7 +1046,8 @@ public class Llm {
             var turnSequence = requestSequence - 1;
             var toolId = requireNonNullElse(result.toolId(), "");
             var arguments = requireNonNullElse(result.arguments(), "{}");
-            var filePath = dir.resolve("%03d-tools.jsonl".formatted(turnSequence));
+            var filePath =
+                    dir.resolve("%s %03d-tools.jsonl".formatted(logFileTimestamp(), turnSequence));
             var logLine = Map.ofEntries(
                     Map.entry("timestamp", Instant.now().toString()),
                     Map.entry("turn", turnSequence),

@@ -40,7 +40,17 @@ import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 public class WorkspaceTools {
     private static final Logger logger = LogManager.getLogger(WorkspaceTools.class);
 
-    public record WorkspaceMutationOutput(String llmText, Context context) implements ToolOutput {}
+    public record WorkspaceMutationOutput(
+            String llmText,
+            Context context,
+            List<ContextFragment> addedFragments,
+            List<ContextFragment> removedFragments)
+            implements ToolOutput {
+        public WorkspaceMutationOutput {
+            addedFragments = List.copyOf(addedFragments);
+            removedFragments = List.copyOf(removedFragments);
+        }
+    }
 
     public record DropReport(
             Set<String> droppedFragmentIds, Set<String> protectedFragmentIds, Set<String> unknownFragmentIds) {
@@ -51,7 +61,18 @@ public class WorkspaceTools {
         }
     }
 
-    public record DropWorkspaceOutput(String llmText, Context context, DropReport dropReport) implements ToolOutput {}
+    public record DropWorkspaceOutput(
+            String llmText,
+            Context context,
+            DropReport dropReport,
+            List<ContextFragment> addedFragments,
+            List<ContextFragment> removedFragments)
+            implements ToolOutput {
+        public DropWorkspaceOutput {
+            addedFragments = List.copyOf(addedFragments);
+            removedFragments = List.copyOf(removedFragments);
+        }
+    }
 
     // Per-instance working context (immutable Context instances replaced on modification)
     private Context context;
@@ -76,11 +97,24 @@ public class WorkspaceTools {
             @D(DROP_REASON_DESCRIPTION) String dropReason) {}
 
     private WorkspaceMutationOutput output(String text) {
-        return new WorkspaceMutationOutput(text, context);
+        return output(text, List.of(), List.of());
+    }
+
+    private WorkspaceMutationOutput output(
+            String text, List<? extends ContextFragment> added, List<? extends ContextFragment> removed) {
+        return new WorkspaceMutationOutput(text, context, added, removed);
     }
 
     private DropWorkspaceOutput dropOutput(String text, DropReport report) {
-        return new DropWorkspaceOutput(text, context, report);
+        return dropOutput(text, report, List.of(), List.of());
+    }
+
+    private DropWorkspaceOutput dropOutput(
+            String text,
+            DropReport report,
+            List<? extends ContextFragment> added,
+            List<? extends ContextFragment> removed) {
+        return new DropWorkspaceOutput(text, context, report, added, removed);
     }
 
     // ---------------------------
@@ -138,7 +172,7 @@ public class WorkspaceTools {
         context = context.addFragments(fragments);
 
         String report = reporter.report();
-        return output(report.isEmpty() ? "No changes." : report);
+        return output(report.isEmpty() ? "No changes." : report, fragments, List.of());
     }
 
     @Tool(
@@ -205,7 +239,10 @@ public class WorkspaceTools {
         }
 
         context = context.addFragments(fragment);
-        return output("Added: %s (lines %d-%d)".formatted(normalized, effectiveStart, actualEnd));
+        return output(
+                "Added: %s (lines %d-%d)".formatted(normalized, effectiveStart, actualEnd),
+                List.of(fragment),
+                List.of());
     }
 
     @Tool(
@@ -246,7 +283,7 @@ public class WorkspaceTools {
 
         context = context.addFragments(toAdd);
         String report = reporter.report();
-        return output(report.isEmpty() ? "No changes." : report);
+        return output(report.isEmpty() ? "No changes." : report, toAdd, List.of());
     }
 
     /**
@@ -282,7 +319,7 @@ public class WorkspaceTools {
             context = context.addFragments(fragment);
 
             logger.debug("Successfully added URL content to context");
-            return output("Added content from URL as a read-only text fragment");
+            return output("Added content from URL as a read-only text fragment", List.of(fragment), List.of());
         } catch (URISyntaxException e) {
             return output("Invalid URL format");
         } catch (IllegalArgumentException e) {
@@ -376,7 +413,7 @@ public class WorkspaceTools {
         }
 
         var llmText = lines.isEmpty() ? "No changes." : String.join("\n", lines);
-        return dropOutput(llmText, dropReport);
+        return dropOutput(llmText, dropReport, List.of(), toDrop);
     }
 
     @Tool(
@@ -421,7 +458,7 @@ public class WorkspaceTools {
 
         context = context.addFragments(toAdd);
         String report = reporter.report();
-        return output(report.isEmpty() ? "No changes." : report);
+        return output(report.isEmpty() ? "No changes." : report, toAdd, List.of());
     }
 
     @Tool(
@@ -479,7 +516,7 @@ public class WorkspaceTools {
 
         context = context.addFragments(toAdd);
         String report = reporter.report();
-        return output(report.isEmpty() ? "No changes." : report);
+        return output(report.isEmpty() ? "No changes." : report, toAdd, List.of());
     }
 
     @Tool(
@@ -523,7 +560,7 @@ public class WorkspaceTools {
 
         context = context.addFragments(toAdd);
         String report = reporter.report();
-        return output(report.isEmpty() ? "No changes." : report);
+        return output(report.isEmpty() ? "No changes." : report, toAdd, List.of());
     }
 
     /**

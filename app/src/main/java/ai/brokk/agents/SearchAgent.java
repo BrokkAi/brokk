@@ -8,7 +8,6 @@ import ai.brokk.TaskResult;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.context.Context;
-import ai.brokk.context.ContextDelta;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextHistory;
 import ai.brokk.metrics.SearchMetrics;
@@ -241,7 +240,6 @@ public class SearchAgent {
                         .forEach(f -> f.cancel(true));
 
                 for (var request : ai.toolExecutionRequests()) {
-                    Context before = context;
                     ToolExecutionResult toolResult;
                     if (parallelFutures.containsKey(request)) {
                         try {
@@ -270,11 +268,11 @@ public class SearchAgent {
 
                     if (toolResult.result() instanceof WorkspaceTools.WorkspaceMutationOutput output) {
                         context = output.context();
+                        additionsThisTurn.addAll(output.addedFragments());
                     } else if (toolResult.result() instanceof WorkspaceTools.DropWorkspaceOutput output) {
                         context = output.context();
+                        additionsThisTurn.addAll(output.addedFragments());
                     }
-                    additionsThisTurn.addAll(
-                            ContextDelta.between(before, context).join().addedFragments());
 
                     if (toolResult.status() == ToolExecutionResult.Status.FATAL) {
                         cancelOutstandingParallelFutures.run();
