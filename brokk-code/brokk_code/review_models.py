@@ -65,14 +65,14 @@ def _parse_key_change(data: Dict[str, Any]) -> ReviewSection:
     """Parse a KeyChanges entry into ReviewSection."""
     return ReviewSection(
         title=data.get("title", ""),
-        content=data.get("content", ""),
+        content=data.get("description", "") or data.get("content", ""),
         excerpts=_parse_excerpts(data.get("excerpts")),
     )
 
 
 def _parse_design_note(data: Dict[str, Any]) -> ReviewSection:
     """Parse a DesignFeedback entry into ReviewSection."""
-    description = data.get("content", "")
+    description = data.get("description", "") or data.get("content", "")
     recommendation = data.get("recommendation", "")
     content = description
     if recommendation:
@@ -90,7 +90,7 @@ def _parse_design_note(data: Dict[str, Any]) -> ReviewSection:
 
 def _parse_tactical_note(data: Dict[str, Any]) -> ReviewSection:
     """Parse a TacticalFeedback entry into ReviewSection."""
-    description = data.get("content", "")
+    description = data.get("description", "") or data.get("content", "")
     recommendation = data.get("recommendation", "")
     content = description
     if recommendation:

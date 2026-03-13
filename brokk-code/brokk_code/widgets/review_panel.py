@@ -168,9 +168,15 @@ class GuidedReviewPanel(Vertical, can_focus=True):
 
     BINDINGS = [
         Binding("up", "cursor_prev", "Previous Section", show=False),
+        Binding("k", "cursor_prev", "Previous Section", show=False),
+        Binding("shift+tab", "cursor_prev", "Previous Section", show=False),
         Binding("down", "cursor_next", "Next Section", show=False),
+        Binding("j", "cursor_next", "Next Section", show=False),
+        Binding("tab", "cursor_next", "Next Section", show=False),
         Binding("enter", "toggle_section", "Toggle Section", show=False),
         Binding("space", "toggle_section", "Toggle Section", show=False),
+        Binding("o", "expand_all", "Expand All", show=False),
+        Binding("O", "collapse_all", "Collapse All", show=False),
     ]
 
     DEFAULT_CSS = """
@@ -268,7 +274,7 @@ class GuidedReviewPanel(Vertical, can_focus=True):
 
     def _get_help_text(self) -> str:
         """Build help text from bindings."""
-        return "[b]↑/↓[/b] Nav  [b]Enter[/b] Toggle  [b]Esc[/b] Close"
+        return "[b]Tab/↑↓[/b] Nav  [b]Enter[/b] Toggle  [b]Esc[/b] Close"
 
     def on_mount(self) -> None:
         """Initial state setup."""
@@ -333,22 +339,22 @@ class GuidedReviewPanel(Vertical, can_focus=True):
             )
             content.mount(Static(overview_panel, id="review-overview"))
 
-        # Key Changes
+        # Key Changes - yellow border
         if self._review.key_changes:
             self._mount_section_group(
-                content, "Key Changes", self._review.key_changes, "key-change"
+                content, "Key Changes", self._review.key_changes, "key-change", "yellow"
             )
 
-        # Design Notes
+        # Design Notes - cyan border
         if self._review.design_notes:
             self._mount_section_group(
-                content, "Design Notes", self._review.design_notes, "design-note"
+                content, "Design Notes", self._review.design_notes, "design-note", "cyan"
             )
 
-        # Tactical Notes
+        # Tactical Notes - magenta border
         if self._review.tactical_notes:
             self._mount_section_group(
-                content, "Tactical Notes", self._review.tactical_notes, "tactical-note"
+                content, "Tactical Notes", self._review.tactical_notes, "tactical-note", "magenta"
             )
 
         # Additional Tests
@@ -373,10 +379,10 @@ class GuidedReviewPanel(Vertical, can_focus=True):
         group_title: str,
         sections: List[ReviewSection],
         id_prefix: str,
+        border_color: str = "blue",
     ) -> None:
         """Mount a group of review sections."""
-        # Build all children first, then mount the group with children via container
-        children: list = [Label(group_title, classes="review-group-title")]
+        children: list = []
 
         for i, section in enumerate(sections):
             section_id = f"{id_prefix}-{i}"
@@ -390,6 +396,10 @@ class GuidedReviewPanel(Vertical, can_focus=True):
             children.append(widget)
 
         group = Vertical(*children, classes="review-section-group")
+        group.border_title = group_title
+        group.styles.border = ("round", border_color)
+        group.styles.border_title_color = border_color
+        group.styles.padding = (1, 1)
         container.mount(group)
 
     def _refresh_active_states(self) -> None:
@@ -455,6 +465,26 @@ class GuidedReviewPanel(Vertical, can_focus=True):
             widget.toggle()
         except Exception:
             pass
+
+    def action_expand_all(self) -> None:
+        """Expand all sections."""
+        for section_id in self._section_ids:
+            try:
+                widget = self.query_one(f"#{section_id}", ReviewSectionWidget)
+                if not widget.expanded:
+                    widget.toggle()
+            except Exception:
+                pass
+
+    def action_collapse_all(self) -> None:
+        """Collapse all sections."""
+        for section_id in self._section_ids:
+            try:
+                widget = self.query_one(f"#{section_id}", ReviewSectionWidget)
+                if widget.expanded:
+                    widget.toggle()
+            except Exception:
+                pass
 
     def _post_navigation(self) -> None:
         """Post a navigation message for the current section."""

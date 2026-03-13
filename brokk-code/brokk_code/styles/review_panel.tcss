@@ -42,15 +42,6 @@ GuidedReviewPanel .review-section-group {
     margin: 1 0 0 0;
 }
 
-GuidedReviewPanel .review-group-title {
-    width: 1fr;
-    height: auto;
-    text-style: bold;
-    color: $secondary;
-    margin: 0 0 1 0;
-    padding: 0 1;
-}
-
 GuidedReviewPanel #review-loading {
     width: 1fr;
     height: auto;
