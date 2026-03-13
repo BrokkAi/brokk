@@ -30,6 +30,7 @@ import ai.brokk.prompts.SearchPrompts.Terminal;
 import ai.brokk.tools.DependencyTools;
 import ai.brokk.tools.ExplanationRenderer;
 import ai.brokk.tools.ParallelSearch;
+import ai.brokk.tools.SearchTools;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
 import ai.brokk.tools.WorkspaceTools;
@@ -512,6 +513,7 @@ public class LutzAgent {
         var builder = cm.getToolRegistry()
                 .builder()
                 .register(wst)
+                .register(new SearchTools(cm))
                 .register(toolProvider)
                 .register(parallelSearch);
         if (DependencyTools.isSupported(cm.getProject())) {

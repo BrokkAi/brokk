@@ -285,7 +285,7 @@ public class SearchAgent {
         };
     }
 
-    private List<String> allowedToolNames(IProject project) {
+    List<String> allowedToolNames(IProject project) {
         var names = new ArrayList<String>();
 
         names.add("searchSymbols");

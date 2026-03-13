@@ -9,6 +9,7 @@ import ai.brokk.AbstractService.OfflineStreamingModel;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
+import ai.brokk.prompts.SearchPrompts.Objective;
 import ai.brokk.testutil.NoOpConsoleIO;
 import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestContextManager;
@@ -81,7 +82,20 @@ class LutzAgentTest {
         List<String> allowed = agent.calculateAllowedToolNames(cm.liveContext());
 
         assertTrue(allowed.contains("callSearchAgent"), "LutzAgent should offer callSearchAgent for delegated search");
+        assertTrue(allowed.contains("runShellCommand"), "LutzAgent should expose runShellCommand directly");
         assertFalse(allowed.contains("searchSymbols"), "LutzAgent should not offer raw searchSymbols tool");
+    }
+
+    @Test
+    void searchAgentAllowedToolNames_includeRunShellCommand() {
+        TestContextManager cm = new TestContextManager(tempDir, new NoOpConsoleIO());
+        var agent = new SearchAgent(cm.liveContext(), "goal", new OfflineStreamingModel(), Objective.WORKSPACE_ONLY);
+        var allowed = agent.allowedToolNames(cm.getProject());
+
+        assertTrue(allowed.contains("runShellCommand"), "SearchAgent should expose runShellCommand");
+        assertTrue(allowed.contains("workspaceComplete"));
+        assertTrue(allowed.contains("abortSearch"));
+        assertFalse(allowed.contains("callSearchAgent"), "SearchAgent should not expose callSearchAgent");
     }
 
     @Test
