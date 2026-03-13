@@ -1969,32 +1969,36 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     private <T> CompletableFuture<T> submitTrackedTask(
-            String taskDescription, Callable<T> task, ExecutorService executor) {
+            String taskDescription, Callable<T> task, ExecutorService executor)
+    {
         taskDescriptions.put(task, taskDescription);
-        return LoggingFuture.supplyCallableAsync(
-                () -> {
-                    try {
-                        io.backgroundOutput(taskDescription);
-                        return task.call();
-                    } finally {
-                        taskDescriptions.remove(task);
-                        int remaining = taskDescriptions.size();
-                        SwingUtilities.invokeLater(() -> {
-                            if (remaining <= 0) {
-                                io.backgroundOutput("");
-                            } else if (remaining == 1) {
-                                var lastTaskDescription = taskDescriptions.values().stream()
-                                        .findFirst()
-                                        .orElse("");
-                                io.backgroundOutput(lastTaskDescription);
-                            } else {
-                                io.backgroundOutput(
-                                        "Tasks running: " + remaining, String.join("\n", taskDescriptions.values()));
-                            }
-                        });
+        Callable<T> wrappedTask = () -> {
+            try {
+                io.backgroundOutput(taskDescription);
+                return task.call();
+            } finally {
+                taskDescriptions.remove(task);
+                int remaining = taskDescriptions.size();
+                SwingUtilities.invokeLater(() -> {
+                    if (remaining <= 0) {
+                        io.backgroundOutput("");
+                    } else if (remaining == 1) {
+                        var lastTaskDescription = taskDescriptions.values().stream()
+                                .findFirst()
+                                .orElse("");
+                        io.backgroundOutput(lastTaskDescription);
+                    } else {
+                        io.backgroundOutput(
+                                "Tasks running: " + remaining, String.join("\n", taskDescriptions.values()));
                     }
-                },
-                executor);
+                });
+            }
+        };
+
+        if (executor instanceof LoggingExecutorService les) {
+            return les.submit(wrappedTask);
+        }
+        return LoggingFuture.supplyCallableAsync(wrappedTask, executor);
     }
 
     /** Submits a background task to the internal background executor (non-user actions). */
