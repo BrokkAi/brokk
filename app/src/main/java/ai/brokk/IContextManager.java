@@ -156,6 +156,10 @@ public interface IContextManager {
         throw new UnsupportedOperationException();
     }
 
+    default ExecutorService getMaintenanceTasks() {
+        return getBackgroundTasks();
+    }
+
     /**
      * Returns the live, unfrozen context that we can edit.
      *

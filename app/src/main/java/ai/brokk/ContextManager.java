@@ -223,6 +223,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     @Override
+    public ExecutorService getMaintenanceTasks() {
+        return maintenanceTasks;
+    }
+
+    @Override
     public void addContextListener(ContextListener listener) {
         contextListeners.add(listener);
     }
