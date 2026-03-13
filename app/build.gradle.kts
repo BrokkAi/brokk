@@ -844,6 +844,7 @@ tasks.register<JavaExec>("runUsageResultsExplorer") {
 tasks.shadowJar {
     archiveBaseName.set("brokk")
     archiveClassifier.set("")
+    archiveVersion.set(actualVersion)
     mergeServiceFiles()
     isZip64 = true  // Enable zip64 for large archives
 
