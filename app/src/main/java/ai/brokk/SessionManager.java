@@ -354,11 +354,6 @@ public class SessionManager implements AutoCloseable {
         });
     }
 
-    public void addToTotalCost(UUID sessionId, double delta) {
-        logger.debug(
-                "Ignoring addToTotalCost for session {}; session cost now comes from ledger events only", sessionId);
-    }
-
     /**
      * Calculates the total cost for a session by summing all events in the cost ledger.
      * The ledger is the canonical source of truth.
