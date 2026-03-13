@@ -205,7 +205,7 @@ public class BuildOutputProcessor {
      * conservative estimate since our tokenizer is approximate and we want to avoid exceeding limits.
      *
      * @param buildOutput The original build output
-     * @param model
+     * @param model the model to use
      * @return Truncated output that should fit within token constraints
      */
     @SuppressWarnings("UnusedVariable")

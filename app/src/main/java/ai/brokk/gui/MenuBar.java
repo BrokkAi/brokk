@@ -185,7 +185,7 @@ public class MenuBar {
     /**
      * Builds the menu bar
      *
-     * @param chrome
+     * @param chrome the window to attach to.
      */
     static JMenuBar buildMenuBar(Chrome chrome) {
         var menuBar = new JMenuBar();

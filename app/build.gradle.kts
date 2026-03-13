@@ -580,7 +580,14 @@ tasks.named("check") {
     }
 }
 
-// Ensure fix runs before other verification tasks when they run together
+// Ensure fix runs before other verification and compilation tasks when they run together.
+// This prevents the build from using bytecode compiled from pre-fix sources.
+tasks.named("compileJava") {
+    mustRunAfter("fix")
+}
+tasks.named("classes") {
+    mustRunAfter("fix")
+}
 tasks.named("compileJavaErrorProne") {
     mustRunAfter("fix")
 }
