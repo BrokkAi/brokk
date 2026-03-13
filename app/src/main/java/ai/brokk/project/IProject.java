@@ -29,6 +29,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
 import java.util.stream.Collectors;
 import javax.swing.JFrame;
 import org.apache.logging.log4j.LogManager;
@@ -64,7 +65,7 @@ public interface IProject extends AutoCloseable {
      *
      * @return a LoggingExecutorService for submitting background tasks
      */
-    default java.util.concurrent.ExecutorService getBackgroundExecutor() {
+    default ExecutorService getBackgroundExecutor() {
         throw new UnsupportedOperationException();
     }
 

@@ -156,6 +156,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
             new LinkedBlockingQueue<>(),
             ExecutorsUtil.createNamedThreadFactory("AnalyzerLocal")));
 
+    private final LoggingExecutorService historyCompressionExecutor =
+            ExecutorsUtil.newFixedThreadExecutor("HistoryCompress-", 5);
+
     // Session sync state: uses shared project executor with per-context serialization
     private final AtomicBoolean closing = new AtomicBoolean(false);
     private final String sessionSyncKey = "sync-" + UUID.randomUUID();
@@ -1408,8 +1411,13 @@ public class ContextManager implements IContextManager, AutoCloseable {
         var contextActionFuture = contextActionExecutor.shutdownAndAwait(awaitMillis, "contextActionExecutor");
         var analyzerLocalFuture = analyzerLocalExecutor.shutdownAndAwait(awaitMillis, "analyzerLocalExecutor");
         var userActionsFuture = userActions.shutdownAndAwait(awaitMillis);
-        var shutdownFuture =
-                CompletableFuture.allOf(finalSyncFuture, contextActionFuture, analyzerLocalFuture, userActionsFuture);
+        var historyCompressionFuture =
+                historyCompressionExecutor.shutdownAndAwait(awaitMillis, "historyCompressionExecutor");
+        var shutdownFuture = CompletableFuture.allOf(finalSyncFuture,
+                                                     contextActionFuture,
+                                                     analyzerLocalFuture,
+                                                     userActionsFuture,
+                                                     historyCompressionFuture);
 
         return CompletableFuture.runAsync(() -> {
             Throwable failure = null;
@@ -2994,7 +3002,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
         var compressionFutures = taskHistory.stream()
                 .map(taskEntry -> {
-                    return LoggingFuture.supplyCallableAsync(() -> compressHistory(taskEntry))
+                    return LoggingFuture.supplyCallableAsync(
+                                    () -> compressHistory(taskEntry), historyCompressionExecutor)
                             .exceptionally(th -> {
                                 logger.warn("History compression task failed", th);
                                 return taskEntry;
