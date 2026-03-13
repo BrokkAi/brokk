@@ -45,6 +45,38 @@ import org.jetbrains.annotations.Nullable;
  */
 public class SettingsProjectBuildPanel extends JPanel {
     private static final Logger logger = LogManager.getLogger(SettingsProjectBuildPanel.class);
+
+    private static class ScrollablePanel extends JPanel implements Scrollable {
+        public ScrollablePanel(LayoutManager layout) {
+            super(layout);
+        }
+
+        @Override
+        public Dimension getPreferredScrollableViewportSize() {
+            return getPreferredSize();
+        }
+
+        @Override
+        public int getScrollableUnitIncrement(Rectangle visibleRect, int orientation, int direction) {
+            return 16;
+        }
+
+        @Override
+        public int getScrollableBlockIncrement(Rectangle visibleRect, int orientation, int direction) {
+            return 32;
+        }
+
+        @Override
+        public boolean getScrollableTracksViewportWidth() {
+            return true;
+        }
+
+        @Override
+        public boolean getScrollableTracksViewportHeight() {
+            return false;
+        }
+    }
+
     // Action command constants
     private static final String ACTION_INFER = "infer";
     private static final String ACTION_CANCEL = "cancel";
@@ -115,11 +147,11 @@ public class SettingsProjectBuildPanel extends JPanel {
     private Set<String> pendingLlmAddedPatterns;
 
     private final JPanel bannerPanel;
+    private final JPanel contentPanel = new ScrollablePanel(new GridBagLayout());
 
     public SettingsProjectBuildPanel(
             Chrome chrome, SettingsDialog parentDialog, JButton okButton, JButton cancelButton, JButton applyButton) {
-        super(new GridBagLayout());
-        setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        super(new BorderLayout());
         this.chrome = chrome;
         this.parentDialog = parentDialog;
         this.okButtonParent = okButton;
@@ -129,6 +161,12 @@ public class SettingsProjectBuildPanel extends JPanel {
         this.bannerPanel = createBanner();
 
         initComponents();
+
+        contentPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        JScrollPane scrollPane = new JScrollPane(contentPanel);
+        scrollPane.setBorder(null);
+        scrollPane.getVerticalScrollBar().setUnitIncrement(16);
+        add(scrollPane, BorderLayout.CENTER);
     }
 
     private JPanel createBanner() {
@@ -191,7 +229,7 @@ public class SettingsProjectBuildPanel extends JPanel {
         gbc.gridx = 0;
         gbc.gridy = row++;
         gbc.insets = new Insets(2, 2, 2, 2);
-        this.add(bannerPanel, gbc);
+        contentPanel.add(bannerPanel, gbc);
         gbc.insets = new Insets(5, 0, 5, 0);
 
         // --- 1. JDK Configuration Panel ---
@@ -222,7 +260,7 @@ public class SettingsProjectBuildPanel extends JPanel {
         setJavaHomeCheckbox.addActionListener(e -> jdkSelector.setEnabled(setJavaHomeCheckbox.isSelected()));
 
         gbc.gridy = row++;
-        this.add(languagePanel, gbc);
+        contentPanel.add(languagePanel, gbc);
 
         // --- 2. Build Configuration Panel ---
         var buildConfigPanel = new JPanel(new GridBagLayout());
@@ -421,7 +459,7 @@ public class SettingsProjectBuildPanel extends JPanel {
         gbc.gridy = row++;
         gbc.weighty = 0.5;
         gbc.fill = GridBagConstraints.BOTH;
-        this.add(modulesPanel, gbc);
+        contentPanel.add(modulesPanel, gbc);
         gbc.weighty = 0.0;
         gbc.fill = GridBagConstraints.HORIZONTAL;
 
@@ -437,7 +475,7 @@ public class SettingsProjectBuildPanel extends JPanel {
         buildConfigPanel.add(progressWrapper, buildGbc);
 
         gbc.gridy = row++;
-        this.add(buildConfigPanel, gbc);
+        contentPanel.add(buildConfigPanel, gbc);
 
         // --- 3. Shell Configuration Panel ---
         var shellConfigPanel = new JPanel(new GridBagLayout());
@@ -493,7 +531,7 @@ public class SettingsProjectBuildPanel extends JPanel {
         shellConfigPanel.add(executorTestPanel, shellGbc);
 
         gbc.gridy = row++;
-        this.add(shellConfigPanel, gbc);
+        contentPanel.add(shellConfigPanel, gbc);
 
         // Agent running check, listeners, and glue
         CompletableFuture<BuildAgent.BuildDetails> detailsFuture = project.getBuildDetailsFuture();
@@ -521,7 +559,7 @@ public class SettingsProjectBuildPanel extends JPanel {
         gbc.gridy = row;
         gbc.weighty = 1.0;
         gbc.fill = GridBagConstraints.VERTICAL;
-        this.add(Box.createVerticalGlue(), gbc);
+        contentPanel.add(Box.createVerticalGlue(), gbc);
 
         // Populate initial values
         updateJdkControlsVisibility(hasJvm);
