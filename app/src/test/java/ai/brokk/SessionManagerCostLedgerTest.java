@@ -190,4 +190,48 @@ public class SessionManagerCostLedgerTest {
                 "Reloaded ledger should contain the new post-migration event");
         assertEquals(7.24, reloaded.getTotalSessionCost(sessionId), 0.001);
     }
+
+    @Test
+    void testReadCostEventsDoesNotInjectLegacyCarryoverWhenLedgerAlreadyExists() throws Exception {
+        SessionManager sessionManager = new SessionManager(tempDir);
+        SessionManager.SessionInfo sessionInfo = sessionManager.newSession("Modern Ledger");
+        UUID sessionId = sessionInfo.id();
+
+        CostEvent persistedEvent = new CostEvent(
+                UUID.randomUUID().toString(),
+                System.currentTimeMillis(),
+                sessionId,
+                "modern op",
+                "CODE",
+                "gpt-4",
+                "standard",
+                100,
+                0,
+                0,
+                20,
+                1.25);
+        sessionManager.recordCostEvent(sessionId, persistedEvent);
+        sessionManager
+                .getSessionExecutorByKey()
+                .submit(sessionId.toString(), () -> null)
+                .get(5, TimeUnit.SECONDS);
+
+        SessionManager.SessionInfo manifestWithCachedTotal = new SessionManager.SessionInfo(
+                sessionId,
+                sessionInfo.name(),
+                sessionInfo.created(),
+                sessionInfo.modified(),
+                sessionInfo.version(),
+                10.0);
+        sessionManager.getSessionsCache().put(sessionId, manifestWithCachedTotal);
+
+        List<CostEvent> events = sessionManager.readCostEvents(sessionId);
+        long legacyEvents = events.stream()
+                .filter(e -> "LEGACY_MIGRATION".equals(e.operationType()))
+                .count();
+
+        assertEquals(0, legacyEvents, "Modern sessions with persisted ledgers must not gain legacy carryover");
+        assertEquals(List.of(persistedEvent), events);
+        assertEquals(1.25, sessionManager.getTotalSessionCost(sessionId), 0.001);
+    }
 }

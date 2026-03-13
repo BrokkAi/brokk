@@ -525,7 +525,7 @@ public class SessionManager implements AutoCloseable {
 
         var sessionInfo = sessionsCache.get(sessionId);
         double legacyCarryover = computeLegacyCarryover(sessionInfo);
-        if (shouldInjectLegacyMigrationEvent(sessionInfo, merged, legacyCarryover)) {
+        if (shouldInjectLegacyMigrationEvent(sessionInfo, persistedEvents, merged, legacyCarryover)) {
             CostEvent legacyEvent = createLegacyMigrationEvent(sessionId, requireNonNull(sessionInfo), legacyCarryover);
             merged.addFirst(legacyEvent);
             if (legacyMigrationRecorded.add(sessionId)) {
@@ -537,11 +537,15 @@ public class SessionManager implements AutoCloseable {
     }
 
     private static boolean shouldInjectLegacyMigrationEvent(
-            @Nullable SessionInfo sessionInfo, List<CostEvent> events, double legacyCarryover) {
+            @Nullable SessionInfo sessionInfo,
+            List<CostEvent> persistedEvents,
+            List<CostEvent> events,
+            double legacyCarryover) {
         if (sessionInfo == null
                 || sessionInfo.totalCost() == null
                 || sessionInfo.totalCost() <= 0.0
-                || legacyCarryover <= COST_EPSILON) {
+                || legacyCarryover <= COST_EPSILON
+                || !persistedEvents.isEmpty()) {
             return false;
         }
         return events.stream().noneMatch(SessionManager::isLegacyMigrationEvent);
