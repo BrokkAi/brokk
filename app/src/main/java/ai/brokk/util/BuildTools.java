@@ -2,6 +2,7 @@ package ai.brokk.util;
 
 import ai.brokk.ContextManager;
 import ai.brokk.IContextManager;
+import ai.brokk.agents.BuildAgent;
 import ai.brokk.agents.BuildAgent.BuildDetails;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
@@ -10,6 +11,7 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.project.IProject;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.mustachejava.DefaultMustacheFactory;
 import com.github.mustachejava.Mustache;
 import com.github.mustachejava.MustacheFactory;
@@ -58,7 +60,7 @@ public class BuildTools {
             Context ctx, @Nullable BuildDetails override, @Nullable Collection<ProjectFile> testFilesOverride)
             throws InterruptedException {
         var cm = ctx.getContextManager();
-        BuildDetails details = override != null ? override : cm.getProject().awaitBuildDetails();
+        BuildDetails details = override != null ? override : getEffectiveBuildDetails(cm.getProject());
 
         if (details.equals(BuildDetails.EMPTY)) {
             logger.warn("No build details available, cannot determine verification command.");
@@ -67,7 +69,13 @@ public class BuildTools {
 
         var project = cm.getProject();
         IProject.CodeAgentTestScope testScope = project.getCodeAgentTestScope();
-        if (testScope == IProject.CodeAgentTestScope.ALL) {
+
+        // Check for environment variable overrides for enabling/disabling commands
+        boolean testAllEnabled = System.getenv("BRK_TESTALL_ENABLED") != null
+                ? Boolean.parseBoolean(System.getenv("BRK_TESTALL_ENABLED"))
+                : details.testAllEnabled();
+
+        if (testScope == IProject.CodeAgentTestScope.ALL && testAllEnabled) {
             String cmd = System.getenv("BRK_TESTALL_CMD") != null
                     ? System.getenv("BRK_TESTALL_CMD")
                     : details.testAllCommand();
@@ -112,6 +120,9 @@ public class BuildTools {
                 "Determine build verification command", () -> determineVerificationCommand(cm.liveContext()));
     }
 
+    private static final ObjectMapper OBJECT_MAPPER =
+            new ObjectMapper();
+
     public static String getBuildLintSomeCommand(
             IContextManager cm,
             BuildDetails details,
@@ -123,8 +134,12 @@ public class BuildTools {
                 ? System.getenv("BRK_TESTSOME_CMD")
                 : details.testSomeCommand();
 
+        boolean buildLintEnabled = System.getenv("BRK_BUILDLINT_ENABLED") != null
+                ? Boolean.parseBoolean(System.getenv("BRK_BUILDLINT_ENABLED"))
+                : details.buildLintEnabled();
+
         if (testSomeTemplate.isBlank()) {
-            return details.buildLintCommand();
+            return buildLintEnabled ? details.buildLintCommand() : "";
         }
 
         var project = cm.getProject();
@@ -177,10 +192,43 @@ public class BuildTools {
         // If the result is blank, or it is identical to a template that contains mustache tags,
         // it means no sections matched or no targets were found; fall back to build/lint command.
         if (result.isBlank() || (testSomeTemplate.contains("{{") && result.equals(testSomeTemplate))) {
-            return details.buildLintCommand();
+            return buildLintEnabled ? details.buildLintCommand() : "";
         }
 
         return result;
+    }
+
+    /**
+     * Retrieves the BuildDetails for a project, allowing for environment variable overrides.
+     */
+    @Blocking
+    public static BuildDetails getEffectiveBuildDetails(IProject project) throws InterruptedException {
+        BuildDetails details = project.awaitBuildDetails();
+
+        String modulesJson = System.getenv("BRK_MODULES_JSON");
+        if (modulesJson != null && !modulesJson.isBlank()) {
+            try {
+                var tf = OBJECT_MAPPER.getTypeFactory();
+                var type = tf.constructCollectionType(List.class, BuildAgent.ModuleBuildEntry.class);
+                List<BuildAgent.ModuleBuildEntry> modules = OBJECT_MAPPER.readValue(modulesJson, type);
+
+                return new BuildDetails(
+                        details.buildLintCommand(),
+                        details.buildLintEnabled(),
+                        details.testAllCommand(),
+                        details.testAllEnabled(),
+                        details.testSomeCommand(),
+                        details.exclusionPatterns(),
+                        details.environmentVariables(),
+                        details.maxBuildAttempts(),
+                        details.afterTaskListCommand(),
+                        modules);
+            } catch (Exception e) {
+                logger.error("Failed to deserialize BRK_MODULES_JSON: {}", e.getMessage());
+            }
+        }
+
+        return details;
     }
 
     private static Optional<String> getPythonVersionForProject(IProject project) {
