@@ -168,7 +168,8 @@ public class BuildAgent {
                     }
 
                     // If a subdirectory contains its own .git folder, it's a separate project boundary
-                    if (Files.exists(pf.absPath().getParent().resolve(".git"))) {
+                    Path parent = pf.absPath().getParent();
+                    if (parent != null && Files.exists(parent.resolve(".git"))) {
                         return false;
                     }
 
