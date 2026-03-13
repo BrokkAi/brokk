@@ -417,8 +417,8 @@ class SessionSynchronizerTest {
 
             // After closeAsync, new sync submissions to the shut-down syncExecutor should be rejected
             CompletableFuture<Void> normalSyncDuringClose = cm.syncSessionsAsync();
-            assertTrue(normalSyncDuringClose.isCompletedExceptionally(),
-                    "Sync submitted after close should be rejected");
+            assertTrue(
+                    normalSyncDuringClose.isCompletedExceptionally(), "Sync submitted after close should be rejected");
 
             // ContextManager does not own project.close() — background executor should NOT be shut down
             assertFalse(

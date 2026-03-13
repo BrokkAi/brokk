@@ -22,6 +22,7 @@ class RepoRouterTest {
 
     private RepoRouter repoRouter;
     private Path projectRoot;
+    private MainProject project;
     private ContextManager contextManager;
     private Git git;
 
@@ -32,6 +33,9 @@ class RepoRouterTest {
         }
         if (contextManager != null) {
             contextManager.close();
+        }
+        if (project != null) {
+            project.close();
         }
     }
 
@@ -50,7 +54,10 @@ class RepoRouterTest {
         if (contextManager != null) {
             contextManager.close();
         }
-        var project = new MainProject(projectRoot);
+        if (project != null) {
+            project.close();
+        }
+        project = new MainProject(projectRoot);
         contextManager = new ContextManager(project);
         repoRouter = new RepoRouter(contextManager);
     }
@@ -137,7 +144,7 @@ class RepoRouterTest {
     void handlePostPrSuggest_noGitRepo_returns400(@TempDir Path tempDir) throws Exception {
         // Initialize without git
         projectRoot = tempDir;
-        var project = new MainProject(projectRoot);
+        project = new MainProject(projectRoot);
         contextManager = new ContextManager(project);
         repoRouter = new RepoRouter(contextManager);
 
@@ -192,7 +199,7 @@ class RepoRouterTest {
     void handlePostPrCreate_noGitRepo_returns400(@TempDir Path tempDir) throws Exception {
         // Initialize without git
         projectRoot = tempDir;
-        var project = new MainProject(projectRoot);
+        project = new MainProject(projectRoot);
         contextManager = new ContextManager(project);
         repoRouter = new RepoRouter(contextManager);
 
@@ -249,7 +256,7 @@ class RepoRouterTest {
     void handlePostPrSessions_noGitRepo_returns400(@TempDir Path tempDir) throws Exception {
         // Initialize without git
         projectRoot = tempDir;
-        var project = new MainProject(projectRoot);
+        project = new MainProject(projectRoot);
         contextManager = new ContextManager(project);
         repoRouter = new RepoRouter(contextManager);
 
@@ -318,7 +325,10 @@ class RepoRouterTest {
         if (contextManager != null) {
             contextManager.close();
         }
-        var project = new MainProject(projectRoot);
+        if (project != null) {
+            project.close();
+        }
+        project = new MainProject(projectRoot);
         contextManager = new ContextManager(project);
         repoRouter = new RepoRouter(contextManager);
     }

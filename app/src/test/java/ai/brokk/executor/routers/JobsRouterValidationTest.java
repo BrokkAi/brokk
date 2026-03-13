@@ -44,13 +44,14 @@ class JobsRouterValidationTest {
     private Path jobStoreDir;
     private List<String> fsSnapshotBefore;
 
+    private MainProject project;
     private ContextManager contextManager;
     private JobRunner jobRunner;
 
     @BeforeEach
     void setUp(@TempDir Path tempDir) throws Exception {
         // Real (lightweight) production objects; this test never reaches execution paths that need headless init.
-        var project = MainProject.forTests(tempDir);
+        project = MainProject.forTests(tempDir);
         contextManager = new ContextManager(project);
 
         jobStoreDir = tempDir.resolve("job-store");
@@ -81,6 +82,9 @@ class JobsRouterValidationTest {
         }
         if (contextManager != null) {
             contextManager.close();
+        }
+        if (project != null) {
+            project.close();
         }
     }
 

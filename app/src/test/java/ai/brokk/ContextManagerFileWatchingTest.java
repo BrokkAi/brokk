@@ -62,13 +62,13 @@ class ContextManagerFileWatchingTest {
     @AfterEach
     void tearDown() throws Exception {
         // Close resources in proper order to prevent cleanup issues (see #1585)
-        // ContextManager.close() internally calls project.close(), which then closes the SessionManager
         try {
             contextManager.close();
         } catch (Exception e) {
             // Log but don't fail the test during cleanup
             e.printStackTrace();
         }
+        project.close();
         FileUtil.deleteRecursively(tempDir);
     }
 

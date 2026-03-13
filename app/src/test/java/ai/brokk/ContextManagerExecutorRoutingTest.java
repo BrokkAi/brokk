@@ -47,6 +47,9 @@ class ContextManagerExecutorRoutingTest {
         if (contextManager != null) {
             contextManager.close();
         }
+        if (project != null) {
+            project.close();
+        }
     }
 
     @Test
@@ -96,6 +99,7 @@ class ContextManagerExecutorRoutingTest {
     @Test
     void submitAnalyzerTask_triggersBackgroundOutput() throws Exception {
         contextManager.close();
+        project.close();
 
         Path projectDir = tempDir.resolve("tracking-project");
         Files.createDirectories(projectDir);

@@ -79,6 +79,9 @@ class ChromeTest {
             // Chrome.close() also closes contextManager, so only close if chrome was null
             contextManager.close();
         }
+        if (project != null) {
+            project.close();
+        }
 
         if (projectPrefs != null) {
             try {

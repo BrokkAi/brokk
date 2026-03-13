@@ -24,13 +24,13 @@ class ContextRouterTest {
 
     private ContextRouter contextRouter;
     private Path projectRoot;
-
+    private MainProject project;
     private ContextManager contextManager;
 
     @BeforeEach
     void setUp(@TempDir Path tempDir) throws Exception {
         projectRoot = tempDir;
-        var project = new MainProject(tempDir);
+        project = new MainProject(tempDir);
         contextManager = new ContextManager(project);
         contextRouter = new ContextRouter(contextManager);
     }
@@ -39,6 +39,9 @@ class ContextRouterTest {
     void tearDown() {
         if (contextManager != null) {
             contextManager.close();
+        }
+        if (project != null) {
+            project.close();
         }
     }
 

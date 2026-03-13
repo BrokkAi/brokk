@@ -1043,9 +1043,8 @@ public class Brokk {
                         SwingUtilities::invokeLater);
     }
 
-    private static void handleNormalCloseCompletion(Path projectPath,
-                                                     @Nullable Chrome chrome,
-                                                     @Nullable IProject closedProject) {
+    private static void handleNormalCloseCompletion(
+            Path projectPath, @Nullable Chrome chrome, @Nullable IProject closedProject) {
         if (closedProject != null) {
             closeProjectWithOwnership(closedProject);
         }
