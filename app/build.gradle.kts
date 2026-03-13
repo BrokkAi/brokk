@@ -431,11 +431,6 @@ tasks.register<JavaCompile>("compileJavaErrorProne") {
 
     // Enable ErrorProne and NullAway
     options.errorprone {
-        errorproneArgs.addAll(
-            "-XepPatchChecks:UnnecessarilyFullyQualified",
-            "-XepPatchLocation:IN_PLACE"
-        )
-
         // Disable specific Error Prone checks
         disable("FutureReturnValueIgnored")
         disable("MissingSummary")
@@ -467,16 +462,75 @@ tasks.register<JavaCompile>("compileJavaErrorProne") {
     }
 }
 
+// Separate task for applying Error Prone patches in-place
+tasks.register<JavaCompile>("fix") {
+    group = "verification"
+    description = "Apply Error Prone patches in-place"
+
+    dependsOn(verifyNoEmptyJavaSources)
+    dependsOn("generateBuildConfig")
+
+    source = sourceSets.main.get().java
+    classpath = sourceSets.main.get().compileClasspath
+    destinationDirectory.set(file("${layout.buildDirectory.get()}/classes/java/fix"))
+
+    options.isIncremental = false
+    options.isFork = true
+    options.forkOptions.jvmArgs?.addAll(errorProneJvmArgs + listOf(
+        "-Xmx2g",
+        "-XX:+UseG1GC"
+    ))
+
+    options.compilerArgs.addAll(listOf(
+        "-parameters",
+        "-g:source,lines,vars",
+        "-Xmaxerrs", "500",
+        "-XDcompilePolicy=simple",
+        "-Xlint:deprecation,unchecked"
+    ))
+
+    options.errorprone {
+        errorproneArgs.addAll(
+            "-XepPatchChecks:UnnecessarilyFullyQualified",
+            "-XepPatchLocation:IN_PLACE"
+        )
+
+        disable("FutureReturnValueIgnored")
+        disable("MissingSummary")
+        disable("EmptyBlockTag")
+        disable("NonCanonicalType")
+
+        excludedPaths = ".*/src/main/java/(dev/|eu/).*"
+
+        error("NullAway")
+        enable("RedundantNullCheck")
+        warn("UnnecessarilyFullyQualified")
+
+        option("NullAway:AnnotatedPackages", "ai.brokk")
+        option("NullAway:ExcludedFieldAnnotations",
+               "org.junit.jupiter.api.BeforeEach,org.junit.jupiter.api.BeforeAll,org.junit.jupiter.api.Test")
+        option("NullAway:ExcludedClassAnnotations",
+               "org.junit.jupiter.api.extension.ExtendWith,org.junit.jupiter.api.TestInstance")
+        option("NullAway:AcknowledgeRestrictiveAnnotations", "true")
+        option("NullAway:CheckOptionalEmptiness", "true")
+        option("NullAway:KnownInitializers",
+               "org.junit.jupiter.api.BeforeEach,org.junit.jupiter.api.BeforeAll")
+        option("NullAway:HandleTestAssertionLibraries", "true")
+        option("NullAway:ExcludedPaths", ".*/src/main/java/dev/.*")
+        option("RedundantNullCheck:CheckRequireNonNull", "true")
+    }
+}
+
 // Manually wire up Error Prone for tasks that need it
 // The Error Prone Gradle plugin doesn't auto-configure lazily-registered custom tasks,
 // so we need to explicitly enable it and configure the processor path.
 tasks.withType<JavaCompile>().configureEach {
-    // Configure annotation processor path for both compilation tasks
-    // Both need ErrorProne JARs on the processor path, but only compileJavaErrorProne enables the plugin
-    if (name == "compileJava" || name == "compileJavaErrorProne") {
-        // Only enable ErrorProne plugin for compileJavaErrorProne (used by analyze/check tasks)
+    // Configure annotation processor path for compilation tasks
+    // They need ErrorProne JARs on the processor path, but only specific tasks enable the plugin
+    if (name == "compileJava" || name == "compileJavaErrorProne" || name == "fix") {
+        // Enable ErrorProne plugin for analysis and fixing tasks
         // Regular compileJava disables the plugin but still needs the processor path configured
-        options.errorprone.isEnabled = (name == "compileJavaErrorProne")
+        options.errorprone.isEnabled = (name == "compileJavaErrorProne" || name == "fix")
 
         // Add Error Prone JARs to annotation processor path so the compiler can find the plugin
         // This is what the Error Prone Gradle plugin normally does automatically
