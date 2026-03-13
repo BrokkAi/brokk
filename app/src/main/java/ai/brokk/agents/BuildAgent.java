@@ -154,7 +154,6 @@ public class BuildAgent {
         logger.trace("Initial directory listing added to history: {}", initialResult.resultText());
 
         // Discover nested build files to hint at submodules/services
-        var commonBuildFiles = Languages.getAllCommonBuildFiles();
         var allFiles = project.hasGit() ? project.getRepo().getTrackedFiles() : project.getAllFiles();
 
         var nestedBuildFiles = allFiles.stream()
@@ -173,7 +172,7 @@ public class BuildAgent {
                         return false;
                     }
 
-                    return commonBuildFiles.contains(pf.getFileName());
+                    return BuildToolConventions.isBuildFile(pf.getFileName());
                 })
                 .map(ProjectFile::toString)
                 .sorted()
