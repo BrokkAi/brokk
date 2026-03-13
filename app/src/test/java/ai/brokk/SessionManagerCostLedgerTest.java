@@ -1,9 +1,11 @@
 package ai.brokk;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 
 import ai.brokk.SessionManager.CostEvent;
+import java.nio.file.FileSystems;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.UUID;
@@ -138,7 +140,7 @@ public class SessionManagerCostLedgerTest {
     }
 
     @Test
-    void testLegacyManifestCostMigratesToSingleLedgerEntry() throws Exception {
+    void testLegacyManifestCostIsIgnoredWithoutMigration() throws Exception {
         SessionManager sessionManager = new SessionManager(tempDir);
         SessionManager.SessionInfo sessionInfo = sessionManager.newSession("Legacy Migration");
         UUID sessionId = sessionInfo.id();
@@ -168,11 +170,8 @@ public class SessionManagerCostLedgerTest {
         sessionManager.recordCostEvent(sessionId, newEvent);
 
         List<CostEvent> events = sessionManager.readCostEvents(sessionId);
-        long legacyEvents = events.stream()
-                .filter(e -> "LEGACY_MIGRATION".equals(e.operationType()))
-                .count();
-        assertEquals(1, legacyEvents, "Expected exactly one legacy migration event");
-        assertEquals(7.24, sessionManager.getTotalSessionCost(sessionId), 0.001);
+        assertEquals(List.of(newEvent), events);
+        assertEquals(1.25, sessionManager.getTotalSessionCost(sessionId), 0.001);
 
         sessionManager
                 .getSessionExecutorByKey()
@@ -181,13 +180,58 @@ public class SessionManagerCostLedgerTest {
 
         SessionManager reloaded = new SessionManager(tempDir);
         List<CostEvent> reloadedEvents = reloaded.readCostEvents(sessionId);
-        long reloadedLegacyEvents = reloadedEvents.stream()
-                .filter(e -> "LEGACY_MIGRATION".equals(e.operationType()))
-                .count();
-        assertEquals(1, reloadedLegacyEvents, "Legacy migration must remain idempotent after reload");
-        assertTrue(
-                reloadedEvents.stream().anyMatch(e -> e.equals(newEvent)),
-                "Reloaded ledger should contain the new post-migration event");
-        assertEquals(7.24, reloaded.getTotalSessionCost(sessionId), 0.001);
+        assertEquals(List.of(newEvent), reloadedEvents);
+        assertEquals(1.25, reloaded.getTotalSessionCost(sessionId), 0.001);
+    }
+
+    @Test
+    void testLegacyManifestCostAloneDoesNotAffectTotal() {
+        SessionManager sessionManager = new SessionManager(tempDir);
+        UUID sessionId = SessionManager.newSessionId();
+        SessionManager.SessionInfo legacyInfo =
+                new SessionManager.SessionInfo(sessionId, "Legacy Only", 1000L, 2000L, "4.0", 5.99);
+
+        sessionManager.getSessionsCache().put(sessionId, legacyInfo);
+
+        assertEquals(List.of(), sessionManager.readCostEvents(sessionId));
+        assertEquals(0.0, sessionManager.getTotalSessionCost(sessionId), 0.001);
+    }
+
+    @Test
+    void testLoadingLegacyManifestRemovesTotalCostField() throws Exception {
+        SessionManager sessionManager = new SessionManager(tempDir);
+        SessionManager.SessionInfo sessionInfo = sessionManager.newSession("Legacy Manifest Rewrite");
+        UUID sessionId = sessionInfo.id();
+        Path zipPath = tempDir.resolve(sessionId + ".zip");
+
+        sessionManager
+                .getSessionExecutorByKey()
+                .submit(sessionId.toString(), () -> null)
+                .get(5, TimeUnit.SECONDS);
+
+        try (var fs = FileSystems.newFileSystem(zipPath, java.util.Map.of())) {
+            Path manifestPath = fs.getPath("manifest.json");
+            Files.writeString(
+                    manifestPath,
+                    """
+                    {
+                      "id": "%s",
+                      "name": "Legacy Manifest Rewrite",
+                      "created": %d,
+                      "modified": %d,
+                      "version": "4.0",
+                      "totalCost": 9.99
+                    }
+                    """
+                            .formatted(sessionId, sessionInfo.created(), sessionInfo.modified()));
+        }
+
+        SessionManager reloaded = new SessionManager(tempDir);
+        reloaded.readSessionInfoFromZip(zipPath);
+
+        try (var fs = FileSystems.newFileSystem(zipPath, java.util.Map.of())) {
+            String manifest = Files.readString(fs.getPath("manifest.json"));
+            assertFalse(manifest.contains("\"totalCost\""));
+        }
     }
 }

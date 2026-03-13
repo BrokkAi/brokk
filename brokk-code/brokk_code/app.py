@@ -398,6 +398,8 @@ class ModeSelectModal(ModalScreen[str]):
 class SessionCostsModalScreen(ModalScreen[None]):
     """Modal showing per-session cost line items and aggregates."""
 
+    LEGACY_MIGRATION_OPERATION_TYPE = "LEGACY_MIGRATION"
+
     BINDINGS = [
         Binding("escape", "dismiss", "Close", show=False),
         Binding("q", "dismiss", "Close", show=False),
@@ -432,6 +434,7 @@ class SessionCostsModalScreen(ModalScreen[None]):
                 with VerticalScroll(id="session-costs-list-wrap"):
                     # Aggregates by (model, tier)
                     aggregates: Dict[tuple[str, str], float] = {}
+                    legacy_carryover_total = 0.0
                     list_items = []
 
                     for event in events:
@@ -470,7 +473,10 @@ class SessionCostsModalScreen(ModalScreen[None]):
                         )
 
                         key = (model, tier)
-                        aggregates[key] = aggregates.get(key, 0.0) + cost
+                        if op_type == self.LEGACY_MIGRATION_OPERATION_TYPE:
+                            legacy_carryover_total += cost
+                        else:
+                            aggregates[key] = aggregates.get(key, 0.0) + cost
 
                     yield ListView(*list_items, id="session-costs-list")
 
@@ -478,8 +484,16 @@ class SessionCostsModalScreen(ModalScreen[None]):
             with Vertical(id="session-costs-summary"):
                 if events:
                     summary_lines = ["[bold]Aggregates by Model:[/]\n"]
-                    for (model, tier), agg_cost in sorted(aggregates.items()):
-                        summary_lines.append(f"  {model} ({tier}): ${agg_cost:.4f}")
+                    if aggregates:
+                        for (model, tier), agg_cost in sorted(aggregates.items()):
+                            summary_lines.append(f"  {model} ({tier}): ${agg_cost:.4f}")
+                    else:
+                        summary_lines.append("  No billable model calls recorded.")
+                    if legacy_carryover_total > 0:
+                        summary_lines.append("")
+                        summary_lines.append(
+                            f"Legacy carryover (not a model): ${legacy_carryover_total:.4f}"
+                        )
                     yield Static("\n".join(summary_lines), id="session-costs-aggregates")
 
                 yield Static(
@@ -3065,8 +3079,7 @@ class BrokkApp(App):
                                     )
                             elif chat:
                                 chat.add_system_message(
-                                    f"Task '{display_name}' disappeared;"
-                                    " could not be marked done.",
+                                    f"Task '{display_name}' disappeared; could not be marked done.",
                                     level="WARNING",
                                 )
                     except Exception as e:

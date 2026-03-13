@@ -311,14 +311,7 @@ public final class JobRunner {
 
         activeJobId = jobId;
         cancelled.set(false);
-        console = new HeadlessHttpConsole(store, jobId, delta -> {
-            try {
-                var sessionId = cm.getCurrentSessionId();
-                cm.getProject().getSessionManager().addToTotalCost(sessionId, delta);
-            } catch (Exception e) {
-                logger.warn("Failed to record cost delta for job {}: {}", jobId, e.getMessage());
-            }
-        });
+        console = new HeadlessHttpConsole(store, jobId, null);
         final var previousIo = cm.getIo();
         final var previousAutoCommit = cm.isAutoCommit();
         cm.setIo(console);

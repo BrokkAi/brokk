@@ -1,7 +1,5 @@
 package ai.brokk;
 
-import static java.util.Objects.requireNonNull;
-
 import ai.brokk.concurrent.AtomicWrites;
 import ai.brokk.concurrent.LoggingExecutorService;
 import ai.brokk.concurrent.LoggingFuture;
@@ -59,24 +57,33 @@ import org.jetbrains.annotations.Nullable;
 
 public class SessionManager implements AutoCloseable {
     private static final String SESSIONS_FORMAT_VERSION = "4.0";
-    private static final String LEGACY_MIGRATION_OPERATION_TYPE = "LEGACY_MIGRATION";
-    private static final String LEGACY_MIGRATION_MODEL_NAME = "legacy";
-    private static final String LEGACY_MIGRATION_TIER = "legacy";
-    private static final double COST_EPSILON = 1.0e-9;
     private static final String COST_LEDGER_FILENAME = "cost_ledger.jsonl";
 
     /** Record representing session metadata for the sessions management system. */
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public record SessionInfo(
-            UUID id, String name, long created, long modified, @Nullable String version, @Nullable Double totalCost) {
+    public record SessionInfo(UUID id, String name, long created, long modified, @Nullable String version) {
 
         public SessionInfo(UUID id, String name, long created, long modified) {
-            this(id, name, created, modified, SESSIONS_FORMAT_VERSION, null);
+            this(id, name, created, modified, SESSIONS_FORMAT_VERSION);
         }
 
-        /** Constructor for legacy test support with explicit version and null cost. */
         public SessionInfo(UUID id, String name, long created, long modified, @Nullable String version) {
-            this(id, name, created, modified, version, null);
+            this.id = id;
+            this.name = name;
+            this.created = created;
+            this.modified = modified;
+            this.version = version;
+        }
+
+        /** Compatibility constructor for older call sites and manifests that still mention totalCost. */
+        public SessionInfo(
+                UUID id,
+                String name,
+                long created,
+                long modified,
+                @Nullable String version,
+                @Nullable Double ignoredTotalCost) {
+            this(id, name, created, modified, version);
         }
 
         @JsonIgnore
@@ -169,8 +176,6 @@ public class SessionManager implements AutoCloseable {
     private final Path sessionsDir;
     private final Map<UUID, SessionInfo> sessionsCache;
     private final Map<UUID, CopyOnWriteArrayList<CostEvent>> costLedgerCache = new ConcurrentHashMap<>();
-    private final Set<UUID> legacyMigrationRecorded = ConcurrentHashMap.newKeySet();
-
     private final Set<CompletableFuture<?>> inFlightForeignDownloads = ConcurrentHashMap.newKeySet();
 
     public SessionManager(Path sessionsDir) {
@@ -267,7 +272,7 @@ public class SessionManager implements AutoCloseable {
     public SessionInfo newSession(String name) {
         var sessionId = newSessionId();
         var currentTime = System.currentTimeMillis();
-        var newSessionInfo = new SessionInfo(sessionId, name, currentTime, currentTime, SESSIONS_FORMAT_VERSION, null);
+        var newSessionInfo = new SessionInfo(sessionId, name, currentTime, currentTime, SESSIONS_FORMAT_VERSION);
         sessionsCache.put(sessionId, newSessionInfo);
 
         sessionExecutorByKey.submit(sessionId.toString(), () -> {
@@ -297,12 +302,7 @@ public class SessionManager implements AutoCloseable {
         SessionInfo oldInfo = sessionsCache.get(sessionId);
         if (oldInfo != null) {
             var updatedInfo = new SessionInfo(
-                    oldInfo.id(),
-                    newName,
-                    oldInfo.created(),
-                    System.currentTimeMillis(),
-                    oldInfo.version(),
-                    oldInfo.totalCost());
+                    oldInfo.id(), newName, oldInfo.created(), System.currentTimeMillis(), oldInfo.version());
             sessionsCache.put(sessionId, updatedInfo);
             sessionExecutorByKey.submit(sessionId.toString(), () -> {
                 try {
@@ -340,12 +340,7 @@ public class SessionManager implements AutoCloseable {
                     String derived = deriveSessionName(taskInput);
                     if (!derived.isBlank() && !derived.equals(currentName)) {
                         var updatedInfo = new SessionInfo(
-                                info.id(),
-                                derived,
-                                info.created(),
-                                System.currentTimeMillis(),
-                                info.version(),
-                                info.totalCost());
+                                info.id(), derived, info.created(), System.currentTimeMillis(), info.version());
                         sessionsCache.put(sessionId, updatedInfo);
                         Path sessionHistoryPath = getSessionHistoryPath(sessionId);
                         writeSessionInfoToZip(sessionHistoryPath, updatedInfo);
@@ -360,31 +355,8 @@ public class SessionManager implements AutoCloseable {
     }
 
     public void addToTotalCost(UUID sessionId, double delta) {
-        if (delta <= 0.0) {
-            return; // ignore non-positive or zero deltas
-        }
-        SessionInfo current = sessionsCache.get(sessionId);
-        if (current == null) {
-            // If the session is not known, log and bail; cost tracking is best-effort and
-            // we expect sessions to be created via newSession/loadHistory before use.
-            logger.warn("addToTotalCost called for unknown session {}", sessionId);
-            return;
-        }
-        double base = current.totalCost() != null ? current.totalCost() : 0.0;
-        double next = base + delta;
-        SessionInfo updated = new SessionInfo(
-                current.id(), current.name(), current.created(), System.currentTimeMillis(), current.version(), next);
-        sessionsCache.put(sessionId, updated);
-        // Persist to manifest.json asynchronously, serialized per session
-        sessionExecutorByKey.submit(sessionId.toString(), () -> {
-            try {
-                Path sessionHistoryPath = getSessionHistoryPath(sessionId);
-                writeSessionInfoToZip(sessionHistoryPath, updated);
-            } catch (IOException e) {
-                logger.error("Error updating manifest for session {} totalCost: {}", sessionId, e.getMessage());
-            }
-            return null;
-        });
+        logger.debug(
+                "Ignoring addToTotalCost for session {}; session cost now comes from ledger events only", sessionId);
     }
 
     /**
@@ -405,36 +377,20 @@ public class SessionManager implements AutoCloseable {
         }
     }
 
-    /**
-     * Returns the total session cost.
-     * For sessions with a cost ledger, returns the sum of ledger events.
-     * For legacy sessions without a ledger, falls back to the cached 'totalCost' from SessionInfo.
-     */
-    /**
-     * Returns the total session cost.
-     * The cost ledger is the canonical source of truth for sessions that have one.
-     * For legacy sessions without a ledger, falls back to the 'totalCost' field in the manifest.
-     */
+    /** Returns the total session cost from ledger events only. */
     @Blocking
     public double getTotalSessionCost(UUID sessionId) {
-        // First check ledger (canonical)
-        List<CostEvent> events = readCostEvents(sessionId);
-        if (!events.isEmpty()) {
-            return events.stream().mapToDouble(CostEvent::costUsd).sum();
-        }
-
-        // Fallback for legacy sessions or sessions where ledger hasn't been created yet
-        SessionInfo info = sessionsCache.get(sessionId);
-        return (info != null && info.totalCost() != null) ? info.totalCost() : 0.0;
+        return readCostEvents(sessionId).stream()
+                .mapToDouble(CostEvent::costUsd)
+                .sum();
     }
 
     /**
-     * Returns the cached totalCost stored in SessionInfo without disk IO.
-     * Intended for frequently polled endpoints that need a fast snapshot.
+     * Returns the current session cost from ledger events only.
      */
+    @Blocking
     public double getCachedSessionCost(UUID sessionId) {
-        SessionInfo info = sessionsCache.get(sessionId);
-        return (info != null && info.totalCost() != null) ? info.totalCost() : 0.0;
+        return getTotalSessionCost(sessionId);
     }
 
     public void recordCostEvent(UUID sessionId, CostEvent event) {
@@ -523,57 +479,7 @@ public class SessionManager implements AutoCloseable {
             }
         }
 
-        var sessionInfo = sessionsCache.get(sessionId);
-        double legacyCarryover = computeLegacyCarryover(sessionInfo);
-        if (shouldInjectLegacyMigrationEvent(sessionInfo, merged, legacyCarryover)) {
-            CostEvent legacyEvent = createLegacyMigrationEvent(sessionId, requireNonNull(sessionInfo), legacyCarryover);
-            merged.addFirst(legacyEvent);
-            if (legacyMigrationRecorded.add(sessionId)) {
-                recordCostEvent(sessionId, legacyEvent);
-            }
-        }
-
         return List.copyOf(merged);
-    }
-
-    private static boolean shouldInjectLegacyMigrationEvent(
-            @Nullable SessionInfo sessionInfo, List<CostEvent> events, double legacyCarryover) {
-        if (sessionInfo == null
-                || sessionInfo.totalCost() == null
-                || sessionInfo.totalCost() <= 0.0
-                || legacyCarryover <= COST_EPSILON) {
-            return false;
-        }
-        return events.stream().noneMatch(SessionManager::isLegacyMigrationEvent);
-    }
-
-    private static double computeLegacyCarryover(@Nullable SessionInfo sessionInfo) {
-        if (sessionInfo == null || sessionInfo.totalCost() == null || sessionInfo.totalCost() <= 0.0) {
-            return 0.0;
-        }
-        return sessionInfo.totalCost();
-    }
-
-    private static boolean isLegacyMigrationEvent(CostEvent event) {
-        return LEGACY_MIGRATION_OPERATION_TYPE.equals(event.operationType());
-    }
-
-    private static CostEvent createLegacyMigrationEvent(UUID sessionId, SessionInfo sessionInfo, double carryoverCost) {
-        assert carryoverCost > COST_EPSILON;
-        requireNonNull(sessionInfo.totalCost(), "totalCost must not be null for legacy migration");
-        return new CostEvent(
-                UUID.randomUUID().toString(),
-                sessionInfo.created(),
-                sessionId,
-                "Legacy session cost carryover",
-                LEGACY_MIGRATION_OPERATION_TYPE,
-                LEGACY_MIGRATION_MODEL_NAME,
-                LEGACY_MIGRATION_TIER,
-                0,
-                0,
-                0,
-                0,
-                carryoverCost);
     }
 
     public void deleteSession(UUID sessionId) {
@@ -733,7 +639,7 @@ public class SessionManager implements AutoCloseable {
         var newSessionId = newSessionId();
         var currentTime = System.currentTimeMillis();
         var newSessionInfo =
-                new SessionInfo(newSessionId, newSessionName, currentTime, currentTime, SESSIONS_FORMAT_VERSION, null);
+                new SessionInfo(newSessionId, newSessionName, currentTime, currentTime, SESSIONS_FORMAT_VERSION);
 
         var copyFuture = sessionExecutorByKey.submit(originalSessionId.toString(), () -> {
             try {
@@ -804,7 +710,15 @@ public class SessionManager implements AutoCloseable {
             Path manifestPath = fs.getPath("manifest.json");
             if (Files.exists(manifestPath)) {
                 String json = Files.readString(manifestPath);
-                return Optional.of(AbstractProject.objectMapper.readValue(json, SessionInfo.class));
+                SessionInfo sessionInfo = AbstractProject.objectMapper.readValue(json, SessionInfo.class);
+                if (json.contains("\"totalCost\"")) {
+                    Files.writeString(
+                            manifestPath,
+                            AbstractProject.objectMapper.writeValueAsString(sessionInfo),
+                            StandardOpenOption.CREATE,
+                            StandardOpenOption.TRUNCATE_EXISTING);
+                }
+                return Optional.of(sessionInfo);
             }
         } catch (IOException e) {
             logger.warn("Error reading manifest.json from {}: {}", zipPath.getFileName(), e.getMessage());
@@ -858,15 +772,12 @@ public class SessionManager implements AutoCloseable {
         SessionInfo currentInfo = sessionsCache.get(sessionId);
         if (currentInfo != null) {
             if (!isSessionEmpty(currentInfo, contextHistory)) {
-                // Keep saveHistory non-blocking by using cached manifest totalCost.
-                double cost = getCachedSessionCost(sessionId);
                 infoToSave = new SessionInfo(
                         currentInfo.id(),
                         currentInfo.name(),
                         currentInfo.created(),
                         System.currentTimeMillis(),
-                        currentInfo.version(),
-                        cost);
+                        currentInfo.version());
                 sessionsCache.put(sessionId, infoToSave); // Update cache before async task
             } // else, session info is not modified, we are just adding an empty initial context (e.g. welcome message)
             // to the session

@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.ContextManager;
+import ai.brokk.SessionManager.CostEvent;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.executor.jobs.ErrorPayload;
 import ai.brokk.project.MainProject;
@@ -197,8 +198,8 @@ class ContextRouterTest {
         var info = sessionManager.newSession("Cost Session");
         contextManager.updateActiveSession(info.id());
 
-        sessionManager.addToTotalCost(info.id(), 1.25);
-        sessionManager.addToTotalCost(info.id(), 0.75);
+        sessionManager.recordCostEvent(info.id(), newCostEvent(info.id(), 1.25, "first"));
+        sessionManager.recordCostEvent(info.id(), newCostEvent(info.id(), 0.75, "second"));
 
         // Act
         var exchange = TestHttpExchange.request("GET", "/v1/context?tokens=false");
@@ -210,6 +211,22 @@ class ContextRouterTest {
         assertTrue(body.containsKey("totalCost"));
         double totalCost = ((Number) body.get("totalCost")).doubleValue();
         assertEquals(2.0, totalCost, 1e-9);
+    }
+
+    private static CostEvent newCostEvent(java.util.UUID sessionId, double costUsd, String suffix) {
+        return new CostEvent(
+                "event-" + suffix,
+                System.currentTimeMillis(),
+                sessionId,
+                "test-" + suffix,
+                "CODE",
+                "gpt-5",
+                "default",
+                0,
+                0,
+                0,
+                0,
+                costUsd);
     }
 
     @Test

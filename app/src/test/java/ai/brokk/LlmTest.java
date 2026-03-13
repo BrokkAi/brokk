@@ -75,13 +75,12 @@ public class LlmTest {
         double diskCost = stats.totalCostUsd();
         assertEquals(1.75, diskCost, 0.001, "Cost from disk ledger should eventually reach 1.75");
 
-        // 4. Legacy fallback: create a session with manifest cost but NO ledger
+        // 4. Legacy manifest cost is ignored when there is no ledger
         UUID legacyId = SessionManager.newSessionId();
         SessionManager.SessionInfo legacyInfo =
                 new SessionManager.SessionInfo(legacyId, "legacy", 1000L, 2000L, "4.0", 5.99);
         sessionManager.getSessionsCache().put(legacyId, legacyInfo);
 
-        // No ledger file exists for legacyId, so it should fall back to manifest totalCost
-        assertEquals(5.99, sessionManager.getTotalSessionCost(legacyId), 0.001);
+        assertEquals(0.0, sessionManager.getTotalSessionCost(legacyId), 0.001);
     }
 }
