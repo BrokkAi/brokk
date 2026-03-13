@@ -313,8 +313,8 @@ class ContextTest {
         // Another class not in workspace should be added as CodeFragment
         var ctx = new Context(contextManager).addFragments(List.of(ppf));
         var tools = new ai.brokk.tools.WorkspaceTools(ctx);
-        tools.addClassesToWorkspace(List.of("com.example.CodeFragmentTarget", "com.example.AnotherClass"));
-        ctx = tools.getContext();
+        ctx = tools.addClassesToWorkspace(List.of("com.example.CodeFragmentTarget", "com.example.AnotherClass"))
+                .context();
 
         var virtuals = ctx.allFragments().filter(f -> !f.getType().isPath()).toList();
         assertEquals(1, virtuals.size(), "Only non-workspace class should be added");

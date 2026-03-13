@@ -13,14 +13,14 @@ import org.jetbrains.annotations.Nullable;
 public final class ToolExecutionResult {
     private final ToolExecutionRequest request;
     private final Status status;
-    private final String resultText;
+    private final ToolOutput result;
+    private final long elapsedMs;
 
-    private ToolExecutionResult(ToolExecutionRequest request, Status status, String resultText) {
-        assert !resultText.isBlank();
-
+    private ToolExecutionResult(ToolExecutionRequest request, Status status, ToolOutput result, long elapsedMs) {
         this.request = request;
         this.status = status;
-        this.resultText = resultText;
+        this.result = result;
+        this.elapsedMs = elapsedMs;
     }
 
     /** Overall status of the tool execution. */
@@ -38,24 +38,63 @@ public final class ToolExecutionResult {
     // --- Factory Methods ---
 
     public static ToolExecutionResult create(ToolExecutionRequest request, Status status, @Nullable String resultText) {
+        return create(request, status, resultText, 0L);
+    }
+
+    public static ToolExecutionResult create(
+            ToolExecutionRequest request, Status status, @Nullable String resultText, long elapsedMs) {
         String finalText = (resultText == null || resultText.isBlank()) ? status.toString() : resultText;
-        return new ToolExecutionResult(request, status, finalText);
+        return create(request, status, new ToolOutput.TextOutput(finalText), elapsedMs);
+    }
+
+    public static ToolExecutionResult create(ToolExecutionRequest request, Status status, ToolOutput result) {
+        return create(request, status, result, 0L);
+    }
+
+    public static ToolExecutionResult create(
+            ToolExecutionRequest request, Status status, ToolOutput result, long elapsedMs) {
+        return new ToolExecutionResult(request, status, result, elapsedMs);
     }
 
     public static ToolExecutionResult success(ToolExecutionRequest request, @Nullable String resultText) {
         return create(request, Status.SUCCESS, resultText);
     }
 
+    public static ToolExecutionResult success(
+            ToolExecutionRequest request, @Nullable String resultText, long elapsedMs) {
+        return create(request, Status.SUCCESS, resultText, elapsedMs);
+    }
+
+    public static ToolExecutionResult success(ToolExecutionRequest request, ToolOutput output) {
+        return create(request, Status.SUCCESS, output);
+    }
+
+    public static ToolExecutionResult success(ToolExecutionRequest request, ToolOutput output, long elapsedMs) {
+        return create(request, Status.SUCCESS, output, elapsedMs);
+    }
+
     public static ToolExecutionResult requestError(ToolExecutionRequest request, String errorMessage) {
         return create(request, Status.REQUEST_ERROR, errorMessage);
+    }
+
+    public static ToolExecutionResult requestError(ToolExecutionRequest request, String errorMessage, long elapsedMs) {
+        return create(request, Status.REQUEST_ERROR, errorMessage, elapsedMs);
     }
 
     public static ToolExecutionResult internalError(ToolExecutionRequest request, String errorMessage) {
         return create(request, Status.INTERNAL_ERROR, errorMessage);
     }
 
+    public static ToolExecutionResult internalError(ToolExecutionRequest request, String errorMessage, long elapsedMs) {
+        return create(request, Status.INTERNAL_ERROR, errorMessage, elapsedMs);
+    }
+
     public static ToolExecutionResult fatal(ToolExecutionRequest request, String errorMessage) {
         return create(request, Status.FATAL, errorMessage);
+    }
+
+    public static ToolExecutionResult fatal(ToolExecutionRequest request, String errorMessage, long elapsedMs) {
+        return create(request, Status.FATAL, errorMessage, elapsedMs);
     }
 
     // --- Convenience Accessors ---
@@ -83,10 +122,10 @@ public final class ToolExecutionResult {
     public ToolExecutionResultMessage toMessage() {
         String text =
                 switch (status) {
-                    case SUCCESS -> resultText;
-                    case REQUEST_ERROR -> "Request error: " + resultText;
-                    case INTERNAL_ERROR -> "Internal error: " + resultText;
-                    case FATAL -> "Fatal error: " + resultText;
+                    case SUCCESS -> result.llmText();
+                    case REQUEST_ERROR -> "Request error: " + result.llmText();
+                    case INTERNAL_ERROR -> "Internal error: " + result.llmText();
+                    case FATAL -> "Fatal error: " + result.llmText();
                 };
         return new ToolExecutionResultMessage(toolId(), toolName(), text);
     }
@@ -100,7 +139,15 @@ public final class ToolExecutionResult {
     }
 
     public String resultText() {
-        return resultText;
+        return result.llmText();
+    }
+
+    public ToolOutput result() {
+        return result;
+    }
+
+    public long elapsedMs() {
+        return elapsedMs;
     }
 
     @Override
@@ -110,19 +157,21 @@ public final class ToolExecutionResult {
         var that = (ToolExecutionResult) obj;
         return Objects.equals(this.request, that.request)
                 && Objects.equals(this.status, that.status)
-                && Objects.equals(this.resultText, that.resultText);
+                && Objects.equals(this.result, that.result)
+                && this.elapsedMs == that.elapsedMs;
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(request, status, resultText);
+        return Objects.hash(request, status, result, elapsedMs);
     }
 
     @Override
     public String toString() {
         return "ToolExecutionResult[" + "request="
                 + request + ", " + "status="
-                + status + ", " + "resultText="
-                + resultText + ']';
+                + status + ", " + "result="
+                + result + ", " + "elapsedMs="
+                + elapsedMs + ']';
     }
 }

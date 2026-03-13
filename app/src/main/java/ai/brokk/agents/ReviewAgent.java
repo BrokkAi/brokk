@@ -357,7 +357,9 @@ public class ReviewAgent {
             var toolRequest = result.toolRequests().getFirst();
             var toolResult = tr.executeTool(toolRequest);
             if (toolResult.status().equals(ToolExecutionResult.Status.SUCCESS)) {
-                var completedContext = hasAnalyzedLanguage ? this.contextBeingBuilt : wst.getContext();
+                var completedContext = hasAnalyzedLanguage
+                        ? this.contextBeingBuilt
+                        : ((WorkspaceTools.WorkspaceMutationOutput) toolResult.result()).context();
                 return new ContextSetupResult(requireNonNull(completedContext).withHistory(List.of()), isComplex);
             } else {
                 logger.warn("Tool execution failed: {}", toolResult);
@@ -986,12 +988,14 @@ public class ReviewAgent {
                     List<String> methodNames) {
         this.isComplex = !complexity.equalsIgnoreCase("TRIVIAL");
         var wst = new WorkspaceTools(requireNonNull(contextBeingBuilt));
-        wst.addFilesToWorkspace(filesForFullSource);
-        wst.addFileSummariesToWorkspace(filesForSummaries);
-        wst.addClassesToWorkspace(classNames);
-        wst.addMethodsToWorkspace(methodNames);
+        var context = wst.addFilesToWorkspace(filesForFullSource).context();
+        context = new WorkspaceTools(context)
+                .addFileSummariesToWorkspace(filesForSummaries)
+                .context();
+        context = new WorkspaceTools(context).addClassesToWorkspace(classNames).context();
+        context = new WorkspaceTools(context).addMethodsToWorkspace(methodNames).context();
 
-        this.contextBeingBuilt = wst.getContext();
+        this.contextBeingBuilt = context;
         return "Context updated with requested fragments.";
     }
 

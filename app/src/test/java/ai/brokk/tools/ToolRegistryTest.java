@@ -207,6 +207,53 @@ class ToolRegistryTest {
     }
 
     @Test
+    void executeTool_UsesTypedToolOutput() throws Exception {
+        var req = ToolExecutionRequest.builder()
+                .name("richOutput")
+                .arguments("{}")
+                .build();
+
+        var result = registry.executeTool(req);
+        assertEquals("LLM visible text", result.resultText());
+        assertInstanceOf(RichOutput.class, result.result());
+        assertEquals("side-channel-value", ((RichOutput) result.result()).value());
+        assertTrue(result.elapsedMs() >= 0);
+    }
+
+    @Test
+    void executeTool_ValidationFailureReturnsRequestErrorWithTextOutput() throws Exception {
+        var map = new LinkedHashMap<String, Object>();
+        map.put("classNames", List.of("com.a.A"));
+        var json = MAPPER.writeValueAsString(map);
+        var req = ToolExecutionRequest.builder()
+                .name("getClassSources")
+                .arguments(json)
+                .build();
+
+        var result = registry.executeTool(req);
+        assertEquals(ToolExecutionResult.Status.REQUEST_ERROR, result.status());
+        assertInstanceOf(ToolOutput.TextOutput.class, result.result());
+        assertTrue(result.resultText().contains("Missing required parameter"));
+        assertTrue(result.elapsedMs() >= 0);
+    }
+
+    @Test
+    void partitionByNames_preservesOrderAndSplitsCorrectly() {
+        var r1 =
+                ToolExecutionRequest.builder().id("1").name("a").arguments("{}").build();
+        var r2 =
+                ToolExecutionRequest.builder().id("2").name("b").arguments("{}").build();
+        var r3 =
+                ToolExecutionRequest.builder().id("3").name("a").arguments("{}").build();
+        var r4 =
+                ToolExecutionRequest.builder().id("4").name("c").arguments("{}").build();
+
+        var partitioned = ToolRegistry.partitionByNames(List.of(r1, r2, r3, r4), List.of("a", "c"));
+        assertEquals(List.of(r1, r3, r4), partitioned.matchingRequests());
+        assertEquals(List.of(r2), partitioned.otherRequests());
+    }
+
+    @Test
     void getExplanationForToolRequest_ValidTool() throws Exception {
         Method m = TestTools.class.getDeclaredMethod("getClassSources", List.class, String.class);
         String json = jsonArgs(m, List.of("com.a.A", "com.b.B"), "analyzing dependencies");
@@ -304,5 +351,12 @@ class ToolRegistryTest {
         public String multiList(@P("a") List<String> a, @P("b") List<String> b) {
             return "ok";
         }
+
+        @Tool("ToolOutput-returning tool")
+        public ToolOutput richOutput() {
+            return new RichOutput("LLM visible text", "side-channel-value");
+        }
     }
+
+    private record RichOutput(String llmText, String value) implements ToolOutput {}
 }

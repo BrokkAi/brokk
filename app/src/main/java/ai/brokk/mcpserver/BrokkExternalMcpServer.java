@@ -415,8 +415,8 @@ public class BrokkExternalMcpServer {
             return "Code agent called with no files to edit";
         }
         var wst = new WorkspaceTools(cm.liveContext());
-        wst.addFilesToWorkspace(editFiles);
-        cm.pushContext(ctx -> wst.getContext());
+        var updatedContext = wst.addFilesToWorkspace(editFiles).context();
+        cm.pushContext(ctx -> updatedContext);
 
         var initialContext = cm.liveContext();
 

@@ -34,6 +34,7 @@ or return value is not annotated @Nullable.
 1. **YAGNI**: Follow the principle of You Ain't Gonna Need It; implement the simplest solution that meets the requirements, unless you have specific knowledge that a more robust solution is needed to meet near-future requirements.
 1. **Keep related code together**: Don't split out code into a separate function, class, or file unless it is completely self-contained or called from multiple sites. It's easier to understand a short computation inline with its context, than split out to a separate location.
 1. **Prefer unordered sets**: use HashSet and Collectors.toSet unless we specifically need ordering.
+1. Prefer declaring utility records inline with the code that creates or returns them rather than as tiny standalone files.
 
 ## Working with LLMs
 

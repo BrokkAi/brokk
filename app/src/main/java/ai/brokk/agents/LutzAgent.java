@@ -755,7 +755,6 @@ public class LutzAgent {
         private final @Nullable Context lastTurnContext;
         private final List<ChatMessage> sessionMessages;
 
-        private final WorkspaceTools wst;
         private final ParallelSearch parallelSearch;
         private final ToolRegistry tr;
 
@@ -773,9 +772,8 @@ public class LutzAgent {
             this.lastTurnContext = stateAtTurnStart.lastTurnContext();
             this.sessionMessages = new ArrayList<>(stateAtTurnStart.sessionMessages());
 
-            this.wst = new WorkspaceTools(context);
             this.parallelSearch = new ParallelSearch(agent.cm, agent.goal);
-            this.tr = agent.createToolRegistry(wst, this, parallelSearch);
+            this.tr = agent.createToolRegistry(new WorkspaceTools(context), this, parallelSearch);
         }
 
         private TurnOutcome executeTurn() throws InterruptedException {
@@ -895,8 +893,10 @@ public class LutzAgent {
                 break;
             }
 
-            boolean hasTerminalRequest =
-                    orderedRequests.stream().anyMatch(req -> agent.terminalToolNames.contains(req.name()));
+            var terminalPartition = ToolRegistry.partitionByNames(orderedRequests, agent.terminalToolNames);
+            var terminalRequests = terminalPartition.matchingRequests();
+            var primaryCalls = terminalPartition.otherRequests();
+            boolean hasTerminalRequest = !terminalRequests.isEmpty();
             if (hasTerminalRequest) {
                 agent.terminalDecisionRequestedByModel.compareAndSet(false, true);
             } else {
@@ -907,10 +907,7 @@ public class LutzAgent {
             DropMode effectiveDropMode = isFinalTurn() ? DropMode.NORMAL : dropMode;
             if (isFinalTurn()) {
                 @Nullable
-                ToolExecutionRequest terminalRequest = orderedRequests.stream()
-                        .filter(req -> agent.terminalToolNames.contains(req.name()))
-                        .findFirst()
-                        .orElse(null);
+                ToolExecutionRequest terminalRequest = terminalRequests.isEmpty() ? null : terminalRequests.getFirst();
 
                 if (terminalRequest == null) {
                     return new TurnOutcome.Final(agent.errorResult(
@@ -979,25 +976,15 @@ public class LutzAgent {
             }
 
             @Nullable
-            ToolExecutionRequest terminalRequest = orderedRequests.stream()
-                    .filter(req -> agent.terminalToolNames.contains(req.name()))
-                    .findFirst()
-                    .orElse(null);
-
-            List<ToolExecutionRequest> primaryCalls = orderedRequests.stream()
-                    .filter(req -> !agent.terminalToolNames.contains(req.name()))
-                    .toList();
+            ToolExecutionRequest terminalRequest = terminalRequests.isEmpty() ? null : terminalRequests.getFirst();
 
             Context contextAtTurnStart = context;
             boolean executedNonHygiene = false;
             List<String> nonHygieneToolCalls = new ArrayList<>();
 
-            var searchAgentReqs = primaryCalls.stream()
-                    .filter(req -> "callSearchAgent".equals(req.name()))
-                    .toList();
-            var otherPrimaryCalls = primaryCalls.stream()
-                    .filter(req -> !"callSearchAgent".equals(req.name()))
-                    .toList();
+            var searchPartition = ToolRegistry.partitionByNames(primaryCalls, Set.of("callSearchAgent"));
+            var searchAgentReqs = searchPartition.matchingRequests();
+            var otherPrimaryCalls = searchPartition.otherRequests();
 
             for (var req : otherPrimaryCalls) {
                 agent.io.beforeToolCall(req);
@@ -1090,8 +1077,6 @@ public class LutzAgent {
         }
 
         private TurnPrompt preparePrompt(boolean workspaceOnlyNoHistory) throws InterruptedException {
-            wst.setContext(context);
-
             DropMode effectiveDropMode = isFinalTurn() ? DropMode.NORMAL : dropMode;
 
             // update pins before generating prompt
@@ -1182,13 +1167,19 @@ public class LutzAgent {
 
         private ToolExecutionResult executeTool(ToolExecutionRequest req) throws InterruptedException {
             agent.metrics.recordToolCall(req.name());
-            wst.setContext(context);
+            var executionRegistry = ToolRegistry.fromBase(tr)
+                    .register(new WorkspaceTools(context))
+                    .build();
+            var result = executionRegistry.executeTool(req);
+            agent.llm.recordToolExecution(result);
 
-            var result = tr.executeTool(req);
-
-            if (agent.isWorkspaceTool(req, tr)) {
-                agent.updateDroppedHistory(context, wst.getContext());
-                context = wst.getContext();
+            if (agent.isWorkspaceTool(req, executionRegistry)
+                    && result.status() == ToolExecutionResult.Status.SUCCESS) {
+                var updatedContext = "dropWorkspaceFragments".equals(req.name())
+                        ? ((WorkspaceTools.DropWorkspaceOutput) result.result()).context()
+                        : ((WorkspaceTools.WorkspaceMutationOutput) result.result()).context();
+                agent.updateDroppedHistory(context, updatedContext);
+                context = updatedContext;
 
                 if ("dropWorkspaceFragments".equals(req.name())
                         && result.status() == ToolExecutionResult.Status.SUCCESS) {
@@ -1290,7 +1281,6 @@ public class LutzAgent {
                 Context prunedContext = janitorResult.context();
                 agent.updateDroppedHistory(context, prunedContext);
                 context = prunedContext;
-                wst.setContext(prunedContext);
                 agent.recordDropBaseline(prunedContext);
             }
 

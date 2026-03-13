@@ -6,8 +6,8 @@ import ai.brokk.Llm;
 import ai.brokk.LlmOutputMeta;
 import ai.brokk.TaskResult;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.context.Context;
-import ai.brokk.context.ContextDelta;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextHistory;
 import ai.brokk.metrics.SearchMetrics;
@@ -18,12 +18,13 @@ import ai.brokk.prompts.SearchPrompts.Objective;
 import ai.brokk.prompts.WorkspacePrompts;
 import ai.brokk.tools.SearchTools;
 import ai.brokk.tools.ToolExecutionResult;
+import ai.brokk.tools.ToolOutput;
 import ai.brokk.tools.ToolRegistry;
 import ai.brokk.tools.WorkspaceTools;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolContext;
-import dev.langchain4j.data.message.AiMessage;
+import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.data.message.UserMessage;
@@ -35,7 +36,10 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.stream.Collectors;
 import org.jetbrains.annotations.Nullable;
 
@@ -45,7 +49,24 @@ import org.jetbrains.annotations.Nullable;
  * OUT of the calling agents' contexts.
  */
 public class SearchAgent {
+    private record TerminalStopOutput(String llmText, TaskResult.StopDetails stopDetails) implements ToolOutput {}
+
     private static final int MAX_TURNS = 20;
+    private static final Set<String> TERMINAL_TOOL_NAMES = Set.of("answer", "workspaceComplete", "abortSearch");
+    private static final Set<String> PARALLEL_SAFE_SEARCH_TOOL_NAMES = Set.of(
+            "searchSymbols",
+            "scanUsages",
+            "getSymbolLocations",
+            "skimFiles",
+            "findFilesContaining",
+            "findFilenames",
+            "searchFileContents",
+            "searchGitCommitMessages",
+            "getGitLog",
+            "explainCommit",
+            "xmlSkim",
+            "xmlSelect",
+            "jq");
 
     private final IContextManager cm;
     private final String goal;
@@ -57,7 +78,6 @@ public class SearchAgent {
     private final SearchMetrics metrics;
 
     private Context context;
-    private @Nullable TaskResult.StopDetails terminalStopDetails;
     private @Nullable LinkedHashSet<String> pendingWorkspaceCompleteIds;
     private boolean workspaceCompleteRetryOffered;
 
@@ -188,7 +208,8 @@ public class SearchAgent {
                             TaskResult.StopReason.TOOL_ERROR, "Model returned no tool calls."));
                 }
 
-                if (isFinalTurn && !containsTerminalTool(ai)) {
+                var terminalPartition = ToolRegistry.partitionByNames(ai.toolExecutionRequests(), TERMINAL_TOOL_NAMES);
+                if (isFinalTurn && terminalPartition.matchingRequests().isEmpty()) {
                     return errorResult(new TaskResult.StopDetails(
                             TaskResult.StopReason.TOOL_ERROR,
                             "Final turn requires a terminal tool call (for example, %s)."
@@ -196,26 +217,71 @@ public class SearchAgent {
                 }
 
                 var additionsThisTurn = new ArrayList<ContextFragment>();
+                var parallelPartition =
+                        ToolRegistry.partitionByNames(ai.toolExecutionRequests(), PARALLEL_SAFE_SEARCH_TOOL_NAMES);
+                var parallelRequests = parallelPartition.matchingRequests();
+                Map<ToolExecutionRequest, CompletableFuture<ToolExecutionResult>> parallelFutures =
+                        new LinkedHashMap<>();
+                if (parallelRequests.size() > 1) {
+                    for (var request : parallelRequests) {
+                        metrics.recordToolCall(request.name());
+                        io.beforeToolCall(request);
+                        Context snapshotContext = context;
+                        parallelFutures.put(
+                                request, LoggingFuture.supplyCallableVirtual(() -> ToolRegistry.fromBase(toolRegistry)
+                                        .register(new WorkspaceTools(snapshotContext))
+                                        .build()
+                                        .executeTool(request)));
+                    }
+                }
+                Runnable cancelOutstandingParallelFutures = () -> parallelFutures.values().stream()
+                        .filter(f -> !f.isDone())
+                        .forEach(f -> f.cancel(true));
 
                 for (var request : ai.toolExecutionRequests()) {
-                    metrics.recordToolCall(request.name());
-                    io.beforeToolCall(request);
-                    Context before = workspaceTools.getContext();
-                    var toolResult = toolRegistry.executeTool(request);
-                    io.afterToolOutput(toolResult);
+                    ToolExecutionResult toolResult;
+                    if (parallelFutures.containsKey(request)) {
+                        try {
+                            toolResult = parallelFutures.get(request).join();
+                        } catch (CompletionException e) {
+                            Throwable cause = e.getCause();
+                            if (cause instanceof InterruptedException ie) {
+                                throw ie;
+                            }
+                            String msg = cause == null ? "Unknown error" : cause.getMessage();
+                            toolResult =
+                                    ToolExecutionResult.internalError(request, msg == null ? "Unknown error" : msg);
+                        }
+                        io.afterToolOutput(toolResult);
+                    } else {
+                        metrics.recordToolCall(request.name());
+                        io.beforeToolCall(request);
+                        var executionRegistry = ToolRegistry.fromBase(toolRegistry)
+                                .register(new WorkspaceTools(context))
+                                .build();
+                        toolResult = executionRegistry.executeTool(request);
+                        io.afterToolOutput(toolResult);
+                    }
+                    llm.recordToolExecution(toolResult);
                     messages.add(toolResult.toMessage());
 
-                    context = workspaceTools.getContext();
-                    additionsThisTurn.addAll(
-                            ContextDelta.between(before, context).join().addedFragments());
+                    if (toolResult.result() instanceof WorkspaceTools.WorkspaceMutationOutput output) {
+                        context = output.context();
+                        additionsThisTurn.addAll(output.addedFragments());
+                    } else if (toolResult.result() instanceof WorkspaceTools.DropWorkspaceOutput output) {
+                        context = output.context();
+                        additionsThisTurn.addAll(output.addedFragments());
+                    }
 
                     if (toolResult.status() == ToolExecutionResult.Status.FATAL) {
+                        cancelOutstandingParallelFutures.run();
                         return errorResult(
                                 new TaskResult.StopDetails(TaskResult.StopReason.LLM_ERROR, toolResult.resultText()));
                     }
 
-                    if (terminalStopDetails != null) {
-                        return createResult(terminalStopDetails);
+                    if (isTerminalTool(request.name()) && toolResult.result() instanceof TerminalStopOutput tso) {
+                        cancelOutstandingParallelFutures.run();
+                        return createResult(tso.stopDetails());
                     }
                 }
 
@@ -261,10 +327,6 @@ public class SearchAgent {
                 </turn>
                 """
                 .formatted(goal, additionsBlock, nextToolRequest, tocContent);
-    }
-
-    private boolean containsTerminalTool(AiMessage message) {
-        return message.toolExecutionRequests().stream().anyMatch(req -> isTerminalTool(req.name()));
     }
 
     private boolean isTerminalTool(String toolName) {
@@ -393,25 +455,25 @@ public class SearchAgent {
     }
 
     @Tool("Abort search immediately.")
-    public String abortSearch(@P("Reason for abort.") String explanation) {
-        terminalStopDetails = new TaskResult.StopDetails(TaskResult.StopReason.LLM_ABORTED, explanation);
+    public TerminalStopOutput abortSearch(@P("Reason for abort.") String explanation) {
+        var stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.LLM_ABORTED, explanation);
         io.llmOutput(explanation, ChatMessageType.AI, LlmOutputMeta.DEFAULT);
-        return explanation;
+        return new TerminalStopOutput(explanation, stopDetails);
     }
 
     @Tool("Provide final answer.")
-    public String answer(
+    public TerminalStopOutput answer(
             @P("Comprehensive final answer in Markdown.") String explanation,
             @P("Captured cost/benefit tradeoffs: what was not pursued or remains uncertain (empty string if none).")
                     String furtherInvestigation) {
         var result = formatPlaintextResult(explanation, furtherInvestigation);
-        terminalStopDetails = new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS, result);
+        var stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS, result);
         io.llmOutput(result, ChatMessageType.AI, LlmOutputMeta.newMessage());
-        return result;
+        return new TerminalStopOutput(result, stopDetails);
     }
 
     @Tool("Signal workspace preparation is complete.")
-    public String workspaceComplete(
+    public ToolOutput workspaceComplete(
             @P("Selected workspace fragments as IDs, or exact fragment descriptions.")
                     List<String> fragmentIdsOrDescriptions,
             @P("Captured cost/benefit tradeoffs: what was not pursued or remains uncertain (empty string if none).")
@@ -438,7 +500,7 @@ public class SearchAgent {
                     """
                             .formatted(resolved.badSelections(), acceptedIds);
             io.llmOutput(retryMessage, ChatMessageType.AI, LlmOutputMeta.DEFAULT);
-            return retryMessage;
+            return new ToolOutput.TextOutput(retryMessage);
         }
 
         workspaceCompleteRetryOffered = false;
@@ -446,9 +508,9 @@ public class SearchAgent {
 
         var explanation = "Selected Fragments: " + String.join(", ", acceptedIds);
         var result = formatPlaintextResult(explanation, furtherInvestigation);
-        terminalStopDetails = new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS, result);
+        var stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS, result);
         io.llmOutput(result, ChatMessageType.AI, LlmOutputMeta.newMessage());
-        return result;
+        return new TerminalStopOutput(result, stopDetails);
     }
 
     private record FragmentSelectionResolution(List<String> acceptedIds, List<String> badSelections) {}
@@ -503,7 +565,7 @@ public class SearchAgent {
                 # Answer
                 %s
 
-                # Potential Further Investigation
+                ### Further Investigation
                 %s
                 """
                 .formatted(mainContent.trim(), furtherInvestigation.trim())
