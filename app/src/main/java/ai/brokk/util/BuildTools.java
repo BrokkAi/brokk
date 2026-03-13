@@ -138,13 +138,20 @@ public class BuildTools {
             var bestModule = details.modules().stream()
                     .filter(m -> {
                         String rel = m.relativePath();
-                        return rel.equals(".") || rel.isEmpty() || unixPath.startsWith(rel);
+                        if (rel.equals(".") || rel.isEmpty()) {
+                            return true;
+                        }
+                        // m.relativePath() is normalized to end with '/' for non-root modules.
+                        // We check if the file is inside that directory or is the directory itself.
+                        return unixPath.startsWith(rel) || unixPath.equals(rel.substring(0, rel.length() - 1));
                     })
                     .max(Comparator.comparingInt(m -> m.relativePath().length()))
                     .orElse(null);
 
             if (bestModule != null) {
-                moduleToFiles.computeIfAbsent(bestModule, k -> new ArrayList<>()).add(f);
+                moduleToFiles
+                        .computeIfAbsent(bestModule, k -> new ArrayList<>())
+                        .add(f);
             }
         }
 
