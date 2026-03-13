@@ -1391,6 +1391,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         var syncExecutorFuture = syncExecutor.shutdownAndAwait(awaitMillis, "syncExecutor");
         var contextActionFuture = contextActionExecutor.shutdownAndAwait(awaitMillis, "contextActionExecutor");
         var backgroundFuture = backgroundTasks.shutdownAndAwait(awaitMillis, "backgroundTasks");
+        var maintenanceFuture = maintenanceTasks.shutdownAndAwait(awaitMillis, "maintenanceTasks");
         var userActionsFuture = userActions.shutdownAndAwait(awaitMillis);
         var historyCompressionFuture =
                 historyCompressionExecutor.shutdownAndAwait(awaitMillis, "historyCompressionExecutor");
@@ -1398,6 +1399,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         return CompletableFuture.allOf(
                         contextActionFuture,
                         backgroundFuture,
+                        maintenanceFuture,
                         userActionsFuture,
                         syncExecutorFuture,
                         historyCompressionFuture)
