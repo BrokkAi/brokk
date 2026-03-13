@@ -159,7 +159,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     private final LoggingExecutorService historyCompressionExecutor =
             ExecutorsUtil.newFixedThreadExecutor("HistoryCompress-", 5);
 
-    // Lightweight maintenance tasks (balance checks, session ops, style guides, etc.)
+    // Short bookkeeping tasks only (balance checks, session ops, history cleanup, service reload)
     private final LoggingExecutorService maintenanceTasks = createLoggingExecutorService(new ThreadPoolExecutor(
             2,
             2,
@@ -1859,7 +1859,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * @return A CompletableFuture that will return the description string.
      */
     public CompletableFuture<String> submitSummarizePastedImage(Image pastedImage) {
-        return submitMaintenanceTask("Summarizing pasted image", () -> {
+        return submitBackgroundTask("Summarizing pasted image", () -> {
             try {
                 // Convert AWT Image to LangChain4j Image (requires Base64 encoding)
                 var l4jImage = ImageUtil.toL4JImage(pastedImage);
@@ -1955,7 +1955,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         }
 
         // No details found, run the BuildAgent asynchronously
-        buildAgentFuture = submitMaintenanceTask("Inferring build details", () -> {
+        buildAgentFuture = submitBackgroundTask("Inferring build details", () -> {
             io.showNotification(IConsoleIO.NotificationRole.INFO, "Inferring project build details");
 
             // Check if task was cancelled before starting
@@ -2079,7 +2079,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * Returns a CompletableFuture for the style guide content.
      */
     public CompletableFuture<String> ensureGuidesAsync() {
-        return submitMaintenanceTask("Loading project guides", () -> {
+        return submitBackgroundTask("Loading project guides", () -> {
             // Handle style guide off EDT
             String existingStyleGuide = project.getStyleGuide();
             if (!existingStyleGuide.isEmpty()) {
@@ -2234,7 +2234,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * Returns a CompletableFuture for the regenerated style guide content.
      */
     public CompletableFuture<String> regenerateStyleGuideAsync() {
-        return submitMaintenanceTask("Regenerating style guide", () -> {
+        return submitBackgroundTask("Regenerating style guide", () -> {
             if (!project.hasGit()) {
                 logger.info("No Git repository found, skipping style guide regeneration.");
                 styleGenerationSkipped = true;

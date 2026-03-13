@@ -973,7 +973,7 @@ public class BlitzForgeDialog extends BaseThemedDialog {
         }
 
         // Run heavy work off the EDT using the background executor.
-        cm.getMaintenanceTasks().submit(() -> {
+        cm.submitMaintenanceTask("Estimating cost", () -> {
             double cost;
             boolean hadError = false;
             try {
@@ -1101,7 +1101,7 @@ public class BlitzForgeDialog extends BaseThemedDialog {
         int generation = tokenWarningGeneration.incrementAndGet();
 
         // Run heavy work off the EDT using the background executor.
-        cm.getMaintenanceTasks().submit(() -> {
+        cm.submitMaintenanceTask("Checking token limits", () -> {
             long workspaceTokens = 0L;
             long historyTokens = 0L;
             boolean hadError = false;

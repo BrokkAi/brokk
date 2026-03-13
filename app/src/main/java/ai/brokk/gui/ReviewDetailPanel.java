@@ -259,7 +259,7 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
             JPopupMenu menu = new JPopupMenu();
             JMenuItem editItem = new JMenuItem("Edit + Enqueue");
             editItem.addActionListener(e -> {
-                contextManager.getMaintenanceTasks().submit(() -> {
+                contextManager.submitMaintenanceTask("Editing recommendation", () -> {
                     String edited =
                             showEditDialog((Chrome) contextManager.getIo(), "Edit Recommendation", recommendation);
                     if (edited != null && !edited.isBlank()) {
