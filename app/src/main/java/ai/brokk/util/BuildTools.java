@@ -129,9 +129,18 @@ public class BuildTools {
             @Nullable String pythonVersionOverride)
             throws InterruptedException {
 
-        String testSomeTemplate = System.getenv("BRK_TESTSOME_CMD") != null
-                ? System.getenv("BRK_TESTSOME_CMD")
-                : details.testSomeCommand();
+        String testSomeTemplate = System.getenv("BRK_TESTSOME_CMD");
+        if (testSomeTemplate == null) {
+            // Find the most specific module that contains these test files
+            var module = details.modules().stream()
+                    .filter(m -> !m.relativePath().equals(".")
+                            && !m.testSomeCommand().isBlank())
+                    .filter(m -> workspaceTestFiles.stream()
+                            .allMatch(f -> f.toString().replace('\\', '/').startsWith(m.relativePath())))
+                    .findFirst();
+
+            testSomeTemplate = module.isPresent() ? module.get().testSomeCommand() : details.testSomeCommand();
+        }
 
         boolean buildLintEnabled = System.getenv("BRK_BUILDLINT_ENABLED") != null
                 ? Boolean.parseBoolean(System.getenv("BRK_BUILDLINT_ENABLED"))
