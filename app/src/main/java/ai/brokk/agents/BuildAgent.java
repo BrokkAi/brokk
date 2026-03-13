@@ -453,6 +453,7 @@ public class BuildAgent {
                 """
                 You are an agent tasked with finding build information for the *development* environment of a software project.
                 Your goal is to identify key build commands (clean, compile/build, test all, test specific) and how to invoke those commands correctly.
+                Determine if there is a single command that builds/tests the entire project. If there is no discernable set of global root commands (e.g. in a multi-module project where commands must be run per-module), leave the root commands blank AND set `buildLintEnabled` and `testAllEnabled` to `false`.
                 Focus *only* on details relevant to local development builds/profiles, explicitly ignoring production-specific
                 configurations unless they are the only ones available.
 
@@ -465,12 +466,14 @@ public class BuildAgent {
                 - Only documentation files (*.md, *.txt, LICENSE, README, etc.) with no build configuration
                 - The project structure is unclear or unsupported
 
-                Then call `abortBuildDetails` immediately with an explanation. Do NOT continue exploring indefinitely.
+                However, if `listTrackedFiles` reveals subdirectories that might contain code or modules (e.g. `backend/`, `frontend/`, `services/`), you MUST explore them using `listTrackedFiles` or `listFiles` before aborting.
+
+                Otherwise, call `abortBuildDetails` immediately with an explanation. Do NOT continue exploring indefinitely.
                 Examples of when to abort:
                 - `listTrackedFiles(".")` returns "No tracked files found"
-                - `listTrackedFiles(".")` returns files but none are recognized build configuration files
-                - Root directory contains only documentation files (*.md, *.txt, LICENSE, etc.) and no source code or build files
-                - After checking root directory, no recognized build system or project structure is found
+                - `listTrackedFiles(".")` returns files but none are recognized build configuration files, and no promising subdirectories exist
+                - Root directory contains only documentation files (*.md, *.txt, LICENSE, etc.) and no source code, build files, or promising subdirectories
+                - After checking root and promising subdirectories, no recognized build system or project structure is found
 
                 Note: `listTrackedFiles` shows all git-tracked files (unfiltered), while `listFiles` respects exclusion patterns.
                 Use `listTrackedFiles` to discover build configurations, then `listFiles` or other tools to explore filtered content.
@@ -495,9 +498,9 @@ public class BuildAgent {
                 Use `{{pyver}}` for the version string when needed (e.g. for Python projects: `python{{pyver}} -m pytest`).
                 Only these variables are supported; do not use other Mustache variables.
 
-                Note: Since the lists are file- and class-oriented, for test environments like `go test` and `cargo test`
-                that are function-oriented, it is acceptable to fall back to running all tests when targeting specific
-                tests is not feasible.
+                The lists are DecoratedCollection instances, so you get first/last/index/value fields.
+
+                For module- or package-oriented test runners like `go test` and `cargo test`, use the `{{packages}}` or `{{modules}}` variables to target specific components.
 
                 Examples:
 
@@ -545,7 +548,56 @@ public class BuildAgent {
                 This project's languages are %s. Consider language-specific exclusions that are appropriate.
 
                 Remember to request the `reportBuildDetails` tool to finalize the process ONLY once all information is collected.
-                The reportBuildDetails tool expects exactly five parameters: buildLintCommand, testAllCommand, testSomeCommand, excludedDirectories, and excludedFilePatterns.
+                The reportBuildDetails tool expects eight parameters: buildLintCommand, buildLintEnabled, testAllCommand, testAllEnabled, testSomeCommand, excludedDirectories, excludedFilePatterns, and modules.
+
+                If the project is a multi-module project (Maven modules, Gradle subprojects, Cargo workspaces, Go modules, Node.js workspaces, etc.), you MUST identify each module and provide its details in the single flat `modules` list.
+                For each module, identify its primary programming language (e.g., "Java", "Python", "Go", "Rust", "JavaScript", "TypeScript", "C#").
+                **IMPORTANT**: For polyglot or multi-language repositories, include all modules from ALL detected languages and frameworks in this same list.
+                Root commands (the top-level parameters) should represent repo-level orchestration. If no repo-level orchestration is possible, leave root commands blank and disable them by setting `buildLintEnabled` and `testAllEnabled` to `false`.
+                Module-specific commands must be executable from the project root (e.g., using flags like `-pl`, `-w`, or `cd`).
+
+                For monolithic repositories or single-module projects, you MUST report a single module with `relativePath: "."` and provide the relevant `testSomeCommand` in that module entry.
+
+                **Modules JSON Examples:**
+
+                **Maven (Nested Modules):**
+                ```json
+                "modules": [
+                  { "alias": "core", "relativePath": "core", "language": "Java", "buildLintCommand": "mvn compile -pl core", "testAllCommand": "mvn test -pl core", "testSomeCommand": "mvn test -pl core -Dtest={{#classes}}{{value}}{{^last}},{{/last}}{{/classes}}" },
+                  { "alias": "api", "relativePath": "api", "language": "Java", "buildLintCommand": "mvn compile -pl api", "testAllCommand": "mvn test -pl api", "testSomeCommand": "mvn test -pl api -Dtest={{#classes}}{{value}}{{^last}},{{/last}}{{/classes}}" }
+                ]
+                ```
+
+                **Gradle (Subprojects):**
+                ```json
+                "modules": [
+                  { "alias": "app", "relativePath": "app", "language": "Java", "buildLintCommand": "./gradlew :app:classes", "testAllCommand": "./gradlew :app:test", "testSomeCommand": "./gradlew :app:test {{#classes}}--tests {{value}}{{/classes}}" },
+                  { "alias": "lib", "relativePath": "lib", "language": "Java", "buildLintCommand": "./gradlew :lib:classes", "testAllCommand": "./gradlew :lib:test", "testSomeCommand": "./gradlew :lib:test {{#classes}}--tests {{value}}{{/classes}}" }
+                ]
+                ```
+
+                **Python (Poetry Monorepo / Sub-packages):**
+                ```json
+                "modules": [
+                  { "alias": "service-a", "relativePath": "services/a", "language": "Python", "buildLintCommand": "cd services/a && poetry run mypy .", "testAllCommand": "cd services/a && poetry run pytest", "testSomeCommand": "cd services/a && poetry run pytest {{#files}}{{value}}{{^last}} {{/last}}{{/files}}" }
+                ]
+                ```
+
+                **Node.js (Workspaces):**
+                ```json
+                "modules": [
+                  { "alias": "web", "relativePath": "packages/web", "language": "JavaScript", "buildLintCommand": "npm run build -w web", "testAllCommand": "npm test -w web", "testSomeCommand": "npm test -w web -- {{#files}}{{value}}{{^last}} {{/last}}{{/files}}" }
+                ]
+                ```
+
+                **Mixed Language / Polyglot (Mono-repo):**
+                ```json
+                "modules": [
+                  { "alias": "java-backend", "relativePath": "backend", "language": "Java", "buildLintCommand": "./gradlew :backend:classes", "testAllCommand": "./gradlew :backend:test", "testSomeCommand": "./gradlew :backend:test {{#classes}}--tests {{value}}{{/classes}}" },
+                  { "alias": "python-worker", "relativePath": "worker", "language": "Python", "buildLintCommand": "cd worker && poetry run mypy .", "testAllCommand": "cd worker && poetry run pytest", "testSomeCommand": "cd worker && poetry run pytest {{#files}}{{value}}{{^last}} {{/last}}{{/files}}" },
+                  { "alias": "frontend-app", "relativePath": "frontend", "language": "TypeScript", "buildLintCommand": "npm run build -w frontend", "testAllCommand": "npm test -w frontend", "testSomeCommand": "npm test -w frontend -- {{#files}}{{value}}{{^last}} {{/last}}{{/files}}" }
+                ]
+                ```
                 """
                         .formatted(wrapperScriptInstruction, currentExcludedDirectories, languageNames)));
 
@@ -591,7 +643,7 @@ public class BuildAgent {
                     String testAllCommand,
             @P("Whether the testAllCommand is enabled.") boolean testAllEnabled,
             @P(
-                            "Command template to run specific tests using Mustache templating. Should use {{classes}}, {{fqclasses}}, {{files}}, or {{packages}}. {{packages}} provides dotted module paths for Python/Rust and directory paths for Go. Again, if no class- or file- based framework is in use, leave it blank.")
+                            "Command template to run specific tests using Mustache templating. Should use {{classes}}, {{fqclasses}}, {{files}}, {{modules}}, or {{packages}}. {{modules}} and {{packages}} provide dotted module paths for Python/Rust and directory paths for Go. Again, if no class- or file- based framework is in use, leave it blank.")
                     String testSomeCommand,
             @P(
                             "List of directories to exclude from code intelligence (e.g., generated code, build artifacts). Use literal paths, not glob patterns.")
@@ -599,7 +651,9 @@ public class BuildAgent {
             @P(
                             "List of file patterns to exclude. Use '*.ext' for extensions (e.g., '*.svg'), literal names for specific files (e.g., 'package-lock.json'). Do NOT use **/ prefix or duplicate directories.")
                     List<String> excludedFilePatterns,
-            @P("List of modules identified in the project.") List<ModuleBuildEntry> modules) {
+            @P(
+                            "List of modules identified in the project. Each module should have: 'alias' (name), 'relativePath' (path from root), 'language' (e.g. Java, Python), 'buildLintCommand', 'testAllCommand', and 'testSomeCommand'.")
+                    List<ModuleBuildEntry> modules) {
         // Validate Mustache templates in command strings before proceeding
         validateCommandTemplateForTool("buildLintCommand", buildLintCommand);
         validateCommandTemplateForTool("testAllCommand", testAllCommand);
