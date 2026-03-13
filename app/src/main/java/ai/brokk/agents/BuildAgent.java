@@ -153,6 +153,33 @@ public class BuildAgent {
         chatHistory.add(Messages.create("Thank you.", ChatMessageType.AI));
         logger.trace("Initial directory listing added to history: {}", initialResult.resultText());
 
+        // Discover nested build files to hint at submodules/services
+        var commonBuildFiles = Languages.getAllCommonBuildFiles();
+        var allFiles = project.hasGit() ? project.getRepo().getTrackedFiles() : project.getAllFiles();
+
+        var nestedBuildFiles = allFiles.stream()
+                .filter(pf -> {
+                    Path rel = pf.getRelPath();
+                    int depth = rel.getNameCount();
+                    // depth 1 is root. depth 2 to 5 means nested subdirectories.
+                    return depth > 1 && depth <= 5 && commonBuildFiles.contains(pf.getFileName());
+                })
+                .map(ProjectFile::toString)
+                .sorted()
+                .toList();
+
+        if (!nestedBuildFiles.isEmpty()) {
+            chatHistory.add(new UserMessage(
+                    """
+            I also found these nested build files which may indicate submodules or services:
+            ```
+            %s
+            ```"""
+                            .formatted(String.join("\n", nestedBuildFiles))));
+            chatHistory.add(Messages.create("I will take those into account.", ChatMessageType.AI));
+            logger.debug("Nested build files added to history: {}", nestedBuildFiles);
+        }
+
         // Determine build system and set initial excluded directories
         // Use tracked files directly (not filtered) to ensure build files are visible
         var files = project.getRepo().getTrackedFiles().stream()
