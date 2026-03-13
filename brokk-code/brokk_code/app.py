@@ -5,6 +5,7 @@ import random
 import re
 import signal
 import time
+import uuid
 import webbrowser
 from datetime import datetime
 from enum import StrEnum
@@ -1863,6 +1864,25 @@ class BrokkApp(App):
                     chat.add_system_message(f"Failed to mark task as done: {e}", level="WARNING")
         elif result == _JobLifecycleResult.CANCELLED and chat:
             chat.add_system_message(f"Task '{display_name}' was cancelled.")
+
+    def on_guided_review_panel_enqueue_requested(
+        self, message: GuidedReviewPanel.EnqueueRequested
+    ) -> None:
+        self.run_worker(self._enqueue_review_task(message.title, message.text))
+
+    async def _enqueue_review_task(self, title: str, text: str) -> None:
+        chat = self._maybe_chat()
+        try:
+            tasklist = await self.executor.get_tasklist()
+            tasks = tasklist.get("tasks", [])
+            tasks.append({"id": str(uuid.uuid4()), "title": title, "text": text, "done": False})
+            tasklist["tasks"] = tasks
+            await self.executor.set_tasklist(tasklist)
+            if chat:
+                chat.add_system_message(f"Task added: {title}", level="SUCCESS")
+        except Exception as e:
+            if chat:
+                chat.add_system_message(f"Failed to add task: {e}", level="ERROR")
 
     def on_chat_panel_mode_selected(self, message: ChatPanel.ModeSelected) -> None:
         self._set_mode(message.mode.upper())

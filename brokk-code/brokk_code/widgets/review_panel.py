@@ -177,6 +177,7 @@ class GuidedReviewPanel(Vertical, can_focus=True):
         Binding("space", "toggle_section", "Toggle Section", show=False),
         Binding("o", "expand_all", "Expand All", show=False),
         Binding("O", "collapse_all", "Collapse All", show=False),
+        Binding("a", "enqueue_task", "Add to Tasks", show=False),
     ]
 
     DEFAULT_CSS = """
@@ -256,6 +257,14 @@ class GuidedReviewPanel(Vertical, can_focus=True):
             self.section_id = section_id
             super().__init__()
 
+    class EnqueueRequested(Message):
+        """Posted when the user wants to enqueue the current section as a task."""
+
+        def __init__(self, title: str, text: str) -> None:
+            self.title = title
+            self.text = text
+            super().__init__()
+
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self._review: Optional[GuidedReview] = None
@@ -274,7 +283,7 @@ class GuidedReviewPanel(Vertical, can_focus=True):
 
     def _get_help_text(self) -> str:
         """Build help text from bindings."""
-        return "[b]Tab/↑↓[/b] Nav  [b]Enter[/b] Toggle  [b]Esc[/b] Close"
+        return "[b]Tab/↑↓[/b] Nav  [b]Enter[/b] Toggle  [b]a[/b] Add to Tasks  [b]Esc[/b] Close"
 
     def on_mount(self) -> None:
         """Initial state setup."""
@@ -390,7 +399,7 @@ class GuidedReviewPanel(Vertical, can_focus=True):
             widget = ReviewSectionWidget(
                 section=section,
                 section_id=section_id,
-                expanded=True,
+                expanded=False,
                 id=section_id,
             )
             children.append(widget)
@@ -463,6 +472,19 @@ class GuidedReviewPanel(Vertical, can_focus=True):
         try:
             widget = self.query_one(f"#{section_id}", ReviewSectionWidget)
             widget.toggle()
+        except Exception:
+            pass
+
+    def action_enqueue_task(self) -> None:
+        """Enqueue the current section as a task."""
+        section_id = self._current_section_id()
+        if not section_id:
+            return
+        try:
+            widget = self.query_one(f"#{section_id}", ReviewSectionWidget)
+            title = widget._section.title
+            text = widget._section.content or title
+            self.post_message(self.EnqueueRequested(title=title, text=text))
         except Exception:
             pass
 
