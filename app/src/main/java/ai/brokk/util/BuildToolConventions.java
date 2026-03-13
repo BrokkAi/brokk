@@ -19,14 +19,17 @@ public class BuildToolConventions {
         POETRY(Set.of("poetry.lock"), Set.of()),
         PYTHON(Set.of("setup.py", "pyproject.toml", "requirements.txt"), Set.of()),
         BAZEL(Set.of("workspace.bazel", "module.bazel", "build.bazel"), Set.of()),
+        GO(Set.of("go.mod"), Set.of()),
+        ANT(Set.of("build.xml"), Set.of()),
+        MAKE(Set.of("makefile"), Set.of()),
         UNKNOWN(Set.of(), Set.of());
 
         private final Set<String> markerFiles;
         private final Set<String> markerSuffixes;
 
         BuildSystem(Set<String> markerFiles, Set<String> markerSuffixes) {
-            this.markerFiles = markerFiles;
-            this.markerSuffixes = markerSuffixes;
+            this.markerFiles = Set.copyOf(markerFiles);
+            this.markerSuffixes = Set.copyOf(markerSuffixes);
         }
 
         private boolean matches(String filename) {
@@ -77,6 +80,9 @@ public class BuildToolConventions {
             case RUBY -> List.of("vendor/bundle/", ".bundle/", "coverage/");
             case PHP -> List.of("vendor/", "cache/");
             case DOTNET -> List.of("bin/", "obj/", "packages/");
+            case GO -> List.of("vendor/");
+            case ANT -> List.of("dist/", "build/", "bin/");
+            case MAKE -> List.of("out/", "build/");
             default -> List.of();
         };
     }
