@@ -43,8 +43,8 @@ public class WorkspaceTools {
     public record WorkspaceMutationOutput(
             String llmText,
             Context context,
-            List<ContextFragment> addedFragments,
-            List<ContextFragment> removedFragments)
+            List<? extends ContextFragment> addedFragments,
+            List<? extends ContextFragment> removedFragments)
             implements ToolOutput {
         public WorkspaceMutationOutput {
             addedFragments = List.copyOf(addedFragments);
@@ -65,8 +65,8 @@ public class WorkspaceTools {
             String llmText,
             Context context,
             DropReport dropReport,
-            List<ContextFragment> addedFragments,
-            List<ContextFragment> removedFragments)
+            List<? extends ContextFragment> addedFragments,
+            List<? extends ContextFragment> removedFragments)
             implements ToolOutput {
         public DropWorkspaceOutput {
             addedFragments = List.copyOf(addedFragments);
