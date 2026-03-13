@@ -15,6 +15,7 @@ import ai.brokk.testutil.TestContextManager;
 import ai.brokk.testutil.TestProject;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
@@ -166,6 +167,39 @@ public class SearchToolsTest {
                 assertThrows(ToolRegistry.ToolCallException.class, () -> searchTools.runShellCommand("echo hello", -1));
         assertEquals(ToolExecutionResult.Status.REQUEST_ERROR, ex.status());
         assertTrue(ex.getMessage().contains("Invalid timeoutSeconds"), "Should report invalid timeout");
+    }
+
+    @Test
+    void testRunShellCommand_ThroughToolRegistry() throws Exception {
+        ToolRegistry registry =
+                new ToolRegistry().builder().register(searchTools).build();
+        ToolExecutionRequest request = ToolExecutionRequest.builder()
+                .name("runShellCommand")
+                .arguments("{\"command\":\"echo hello\",\"timeoutSeconds\":30}")
+                .build();
+
+        ToolExecutionResult result = registry.executeTool(request);
+
+        assertEquals(ToolExecutionResult.Status.SUCCESS, result.status());
+        assertTrue(result.resultText().contains("Shell command result"), "Should return formatted shell result");
+        assertTrue(result.resultText().contains("Status: SUCCESS"), "Should report success status");
+    }
+
+    @Test
+    void testRunShellCommand_ThroughToolRegistry_DoesNotRegressOtherSearchTools() throws Exception {
+        mockProjectFiles.add(new ProjectFile(projectRoot, "README.md"));
+
+        ToolRegistry registry =
+                new ToolRegistry().builder().register(searchTools).build();
+        ToolExecutionRequest request = ToolExecutionRequest.builder()
+                .name("listFiles")
+                .arguments("{\"directoryPath\":\".\"}")
+                .build();
+
+        ToolExecutionResult result = registry.executeTool(request);
+
+        assertEquals(ToolExecutionResult.Status.SUCCESS, result.status());
+        assertTrue(result.resultText().contains("README.md"), "listFiles should remain functional via ToolRegistry");
     }
 
     @Test

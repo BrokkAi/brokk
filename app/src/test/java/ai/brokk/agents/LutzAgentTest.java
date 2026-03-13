@@ -95,7 +95,23 @@ class LutzAgentTest {
         assertTrue(allowed.contains("runShellCommand"), "SearchAgent should expose runShellCommand");
         assertTrue(allowed.contains("workspaceComplete"));
         assertTrue(allowed.contains("abortSearch"));
+        assertTrue(allowed.contains("searchSymbols"), "Search symbols should remain available");
+        assertTrue(allowed.contains("addFilesToWorkspace"), "Workspace file tool should remain available");
+        assertFalse(allowed.contains("answer"), "Workspace mode should not expose answer terminal");
         assertFalse(allowed.contains("callSearchAgent"), "SearchAgent should not expose callSearchAgent");
+    }
+
+    @Test
+    void searchAgentAllowedToolNames_answerMode_enforcesDisallowedWorkspaceTerminal() {
+        TestContextManager cm = new TestContextManager(tempDir, new NoOpConsoleIO());
+        var agent = new SearchAgent(cm.liveContext(), "goal", new OfflineStreamingModel(), Objective.ANSWER_ONLY);
+        var allowed = agent.allowedToolNames(cm.getProject());
+
+        assertTrue(allowed.contains("runShellCommand"), "SearchAgent should expose runShellCommand");
+        assertTrue(allowed.contains("answer"), "Answer mode should expose answer terminal");
+        assertTrue(allowed.contains("searchSymbols"), "Search symbols should remain available");
+        assertTrue(allowed.contains("addFilesToWorkspace"), "Workspace file tool should remain available");
+        assertFalse(allowed.contains("workspaceComplete"), "Answer mode should not expose workspaceComplete");
     }
 
     @Test

@@ -2,6 +2,8 @@ package ai.brokk.tools;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import ai.brokk.testutil.TestConsoleIO;
+import ai.brokk.testutil.TestContextManager;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.langchain4j.agent.tool.P;
@@ -9,14 +11,20 @@ import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import java.lang.reflect.Method;
 import java.lang.reflect.Parameter;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 class ToolRegistryTest {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
+
+    @TempDir
+    Path tempDir;
 
     private ToolRegistry registry;
     private TestTools tools;
@@ -255,6 +263,56 @@ class ToolRegistryTest {
         assertTrue(explanation.contains("Running shell command"));
         assertTrue(explanation.contains("echo hello"));
         assertTrue(explanation.contains("timeoutSeconds=45"));
+    }
+
+    @Test
+    void executeTool_SearchToolsRunShellCommand_Succeeds() throws Exception {
+        TestContextManager cm = new TestContextManager(tempDir, new TestConsoleIO());
+        ToolRegistry searchRegistry =
+                new ToolRegistry().builder().register(new SearchTools(cm)).build();
+
+        var req = ToolExecutionRequest.builder()
+                .name("runShellCommand")
+                .arguments("{\"command\":\"echo hello\",\"timeoutSeconds\":30}")
+                .build();
+
+        ToolExecutionResult result = searchRegistry.executeTool(req);
+
+        assertEquals(ToolExecutionResult.Status.SUCCESS, result.status());
+        assertTrue(result.resultText().contains("Shell command result"));
+        assertTrue(result.resultText().contains("Status: SUCCESS"));
+    }
+
+    @Test
+    void executeTool_RunShellCommand_RejectedWhenNotRegistered() throws Exception {
+        ToolRegistry noSearchRegistry = ToolRegistry.empty();
+        var req = ToolExecutionRequest.builder()
+                .name("runShellCommand")
+                .arguments("{\"command\":\"echo hello\",\"timeoutSeconds\":30}")
+                .build();
+
+        ToolExecutionResult result = noSearchRegistry.executeTool(req);
+
+        assertEquals(ToolExecutionResult.Status.REQUEST_ERROR, result.status());
+        assertTrue(result.resultText().contains("Tool not found: runShellCommand"));
+    }
+
+    @Test
+    void executeTool_SearchToolsListFilesStillWorks() throws Exception {
+        Files.writeString(tempDir.resolve("sample.txt"), "sample");
+        TestContextManager cm = new TestContextManager(tempDir, new TestConsoleIO());
+        ToolRegistry searchRegistry =
+                new ToolRegistry().builder().register(new SearchTools(cm)).build();
+
+        var req = ToolExecutionRequest.builder()
+                .name("listFiles")
+                .arguments("{\"directoryPath\":\".\"}")
+                .build();
+
+        ToolExecutionResult result = searchRegistry.executeTool(req);
+
+        assertEquals(ToolExecutionResult.Status.SUCCESS, result.status());
+        assertTrue(result.resultText().contains("sample.txt"));
     }
 
     @Test
