@@ -584,6 +584,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware, AnalyzerC
                                     // If inside, keep targetLine. Else, snap to the nearest boundary.
                                     if (dist == 0) {
                                         snappedLine = targetLine;
+                                        break;
                                     } else {
                                         snappedLine =
                                                 (Math.abs(targetLine - chunkStart) < Math.abs(targetLine - chunkEnd))
