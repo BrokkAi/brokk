@@ -627,7 +627,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * @param changedFiles Set of files that changed (may be empty for backward compatibility)
      */
     void handleTrackedFileChange(Set<ProjectFile> changedFiles) {
-        submitMaintenanceTask("Update for FS changes", () -> {
+        submitBackgroundTask("Update for FS changes", () -> {
             // Invalidate caches
             project.getRepo().invalidateCaches();
             project.invalidateAllFiles();
