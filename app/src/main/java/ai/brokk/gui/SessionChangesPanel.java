@@ -573,8 +573,8 @@ public class SessionChangesPanel extends JPanel implements ThemeAware, AnalyzerC
                                 int chunkEnd = chunkStart + Math.max(0, chunk.size() - 1);
 
                                 int dist;
-                                if (targetLine >= chunkStart && targetLine <= chunkEnd) {
-                                    dist = 0; // Inside the diff chunk
+                                if (chunk.size() > 0 && targetLine >= chunkStart && targetLine <= chunkEnd) {
+                                    dist = 0; // Inside a non-empty diff chunk
                                 } else {
                                     dist = Math.min(Math.abs(targetLine - chunkStart), Math.abs(targetLine - chunkEnd));
                                 }
