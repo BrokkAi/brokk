@@ -28,7 +28,6 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.Properties;
 import java.util.Set;
@@ -897,14 +896,8 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
             var details = objectMapper.readValue(json, BuildAgent.BuildDetails.class);
 
             // Canonicalize exclusion patterns
-            Path masterRoot = getMasterRootPathForConfig();
-            var canonicalExclusions = details.exclusionPatterns().stream()
-                    .filter(Objects::nonNull)
-                    .map(String::trim)
-                    .filter(s -> !s.isEmpty())
-                    .map(s -> PathNormalizer.canonicalizeForProject(s, masterRoot))
-                    .filter(s -> !s.isEmpty())
-                    .collect(Collectors.toCollection(LinkedHashSet::new));
+            var canonicalExclusions = PathNormalizer.canonicalizeExclusionPatterns(
+                    details.exclusionPatterns(), getMasterRootPathForConfig());
 
             // Normalize environment variables and migrate JAVA_HOME to workspace properties
             Map<String, String> envIn = details.environmentVariables();

@@ -2311,15 +2311,11 @@ public final class MainProject extends AbstractProject {
         canonicalEnv.remove("VIRTUAL_ENV");
 
         // Sort and deduplicate exclusion patterns for consistent storage
-        Path masterRoot = getMasterRootPathForConfig();
-        Set<String> canonicalExclusions = details.exclusionPatterns().stream()
-                .filter(Objects::nonNull)
-                .map(String::trim)
-                .filter(s -> !s.isEmpty())
-                .map(s -> PathNormalizer.canonicalizeForProject(s, masterRoot))
-                .filter(s -> !s.isEmpty())
-                .sorted()
-                .collect(Collectors.toCollection(LinkedHashSet::new));
+        Set<String> canonicalExclusions =
+                PathNormalizer.canonicalizeExclusionPatterns(details.exclusionPatterns(), getMasterRootPathForConfig())
+                        .stream()
+                        .sorted()
+                        .collect(Collectors.toCollection(LinkedHashSet::new));
 
         var canonicalDetails = new BuildAgent.BuildDetails(
                 details.buildLintCommand(),
