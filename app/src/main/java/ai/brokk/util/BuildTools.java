@@ -4,6 +4,8 @@ import ai.brokk.ContextManager;
 import ai.brokk.IContextManager;
 import ai.brokk.agents.BuildAgent;
 import ai.brokk.agents.BuildAgent.BuildDetails;
+import ai.brokk.project.FileFilteringService;
+import ai.brokk.project.FileFilteringService;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.Languages;
@@ -131,7 +133,7 @@ public class BuildTools {
                     .filter(m -> !m.testSomeCommand().isBlank())
                     .filter(m -> !m.relativePath().equals("."))
                     .filter(m -> workspaceTestFiles.stream()
-                            .allMatch(f -> f.toString().replace('\\', '/').startsWith(m.relativePath())))
+                            .allMatch(f -> FileFilteringService.toUnixPath(f.getRelPath()).startsWith(m.relativePath())))
                     .max(Comparator.comparingInt(m -> m.relativePath().length()));
 
             testSomeTemplate = module.map(BuildAgent.ModuleBuildEntry::testSomeCommand)
