@@ -288,4 +288,25 @@ class BuildToolsTest {
 
         assertEquals("python -m pytest", result);
     }
+
+    @Test
+    void testBuildSystemDetectionAndExcludes() {
+        // GO
+        assertEquals(BuildToolConventions.BuildSystem.GO, BuildToolConventions.determineBuildSystem(List.of("go.mod")));
+        assertEquals(List.of("vendor/"), BuildToolConventions.getDefaultExcludes(BuildToolConventions.BuildSystem.GO));
+
+        // ANT
+        assertEquals(
+                BuildToolConventions.BuildSystem.ANT, BuildToolConventions.determineBuildSystem(List.of("build.xml")));
+        assertEquals(
+                List.of("dist/", "build/", "bin/"),
+                BuildToolConventions.getDefaultExcludes(BuildToolConventions.BuildSystem.ANT));
+
+        // MAKE
+        assertEquals(
+                BuildToolConventions.BuildSystem.MAKE, BuildToolConventions.determineBuildSystem(List.of("makefile")));
+        assertEquals(
+                List.of("out/", "build/"),
+                BuildToolConventions.getDefaultExcludes(BuildToolConventions.BuildSystem.MAKE));
+    }
 }

@@ -153,6 +153,43 @@ public class BuildAgent {
         chatHistory.add(Messages.create("Thank you.", ChatMessageType.AI));
         logger.trace("Initial directory listing added to history: {}", initialResult.resultText());
 
+        // Discover nested build files to hint at submodules/services
+        var allFiles = project.hasGit() ? project.getRepo().getTrackedFiles() : project.getAllFiles();
+
+        var nestedBuildFiles = allFiles.stream()
+                .filter(pf -> {
+                    Path rel = pf.getRelPath();
+                    int depth = rel.getNameCount();
+                    // depth 1 is root. depth 2 to 8 means nested subdirectories.
+                    // We stop at 8 to avoid performance issues in extremely deep trees while supporting monorepos.
+                    if (depth <= 1 || depth > 8) {
+                        return false;
+                    }
+
+                    // If a subdirectory contains its own .git folder, it's a separate project boundary
+                    Path parent = pf.absPath().getParent();
+                    if (parent != null && Files.exists(parent.resolve(".git"))) {
+                        return false;
+                    }
+
+                    return BuildToolConventions.isBuildFile(pf.getFileName());
+                })
+                .map(ProjectFile::toString)
+                .sorted()
+                .toList();
+
+        if (!nestedBuildFiles.isEmpty()) {
+            chatHistory.add(new UserMessage(
+                    """
+            I also found these nested build files which may indicate submodules or services:
+            ```
+            %s
+            ```"""
+                            .formatted(String.join("\n", nestedBuildFiles))));
+            chatHistory.add(Messages.create("I will take those into account.", ChatMessageType.AI));
+            logger.debug("Nested build files added to history: {}", nestedBuildFiles);
+        }
+
         // Determine build system and set initial excluded directories
         // Use tracked files directly (not filtered) to ensure build files are visible
         var files = project.getRepo().getTrackedFiles().stream()
