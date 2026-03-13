@@ -1,73 +1,66 @@
 package ai.brokk.util;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 public class BuildToolConventions {
 
     public enum BuildSystem {
-        MAVEN,
-        GRADLE,
-        SBT,
-        NPM,
-        CARGO,
-        BAZEL,
-        CMAKE,
-        POETRY,
-        PYTHON,
-        RUBY,
-        PHP,
-        DOTNET,
-        UNKNOWN
+        MAVEN(Set.of("pom.xml"), Set.of()),
+        GRADLE(Set.of("build.gradle", "build.gradle.kts"), Set.of()),
+        SBT(Set.of("build.sbt"), Set.of()),
+        NPM(Set.of("package.json"), Set.of()),
+        CARGO(Set.of("cargo.toml"), Set.of()),
+        CMAKE(Set.of("cmakelists.txt"), Set.of()),
+        RUBY(Set.of("gemfile"), Set.of()),
+        PHP(Set.of("composer.json"), Set.of()),
+        DOTNET(Set.of(), Set.of(".sln", ".csproj")),
+        POETRY(Set.of("poetry.lock"), Set.of()),
+        PYTHON(Set.of("setup.py", "pyproject.toml", "requirements.txt"), Set.of()),
+        BAZEL(Set.of("workspace.bazel", "module.bazel", "build.bazel"), Set.of()),
+        UNKNOWN(Set.of(), Set.of());
+
+        private final Set<String> markerFiles;
+        private final Set<String> markerSuffixes;
+
+        BuildSystem(Set<String> markerFiles, Set<String> markerSuffixes) {
+            this.markerFiles = markerFiles;
+            this.markerSuffixes = markerSuffixes;
+        }
+
+        private boolean matches(String filename) {
+            String lower = filename.toLowerCase(Locale.ROOT);
+            return markerFiles.contains(lower) || markerSuffixes.stream().anyMatch(lower::endsWith);
+        }
     }
 
     /**
      * Determines the build system based on files present in the project root.
-     * Uses first-match precedence: Maven → Gradle → SBT → NPM → Cargo → CMake → Ruby → PHP → DOTNET → Poetry → Python → Bazel.
+     * Uses first-match precedence as defined by the order of Enum values.
      * In monorepos with multiple build files, the first matching system wins.
      */
     public static BuildSystem determineBuildSystem(List<String> rootFilenames) {
-        Set<String> names = rootFilenames.stream().map(String::toLowerCase).collect(Collectors.toSet());
-
-        if (names.contains("pom.xml")) {
-            return BuildSystem.MAVEN;
+        for (BuildSystem system : BuildSystem.values()) {
+            if (system == BuildSystem.UNKNOWN) continue;
+            if (rootFilenames.stream().anyMatch(system::matches)) {
+                return system;
+            }
         }
-        if (names.contains("build.gradle") || names.contains("build.gradle.kts")) {
-            return BuildSystem.GRADLE;
-        }
-        if (names.contains("build.sbt")) {
-            return BuildSystem.SBT;
-        }
-        if (names.contains("package.json")) { // NPM, Yarn, PNPM all use package.json
-            return BuildSystem.NPM;
-        }
-        if (names.contains("cargo.toml")) {
-            return BuildSystem.CARGO;
-        }
-        if (names.contains("cmakelists.txt")) {
-            return BuildSystem.CMAKE;
-        }
-        if (names.contains("gemfile")) {
-            return BuildSystem.RUBY;
-        }
-        if (names.contains("composer.json")) {
-            return BuildSystem.PHP;
-        }
-        if (names.stream().anyMatch(n -> n.endsWith(".sln") || n.endsWith(".csproj"))) {
-            return BuildSystem.DOTNET;
-        }
-        if (names.contains("poetry.lock")) {
-            return BuildSystem.POETRY;
-        }
-        if (names.contains("setup.py") || names.contains("pyproject.toml") || names.contains("requirements.txt")) {
-            return BuildSystem.PYTHON;
-        }
-        if (names.contains("workspace.bazel") || names.contains("module.bazel") || names.contains("build.bazel")) {
-            return BuildSystem.BAZEL;
-        }
-
         return BuildSystem.UNKNOWN;
+    }
+
+    /**
+     * Returns true if the filename is recognized as a primary build configuration file
+     * or project file for any supported build system.
+     */
+    public static boolean isBuildFile(String filename) {
+        for (BuildSystem system : BuildSystem.values()) {
+            if (system != BuildSystem.UNKNOWN && system.matches(filename)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public static List<String> getDefaultExcludes(BuildSystem system) {
