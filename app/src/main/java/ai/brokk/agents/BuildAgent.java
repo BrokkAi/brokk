@@ -43,6 +43,7 @@ import java.io.StringReader;
 import java.io.StringWriter;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
+import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.SimpleFileVisitor;
@@ -799,28 +800,34 @@ public class BuildAgent {
             }
 
             var randomTestFile = testFiles.get(new Random().nextInt(testFiles.size()));
-            String relPath = randomTestFile.toString();
+            String relPath = toUnixPath(randomTestFile.getRelPath());
             String fileName = randomTestFile.getFileName();
             String simpleName = fileName.contains(".") ? fileName.substring(0, fileName.lastIndexOf('.')) : fileName;
 
-            String interpolatedCmd = null;
+            List<String> items = List.of(relPath);
+            List<String> classItems = List.of(simpleName);
+
+            String interpolatedCmd = template;
             if (template.contains("{{#files}}")) {
-                interpolatedCmd = BuildTools.interpolateMustacheTemplate(template, List.of(relPath), "files");
-            } else if (template.contains("{{#classes}}")) {
-                interpolatedCmd = BuildTools.interpolateMustacheTemplate(template, List.of(simpleName), "classes");
-            } else if (template.contains("{{#fqclasses}}")) {
-                interpolatedCmd = BuildTools.interpolateMustacheTemplate(template, List.of(simpleName), "fqclasses");
-            } else if (template.contains("{{#packages}}")) {
-                interpolatedCmd = BuildTools.interpolateMustacheTemplate(template, List.of(relPath), "packages");
+                interpolatedCmd = BuildTools.interpolateMustacheTemplate(interpolatedCmd, items, "files");
+            }
+            if (template.contains("{{#classes}}")) {
+                interpolatedCmd = BuildTools.interpolateMustacheTemplate(interpolatedCmd, classItems, "classes");
+            }
+            if (template.contains("{{#fqclasses}}")) {
+                interpolatedCmd = BuildTools.interpolateMustacheTemplate(interpolatedCmd, classItems, "fqclasses");
+            }
+            if (template.contains("{{#packages}}")) {
+                interpolatedCmd = BuildTools.interpolateMustacheTemplate(interpolatedCmd, items, "packages");
             }
 
-            if (interpolatedCmd != null) {
+            if (!interpolatedCmd.equals(template)) {
                 var result = BuildVerifier.verify(project, interpolatedCmd, details.environmentVariables());
                 if (!result.success()) {
                     return "Test command failed (exit code %d):\n%s"
                             .formatted(result.exitCode(), Objects.toString(result.output(), ""));
                 }
-                // Break on first successful validation
+                // Successfully validated at least one module command
                 return null;
             }
         }
@@ -892,9 +899,17 @@ public class BuildAgent {
                 @JsonProperty("testSomeCommand") @Nullable String testSomeCommand,
                 @JsonProperty("language") @Nullable String language) {
             this.alias = alias != null ? alias : "";
-            // Normalize path segments and ensure consistent forward slashes
-            String normalized = toUnixPath(
-                    Paths.get(relativePath != null ? relativePath : ".").normalize());
+
+            String normalized;
+            try {
+                // Normalize path segments and ensure consistent forward slashes
+                normalized = toUnixPath(
+                        Paths.get(relativePath != null ? relativePath : ".").normalize());
+            } catch (InvalidPathException e) {
+                logger.warn("Invalid module relativePath provided: '{}'. Falling back to '.'", relativePath);
+                normalized = ".";
+            }
+
             if (normalized.equals(".") || normalized.isEmpty() || normalized.equals("/")) {
                 this.relativePath = ".";
             } else {
