@@ -976,38 +976,16 @@ public final class JobRunner {
                                         }
                                     }
                                     case GUIDED_REVIEW -> {
-                                        String reviewScopeStr = spec.tags().getOrDefault("review_scope", "uncommitted");
-
                                         try (var taskScope =
-                                                cm.beginTaskUngrouped("Guided Review: " + reviewScopeStr)) {
-                                            String fromRef;
-                                            String toRef;
-
-                                            if (reviewScopeStr.equalsIgnoreCase("uncommitted")
-                                                    || reviewScopeStr.equalsIgnoreCase("WORKING")) {
-                                                fromRef = "HEAD";
-                                                toRef = "WORKING";
-                                            } else if (reviewScopeStr.equalsIgnoreCase("session")) {
-                                                var repo = (GitRepo)
-                                                        cm.getProject().getRepo();
-                                                var defaultBranch = repo.getDefaultBranch();
-                                                String mergeBase = repo.getMergeBase("HEAD", defaultBranch);
-                                                if (mergeBase == null) {
-                                                    throw new IllegalStateException(
-                                                            "Cannot find merge base with " + defaultBranch);
-                                                }
-                                                fromRef = mergeBase;
-                                                toRef = "WORKING";
-                                            } else if (reviewScopeStr.contains("..")) {
-                                                var parts = reviewScopeStr.split("\\.\\.", 2);
-                                                fromRef = parts[0];
-                                                toRef = parts.length > 1 ? parts[1] : "HEAD";
-                                            } else {
-                                                fromRef = reviewScopeStr;
-                                                toRef = "HEAD";
+                                                cm.beginTaskUngrouped("Guided Review")) {
+                                            var repo = (GitRepo) cm.getProject().getRepo();
+                                            var defaultBranch = repo.getDefaultBranch();
+                                            String mergeBase = repo.getMergeBase("HEAD", defaultBranch);
+                                            if (mergeBase == null) {
+                                                throw new IllegalStateException(
+                                                        "Cannot find merge base with " + defaultBranch);
                                             }
-
-                                            var reviewScope = ReviewScope.fromBaseline(cm, fromRef, toRef);
+                                            var reviewScope = ReviewScope.fromBaseline(cm, mergeBase, "WORKING");
 
                                             var plannerModel = resolveModelOrThrow(
                                                     spec.plannerModel(), spec.reasoningLevel(), spec.temperature());

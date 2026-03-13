@@ -1266,16 +1266,11 @@ class ExecutorManager:
             await self._handle_http_error(e, "/v1/repo/pr/create")
             raise  # Should not be reached
 
-    async def submit_review_job(
-        self,
-        scope: str,
-        planner_model: str,
-    ) -> str:
+    async def submit_review_job(self, planner_model: str) -> str:
         """Submits a guided review job to the executor.
 
-        Args:
-            scope: Review scope - 'uncommitted', 'session', or a commit range.
-            planner_model: The LLM model to use for the review.
+        Reviews all branch changes vs the merge-base with the default branch,
+        including uncommitted working tree changes.
 
         Returns:
             The jobId of the created review job.
@@ -1286,10 +1281,7 @@ class ExecutorManager:
         if not self._http_client:
             raise ExecutorError("Executor not started")
 
-        payload = {
-            "scope": scope,
-            "plannerModel": planner_model,
-        }
+        payload = {"plannerModel": planner_model}
 
         headers = {"Idempotency-Key": str(uuid.uuid4())}
         effective_session_id = self.session_id
@@ -1304,11 +1296,8 @@ class ExecutorManager:
             await self._handle_http_error(e, "/v1/review/submit")
             raise  # Should not be reached
 
-    async def get_review_diff(self, scope: str) -> Dict[str, Any]:
-        """Fetches the unified diff for a review scope.
-
-        Args:
-            scope: Review scope - 'uncommitted', 'session', or a commit range.
+    async def get_review_diff(self) -> Dict[str, Any]:
+        """Fetches the unified diff for the current branch vs merge-base.
 
         Returns:
             Dict containing files with their diff text:
@@ -1321,7 +1310,7 @@ class ExecutorManager:
             raise ExecutorError("Executor not started")
 
         try:
-            resp = await self._http_client.get("/v1/review/diff", params={"scope": scope})
+            resp = await self._http_client.get("/v1/review/diff")
             resp.raise_for_status()
             return resp.json()
         except httpx.HTTPError as e:

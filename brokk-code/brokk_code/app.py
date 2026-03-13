@@ -2218,13 +2218,11 @@ class BrokkApp(App):
             )
         )
 
-    def _handle_local_review_command(self, parts: List[str]) -> None:
+    def _handle_local_review_command(self) -> None:
         """Handle the /review slash command for local guided reviews.
 
-        Supported syntaxes:
-          /review              - Review all branch changes vs merge-base incl. uncommitted (default)
-          /review session      - Review all branch changes vs merge-base incl. uncommitted
-          /review uncommitted  - Review only uncommitted working tree changes (HEAD vs WORKING)
+        Reviews all branch changes vs the merge-base with the default branch,
+        including uncommitted working tree changes.
         """
         chat = self._maybe_chat()
         if not chat:
@@ -2237,22 +2235,8 @@ class BrokkApp(App):
             )
             return
 
-        # Parse scope from arguments
-        scope = "session"
-        if len(parts) > 1:
-            arg = parts[1].lower()
-            if arg in ("uncommitted", "session"):
-                scope = arg
-            else:
-                chat.add_system_message(
-                    f"Unknown review scope: {parts[1]}. Use 'uncommitted' or 'session'.",
-                    level="WARNING",
-                )
-                return
-
-        # Open the review modal and start the review job
         self._open_review_modal()
-        self.run_worker(self._run_review(scope))
+        self.run_worker(self._run_review())
 
     def _open_review_modal(self) -> None:
         """Opens the review modal screen."""
@@ -2282,14 +2266,14 @@ class BrokkApp(App):
             pass
         return None
 
-    async def _run_review(self, scope: str) -> None:
+    async def _run_review(self) -> None:
         """Run a guided review job and display results in the review panel."""
         from brokk_code.review_models import parse_guided_review
 
         chat = self._maybe_chat()
 
         if chat:
-            chat.add_system_message(f"Starting guided review (scope: {scope})...")
+            chat.add_system_message("Starting guided review...")
 
         self.current_job_cost = 0.0
         self.job_in_progress = True
@@ -2306,7 +2290,6 @@ class BrokkApp(App):
 
         try:
             self.current_job_id = await self.executor.submit_review_job(
-                scope=scope,
                 planner_model=self.current_model,
             )
 
@@ -2876,8 +2859,7 @@ class BrokkApp(App):
                     base_branch = parts[1]
                 self.run_worker(self._create_pull_request(base_branch))
         elif base == "/review":
-            # Guided review of local changes (uncommitted or session)
-            self._handle_local_review_command(parts)
+            self._handle_local_review_command()
         elif base in ("/quit", "/exit"):
             self.action_quit()
         else:

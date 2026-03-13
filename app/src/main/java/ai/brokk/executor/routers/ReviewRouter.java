@@ -73,10 +73,6 @@ public final class ReviewRouter implements SimpleHttpServer.CheckedHttpHandler {
         var request = RouterUtil.parseJsonOr400(exchange, ReviewSubmitRequest.class, "/v1/review/submit");
         if (request == null) return;
 
-        if (request.scope() == null || request.scope().isBlank()) {
-            RouterUtil.sendValidationError(exchange, "scope is required");
-            return;
-        }
         if (request.plannerModel() == null || request.plannerModel().isBlank()) {
             RouterUtil.sendValidationError(exchange, "plannerModel is required");
             return;
@@ -84,11 +80,10 @@ public final class ReviewRouter implements SimpleHttpServer.CheckedHttpHandler {
 
         var tags = new HashMap<String, String>();
         tags.put("mode", "GUIDED_REVIEW");
-        tags.put("review_scope", request.scope());
 
         JobSpec.ModelOverrides noOverrides = null;
         var jobSpec = JobSpec.of(
-                "Guided code review for scope: " + request.scope(),
+                "Guided code review",
                 false,
                 false,
                 request.plannerModel(),
@@ -151,14 +146,6 @@ public final class ReviewRouter implements SimpleHttpServer.CheckedHttpHandler {
             return;
         }
 
-        var queryParams = RouterUtil.parseQueryParams(exchange.getRequestURI().getQuery());
-        var scope = queryParams.get("scope");
-
-        if (scope == null || scope.isBlank()) {
-            RouterUtil.sendValidationError(exchange, "scope query parameter is required");
-            return;
-        }
-
         try {
             if (!contextManager.getProject().hasGit()) {
                 SimpleHttpServer.sendJsonResponse(
@@ -166,31 +153,14 @@ public final class ReviewRouter implements SimpleHttpServer.CheckedHttpHandler {
                 return;
             }
 
-            String fromRef;
-            String toRef;
-
-            if (scope.equalsIgnoreCase("uncommitted") || scope.equalsIgnoreCase("WORKING")) {
-                fromRef = "HEAD";
-                toRef = "WORKING";
-            } else if (scope.equalsIgnoreCase("session")) {
-                var repo = (GitRepo) contextManager.getProject().getRepo();
-                var defaultBranch = repo.getDefaultBranch();
-                String mergeBase = repo.getMergeBase("HEAD", defaultBranch);
-                if (mergeBase == null) {
-                    throw new IllegalArgumentException("Cannot find merge base with " + defaultBranch);
-                }
-                fromRef = mergeBase;
-                toRef = "WORKING";
-            } else if (scope.contains("..")) {
-                var parts = scope.split("\\.\\.", 2);
-                fromRef = parts[0];
-                toRef = parts.length > 1 ? parts[1] : "HEAD";
-            } else {
-                fromRef = scope;
-                toRef = "HEAD";
+            var repo = (GitRepo) contextManager.getProject().getRepo();
+            var defaultBranch = repo.getDefaultBranch();
+            String mergeBase = repo.getMergeBase("HEAD", defaultBranch);
+            if (mergeBase == null) {
+                throw new IllegalArgumentException("Cannot find merge base with " + defaultBranch);
             }
 
-            var reviewScope = ReviewScope.fromBaseline(contextManager, fromRef, toRef);
+            var reviewScope = ReviewScope.fromBaseline(contextManager, mergeBase, "WORKING");
             var changes = reviewScope.changes();
 
             var files = new ArrayList<Map<String, Object>>();
@@ -223,10 +193,10 @@ public final class ReviewRouter implements SimpleHttpServer.CheckedHttpHandler {
         } catch (IllegalArgumentException e) {
             RouterUtil.sendValidationError(exchange, "Invalid scope: " + e.getMessage());
         } catch (Exception e) {
-            logger.error("Failed to compute diff for scope: {}", scope, e);
+            logger.error("Failed to compute diff", e);
             SimpleHttpServer.sendJsonResponse(exchange, 500, ErrorPayload.internalError("Failed to compute diff", e));
         }
     }
 
-    private record ReviewSubmitRequest(@Nullable String scope, @Nullable String plannerModel) {}
+    private record ReviewSubmitRequest(@Nullable String plannerModel) {}
 }
