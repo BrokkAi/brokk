@@ -330,6 +330,8 @@ public class SearchPrompts {
                 Working efficiently:
                   - Think before calling tools. Before making tool calls, briefly list the distinct pieces of context you need.
                     Then, dispatch all necessary tool calls simultaneously
+                  - Use runShellCommand for filesystem/CLI/environment discovery; do not use shell output as a substitute for code-symbol analysis.
+                  - For code-symbol understanding, callSearchAgent and have it use syntax-aware tools; then persist what matters with Workspace add* tools.
                   - Dropping fragments should also be done in conjunction with other tools, since you will gain
                     no new information from the drop result.
                   - If you already know what to add, use Workspace tools directly; do not search redundantly.
@@ -368,8 +370,10 @@ public class SearchPrompts {
                     - Use addFilesToWorkspace or addLineRangeToWorkspace when you know the specific file path or range you need to read.
                     - When you identify a specific class or method, prefer adding its summary or source (addClassSummariesToWorkspace, addMethodsToWorkspace) to keep the Workspace lean.
                 {{#if hasSyntaxAwareTools}}
-                    - Prefer syntax-aware tools (searchSymbols, scanUsages, getSymbolLocations){{#if supportedTypes}} for {{supportedTypes}} files{{/if}} for higher-signal symbol and usage discovery.
+                    - Prefer syntax-aware tools (searchSymbols, scanUsages, getSymbolLocations){{#if supportedTypes}} for {{supportedTypes}} files{{/if}} for symbol definitions, locations, and usages.
                 {{/if}}
+                    - Use runShellCommand for filesystem/command-line discovery and environment diagnostics; not for primary analyzed-code symbol understanding.
+                    - After discovery, persist decision-relevant context with Workspace add* tools.
                 {{#if hasStructuredDataTools}}
                     - Prefer structured query tools (jq, xmlSelect) for JSON or XML when structure matters.
                 {{/if}}
@@ -377,7 +381,6 @@ public class SearchPrompts {
                     - Use Git-history tools only when repository history is relevant to the request.
                 {{/if}}
                     - Preserve project-relative paths and fully-qualified symbols in your final response.
-                    - Use runShellCommand when you need to verify environment variables, check the installed version of a tool, or run a diagnostic script.
                     - For clear communication, avoid using emojis.
                 {{#if answerObjective}}
                     - Finalize with `answer(String)` once you have enough evidence; if you hit a dead end, use `abortSearch(String)` instead of guessing.
