@@ -135,13 +135,15 @@ public class BuildDetailsPathNormalizationTest {
         // Expected: "/nbdist" remains absolute (outside project), "build", "foo", "out"
         var expectedCanonicalList = List.of("/nbdist", "build", "foo", "out");
         Set<String> expectedCanonical = new LinkedHashSet<>(expectedCanonicalList);
-        assertIterableEquals(expectedCanonicalList, loaded.exclusionPatterns(), "Loaded exclusions should be canonicalized");
+        assertIterableEquals(
+                expectedCanonicalList, loaded.exclusionPatterns(), "Loaded exclusions should be canonicalized");
 
         // Act: save back and ensure canonical JSON now persisted
         project.saveBuildDetails(loaded);
         Properties props2 = loadProps(propsFile);
         var persisted = parseDetailsFromProps(props2);
-        assertIterableEquals(expectedCanonicalList, persisted.exclusionPatterns(), "Persisted exclusions should be canonical");
+        assertIterableEquals(
+                expectedCanonicalList, persisted.exclusionPatterns(), "Persisted exclusions should be canonical");
 
         // Optional stability check on rewrite
         String jsonAfterRewrite = props2.getProperty("buildDetailsJson");
