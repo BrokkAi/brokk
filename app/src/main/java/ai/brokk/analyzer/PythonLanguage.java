@@ -230,39 +230,43 @@ public class PythonLanguage implements Language {
             SwingUtilities.invokeLater(() -> currentListener.dependencyImportStarted(pkg.displayName()));
         }
 
-        chrome.getContextManager().getAnalyzerTaskSubmitter().submit("Copying Python package: " + pkg.displayName(), () -> {
-            try {
-                Files.createDirectories(targetRoot.getParent());
-                if (Files.exists(targetRoot)) {
-                    if (!FileUtil.deleteRecursively(targetRoot)) {
-                        throw new IOException("Failed to delete existing destination: " + targetRoot);
+        chrome.getContextManager()
+                .getAnalyzerTaskSubmitter()
+                .submit("Copying Python package: " + pkg.displayName(), () -> {
+                    try {
+                        Files.createDirectories(targetRoot.getParent());
+                        if (Files.exists(targetRoot)) {
+                            if (!FileUtil.deleteRecursively(targetRoot)) {
+                                throw new IOException("Failed to delete existing destination: " + targetRoot);
+                            }
+                        }
+
+                        // Re-enumerate files at import time to be robust
+                        var meta = DependencyCopyUtil.readPyMetadata(distInfoDir);
+                        var rels = DependencyCopyUtil.enumerateInstalledFiles(
+                                requireNonNull(sitePackages),
+                                distInfoDir,
+                                meta != null ? meta.name() : pkg.displayName());
+                        DependencyCopyUtil.copyPythonFiles(requireNonNull(sitePackages), rels, targetRoot);
+
+                        SwingUtilities.invokeLater(() -> {
+                            chrome.showNotification(
+                                    IConsoleIO.NotificationRole.INFO,
+                                    "Python package copied to " + targetRoot
+                                            + ". Reopen project to incorporate the new files.");
+                            if (currentListener != null) currentListener.dependencyImportFinished(pkg.displayName());
+                        });
+                    } catch (IOException ex) {
+                        logger.error(
+                                "Error copying Python package {} from {} to {}",
+                                pkg.displayName(),
+                                sitePackages,
+                                targetRoot,
+                                ex);
+                        SwingUtilities.invokeLater(() ->
+                                chrome.toolError("Error copying Python package: " + ex.getMessage(), "Python Import"));
                     }
-                }
-
-                // Re-enumerate files at import time to be robust
-                var meta = DependencyCopyUtil.readPyMetadata(distInfoDir);
-                var rels = DependencyCopyUtil.enumerateInstalledFiles(
-                        requireNonNull(sitePackages), distInfoDir, meta != null ? meta.name() : pkg.displayName());
-                DependencyCopyUtil.copyPythonFiles(requireNonNull(sitePackages), rels, targetRoot);
-
-                SwingUtilities.invokeLater(() -> {
-                    chrome.showNotification(
-                            IConsoleIO.NotificationRole.INFO,
-                            "Python package copied to " + targetRoot
-                                    + ". Reopen project to incorporate the new files.");
-                    if (currentListener != null) currentListener.dependencyImportFinished(pkg.displayName());
                 });
-            } catch (IOException ex) {
-                logger.error(
-                        "Error copying Python package {} from {} to {}",
-                        pkg.displayName(),
-                        sitePackages,
-                        targetRoot,
-                        ex);
-                SwingUtilities.invokeLater(
-                        () -> chrome.toolError("Error copying Python package: " + ex.getMessage(), "Python Import"));
-            }
-        });
         return true;
     }
 

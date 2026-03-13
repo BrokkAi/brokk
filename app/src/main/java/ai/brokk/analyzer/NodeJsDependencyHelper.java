@@ -147,28 +147,35 @@ public final class NodeJsDependencyHelper {
             SwingUtilities.invokeLater(() -> currentListener.dependencyImportStarted(pkg.displayName()));
         }
 
-        chrome.getContextManager().getAnalyzerTaskSubmitter().submit("Copying NPM package: " + pkg.displayName(), () -> {
-            try {
-                Files.createDirectories(requireNonNull(targetRoot.getParent()));
-                if (Files.exists(targetRoot)) {
-                    if (!FileUtil.deleteRecursively(targetRoot)) {
-                        throw new IOException("Failed to delete existing destination: " + targetRoot);
+        chrome.getContextManager()
+                .getAnalyzerTaskSubmitter()
+                .submit("Copying NPM package: " + pkg.displayName(), () -> {
+                    try {
+                        Files.createDirectories(requireNonNull(targetRoot.getParent()));
+                        if (Files.exists(targetRoot)) {
+                            if (!FileUtil.deleteRecursively(targetRoot)) {
+                                throw new IOException("Failed to delete existing destination: " + targetRoot);
+                            }
+                        }
+                        DependencyCopyUtil.copyNodePackage(sourceRoot, targetRoot);
+                        SwingUtilities.invokeLater(() -> {
+                            chrome.showNotification(
+                                    IConsoleIO.NotificationRole.INFO,
+                                    "NPM package copied to " + targetRoot
+                                            + ". Reopen project to incorporate the new files.");
+                            if (currentListener != null) currentListener.dependencyImportFinished(pkg.displayName());
+                        });
+                    } catch (IOException ex) {
+                        logger.error(
+                                "Error copying NPM package {} from {} to {}",
+                                pkg.displayName(),
+                                sourceRoot,
+                                targetRoot,
+                                ex);
+                        SwingUtilities.invokeLater(
+                                () -> chrome.toolError("Error copying NPM package: " + ex.getMessage(), "NPM Import"));
                     }
-                }
-                DependencyCopyUtil.copyNodePackage(sourceRoot, targetRoot);
-                SwingUtilities.invokeLater(() -> {
-                    chrome.showNotification(
-                            IConsoleIO.NotificationRole.INFO,
-                            "NPM package copied to " + targetRoot + ". Reopen project to incorporate the new files.");
-                    if (currentListener != null) currentListener.dependencyImportFinished(pkg.displayName());
                 });
-            } catch (IOException ex) {
-                logger.error(
-                        "Error copying NPM package {} from {} to {}", pkg.displayName(), sourceRoot, targetRoot, ex);
-                SwingUtilities.invokeLater(
-                        () -> chrome.toolError("Error copying NPM package: " + ex.getMessage(), "NPM Import"));
-            }
-        });
         return true;
     }
 

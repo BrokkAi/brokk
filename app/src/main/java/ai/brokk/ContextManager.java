@@ -1415,11 +1415,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
         var userActionsFuture = userActions.shutdownAndAwait(awaitMillis);
         var historyCompressionFuture =
                 historyCompressionExecutor.shutdownAndAwait(awaitMillis, "historyCompressionExecutor");
-        var shutdownFuture = CompletableFuture.allOf(finalSyncFuture,
-                                                     contextActionFuture,
-                                                     analyzerLocalFuture,
-                                                     userActionsFuture,
-                                                     historyCompressionFuture);
+        var shutdownFuture = CompletableFuture.allOf(
+                finalSyncFuture, contextActionFuture, analyzerLocalFuture, userActionsFuture, historyCompressionFuture);
 
         // Uses ForkJoinPool.commonPool() intentionally: all session-local executors are being
         // shut down above, and the project-level executor is closed inside project.close().
@@ -1981,8 +1978,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     private <T> CompletableFuture<T> submitTrackedTask(
-            String taskDescription, Callable<T> task, ExecutorService executor)
-    {
+            String taskDescription, Callable<T> task, ExecutorService executor) {
         taskDescriptions.put(task, taskDescription);
         Callable<T> wrappedTask = () -> {
             try {
@@ -1995,9 +1991,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     if (remaining <= 0) {
                         io.backgroundOutput("");
                     } else if (remaining == 1) {
-                        var lastTaskDescription = taskDescriptions.values().stream()
-                                .findFirst()
-                                .orElse("");
+                        var lastTaskDescription =
+                                taskDescriptions.values().stream().findFirst().orElse("");
                         io.backgroundOutput(lastTaskDescription);
                     } else {
                         io.backgroundOutput(

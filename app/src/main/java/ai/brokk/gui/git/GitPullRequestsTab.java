@@ -2064,8 +2064,8 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
             }
         };
         var prFilesFetcher = activePrFilesFetcher;
-        contextManager.submitBackgroundTask("Fetching changed files for PR #" + pr.getNumber(),
-                                            () -> prFilesFetcher.execute());
+        contextManager.submitBackgroundTask(
+                "Fetching changed files for PR #" + pr.getNumber(), () -> prFilesFetcher.execute());
     }
 
     /**

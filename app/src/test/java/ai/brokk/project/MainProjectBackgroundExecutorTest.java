@@ -7,8 +7,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -137,8 +140,9 @@ class MainProjectBackgroundExecutorTest {
             var finishLatch = new CountDownLatch(1);
             var completedCount = new AtomicInteger(0);
 
+            List<Future<?>> futures = new ArrayList<>();
             for (int i = 0; i < taskCount; i++) {
-                executor.submit(() -> {
+                futures.add(executor.submit(() -> {
                     startLatch.countDown();
                     try {
                         finishLatch.await(10, TimeUnit.SECONDS);
@@ -146,17 +150,17 @@ class MainProjectBackgroundExecutorTest {
                         Thread.currentThread().interrupt();
                     }
                     completedCount.incrementAndGet();
-                });
+                }));
             }
 
             // All tasks should start (executor has 4 threads)
             assertTrue(startLatch.await(5, TimeUnit.SECONDS), "All tasks should start concurrently");
 
-            // Let them finish
+            // Let them finish and wait for completion via futures
             finishLatch.countDown();
-
-            // Give time for completion
-            Thread.sleep(100);
+            for (var f : futures) {
+                f.get(5, TimeUnit.SECONDS);
+            }
             assertEquals(taskCount, completedCount.get(), "All tasks should complete");
         }
     }

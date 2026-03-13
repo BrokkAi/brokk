@@ -206,7 +206,6 @@ public final class TestContextManager implements IContextManager {
         return project.getBackgroundExecutor();
     }
 
-
     @Override
     public Llm getLlm(StreamingChatModel model, String taskDescription, ai.brokk.TaskResult.Type type) {
         return new Llm(model, taskDescription, type, this, false, false, false, false);

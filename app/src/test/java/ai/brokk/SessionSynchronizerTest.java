@@ -355,9 +355,11 @@ class SessionSynchronizerTest {
             // Wait for first sync to start
             assertTrue(firstSyncStartedLatch.await(5, TimeUnit.SECONDS), "First sync should start");
 
-            // Verify second sync hasn't started yet (serialization)
-            Thread.sleep(100); // Brief wait to ensure ordering
-            assertEquals(0, secondSyncStartCount.get(), "Second sync should not start while first is blocked");
+            // Verify second sync hasn't started yet (serialization).
+            // Use a timed latch await instead of Thread.sleep to prove the second sync is blocked.
+            assertFalse(
+                    secondSyncStartedLatch.await(200, TimeUnit.MILLISECONDS),
+                    "Second sync should not start while first is blocked");
 
             // Release the first sync
             firstSyncBlockLatch.countDown();
