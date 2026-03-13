@@ -371,6 +371,10 @@ class BuildAgentTest {
         assertFalse(result.contains("Element@"), "Result should not contain Element@ wrapper toString");
     }
 
+    private String report(BuildAgent agent, String lint, String testAll, String testSome, List<String> dirs, List<String> patterns) {
+        return agent.reportBuildDetails(lint, true, testAll, true, testSome, dirs, patterns, List.of());
+    }
+
     @Test
     void testReportBuildDetailsPreservesExistingPatterns(@TempDir Path tempDir) throws Exception {
         // Create a project with existing exclusion patterns
@@ -384,7 +388,7 @@ class BuildAgentTest {
 
         // Call reportBuildDetails with new patterns from "LLM"
         // This simulates what happens when BuildAgent runs again
-        agent.reportBuildDetails(
+        report(agent,
                 "mvn compile",
                 "mvn test",
                 "mvn test -Dtest={{#classes}}{{value}}{{/classes}}",
@@ -472,7 +476,7 @@ class BuildAgentTest {
         var project = MainProject.forTests(tempDir);
         var agent = new BuildAgent(project, null, null, new TestConsoleIO());
 
-        agent.reportBuildDetails(
+        report(agent,
                 "npm run build",
                 "npm test",
                 "npm test {{#files}}{{value}}{{/files}}",
@@ -667,7 +671,7 @@ class BuildAgentTest {
 
         // testSomeCommand with unsupported {{python_version}} tag
         var ex = assertThrows(ToolRegistry.ToolCallException.class, () -> {
-            agent.reportBuildDetails(
+            report(agent,
                     "mvn compile",
                     "mvn test",
                     "pytest --python={{python_version}} {{#files}}{{value}}{{/files}}",
@@ -690,7 +694,7 @@ class BuildAgentTest {
 
         // testAllCommand with unsupported {{#targets}} section
         var ex = assertThrows(ToolRegistry.ToolCallException.class, () -> {
-            agent.reportBuildDetails(
+            report(agent,
                     "mvn compile",
                     "mvn test {{#targets}}{{value}}{{/targets}}",
                     "mvn test -Dtest={{#classes}}{{value}}{{/classes}}",
@@ -711,7 +715,7 @@ class BuildAgentTest {
         var agent = new BuildAgent(testProject, null, null, new TestConsoleIO());
 
         // Should not throw - all tags are valid
-        String result = agent.reportBuildDetails(
+        String result = report(agent,
                 "mvn compile",
                 "mvn test",
                 "mvn test -Dtest={{#classes}}{{value}}{{^last}},{{/last}}{{/classes}}",
@@ -793,7 +797,7 @@ class BuildAgentTest {
 
         // testSomeCommand with delimiter-change tag
         var ex = assertThrows(ToolRegistry.ToolCallException.class, () -> {
-            agent.reportBuildDetails(
+            report(agent,
                     "mvn compile",
                     "mvn test",
                     "{{= <% %> =}}mvn test -Dtest=<%#classes%><%value%><%/classes%>",
