@@ -2301,4 +2301,39 @@ public final class MainProject extends AbstractProject {
             SwingUtilities.invokeLater(() -> chrome.getRightPanel().updateSessionComboBox());
         }
     }
+
+    @Override
+    public void saveBuildDetails(BuildAgent.BuildDetails details) {
+        // Filter environment variables to remove platform-specific or transient defaults
+        Map<String, String> canonicalEnv = new HashMap<>(details.environmentVariables());
+        canonicalEnv.remove("JAVA_HOME");
+        canonicalEnv.remove("VIRTUAL_ENV");
+
+        // Sort and deduplicate exclusion patterns for consistent storage
+        Set<String> canonicalExclusions = details.exclusionPatterns().stream()
+                .filter(s -> !s.isBlank())
+                .sorted()
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+
+        var canonicalDetails = new BuildAgent.BuildDetails(
+                details.buildLintCommand(),
+                details.buildLintEnabled(),
+                details.testAllCommand(),
+                details.testAllEnabled(),
+                details.testSomeCommand(),
+                canonicalExclusions,
+                canonicalEnv,
+                details.maxBuildAttempts(),
+                details.afterTaskListCommand(),
+                details.modules());
+
+        try {
+            String json = objectMapper.writeValueAsString(canonicalDetails);
+            projectProps.setProperty("buildDetailsJson", json);
+            saveProjectProperties();
+        } catch (JsonProcessingException e) {
+            logger.error("Failed to serialize BuildDetails to JSON: {}", details, e);
+        }
+        setBuildDetails(details);
+    }
 }

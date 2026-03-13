@@ -585,9 +585,11 @@ public class BuildAgent {
             @P(
                             "Command to build or lint incrementally, e.g. mvn compile, cargo check, pyflakes. If a linter is not clearly in use, don't guess! it will cause problems; just leave it blank.")
                     String buildLintCommand,
+            @P("Whether the buildLintCommand is enabled.") boolean buildLintEnabled,
             @P(
                             "Command to run all tests. If no test framework is clearly in use, don't guess! it will cause problems; just leave it blank.")
                     String testAllCommand,
+            @P("Whether the testAllCommand is enabled.") boolean testAllEnabled,
             @P(
                             "Command template to run specific tests using Mustache templating. Should use {{classes}}, {{fqclasses}}, {{files}}, or {{packages}}. {{packages}} provides dotted module paths for Python/Rust and directory paths for Go. Again, if no class- or file- based framework is in use, leave it blank.")
                     String testSomeCommand,
@@ -596,7 +598,8 @@ public class BuildAgent {
                     List<String> excludedDirectories,
             @P(
                             "List of file patterns to exclude. Use '*.ext' for extensions (e.g., '*.svg'), literal names for specific files (e.g., 'package-lock.json'). Do NOT use **/ prefix or duplicate directories.")
-                    List<String> excludedFilePatterns) {
+                    List<String> excludedFilePatterns,
+            @P("List of modules identified in the project.") List<ModuleBuildEntry> modules) {
         // Validate Mustache templates in command strings before proceeding
         validateCommandTemplateForTool("buildLintCommand", buildLintCommand);
         validateCommandTemplateForTool("testAllCommand", testAllCommand);
@@ -655,12 +658,15 @@ public class BuildAgent {
         logger.debug("New patterns from this LLM run: {}", llmAddedPatterns);
         this.reportedDetails = new BuildDetails(
                 buildLintCommand,
+                buildLintEnabled,
                 testAllCommand,
+                testAllEnabled,
                 testSomeCommand,
                 deduplicatedPatterns,
                 defaultEnvForProject(),
                 null,
-                "");
+                "",
+                modules);
         logger.debug("reportBuildDetails tool executed. Exclusion patterns: {}", deduplicatedPatterns);
         return "Build details report received and processed.";
     }
@@ -840,7 +846,9 @@ public class BuildAgent {
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record BuildDetails(
             String buildLintCommand,
+            boolean buildLintEnabled,
             String testAllCommand,
+            boolean testAllEnabled,
             String testSomeCommand,
             @JsonDeserialize(as = LinkedHashSet.class) @JsonSetter(nulls = Nulls.AS_EMPTY)
                     Set<String> exclusionPatterns,
@@ -848,12 +856,23 @@ public class BuildAgent {
                     Map<String, String> environmentVariables,
             @Nullable Integer maxBuildAttempts,
             // blank = do nothing
-            String afterTaskListCommand) {
+            String afterTaskListCommand,
+            @JsonSetter(nulls = Nulls.AS_EMPTY) List<ModuleBuildEntry> modules) {
 
         @VisibleForTesting
         public BuildDetails(
                 String buildLintCommand, String testAllCommand, String testSomeCommand, Set<String> exclusionPatterns) {
-            this(buildLintCommand, testAllCommand, testSomeCommand, exclusionPatterns, Map.of(), null, "");
+            this(
+                    buildLintCommand,
+                    true,
+                    testAllCommand,
+                    true,
+                    testSomeCommand,
+                    exclusionPatterns,
+                    Map.of(),
+                    null,
+                    "",
+                    List.of());
         }
 
         public BuildDetails(
@@ -862,10 +881,43 @@ public class BuildAgent {
                 String testSomeCommand,
                 Set<String> exclusionPatterns,
                 Map<String, String> environmentVariables) {
-            this(buildLintCommand, testAllCommand, testSomeCommand, exclusionPatterns, environmentVariables, null, "");
+            this(
+                    buildLintCommand,
+                    true,
+                    testAllCommand,
+                    true,
+                    testSomeCommand,
+                    exclusionPatterns,
+                    environmentVariables,
+                    null,
+                    "",
+                    List.of());
         }
 
-        public static final BuildDetails EMPTY = new BuildDetails("", "", "", Set.of(), Map.of(), null, "");
+        /** Backward compatibility for legacy callers (e.g. AbstractProject). */
+        public BuildDetails(
+                String buildLintCommand,
+                String testAllCommand,
+                String testSomeCommand,
+                Set<String> exclusionPatterns,
+                Map<String, String> environmentVariables,
+                @Nullable Integer maxBuildAttempts,
+                String afterTaskListCommand) {
+            this(
+                    buildLintCommand,
+                    true,
+                    testAllCommand,
+                    true,
+                    testSomeCommand,
+                    exclusionPatterns,
+                    environmentVariables,
+                    maxBuildAttempts,
+                    afterTaskListCommand,
+                    List.of());
+        }
+
+        public static final BuildDetails EMPTY =
+                new BuildDetails("", false, "", false, "", Set.of(), Map.of(), null, "", List.of());
 
         /**
          * Migrate legacy excludedDirectories to exclusionPatterns.
@@ -874,13 +926,16 @@ public class BuildAgent {
         @JsonCreator
         public static BuildDetails fromJson(
                 @JsonProperty("buildLintCommand") @Nullable String buildLintCommand,
+                @JsonProperty("buildLintEnabled") @Nullable Boolean buildLintEnabled,
                 @JsonProperty("testAllCommand") @Nullable String testAllCommand,
+                @JsonProperty("testAllEnabled") @Nullable Boolean testAllEnabled,
                 @JsonProperty("testSomeCommand") @Nullable String testSomeCommand,
                 @JsonProperty("exclusionPatterns") @Nullable Set<String> exclusionPatterns,
                 @JsonProperty("excludedDirectories") @Nullable Set<String> excludedDirectories,
                 @JsonProperty("environmentVariables") @Nullable Map<String, String> environmentVariables,
                 @JsonProperty("maxBuildAttempts") @Nullable Integer maxBuildAttempts,
-                @JsonProperty("afterTaskListCommand") @Nullable String afterTaskListCommand) {
+                @JsonProperty("afterTaskListCommand") @Nullable String afterTaskListCommand,
+                @JsonProperty("modules") @Nullable List<ModuleBuildEntry> modules) {
             // Migrate legacy excludedDirectories to exclusionPatterns
             Set<String> patterns = new LinkedHashSet<>();
             if (exclusionPatterns != null) {
@@ -889,14 +944,20 @@ public class BuildAgent {
             if (excludedDirectories != null) {
                 patterns.addAll(excludedDirectories);
             }
+
+            List<ModuleBuildEntry> finalModules = modules != null ? modules : List.of();
+
             return new BuildDetails(
                     buildLintCommand != null ? buildLintCommand : "",
+                    buildLintEnabled != null ? buildLintEnabled : true,
                     testAllCommand != null ? testAllCommand : "",
+                    testAllEnabled != null ? testAllEnabled : true,
                     testSomeCommand != null ? testSomeCommand : "",
                     patterns,
                     environmentVariables != null ? environmentVariables : Map.of(),
                     maxBuildAttempts,
-                    afterTaskListCommand != null ? afterTaskListCommand : "");
+                    afterTaskListCommand != null ? afterTaskListCommand : "",
+                    finalModules);
         }
     }
 
