@@ -500,7 +500,7 @@ public class BuildAgent {
 
                 The lists are DecoratedCollection instances, so you get first/last/index/value fields.
 
-                For module- or package-oriented test runners like `go test` and `cargo test`, use the `{{packages}}` or `{{modules}}` variables to target specific components.
+                For module- or package-oriented test runners like `go test` and `cargo test`, use the `{{#packages}}` section variable to target specific components.
 
                 Examples:
 
@@ -643,7 +643,7 @@ public class BuildAgent {
                     String testAllCommand,
             @P("Whether the testAllCommand is enabled.") boolean testAllEnabled,
             @P(
-                            "Command template to run specific tests using Mustache templating. Should use {{classes}}, {{fqclasses}}, {{files}}, {{modules}}, or {{packages}}. {{modules}} and {{packages}} provide dotted module paths for Python/Rust and directory paths for Go. Again, if no class- or file- based framework is in use, leave it blank.")
+                            "Command template to run specific tests using Mustache templating. Should use {{#classes}}, {{#fqclasses}}, {{#files}}, or {{#packages}}. {{#packages}} provides dotted module paths for Python/Rust and directory paths for Go. Again, if no class- or file- based framework is in use, leave it blank.")
                     String testSomeCommand,
             @P(
                             "List of directories to exclude from code intelligence (e.g., generated code, build artifacts). Use literal paths, not glob patterns.")

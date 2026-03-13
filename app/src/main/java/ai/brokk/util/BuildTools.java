@@ -120,8 +120,7 @@ public class BuildTools {
                 "Determine build verification command", () -> determineVerificationCommand(cm.liveContext()));
     }
 
-    private static final ObjectMapper OBJECT_MAPPER =
-            new ObjectMapper();
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     public static String getBuildLintSomeCommand(
             IContextManager cm,
