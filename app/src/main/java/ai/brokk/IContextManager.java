@@ -32,7 +32,6 @@ import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
@@ -150,24 +149,6 @@ public interface IContextManager {
 
         /** Called when live dependencies are added or removed. */
         default void onLiveDependenciesChanged() {}
-    }
-
-    /**
-     * @deprecated Use {@link #submitBackgroundTask(String, Callable)} or
-     *             {@link #submitBackgroundTask(String, Runnable)} instead of accessing the executor directly.
-     */
-    @Deprecated
-    default ExecutorService getBackgroundTasks() {
-        throw new UnsupportedOperationException();
-    }
-
-    /**
-     * @deprecated Use {@link #submitMaintenanceTask(String, Callable)} or
-     *             {@link #submitMaintenanceTask(String, Runnable)} instead of accessing the executor directly.
-     */
-    @Deprecated
-    default ExecutorService getMaintenanceTasks() {
-        return getBackgroundTasks();
     }
 
     /**

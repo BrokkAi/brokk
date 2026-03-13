@@ -217,18 +217,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
     @SuppressWarnings("NullAway.Init")
     private AbstractWatchService watchService;
 
-    @SuppressWarnings("deprecation")
-    @Override
-    public ExecutorService getBackgroundTasks() {
-        return backgroundTasks;
-    }
-
-    @SuppressWarnings("deprecation")
-    @Override
-    public ExecutorService getMaintenanceTasks() {
-        return maintenanceTasks;
-    }
-
     @Override
     public void addContextListener(ContextListener listener) {
         contextListeners.add(listener);
