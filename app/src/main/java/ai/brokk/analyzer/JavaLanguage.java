@@ -28,6 +28,11 @@ public class JavaLanguage implements JvmLanguage {
     }
 
     @Override
+    public Set<String> commonBuildFiles() {
+        return Set.of("pom.xml", "build.gradle", "build.gradle.kts", "build.xml");
+    }
+
+    @Override
     public String name() {
         return "Java";
     }
