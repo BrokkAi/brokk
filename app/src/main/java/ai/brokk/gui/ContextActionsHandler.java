@@ -601,11 +601,13 @@ public class ContextActionsHandler {
                                     image = ImageIO.read(inputStream);
                                 }
                             }
-                            case List<?> fileList
-                            when !fileList.isEmpty() -> {
-                                var file = fileList.getFirst();
-                                if (file instanceof File f && f.getName().matches("(?i).*(png|jpg|jpeg|gif|bmp)$")) {
-                                    image = ImageIO.read(f);
+                            case List<?> fileList -> {
+                                if (!fileList.isEmpty()) {
+                                    var file = fileList.getFirst();
+                                    if (file instanceof File f
+                                            && f.getName().matches("(?i).*(png|jpg|jpeg|gif|bmp)$")) {
+                                        image = ImageIO.read(f);
+                                    }
                                 }
                             }
                             default -> {}

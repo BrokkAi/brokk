@@ -362,6 +362,7 @@ public class SearchPrompts {
                     - Rapidly finding files using glob patterns
                     - Searching code and text with powerful regex patterns
                     - Reading and analyzing file contents
+                    - Executing shell commands to inspect the environment
 
                 Guidelines:
                     - Use addFilesToWorkspace or addLineRangeToWorkspace when you know the specific file path or range you need to read.
@@ -376,6 +377,7 @@ public class SearchPrompts {
                     - Use Git-history tools only when repository history is relevant to the request.
                 {{/if}}
                     - Preserve project-relative paths and fully-qualified symbols in your final response.
+                    - Use runShellCommand when you need to verify environment variables, check the installed version of a tool, or run a diagnostic script.
                     - For clear communication, avoid using emojis.
                 {{#if answerObjective}}
                     - Finalize with `answer(String)` once you have enough evidence; if you hit a dead end, use `abortSearch(String)` instead of guessing.

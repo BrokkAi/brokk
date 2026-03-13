@@ -18,6 +18,7 @@ import ai.brokk.git.CommitInfo;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitRepoFactory;
 import ai.brokk.git.IGitRepo;
+import ai.brokk.util.Environment;
 import ai.brokk.util.Lines;
 import ai.brokk.util.Messages;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -31,6 +32,7 @@ import java.io.StringWriter;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -180,8 +182,70 @@ public class SearchTools {
     private final IContextManager contextManager; // Needed for file operations
     private final AtomicLong researchTokens = new AtomicLong(0);
 
+    private static final int SHELL_TOOL_DEFAULT_TIMEOUT_SECONDS = 30;
+    private static final int SHELL_TOOL_MAX_TIMEOUT_SECONDS = 300;
+    private static final int SHELL_TOOL_MAX_OUTPUT_CHARS = 12_000;
+
     public SearchTools(IContextManager contextManager) {
         this.contextManager = contextManager;
+    }
+
+    @Tool(
+            """
+            Runs a shell command in the project root and returns deterministic, model-friendly output.
+            This is useful for repository inspection and environment diagnostics.
+            timeoutSeconds behavior:
+            - 0 uses the default timeout (30 seconds)
+            - values above 300 are clamped to 300
+            - negative values are rejected
+            """)
+    public String runShellCommand(
+            @P("The shell command to execute.") String command,
+            @P("Timeout in seconds (0 = default 30, max 300).") int timeoutSeconds)
+            throws InterruptedException {
+        if (command.isBlank()) {
+            String message = "Invalid command: command cannot be empty.";
+            throw new ToolRegistry.ToolCallException(
+                    ToolExecutionResult.Status.REQUEST_ERROR, recordResearchTokens(message));
+        }
+
+        if (timeoutSeconds < 0) {
+            String message = "Invalid timeoutSeconds: must be >= 0.";
+            throw new ToolRegistry.ToolCallException(
+                    ToolExecutionResult.Status.REQUEST_ERROR, recordResearchTokens(message));
+        }
+
+        int effectiveTimeoutSeconds = timeoutSeconds == 0
+                ? SHELL_TOOL_DEFAULT_TIMEOUT_SECONDS
+                : min(timeoutSeconds, SHELL_TOOL_MAX_TIMEOUT_SECONDS);
+        Duration timeout = Duration.ofSeconds(effectiveTimeoutSeconds);
+        Path projectRoot = contextManager.getProject().getRoot();
+
+        try {
+            String output = Environment.instance.runShellCommand(command, projectRoot, s -> {}, timeout);
+            return recordResearchTokens(
+                    formatShellCommandResult(command, effectiveTimeoutSeconds, "SUCCESS", null, output));
+        } catch (Environment.FailureException e) {
+            return recordResearchTokens(formatShellCommandResult(
+                    command, effectiveTimeoutSeconds, "NON_ZERO_EXIT", e.getExitCode(), e.getOutput()));
+        } catch (Environment.TimeoutException e) {
+            String message = formatShellToolError("Command timed out", command, effectiveTimeoutSeconds, e.getOutput());
+            throw new ToolRegistry.ToolCallException(
+                    ToolExecutionResult.Status.INTERNAL_ERROR, recordResearchTokens(message));
+        } catch (Environment.StartupException e) {
+            String message = formatShellToolError(
+                    "Command failed to start: %s".formatted(e.getMessage()),
+                    command,
+                    effectiveTimeoutSeconds,
+                    e.getOutput());
+            throw new ToolRegistry.ToolCallException(
+                    ToolExecutionResult.Status.INTERNAL_ERROR, recordResearchTokens(message));
+        } catch (Environment.SubprocessException e) {
+            String message = formatShellToolError(
+                    "Subprocess error: %s".formatted(e.getMessage()), command, effectiveTimeoutSeconds, e.getOutput());
+            throw new ToolRegistry.ToolCallException(
+                    ToolExecutionResult.Status.INTERNAL_ERROR, recordResearchTokens(message));
+        }
     }
 
     /**
@@ -194,6 +258,44 @@ public class SearchTools {
     private String recordResearchTokens(String output) {
         researchTokens.addAndGet(Messages.getApproximateTokens(output));
         return output;
+    }
+
+    private static String boundShellOutput(String output) {
+        String normalized = output.strip();
+        if (normalized.isEmpty()) {
+            return "(no output)";
+        }
+        if (normalized.length() <= SHELL_TOOL_MAX_OUTPUT_CHARS) {
+            return normalized;
+        }
+        int truncatedChars = normalized.length() - SHELL_TOOL_MAX_OUTPUT_CHARS;
+        return normalized.substring(0, SHELL_TOOL_MAX_OUTPUT_CHARS)
+                + "\n[TRUNCATED %d chars]".formatted(truncatedChars);
+    }
+
+    private static String formatShellCommandResult(
+            String command, int timeoutSeconds, String status, @Nullable Integer exitCode, String output) {
+        String exitCodeLine = exitCode == null ? "" : "Exit code: %d\n".formatted(exitCode);
+        return """
+                Shell command result
+                Command: %s
+                Timeout seconds: %d
+                Status: %s
+                %sOutput:
+                %s
+                """
+                .formatted(command, timeoutSeconds, status, exitCodeLine, boundShellOutput(output));
+    }
+
+    private static String formatShellToolError(String title, String command, int timeoutSeconds, String output) {
+        return """
+                %s.
+                Command: %s
+                Timeout seconds: %d
+                Output:
+                %s
+                """
+                .formatted(title, command, timeoutSeconds, boundShellOutput(output));
     }
 
     // --- Sanitization Helper Methods

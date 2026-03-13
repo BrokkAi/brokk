@@ -97,6 +97,7 @@ public class ToolRegistry {
             Map.entry("addClassSummariesToWorkspace", "Adding class summaries to workspace"),
             Map.entry("addFileSummariesToWorkspace", "Adding file summaries to workspace"),
             Map.entry("addMethodsToWorkspace", "Adding method sources to workspace"),
+            Map.entry("runShellCommand", "Running shell command"),
             Map.entry("searchFileContents", "Searching file contents"),
             Map.entry("xmlSkim", "Skimming XML"),
             Map.entry("xmlSelect", "Selecting XML with XPath"),

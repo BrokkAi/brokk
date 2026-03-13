@@ -251,9 +251,11 @@ public class UsageResultsExplorer extends BaseThemedDialog {
                 super.getTreeCellRendererComponent(tree, value, sel, expanded, leaf, row, hasFocus);
                 if (value instanceof DefaultMutableTreeNode node) {
                     Object userObj = node.getUserObject();
-                    if (userObj instanceof ProjectNode(String name, int count)) {
-                        setText(String.format("%s (%d units)", name, count));
-                    } else if (userObj instanceof FileNode(String displayName, int count)) {
+                    if (userObj instanceof ProjectNode pn) {
+                        setText(String.format("%s (%d units)", pn.name(), pn.count()));
+                    } else if (userObj instanceof FileNode fn) {
+                        String displayName = fn.path();
+                        int count = fn.count();
                         if (!displayName.equals("(unknown file)")) {
                             try {
                                 Path p = Paths.get(displayName);

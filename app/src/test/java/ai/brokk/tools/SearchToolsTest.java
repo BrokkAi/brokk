@@ -128,6 +128,44 @@ public class SearchToolsTest {
     @AfterEach
     void tearDown() {
         repo.close();
+        ai.brokk.util.Environment.shellCommandRunnerFactory =
+                ai.brokk.util.Environment.DEFAULT_SHELL_COMMAND_RUNNER_FACTORY;
+    }
+
+    @Test
+    void testRunShellCommand_Success() throws InterruptedException {
+        String result = searchTools.runShellCommand("echo hello", 30);
+        assertTrue(result.contains("Status: SUCCESS"), "Result should report success. Was: " + result);
+        assertTrue(result.contains("hello"), "Result should contain echo output. Was: " + result);
+    }
+
+    @Test
+    void testRunShellCommand_Failure() throws InterruptedException {
+        String result =
+                searchTools.runShellCommand(ai.brokk.util.Environment.isWindows() ? "cmd /c exit 1" : "false", 30);
+        assertTrue(result.contains("Status: NON_ZERO_EXIT"), "Result should report non-zero exit. Was: " + result);
+        assertTrue(result.contains("Exit code:"), "Result should report exit code. Was: " + result);
+    }
+
+    @Test
+    void testRunShellCommand_Timeout() {
+        ai.brokk.util.Environment.shellCommandRunnerFactory = (cmd, root) -> (outputConsumer, timeout) -> {
+            throw new ai.brokk.util.Environment.TimeoutException("timeout", "partial output");
+        };
+
+        ToolRegistry.ToolCallException ex =
+                assertThrows(ToolRegistry.ToolCallException.class, () -> searchTools.runShellCommand("sleep 10", 1));
+        assertEquals(ToolExecutionResult.Status.INTERNAL_ERROR, ex.status());
+        assertTrue(ex.getMessage().contains("timed out"), "Timeout message should be surfaced");
+        assertTrue(ex.getMessage().contains("partial output"), "Partial output should be surfaced");
+    }
+
+    @Test
+    void testRunShellCommand_InvalidTimeout() {
+        ToolRegistry.ToolCallException ex =
+                assertThrows(ToolRegistry.ToolCallException.class, () -> searchTools.runShellCommand("echo hello", -1));
+        assertEquals(ToolExecutionResult.Status.REQUEST_ERROR, ex.status());
+        assertTrue(ex.getMessage().contains("Invalid timeoutSeconds"), "Should report invalid timeout");
     }
 
     @Test
