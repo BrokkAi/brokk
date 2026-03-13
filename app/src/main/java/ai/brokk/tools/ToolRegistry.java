@@ -436,11 +436,30 @@ public class ToolRegistry {
         try {
             var vi = validateTool(request);
             var headline = headlineFor(request.name());
-            return ExplanationRenderer.renderExplanation(headline, buildArgsMap(vi));
+            var args = buildArgsMap(vi);
+
+            if ("runShellCommand".equals(request.name())) {
+                return renderRunShellCommandExplanation(headline, args);
+            }
+
+            return ExplanationRenderer.renderExplanation(headline, args);
         } catch (ToolValidationException e) {
             logger.debug("Could not generate explanation for tool request '{}': {}", request.name(), e.getMessage());
             return "Skip invalid tool request.";
         }
+    }
+
+    private static String renderRunShellCommandExplanation(String headline, Map<String, Object> args) {
+        var commandRaw = args.get("command");
+        var timeoutRaw = args.get("timeoutSeconds");
+
+        String command = commandRaw instanceof String s ? s.strip() : String.valueOf(commandRaw);
+        if (command.isEmpty()) {
+            return headline;
+        }
+
+        String timeout = timeoutRaw == null ? "0" : String.valueOf(timeoutRaw);
+        return "%s: `%s` (timeoutSeconds=%s)".formatted(headline, command, timeout);
     }
 
     /** Helper to build a map of parameter names to values from a ValidatedInvocation. */

@@ -225,6 +225,39 @@ class ToolRegistryTest {
     }
 
     @Test
+    void validateTool_Succeeds_ForRunShellCommandTypedParams() throws Exception {
+        Method m = TestTools.class.getDeclaredMethod("runShellCommand", String.class, int.class);
+        String json = jsonArgs(m, "echo hello", 30);
+        var req = ToolExecutionRequest.builder()
+                .name("runShellCommand")
+                .arguments(json)
+                .build();
+
+        var vi = registry.validateTool(req);
+        assertEquals("runShellCommand", vi.method().getName());
+        assertEquals(2, vi.parameters().size());
+        assertEquals("echo hello", vi.parameters().get(0));
+        assertEquals(30, vi.parameters().get(1));
+    }
+
+    @Test
+    void getExplanationForToolRequest_RunShellCommand_UsesHeadlineAndParams() throws Exception {
+        Method m = TestTools.class.getDeclaredMethod("runShellCommand", String.class, int.class);
+        String json = jsonArgs(m, "echo hello", 45);
+        var req = ToolExecutionRequest.builder()
+                .name("runShellCommand")
+                .arguments(json)
+                .build();
+
+        String explanation = registry.getExplanationForToolRequest(req);
+
+        assertFalse(explanation.isBlank());
+        assertTrue(explanation.contains("Running shell command"));
+        assertTrue(explanation.contains("echo hello"));
+        assertTrue(explanation.contains("timeoutSeconds=45"));
+    }
+
+    @Test
     void getExplanationForToolRequest_MissingParameter() throws Exception {
         // Build args missing the second parameter ("reasoning")
         var map = new LinkedHashMap<String, Object>();
@@ -302,6 +335,12 @@ class ToolRegistryTest {
 
         @Tool("Two lists")
         public String multiList(@P("a") List<String> a, @P("b") List<String> b) {
+            return "ok";
+        }
+
+        @Tool("Run shell command")
+        public String runShellCommand(
+                @P("The shell command to execute.") String command, @P("Timeout in seconds.") int timeoutSeconds) {
             return "ok";
         }
     }
