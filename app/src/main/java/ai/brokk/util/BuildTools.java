@@ -72,12 +72,7 @@ public class BuildTools {
         var project = cm.getProject();
         IProject.CodeAgentTestScope testScope = project.getCodeAgentTestScope();
 
-        // Check for environment variable overrides for enabling/disabling commands
-        boolean testAllEnabled = System.getenv("BRK_TESTALL_ENABLED") != null
-                ? Boolean.parseBoolean(System.getenv("BRK_TESTALL_ENABLED"))
-                : details.testAllEnabled();
-
-        if (testScope == IProject.CodeAgentTestScope.ALL && testAllEnabled) {
+        if (testScope == IProject.CodeAgentTestScope.ALL && details.testAllEnabled()) {
             String cmd = System.getenv("BRK_TESTALL_CMD") != null
                     ? System.getenv("BRK_TESTALL_CMD")
                     : details.testAllCommand();
@@ -143,12 +138,8 @@ public class BuildTools {
                     .orElse(details.testSomeCommand());
         }
 
-        boolean buildLintEnabled = System.getenv("BRK_BUILDLINT_ENABLED") != null
-                ? Boolean.parseBoolean(System.getenv("BRK_BUILDLINT_ENABLED"))
-                : details.buildLintEnabled();
-
         if (testSomeTemplate.isBlank()) {
-            return buildLintEnabled ? details.buildLintCommand() : "";
+            return details.buildLintEnabled() ? details.buildLintCommand() : "";
         }
 
         var project = cm.getProject();
@@ -201,7 +192,7 @@ public class BuildTools {
         // If the result is blank, or it is identical to a template that contains mustache tags,
         // it means no sections matched or no targets were found; fall back to build/lint command.
         if (result.isBlank() || (testSomeTemplate.contains("{{") && result.equals(testSomeTemplate))) {
-            return buildLintEnabled ? details.buildLintCommand() : "";
+            return details.buildLintEnabled() ? details.buildLintCommand() : "";
         }
 
         return result;
