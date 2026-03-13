@@ -122,8 +122,9 @@ class BuildToolsTest {
         BuildDetails details =
                 new BuildDetails("build-cmd", true, "test-all-cmd", true, Set.of(), Map.of(), null, "", List.of(mod));
 
-        // Even with empty workspace test files, it should return the static command verbatim
-        String result = BuildTools.getBuildLintSomeCommand(mockCm, details, List.of());
+        // We must provide at least one file that maps to the module for the command to be included
+        ProjectFile dummyFile = new ProjectFile(tempDir, "dummy.py");
+        String result = BuildTools.getBuildLintSomeCommand(mockCm, details, List.of(dummyFile));
         assertEquals("pytest -q", result);
     }
 
@@ -502,6 +503,57 @@ class BuildToolsTest {
         String result = BuildTools.getBuildLintSomeCommand(mockCm, details, List.of(windowsFile));
 
         assertEquals("mvn test -pl backend -Dtest=AppTest", result);
+    }
+
+    @Test
+    void testGetBuildLintSomeCommand_MultipleModules(@TempDir Path tempDir) throws Exception {
+        TestProject project = new TestProject(tempDir);
+        ProjectFile backendFile = new ProjectFile(tempDir, "backend/src/test/java/com/AppTest.java");
+        ProjectFile frontendFile = new ProjectFile(tempDir, "frontend/test/app.test.js");
+
+        TestAnalyzer testAnalyzer = new TestAnalyzer();
+        testAnalyzer.addDeclaration(CodeUnit.cls(backendFile, "com", "AppTest"));
+        TestContextManager mockCm = new TestContextManager(project, new NoOpConsoleIO(), Set.of(), testAnalyzer);
+
+        BuildAgent.ModuleBuildEntry backendModule = new BuildAgent.ModuleBuildEntry(
+                "backend",
+                "backend",
+                "mvn compile",
+                "mvn test",
+                "mvn test -pl backend -Dtest={{#classes}}{{value}}{{/classes}}",
+                "Java");
+
+        BuildAgent.ModuleBuildEntry frontendModule = new BuildAgent.ModuleBuildEntry(
+                "frontend",
+                "frontend",
+                "npm run build",
+                "npm test",
+                "npm test -w frontend -- {{#files}}{{value}}{{/files}}",
+                "JavaScript");
+
+        BuildAgent.BuildDetails details = new BuildAgent.BuildDetails(
+                "build-root",
+                true,
+                "test-all-root",
+                true,
+                Set.of(),
+                Map.of(),
+                null,
+                "",
+                List.of(backendModule, frontendModule));
+
+        // Act: Provide files from both modules
+        String result = BuildTools.getBuildLintSomeCommand(mockCm, details, List.of(backendFile, frontendFile));
+
+        // Assert: Both commands are present, interpolated correctly, and joined by &&
+        assertTrue(result.contains("mvn test -pl backend -Dtest=AppTest"), "Should contain backend command");
+        assertTrue(result.contains("npm test -w frontend -- frontend/test/app.test.js"), "Should contain frontend command");
+        assertTrue(result.contains(" && "), "Commands should be joined by &&");
+
+        // Verify order (sorted by relativePath)
+        assertEquals(
+                "mvn test -pl backend -Dtest=AppTest && npm test -w frontend -- frontend/test/app.test.js",
+                result);
     }
 
     @Test
