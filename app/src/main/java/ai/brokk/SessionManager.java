@@ -378,7 +378,9 @@ public class SessionManager implements AutoCloseable {
     /** Returns the total session cost from ledger events only. */
     @Blocking
     public double getTotalSessionCost(UUID sessionId) {
-        double total = readCostEvents(sessionId).stream().mapToDouble(CostEvent::costUsd).sum();
+        double total = readCostEvents(sessionId).stream()
+                .mapToDouble(CostEvent::costUsd)
+                .sum();
         cachedSessionCostTotals.put(sessionId, total);
         return total;
     }
@@ -1239,7 +1241,9 @@ public class SessionManager implements AutoCloseable {
                         continue;
                     }
                     try {
-                        total += AbstractProject.objectMapper.readValue(line, CostEvent.class).costUsd();
+                        total += AbstractProject.objectMapper
+                                .readValue(line, CostEvent.class)
+                                .costUsd();
                     } catch (IOException e) {
                         logger.warn(
                                 "Skipping malformed cost ledger line while loading cached total from {}: {}",
