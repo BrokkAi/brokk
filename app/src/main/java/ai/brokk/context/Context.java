@@ -957,18 +957,29 @@ public class Context {
             TaskResult.Type type,
             StreamingChatModel model,
             String instructions) {
+        return addHistoryEntry(mopMessages, llmMessages, type, model, instructions, null);
+    }
+
+    public Context addHistoryEntry(
+            List<ChatMessage> mopMessages,
+            List<ChatMessage> llmMessages,
+            TaskResult.Type type,
+            StreamingChatModel model,
+            String instructions,
+            @Nullable TaskResult subAgentResult) {
         var mc = AbstractService.ModelConfig.from(model, contextManager.getService());
         return addHistoryEntryInternal(new TaskEntry(
                 getTaskHistory().size(),
                 new ContextFragments.TaskFragment(mopMessages, instructions),
                 new ContextFragments.TaskFragment(llmMessages, instructions),
                 null,
-                new TaskResult.TaskMeta(type, mc)));
+                new TaskResult.TaskMeta(type, mc),
+                subAgentResult));
     }
 
     public Context addHistoryEntry(
             List<ChatMessage> messages, TaskResult.Type type, StreamingChatModel model, String instructions) {
-        return addHistoryEntry(messages, messages, type, model, instructions);
+        return addHistoryEntry(messages, messages, type, model, instructions, null);
     }
 
     public Context addHistoryEntry(ContextFragments.TaskFragment log, @Nullable TaskResult.TaskMeta meta) {

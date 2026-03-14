@@ -41,6 +41,8 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.stream.Collectors;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -49,6 +51,8 @@ import org.jetbrains.annotations.Nullable;
  * OUT of the calling agents' contexts.
  */
 public class SearchAgent {
+    private static final Logger logger = LogManager.getLogger(SearchAgent.class);
+
     private record TerminalStopOutput(String llmText, TaskResult.StopDetails stopDetails) implements ToolOutput {}
 
     private static final int MAX_TURNS = 20;
@@ -401,19 +405,31 @@ public class SearchAgent {
     }
 
     private TaskResult createResult(TaskResult.StopDetails details) throws InterruptedException {
+        TaskResult tr = new TaskResult(context, details);
+        context = appendUiMessagesToHistory(context, tr);
         recordFinalWorkspaceState(context);
         metrics.recordOutcome(details.reason(), workspaceFiles(context).size());
-        return new TaskResult(context, details);
+        return tr;
     }
 
     private TaskResult errorResult(TaskResult.StopDetails details) throws InterruptedException {
+        context = appendUiMessagesToHistory(context, null);
         recordFinalWorkspaceState(context);
         metrics.recordOutcome(details.reason(), workspaceFiles(context).size());
         return new TaskResult(context, details);
     }
 
-    private void endTurnAndRecordFileChanges(Set<ProjectFile> filesBeforeSet, Context contextAfterTurn)
-            throws InterruptedException {
+    private Context appendUiMessagesToHistory(Context context, @Nullable TaskResult subAgentResult) {
+        return context.addHistoryEntry(
+                cm.getIo().getLlmRawMessages(),
+                cm.getIo().getLlmRawMessages(),
+                TaskResult.Type.SEARCH,
+                llm.getModel(),
+                goal,
+                subAgentResult);
+    }
+
+    private void endTurnAndRecordFileChanges(Set<ProjectFile> filesBeforeSet, Context contextAfterTurn) {
         Set<ProjectFile> filesAfterSet = workspaceFiles(contextAfterTurn);
         Set<ProjectFile> added = new HashSet<>(filesAfterSet);
         added.removeAll(filesBeforeSet);
@@ -422,25 +438,33 @@ public class SearchAgent {
         metrics.endTurn(toRelativePaths(filesBeforeSet), toRelativePaths(filesAfterSet));
     }
 
-    private void recordFinalWorkspaceState(Context context) throws InterruptedException {
-        metrics.recordFinalWorkspaceFiles(toRelativePaths(workspaceFiles(context)));
-        metrics.recordFinalWorkspaceFragments(getWorkspaceFragments(context));
-    }
-
-    private Set<ProjectFile> workspaceFiles(Context context) throws InterruptedException {
-        context.awaitContentsAreComputed(ContextHistory.SNAPSHOT_AWAIT_TIMEOUT);
+    private Set<ProjectFile> workspaceFiles(Context context) {
+        try {
+            context.awaitContentsAreComputed(ContextHistory.SNAPSHOT_AWAIT_TIMEOUT);
+        } catch (InterruptedException e) {
+            logger.warn("Interrupted while waiting for contexts to be computed", e);
+        }
         return context.allFragments()
                 .filter(f1 -> f1.getType().includeInProjectGuide())
                 .flatMap(f -> f.sourceFiles().renderNowOr(Set.of()).stream())
                 .collect(Collectors.toSet());
     }
 
+    private void recordFinalWorkspaceState(Context context) {
+        metrics.recordFinalWorkspaceFiles(toRelativePaths(workspaceFiles(context)));
+        metrics.recordFinalWorkspaceFragments(getWorkspaceFragments(context));
+    }
+
     private Set<String> toRelativePaths(Set<ProjectFile> files) {
         return files.stream().map(pf -> pf.getRelPath().toString()).collect(Collectors.toSet());
     }
 
-    private List<SearchMetrics.FragmentInfo> getWorkspaceFragments(Context context) throws InterruptedException {
-        context.awaitContentsAreComputed(ContextHistory.SNAPSHOT_AWAIT_TIMEOUT);
+    private List<SearchMetrics.FragmentInfo> getWorkspaceFragments(Context context) {
+        try {
+            context.awaitContentsAreComputed(ContextHistory.SNAPSHOT_AWAIT_TIMEOUT);
+        } catch (InterruptedException e) {
+            logger.warn("Interrupted while waiting for contexts to be computed", e);
+        }
         return context.allFragments()
                 .filter(f1 -> f1.getType().includeInProjectGuide())
                 .map(f -> new SearchMetrics.FragmentInfo(

@@ -125,4 +125,16 @@ class TaskEntryTest {
         assertEquals(log, updated.mopLog());
         assertNull(updated.summary());
     }
+
+    @Test
+    void testConstructorWithSubAgentResult() {
+        var msg = (ChatMessage) UserMessage.from("hello");
+        var log = new ContextFragments.TaskFragment(List.of(msg), "desc");
+        var result = new TaskResult(Context.EMPTY, new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS, "done"));
+
+        var entry = new TaskEntry(5, log, log, null, null, result);
+
+        assertEquals(result, entry.subAgentResult());
+        assertEquals(5, entry.sequence());
+    }
 }
