@@ -946,7 +946,8 @@ public class Context {
     }
 
     public Context addHistoryEntry(TaskEntry te) {
-        var renumbered = new TaskEntry(getTaskHistory().size(), te.mopLog(), te.llmLog(), te.summary(), te.meta());
+        var renumbered = new TaskEntry(
+                getTaskHistory().size(), te.mopLog(), te.llmLog(), te.summary(), te.meta(), te.subAgentResult());
         return addHistoryEntryInternal(renumbered);
     }
 

@@ -26,6 +26,7 @@ public final class TaskEntry {
     private final ContextFragments.@Nullable TaskFragment llmLog;
     private final @Nullable String summary;
     private final TaskResult.@Nullable TaskMeta meta;
+    private final @Nullable TaskResult subAgentResult;
 
     /** Enforce that at least one of log or summary is non-null */
     public TaskEntry(
@@ -33,7 +34,8 @@ public final class TaskEntry {
             @Nullable ContextFragments.TaskFragment mopLog,
             @Nullable ContextFragments.TaskFragment llmLog,
             @Nullable String summary,
-            @Nullable TaskResult.TaskMeta meta) {
+            @Nullable TaskResult.TaskMeta meta,
+            @Nullable TaskResult subAgentResult) {
         assert (mopLog != null) || (summary != null) : "At least one of mopLog or summary must be non-null";
         assert summary == null || !summary.isEmpty() : "summary must not be empty when present";
         this.sequence = sequence;
@@ -41,16 +43,25 @@ public final class TaskEntry {
         this.llmLog = llmLog;
         this.summary = summary;
         this.meta = meta;
+        this.subAgentResult = subAgentResult;
+    }
+
+    public TaskEntry(
+            int sequence,
+            @Nullable ContextFragments.TaskFragment mopLog,
+            @Nullable ContextFragments.TaskFragment llmLog,
+            @Nullable String summary,
+            @Nullable TaskResult.TaskMeta meta) {
+        this(sequence, mopLog, llmLog, summary, meta, null);
     }
 
     // Some call sites "forge" a TaskEntry where no task existed. This is a smell but for now we allow it.
     public TaskEntry(int sequence, @Nullable ContextFragments.TaskFragment log, @Nullable String summary) {
-        this(sequence, log, null, summary, null);
+        this(sequence, log, null, summary, null, null);
     }
 
     /**
-     * Returns a copy with the given non-empty summary attached. Preserves sequence, mopLog and meta,
-     * but discards llmLog.
+     * Returns a copy with the given non-empty summary attached. Preserves sequence, logs, and meta.
      *
      * If the summary is unchanged, returns this.
      *
@@ -62,7 +73,11 @@ public final class TaskEntry {
         if (summary != null && summary.equals(newSummary)) {
             return this;
         }
-        return new TaskEntry(sequence, mopLog, null, newSummary, meta);
+        return new TaskEntry(sequence, mopLog, llmLog, newSummary, meta, subAgentResult);
+    }
+
+    public TaskEntry withSubAgentResult(TaskResult result) {
+        return new TaskEntry(sequence, mopLog, llmLog, summary, meta, result);
     }
 
     /**
@@ -134,7 +149,7 @@ public final class TaskEntry {
             newLlmLog = new ContextFragments.TaskFragment(combinedLlm, description, llmLog.isEscapeHtml());
         }
 
-        return new TaskEntry(sequence, newMopLog, newLlmLog, summary, meta);
+        return new TaskEntry(sequence, newMopLog, newLlmLog, summary, meta, subAgentResult);
     }
 
     /**
@@ -202,6 +217,10 @@ public final class TaskEntry {
         return meta;
     }
 
+    public @Nullable TaskResult subAgentResult() {
+        return subAgentResult;
+    }
+
     @Override
     public boolean equals(@Nullable Object obj) {
         if (obj == this) return true;
@@ -211,12 +230,13 @@ public final class TaskEntry {
                 && Objects.equals(this.mopLog, that.mopLog)
                 && Objects.equals(this.llmLog, that.llmLog)
                 && Objects.equals(this.summary, that.summary)
-                && Objects.equals(this.meta, that.meta);
+                && Objects.equals(this.meta, that.meta)
+                && Objects.equals(this.subAgentResult, that.subAgentResult);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(sequence, mopLog, llmLog, summary, meta);
+        return Objects.hash(sequence, mopLog, llmLog, summary, meta, subAgentResult);
     }
 
     public Collection<ChatMessage> mopMessages() {

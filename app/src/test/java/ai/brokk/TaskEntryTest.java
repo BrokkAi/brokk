@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 
+import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragments;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.UserMessage;
@@ -96,5 +97,32 @@ class TaskEntryTest {
         assertSame(entry, updated);
         assertNull(updated.mopLog());
         assertEquals("compressed", updated.summary());
+    }
+
+    @Test
+    void withSummary_preservesLlmLog() {
+        var msg = (ChatMessage) UserMessage.from("hello");
+        var log = new ContextFragments.TaskFragment(List.of(msg), "desc");
+        var entry = new TaskEntry(1, log, log, null, null);
+
+        var summarized = entry.withSummary("short version");
+
+        assertEquals("short version", summarized.summary());
+        assertEquals(log, summarized.llmLog());
+        assertEquals(log, summarized.mopLog());
+    }
+
+    @Test
+    void withSubAgentResult_populatesFieldAndPreservesOthers() {
+        var msg = (ChatMessage) UserMessage.from("hello");
+        var log = new ContextFragments.TaskFragment(List.of(msg), "desc");
+        var entry = new TaskEntry(1, log, null);
+
+        var result = new TaskResult(Context.EMPTY, new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS));
+        var updated = entry.withSubAgentResult(result);
+
+        assertEquals(result, updated.subAgentResult());
+        assertEquals(log, updated.mopLog());
+        assertNull(updated.summary());
     }
 }
