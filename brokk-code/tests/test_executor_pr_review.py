@@ -244,6 +244,7 @@ def test_handle_review_command_submits_job(tmp_path, monkeypatch):
     # Capture run_worker calls
     def mock_run_worker(coro):
         workers.append(coro)
+        coro.close()
 
     monkeypatch.setattr(app, "run_worker", mock_run_worker)
 
@@ -276,6 +277,7 @@ def test_handle_review_command_explicit_owner_repo(tmp_path, monkeypatch):
 
     def mock_run_worker(coro):
         workers.append(coro)
+        coro.close()
 
     monkeypatch.setattr(app, "run_worker", mock_run_worker)
 
