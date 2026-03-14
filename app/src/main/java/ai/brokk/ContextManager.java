@@ -2242,14 +2242,23 @@ public class ContextManager implements IContextManager, AutoCloseable {
             throw new InterruptedException("Compression cancelled");
         }
 
-        // Must have a log to compress
-        if (!entry.hasLog() || entry.toString().isBlank()) {
-            logger.warn("Cannot compress entry without a log: {}", entry);
+        // Prefer subAgentResult for compression source, fallback to full log
+        String sourceToCompress;
+        if (entry.subAgentResult() != null) {
+            sourceToCompress = entry.subAgentResult().stopDetails().toString();
+        } else if (entry.hasLog()) {
+            sourceToCompress = entry.toString();
+        } else {
+            logger.warn("Cannot compress entry without source: {}", entry);
             return entry;
         }
 
-        // Compress the log into a summary
-        var msgs = SummarizerPrompts.instance.compressHistory(entry.toString());
+        if (sourceToCompress.isBlank()) {
+            return entry;
+        }
+
+        // Compress the source into a summary
+        var msgs = SummarizerPrompts.instance.compressHistory(sourceToCompress);
         Llm.StreamingResult result = getLlm(
                         serviceProvider.get().summarizeModel(), "Compress history entry", TaskResult.Type.SUMMARIZE)
                 .sendRequest(msgs, COMPRESSION_MAX_ATTEMPTS);

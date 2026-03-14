@@ -266,6 +266,51 @@ public class ContextCompressionTest {
         // Verify transitions make sense:
         // logOnly -> withBoth: compression attaches summary
         // logOnly -> summaryOnly: old compression discarded log
-        // Both State 2 and State 3 use summary for AI (isSummarized() is true)
+        // Both State 2 and State 3 use summary for AI
+    }
+
+    @Test
+    void testCompressionPrecedenceSubAgentResult() throws Exception {
+        var cm = createHeadlessContextManagerWithDeterministicSummarizer(tempDir);
+        var log = new ContextFragments.TaskFragment(List.of(UserMessage.from("long log")), "desc");
+        var subResult = new TaskResult(
+                ai.brokk.context.Context.EMPTY,
+                new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS, "Concise sub-agent outcome"));
+
+        // Entry with both log and sub-agent result
+        var entry = new TaskEntry(1, log, log, null, null, subResult);
+
+        TaskEntry compressed = cm.compressHistory(entry);
+
+        assertTrue(compressed.isCompressed());
+        assertEquals("deterministic summary", compressed.summary());
+        // Verify log is preserved
+        assertTrue(compressed.hasLog());
+        assertSame(log, compressed.mopLog());
+    }
+
+    @Test
+    void testCompressionIdempotenceMixedHistory() throws Exception {
+        var cm = createHeadlessContextManagerWithDeterministicSummarizer(tempDir);
+
+        // 1. Uncompressed entry
+        var log1 = new ContextFragments.TaskFragment(List.of(UserMessage.from("q1")), "d1");
+        var entry1 = new TaskEntry(1, log1, null);
+
+        // 2. Already compressed entry
+        var log2 = new ContextFragments.TaskFragment(List.of(UserMessage.from("q2")), "d2");
+        var entry2 = new TaskEntry(2, log2, "existing summary");
+
+        var ctx = new ai.brokk.context.Context(cm).withHistory(List.of(entry1, entry2));
+
+        List<TaskEntry> firstPass = cm.compressHistoryAsync(ctx).get();
+        assertEquals(2, firstPass.size());
+        assertEquals("deterministic summary", firstPass.get(0).summary());
+        assertEquals("existing summary", firstPass.get(1).summary());
+
+        // Second pass should be idempotent
+        List<TaskEntry> secondPass =
+                cm.compressHistoryAsync(ctx.withHistory(firstPass)).get();
+        assertEquals(firstPass, secondPass);
     }
 }
