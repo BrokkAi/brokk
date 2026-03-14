@@ -17,6 +17,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Comparator;
@@ -31,8 +32,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.condition.DisabledOnOs;
-import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
@@ -57,6 +56,15 @@ public class SearchToolsTest {
 
     @Nullable
     private static TestProject javaTestProject;
+
+    private static boolean matchesPlatformGlob(String globPattern, String relativePath) {
+        char separator = FileSystems.getDefault().getSeparator().charAt(0);
+        String normalizedPattern = globPattern.replace('\\', '/').replace('/', separator);
+        String normalizedPath = relativePath.replace('/', separator);
+        return FileSystems.getDefault()
+                .getPathMatcher("glob:" + normalizedPattern)
+                .matches(Path.of(normalizedPath));
+    }
 
     @BeforeAll
     static void setupAnalyzer() throws IOException {
@@ -759,7 +767,6 @@ public class SearchToolsTest {
     }
 
     @Test
-    @DisabledOnOs(OS.WINDOWS)
     void testSearchFileContents_GlobRecursiveJava() throws Exception {
         Path nestedDir = projectRoot.resolve("src/main/java");
         Files.createDirectories(nestedDir);
@@ -768,11 +775,13 @@ public class SearchToolsTest {
         mockProjectFiles.add(new ProjectFile(projectRoot, "src/main/java/Nested.java"));
 
         String result = searchTools.searchFileContents(List.of("MATCH"), "**/*.java", false, false, 0, 200);
-        assertTrue(result.contains("src/main/java/Nested.java"), "Should match recursive **/*.java glob");
+        assertEquals(
+                matchesPlatformGlob("**/*.java", "src/main/java/Nested.java"),
+                result.contains("src/main/java/Nested.java"),
+                "searchFileContents should follow the platform glob matcher for **/*.java");
     }
 
     @Test
-    @DisabledOnOs(OS.WINDOWS)
     void testSearchFileContents_GlobBackslashInput() throws Exception {
         Path nestedDir = projectRoot.resolve("a/b");
         Files.createDirectories(nestedDir);
@@ -781,7 +790,10 @@ public class SearchToolsTest {
         mockProjectFiles.add(new ProjectFile(projectRoot, "a/b/Backslash.java"));
 
         String result = searchTools.searchFileContents(List.of("MATCH"), "a\\**\\*.java", false, false, 0, 200);
-        assertTrue(result.contains("a/b/Backslash.java"), "Should support backslash separators in glob");
+        assertEquals(
+                matchesPlatformGlob("a\\**\\*.java", "a/b/Backslash.java"),
+                result.contains("a/b/Backslash.java"),
+                "searchFileContents should follow the platform glob matcher for backslash-separated input");
     }
 
     @Test
