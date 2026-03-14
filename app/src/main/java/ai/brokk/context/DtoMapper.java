@@ -120,7 +120,19 @@ public class DtoMapper {
                         summary = contentReader.readContent(taskRefDto.summaryContentId());
                     }
 
-                    return new TaskEntry(taskRefDto.sequence(), logFragment, llmLogFragment, summary, meta);
+                    TaskResult subAgentResult = null;
+                    if (taskRefDto.subAgentResult() != null) {
+                        var srd = taskRefDto.subAgentResult();
+                        var reason =
+                                TaskResult.StopReason.valueOf(srd.stopDetails().reason());
+                        var stopDetails = new TaskResult.StopDetails(
+                                reason, srd.stopDetails().explanation());
+                        // Context is not restored for sub-results as they are usually ephemeral snapshots
+                        subAgentResult = new TaskResult(Context.EMPTY, stopDetails);
+                    }
+
+                    return new TaskEntry(
+                            taskRefDto.sequence(), logFragment, llmLogFragment, summary, meta, subAgentResult);
                 })
                 .filter(Objects::nonNull)
                 .collect(Collectors.toCollection(ArrayList::new));
@@ -146,6 +158,13 @@ public class DtoMapper {
                     String pmReason = te.meta() != null
                             ? te.meta().primaryModel().reasoning().name()
                             : null;
+                    TaskResultDto subResultDto = null;
+                    if (te.subAgentResult() != null) {
+                        var sd = te.subAgentResult().stopDetails();
+                        subResultDto =
+                                new TaskResultDto(new StopDetailsDto(sd.reason().name(), sd.explanation()));
+                    }
+
                     return new TaskEntryRefDto(
                             te.sequence(),
                             te.mopLog() != null ? te.mopLog().id() : null,
@@ -153,7 +172,8 @@ public class DtoMapper {
                             te.isCompressed() ? writer.writeContent(castNonNull(te.summary()), null) : null,
                             type,
                             pmName,
-                            pmReason);
+                            pmReason,
+                            subResultDto);
                 })
                 .toList();
 

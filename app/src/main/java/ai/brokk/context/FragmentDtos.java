@@ -299,6 +299,12 @@ public class FragmentDtos {
         }
     }
 
+    /** DTO for TaskResult, used for subAgentResult in TaskEntry. */
+    public record TaskResultDto(StopDetailsDto stopDetails) {}
+
+    /** DTO for TaskResult.StopDetails. */
+    public record StopDetailsDto(String reason, String explanation) {}
+
     /** DTO for holding all unique fragments in a session history. Used as the top-level object for fragments.json. */
     public record AllFragmentsDto(
             int version, // Version of the fragment DTO structure
@@ -345,7 +351,8 @@ public class FragmentDtos {
             @Nullable String summaryContentId,
             @Nullable String taskType,
             @Nullable String primaryModelName,
-            @Nullable String primaryModelReasoning) {
+            @Nullable String primaryModelReasoning,
+            @Nullable TaskResultDto subAgentResult) {
         public TaskEntryRefDto {
             // At least one of logId or summaryContentId must be non-null (both can coexist)
             if ((logId == null) && (summaryContentId == null)) {

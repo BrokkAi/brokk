@@ -2203,4 +2203,66 @@ public class ContextSerializationTest {
         assertEquals("Group A Label", loadedLabels.get(groupA));
         assertEquals("Group B Label", loadedLabels.get(groupB));
     }
+
+    @Test
+    void testTaskEntrySubAgentResultRoundTrip() throws Exception {
+        var msg = List.<ChatMessage>of(UserMessage.from("Run sub-agent"));
+        var tf = new ContextFragments.TaskFragment(msg, "Task with sub-agent");
+
+        var subResult = new TaskResult(
+                Context.EMPTY, new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS, "Sub-agent finished fine"));
+        var entry = new TaskEntry(1, tf, null, null, null, subResult);
+
+        var ctx = new Context(mockContextManager).addHistoryEntryInternal(entry);
+        var history = new ContextHistory(ctx);
+
+        Path zipFile = tempDir.resolve("subagent_roundtrip.zip");
+        HistoryIo.writeZip(history, zipFile);
+
+        ContextHistory loadedHistory = HistoryIo.readZip(zipFile, mockContextManager);
+        TaskEntry loadedEntry =
+                loadedHistory.getHistory().get(0).getTaskHistory().get(0);
+
+        assertNotNull(loadedEntry.subAgentResult());
+        assertEquals(
+                TaskResult.StopReason.SUCCESS,
+                loadedEntry.subAgentResult().stopDetails().reason());
+        assertEquals(
+                "Sub-agent finished fine",
+                loadedEntry.subAgentResult().stopDetails().explanation());
+    }
+
+    @Test
+    void testBackwardCompatibilityMissingSubAgentResult() throws Exception {
+        // Create a ZIP where TaskEntryRefDto lacks the subAgentResult field
+        var ctx = new Context(mockContextManager);
+        var msg = List.<ChatMessage>of(UserMessage.from("Old task"));
+        var tf = new ContextFragments.TaskFragment(msg, "Old log");
+        ctx = ctx.addHistoryEntryInternal(new TaskEntry(1, tf, null));
+
+        Path original = tempDir.resolve("legacy_subagent_base.zip");
+        HistoryIo.writeZip(new ContextHistory(ctx), original);
+
+        Path legacyZip = tempDir.resolve("legacy_subagent_removed.zip");
+        rewriteContextsInZip(original, legacyZip, line -> {
+            try {
+                var mapper = new ObjectMapper();
+                Map<String, Object> obj = mapper.readValue(line, new TypeReference<Map<String, Object>>() {});
+                @SuppressWarnings("unchecked")
+                List<Map<String, Object>> tasks = (List<Map<String, Object>>) obj.get("tasks");
+                for (var task : tasks) {
+                    task.remove("subAgentResult");
+                }
+                return mapper.writeValueAsString(obj);
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        });
+
+        ContextHistory loaded = HistoryIo.readZip(legacyZip, mockContextManager);
+        TaskEntry loadedEntry = loaded.getHistory().get(0).getTaskHistory().get(0);
+
+        assertNull(loadedEntry.subAgentResult(), "SubAgentResult should be null for legacy entries");
+        assertEquals("Old log", loadedEntry.mopLog().shortDescription().join());
+    }
 }
