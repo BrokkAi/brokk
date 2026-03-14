@@ -1,8 +1,6 @@
 package ai.brokk.agents;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.TaskEntry;
 import ai.brokk.TaskResult;
@@ -87,6 +85,41 @@ class ArchitectAgentTest {
                         || allMessageText.contains("First task")
                         || allMessageText.contains("Second task"),
                 "CodeAgent prompt should NOT include task list content when suppressed. Got: " + allMessageText);
+    }
+
+    @Test
+    void testSubAgentOutcomePreference() {
+        var cm = new TestContextManager(projectRoot, consoleIO);
+        var ctx = new Context(cm);
+        var subResult = new TaskResult(
+                Context.EMPTY, new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS, "Concise Outcome"));
+
+        var model = new ai.brokk.Service.ModelConfig(
+                "m", ai.brokk.Service.ReasoningLevel.DEFAULT, ai.brokk.Service.ProcessingTier.DEFAULT);
+        var searchMeta = new TaskResult.TaskMeta(TaskResult.Type.SEARCH, model);
+
+        // Setup entry with summary AND sub-agent result. Result should win.
+        var entry = new TaskEntry(0, null, null, "Raw Summary", searchMeta, subResult);
+        ctx = ctx.withHistory(List.of(entry));
+
+        // When Architect gets history messages, it should see the result block instead of raw messages or summary
+        var archMeta = new TaskResult.TaskMeta(TaskResult.Type.ARCHITECT, model);
+        var historyMessages = WorkspacePrompts.getHistoryMessages(ctx, archMeta);
+
+        boolean foundConcise = historyMessages.stream()
+                .filter(m -> m instanceof UserMessage)
+                .map(m -> ((UserMessage) m).singleText())
+                .anyMatch(t -> t.contains("Concise Outcome"));
+
+        boolean foundSummary = historyMessages.stream()
+                .filter(m -> m instanceof UserMessage)
+                .map(m -> ((UserMessage) m).singleText())
+                .anyMatch(t -> t.contains("Raw Summary"));
+
+        assertTrue(
+                foundConcise,
+                "Architect should see the concise sub-agent outcome in history. Messages: " + historyMessages);
+        assertFalse(foundSummary, "Architect should NOT see the raw summary when a sub-agent result is available");
     }
 
     @Test

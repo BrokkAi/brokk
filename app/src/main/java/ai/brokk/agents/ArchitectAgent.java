@@ -333,6 +333,12 @@ public class ArchitectAgent {
                         .collect(Collectors.joining(", "));
                 context = context.withAppendedMopMessagesToLastEntry(io.getLlmRawMessages());
                 scope.append(context);
+
+                var entry = context.getTaskHistory().getLast();
+                if (entry.subAgentResult() != null) {
+                    return entry.subAgentResult().stopDetails().toString();
+                }
+
                 return """
             # Status
             %s
@@ -759,13 +765,21 @@ public class ArchitectAgent {
 
                 context = context.addFragments(
                         searchResult.context().allFragments().toList());
-                architectMessages.addAll(searchResult.toolExecutionMessages());
+
+                // Add the search outcome to Architect conversation
+                var toolResultText = searchResult.stopDetails().toString();
+                for (var req : searchAgentReqs) {
+                    architectMessages.add(
+                            ToolExecutionResult.success(req, toolResultText).toMessage());
+                }
+
                 context = context.addHistoryEntry(
                         searchResult.mopMessages(),
                         List.of(),
                         TaskResult.Type.SEARCH,
                         planningModel,
-                        searchResult.historyDescription());
+                        searchResult.historyDescription(),
+                        new TaskResult(context, searchResult.stopDetails()));
                 scope.append(context);
             }
 

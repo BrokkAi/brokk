@@ -139,14 +139,7 @@ public final class WorkspacePrompts {
         var messages = new ArrayList<ChatMessage>();
 
         taskHistory.stream().filter(e -> entryMatchesType(e, includedTypes)).forEach(e -> {
-            // Precedence 1: Summary
-            if (e.isCompressed()) {
-                messages.add(new UserMessage(e.toString()));
-                messages.add(new AiMessage("Ok, I see the history."));
-                return;
-            }
-
-            // Precedence 2: Sub-Agent Result
+            // Precedence 1: Sub-Agent Result
             var subResult = e.subAgentResult();
             if (subResult != null) {
                 var stopDetails = subResult.stopDetails();
@@ -155,6 +148,13 @@ public final class WorkspacePrompts {
                         .formatted(type, stopDetails.reason(), stopDetails.explanation());
                 messages.add(new UserMessage(resultText));
                 messages.add(new AiMessage("Ok, I see the result."));
+                return;
+            }
+
+            // Precedence 2: Summary
+            if (e.isCompressed()) {
+                messages.add(new UserMessage(e.toString()));
+                messages.add(new AiMessage("Ok, I see the history."));
                 return;
             }
 
