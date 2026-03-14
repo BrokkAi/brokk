@@ -12,6 +12,8 @@ import ai.brokk.tasks.TaskList;
 import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestContextManager;
 import ai.brokk.testutil.TestProject;
+import ai.brokk.util.Messages;
+import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
@@ -156,5 +158,29 @@ class ArchitectAgentTest {
         assertEquals(
                 List.of(initialMsg, finalMessages.getFirst()),
                 updatedContext.getTaskHistory().getLast().mopLog().messages());
+    }
+
+    @Test
+    void testSubAgentResultCompatibilityFallback() {
+        var cm = new TestContextManager(projectRoot, consoleIO);
+        var ctx = new Context(cm);
+
+        // Entry with NO subAgentResult and NO summary, just log
+        // Use a simple message that does not contain tool calls or S/R blocks
+        var msg = List.<ChatMessage>of(UserMessage.from("log only message"));
+        var log = new ContextFragments.TaskFragment(msg, "desc");
+        var entry = new TaskEntry(0, log, log, null, null, null);
+        ctx = ctx.withHistory(List.of(entry));
+
+        var model = new ai.brokk.Service.ModelConfig(
+                "m", ai.brokk.Service.ReasoningLevel.DEFAULT, ai.brokk.Service.ProcessingTier.DEFAULT);
+        var archMeta = new TaskResult.TaskMeta(TaskResult.Type.ARCHITECT, model);
+
+        // Should fall back to redacted log messages
+        var historyMessages = WorkspacePrompts.getHistoryMessages(ctx, archMeta);
+        assertTrue(
+                historyMessages.stream().anyMatch(m -> Messages.getText(m).contains("log only message")),
+                "History should contain the original message text when no summary or sub-agent result is present. Messages: "
+                        + historyMessages);
     }
 }

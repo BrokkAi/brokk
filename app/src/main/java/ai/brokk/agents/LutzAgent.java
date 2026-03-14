@@ -1018,14 +1018,27 @@ public class LutzAgent {
 
                 context = context.addFragments(
                         searchResult.context().allFragments().toList());
-                sessionMessages.addAll(searchResult.toolExecutionMessages());
+
+                var searchOutcome = new TaskResult(context, searchResult.stopDetails());
+                var subResult = new TaskResult(context, searchResult.stopDetails());
                 context = context.addHistoryEntry(
                         searchResult.mopMessages(),
                         List.of(),
                         TaskResult.Type.SEARCH,
                         agent.model,
-                        searchResult.historyDescription());
+                        searchResult.historyDescription(),
+                        subResult);
                 agent.scope.append(context);
+
+                var entry = context.getTaskHistory().getLast();
+                var toolResultText = (entry.subAgentResult() != null)
+                        ? entry.subAgentResult().stopDetails().toString()
+                        : searchResult.stopDetails().toString();
+
+                for (var req : searchAgentReqs) {
+                    sessionMessages.add(
+                            ToolExecutionResult.success(req, toolResultText).toMessage());
+                }
 
                 executedNonHygiene = true;
                 nonHygieneToolCalls.add("callSearchAgent");
@@ -1317,6 +1330,12 @@ public class LutzAgent {
                     new GitWorkflow(agent.cm).performAutoCommit(instructions);
                 }
                 logger.debug("SearchAgent.callCodeAgent finished successfully");
+
+                var entry = result.context().getTaskHistory().getLast();
+                if (entry.subAgentResult() != null) {
+                    return entry.subAgentResult().stopDetails().toString();
+                }
+
                 return "CodeAgent finished with a successful build!";
             }
 

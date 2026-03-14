@@ -166,9 +166,10 @@ public final class WorkspacePrompts {
             if (entryRawMessages.isEmpty()) return;
 
             // Determine the messages to include from the entry
-            var relevantEntryMessages = entryRawMessages.getLast() instanceof AiMessage
+            var size = entryRawMessages.size();
+            var relevantEntryMessages = (entryRawMessages.getLast() instanceof AiMessage || size <= 1)
                     ? entryRawMessages
-                    : entryRawMessages.subList(0, entryRawMessages.size() - 1);
+                    : entryRawMessages.subList(0, size - 1);
 
             var entryMeta = e.meta();
             var currentPrimaryModel = currentMeta.primaryModel();
