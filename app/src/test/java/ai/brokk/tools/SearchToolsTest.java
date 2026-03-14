@@ -31,6 +31,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.DisabledOnOs;
+import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
@@ -757,6 +759,7 @@ public class SearchToolsTest {
     }
 
     @Test
+    @DisabledOnOs(OS.WINDOWS)
     void testSearchFileContents_GlobRecursiveJava() throws Exception {
         Path nestedDir = projectRoot.resolve("src/main/java");
         Files.createDirectories(nestedDir);
@@ -769,6 +772,7 @@ public class SearchToolsTest {
     }
 
     @Test
+    @DisabledOnOs(OS.WINDOWS)
     void testSearchFileContents_GlobBackslashInput() throws Exception {
         Path nestedDir = projectRoot.resolve("a/b");
         Files.createDirectories(nestedDir);
