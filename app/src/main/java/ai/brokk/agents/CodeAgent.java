@@ -637,11 +637,12 @@ public class CodeAgent {
         }
 
         // create the Result for history
-        context = context.addHistoryEntry(
-                io.getLlmRawMessages(), cs.taskMessages, TaskResult.Type.CODE, model, userInput);
-        var tr = new TaskResult(context, stopDetails);
-        logger.debug("Task result: {}", tr);
-        return tr;
+        var resultForHistory = new TaskResult(context, stopDetails);
+        var contextWithHistory = context.addHistoryEntry(
+                io.getLlmRawMessages(), cs.taskMessages, TaskResult.Type.CODE, model, userInput, resultForHistory);
+        var finalResult = new TaskResult(contextWithHistory, stopDetails);
+        logger.debug("Task result: {}", finalResult);
+        return finalResult;
     }
 
     void report(String message) {

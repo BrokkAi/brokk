@@ -1412,6 +1412,46 @@ class CodeAgentTest {
     }
 
     @Test
+    void testExecute_populatesSubAgentResultInHistory() throws IOException {
+        var file = cm.toFile("test.txt");
+        file.write("hello");
+        cm.addEditableFile(file);
+
+        var response =
+                """
+                ```
+                test.txt
+                <<<<<<< SEARCH
+                hello
+                =======
+                goodbye
+                >>>>>>> REPLACE
+                ```
+                """;
+        var stubModel = new TestScriptedLanguageModel(response);
+
+        // Mock build to succeed
+        Environment.shellCommandRunnerFactory = (cmd, root) -> (outputConsumer, timeout) -> "Build successful";
+        var bd = new BuildAgent.BuildDetails("echo build", "echo testAll", "echo test", Set.of());
+        project.setBuildDetails(bd);
+        project.setCodeAgentTestScope(IProject.CodeAgentTestScope.ALL);
+
+        codeAgent = new CodeAgent(cm, stubModel, consoleIO);
+        var result = codeAgent.execute("change hello to goodbye", Set.of());
+
+        assertEquals(TaskResult.StopReason.SUCCESS, result.stopDetails().reason());
+
+        var history = result.context().getTaskHistory();
+        assertFalse(history.isEmpty(), "History should not be empty");
+        var lastEntry = history.get(history.size() - 1);
+
+        assertNotNull(lastEntry.subAgentResult(), "subAgentResult should be populated in TaskEntry");
+        assertEquals(
+                TaskResult.StopReason.SUCCESS,
+                lastEntry.subAgentResult().stopDetails().reason());
+    }
+
+    @Test
     void testInitialUserRequestContainsOnlyGoalWithoutFormatRules() {
         var ctx = newContext();
         var userGoal = "Please fix the bug in MyClass.java";
