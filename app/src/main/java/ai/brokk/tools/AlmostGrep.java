@@ -7,9 +7,7 @@ import static java.lang.Math.min;
 
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.concurrent.LoggingFuture;
-import java.nio.file.FileSystems;
-import java.nio.file.Path;
-import java.nio.file.PathMatcher;
+import ai.brokk.project.FileFilteringService;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -30,21 +28,16 @@ final class AlmostGrep {
     private static final int FILE_SEARCH_BATCH_SIZE = 2 * SearchTools.FILE_SEARCH_LIMIT;
 
     static List<ProjectFile> findProjectTextFilesByGlob(Set<ProjectFile> allFiles, String globPattern) {
-        PathMatcher matcher = compileGlobPathMatcher(globPattern);
+        Pattern matcher = compileGlobPathMatcher(globPattern);
         return allFiles.stream()
                 .filter(ProjectFile::isText)
-                .filter(file -> matcher.matches(Path.of(toSystemPathPattern(toUnixPath(file.toString())))))
+                .filter(file -> matcher.matcher(toUnixPath(file.toString())).matches())
                 .sorted()
                 .toList();
     }
 
-    private static PathMatcher compileGlobPathMatcher(String pattern) {
-        return FileSystems.getDefault().getPathMatcher("glob:" + toSystemPathPattern(toUnixPath(pattern)));
-    }
-
-    private static String toSystemPathPattern(String input) {
-        char sep = FileSystems.getDefault().getSeparator().charAt(0);
-        return input.replace('/', sep);
+    private static Pattern compileGlobPathMatcher(String pattern) {
+        return FileFilteringService.globToRegex(toUnixPath(pattern));
     }
 
     static SearchTools.FindFilesContainingResult findFilesContainingPatterns(
