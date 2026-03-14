@@ -1,7 +1,5 @@
 package ai.brokk.prompts;
 
-import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
-
 import ai.brokk.TaskEntry;
 import ai.brokk.TaskResult;
 import ai.brokk.context.Context;
@@ -140,43 +138,49 @@ public final class WorkspacePrompts {
         var taskHistory = ctx.getTaskHistory();
         var messages = new ArrayList<ChatMessage>();
 
-        // Merge compressed messages into a single taskhistory message
-        var compressed = taskHistory.stream()
-                .filter(TaskEntry::isCompressed)
-                .filter(e -> entryMatchesType(e, includedTypes))
-                .map(TaskEntry::toString)
-                .collect(Collectors.joining("\n\n"));
-        if (!compressed.isEmpty()) {
-            messages.add(new UserMessage("<taskhistory>%s</taskhistory>".formatted(compressed)));
-            messages.add(new AiMessage("Ok, I see the history."));
-        }
+        taskHistory.stream().filter(e -> entryMatchesType(e, includedTypes)).forEach(e -> {
+            // Precedence 1: Summary
+            if (e.isCompressed()) {
+                messages.add(new UserMessage(e.toString()));
+                messages.add(new AiMessage("Ok, I see the history."));
+                return;
+            }
 
-        // Uncompressed messages: process for tool and S/R block redaction
-        taskHistory.stream()
-                .filter(e -> !e.isCompressed())
-                .filter(e -> entryMatchesType(e, includedTypes))
-                .forEach(e -> {
-                    var entryRawMessages = castNonNull(e.llmLog()).messages();
-                    if (entryRawMessages.isEmpty()) {
-                        return;
-                    }
+            // Precedence 2: Sub-Agent Result
+            var subResult = e.subAgentResult();
+            if (subResult != null) {
+                var stopDetails = subResult.stopDetails();
+                var type = e.meta() != null ? e.meta().type().displayName() : "Sub-agent";
+                var resultText = "[Historical %s result: %s - %s]"
+                        .formatted(type, stopDetails.reason(), stopDetails.explanation());
+                messages.add(new UserMessage(resultText));
+                messages.add(new AiMessage("Ok, I see the result."));
+                return;
+            }
 
-                    // Determine the messages to include from the entry
-                    var relevantEntryMessages = entryRawMessages.getLast() instanceof AiMessage
-                            ? entryRawMessages
-                            : entryRawMessages.subList(0, entryRawMessages.size() - 1);
+            // Precedence 3: Redacted llmLog
+            var log = e.llmLog();
+            if (log == null) return;
 
-                    var entryMeta = e.meta();
+            var entryRawMessages = log.messages();
+            if (entryRawMessages.isEmpty()) return;
 
-                    var currentPrimaryModel = currentMeta.primaryModel();
-                    var entryPrimaryModel = entryMeta == null ? null : entryMeta.primaryModel();
+            // Determine the messages to include from the entry
+            var relevantEntryMessages = entryRawMessages.getLast() instanceof AiMessage
+                    ? entryRawMessages
+                    : entryRawMessages.subList(0, entryRawMessages.size() - 1);
 
-                    // Redact tool calls if the primary models differ
-                    boolean redactToolCalls = entryPrimaryModel != null
-                            && !currentPrimaryModel.name().equals(entryPrimaryModel.name());
+            var entryMeta = e.meta();
+            var currentPrimaryModel = currentMeta.primaryModel();
+            var entryPrimaryModel = entryMeta == null ? null : entryMeta.primaryModel();
 
-                    messages.addAll(CodePrompts.redactHistoryMessages(relevantEntryMessages, redactToolCalls));
-                });
+            // Redact tool calls if the primary models differ
+            boolean redactToolCalls =
+                    entryPrimaryModel != null && !currentPrimaryModel.name().equals(entryPrimaryModel.name());
+
+            // Always omit raw ToolExecutionResultMessage and redact tool calls into plain text
+            messages.addAll(CodePrompts.redactHistoryMessages(relevantEntryMessages, true));
+        });
 
         return messages;
     }

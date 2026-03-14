@@ -1,186 +1,104 @@
 package ai.brokk.prompts;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import ai.brokk.analyzer.JavaAnalyzer;
-import ai.brokk.analyzer.Languages;
-import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.Service;
+import ai.brokk.TaskEntry;
+import ai.brokk.TaskResult;
 import ai.brokk.context.Context;
-import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
-import ai.brokk.context.SpecialTextType;
-import ai.brokk.testutil.TestConsoleIO;
+import ai.brokk.testutil.NoOpConsoleIO;
 import ai.brokk.testutil.TestContextManager;
-import ai.brokk.testutil.TestProject;
 import ai.brokk.util.Messages;
-import java.io.IOException;
-import java.nio.file.Files;
+import dev.langchain4j.agent.tool.ToolExecutionRequest;
+import dev.langchain4j.data.message.AiMessage;
+import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.data.message.ToolExecutionResultMessage;
+import dev.langchain4j.data.message.UserMessage;
 import java.nio.file.Path;
-import java.nio.file.attribute.FileTime;
-import java.util.EnumSet;
 import java.util.List;
-import java.util.stream.Collectors;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-/**
- * Minimal tests for the new WorkspacePrompts.CodeAgentMessages shape.
- * Focuses on:
- *  (a) workspace() returns combined messages
- *  (b) buildFailure() is populated when build fragment exists
- *  (c) exactly one build status block exists in the combined workspace
- */
 class WorkspacePromptsTest {
-
-    private TestContextManager cm;
-    private TestProject project;
-    private TestConsoleIO consoleIO;
-
     @TempDir
-    Path projectRoot;
+    Path tempDir;
+
+    private Context context;
+    private TaskResult.TaskMeta currentMeta;
 
     @BeforeEach
-    void setUp() throws IOException {
-        Files.createDirectories(projectRoot);
-        consoleIO = new TestConsoleIO();
-        project = new TestProject(projectRoot, Languages.JAVA);
-        cm = new TestContextManager(projectRoot, consoleIO, new JavaAnalyzer(project));
+    void setup() {
+        var cm = new TestContextManager(tempDir, new NoOpConsoleIO());
+        context = new Context(cm);
+        var model = new Service.ModelConfig(
+                "current-model", Service.ReasoningLevel.DEFAULT, Service.ProcessingTier.DEFAULT);
+        currentMeta = new TaskResult.TaskMeta(TaskResult.Type.ARCHITECT, model);
     }
 
     @Test
-    void testWorkspaceReturnsCombinedMessages() throws IOException {
-        var file = createTestFile("file.txt", "content");
-        cm.addEditableFile(file);
+    void testGetHistoryMessages_PrecedenceSummary() {
+        var log = new ContextFragments.TaskFragment(List.of(UserMessage.from("log")), "desc");
+        var entry = new TaskEntry(0, log, log, "summary text", null);
+        context = context.addHistoryEntry(entry);
 
-        var ctx = new Context(cm);
-        var frag = new ContextFragments.ProjectPathFragment(file, cm);
-        ctx = ctx.addFragments(List.of(frag));
+        List<ChatMessage> messages = WorkspacePrompts.getHistoryMessages(context, currentMeta);
 
-        WorkspacePrompts.CodeAgentMessages records =
-                WorkspacePrompts.getMessagesForCodeAgent(ctx, EnumSet.of(SpecialTextType.TASK_LIST));
-
-        assertNotNull(records);
-        assertFalse(records.workspace().isEmpty(), "workspace() should return combined messages");
+        assertEquals(2, messages.size());
+        assertTrue(messages.get(0) instanceof UserMessage);
+        assertTrue(Messages.getText(messages.get(0)).contains("summary text"));
     }
 
     @Test
-    void testBuildFailurePopulatedWhenBuildFragmentExists() {
-        var ctx = new Context(cm).withBuildResult(false, "Build failed: syntax error on line 42");
+    void testGetHistoryMessages_PrecedenceSubAgentResult() {
+        var log = new ContextFragments.TaskFragment(List.of(UserMessage.from("log")), "desc");
+        var subResult =
+                new TaskResult(Context.EMPTY, new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS, "done"));
+        var meta = new TaskResult.TaskMeta(TaskResult.Type.SEARCH, null);
+        var entry = new TaskEntry(0, log, log, null, meta, subResult);
+        context = context.addHistoryEntry(entry);
 
-        WorkspacePrompts.CodeAgentMessages records =
-                WorkspacePrompts.getMessagesForCodeAgent(ctx, EnumSet.of(SpecialTextType.TASK_LIST));
+        List<ChatMessage> messages = WorkspacePrompts.getHistoryMessages(context, currentMeta);
 
-        assertNotNull(records.buildFailure(), "buildFailure() should be populated when a build fragment exists");
-        assertTrue(records.buildFailure().contains("syntax error on line 42"));
+        assertEquals(2, messages.size());
+        assertTrue(messages.get(0) instanceof UserMessage);
+        String text = Messages.getText(messages.get(0));
+        assertTrue(text.contains("Search result"));
+        assertTrue(text.contains("SUCCESS"));
     }
 
     @Test
-    void testExactlyOneBuildStatusBlockExistsInCombinedWorkspace() throws IOException {
-        var file = createTestFile("file.txt", "content");
-        cm.addEditableFile(file);
+    void testGetHistoryMessages_PrecedenceLlmLogRedaction() {
+        var toolReq =
+                ToolExecutionRequest.builder().name("myTool").arguments("{}").build();
+        var aiMsg = AiMessage.from(toolReq);
+        var toolRes = new ToolExecutionResultMessage("id", "myTool", "output");
+        var log = new ContextFragments.TaskFragment(List.of(UserMessage.from("query"), aiMsg, toolRes), "desc");
 
-        var ctx = new Context(cm);
-        var frag = new ContextFragments.ProjectPathFragment(file, cm);
-        ctx = ctx.addFragments(List.of(frag));
-        ctx = ctx.withBuildResult(false, "Compilation failed");
+        var entry = new TaskEntry(0, log, log, null, null);
+        context = context.addHistoryEntry(entry);
 
-        WorkspacePrompts.CodeAgentMessages records =
-                WorkspacePrompts.getMessagesForCodeAgent(ctx, EnumSet.of(SpecialTextType.TASK_LIST));
+        List<ChatMessage> messages = WorkspacePrompts.getHistoryMessages(context, currentMeta);
 
-        String allText = records.workspace().stream().map(Messages::getText).collect(Collectors.joining("\n"));
-        int count = (int) allText.split("<workspace_build_status").length - 1;
-        assertEquals(1, count, "Should have exactly one build status block in the combined workspace");
-    }
+        // Should have: User("query"), Ai message (redacted)
+        // ToolExecutionResultMessage should be omitted
+        assertEquals(2, messages.size());
+        assertTrue(messages.get(0) instanceof UserMessage);
+        assertTrue(messages.get(1) instanceof AiMessage);
 
-    @Test
-    void testSortEditableFragmentsByMtimeOrdersProjectFilesByModificationTime() throws IOException {
-        // Create three test files
-        var fileA = createTestFile("src/A.java", "class A {}");
-        var fileB = createTestFile("src/B.java", "class B {}");
-        var fileC = createTestFile("src/C.java", "class C {}");
-
-        // Explicitly set mtimes to ensure ordering: A oldest, then B, then C newest
-        long baseMillis = System.currentTimeMillis() - 10_000L;
-        Files.setLastModifiedTime(projectRoot.resolve("src/A.java"), FileTime.fromMillis(baseMillis));
-        Files.setLastModifiedTime(projectRoot.resolve("src/B.java"), FileTime.fromMillis(baseMillis + 1_000L));
-        Files.setLastModifiedTime(projectRoot.resolve("src/C.java"), FileTime.fromMillis(baseMillis + 2_000L));
-
-        // Create fragments in reverse order (C, B, A) to verify sorting reorders them
-        var fragC = new ContextFragments.ProjectPathFragment(fileC, cm);
-        var fragB = new ContextFragments.ProjectPathFragment(fileB, cm);
-        var fragA = new ContextFragments.ProjectPathFragment(fileA, cm);
-
-        var ctx = new Context(cm).addFragments(List.of(fragC, fragB, fragA));
-
-        // Sort and verify order is by mtime (oldest A, then B, then newest C)
-        var sorted = ContextFragment.sortByMtime(ctx.getEditableFragments()).toList();
-
-        assertEquals(3, sorted.size(), "All three fragments should be present");
-        assertEquals(fragA, sorted.get(0), "Oldest file A should be first");
-        assertEquals(fragB, sorted.get(1), "Middle file B should be second");
-        assertEquals(fragC, sorted.get(2), "Newest file C should be last");
-    }
-
-    @Test
-    void testFormatTocConsolidatesFormats() {
-        var file = createTestFile("test.java", "class Test {}");
-        cm.addEditableFile(file);
-
-        var ctx = new Context(cm);
-        var frag = new ContextFragments.ProjectPathFragment(file, cm);
-        ctx = ctx.addFragments(List.of(frag));
-
-        // TOC should always show a single editable section and never split by changed/unchanged
-        String toc = WorkspacePrompts.formatToc(ctx);
-        assertTrue(toc.contains("<workspace_editable>"), "Should have a single editable section");
-        assertTrue(toc.contains("loc=\"1\""), "Should include loc attribute in TOC entry");
-        assertFalse(
-                toc.contains("<workspace_editable_unchanged>"),
-                "Toc should no longer include an 'unchanged' editable section");
-        assertFalse(
-                toc.contains("<workspace_editable_changed>"),
-                "Toc should no longer include a 'changed' editable section");
-    }
-
-    @Test
-    void testFormatTocEmptyWorkspaceMessage() {
-        var ctx = new Context(cm);
-        String toc = WorkspacePrompts.formatToc(ctx);
-
-        assertTrue(toc.contains("The Workspace is currently empty."));
-        assertFalse(toc.contains("Here is a list of the full contents of the Workspace that you can refer to above."));
-    }
-
-    @Test
-    void testSortEditableFragmentsByMtimePreservesNonProjectFragmentOrder() throws IOException {
-        var file = createTestFile("file.txt", "content");
-        cm.addEditableFile(file);
-
-        // Create an editable virtual fragment (UsageFragment) and a project path fragment
-        var virtualFrag = new ContextFragments.UsageFragment(cm, "com.example.SomeTarget");
-        var projectFrag = new ContextFragments.ProjectPathFragment(file, cm);
-
-        var ctx = new Context(cm).addFragments(List.of(projectFrag)).addFragments(virtualFrag);
-
-        // Sort and verify virtual fragment stays first
-        var sorted = ContextFragment.sortByMtime(ctx.getEditableFragments()).toList();
-
-        assertEquals(2, sorted.size());
-        assertInstanceOf(
-                ContextFragments.UsageFragment.class, sorted.get(0), "Editable virtual fragment should remain first");
-        assertEquals(projectFrag, sorted.get(1), "Project fragment should be second");
-    }
-
-    // Helper method to create test files
-    private ProjectFile createTestFile(String relativePath, String content) {
-        try {
-            var path = projectRoot.resolve(relativePath);
-            Files.createDirectories(path.getParent());
-            Files.write(path, content.getBytes());
-            return cm.toFile(relativePath);
-        } catch (IOException e) {
-            throw new RuntimeException("Failed to create test file: " + relativePath, e);
-        }
+        String aiText = Messages.getText(messages.get(1));
+        // CodePrompts.redactToolCallsFromOtherModels (called via redactHistoryMessages)
+        // formats tool calls using Messages.getRedactedRepr as: "Tool `name` was invoked with args"
+        // prefixed by "[Historical tool usage by a different model]"
+        // CodePrompts.redactToolCallsFromOtherModels formats tool calls using Messages.getRedactedRepr
+        // and a historical usage prefix: "[Historical tool usage by a different model]\nTool `name` was invoked with
+        // args"
+        assertTrue(aiText.contains("[Historical tool usage by a different model]"), "AI text was: " + aiText);
+        assertTrue(aiText.contains("Tool `myTool` was invoked with"), "AI text was: " + aiText);
+        assertTrue(
+                messages.stream().noneMatch(m -> m instanceof ToolExecutionResultMessage),
+                "ToolExecutionResultMessage was not omitted");
     }
 }
