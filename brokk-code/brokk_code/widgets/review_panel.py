@@ -178,6 +178,7 @@ class GuidedReviewPanel(Vertical, can_focus=True):
         Binding("o", "expand_all", "Expand All", show=False),
         Binding("O", "collapse_all", "Collapse All", show=False),
         Binding("a", "enqueue_task", "Add to Tasks", show=False),
+        Binding("ctrl+c", "copy_section", "Copy Markdown", show=False),
     ]
 
     DEFAULT_CSS = """
@@ -285,7 +286,7 @@ class GuidedReviewPanel(Vertical, can_focus=True):
         """Build help text from bindings."""
         return (
             "[b]Tab/↑↓[/b] Nav  [b]Enter[/b] Toggle  "
-            "[b]a[/b] Add to Tasks  [b]Esc[/b] Cancel review "
+            "[b]Ctrl+C[/b] Copy  [b]a[/b] Add to Tasks  [b]Esc[/b] Cancel review "
         )
 
     def on_mount(self) -> None:
@@ -473,6 +474,34 @@ class GuidedReviewPanel(Vertical, can_focus=True):
             widget.toggle()
         except Exception:
             pass
+
+    def action_copy_section(self) -> None:
+        """Copy the current section's markdown content to clipboard."""
+        section_id = self._current_section_id()
+        if not section_id:
+            return
+        try:
+            widget = self.query_one(f"#{section_id}", ReviewSectionWidget)
+            markdown = self._section_to_markdown(widget._section)
+            self.app.copy_to_clipboard(markdown)
+            help_widget = self.query_one("#review-help", Static)
+            help_widget.update("Copied!")
+            self.set_timer(1.5, lambda: help_widget.update(self._get_help_text()))
+        except Exception:
+            pass
+
+    @staticmethod
+    def _section_to_markdown(section: "ReviewSection") -> str:
+        """Format a ReviewSection as markdown, matching Swing UI output."""
+        chunks = [f"### {section.title}"]
+        if section.content:
+            chunks.append(section.content)
+        for excerpt in section.excerpts:
+            if excerpt.start_line == excerpt.end_line:
+                chunks.append(f"`{excerpt.file_path}:{excerpt.start_line}`")
+            else:
+                chunks.append(f"`{excerpt.file_path}:{excerpt.start_line}-{excerpt.end_line}`")
+        return "\n\n".join(chunks)
 
     def action_enqueue_task(self) -> None:
         """Enqueue the current section as a task."""

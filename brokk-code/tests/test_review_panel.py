@@ -1,8 +1,12 @@
 """Tests for review panel widgets."""
 
 import pytest
-from textual.app import App, ComposeResult
+from unittest.mock import Mock
 
+from textual.app import App, ComposeResult
+from textual.containers import Vertical
+
+from brokk_code.app import ReviewModalScreen
 from brokk_code.review_models import CodeExcerpt, GuidedReview, ReviewSection
 from brokk_code.widgets.review_panel import GuidedReviewPanel, ReviewSectionWidget
 
@@ -446,3 +450,31 @@ async def test_guided_review_panel_active_state():
 
         assert "active" not in first.classes
         assert "active" in second.classes
+
+
+@pytest.mark.asyncio
+async def test_review_modal_screen_escape_dismissal():
+    """Test that pressing Escape on ReviewModalScreen calls on_close and dismisses."""
+    on_close_mock = Mock()
+
+    class ModalTestApp(App):
+        def compose(self) -> ComposeResult:
+            yield Vertical()
+
+    app = ModalTestApp()
+    async with app.run_test() as pilot:
+        screen = ReviewModalScreen(on_close=on_close_mock)
+        await app.push_screen(screen)
+        await pilot.pause()
+
+        assert app.screen == screen
+
+        # Press Escape to trigger action_close_review
+        await pilot.press("escape")
+        await pilot.pause()
+
+        # Verify callback was called
+        on_close_mock.assert_called_once()
+
+        # Verify screen is no longer active
+        assert app.screen != screen
