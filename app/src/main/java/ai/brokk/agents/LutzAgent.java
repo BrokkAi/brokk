@@ -472,7 +472,8 @@ public class LutzAgent {
         // async referenceagent
         CompletableFuture<Set<ContextFragment>> referencesFuture = goal.isBlank()
                 ? CompletableFuture.completedFuture(Set.of())
-                : LoggingFuture.supplyCallableAsync(() -> new ReferenceAgent(cm).resolveReferencedFragments(goal));
+                : LoggingFuture.supplyCallableAsync(
+                        () -> new ReferenceAgent(cm).resolveReferencedFragments(goal, initialContext));
 
         // async janitoragent
         CompletableFuture<Context> pruneFuture;

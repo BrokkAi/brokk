@@ -142,6 +142,24 @@ public class Context {
                 .collect(Collectors.joining("\n\n"));
     }
 
+    public String historyOverview() {
+        return getTaskHistory().stream()
+                .map(entry -> {
+                    if (entry.summary() != null) {
+                        return entry.summary();
+                    }
+                    if (entry.mopLog() != null) {
+                        var messages = entry.mopLog().messages();
+                        if (!messages.isEmpty()) {
+                            return "User: " + Messages.getText(messages.getFirst());
+                        }
+                    }
+                    return "";
+                })
+                .filter(s -> !s.isBlank())
+                .collect(Collectors.joining("\n\n"));
+    }
+
     public Map<ProjectFile, String> buildRelatedSymbols(int k, int n, Set<ProjectFile> toIgnore)
             throws InterruptedException {
         var candidates = getMostRelevantFiles(n).stream()

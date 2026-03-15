@@ -6,6 +6,7 @@ import ai.brokk.TaskResult;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.git.GitDistance;
@@ -49,7 +50,7 @@ public class ReferenceAgent {
     }
 
     @Blocking
-    public Set<ContextFragment> resolveReferencedFragments(String goal) throws InterruptedException {
+    public Set<ContextFragment> resolveReferencedFragments(String goal, Context ctx) throws InterruptedException {
         Set<ProjectFile> fileCandidates = ConcurrentHashMap.newKeySet();
         Set<CodeUnit> classCandidates = ConcurrentHashMap.newKeySet();
         Set<CodeUnit> functionCandidates = ConcurrentHashMap.newKeySet();
@@ -111,8 +112,8 @@ public class ReferenceAgent {
         classCandidates.removeIf(cu -> !whitelistedIdentifiers.contains(cu.identifier()));
         functionCandidates.removeIf(cu -> !whitelistedIdentifiers.contains(cu.identifier()));
 
-        Set<String> relevantReferences =
-                classifyRelevantReferences(goal, fileCandidates, classCandidates, functionCandidates);
+        Set<String> relevantReferences = classifyRelevantReferences(
+                goal, ctx.historyOverview(), fileCandidates, classCandidates, functionCandidates);
 
         if (relevantReferences.isEmpty()) {
             return Set.of();
@@ -140,7 +141,11 @@ public class ReferenceAgent {
     }
 
     private Set<String> classifyRelevantReferences(
-            String goal, Set<ProjectFile> fileCandidates, Set<CodeUnit> classCandidates, Set<CodeUnit> memberCandidates)
+            String goal,
+            String conversationHistory,
+            Set<ProjectFile> fileCandidates,
+            Set<CodeUnit> classCandidates,
+            Set<CodeUnit> memberCandidates)
             throws InterruptedException {
         LinkedHashMap<String, ProjectFile> references = new LinkedHashMap<>();
 
@@ -190,7 +195,7 @@ public class ReferenceAgent {
                         .jsonSchema(schema)
                         .build());
 
-        String prompt = buildReferenceClassificationPrompt(goal, candidates);
+        String prompt = buildReferenceClassificationPrompt(goal, conversationHistory, candidates);
         var result = llm.sendRequest(List.of(new UserMessage(prompt)), requestOptions);
         if (result.error() != null) {
             return Set.of();
@@ -202,18 +207,23 @@ public class ReferenceAgent {
         return relevant;
     }
 
-    private static String buildReferenceClassificationPrompt(String goal, List<String> references) {
+    private static String buildReferenceClassificationPrompt(
+            String goal, String conversationHistory, List<String> references) {
         var mapper = Json.getMapper();
         var valuesArray = mapper.createArrayNode();
         references.forEach(valuesArray::add);
 
         return """
                 The following filenames and identifiers were parsed from (partial) matches in the user's instructions.
-                Return only the references that are relevant to the user's goal.
+                Return only the references that are relevant to the user's instructions, as informed by the conversation history.
 
-                <user_instructions>
+                <conversation_history>
                 %s
-                </user_instructions>
+                </conversation_history>
+
+                <current_instructions>
+                %s
+                </current_instructions>
 
                 References:
                 %s
@@ -222,7 +232,7 @@ public class ReferenceAgent {
                 - "relevant": array of reference strings that are relevant.
                 Include only relevant references in that array.
                 """
-                .formatted(goal, valuesArray);
+                .formatted(conversationHistory, goal, valuesArray);
     }
 
     private static Set<String> parseRelevantReferences(String text) {
