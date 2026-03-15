@@ -1007,7 +1007,7 @@ public class LutzAgent {
             if (!searchAgentReqs.isEmpty()) {
                 // record the current planning; show the search agent output inside a new task
                 context = agent.appendUiMessagesToHistory(context);
-                agent.scope.append(context);
+                agent.scope.append(agent.resetPinsToOriginal(context));
                 var searchResult = parallelSearch.execute(searchAgentReqs, tr);
                 if (searchResult.stopDetails().reason() == TaskResult.StopReason.LLM_ERROR) {
                     return new TurnOutcome.Final(agent.errorResult(
@@ -1026,7 +1026,7 @@ public class LutzAgent {
                         TaskResult.Type.SEARCH,
                         agent.model,
                         searchResult.historyDescription());
-                agent.scope.append(context);
+                agent.scope.append(agent.resetPinsToOriginal(context));
 
                 executedNonHygiene = true;
                 nonHygieneToolCalls.add("callSearchAgent");
@@ -1070,7 +1070,7 @@ public class LutzAgent {
             Set<ProjectFile> added = new HashSet<>(filesAfterSet);
             added.removeAll(filesBeforeSet);
             if (!added.isEmpty()) {
-                agent.scope.publish(context);
+                agent.scope.publish(agent.resetPinsToOriginal(context));
             }
 
             return new TurnOutcome.Continue(
@@ -1289,7 +1289,7 @@ public class LutzAgent {
             var oldContext = context;
             context = agent.appendUiMessagesToHistory(context);
             if (!oldContext.equals(context)) {
-                agent.scope.append(context);
+                agent.scope.append(agent.resetPinsToOriginal(context));
             }
 
             logger.debug("SearchAgent.callCodeAgent invoked with instructions: {}", instructions);
@@ -1300,7 +1300,7 @@ public class LutzAgent {
                     agent.cm.getCodeModel(),
                     instructions,
                     agent.scope,
-                    context);
+                    agent.resetPinsToOriginal(context));
             var buildDetails = agent.cm.getProject().awaitBuildDetails();
             String verifyCommand = buildDetails.afterTaskListCommand();
             if (!verifyCommand.isBlank()) {
@@ -1343,6 +1343,7 @@ public class LutzAgent {
 
     private TaskResult createResult(Context context, TaskResult.StopDetails details) {
         context = appendUiMessagesToHistory(context);
+        context = resetPinsToOriginal(context);
         recordFinalWorkspaceState(context);
         metrics.recordOutcome(details.reason(), workspaceFiles(context).size());
 
@@ -1355,6 +1356,7 @@ public class LutzAgent {
 
     private TaskResult errorResult(TaskResult.StopDetails details, Context context) {
         context = appendUiMessagesToHistory(context);
+        context = resetPinsToOriginal(context);
 
         recordFinalWorkspaceState(context);
         metrics.recordOutcome(details.reason(), workspaceFiles(context).size());
