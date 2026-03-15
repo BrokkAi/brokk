@@ -195,17 +195,17 @@ async def test_guided_review_panel_toggle_section():
         panel.focus()
         await pilot.pause()
 
-        # Get the first section
+        # Get the first section - sections start collapsed
         section = panel.query_one("#key-change-0", ReviewSectionWidget)
-        assert section.expanded is True
-
-        # Toggle with enter
-        await pilot.press("enter")
         assert section.expanded is False
 
-        # Toggle again
-        await pilot.press("space")
+        # Toggle with enter - now expanded
+        await pilot.press("enter")
         assert section.expanded is True
+
+        # Toggle again - back to collapsed
+        await pilot.press("space")
+        assert section.expanded is False
 
 
 @pytest.mark.asyncio

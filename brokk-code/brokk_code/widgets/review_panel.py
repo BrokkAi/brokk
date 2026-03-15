@@ -283,7 +283,10 @@ class GuidedReviewPanel(Vertical, can_focus=True):
 
     def _get_help_text(self) -> str:
         """Build help text from bindings."""
-        return "[b]Tab/↑↓[/b] Nav  [b]Enter[/b] Toggle  [b]a[/b] Add to Tasks  [b]Esc[/b] Close"
+        return (
+            "[b]Tab/↑↓[/b] Nav  [b]Enter[/b] Toggle  "
+            "[b]a[/b] Add to Tasks  [b]Esc[/b] Cancel review "
+        )
 
     def on_mount(self) -> None:
         """Initial state setup."""

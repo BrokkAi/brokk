@@ -2264,7 +2264,11 @@ class BrokkApp(App):
             return
 
         def on_close() -> None:
-            pass
+            if self.job_in_progress and self.current_job_id:
+                chat = self._maybe_chat()
+                if chat:
+                    chat.add_system_message("Cancelling review job...")
+                self.run_worker(self.executor.cancel_job(self.current_job_id))
 
         self.push_screen(ReviewModalScreen(on_close=on_close))
 
