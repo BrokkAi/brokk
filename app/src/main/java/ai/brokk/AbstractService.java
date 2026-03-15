@@ -7,7 +7,6 @@ import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
 import ai.brokk.project.ModelProperties;
 import ai.brokk.project.ModelProperties.ModelType;
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Splitter;
 import com.google.errorprone.annotations.Immutable;
@@ -24,7 +23,6 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.*;
-import java.util.function.Function;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
@@ -32,8 +30,10 @@ import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * Abstract base for Service. Contains model configuration, metadata, and non-network logic.
- * Anything that makes an HTTP request must remain in the concrete Service class.
+ * Abstract base for Service. Contains model configuration, metadata, and
+ * non-network logic.
+ * Anything that makes an HTTP request must remain in the concrete Service
+ * class.
  */
 public abstract class AbstractService implements ExceptionReporter.ReportingService {
 
@@ -181,7 +181,10 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
             return this == DEFAULT ? null : name().toLowerCase(Locale.ROOT);
         }
 
-        /** Returns the cost multiplier label for display (e.g., "2x", "0.5x"), or empty for DEFAULT. */
+        /**
+         * Returns the cost multiplier label for display (e.g., "2x", "0.5x"), or empty
+         * for DEFAULT.
+         */
         public String getMultiplierLabel() {
             return switch (this) {
                 case PRIORITY -> "2x";
@@ -191,16 +194,26 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
         }
     }
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    public record TierPricing(
-            double input_cost_per_token, double output_cost_per_token, double cache_read_input_token_cost) {}
-
-    @JsonIgnoreProperties(ignoreUnknown = true)
     public record PricingTiers(
-            @Nullable TierPricing standard,
-            @Nullable TierPricing priority,
-            @Nullable TierPricing flex,
-            @Nullable TierPricing batch) {
+            @Nullable Map<String, Object> standard,
+            @Nullable Map<String, Object> priority,
+            @Nullable Map<String, Object> flex,
+            @Nullable Map<String, Object> batch) {
+        public static @Nullable PricingTiers fromRawObject(Object value) {
+            if (!(value instanceof Map<?, ?> rawMap)) {
+                return null;
+            }
+
+            var standard = copyTierMap(rawMap.get("standard"));
+            var priority = copyTierMap(rawMap.get("priority"));
+            var flex = copyTierMap(rawMap.get("flex"));
+            var batch = copyTierMap(rawMap.get("batch"));
+            if (standard == null && priority == null && flex == null && batch == null) {
+                return null;
+            }
+            return new PricingTiers(standard, priority, flex, batch);
+        }
+
         public boolean supportsPriority() {
             return priority != null;
         }
@@ -213,12 +226,48 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
             return batch != null;
         }
 
-        public @Nullable TierPricing getTierPricing(ProcessingTier tier) {
+        public @Nullable Map<String, Object> getTierPricing(ProcessingTier tier) {
             return switch (tier) {
                 case PRIORITY -> priority;
                 case FLEX -> flex;
                 case DEFAULT -> standard;
             };
+        }
+
+        private static @Nullable Map<String, Object> copyTierMap(@Nullable Object value) {
+            if (!(value instanceof Map<?, ?> rawMap)) {
+                return null;
+            }
+
+            var copied = new HashMap<String, Object>();
+            for (var entry : rawMap.entrySet()) {
+                if (entry.getKey() == null || entry.getValue() == null) {
+                    continue;
+                }
+
+                var key = entry.getKey().toString();
+                var rawValue = entry.getValue();
+                if (rawValue instanceof Map<?, ?> nestedMap) {
+                    var nestedCopy = copyTierMap(nestedMap);
+                    if (nestedCopy != null) {
+                        copied.put(key, nestedCopy);
+                    }
+                } else {
+                    copied.put(key, rawValue);
+                }
+            }
+
+            return containsPricingData(copied) ? Map.copyOf(copied) : null;
+        }
+
+        private static boolean containsPricingData(Map<String, Object> map) {
+            return map.containsKey("input_cost_per_token")
+                    || map.containsKey("output_cost_per_token")
+                    || map.containsKey("cache_read_input_token_cost")
+                    || map.containsKey("input_cost_per_token_above_200k_tokens")
+                    || map.containsKey("output_cost_per_token_above_200k_tokens")
+                    || map.containsKey("cache_read_input_token_cost_above_200k_tokens")
+                    || map.entrySet().stream().anyMatch(entry -> isThresholdEntry(entry.getKey(), entry.getValue()));
         }
     }
 
@@ -252,13 +301,16 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
     }
 
     /** Represents a cost estimate with both the raw value and formatted string. */
-    public record CostEstimate(double cost, String formatted) {}
+    public record CostEstimate(double cost, String formatted) {
+    }
 
     /** Represents a user-defined favorite model alias. */
-    public record FavoriteModel(String alias, ModelConfig config) {}
+    public record FavoriteModel(String alias, ModelConfig config) {
+    }
 
     /**
-     * Parses a Brokk API key of the form 'brk+<userId>+<token>'. The userId must be a valid UUID.
+     * Parses a Brokk API key of the form 'brk+<userId>+<token>'. The userId must be
+     * a valid UUID.
      * The `sk-` prefix is added implicitly to tokens.
      */
     public static KeyParts parseKey(String key) {
@@ -285,40 +337,7 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
             return new ModelPricing(List.of());
         }
 
-        Function<Object, Double> tryDouble = val -> {
-            if (val instanceof Number n) return n.doubleValue();
-            if (val instanceof String s) {
-                try {
-                    return Double.parseDouble(s);
-                } catch (Exception e) {
-                    return 0.0;
-                }
-            }
-            return 0.0;
-        };
-
-        var inputCost = tryDouble.apply(info.get("input_cost_per_token"));
-        var cachedInputCost = tryDouble.apply(info.get("cache_read_input_token_cost"));
-        var outputCost = tryDouble.apply(info.get("output_cost_per_token"));
-
-        var inputAbove200k = info.get("input_cost_per_token_above_200k_tokens");
-        var cachedInputAbove200k = info.get("cache_read_input_token_cost_above_200k_tokens");
-        var outputAbove200k = info.get("output_cost_per_token_above_200k_tokens");
-        boolean hasAbove200k = inputAbove200k != null || cachedInputAbove200k != null || outputAbove200k != null;
-
-        if (hasAbove200k) {
-            var band1 = new PriceBand(0, 199_999, inputCost, cachedInputCost, outputCost);
-            var band2 = new PriceBand(
-                    200_000,
-                    Long.MAX_VALUE,
-                    inputAbove200k == null ? inputCost : tryDouble.apply(inputAbove200k),
-                    cachedInputAbove200k == null ? cachedInputCost : tryDouble.apply(cachedInputAbove200k),
-                    outputAbove200k == null ? outputCost : tryDouble.apply(outputAbove200k));
-            return new ModelPricing(List.of(band1, band2));
-        } else {
-            var band = new PriceBand(0, Long.MAX_VALUE, inputCost, cachedInputCost, outputCost);
-            return new ModelPricing(List.of(band));
-        }
+        return new ModelPricing(buildPriceBands(info, null));
     }
 
     public ModelPricing getModelPricing(String modelName, ProcessingTier tier) {
@@ -326,22 +345,17 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
         var pricingTiers = info.get("pricing_tiers");
 
         if (pricingTiers instanceof PricingTiers pt) {
-            var tp = pt.getTierPricing(tier);
-            if (tp != null) {
-                var band = new PriceBand(
-                        0,
-                        Long.MAX_VALUE,
-                        tp.input_cost_per_token(),
-                        tp.cache_read_input_token_cost(),
-                        tp.output_cost_per_token());
-                return new ModelPricing(List.of(band));
+            var tierInfo = pt.getTierPricing(tier);
+            if (tierInfo != null) {
+                return new ModelPricing(buildPriceBands(tierInfo, info));
             }
         }
         return getModelPricing(modelName);
     }
 
     /**
-     * Estimates the cost for a request given the model config and input token count.
+     * Estimates the cost for a request given the model config and input token
+     * count.
      * Assumes output is min(4000, inputTokens/2), plus 1000 for reasoning models.
      */
     public CostEstimate estimateCost(ModelConfig config, long inputTokens) {
@@ -375,7 +389,8 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
     }
 
     /**
-     * Gets a map of available model names to their full location strings, suitable for display.
+     * Gets a map of available model names to their full location strings, suitable
+     * for display.
      * Filters out internal/utility models like flash-lite.
      */
     public Map<String, String> getAvailableModels() {
@@ -435,7 +450,8 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
     }
 
     /**
-     * Retrieves the maximum concurrent requests for the given model instance. Returns null if unavailable.
+     * Retrieves the maximum concurrent requests for the given model instance.
+     * Returns null if unavailable.
      */
     public @Nullable Integer getMaxConcurrentRequests(StreamingChatModel model) {
         var info = getModelInfo(nameOf(model));
@@ -445,7 +461,10 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
         return (Integer) info.get("max_concurrent_requests");
     }
 
-    /** Retrieves the tokens per minute for the given model. Returns null if unavailable. */
+    /**
+     * Retrieves the tokens per minute for the given model. Returns null if
+     * unavailable.
+     */
     public @Nullable Integer getTokensPerMinute(StreamingChatModel model) {
         var info = getModelInfo(nameOf(model));
         if (!info.containsKey("tokens_per_minute")) {
@@ -527,7 +546,8 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
                 .strictJsonSchema(true)
                 .baseUrl(baseUrl)
                 .apiKey(kp.token())
-                // this is the only custom header we can set from the client, brokk-llm discards others;
+                // this is the only custom header we can set from the client, brokk-llm discards
+                // others;
                 // in particular, anthropic-beta should be set by proxy.
                 .customHeaders(Map.of("Authorization", "Bearer " + kp.token()))
                 .promptCacheKey(shortName + kp.userId())
@@ -589,12 +609,139 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
         if (info != null) {
             return info;
         }
-        // Fallback: some callers might pass the location instead of the name in legacy tests
-        // or if modelInfoMap is keyed by location and we haven't reached Service.java yet.
+        // Fallback: some callers might pass the location instead of the name in legacy
+        // tests
+        // or if modelInfoMap is keyed by location and we haven't reached Service.java
+        // yet.
         return modelInfoMap.values().stream()
                 .filter(m -> modelName.equals(m.get("model_location")))
                 .findFirst()
                 .orElse(Map.of());
+    }
+
+    private static List<PriceBand> buildPriceBands(Map<String, Object> primary,
+            @Nullable Map<String, Object> fallback) {
+        var thresholdPricing = extractThresholdPricing(primary);
+        if (!thresholdPricing.isEmpty()) {
+            return buildThresholdPriceBands(primary, fallback, thresholdPricing);
+        }
+
+        var inputCost = getCostFromSources(primary, fallback, null, "input_cost_per_token", 0.0);
+        var cachedInputCost = getCostFromSources(primary, fallback, null, "cache_read_input_token_cost", 0.0);
+        var outputCost = getCostFromSources(primary, fallback, null, "output_cost_per_token", 0.0);
+
+        var inputAbove200k = primary.get("input_cost_per_token_above_200k_tokens");
+        var cachedInputAbove200k = primary.get("cache_read_input_token_cost_above_200k_tokens");
+        var outputAbove200k = primary.get("output_cost_per_token_above_200k_tokens");
+        boolean hasAbove200k = inputAbove200k != null || cachedInputAbove200k != null || outputAbove200k != null;
+
+        if (!hasAbove200k) {
+            return List.of(new PriceBand(0, Long.MAX_VALUE, inputCost, cachedInputCost, outputCost));
+        }
+
+        var band1 = new PriceBand(0, 199_999, inputCost, cachedInputCost, outputCost);
+        var band2 = new PriceBand(
+                200_000,
+                Long.MAX_VALUE,
+                inputAbove200k == null ? inputCost : tryDouble(inputAbove200k),
+                cachedInputAbove200k == null ? cachedInputCost : tryDouble(cachedInputAbove200k),
+                outputAbove200k == null ? outputCost : tryDouble(outputAbove200k));
+        return List.of(band1, band2);
+    }
+
+    private static List<PriceBand> buildThresholdPriceBands(
+            Map<String, Object> primary,
+            @Nullable Map<String, Object> fallback,
+            NavigableMap<Long, Map<String, Object>> thresholdPricing) {
+        var bands = new ArrayList<PriceBand>();
+        long lowerBound = 0;
+        Map<String, Object> activePricing = primary;
+
+        for (var entry : thresholdPricing.entrySet()) {
+            long threshold = entry.getKey();
+            if (threshold > lowerBound) {
+                bands.add(createPriceBand(lowerBound, threshold - 1, activePricing, primary, fallback));
+            }
+            activePricing = entry.getValue();
+            lowerBound = max(lowerBound, threshold);
+        }
+
+        bands.add(createPriceBand(lowerBound, Long.MAX_VALUE, activePricing, primary, fallback));
+        return List.copyOf(bands);
+    }
+
+    private static PriceBand createPriceBand(
+            long minTokensInclusive,
+            long maxTokensInclusive,
+            Map<String, Object> primary,
+            @Nullable Map<String, Object> secondary,
+            @Nullable Map<String, Object> tertiary) {
+        return new PriceBand(
+                minTokensInclusive,
+                maxTokensInclusive,
+                getCostFromSources(primary, secondary, tertiary, "input_cost_per_token", 0.0),
+                getCostFromSources(primary, secondary, tertiary, "cache_read_input_token_cost", 0.0),
+                getCostFromSources(primary, secondary, tertiary, "output_cost_per_token", 0.0));
+    }
+
+    private static NavigableMap<Long, Map<String, Object>> extractThresholdPricing(Map<String, Object> primary) {
+        var result = new TreeMap<Long, Map<String, Object>>();
+        for (var entry : primary.entrySet()) {
+            if (!isThresholdEntry(entry.getKey(), entry.getValue())) {
+                continue;
+            }
+
+            assert entry.getValue() instanceof Map<?, ?>;
+            var threshold = Long.parseLong(entry.getKey());
+            var copiedMap = PricingTiers.copyTierMap(entry.getValue());
+            if (copiedMap != null) {
+                result.put(threshold, copiedMap);
+            }
+        }
+        return result;
+    }
+
+    private static boolean isThresholdEntry(String key, @Nullable Object value) {
+        if (!(value instanceof Map<?, ?>)) {
+            return false;
+        }
+        try {
+            return Long.parseLong(key) >= 0;
+        } catch (NumberFormatException e) {
+            return false;
+        }
+    }
+
+    private static double getCostFromSources(
+            @Nullable Map<String, Object> primary,
+            @Nullable Map<String, Object> secondary,
+            @Nullable Map<String, Object> tertiary,
+            String key,
+            double defaultValue) {
+        if (primary != null && primary.get(key) != null) {
+            return tryDouble(primary.get(key));
+        }
+        if (secondary != null && secondary.get(key) != null) {
+            return tryDouble(secondary.get(key));
+        }
+        if (tertiary != null && tertiary.get(key) != null) {
+            return tryDouble(tertiary.get(key));
+        }
+        return defaultValue;
+    }
+
+    private static double tryDouble(@Nullable Object value) {
+        if (value instanceof Number number) {
+            return number.doubleValue();
+        }
+        if (value instanceof String stringValue) {
+            try {
+                return Double.parseDouble(stringValue);
+            } catch (NumberFormatException e) {
+                return 0.0;
+            }
+        }
+        return 0.0;
     }
 
     public boolean supportsParallelCalls(StreamingChatModel model) {
@@ -686,7 +833,10 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
         return supports instanceof Boolean boolVal && boolVal;
     }
 
-    /** Returns the configured processing tier for the given model (defaults to DEFAULT). */
+    /**
+     * Returns the configured processing tier for the given model (defaults to
+     * DEFAULT).
+     */
     public static ProcessingTier getProcessingTier(StreamingChatModel model) {
         if (model instanceof OpenAiStreamingChatModel om) {
             var tier = om.defaultRequestParameters().serviceTier();

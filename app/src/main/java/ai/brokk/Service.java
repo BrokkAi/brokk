@@ -68,7 +68,8 @@ public class Service extends AbstractService implements ExceptionReporter.Report
         } catch (IOException e) {
             LogManager.getLogger(Service.class)
                     .error("Failed to connect to LiteLLM at {} or parse response: {}", proxyUrl, e.getMessage(), e);
-            // tempModelLocations and tempModelInfoMap will be cleared by fetchAvailableModels in this case
+            // tempModelLocations and tempModelInfoMap will be cleared by
+            // fetchAvailableModels in this case
         }
 
         if (tempModelLocations.isEmpty()) {
@@ -102,14 +103,17 @@ public class Service extends AbstractService implements ExceptionReporter.Report
     }
 
     /**
-     * Fetches the user's balance and subscription status for the given Brokk API key.
-     * This is the preferred method when you need both balance and subscription info,
+     * Fetches the user's balance and subscription status for the given Brokk API
+     * key.
+     * This is the preferred method when you need both balance and subscription
+     * info,
      * as it avoids duplicate network calls.
      *
      * @param key the Brokk API key
      * @return BalanceInfo containing balance and subscription status
      * @throws IllegalArgumentException if key is malformed or unauthorized
-     * @throws IOException if network error or unexpected response format
+     * @throws IOException              if network error or unexpected response
+     *                                  format
      */
     @Blocking
     public static BalanceInfo getBalanceInfo(String key) throws IOException {
@@ -157,7 +161,8 @@ public class Service extends AbstractService implements ExceptionReporter.Report
     }
 
     /**
-     * Checks if data sharing is allowed for the organization associated with the given Brokk API key. Defaults to true.
+     * Checks if data sharing is allowed for the organization associated with the
+     * given Brokk API key. Defaults to true.
      */
     public static boolean getDataShareAllowed(String key) {
         try {
@@ -217,7 +222,8 @@ public class Service extends AbstractService implements ExceptionReporter.Report
     }
 
     /**
-     * Fetches available models from the LLM proxy, populates the provided maps, and applies filters.
+     * Fetches available models from the LLM proxy, populates the provided maps, and
+     * applies filters.
      */
     protected void fetchAvailableModels(
             MainProject.DataRetentionPolicy policy,
@@ -280,8 +286,7 @@ public class Service extends AbstractService implements ExceptionReporter.Report
 
             for (JsonNode modelInfoNode : dataNode) {
                 String modelName = modelInfoNode.path("model_name").asText();
-                String modelLocation =
-                        modelInfoNode.path("litellm_params").path("model").asText();
+                String modelLocation = modelInfoNode.path("litellm_params").path("model").asText();
 
                 JsonNode modelInfoData = modelInfoNode.path("model_info");
 
@@ -324,16 +329,15 @@ public class Service extends AbstractService implements ExceptionReporter.Report
                                 }
                             } else if (value.isObject()) {
                                 if ("pricing_tiers".equals(key)) {
-                                    try {
-                                        var pricingTiers = objectMapper.convertValue(value, PricingTiers.class);
+                                    var pricingTiers = parsePricingTiers(value, objectMapper);
+                                    if (pricingTiers != null) {
                                         modelInfo.put(key, pricingTiers);
-                                    } catch (IllegalArgumentException e) {
+                                    } else {
                                         LogManager.getLogger(Service.class)
                                                 .warn(
                                                         "Could not parse pricing_tiers for model {}: {}",
                                                         modelName,
-                                                        value.toString(),
-                                                        e);
+                                                        value.toString());
                                     }
                                 } else {
                                     modelInfo.put(key, value.toString());
@@ -385,8 +389,18 @@ public class Service extends AbstractService implements ExceptionReporter.Report
         }
     }
 
+    static @Nullable PricingTiers parsePricingTiers(JsonNode value, ObjectMapper objectMapper) {
+        try {
+            var rawPricing = objectMapper.convertValue(value, Map.class);
+            return PricingTiers.fromRawObject(rawPricing);
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+    }
+
     /**
-     * Sends feedback supplied by the GUI dialog to Brokk’s backend. Files are attached with the multipart field name
+     * Sends feedback supplied by the GUI dialog to Brokk’s backend. Files are
+     * attached with the multipart field name
      * "attachment".
      */
     @Override
@@ -415,8 +429,8 @@ public class Service extends AbstractService implements ExceptionReporter.Report
                 .addFormDataPart("environment", environment);
 
         if (includeDebugLog) {
-            var debugLogPath =
-                    Path.of(System.getProperty("user.home"), AbstractProject.BROKK_DIR, AbstractProject.DEBUG_LOG_FILE);
+            var debugLogPath = Path.of(System.getProperty("user.home"), AbstractProject.BROKK_DIR,
+                    AbstractProject.DEBUG_LOG_FILE);
             var debugFile = debugLogPath.toFile();
             if (debugFile.exists()) {
                 try {
@@ -463,8 +477,10 @@ public class Service extends AbstractService implements ExceptionReporter.Report
     }
 
     /**
-     * Reports a client exception to the Brokk server for monitoring and debugging purposes.
-     * The exception report JSON is fully constructed by ExceptionReporter; this method
+     * Reports a client exception to the Brokk server for monitoring and debugging
+     * purposes.
+     * The exception report JSON is fully constructed by ExceptionReporter; this
+     * method
      * just handles HTTP transport.
      */
     @Override
@@ -494,7 +510,7 @@ public class Service extends AbstractService implements ExceptionReporter.Report
      * Forwards OAuth callback parameters to the Brokk backend for Codex OAuth flow.
      *
      * @param callbackParams The query parameters received from the OAuth callback
-     * @param verifier The PKCE code_verifier for this authorization attempt
+     * @param verifier       The PKCE code_verifier for this authorization attempt
      * @return null on success (2xx response), or an error message on failure
      */
     @Nullable
@@ -540,8 +556,8 @@ public class Service extends AbstractService implements ExceptionReporter.Report
                 LogManager.getLogger(Service.class).info("Backend OAuth call succeeded: status={}", statusCode);
                 return null;
             } else {
-                String truncatedBody =
-                        responseBody.length() > 200 ? responseBody.substring(0, 200) + "..." : responseBody;
+                String truncatedBody = responseBody.length() > 200 ? responseBody.substring(0, 200) + "..."
+                        : responseBody;
                 LogManager.getLogger(Service.class)
                         .warn("Backend OAuth call failed: status={}, body={}", statusCode, truncatedBody);
                 return "Backend authentication failed (HTTP " + statusCode + ")";
@@ -553,7 +569,8 @@ public class Service extends AbstractService implements ExceptionReporter.Report
     }
 
     /**
-     * Disconnects the OpenAI Codex OAuth authorization by calling the backend DELETE endpoint.
+     * Disconnects the OpenAI Codex OAuth authorization by calling the backend
+     * DELETE endpoint.
      *
      * @return null on success (2xx response), or an error message on failure
      */
@@ -580,8 +597,8 @@ public class Service extends AbstractService implements ExceptionReporter.Report
                         .info("OpenAI Codex OAuth disconnected successfully: status={}", statusCode);
                 return null;
             } else {
-                String truncatedBody =
-                        responseBody.length() > 200 ? responseBody.substring(0, 200) + "..." : responseBody;
+                String truncatedBody = responseBody.length() > 200 ? responseBody.substring(0, 200) + "..."
+                        : responseBody;
                 LogManager.getLogger(Service.class)
                         .warn("Failed to disconnect OpenAI Codex OAuth: status={}, body={}", statusCode, truncatedBody);
                 return "Failed to disconnect (HTTP " + statusCode + ")";
@@ -593,7 +610,8 @@ public class Service extends AbstractService implements ExceptionReporter.Report
     }
 
     /**
-     * STT implementation using Whisper-compatible API via LiteLLM proxy. Uses OkHttp for multipart/form-data upload.
+     * STT implementation using Whisper-compatible API via LiteLLM proxy. Uses
+     * OkHttp for multipart/form-data upload.
      */
     public class OpenAIStt implements SpeechToTextModel {
         private final Logger logger = LogManager.getLogger(OpenAIStt.class);
@@ -645,8 +663,7 @@ public class Service extends AbstractService implements ExceptionReporter.Report
             String proxyUrl = MainProject.getProxyUrl();
             String endpoint = proxyUrl + "/audio/transcriptions";
 
-            Request request =
-                    BrokkHttp.proxyRequest().url(endpoint).post(requestBody).build();
+            Request request = BrokkHttp.proxyRequest().url(endpoint).post(requestBody).build();
 
             logger.debug("Sending STT request to {}", endpoint);
 
@@ -704,12 +721,13 @@ public class Service extends AbstractService implements ExceptionReporter.Report
     }
 
     // Separate mapper configured to ignore unknown properties
-    private static final ObjectMapper SESSION_OBJECT_MAPPER =
-            new ObjectMapper().configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+    private static final ObjectMapper SESSION_OBJECT_MAPPER = new ObjectMapper()
+            .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
 
     private static @Nullable String sessionAuthHeader() {
         String key = MainProject.getBrokkKey();
-        if (key.isBlank()) return null;
+        if (key.isBlank())
+            return null;
         return "Bearer " + key;
     }
 
