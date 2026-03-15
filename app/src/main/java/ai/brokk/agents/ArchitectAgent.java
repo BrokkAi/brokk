@@ -1,5 +1,6 @@
 package ai.brokk.agents;
 
+import static java.lang.Math.min;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
 import ai.brokk.AbstractService;
@@ -537,7 +538,8 @@ public class ArchitectAgent {
      * results are appended to the provided scope.
      */
     public TaskResult executeWithScan() throws InterruptedException {
-        var prune = Messages.getApproximateTokens(context) > cm.getService().getMaxInputTokens(planningModel) * 0.2;
+        int pruneThreshold = min(40_000, (int) (cm.getService().getMaxInputTokens(planningModel) * 0.2));
+        var prune = Messages.getApproximateTokens(context) > pruneThreshold;
         context = LutzAgent.setupContext(context, goal, prune).context();
 
         // Run Architect proper
