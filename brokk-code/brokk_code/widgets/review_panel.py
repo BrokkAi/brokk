@@ -391,7 +391,7 @@ class GuidedReviewPanel(Vertical, can_focus=True):
         group_title: str,
         sections: List[ReviewSection],
         id_prefix: str,
-        border_color: str = "blue",
+        border_color: str = "cyan",
     ) -> None:
         """Mount a group of review sections."""
         children: list = []
