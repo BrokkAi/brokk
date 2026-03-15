@@ -371,13 +371,9 @@ class GuidedReviewPanel(Vertical, can_focus=True):
 
         # Additional Tests
         if self._review.additional_tests:
-            tests_panel = Panel(
-                DotMarkdown(self._review.additional_tests),
-                title="Additional Tests",
-                title_align="left",
-                border_style="green",
+            self._mount_section_group(
+                content, "Additional Tests", self._review.additional_tests, "additional-test"
             )
-            content.mount(Static(tests_panel, classes="review-section-group"))
 
         # Set initial cursor
         if self._section_ids:

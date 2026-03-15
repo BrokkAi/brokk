@@ -1,7 +1,7 @@
 """Python dataclasses mirroring Java ReviewParser output structures."""
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 
 @dataclass
@@ -31,7 +31,7 @@ class GuidedReview:
     key_changes: List[ReviewSection] = field(default_factory=list)
     design_notes: List[ReviewSection] = field(default_factory=list)
     tactical_notes: List[ReviewSection] = field(default_factory=list)
-    additional_tests: Optional[str] = None
+    additional_tests: List[ReviewSection] = field(default_factory=list)
 
 
 def _parse_excerpt(data: Dict[str, Any]) -> CodeExcerpt:
@@ -111,26 +111,27 @@ def _parse_tactical_note(data: Dict[str, Any]) -> ReviewSection:
     )
 
 
-def _parse_additional_tests(tests_data: Any) -> Optional[str]:
-    """Parse additionalTests list into a combined string."""
+def _parse_additional_tests(tests_data: Any) -> List[ReviewSection]:
+    """Parse additionalTests list into a list of ReviewSection objects."""
     if not tests_data or not isinstance(tests_data, list):
-        return None
+        return []
 
-    parts: List[str] = []
+    sections: List[ReviewSection] = []
     for test in tests_data:
         if not isinstance(test, dict):
             continue
         title = test.get("title", "")
         recommendation = test.get("recommendation", "")
         if title or recommendation:
-            if title and recommendation:
-                parts.append(f"**{title}:** {recommendation}")
-            elif title:
-                parts.append(f"**{title}**")
-            else:
-                parts.append(recommendation)
+            sections.append(
+                ReviewSection(
+                    title=title or "Test",
+                    content=recommendation,
+                    excerpts=[],
+                )
+            )
 
-    return "\n\n".join(parts) if parts else None
+    return sections
 
 
 def parse_guided_review(data: Dict[str, Any]) -> GuidedReview:

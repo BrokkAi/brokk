@@ -93,7 +93,13 @@ def make_sample_review() -> GuidedReview:
                 ],
             ),
         ],
-        additional_tests="**Test edge cases:** Ensure empty input is handled.",
+        additional_tests=[
+            ReviewSection(
+                title="Test edge cases",
+                content="Ensure empty input is handled.",
+                excerpts=[],
+            )
+        ],
     )
 
 
@@ -137,8 +143,8 @@ async def test_guided_review_panel_displays_review():
 
         # Check sections are created
         sections = panel.query(ReviewSectionWidget)
-        # 2 key changes + 1 design note + 1 tactical note = 4
-        assert len(sections) == 4
+        # 2 key changes + 1 design note + 1 tactical note + 1 additional test = 5
+        assert len(sections) == 5
 
 
 @pytest.mark.asyncio
@@ -153,6 +159,7 @@ async def test_guided_review_panel_section_ids():
         assert "key-change-1" in panel._section_ids
         assert "design-note-0" in panel._section_ids
         assert "tactical-note-0" in panel._section_ids
+        assert "additional-test-0" in panel._section_ids
 
 
 @pytest.mark.asyncio
@@ -178,7 +185,7 @@ async def test_guided_review_panel_keyboard_navigation():
 
         # Wrap around at top
         await pilot.press("up")
-        assert panel._cursor_index == 3  # Last section
+        assert panel._cursor_index == 4  # Last section (5 sections total)
 
         # Wrap around at bottom
         await pilot.press("down")
@@ -372,7 +379,8 @@ async def test_guided_review_panel_clear_review():
 
         # Verify review is loaded
         sections = panel.query(ReviewSectionWidget)
-        assert len(sections) == 4
+        # 2 key changes + 1 design note + 1 tactical note + 1 additional test = 5
+        assert len(sections) == 5
 
         # Clear the review
         panel.clear_review()

@@ -51,7 +51,7 @@ class TestGuidedReview:
         assert review.key_changes == []
         assert review.design_notes == []
         assert review.tactical_notes == []
-        assert review.additional_tests is None
+        assert review.additional_tests == []
 
     def test_with_all_fields(self):
         review = GuidedReview(
@@ -59,12 +59,12 @@ class TestGuidedReview:
             key_changes=[ReviewSection("Change 1", "Description", [])],
             design_notes=[ReviewSection("Design 1", "Note", [])],
             tactical_notes=[ReviewSection("Tactical 1", "Fix", [])],
-            additional_tests="Test recommendations",
+            additional_tests=[ReviewSection("Test rec", "Recommendations", [])],
         )
         assert len(review.key_changes) == 1
         assert len(review.design_notes) == 1
         assert len(review.tactical_notes) == 1
-        assert review.additional_tests == "Test recommendations"
+        assert len(review.additional_tests) == 1
 
 
 class TestParseGuidedReview:
@@ -74,7 +74,7 @@ class TestParseGuidedReview:
         assert review.key_changes == []
         assert review.design_notes == []
         assert review.tactical_notes == []
-        assert review.additional_tests is None
+        assert review.additional_tests == []
 
     def test_overview_only(self):
         data = {"overview": "This is the overview"}
@@ -161,9 +161,11 @@ class TestParseGuidedReview:
             ],
         }
         review = parse_guided_review(data)
-        assert review.additional_tests is not None
-        assert "**Test edge case:** Add test for empty input" in review.additional_tests
-        assert "**Test error handling:** Verify exception is raised" in review.additional_tests
+        assert len(review.additional_tests) == 2
+        assert review.additional_tests[0].title == "Test edge case"
+        assert review.additional_tests[0].content == "Add test for empty input"
+        assert review.additional_tests[1].title == "Test error handling"
+        assert review.additional_tests[1].content == "Verify exception is raised"
 
     def test_file_path_string_format(self):
         data = {
@@ -240,5 +242,5 @@ class TestParseGuidedReview:
         assert len(review.key_changes) == 1
         assert len(review.design_notes) == 1
         assert len(review.tactical_notes) == 1
-        assert review.additional_tests is not None
-        assert "Unit test needed" in review.additional_tests
+        assert len(review.additional_tests) == 1
+        assert review.additional_tests[0].title == "Unit test needed"
