@@ -122,6 +122,7 @@ public class SettingsProjectBuildPanel extends JPanel {
     private final ModulesTableModel modulesTableModel = new ModulesTableModel();
     private final JTable modulesTable = new JTable(modulesTableModel);
 
+    private final JPanel languagePanel = new JPanel(new GridBagLayout());
     private JCheckBox setJavaHomeCheckbox = new JCheckBox("Set JAVA_HOME to");
     private JdkSelector jdkSelector = new JdkSelector();
 
@@ -232,9 +233,8 @@ public class SettingsProjectBuildPanel extends JPanel {
         contentPanel.add(bannerPanel, gbc);
         gbc.insets = new Insets(5, 0, 5, 0);
 
-        // --- 1. JDK Configuration Panel ---
-        var languagePanel = new JPanel(new GridBagLayout());
-        languagePanel.setBorder(BorderFactory.createTitledBorder("JDK Configuration"));
+        // --- 1. Language Configuration Panel ---
+        languagePanel.setBorder(BorderFactory.createTitledBorder("Language Configuration"));
         var langGbc = new GridBagConstraints();
         langGbc.insets = new Insets(2, 2, 2, 2);
         langGbc.fill = GridBagConstraints.HORIZONTAL;
@@ -1157,6 +1157,7 @@ public class SettingsProjectBuildPanel extends JPanel {
 
     private void updateJdkControlsVisibility(boolean isJvmVisible) {
         Runnable apply = () -> {
+            languagePanel.setVisible(isJvmVisible);
             setJavaHomeCheckbox.setVisible(isJvmVisible);
             jdkSelector.setVisible(isJvmVisible);
         };

@@ -316,7 +316,7 @@ public class ProjectBuildRunner {
         try {
             Files.createDirectories(lockDir);
         } catch (IOException e) {
-            logger.debug("Error creating build lock directory {}", lockDir, e);
+            logger.warn("Error creating build lock directory {}", lockDir, e);
             return null;
         }
         String repoNameForLock = getOriginRepositoryName();

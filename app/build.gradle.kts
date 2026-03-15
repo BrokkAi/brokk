@@ -814,6 +814,19 @@ tasks.register<JavaExec>("runPageRankBenchmark") {
     }
 }
 
+tasks.register<JavaExec>("runSearchFileContentsBenchmark") {
+    group = "application"
+    description = "Runs the SearchFileContentsBenchmark tool"
+    mainClass.set("ai.brokk.tools.SearchFileContentsBenchmark")
+    classpath = sourceSets.test.get().runtimeClasspath
+    jvmArgumentProviders.add(object : CommandLineArgumentProvider {
+        override fun asArguments(): Iterable<String> = listOf("-Xmx4g", "-XX:+UseG1GC")
+    })
+    if (project.hasProperty("args")) {
+        args(Commandline.translateCommandline(project.property("args") as String).toList())
+    }
+}
+
 tasks.register<JavaExec>("runUsageBenchEval") {
     group = "application"
     description = "Runs the UsageBenchEval tool for UsageFinder evaluation"
