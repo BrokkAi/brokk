@@ -977,14 +977,7 @@ public final class JobRunner {
                                     }
                                     case GUIDED_REVIEW -> {
                                         try (var taskScope = cm.beginTaskUngrouped("Guided Review")) {
-                                            var repo = (GitRepo) cm.getProject().getRepo();
-                                            var defaultBranch = repo.getDefaultBranch();
-                                            String mergeBase = repo.getMergeBase("HEAD", defaultBranch);
-                                            if (mergeBase == null) {
-                                                throw new IllegalStateException(
-                                                        "Cannot find merge base with " + defaultBranch);
-                                            }
-                                            var reviewScope = ReviewScope.fromBaseline(cm, mergeBase, "WORKING");
+                                            var reviewScope = ReviewScope.fromDefaultBranch(cm);
 
                                             var plannerModel = resolveModelOrThrow(
                                                     spec.plannerModel(), spec.reasoningLevel(), spec.temperature());

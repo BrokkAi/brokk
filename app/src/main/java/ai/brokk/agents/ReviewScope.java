@@ -64,6 +64,28 @@ public record ReviewScope(DiffService.CumulativeChanges changes, ReviewScope.Met
     }
 
     /**
+     * returns a ReviewScope for changes from the merge-base of the default branch and HEAD,
+     * up to the working tree.
+     */
+    @Blocking
+    public static ReviewScope fromDefaultBranch(IContextManager cm) {
+        if (!cm.getProject().hasGit()) {
+            throw new IllegalStateException("ReviewScope requires a git repository");
+        }
+        var repo = (GitRepo) cm.getProject().getRepo();
+        try {
+            var defaultBranch = repo.getDefaultBranch();
+            String mergeBase = repo.getMergeBase("HEAD", defaultBranch);
+            if (mergeBase == null) {
+                throw new IllegalArgumentException("Cannot find merge base with " + defaultBranch);
+            }
+            return fromBaseline(cm, mergeBase, "WORKING");
+        } catch (GitAPIException e) {
+            throw new RuntimeException("Failed to compute merge base from default branch", e);
+        }
+    }
+
+    /**
      * returns a ReviewContext for changes from ($fromRef..HEAD]
      */
     @Blocking

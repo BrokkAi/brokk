@@ -8,7 +8,6 @@ import ai.brokk.executor.jobs.ErrorPayload;
 import ai.brokk.executor.jobs.JobRunner;
 import ai.brokk.executor.jobs.JobSpec;
 import ai.brokk.executor.jobs.JobStore;
-import ai.brokk.git.GitRepo;
 import ai.brokk.util.ContentDiffUtils;
 import com.sun.net.httpserver.HttpExchange;
 import java.io.IOException;
@@ -153,14 +152,7 @@ public final class ReviewRouter implements SimpleHttpServer.CheckedHttpHandler {
                 return;
             }
 
-            var repo = (GitRepo) contextManager.getProject().getRepo();
-            var defaultBranch = repo.getDefaultBranch();
-            String mergeBase = repo.getMergeBase("HEAD", defaultBranch);
-            if (mergeBase == null) {
-                throw new IllegalArgumentException("Cannot find merge base with " + defaultBranch);
-            }
-
-            var reviewScope = ReviewScope.fromBaseline(contextManager, mergeBase, "WORKING");
+            var reviewScope = ReviewScope.fromDefaultBranch(contextManager);
             var changes = reviewScope.changes();
 
             var files = new ArrayList<Map<String, Object>>();
