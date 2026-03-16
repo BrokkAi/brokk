@@ -6,9 +6,16 @@ import org.jetbrains.annotations.Nullable;
 public final class TreeSitterAnalyzerStateMigrator {
 
     /**
-     * Threshold within the current major version line that triggers a rebuild for strict languages.
+     * Threshold for Java that triggers a rebuild to ensure synthetic flags are correctly populated
+     * in existing snapshots (transition from 2.0.0 -> 2.1.0).
      */
-    public static final SemVer REBUILD_THRESHOLD = SemVer.parse("2.1.0");
+    public static final SemVer JAVA_REBUILD_THRESHOLD = SemVer.parse("2.1.0");
+
+    /**
+     * Threshold for TypeScript which remains strict but did not receive the synthetic flag change
+     * requiring a 2.1.0 rebuild.
+     */
+    public static final SemVer TYPESCRIPT_REBUILD_THRESHOLD = SemVer.parse("2.0.0");
 
     private TreeSitterAnalyzerStateMigrator() {}
 
@@ -20,12 +27,15 @@ public final class TreeSitterAnalyzerStateMigrator {
         // Java requires a rebuild to ensure synthetic flags are correctly populated
         // in existing snapshots (transition from 2.0.0 -> 2.1.0).
         if (language == Languages.JAVA) {
-            return fromVer == null || fromVer.compareTo(REBUILD_THRESHOLD) < 0;
+            return fromVer == null || fromVer.compareTo(JAVA_REBUILD_THRESHOLD) < 0;
         }
 
-        // TypeScript remains strict but doesn't necessarily need a 2.1.0 force-rebuild
-        // if its definitions haven't changed in a way that requires it.
-        // For now, only Java is targeted for the 2.1.0 synthetic flag migration.
+        // TypeScript remains strict and requires a rebuild for legacy (null) or pre-2.0.0 versions,
+        // but it does not need the 2.1.0 synthetic flag migration.
+        if (language == Languages.TYPESCRIPT) {
+            return fromVer == null || fromVer.compareTo(TYPESCRIPT_REBUILD_THRESHOLD) < 0;
+        }
+
         return false;
     }
 

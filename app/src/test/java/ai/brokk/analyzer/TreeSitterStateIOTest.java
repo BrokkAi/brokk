@@ -838,18 +838,19 @@ public class TreeSitterStateIOTest {
 
     @Test
     void javaStrictSchemaGating(@TempDir Path tempDir) throws Exception {
-        // Filenames must exactly match <language>.bin.lz4 for inference if languageInternalName is null in DTO
-        Path javaFile = tempDir.resolve("java" + Language.ANALYZER_STATE_SUFFIX);
+        // We provide languageInternalName="JAVA" explicitly to avoid reliance on filename inference
+        // during strict gating tests.
+        Path javaFile = tempDir.resolve("java-gating" + Language.ANALYZER_STATE_SUFFIX);
 
-        writeDtoWithSchemaVersion(javaFile, "1.1.0", 110L);
+        writeDtoWithSchemaVersion(javaFile, "1.1.0", 110L, "JAVA");
         assertTrue(TreeSitterStateIO.load(javaFile).isEmpty(), "Java should REJECT legacy major schemaVersion 1.1.0");
 
-        writeDtoWithSchemaVersion(javaFile, "2.0.0", 200L);
+        writeDtoWithSchemaVersion(javaFile, "2.0.0", 200L, "JAVA");
         assertTrue(
                 TreeSitterStateIO.load(javaFile).isEmpty(),
-                "Java should REJECT schemaVersion 2.0.0 as it is below REBUILD_THRESHOLD");
+                "Java should REJECT schemaVersion 2.0.0 as it is below JAVA_REBUILD_THRESHOLD (2.1.0)");
 
-        writeDtoWithSchemaVersion(javaFile, "2.1.0", 210L);
+        writeDtoWithSchemaVersion(javaFile, "2.1.0", 210L, "JAVA");
         assertTrue(TreeSitterStateIO.load(javaFile).isPresent(), "Java should accept current schemaVersion 2.1.0");
     }
 
@@ -866,13 +867,14 @@ public class TreeSitterStateIOTest {
 
     @Test
     void javaSchemaMigrationTo210ForcesRebuild(@TempDir Path tempDir) throws Exception {
-        // Java is strict and we've set REBUILD_THRESHOLD to 2.1.0 in the migrator.
+        // Java is strict and we've set JAVA_REBUILD_THRESHOLD to 2.1.0 in the migrator.
         // A 2.0.0 snapshot should now be rejected to force regeneration of synthetic flags.
-        Path java200 = tempDir.resolve("java" + Language.ANALYZER_STATE_SUFFIX);
-        writeDtoWithSchemaVersion(java200, "2.0.0", 200L);
+        Path java200 = tempDir.resolve("java-rebuild" + Language.ANALYZER_STATE_SUFFIX);
+        writeDtoWithSchemaVersion(java200, "2.0.0", 200L, "JAVA");
 
         var loaded = TreeSitterStateIO.load(java200);
-        assertTrue(loaded.isEmpty(), "Java should REJECT schema 2.0.0 because it is below REBUILD_THRESHOLD (2.1.0)");
+        assertTrue(
+                loaded.isEmpty(), "Java should REJECT schema 2.0.0 because it is below JAVA_REBUILD_THRESHOLD (2.1.0)");
 
         // A 2.1.0 snapshot should be accepted.
         Path java210 = tempDir.resolve("java_new" + Language.ANALYZER_STATE_SUFFIX);
