@@ -329,16 +329,13 @@ async def test_combined_modal_scrolling_on_small_screen():
             highlighted = model_list.highlighted_child
             assert highlighted is not None
 
-            # The region of the highlighted item should be visible within the ListView's window.
-            # scroll_offset tracks how much the content is shifted UP.
-            # Y coordinate in region is relative to the widget.
-            # In Textual, if we've scrolled correctly, the highlighted item's Y
-            # relative to the ListView's scrollable area should be within [0, ListView.size.height)
-
-            # Since we use scroll_to_region, the widget ensures the region is visible.
-            # We can verify the index moved as expected.
+            # Verify the index moved as expected.
             assert model_list.index == 30
 
-            # Verify that the list actually did some scrolling.
-            # With the fix, the ListView itself should now be scrollable.
-            assert model_list.scroll_y > 0
+            # Verify the highlighted item's Y is within the visible list area.
+            # We check the region relative to the list's own viewport.
+            item_y_in_list = highlighted.region.y - model_list.region.y
+            assert 0 <= item_y_in_list < model_list.size.height, (
+                f"Highlighted item at Y={item_y_in_list} is not visible "
+                f"in ListView (height={model_list.size.height})"
+            )

@@ -422,7 +422,7 @@ SlashCommandSuggestions ListItem, ModeSuggestions ListItem, ReasoningSuggestions
 }
 
 #model-select-list-wrap, #reasoning-select-list-wrap {
-    height: auto;
+    height: 1fr;
     max-height: 30;
     border: tall $primary-darken-1;
 }

@@ -802,7 +802,7 @@ class ModelReasoningSelectModal(ModalScreen[tuple[str, str]]):
         with Horizontal(id="model-reasoning-combined-container"):
             with Vertical(classes="selection-pane"):
                 yield Static("Model", id="model-select-title")
-                with VerticalScroll(id="model-select-list-wrap"):
+                with Vertical(id="model-select-list-wrap"):
                     items = []
                     for idx, m in enumerate(self.models):
                         label = f"{'[x]' if m == self.selected_model else '[ ]'} {m}"
@@ -811,7 +811,7 @@ class ModelReasoningSelectModal(ModalScreen[tuple[str, str]]):
 
             with Vertical(classes="selection-pane"):
                 yield Static("Reasoning", id="reasoning-select-title")
-                with VerticalScroll(id="reasoning-select-list-wrap"):
+                with Vertical(id="reasoning-select-list-wrap"):
                     items = []
                     for idx, r in enumerate(self.reasoning_levels):
                         label = f"{'[x]' if r == self.selected_reasoning else '[ ]'} {r}"
@@ -824,8 +824,9 @@ class ModelReasoningSelectModal(ModalScreen[tuple[str, str]]):
             m_list = self.query_one("#model-select-list", ListView)
             m_idx = self.models.index(self.selected_model)
             m_list.index = m_idx
+            # Ensure the initial highlight is visible
             if m_list.highlighted_child:
-                m_list.scroll_to_region(m_list.highlighted_child.region)
+                m_list.highlighted_child.scroll_visible(animate=False)
         except (ValueError, Exception):
             pass
 
@@ -834,8 +835,9 @@ class ModelReasoningSelectModal(ModalScreen[tuple[str, str]]):
             r_list = self.query_one("#reasoning-select-list", ListView)
             r_idx = self.reasoning_levels.index(self.selected_reasoning)
             r_list.index = r_idx
+            # Ensure the initial highlight is visible
             if r_list.highlighted_child:
-                r_list.scroll_to_region(r_list.highlighted_child.region)
+                r_list.highlighted_child.scroll_visible(animate=False)
         except (ValueError, Exception):
             pass
 
@@ -845,9 +847,7 @@ class ModelReasoningSelectModal(ModalScreen[tuple[str, str]]):
     def on_list_view_highlighted(self, message: ListView.Highlighted) -> None:
         """Ensure the highlighted item is always scrolled into view."""
         if message.item:
-            # ListView.scroll_to_region handles scrolling the item into view
-            # within the ListView's own scrollable area.
-            message.list_view.scroll_to_region(message.item.region)
+            message.item.scroll_visible()
 
     def on_list_view_selected(self, message: ListView.Selected) -> None:
         if not message.item or not message.item.id:
@@ -870,11 +870,12 @@ class ModelReasoningSelectModal(ModalScreen[tuple[str, str]]):
                 try:
                     r_idx = self.reasoning_levels.index(self.selected_reasoning)
                     r_list.index = r_idx
-                    if r_list.highlighted_child:
-                        r_list.scroll_to_region(r_list.highlighted_child.region)
                 except (ValueError, Exception):
                     pass
                 r_list.focus()
+                # Explicitly scroll the focused/highlighted item into view
+                if r_list.highlighted_child:
+                    r_list.highlighted_child.scroll_visible(animate=False)
 
             elif message.list_view.id == "reasoning-select-list":
                 # IDs are 'r-0', 'r-1', etc.
