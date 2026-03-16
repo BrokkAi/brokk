@@ -93,10 +93,7 @@ public final class ModelConfigRouter implements SimpleHttpServer.CheckedHttpHand
         var project = contextManager.getProject();
         var current = project.getModelConfig(modelType);
         var reasoning = ReasoningLevel.fromString(request.reasoning(), current.reasoning());
-        var tier = ProcessingTier.fromString(request.tier());
-        if (tier == null) {
-            tier = current.tier();
-        }
+        var tier = request.tier() == null ? current.tier() : ProcessingTier.fromString(request.tier());
 
         var config = new ModelConfig(modelRaw.trim(), reasoning, tier);
 
