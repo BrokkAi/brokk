@@ -15,7 +15,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.treesitter.*;
 
-public final class RustAnalyzer extends TreeSitterAnalyzer {
+public final class RustAnalyzer extends TreeSitterAnalyzer implements MacroExpansionProvider {
     private static final Logger log = LoggerFactory.getLogger(RustAnalyzer.class);
 
     @Override
