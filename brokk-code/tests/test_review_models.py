@@ -92,7 +92,7 @@ class TestParseGuidedReview:
                         {
                             "file": {"relativePath": "src/feature.py"},
                             "line": 42,
-                            "excerpt": "def new_feature():\n    return True",
+                            "text": "def new_feature():\n    return True",
                         }
                     ],
                 }
@@ -139,7 +139,7 @@ class TestParseGuidedReview:
                     "excerpt": {
                         "file": {"relativePath": "src/util.py"},
                         "line": 10,
-                        "excerpt": "x.process()",
+                        "text": "x.process()",
                     },
                 }
             ],
@@ -173,7 +173,7 @@ class TestParseGuidedReview:
                 {
                     "title": "Change",
                     "description": "Desc",
-                    "excerpts": [{"file": "direct/path.py", "line": 1, "excerpt": "code"}],
+                    "excerpts": [{"file": "direct/path.py", "line": 1, "text": "code"}],
                 }
             ]
         }
@@ -208,7 +208,7 @@ class TestParseGuidedReview:
                         {
                             "file": {"relativePath": "src/x.py"},
                             "line": 100,
-                            "excerpt": "class X:\n    pass",
+                            "text": "class X:\n    pass",
                         }
                     ],
                 }
@@ -229,7 +229,7 @@ class TestParseGuidedReview:
                     "excerpt": {
                         "file": {"relativePath": "src/y.py"},
                         "line": 50,
-                        "excerpt": "teh_value = 1",
+                        "text": "teh_value = 1",
                     },
                 }
             ],

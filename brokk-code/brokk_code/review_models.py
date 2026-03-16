@@ -43,7 +43,7 @@ def _parse_excerpt(data: Dict[str, Any]) -> CodeExcerpt:
         file_path = str(file_path) if file_path else ""
 
     line = data.get("line", 1)
-    excerpt_content = data.get("excerpt", "")
+    excerpt_content = data.get("text", "")
     line_count = excerpt_content.count("\n") + 1 if excerpt_content else 1
 
     return CodeExcerpt(
@@ -65,14 +65,14 @@ def _parse_key_change(data: Dict[str, Any]) -> ReviewSection:
     """Parse a KeyChanges entry into ReviewSection."""
     return ReviewSection(
         title=data.get("title", ""),
-        content=data.get("description", "") or data.get("content", ""),
+        content=data.get("description", ""),
         excerpts=_parse_excerpts(data.get("excerpts")),
     )
 
 
 def _parse_design_note(data: Dict[str, Any]) -> ReviewSection:
     """Parse a DesignFeedback entry into ReviewSection."""
-    description = data.get("description", "") or data.get("content", "")
+    description = data.get("description", "")
     recommendation = data.get("recommendation", "")
     content = description
     if recommendation:
@@ -90,7 +90,7 @@ def _parse_design_note(data: Dict[str, Any]) -> ReviewSection:
 
 def _parse_tactical_note(data: Dict[str, Any]) -> ReviewSection:
     """Parse a TacticalFeedback entry into ReviewSection."""
-    description = data.get("description", "") or data.get("content", "")
+    description = data.get("description", "")
     recommendation = data.get("recommendation", "")
     content = description
     if recommendation:

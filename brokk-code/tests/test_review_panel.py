@@ -1,8 +1,8 @@
 """Tests for review panel widgets."""
 
-import pytest
 from unittest.mock import Mock
 
+import pytest
 from textual.app import App, ComposeResult
 from textual.containers import Vertical
 

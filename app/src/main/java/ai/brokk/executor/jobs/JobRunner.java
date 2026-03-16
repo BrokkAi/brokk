@@ -1010,7 +1010,7 @@ public final class JobRunner {
                                             for (var kc : review.keyChanges()) {
                                                 var kcMap = new LinkedHashMap<String, Object>();
                                                 kcMap.put("title", kc.title());
-                                                kcMap.put("content", kc.description());
+                                                kcMap.put("description", kc.description());
                                                 kcMap.put("excerpts", convertExcerpts(kc.excerpts()));
                                                 keyChanges.add(kcMap);
                                             }
@@ -1020,7 +1020,7 @@ public final class JobRunner {
                                             for (var dn : review.designNotes()) {
                                                 var dnMap = new LinkedHashMap<String, Object>();
                                                 dnMap.put("title", dn.title());
-                                                dnMap.put("content", dn.description());
+                                                dnMap.put("description", dn.description());
                                                 dnMap.put("excerpts", convertExcerpts(dn.excerpts()));
                                                 dnMap.put("recommendation", dn.recommendation());
                                                 designNotes.add(dnMap);
@@ -1031,7 +1031,7 @@ public final class JobRunner {
                                             for (var tn : review.tacticalNotes()) {
                                                 var tnMap = new LinkedHashMap<String, Object>();
                                                 tnMap.put("title", tn.title());
-                                                tnMap.put("content", tn.description());
+                                                tnMap.put("description", tn.description());
                                                 if (tn.excerpt() != null) {
                                                     tnMap.put("excerpts", convertExcerpts(List.of(tn.excerpt())));
                                                 }
