@@ -21,6 +21,17 @@ public class MacroPipelineTest {
     }
 
     @Test
+    void testLoadIsMacroPolicy() throws IOException {
+        MacroPolicy policy = MacroPolicyLoader.loadFromResource("/macros/rust/is_macro.yml");
+        assertNotNull(policy);
+        assertEquals("rust", policy.language());
+
+        boolean foundIs = policy.macros().stream()
+                .anyMatch(m -> "Is".equals(m.name()) && m.strategy() == MacroPolicy.MacroStrategy.AI_EXPAND);
+        assertTrue(foundIs, "Should find 'Is' macro with AI_EXPAND strategy");
+    }
+
+    @Test
     void testTemplateExpansion() throws IOException {
         MacroPolicy policy = MacroPolicyLoader.loadFromResource("/macros/rust/std-v1.yml");
         MacroPolicy.MacroMatch myMacro = policy.macros().stream()
