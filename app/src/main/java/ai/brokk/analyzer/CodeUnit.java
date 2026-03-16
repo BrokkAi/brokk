@@ -70,6 +70,10 @@ public class CodeUnit implements Comparable<CodeUnit> {
         return new CodeUnit(source(), kind(), packageName(), shortName(), null, isSynthetic());
     }
 
+    public CodeUnit withSynthetic(boolean synthetic) {
+        return new CodeUnit(source(), kind(), packageName(), shortName(), signature(), synthetic);
+    }
+
     /**
      * Returns the fully qualified name constructed from package and short name. For MODULE, shortName is often a fixed
      * placeholder like "_module_", so fqName becomes "packageName._module_".
@@ -265,7 +269,7 @@ public class CodeUnit implements Comparable<CodeUnit> {
      * @param shortName The simple class name (e.g., "MyClass", "Outer$Inner").
      */
     public static CodeUnit cls(ProjectFile source, String packageName, String shortName) {
-        return new CodeUnit(source, CodeUnitType.CLASS, packageName, shortName);
+        return new CodeUnit(source, CodeUnitType.CLASS, packageName, shortName, null, false);
     }
 
     /**
@@ -280,7 +284,7 @@ public class CodeUnit implements Comparable<CodeUnit> {
     public static CodeUnit fn(ProjectFile source, String packageName, String shortName) {
         // The shortName for FUNCTION can be a simple function name or ClassName.methodName.
         // fqName() handles prefixing with packageName if present.
-        return new CodeUnit(source, CodeUnitType.FUNCTION, packageName, shortName);
+        return new CodeUnit(source, CodeUnitType.FUNCTION, packageName, shortName, null, false);
     }
 
     /**
@@ -299,7 +303,7 @@ public class CodeUnit implements Comparable<CodeUnit> {
         // - Top-level fields: may or may not contain a dot depending on the language
         //   - JS: "_module_.myVar" (uses synthetic module container)
         //   - Python: "fieldName" (no container for module-level fields)
-        return new CodeUnit(source, CodeUnitType.FIELD, packageName, shortName);
+        return new CodeUnit(source, CodeUnitType.FIELD, packageName, shortName, null, false);
     }
 
     /**
@@ -311,6 +315,6 @@ public class CodeUnit implements Comparable<CodeUnit> {
      * @param shortName A short name for the module, often a placeholder like "_module_" or derived from the filename.
      */
     public static CodeUnit module(ProjectFile source, String packageName, String shortName) {
-        return new CodeUnit(source, CodeUnitType.MODULE, packageName, shortName);
+        return new CodeUnit(source, CodeUnitType.MODULE, packageName, shortName, null, false);
     }
 }

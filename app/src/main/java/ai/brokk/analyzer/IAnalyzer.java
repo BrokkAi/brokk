@@ -440,6 +440,7 @@ public interface IAnalyzer {
 
         return byFqName.values().stream()
                 .flatMap(Set::stream)
+                .filter(cu -> !cu.isSynthetic())
                 .sorted(autocompleteDefinitionsSortComparator())
                 .collect(Collectors.toCollection(LinkedHashSet::new));
     }
