@@ -964,15 +964,16 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
                     }));
         }
 
-        // Clear the flag when restoration completes and process any pending refresh
-        chain.whenComplete((result, ex) -> {
+        // Clear the flag when restoration completes and process any pending refresh.
+        // Must run on EDT to avoid races with scheduleRefresh reading these flags.
+        chain.whenComplete((result, ex) -> SwingUtilities.invokeLater(() -> {
             isRestoringExpansion = false;
             if (pendingRefreshDuringRestore) {
                 logger.trace("Expansion restoration complete, processing pending refresh");
                 pendingRefreshDuringRestore = false;
                 scheduleRefresh();
             }
-        });
+        }));
     }
 
     @Override
@@ -1093,11 +1094,13 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
                             Set<File> dirsToLoad = new LinkedHashSet<>(initialDirs);
 
                             // Iteratively load directories, following single-child chains
-                            while (!dirsToLoad.isEmpty()) {
+                            // (depth-limited to guard against symlink cycles)
+                            int chainDepth = 0;
+                            while (!dirsToLoad.isEmpty() && chainDepth < 20) {
                                 var futures = dirsToLoad.stream()
                                         .filter(File::isDirectory)
                                         .filter(dir -> !allDirContents.containsKey(dir))
-                                        .map(dir -> CompletableFuture.runAsync(
+                                        .map(dir -> LoggingFuture.runAsync(
                                                 () -> {
                                                     File[] children = dir.listFiles();
                                                     if (children != null) {
@@ -1115,7 +1118,7 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
                                                 },
                                                 IO_EXECUTOR))
                                         .toArray(CompletableFuture[]::new);
-                                CompletableFuture.allOf(futures).join();
+                                LoggingFuture.allOf(futures).join();
 
                                 // Follow single-child directory chains for correct collapsed display names
                                 Set<File> nextBatch = new LinkedHashSet<>();
@@ -1131,6 +1134,10 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
                                     }
                                 }
                                 dirsToLoad = nextBatch;
+                                chainDepth++;
+                            }
+                            if (chainDepth >= 20) {
+                                logger.warn("Single-child directory chain depth limit reached during refresh preload");
                             }
 
                             // Pre-create nodes and warm coloring caches off EDT
@@ -1261,7 +1268,7 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
                             // Read all directory contents in parallel
                             Map<File, List<File>> dirContents = new ConcurrentHashMap<>();
                             var futures = dirsToLoad.stream()
-                                    .map(dir -> CompletableFuture.runAsync(
+                                    .map(dir -> LoggingFuture.runAsync(
                                             () -> {
                                                 File[] children = dir.listFiles();
                                                 if (children != null) {
@@ -1279,7 +1286,7 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
                                             },
                                             IO_EXECUTOR))
                                     .toArray(CompletableFuture[]::new);
-                            CompletableFuture.allOf(futures).join();
+                            LoggingFuture.allOf(futures).join();
                             return dirContents;
                         },
                         IO_EXECUTOR)
@@ -1911,15 +1918,20 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
             var name = new StringBuilder(file.getName());
             var current = node;
 
-            // Follow single-child directory chains
-            while (current.getChildCount() == 1) {
+            // Follow single-child directory chains (depth-limited to guard against symlink cycles)
+            int chainDepth = 0;
+            while (current.getChildCount() == 1 && chainDepth < 20) {
                 var child = (DefaultMutableTreeNode) current.getFirstChild();
                 if (child.getUserObject() instanceof ProjectTreeNode childNode && childNode.isDirectory()) {
                     name.append("/").append(childNode.getFile().getName());
                     current = child;
+                    chainDepth++;
                 } else {
                     break;
                 }
+            }
+            if (chainDepth >= 20) {
+                logger.warn("Single-child directory chain depth limit reached at {}", file.getAbsolutePath());
             }
             return name.toString();
         }
