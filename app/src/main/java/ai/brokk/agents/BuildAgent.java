@@ -454,7 +454,7 @@ public class BuildAgent {
                 """
                 You are an agent tasked with finding build information for the *development* environment of a software project.
                 Your goal is to identify key build commands (clean, compile/build, test all, test specific) and how to invoke those commands correctly.
-                Determine if there is a single command that builds/tests the entire project. If there is no discernable set of global root commands (e.g. in a multi-module project where commands must be run per-module), leave the root commands blank AND set `buildLintEnabled` and `testAllEnabled` to `false`.
+                Determine if there is a single command that builds/tests the entire project. If there is no discernable set of global root commands (e.g. in a multi-module project where commands must be run per-module), leave the root commands blank AND set `buildLintEnabled`, `testAllEnabled`, and `testSomeEnabled` to `false`. However, even in multi-module setups, there is often a root-level orchestrator (like a Makefile or a root Gradle/Maven file) that can route test commands for unspecified files; if so, populate the global `testSomeCommand` and set `testSomeEnabled` to `true`.
                 Focus *only* on details relevant to local development builds/profiles, explicitly ignoring production-specific
                 configurations unless they are the only ones available.
 
@@ -554,7 +554,7 @@ public class BuildAgent {
                 If the project is a multi-module project (Maven modules, Gradle subprojects, Cargo workspaces, Go modules, Node.js workspaces, etc.), you MUST identify each module and provide its details in the single flat `modules` list.
                 For each module, identify its primary programming language (e.g., "Java", "Python", "Go", "Rust", "JavaScript", "TypeScript", "C#").
                 **IMPORTANT**: For polyglot or multi-language repositories, include all modules from ALL detected languages and frameworks in this same list.
-                Root commands (the top-level parameters) should represent repo-level orchestration. If no repo-level orchestration is possible, leave root commands blank and disable them by setting `buildLintEnabled` and `testAllEnabled` to `false`.
+                Root commands (the top-level parameters) should represent repo-level orchestration. If no repo-level orchestration is possible, leave root commands blank and disable them by setting `buildLintEnabled`, `testAllEnabled`, and `testSomeEnabled` to `false`.
                 Module-specific commands must be executable from the project root (e.g., using flags like `-pl`, `-w`, or `cd`).
 
                 For monolithic repositories or single-module projects, you MUST report a single module with `relativePath: "."` and provide the relevant `testSomeCommand` in that module entry.
