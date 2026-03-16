@@ -3,7 +3,6 @@ package ai.brokk.agents;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
 import ai.brokk.context.Context;
 import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.testutil.NoOpConsoleIO;
@@ -11,6 +10,7 @@ import ai.brokk.testutil.TestContextManager;
 import ai.brokk.tools.ToolOutput;
 import ai.brokk.tools.ToolRegistry;
 import ai.brokk.util.Json;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import java.nio.file.Path;
 import org.junit.jupiter.api.BeforeEach;
@@ -72,8 +72,7 @@ class SearchAgentTerminalActionsTest {
                 """
                 {
                   "fragment_ids" : [ ]
-                }""",
-                result.resultText());
+                }""", result.resultText());
     }
 
     @Test
