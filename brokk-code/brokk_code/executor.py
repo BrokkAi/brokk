@@ -1296,27 +1296,6 @@ class ExecutorManager:
             await self._handle_http_error(e, "/v1/review/submit")
             raise  # Should not be reached
 
-    async def get_review_diff(self) -> Dict[str, Any]:
-        """Fetches the unified diff for the current branch vs merge-base.
-
-        Returns:
-            Dict containing files with their diff text:
-            {files: [{path: str, diff_text: str}, ...]}
-
-        Raises:
-            ExecutorError: If the executor is not started or the request fails.
-        """
-        if not self._http_client:
-            raise ExecutorError("Executor not started")
-
-        try:
-            resp = await self._http_client.get("/v1/review/diff")
-            resp.raise_for_status()
-            return resp.json()
-        except httpx.HTTPError as e:
-            await self._handle_http_error(e, "/v1/review/diff")
-            raise  # Should not be reached
-
     async def cancel_job(self, job_id: str):
         """Cancels an active job."""
         if not self._http_client:

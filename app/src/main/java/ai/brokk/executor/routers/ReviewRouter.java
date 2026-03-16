@@ -1,17 +1,13 @@
 package ai.brokk.executor.routers;
 
-import ai.brokk.ContextManager;
-import ai.brokk.agents.ReviewScope;
 import ai.brokk.executor.JobReservation;
 import ai.brokk.executor.http.SimpleHttpServer;
 import ai.brokk.executor.jobs.ErrorPayload;
 import ai.brokk.executor.jobs.JobRunner;
 import ai.brokk.executor.jobs.JobSpec;
 import ai.brokk.executor.jobs.JobStore;
-import ai.brokk.util.ContentDiffUtils;
 import com.sun.net.httpserver.HttpExchange;
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -25,19 +21,16 @@ import org.jspecify.annotations.Nullable;
 public final class ReviewRouter implements SimpleHttpServer.CheckedHttpHandler {
     private static final Logger logger = LogManager.getLogger(ReviewRouter.class);
 
-    private final ContextManager contextManager;
     private final JobStore jobStore;
     private final JobRunner jobRunner;
     private final JobReservation jobReservation;
     private final CompletableFuture<Void> headlessInit;
 
     public ReviewRouter(
-            ContextManager contextManager,
             JobStore jobStore,
             JobRunner jobRunner,
             JobReservation jobReservation,
             CompletableFuture<Void> headlessInit) {
-        this.contextManager = contextManager;
         this.jobStore = jobStore;
         this.jobRunner = jobRunner;
         this.jobReservation = jobReservation;
@@ -51,11 +44,6 @@ public final class ReviewRouter implements SimpleHttpServer.CheckedHttpHandler {
 
         if (path.equals("/v1/review/submit") && method.equals("POST")) {
             handleSubmitReview(exchange);
-            return;
-        }
-
-        if (path.equals("/v1/review/diff") && method.equals("GET")) {
-            handleGetDiff(exchange);
             return;
         }
 
@@ -137,56 +125,6 @@ public final class ReviewRouter implements SimpleHttpServer.CheckedHttpHandler {
         } catch (Exception e) {
             logger.error("Failed to create review job", e);
             SimpleHttpServer.sendJsonResponse(exchange, 500, ErrorPayload.internalError("Failed to create job", e));
-        }
-    }
-
-    private void handleGetDiff(HttpExchange exchange) throws IOException {
-        if (!RouterUtil.ensureMethod(exchange, "GET")) {
-            return;
-        }
-
-        try {
-            if (!contextManager.getProject().hasGit()) {
-                SimpleHttpServer.sendJsonResponse(
-                        exchange, 409, ErrorPayload.of("NO_GIT", "Git is not available in this workspace"));
-                return;
-            }
-
-            var reviewScope = ReviewScope.fromDefaultBranch(contextManager);
-            var changes = reviewScope.changes();
-
-            var files = new ArrayList<Map<String, Object>>();
-            var analyzer = contextManager.getAnalyzerUninterrupted();
-
-            for (var fileDiff : changes.perFileChanges()) {
-                var fileInfo = new HashMap<String, Object>();
-                var path = fileDiff.newFile() != null
-                        ? fileDiff.newFile().toString()
-                        : (fileDiff.oldFile() != null ? fileDiff.oldFile().toString() : "unknown");
-                fileInfo.put("path", path);
-
-                var diffResult = ContentDiffUtils.computeReviewDiffResult(
-                        analyzer, fileDiff.newFile(), fileDiff.oldText(), fileDiff.newText(), path, path);
-                fileInfo.put("diffText", diffResult.diff());
-                fileInfo.put("added", diffResult.added());
-                fileInfo.put("deleted", diffResult.deleted());
-
-                files.add(fileInfo);
-            }
-
-            var response = new HashMap<String, Object>();
-            response.put("files", files);
-            response.put("totalFilesChanged", changes.filesChanged());
-            response.put("totalAdded", changes.totalAdded());
-            response.put("totalDeleted", changes.totalDeleted());
-
-            SimpleHttpServer.sendJsonResponse(exchange, response);
-
-        } catch (IllegalArgumentException e) {
-            RouterUtil.sendValidationError(exchange, "Invalid scope: " + e.getMessage());
-        } catch (Exception e) {
-            logger.error("Failed to compute diff", e);
-            SimpleHttpServer.sendJsonResponse(exchange, 500, ErrorPayload.internalError("Failed to compute diff", e));
         }
     }
 

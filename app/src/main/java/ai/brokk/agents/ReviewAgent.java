@@ -139,9 +139,6 @@ public class ReviewAgent {
 
         // Prepare the initial context with the diff pinned
         String diff = changes.toReviewDiff(cm.getAnalyzer());
-        if (diff.isBlank()) {
-            throw new IllegalStateException("No changes found to review for the given scope.");
-        }
         var diffFragment = SpecialTextType.REVIEW_DIFF.create(cm, diff);
 
         try (var scope = cm.beginTask("Code Review", true, "Performing code review")) {
@@ -360,8 +357,7 @@ public class ReviewAgent {
             var toolRequest = result.toolRequests().getFirst();
             var toolResult = tr.executeTool(toolRequest);
             if (toolResult.status().equals(ToolExecutionResult.Status.SUCCESS)) {
-                var completedContext = hasAnalyzedLanguage ? this.contextBeingBuilt : wst.getContext();
-                return new ContextSetupResult(requireNonNull(completedContext).withHistory(List.of()), isComplex);
+                return new ContextSetupResult(requireNonNull(contextBeingBuilt).withHistory(List.of()), isComplex);
             } else {
                 logger.warn("Tool execution failed: {}", toolResult);
             }

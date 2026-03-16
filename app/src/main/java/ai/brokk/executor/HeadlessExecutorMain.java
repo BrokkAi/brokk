@@ -304,8 +304,7 @@ public final class HeadlessExecutorMain {
         var openAiAuthRouter = new OpenAiAuthRouter();
         this.server.registerAuthenticatedContext("/v1/openai/oauth", openAiAuthRouter);
 
-        var reviewRouter = new ReviewRouter(
-                this.contextManager, this.jobStore, this.jobRunner, this.jobReservation, this.headlessInit);
+        var reviewRouter = new ReviewRouter(this.jobStore, this.jobRunner, this.jobReservation, this.headlessInit);
         this.server.registerAuthenticatedContext("/v1/review", reviewRouter);
 
         logger.info("HeadlessExecutorMain initialized successfully");
