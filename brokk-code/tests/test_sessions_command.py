@@ -648,7 +648,6 @@ async def test_prompt_rejected_during_create_session(tmp_path):
     assert any_warning is True
 
     # No job submission should have happened
-    app.executor.submit_job = AsyncMock()
     app.executor.submit_job.assert_not_called()
 
     # Complete the create

@@ -1914,6 +1914,7 @@ class BrokkApp(App):
                 if self._current_switch_target_session_id:
                     # Queue non-slash prompts for execution after switch completes
                     if chat:
+                        chat.add_history_entry(raw_text)
                         chat.add_user_message(raw_text)
                     self._pending_switch_prompt = (self._current_switch_target_session_id, raw_text)
                     if chat:
