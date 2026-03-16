@@ -111,7 +111,7 @@ public class ReviewAgent {
             boolean optimizeForLatency,
             IContextManager cm)
     {
-        this(scope, modelConfig, optimizeForLatency, cm, PrReviewService.Severity.LOW);
+        this(scope, modelConfig, optimizeForLatency, cm, PrReviewService.Severity.HIGH);
     }
 
     public ReviewAgent(
