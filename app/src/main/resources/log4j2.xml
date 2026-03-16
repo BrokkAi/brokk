@@ -41,9 +41,6 @@
     <Logger name="io.methvin.watcher" level="warn" additivity="false">
       <AppenderRef ref="RollingFileLogger"/>
     </Logger>
-    <Logger name="ai.brokk.gui.ProjectTree" level="trace" additivity="false">
-      <AppenderRef ref="RollingFileLogger"/>
-    </Logger>
     <Logger name="com.github.difflib" level="error" additivity="false">
       <AppenderRef ref="RollingFileLogger"/>
     </Logger>
