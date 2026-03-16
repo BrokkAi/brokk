@@ -68,7 +68,12 @@ import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
 public class Chrome
-        implements AutoCloseable, IConsoleIO, IContextManager.ContextListener, IContextManager.AnalyzerCallback {
+        implements
+                AutoCloseable,
+                ProjectTreeHost,
+                IConsoleIO,
+                IContextManager.ContextListener,
+                IContextManager.AnalyzerCallback {
     private static final Logger logger = LogManager.getLogger(Chrome.class);
 
     // Track open Chrome instances for window cascading

@@ -66,7 +66,7 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
 
     private final IProject project;
     private final ContextManager contextManager;
-    private final Chrome chrome;
+    private final ProjectTreeHost host;
 
     @Nullable
     private JPopupMenu currentContextMenu;
@@ -87,9 +87,13 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
     private volatile boolean pendingRefreshWhenShown = false;
 
     public ProjectTree(IProject project, ContextManager contextManager, Chrome chrome) {
+        this(project, contextManager, (ProjectTreeHost) chrome);
+    }
+
+    public ProjectTree(IProject project, ContextManager contextManager, ProjectTreeHost host) {
         this.project = project;
         this.contextManager = contextManager;
-        this.chrome = chrome;
+        this.host = host;
         this.contextManager.addFileChangeListener(this);
 
         initializeTree();
@@ -182,7 +186,10 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
 
         // Enable drag support: export selected files (or files under selected directories) as a file list
         // Also enable drop support: accept external files and copy them into the project
-        setDragEnabled(true);
+        // In headless test environments, calling setDragEnabled throws HeadlessException.
+        if (!GraphicsEnvironment.isHeadless()) {
+            setDragEnabled(true);
+        }
         setTransferHandler(new ProjectTreeTransferHandler());
     }
 
@@ -194,7 +201,7 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
                 ProjectFile projectFile = getProjectFileFromNode(node);
                 if (projectFile != null) {
                     var fragment = new ContextFragments.ProjectPathFragment(projectFile, contextManager);
-                    chrome.openFragmentPreview(fragment);
+                    host.openFragmentPreview(fragment);
                 }
             }
         }
@@ -324,7 +331,7 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
             viewItem.addActionListener(ev -> {
                 ProjectFile file = targetFiles.getFirst();
                 var fragment = new ContextFragments.ProjectPathFragment(file, contextManager);
-                chrome.openFragmentPreview(fragment);
+                host.openFragmentPreview(fragment);
             });
             contextMenu.add(viewItem);
 
@@ -337,11 +344,11 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
 
             JMenuItem editItem = new JMenuItem(editLabel);
             editItem.addActionListener(ev -> {
-                ContextSizeGuard.checkAndConfirm(targetFiles, chrome, decision -> {
+                ContextSizeGuard.checkAndConfirm(targetFiles, host, decision -> {
                     if (decision == ContextSizeGuard.Decision.ALLOW) {
                         contextManager.submitContextTask(() -> contextManager.addFiles(targetFiles));
                     } else if (decision == ContextSizeGuard.Decision.CANCELLED) {
-                        chrome.showNotification(IConsoleIO.NotificationRole.INFO, "File addition cancelled");
+                        host.showNotification(IConsoleIO.NotificationRole.INFO, "File addition cancelled");
                     }
                     // BLOCKED case already shows error dialog in checkAndConfirm
                 });
@@ -381,11 +388,11 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
         openInItem.setEnabled(finalOpenTarget != null && Files.exists(finalOpenTarget));
         openInItem.addActionListener(ev -> {
             if (finalOpenTarget == null || !Files.exists(finalOpenTarget)) {
-                chrome.toolError("Selected path no longer exists: "
+                host.toolError("Selected path no longer exists: "
                         + (finalOpenTarget == null ? "<unknown>" : finalOpenTarget.toAbsolutePath()));
                 return;
             }
-            ExceptionAwareSwingWorker<Void, Void> worker = new ExceptionAwareSwingWorker<>(chrome) {
+            ExceptionAwareSwingWorker<Void, Void> worker = new ExceptionAwareSwingWorker<>(host) {
                 @Override
                 protected Void doInBackground() throws Exception {
                     FileManagerUtil.revealPath(finalOpenTarget);
@@ -457,14 +464,15 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
                                 project.saveBuildDetails(newDetails);
 
                                 SwingUtilities.invokeLater(() -> {
-                                    ((DefaultTreeModel) getModel()).nodeStructureChanged((DefaultMutableTreeNode)
-                                            getModel().getRoot());
+                                    ((DefaultTreeModel) getModel())
+                                            .nodeStructureChanged(
+                                                    (DefaultMutableTreeNode) getModel().getRoot());
                                     repaint();
                                 });
                             } catch (Exception ex) {
                                 logger.error("Error toggling directory exclusion", ex);
                                 SwingUtilities.invokeLater(
-                                        () -> chrome.toolError("Failed to update exclusion: " + ex.getMessage()));
+                                        () -> host.toolError("Failed to update exclusion: " + ex.getMessage()));
                             }
                         });
                     });
@@ -507,10 +515,10 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
 
                     if (testProjectFiles.isEmpty()) {
                         // This case might occur if selection changes between menu population and action
-                        chrome.toolError("No test files were selected to run");
+                        host.toolError("No test files were selected to run");
                     } else {
                         try {
-                            chrome.runTests(testProjectFiles);
+                            host.runTests(testProjectFiles);
                         } catch (InterruptedException e) {
                             logger.debug("Tests interrupted", e);
                         }
@@ -543,7 +551,7 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
                 var nonText = targetFiles.stream().filter(pf -> !pf.isText()).toList();
                 if (!nonText.isEmpty()) {
                     SwingUtilities.invokeLater(
-                            () -> chrome.toolError("Only text files can be deleted with undo/redo support"));
+                            () -> host.toolError("Only text files can be deleted with undo/redo support"));
                     return false;
                 }
 
@@ -569,7 +577,7 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
                         } catch (Exception ex) {
                             var msg = "Failed to delete file: " + pf;
                             logger.error(msg, ex);
-                            SwingUtilities.invokeLater(() -> chrome.toolError(msg));
+                            SwingUtilities.invokeLater(() -> host.toolError(msg));
                         }
                     }
                 }
@@ -597,13 +605,13 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
                 var fileList =
                         targetFiles.stream().map(ProjectFile::getFileName).collect(Collectors.joining(", "));
                 SwingUtilities.invokeLater(() -> {
-                    chrome.showNotification(
+                    host.showNotification(
                             IConsoleIO.NotificationRole.INFO, "Deleted " + fileList + ". Use Ctrl+Z to undo.");
                 });
                 return true;
             } catch (Exception ex) {
                 logger.error("Error deleting selected files", ex);
-                SwingUtilities.invokeLater(() -> chrome.toolError("Error deleting selected files: " + ex.getMessage()));
+                SwingUtilities.invokeLater(() -> host.toolError("Error deleting selected files: " + ex.getMessage()));
                 return false;
             }
         });
@@ -614,7 +622,7 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
         boolean hasGit = contextManager.getProject().hasGit();
         JMenuItem historyItem = new JMenuItem("Show History");
         historyItem.addActionListener(ev -> {
-            chrome.addFileHistoryTab(file);
+            host.addFileHistoryTab(file);
         });
         historyItem.setEnabled(hasGit);
         if (!hasGit) {
@@ -745,7 +753,7 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
                             }
                             logger.error("Error applying loaded children to tree node", ex);
                             SwingUtilities.invokeLater(
-                                    () -> chrome.toolError("Failed to update project tree: " + ex.getMessage()));
+                                    () -> host.toolError("Failed to update project tree: " + ex.getMessage()));
                             result.completeExceptionally(ex);
                         }
                     });
@@ -756,7 +764,7 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
                         if (node.getUserObject() instanceof ProjectTreeNode ptn) {
                             ptn.resetLoadState(); // Allow retry on error
                         }
-                        chrome.toolError("Failed to read directory: " + ex.getMessage());
+                        host.toolError("Failed to read directory: " + ex.getMessage());
                     });
                     result.completeExceptionally(ex);
                     return null;
@@ -1530,12 +1538,12 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
         List<File> clipboardFiles = getFilesFromClipboard();
 
         if (clipboardFiles.isEmpty()) {
-            chrome.showNotification(IConsoleIO.NotificationRole.INFO, "No files in clipboard to paste");
+            host.showNotification(IConsoleIO.NotificationRole.INFO, "No files in clipboard to paste");
             return;
         }
 
         // Reuse the existing file drop handler
-        ExceptionAwareSwingWorker<Void, String> worker = new ExceptionAwareSwingWorker<>(chrome) {
+        ExceptionAwareSwingWorker<Void, String> worker = new ExceptionAwareSwingWorker<>(host) {
             @Override
             protected Void doInBackground() throws Exception {
                 List<File> filesToCopy = new ArrayList<>();
@@ -1573,7 +1581,7 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
             @Override
             protected void process(List<String> chunks) {
                 for (String message : chunks) {
-                    chrome.showNotification(IConsoleIO.NotificationRole.INFO, message);
+                    host.showNotification(IConsoleIO.NotificationRole.INFO, message);
                 }
             }
 
@@ -1904,7 +1912,7 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
             } catch (Exception ex) {
                 logger.error("Error importing dropped files", ex);
                 SwingUtilities.invokeLater(
-                        () -> chrome.toolError("Failed to import dropped files: " + ex.getMessage()));
+                        () -> host.toolError("Failed to import dropped files: " + ex.getMessage()));
                 return false;
             }
         }
@@ -1935,7 +1943,7 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
 
         /** Handles the file drop operation by copying files to the target directory. */
         private void handleFileDrop(List<File> droppedFiles, Path targetDirectory) {
-            ExceptionAwareSwingWorker<Void, String> worker = new ExceptionAwareSwingWorker<>(chrome) {
+            ExceptionAwareSwingWorker<Void, String> worker = new ExceptionAwareSwingWorker<>(host) {
                 @Override
                 protected Void doInBackground() throws Exception {
                     List<File> filesToCopy = new ArrayList<>();
@@ -1972,7 +1980,7 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
                 @Override
                 protected void process(List<String> chunks) {
                     for (String message : chunks) {
-                        chrome.showNotification(IConsoleIO.NotificationRole.INFO, message);
+                        host.showNotification(IConsoleIO.NotificationRole.INFO, message);
                     }
                 }
 

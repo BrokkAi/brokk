@@ -157,7 +157,7 @@ public class ProjectFilesPanel extends JPanel {
     }
 
     private void setupProjectTree() {
-        this.projectTree = new ProjectTree(project, contextManager, chrome);
+        this.projectTree = new ProjectTree(project, contextManager, (ProjectTreeHost) chrome);
     }
 
     private void setupSearchFieldAndAutocomplete() {
