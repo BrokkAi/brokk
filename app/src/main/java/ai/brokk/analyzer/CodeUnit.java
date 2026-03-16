@@ -24,6 +24,9 @@ public class CodeUnit implements Comparable<CodeUnit> {
     @Nullable
     private final String signature;
 
+    @JsonProperty("synthetic")
+    private final boolean synthetic;
+
     private final transient String fqName;
 
     @JsonCreator
@@ -32,7 +35,8 @@ public class CodeUnit implements Comparable<CodeUnit> {
             @JsonProperty("kind") CodeUnitType kind,
             @JsonProperty("packageName") String packageName,
             @JsonProperty("shortName") String shortName,
-            @JsonProperty("signature") @Nullable String signature) {
+            @JsonProperty("signature") @Nullable String signature,
+            @JsonProperty("synthetic") boolean synthetic) {
         if (shortName.isEmpty()) {
             throw new IllegalArgumentException("shortName must not be empty");
         }
@@ -41,6 +45,7 @@ public class CodeUnit implements Comparable<CodeUnit> {
         this.packageName = packageName;
         this.shortName = shortName;
         this.signature = signature;
+        this.synthetic = synthetic;
         this.fqName = packageName.isEmpty() ? shortName : packageName + "." + shortName;
     }
 
@@ -48,12 +53,25 @@ public class CodeUnit implements Comparable<CodeUnit> {
             @JsonProperty("source") ProjectFile source,
             @JsonProperty("kind") CodeUnitType kind,
             @JsonProperty("packageName") String packageName,
+            @JsonProperty("shortName") String shortName,
+            @JsonProperty("signature") @Nullable String signature) {
+        this(source, kind, packageName, shortName, signature, false);
+    }
+
+    public CodeUnit(
+            @JsonProperty("source") ProjectFile source,
+            @JsonProperty("kind") CodeUnitType kind,
+            @JsonProperty("packageName") String packageName,
             @JsonProperty("shortName") String shortName) {
-        this(source, kind, packageName, shortName, null);
+        this(source, kind, packageName, shortName, null, false);
     }
 
     public CodeUnit withoutSignature() {
-        return new CodeUnit(source(), kind(), packageName(), shortName());
+        return new CodeUnit(source(), kind(), packageName(), shortName(), null, isSynthetic());
+    }
+
+    public CodeUnit withSynthetic(boolean synthetic) {
+        return new CodeUnit(source(), kind(), packageName(), shortName(), signature(), synthetic);
     }
 
     /**
@@ -190,11 +208,21 @@ public class CodeUnit implements Comparable<CodeUnit> {
     }
 
     /**
-     * Returns true if this CodeUnit represents an anonymous or synthetic element that contains "$anon$" in its name.
+     * Returns true if this code unit is synthetic (e.g. compiler-generated, or an artificial module container).
+     *
+     * @return true if synthetic.
+     */
+    public boolean isSynthetic() {
+        return synthetic;
+    }
+
+    /**
+     * Returns true if this CodeUnit represents an anonymous or synthetic element that contains "$anon$" in its name,
+     * or if it is explicitly marked as synthetic.
      * Used to filter out lambda/anonymous artifacts from summaries and recommendations.
      */
     public boolean isAnonymous() {
-        return fqName.contains("$anon$");
+        return synthetic || fqName.contains("$anon$");
     }
 
     @Override
@@ -207,9 +235,10 @@ public class CodeUnit implements Comparable<CodeUnit> {
     public boolean equals(Object obj) {
         if (this == obj) return true;
         if (!(obj instanceof CodeUnit other)) return false;
-        // Equality based on the derived fully qualified name, kind, source file, AND signature
+        // Equality based on the derived fully qualified name, kind, source file, signature AND synthetic flag
         // Signature inclusion ensures overloaded functions are distinct (e.g., foo(int) vs foo(double))
         return kind == other.kind
+                && synthetic == other.synthetic
                 && Objects.equals(this.fqName(), other.fqName())
                 && Objects.equals(this.source, other.source)
                 && Objects.equals(this.signature, other.signature);
@@ -217,8 +246,8 @@ public class CodeUnit implements Comparable<CodeUnit> {
 
     @Override
     public int hashCode() {
-        // Hash code based on the derived fully qualified name, kind, source file, AND signature
-        return Objects.hash(kind, fqName(), source, signature);
+        // Hash code based on the derived fully qualified name, kind, source file, signature AND synthetic flag
+        return Objects.hash(kind, fqName(), source, signature, synthetic);
     }
 
     @Override
@@ -240,7 +269,7 @@ public class CodeUnit implements Comparable<CodeUnit> {
      * @param shortName The simple class name (e.g., "MyClass", "Outer$Inner").
      */
     public static CodeUnit cls(ProjectFile source, String packageName, String shortName) {
-        return new CodeUnit(source, CodeUnitType.CLASS, packageName, shortName);
+        return new CodeUnit(source, CodeUnitType.CLASS, packageName, shortName, null, false);
     }
 
     /**
@@ -255,7 +284,7 @@ public class CodeUnit implements Comparable<CodeUnit> {
     public static CodeUnit fn(ProjectFile source, String packageName, String shortName) {
         // The shortName for FUNCTION can be a simple function name or ClassName.methodName.
         // fqName() handles prefixing with packageName if present.
-        return new CodeUnit(source, CodeUnitType.FUNCTION, packageName, shortName);
+        return new CodeUnit(source, CodeUnitType.FUNCTION, packageName, shortName, null, false);
     }
 
     /**
@@ -274,7 +303,7 @@ public class CodeUnit implements Comparable<CodeUnit> {
         // - Top-level fields: may or may not contain a dot depending on the language
         //   - JS: "_module_.myVar" (uses synthetic module container)
         //   - Python: "fieldName" (no container for module-level fields)
-        return new CodeUnit(source, CodeUnitType.FIELD, packageName, shortName);
+        return new CodeUnit(source, CodeUnitType.FIELD, packageName, shortName, null, false);
     }
 
     /**
@@ -286,6 +315,6 @@ public class CodeUnit implements Comparable<CodeUnit> {
      * @param shortName A short name for the module, often a placeholder like "_module_" or derived from the filename.
      */
     public static CodeUnit module(ProjectFile source, String packageName, String shortName) {
-        return new CodeUnit(source, CodeUnitType.MODULE, packageName, shortName);
+        return new CodeUnit(source, CodeUnitType.MODULE, packageName, shortName, null, false);
     }
 }

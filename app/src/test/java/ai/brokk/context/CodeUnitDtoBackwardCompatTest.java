@@ -84,7 +84,7 @@ public class CodeUnitDtoBackwardCompatTest {
         FragmentDtos.ProjectFileDto pfd = new FragmentDtos.ProjectFileDto(
                 "0", pf.getRoot().toString(), pf.getRelPath().toString());
         FragmentDtos.CodeUnitDto dto = new FragmentDtos.CodeUnitDto(
-                pfd, original.kind().name(), original.packageName(), original.shortName(), original.signature());
+                pfd, original.kind().name(), original.packageName(), original.shortName(), original.signature(), null);
 
         ObjectMapper mapper = new ObjectMapper();
         mapper.configure(JsonParser.Feature.ALLOW_COMMENTS, true);

@@ -640,7 +640,7 @@ public class TreeSitterStateIOTest {
         Path file = tempDir.resolve("java" + Language.ANALYZER_STATE_SUFFIX);
         var root = tempDir.toAbsolutePath().normalize();
         var pfDto = new TreeSitterStateIO.ProjectFileDto(root.toString(), "src/Test.java");
-        var cuDto = new TreeSitterStateIO.CodeUnitDto(pfDto, CodeUnitType.CLASS, "com.pkg", "Test", null);
+        var cuDto = new TreeSitterStateIO.CodeUnitDto(pfDto, CodeUnitType.CLASS, "com.pkg", "Test", null, null);
 
         // Legacy properties map with extra fields
         Map<String, Object> legacyProps = new HashMap<>();
@@ -697,7 +697,7 @@ public class TreeSitterStateIOTest {
         Path out = tempDir.resolve("java" + Language.ANALYZER_STATE_SUFFIX);
 
         var pfDto = new TreeSitterStateIO.ProjectFileDto(tempDir.toString(), "Test.java");
-        var cuDto = new TreeSitterStateIO.CodeUnitDto(pfDto, CodeUnitType.CLASS, "com.pkg", "Test", null);
+        var cuDto = new TreeSitterStateIO.CodeUnitDto(pfDto, CodeUnitType.CLASS, "com.pkg", "Test", null, null);
 
         // Simulate removed 'supertypes' and 'supertypesComputed' fields
         Map<String, Object> legacyProps = new HashMap<>();
@@ -735,7 +735,7 @@ public class TreeSitterStateIOTest {
         Path out = tempDir.resolve("java" + Language.ANALYZER_STATE_SUFFIX);
 
         var pfDto = new TreeSitterStateIO.ProjectFileDto(tempDir.toString(), "Test.java");
-        var cuDto = new TreeSitterStateIO.CodeUnitDto(pfDto, CodeUnitType.CLASS, "com.pkg", "Test", null);
+        var cuDto = new TreeSitterStateIO.CodeUnitDto(pfDto, CodeUnitType.CLASS, "com.pkg", "Test", null, null);
 
         // Simulate a cache entry where children, signatures, and ranges are null
         Map<String, Object> propsWithNulls = new HashMap<>();
@@ -903,7 +903,7 @@ public class TreeSitterStateIOTest {
 
         // Manually construct a CodeUnitPropertiesDto-like map that includes the old 'rawSupertypes' field
         var pfDto = new TreeSitterStateIO.ProjectFileDto(tempDir.toString(), "Test.java");
-        var cuDto = new TreeSitterStateIO.CodeUnitDto(pfDto, CodeUnitType.CLASS, "com.pkg", "Test", null);
+        var cuDto = new TreeSitterStateIO.CodeUnitDto(pfDto, CodeUnitType.CLASS, "com.pkg", "Test", null, null);
 
         Map<String, Object> legacyProps = new HashMap<>();
         legacyProps.put("children", List.of());
