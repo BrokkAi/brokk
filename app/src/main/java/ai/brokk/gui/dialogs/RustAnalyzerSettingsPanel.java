@@ -45,12 +45,12 @@ public class RustAnalyzerSettingsPanel extends AbstractMacroSettingsPanel {
                                 file,
                                 sourceContent -> {
                                     discoveredMacroNames.addAll(analyzer.findMacroNames(tree, sourceContent));
-                                    return null;
+                                    return true;
                                 },
-                                null);
-                        return null;
+                                false);
+                        return true;
                     },
-                    null);
+                    false);
         }
 
         // Parse current YAML to see what we already have
@@ -60,10 +60,8 @@ public class RustAnalyzerSettingsPanel extends AbstractMacroSettingsPanel {
             if (currentText != null && !currentText.isBlank()) {
                 try (var is = new ByteArrayInputStream(currentText.getBytes(StandardCharsets.UTF_8))) {
                     MacroPolicy policy = YAML_MAPPER.readValue(is, MacroPolicy.class);
-                    if (policy.macros() != null) {
-                        existingNames.addAll(
-                                policy.macros().stream().map(m -> m.name()).collect(Collectors.toSet()));
-                    }
+                    existingNames.addAll(
+                            policy.macros().stream().map(m -> m.name()).collect(Collectors.toSet()));
                 }
             }
         } catch (Exception ex) {
