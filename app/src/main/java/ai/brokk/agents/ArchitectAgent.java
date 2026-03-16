@@ -448,10 +448,16 @@ public class ArchitectAgent {
         var existingDetails = cm.getProject().awaitBuildDetails();
         var details = new BuildAgent.BuildDetails(
                 buildLintCommand,
+                existingDetails.buildLintEnabled(),
                 testAllCommand,
+                existingDetails.testAllEnabled(),
                 testSomeCommand,
+                true, // Enabled by default if set via tool
                 new LinkedHashSet<>(excludedDirectories),
-                existingDetails.environmentVariables());
+                existingDetails.environmentVariables(),
+                existingDetails.maxBuildAttempts(),
+                existingDetails.afterTaskListCommand(),
+                existingDetails.modules());
         cm.getProject().saveBuildDetails(details);
 
         cm.getIo().showNotification(IConsoleIO.NotificationRole.INFO, "Saved build details.");

@@ -198,8 +198,10 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         // Build details - use pre-loaded data
         if (data.buildDetails() != null) {
             updateExclusionPatterns(data.buildDetails().exclusionPatterns());
+            buildPanelInstance.populateUiFromDetails(data.buildDetails());
         } else {
             updateExclusionPatterns(Set.of());
+            buildPanelInstance.loadBuildPanelSettings();
         }
     }
 
@@ -1249,10 +1251,16 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
 
             var newDetails = new BuildDetails(
                     currentDetails.buildLintCommand(),
+                    currentDetails.buildLintEnabled(),
                     currentDetails.testAllCommand(),
+                    currentDetails.testAllEnabled(),
                     currentDetails.testSomeCommand(),
+                    currentDetails.testSomeEnabled(),
                     exclusionPatterns,
-                    currentDetails.environmentVariables());
+                    currentDetails.environmentVariables(),
+                    currentDetails.maxBuildAttempts(),
+                    currentDetails.afterTaskListCommand(),
+                    currentDetails.modules());
 
             if (!newDetails.equals(currentDetails)) {
                 project.saveBuildDetails(newDetails);

@@ -68,7 +68,7 @@ public class BuildDetailsPathNormalizationTest {
                 absUnder.toString() // absolute under project, becomes relative
                 ));
 
-        var details = new BuildAgent.BuildDetails("", "", "", rawExcludesOrdered);
+        var details = new BuildAgent.BuildDetails("", "", rawExcludesOrdered);
         var project = MainProject.forTests(root, details);
 
         Properties props1 = loadProps(brokkProps(root));
@@ -77,8 +77,8 @@ public class BuildDetailsPathNormalizationTest {
 
         var parsed1 = parseDetailsFromProps(props1);
 
-        // Assert: canonicalized exclusions in order
-        var expectedCanonicalOrder = List.of("bin", "gradle", "build", "subdir/vendor", "/nbdist", "absUnder");
+        // Assert: canonicalized exclusions in sorted order
+        var expectedCanonicalOrder = List.of("/nbdist", "absUnder", "bin", "build", "gradle", "subdir/vendor");
         assertEquals(expectedCanonicalOrder.size(), parsed1.exclusionPatterns().size(), "Unexpected excludes size");
         assertIterableEquals(
                 expectedCanonicalOrder, parsed1.exclusionPatterns(), "Exclusions not canonicalized as expected");
@@ -116,7 +116,7 @@ public class BuildDetailsPathNormalizationTest {
                 fooAbs.toString(), // absolute under project -> should become "foo"
                 ".\\out/");
 
-        var legacyDetails = new BuildAgent.BuildDetails("", "", "", new LinkedHashSet<>(legacyExcludes));
+        var legacyDetails = new BuildAgent.BuildDetails("", "", new LinkedHashSet<>(legacyExcludes));
         String legacyJson = MAPPER.writeValueAsString(legacyDetails);
 
         // Pre-create .brokk/project.properties with legacy JSON
@@ -132,15 +132,18 @@ public class BuildDetailsPathNormalizationTest {
         var loaded = project.loadBuildDetails().orElseThrow();
 
         // Assert: canonicalization occurred on load
-        // Expected: "build", "/nbdist" remains absolute (outside project), "foo", "out"
-        Set<String> expectedCanonical = Set.of("build", "/nbdist", "foo", "out");
-        assertEquals(expectedCanonical, loaded.exclusionPatterns(), "Loaded exclusions should be canonicalized");
+        // Expected: "/nbdist" remains absolute (outside project), "build", "foo", "out"
+        var expectedCanonicalList = List.of("/nbdist", "build", "foo", "out");
+        Set<String> expectedCanonical = new LinkedHashSet<>(expectedCanonicalList);
+        assertIterableEquals(
+                expectedCanonicalList, loaded.exclusionPatterns(), "Loaded exclusions should be canonicalized");
 
         // Act: save back and ensure canonical JSON now persisted
         project.saveBuildDetails(loaded);
         Properties props2 = loadProps(propsFile);
         var persisted = parseDetailsFromProps(props2);
-        assertEquals(expectedCanonical, persisted.exclusionPatterns(), "Persisted exclusions should be canonical");
+        assertIterableEquals(
+                expectedCanonicalList, persisted.exclusionPatterns(), "Persisted exclusions should be canonical");
 
         // Optional stability check on rewrite
         String jsonAfterRewrite = props2.getProperty("buildDetailsJson");
@@ -177,14 +180,14 @@ public class BuildDetailsPathNormalizationTest {
         var files = Set.of(pfBuild, pfSrc);
 
         // Case A: exclusion "/build"
-        var detailsSlash = new BuildAgent.BuildDetails("", "", "", new LinkedHashSet<>(List.of("/build")));
+        var detailsSlash = new BuildAgent.BuildDetails("", "", new LinkedHashSet<>(List.of("/build")));
         project.saveBuildDetails(detailsSlash);
         var filteredSlash = project.filterExcludedFiles(files);
         assertTrue(filteredSlash.contains(pfSrc), "src/Main.java should remain");
         assertFalse(filteredSlash.contains(pfBuild), "build/Generated.java should be excluded by '/build'");
 
         // Case B: exclusion "build"
-        var detailsNoSlash = new BuildAgent.BuildDetails("", "", "", new LinkedHashSet<>(List.of("build")));
+        var detailsNoSlash = new BuildAgent.BuildDetails("", "", new LinkedHashSet<>(List.of("build")));
         project.saveBuildDetails(detailsNoSlash);
         var filteredNoSlash = project.filterExcludedFiles(files);
         assertTrue(filteredNoSlash.contains(pfSrc), "src/Main.java should remain");
@@ -207,7 +210,7 @@ public class BuildDetailsPathNormalizationTest {
         envVars.put("OTHER_VAR", "value");
 
         BuildAgent.BuildDetails legacyDetails =
-                new BuildAgent.BuildDetails("mvn compile", "mvn test", "", Set.of(), envVars);
+                new BuildAgent.BuildDetails("mvn compile", "mvn test", Set.of(), envVars);
 
         Properties projectProps = new Properties();
         projectProps.setProperty("buildDetailsJson", MAPPER.writeValueAsString(legacyDetails));
@@ -274,7 +277,7 @@ public class BuildDetailsPathNormalizationTest {
         var files = Set.of(pfResources, pfNested, pfMain);
 
         // Exclude "app/src/test/resources" - should exclude both files under it
-        var details = new BuildAgent.BuildDetails("", "", "", new LinkedHashSet<>(List.of("app/src/test/resources")));
+        var details = new BuildAgent.BuildDetails("", "", new LinkedHashSet<>(List.of("app/src/test/resources")));
         project.saveBuildDetails(details);
         var filtered = project.filterExcludedFiles(files);
 

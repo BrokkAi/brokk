@@ -5,7 +5,9 @@ import java.util.ArrayDeque;
 import java.util.Collection;
 import java.util.Deque;
 import java.util.LinkedHashSet;
+import java.util.Objects;
 import java.util.Set;
+import java.util.stream.Collectors;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -96,6 +98,21 @@ public final class PathNormalizer {
             }
         }
         return result;
+    }
+
+    /**
+     * Canonicalize a collection of exclusion patterns for consistent project storage.
+     * Patterns are trimmed, canonicalized relative to the root, and filtered for blanks.
+     */
+    public static Set<String> canonicalizeExclusionPatterns(Collection<String> patterns, Path root) {
+        return patterns.stream()
+                .filter(Objects::nonNull)
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .map(s -> canonicalizeForProject(s, root))
+                .filter(s -> !s.isEmpty())
+                .sorted()
+                .collect(Collectors.toCollection(LinkedHashSet::new));
     }
 
     /**
