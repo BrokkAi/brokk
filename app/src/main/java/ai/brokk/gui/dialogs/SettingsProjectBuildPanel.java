@@ -93,6 +93,8 @@ public class SettingsProjectBuildPanel extends JPanel {
     private final JTextField buildCleanCommandField = new JTextField();
     private final JCheckBox allTestsCommandCheck = new JCheckBox("Enable");
     private final JTextField allTestsCommandField = new JTextField();
+    private final JCheckBox someTestsCommandCheck = new JCheckBox("Enable");
+    private final JTextField someTestsCommandField = new JTextField();
     private JTextField afterTaskListCommandField = new JTextField();
 
     private JRadioButton runAllTestsRadio = new JRadioButton(IProject.CodeAgentTestScope.ALL.toString());
@@ -305,6 +307,34 @@ public class SettingsProjectBuildPanel extends JPanel {
         buildGbc.gridy = buildRow++;
         buildGbc.weightx = 1.0;
         buildConfigPanel.add(testWrapper, buildGbc);
+
+        // Test Some Command
+        buildGbc.gridx = 0;
+        buildGbc.gridy = buildRow;
+        buildGbc.weightx = 0.0;
+        buildConfigPanel.add(new JLabel("Test Some Command:"), buildGbc);
+
+        JPanel someWrapper = new JPanel(new BorderLayout(5, 0));
+        someWrapper.setOpaque(false);
+        someWrapper.add(someTestsCommandCheck, BorderLayout.WEST);
+        someWrapper.add(someTestsCommandField, BorderLayout.CENTER);
+        someTestsCommandCheck.addActionListener(
+                e -> someTestsCommandField.setEnabled(someTestsCommandCheck.isSelected()));
+
+        buildGbc.gridx = 1;
+        buildGbc.gridy = buildRow++;
+        buildGbc.weightx = 1.0;
+        buildConfigPanel.add(someWrapper, buildGbc);
+
+        var testSomeInfo = new JLabel(
+                "<html>Mustache variables {{#files}}, {{#classes}}, {{#fqclasses}}, or {{#packages}} will be interpolated with filenames, class names, fully-qualified class names, or package/module/directory paths, respectively</html>");
+        testSomeInfo.setFont(testSomeInfo
+                .getFont()
+                .deriveFont(Font.ITALIC, testSomeInfo.getFont().getSize() * 0.9f));
+        buildGbc.gridx = 1;
+        buildGbc.gridy = buildRow++;
+        buildGbc.insets = new Insets(0, 2, 8, 2);
+        buildConfigPanel.add(testSomeInfo, buildGbc);
 
         var globalCommandNote = new JLabel("Note: Disabling global commands defers to module-specific commands.");
         globalCommandNote.setFont(globalCommandNote
@@ -692,6 +722,60 @@ public class SettingsProjectBuildPanel extends JPanel {
                     publish("--- Skipping empty Test All Command ---\n\n");
                 }
 
+                // Step 3: Test Some command
+                String testSomeTemplate = someTestsCommandField.getText().trim();
+                if (!testSomeTemplate.isEmpty()) {
+                    publish("--- Verifying Test Some Command Template ---\n");
+                    publish("Template: " + testSomeTemplate + "\n");
+                    String listKey;
+                    List<String> items = List.of("placeholder");
+                    if (testSomeTemplate.contains("{{#files}}")) {
+                        listKey = "files";
+                        items = List.of("src/test/java/com/example/Placeholder.java");
+                    } else if (testSomeTemplate.contains("{{#packages}}")) {
+                        listKey = "packages";
+                        items = List.of("com/example/placeholder");
+                    } else if (testSomeTemplate.contains("{{#fqclasses}}")) {
+                        listKey = "fqclasses";
+                        items = List.of("com.example.Placeholder");
+                    } else if (testSomeTemplate.contains("{{#classes}}")) {
+                        listKey = "classes";
+                        items = List.of("Placeholder");
+                    } else {
+                        publish(
+                                "\nWARNING: 'Test Some' command does not contain {{#files}}, {{#classes}}, or {{#fqclasses}}.\n");
+                        publish("Cannot perform mock interpolation. Will run the command as-is.\n");
+                        listKey = null;
+                    }
+
+                    String interpolatedCmd;
+                    if (listKey != null) {
+                        interpolatedCmd = BuildAgent.interpolateMustacheTemplate(testSomeTemplate, items, listKey);
+                        publish("Interpolated command with placeholder: " + interpolatedCmd + "\n");
+                    } else {
+                        interpolatedCmd = testSomeTemplate;
+                    }
+
+                    publish("$ " + interpolatedCmd + "\n");
+                    var result = BuildVerifier.verifyStreaming(
+                            project, interpolatedCmd, envVars, line -> publish(line + "\n"));
+                    if (result.success()) {
+                        publish(
+                                "\nSUCCESS: 'Test Some' command executed without errors (this is unexpected for a placeholder test).\n\n");
+                    } else if (result.exitCode() >= 0) {
+                        publish(
+                                "\nSUCCESS: 'Test Some' command executed and failed as expected for a placeholder test.\n");
+                        publish("This confirms the command and template syntax are valid.\n\n");
+                    } else {
+                        publish("\nERROR: 'Test Some' command failed to execute.\n");
+                        publish("This may indicate an invalid executable or a syntax error in the command.\n");
+                        publish(result.output() + "\n");
+                        return "'Test Some' command is invalid.";
+                    }
+                } else {
+                    publish("--- Skipping empty Test Some Command ---\n\n");
+                }
+
                 return "Verification successful!";
             }
 
@@ -834,6 +918,8 @@ public class SettingsProjectBuildPanel extends JPanel {
                         buildCleanCommandField,
                         allTestsCommandCheck,
                         allTestsCommandField,
+                        someTestsCommandCheck,
+                        someTestsCommandField,
                         afterTaskListCommandField,
                         runAllTestsRadio,
                         runTestsInWorkspaceRadio,
@@ -859,6 +945,12 @@ public class SettingsProjectBuildPanel extends JPanel {
             allTestsCommandField.setEnabled(details.testAllEnabled());
             if (!details.testAllCommand().isBlank()) {
                 allTestsCommandField.setText(details.testAllCommand());
+            }
+
+            someTestsCommandCheck.setSelected(details.testSomeEnabled());
+            someTestsCommandField.setEnabled(details.testSomeEnabled());
+            if (!details.testSomeCommand().isBlank()) {
+                someTestsCommandField.setText(details.testSomeCommand());
             }
 
             if (!details.afterTaskListCommand().isBlank()) {
@@ -902,6 +994,11 @@ public class SettingsProjectBuildPanel extends JPanel {
         allTestsCommandCheck.setSelected(details.testAllEnabled());
         allTestsCommandField.setText(details.testAllCommand());
         allTestsCommandField.setEnabled(details.testAllEnabled());
+
+        someTestsCommandCheck.setSelected(details.testSomeEnabled());
+        someTestsCommandField.setText(details.testSomeCommand());
+        someTestsCommandField.setEnabled(details.testSomeEnabled());
+
         afterTaskListCommandField.setText(details.afterTaskListCommand());
 
         modulesList.clear();
@@ -964,6 +1061,9 @@ public class SettingsProjectBuildPanel extends JPanel {
         boolean taEnabled = allTestsCommandCheck.isSelected();
         String newTestAll = allTestsCommandField.getText();
 
+        boolean tsEnabled = someTestsCommandCheck.isSelected();
+        String newTestSome = someTestsCommandField.getText();
+
         var newAfterTaskList = afterTaskListCommandField.getText();
 
         // Build environment variables map
@@ -978,8 +1078,8 @@ public class SettingsProjectBuildPanel extends JPanel {
                 blEnabled,
                 newTestAll,
                 taEnabled,
-                "todo",
-                false,
+                newTestSome,
+                tsEnabled,
                 diskDetails.exclusionPatterns(),
                 envVars,
                 diskDetails.maxBuildAttempts(),
