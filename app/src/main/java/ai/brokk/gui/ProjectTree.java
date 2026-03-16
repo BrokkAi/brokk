@@ -89,6 +89,15 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
     /** Flag to track if a refresh should occur when component becomes visible */
     private volatile boolean pendingRefreshWhenShown = false;
 
+    /** Tracks the currently running refresh chain (if any). */
+    private final AtomicReference<@Nullable CompletableFuture<Void>> refreshInFlight = new AtomicReference<>();
+
+    /**
+     * If a refresh is requested while another refresh is in flight, we coalesce all requests into a single
+     * "run one more refresh after this finishes" flag.
+     */
+    private volatile boolean pendingRefreshDuringRefresh = false;
+
     public ProjectTree(IProject project, ContextManager contextManager, Chrome chrome) {
         this(project, contextManager, (ProjectTreeHost) chrome);
     }
@@ -108,7 +117,7 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
                 if (isShowing() && pendingRefreshWhenShown) {
                     logger.trace("Component now visible, executing deferred refresh");
                     pendingRefreshWhenShown = false;
-                    performRefreshInternal();
+                    performRefresh();
                 }
             }
         });
@@ -972,6 +981,30 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
         refreshDebounceTimer.restart();
     }
 
+    private static CompletableFuture<Void> runOnEdtAsync(Runnable task) {
+        if (SwingUtilities.isEventDispatchThread()) {
+            try {
+                task.run();
+                return CompletableFuture.completedFuture(null);
+            } catch (Throwable t) {
+                var cf = new CompletableFuture<Void>();
+                cf.completeExceptionally(t);
+                return cf;
+            }
+        }
+
+        var cf = new CompletableFuture<Void>();
+        SwingUtilities.invokeLater(() -> {
+            try {
+                task.run();
+                cf.complete(null);
+            } catch (Throwable t) {
+                cf.completeExceptionally(t);
+            }
+        });
+        return cf;
+    }
+
     private void performRefresh() {
         if (!isShowing()) {
             logger.trace("Tree not visible, deferring refresh");
@@ -982,6 +1015,15 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
     }
 
     private void performRefreshInternal() {
+        assert SwingUtilities.isEventDispatchThread();
+
+        var inFlight = refreshInFlight.get();
+        if (inFlight != null && !inFlight.isDone()) {
+            pendingRefreshDuringRefresh = true;
+            return;
+        }
+
+        pendingRefreshDuringRefresh = false;
         pendingRefreshWhenShown = false; // Clear flag when actually refreshing
 
         var root = (DefaultMutableTreeNode) getModel().getRoot();
@@ -1008,7 +1050,7 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
 
         // Load root children async, then restore expansions and selections
         final var rootRef = root;
-        loadChildrenForNodeAsync(root)
+        var refreshChain = loadChildrenForNodeAsync(root)
                 .thenCompose(ignored -> {
                     // Restore expanded directories - process sequentially by depth to avoid race conditions.
                     // Shorter paths (parents) must be expanded before longer paths (children) that depend on them.
@@ -1021,17 +1063,17 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
                     for (Path expandedDirPath : sortedPaths) {
                         final Path pathForLambda = expandedDirPath;
                         chain = chain.thenCompose(v -> findAndExpandNodeAsync(rootRef, pathForLambda, 0)
-                                .thenAccept(nodeToExpand -> {
-                                    if (nodeToExpand != null) {
-                                        SwingUtilities.invokeLater(() -> {
-                                            TreePath pathToExpand = new TreePath(nodeToExpand.getPath());
-                                            if (!isExpanded(pathToExpand)) {
-                                                expandPath(pathToExpand);
-                                            }
-                                        });
-                                    } else {
+                                .thenCompose(nodeToExpand -> {
+                                    if (nodeToExpand == null) {
                                         logger.trace("Could not find previously expanded directory: {}", pathForLambda);
+                                        return CompletableFuture.completedFuture(null);
                                     }
+                                    return runOnEdtAsync(() -> {
+                                        TreePath pathToExpand = new TreePath(nodeToExpand.getPath());
+                                        if (!isExpanded(pathToExpand)) {
+                                            expandPath(pathToExpand);
+                                        }
+                                    });
                                 }));
                     }
                     return chain;
@@ -1045,31 +1087,44 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
                             .filter(ProjectFile::exists)
                             .map(pf -> findAndExpandNodeAsync(rootRef, pf.getRelPath(), 0))
                             .toArray(CompletableFuture[]::new);
-                    return CompletableFuture.allOf(selectionFutures).thenAccept(v -> {
-                        SwingUtilities.invokeLater(() -> {
-                            var pathsToSelect = new ArrayList<TreePath>();
-                            for (ProjectFile pf : previouslySelectedFiles) {
-                                if (!pf.exists()) continue;
-                                var nodeToSelect = findAndExpandNode(rootRef, pf.getRelPath(), 0);
-                                if (nodeToSelect != null) {
-                                    pathsToSelect.add(new TreePath(nodeToSelect.getPath()));
-                                } else {
-                                    logger.trace("Could not find previously selected file: {}", pf.getRelPath());
-                                }
+
+                    return CompletableFuture.allOf(selectionFutures).thenCompose(v -> runOnEdtAsync(() -> {
+                        var pathsToSelect = new ArrayList<TreePath>();
+                        for (ProjectFile pf : previouslySelectedFiles) {
+                            if (!pf.exists()) continue;
+                            var nodeToSelect = findAndExpandNode(rootRef, pf.getRelPath(), 0);
+                            if (nodeToSelect != null) {
+                                pathsToSelect.add(new TreePath(nodeToSelect.getPath()));
+                            } else {
+                                logger.trace("Could not find previously selected file: {}", pf.getRelPath());
                             }
-                            if (!pathsToSelect.isEmpty()) {
-                                setSelectionPaths(pathsToSelect.toArray(new TreePath[0]));
-                                TreePath leadPath = getLeadSelectionPath();
-                                if (leadPath != null) {
-                                    scrollPathToVisible(leadPath);
-                                } else {
-                                    scrollPathToVisible(pathsToSelect.getFirst());
-                                }
+                        }
+                        if (!pathsToSelect.isEmpty()) {
+                            setSelectionPaths(pathsToSelect.toArray(new TreePath[0]));
+                            TreePath leadPath = getLeadSelectionPath();
+                            if (leadPath != null) {
+                                scrollPathToVisible(leadPath);
+                            } else {
+                                scrollPathToVisible(pathsToSelect.getFirst());
                             }
-                            logger.trace("ProjectTree refresh complete.");
-                        });
-                    });
+                        }
+                        logger.trace("ProjectTree refresh complete.");
+                    }));
                 });
+
+        refreshInFlight.set(refreshChain);
+        refreshChain.whenComplete((result, ex) -> SwingUtilities.invokeLater(() -> {
+            if (ex != null) {
+                logger.debug("ProjectTree refresh chain failed", ex);
+            }
+
+            refreshInFlight.compareAndSet(refreshChain, null);
+
+            if (pendingRefreshDuringRefresh) {
+                pendingRefreshDuringRefresh = false;
+                scheduleRefresh();
+            }
+        }));
     }
 
     /**
