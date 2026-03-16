@@ -168,13 +168,20 @@ public class BuildTools {
             }
         }
 
-        String compositeCommand = String.join(" && ", commands);
-
-        if (compositeCommand.isBlank()) {
-            return details.buildLintEnabled() ? details.buildLintCommand() : "";
+        if (!commands.isEmpty()) {
+            return String.join(" && ", commands);
         }
 
-        return compositeCommand;
+        // Fallback to global testSomeCommand if no module matched
+        if (details.testSomeEnabled() && !details.testSomeCommand().isBlank()) {
+            String interpolated =
+                    interpolateModuleCommand(cm, details.testSomeCommand(), workspaceTestFiles, pythonVersionOverride);
+            if (!interpolated.isBlank()) {
+                return interpolated;
+            }
+        }
+
+        return details.buildLintEnabled() ? details.buildLintCommand() : "";
     }
 
     private static String interpolateModuleCommand(
@@ -260,37 +267,16 @@ public class BuildTools {
             modules = new ArrayList<>(parseModulesJson(modulesJson));
         }
 
-        String testSomeOverride = System.getenv("BRK_TESTSOME_CMD");
-        if (testSomeOverride != null && !testSomeOverride.isBlank()) {
-            boolean found = false;
-            for (int i = 0; i < modules.size(); i++) {
-                var m = modules.get(i);
-                if (".".equals(m.relativePath())) {
-                    modules.set(
-                            i,
-                            new BuildAgent.ModuleBuildEntry(
-                                    m.alias(),
-                                    m.relativePath(),
-                                    m.buildLintCommand(),
-                                    m.testAllCommand(),
-                                    testSomeOverride,
-                                    m.language()));
-                    found = true;
-                    break;
-                }
-            }
-            if (!found) {
-                modules.add(new BuildAgent.ModuleBuildEntry(
-                        "root", ".", details.buildLintCommand(), details.testAllCommand(), testSomeOverride, ""));
-            }
-        }
+        String testSomeCommand = System.getenv("BRK_TESTSOME_CMD") != null
+                ? System.getenv("BRK_TESTSOME_CMD")
+                : details.testSomeCommand();
 
         return new BuildDetails(
                 details.buildLintCommand(),
                 buildLintEnabled,
                 details.testAllCommand(),
                 testAllEnabled,
-                details.testSomeCommand(),
+                testSomeCommand,
                 testSomeEnabled,
                 details.exclusionPatterns(),
                 details.environmentVariables(),
