@@ -464,7 +464,8 @@ public class InlineTestProjectCreator {
         }
 
         public TestProjectBuilder withMacros(Language language, String name) {
-            String resourcePath = String.format("/macros/%s/%s.yml", language.name().toLowerCase(), name);
+            String resourcePath =
+                    String.format("/macros/%s/%s.yml", language.name().toLowerCase(), name);
             try {
                 MacroPolicy policy = MacroPolicyLoader.loadFromResource(resourcePath);
                 this.macroPolicies.put(language, policy);
