@@ -94,6 +94,9 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
     /** Flag to track if a refresh should occur when component becomes visible */
     private volatile boolean pendingRefreshWhenShown = false;
 
+    /** Flag to suppress expansion saves during performRefreshInternal's restoration phase */
+    private volatile boolean isRefreshing = false;
+
     public ProjectTree(IProject project, ContextManager contextManager, Chrome chrome) {
         this.project = project;
         this.contextManager = contextManager;
@@ -840,7 +843,7 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
     }
 
     private void scheduleExpansionSave() {
-        if (isRestoringExpansion) {
+        if (isRestoringExpansion || isRefreshing) {
             return;
         }
         logger.info(
@@ -990,6 +993,7 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
         }
 
         pendingRefreshWhenShown = false; // Clear flag when actually refreshing
+        isRefreshing = true;
 
         var root = (DefaultMutableTreeNode) getModel().getRoot();
 
@@ -1005,6 +1009,7 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
             ptn.resetLoadState();
         }
         if (root == null) {
+            isRefreshing = false;
             return;
         }
 
@@ -1098,7 +1103,8 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
                             logger.trace("ProjectTree refresh complete.");
                         });
                     });
-                });
+                })
+                .whenComplete((result, ex) -> SwingUtilities.invokeLater(() -> isRefreshing = false));
     }
 
     /**
