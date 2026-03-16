@@ -222,7 +222,7 @@ public class CodeUnit implements Comparable<CodeUnit> {
      * Used to filter out lambda/anonymous artifacts from summaries and recommendations.
      */
     public boolean isAnonymous() {
-        return synthetic || fqName.contains("$anon$");
+        return fqName.contains("$anon$");
     }
 
     @Override
