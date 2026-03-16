@@ -14,6 +14,7 @@ import ai.brokk.executor.routers.CompletionsRouter;
 import ai.brokk.executor.routers.ContextRouter;
 import ai.brokk.executor.routers.FavoritesRouter;
 import ai.brokk.executor.routers.JobsRouter;
+import ai.brokk.executor.routers.ModelConfigRouter;
 import ai.brokk.executor.routers.ModelsRouter;
 import ai.brokk.executor.routers.OpenAiAuthRouter;
 import ai.brokk.executor.routers.RepoRouter;
