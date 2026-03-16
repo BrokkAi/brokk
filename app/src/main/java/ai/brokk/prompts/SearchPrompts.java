@@ -311,7 +311,12 @@ public class SearchPrompts {
                   - Summaries can serve as an index: add a summary to see the API/structure, then selectively add method sources or full files only if implementation details are needed.
 
                 Critical rules:
-                  1) Use callSearchAgent to discover relevant code that cannot be inferred from the current Workspace.
+                  1) Use callSearchAgent when you do not know where a specific missing piece of information lives.
+                     Delegate the smallest unresolved discovery question, not a broad restatement of the whole issue.
+                     When possible, anchor the request to concrete identifiers already known from the Workspace, related files, or user request:
+                     file paths, class names, method names, test names, fixtures, error strings, config keys, or API fields.
+                     If you already know the subsystem or likely file family, constrain the request to that scope.
+                     Only broaden the request after a narrower search fails.
                   2) Group related lookups into a single tool call when possible.
                   3) MAXIMIZE PARALLELISM: You must gather context as fast as possible.
                      If you need to understand multiple different concepts, files, or symbols,
@@ -328,6 +333,9 @@ public class SearchPrompts {
                      There are no bonus points for grooming the perfect Workspace.
 
                 Working efficiently:
+                  - Before calling callSearchAgent, identify the exact missing fact and the concrete anchors you already have.
+                  - Prefer specific searches: "find the test owning fixture X" over "find all code related to issue X".
+                  - Split unrelated unknowns into separate targeted searches instead of one omnibus search.
                   - Think before calling tools. Before making tool calls, briefly list the distinct pieces of context you need.
                     Then, dispatch all necessary tool calls simultaneously
                   - Dropping fragments should also be done in conjunction with other tools, since you will gain
@@ -444,6 +452,11 @@ public class SearchPrompts {
                 <tool-instructions>
                 {{#unless specialTooling~}}
                 Decide the next tool action(s) to make progress toward the objective in service of the goal.
+
+                Before calling callSearchAgent, decide:
+                  1. What exact fact is missing?
+                  2. What anchors already exist?
+                  3. What is the narrowest request that could answer it?
 
                 {{#if (eq turnsLeftAfterThisTurn 1)~}}
                 [HARNESS NOTE This is the penultimate turn. If you need any final information from non-terminal tools, request it now because you will only have one more turn after this.]
