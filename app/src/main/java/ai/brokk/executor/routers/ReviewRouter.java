@@ -67,6 +67,9 @@ public final class ReviewRouter implements SimpleHttpServer.CheckedHttpHandler {
 
         var tags = new HashMap<String, String>();
         tags.put("mode", "GUIDED_REVIEW");
+        if (request.severityThreshold() != null && !request.severityThreshold().isBlank()) {
+            tags.put("severity_threshold", request.severityThreshold());
+        }
 
         JobSpec.ModelOverrides noOverrides = null;
         var jobSpec = JobSpec.of(
@@ -128,5 +131,5 @@ public final class ReviewRouter implements SimpleHttpServer.CheckedHttpHandler {
         }
     }
 
-    private record ReviewSubmitRequest(@Nullable String plannerModel) {}
+    private record ReviewSubmitRequest(@Nullable String plannerModel, @Nullable String severityThreshold) {}
 }
