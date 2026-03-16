@@ -1122,6 +1122,70 @@ class BrokkApp(App):
             # Swallow all errors when updating UI that's possibly not mounted in tests.
             return
 
+    def _apply_executor_model_configs(self, configs: dict[str, Any]) -> None:
+        """Mirror persisted executor model roles into the TUI's local state."""
+        architect = configs.get("architect")
+        if isinstance(architect, dict):
+            model = str(architect.get("model", "")).strip()
+            reasoning = str(architect.get("reasoning", "")).strip()
+            if model:
+                self.current_model = model
+            if reasoning:
+                self.reasoning_level = reasoning
+
+        code = configs.get("code")
+        if isinstance(code, dict):
+            model = str(code.get("model", "")).strip()
+            reasoning = str(code.get("reasoning", "")).strip()
+            if model:
+                self.code_model = model
+            if reasoning:
+                self.reasoning_level_code = reasoning
+
+    async def _sync_model_roles_from_executor(self) -> None:
+        """Load persisted CODE/ARCHITECT roles so TUI selectors match Swing semantics."""
+        if not self._executor_ready:
+            return
+
+        try:
+            configs = await self.executor.get_model_config()
+            self._apply_executor_model_configs(configs)
+            self.settings.last_model = self.current_model
+            self.settings.last_reasoning_level = self.reasoning_level
+            self.settings.last_code_model = self.code_model
+            self.settings.last_code_reasoning_level = self.reasoning_level_code
+            self.settings.save()
+            self._update_statusline()
+        except Exception:
+            logger.exception("Failed to sync model roles from executor")
+
+    async def _persist_model_role(
+        self, role: str, model_id: str, reasoning: str, label: str
+    ) -> None:
+        chat = self._maybe_chat()
+        try:
+            await self.executor.set_model_config(role=role, model=model_id, reasoning=reasoning)
+            if role == "CODE":
+                self.code_model = model_id
+                self.reasoning_level_code = reasoning
+                self.settings.last_code_model = model_id
+                self.settings.last_code_reasoning_level = reasoning
+            else:
+                self.current_model = model_id
+                self.reasoning_level = reasoning
+                self.settings.last_model = model_id
+                self.settings.last_reasoning_level = reasoning
+            self.settings.save()
+            self._update_statusline()
+            if chat:
+                chat.add_system_message_markup(
+                    f"{label}: [bold]{model_id}[/] (Reasoning: [bold]{reasoning}[/])"
+                )
+        except Exception as e:
+            logger.exception("Failed to persist %s model role", role)
+            if chat:
+                chat.add_system_message(f"Failed to update {label.lower()}: {e}", level="ERROR")
+
     def compose(self) -> ComposeResult:
         with Horizontal():
             yield ChatPanel(id="chat-main")
@@ -1243,6 +1307,7 @@ class BrokkApp(App):
 
             if await self.executor.wait_ready():
                 self._executor_ready = True
+                await self._sync_model_roles_from_executor()
                 # Initial context load
                 self.run_worker(self._refresh_context_panel())
 
@@ -2547,28 +2612,18 @@ class BrokkApp(App):
 
         if base == "/model":
             if len(parts) > 1:
-                self.current_model = parts[1]
-                # Persist the last-used planner model for subsequent runs
-                try:
-                    self.settings.last_model = self.current_model
-                    self.settings.save()
-                except Exception:
-                    logger.exception("Failed to persist last_model setting")
-                chat.add_system_message_markup(f"Model changed to: [bold]{self.current_model}[/]")
-                self._update_statusline()
+                self.run_worker(
+                    self._persist_model_role("ARCHITECT", parts[1], self.reasoning_level, "Model")
+                )
             else:
                 self.run_worker(self.action_select_model_and_reasoning())
         elif base == "/model-code":
             if len(parts) > 1:
-                self.code_model = parts[1]
-                # Persist the last-used code model
-                try:
-                    self.settings.last_code_model = self.code_model
-                    self.settings.save()
-                except Exception:
-                    logger.exception("Failed to persist last_code_model setting")
-                chat.add_system_message_markup(f"Code model changed to: [bold]{self.code_model}[/]")
-                self._update_statusline()
+                self.run_worker(
+                    self._persist_model_role(
+                        "CODE", parts[1], self.reasoning_level_code, "Code Model"
+                    )
+                )
             else:
                 self.run_worker(self.action_select_code_model_and_reasoning())
         elif base == "/autocommit":
@@ -2717,22 +2772,11 @@ class BrokkApp(App):
 
             def update_selection(model_id: str | None) -> None:
                 if model_id:
-                    self.current_model = model_id
-                    # Persist choice
-                    try:
-                        self.settings.last_model = model_id
-                        self.settings.save()
-                    except Exception:
-                        logger.exception("Failed to persist model setting")
-
-                    if chat:
-                        chat.add_system_message_markup(f"Model changed to: [bold]{model_id}[/]")
-
-                    # Update statusline (best-effort)
-                    try:
-                        self._update_statusline()
-                    except Exception:
-                        pass
+                    self.run_worker(
+                        self._persist_model_role(
+                            "ARCHITECT", model_id, self.reasoning_level, "Model"
+                        )
+                    )
 
             self.push_screen(ModelSelectModal(available_models), update_selection)
         except Exception as e:
@@ -2778,35 +2822,15 @@ class BrokkApp(App):
                 if result:
                     model_id, reasoning = result
                     if target == "code":
-                        self.code_model = model_id
-                        self.reasoning_level_code = reasoning
-                        try:
-                            self.settings.last_code_model = model_id
-                            self.settings.last_code_reasoning_level = reasoning
-                            self.settings.save()
-                        except Exception:
-                            logger.exception("Failed to persist code model/reasoning settings")
-                        label = "Code Model"
+                        self.run_worker(
+                            self._persist_model_role("CODE", model_id, reasoning, "Code Model")
+                        )
                     else:
-                        self.current_model = model_id
-                        self.reasoning_level = reasoning
-                        try:
-                            self.settings.last_model = model_id
-                            self.settings.last_reasoning_level = reasoning
-                            self.settings.save()
-                        except Exception:
-                            logger.exception("Failed to persist model/reasoning settings")
-                        label = "Model"
-
-                    if chat:
-                        msg = f"{label}: [bold]{model_id}[/] (Reasoning: [bold]{reasoning}[/])"
-                        chat.add_system_message_markup(f"Settings updated: {msg}")
-
-                    # Update statusline (best-effort)
-                    try:
-                        self._update_statusline()
-                    except Exception:
-                        pass
+                        self.run_worker(
+                            self._persist_model_role(
+                                "ARCHITECT", model_id, reasoning, "Model"
+                            )
+                        )
 
             current_m = self.code_model if target == "code" else self.current_model
             current_r = self.reasoning_level_code if target == "code" else self.reasoning_level
@@ -3650,11 +3674,12 @@ class BrokkApp(App):
                 if not await self.executor.wait_ready():
                     raise ExecutorError("New executor failed to become ready.")
 
+                self._executor_ready = True
+                await self._sync_model_roles_from_executor()
+
                 # 6. Final UI refresh
                 await self._refresh_context_panel()
 
-                # Only mark as ready after ALL steps (restore, wait, refresh) succeed
-                self._executor_ready = True
                 if chat:
                     chat.add_system_message("Executor relaunched successfully.", level="SUCCESS")
 
