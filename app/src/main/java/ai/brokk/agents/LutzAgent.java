@@ -109,7 +109,6 @@ public class LutzAgent {
     }
 
     private static final int MAX_TOTAL_TURNS = 20;
-
     private final IContextManager cm;
     private final StreamingChatModel model;
     private final ContextManager.TaskScope scope;
@@ -709,6 +708,12 @@ public class LutzAgent {
         return toolName.startsWith("search") || toolName.startsWith("find") || "callSearchAgent".equals(toolName);
     }
 
+    private StreamingChatModel delegatedSearchModel() {
+        return ParallelSearch.usePlannerModelForSearchAgent()
+                ? model
+                : cm.getService().getModel(ModelType.SEARCH);
+    }
+
     /**
      * Invokes the Code Agent to implement instructions using the current SearchState.
      * This is intended for internal/legacy callers and does not advance the SearchAgent's turn loop.
@@ -773,7 +778,7 @@ public class LutzAgent {
             this.lastTurnContext = stateAtTurnStart.lastTurnContext();
             this.sessionMessages = new ArrayList<>(stateAtTurnStart.sessionMessages());
 
-            this.parallelSearch = new ParallelSearch(agent.cm, agent.goal);
+            this.parallelSearch = new ParallelSearch(agent.cm, agent.goal, agent.delegatedSearchModel());
             this.tr = agent.createToolRegistry(new WorkspaceTools(context), this, parallelSearch);
         }
 

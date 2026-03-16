@@ -17,6 +17,7 @@ import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.data.message.ToolExecutionResultMessage;
+import dev.langchain4j.model.chat.StreamingChatModel;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -33,13 +34,24 @@ import org.apache.logging.log4j.Logger;
  */
 public class ParallelSearch {
     private static final Logger logger = LogManager.getLogger(ParallelSearch.class);
+    private static final String SEARCHAGENT_USES_PLANNER_ENV_VAR = "BRK_SEARCHAGENT_USES_PLANNER";
 
     private final IContextManager cm;
     private final String goal;
+    private final StreamingChatModel delegatedSearchModel;
 
-    public ParallelSearch(IContextManager cm, String goal) {
+    public ParallelSearch(IContextManager cm, String goal, StreamingChatModel model) {
         this.cm = cm;
         this.goal = goal;
+        this.delegatedSearchModel = model;
+    }
+
+    public static boolean usePlannerModelForSearchAgent() {
+        return "true".equalsIgnoreCase(System.getenv(SEARCHAGENT_USES_PLANNER_ENV_VAR));
+    }
+
+    StreamingChatModel delegatedSearchModel() {
+        return delegatedSearchModel;
     }
 
     @Tool(
@@ -188,7 +200,7 @@ public class ParallelSearch {
             logger.debug("callSearchAgent invoked with query: {}, mode: {}", query, mode);
             io.llmOutput("**Search Agent** engaged:\n" + query, ChatMessageType.CUSTOM, LlmOutputMeta.newMessage());
 
-            var searchAgent = new SearchAgent(searchStartContext, query, objective, io);
+            var searchAgent = new SearchAgent(searchStartContext, query, delegatedSearchModel, objective, io);
             taskResult = searchAgent.execute();
 
             if (taskResult.stopDetails().reason() == StopReason.LLM_ERROR) {
