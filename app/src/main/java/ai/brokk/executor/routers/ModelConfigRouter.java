@@ -46,14 +46,21 @@ public final class ModelConfigRouter implements SimpleHttpServer.CheckedHttpHand
             SimpleHttpServer.sendJsonResponse(
                     exchange,
                     Map.of(
-                            "architect", Map.of(
-                                    "model", architect.name(),
-                                    "reasoning", architect.reasoning().toString().toLowerCase(Locale.ROOT),
-                                    "tier", architect.tier().toString().toLowerCase(Locale.ROOT)),
-                            "code", Map.of(
-                                    "model", code.name(),
-                                    "reasoning", code.reasoning().toString().toLowerCase(Locale.ROOT),
-                                    "tier", code.tier().toString().toLowerCase(Locale.ROOT))));
+                            "architect",
+                                    Map.of(
+                                            "model", architect.name(),
+                                            "reasoning",
+                                                    architect
+                                                            .reasoning()
+                                                            .toString()
+                                                            .toLowerCase(Locale.ROOT),
+                                            "tier", architect.tier().toString().toLowerCase(Locale.ROOT)),
+                            "code",
+                                    Map.of(
+                                            "model", code.name(),
+                                            "reasoning",
+                                                    code.reasoning().toString().toLowerCase(Locale.ROOT),
+                                            "tier", code.tier().toString().toLowerCase(Locale.ROOT))));
         } catch (Exception e) {
             logger.error("Error handling GET /v1/model-config", e);
             SimpleHttpServer.sendJsonResponse(

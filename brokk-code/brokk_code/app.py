@@ -2827,9 +2827,7 @@ class BrokkApp(App):
                         )
                     else:
                         self.run_worker(
-                            self._persist_model_role(
-                                "ARCHITECT", model_id, reasoning, "Model"
-                            )
+                            self._persist_model_role("ARCHITECT", model_id, reasoning, "Model")
                         )
 
             current_m = self.code_model if target == "code" else self.current_model
