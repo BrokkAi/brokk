@@ -136,11 +136,13 @@ class TestParseGuidedReview:
                     "title": "Fix null check",
                     "description": "Missing null check here",
                     "recommendation": "Add if x is not None",
-                    "excerpt": {
-                        "file": {"relativePath": "src/util.py"},
-                        "line": 10,
-                        "text": "x.process()",
-                    },
+                    "excerpts": [
+                        {
+                            "file": {"relativePath": "src/util.py"},
+                            "line": 10,
+                            "text": "x.process()",
+                        }
+                    ],
                 }
             ],
         }
@@ -226,11 +228,13 @@ class TestParseGuidedReview:
                     "title": "Typo in variable",
                     "description": "Variable is misspelled",
                     "recommendation": "Rename to correct spelling",
-                    "excerpt": {
-                        "file": {"relativePath": "src/y.py"},
-                        "line": 50,
-                        "text": "teh_value = 1",
-                    },
+                    "excerpts": [
+                        {
+                            "file": {"relativePath": "src/y.py"},
+                            "line": 50,
+                            "text": "teh_value = 1",
+                        }
+                    ],
                 }
             ],
             "additionalTests": [

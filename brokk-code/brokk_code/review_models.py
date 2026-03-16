@@ -99,10 +99,7 @@ def _parse_tactical_note(data: Dict[str, Any]) -> ReviewSection:
         else:
             content = "**Recommendation:** " + recommendation
 
-    excerpts: List[CodeExcerpt] = []
-    excerpt_data = data.get("excerpt")
-    if excerpt_data and isinstance(excerpt_data, dict):
-        excerpts.append(_parse_excerpt(excerpt_data))
+    excerpts = _parse_excerpts(data.get("excerpts"))
 
     return ReviewSection(
         title=data.get("title", ""),
