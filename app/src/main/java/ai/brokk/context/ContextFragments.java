@@ -1580,9 +1580,16 @@ public class ContextFragments {
             super(
                     id,
                     contextManager,
-                    "Source for " + fullyQualifiedName,
-                    eagerUnit != null ? eagerUnit.shortName() : fullyQualifiedName,
-                    eagerUnit != null ? eagerUnit.source().getSyntaxStyle() : SyntaxConstants.SYNTAX_STYLE_NONE,
+                    ComputedValue.completed("desc-" + id, "Source for " + fullyQualifiedName),
+                    new ComputedValue<>(
+                            "short-" + id,
+                            getFragmentExecutor()
+                                    .submit(() ->
+                                            computeShortDescription(fullyQualifiedName, contextManager, eagerUnit))),
+                    new ComputedValue<>(
+                            "syntax-" + id,
+                            getFragmentExecutor()
+                                    .submit(() -> computeSyntaxStyle(fullyQualifiedName, contextManager, eagerUnit))),
                     snapshotText == null
                             ? null
                             : decodeFrozen(
@@ -1593,6 +1600,26 @@ public class ContextFragments {
                             ? () -> computeSnapshotFor(fullyQualifiedName, contextManager, eagerUnit)
                             : null);
             this.fullyQualifiedName = fullyQualifiedName;
+        }
+
+        private static String computeShortDescription(
+                String fqName, IContextManager contextManager, @Nullable CodeUnit eagerUnit) {
+            if (eagerUnit != null) return eagerUnit.shortName();
+            var definitions = contextManager.getAnalyzerUninterrupted().getDefinitions(fqName);
+            if (!definitions.isEmpty()) {
+                return definitions.getFirst().shortName();
+            }
+            return fqName;
+        }
+
+        private static String computeSyntaxStyle(
+                String fqName, IContextManager contextManager, @Nullable CodeUnit eagerUnit) {
+            if (eagerUnit != null) return eagerUnit.source().getSyntaxStyle();
+            var definitions = contextManager.getAnalyzerUninterrupted().getDefinitions(fqName);
+            if (!definitions.isEmpty()) {
+                return definitions.getFirst().source().getSyntaxStyle();
+            }
+            return SyntaxConstants.SYNTAX_STYLE_NONE;
         }
 
         private static ContentSnapshot decodeFrozen(String fullyQualifiedName, byte[] bytes, IAnalyzer analyzer) {
