@@ -27,6 +27,7 @@ import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -291,8 +292,7 @@ public class ReviewParser {
 
     public record DesignFeedback(String title, String description, List<CodeExcerpt> excerpts, String recommendation) {}
 
-    public record TacticalFeedback(
-            String title, String description, @Nullable CodeExcerpt excerpt, String recommendation) {}
+    public record TacticalFeedback(String title, String description, CodeExcerpt excerpt, String recommendation) {}
 
     public record TestFeedback(String title, String recommendation) {}
 
@@ -763,17 +763,20 @@ public class ReviewParser {
                     .toList();
 
             List<TacticalFeedback> tacticalNotes = rawReview.tacticalNotes().stream()
-                    .map(raw -> {
+                    .flatMap(raw -> {
                         CodeExcerpt excerpt = resolvedExcerpts.get(raw.excerptIndex());
                         if (excerpt == null) {
                             logger.warn(
-                                    "Tactical note '{}' has missing excerpt index {}", raw.title(), raw.excerptIndex());
+                                    "Tactical note '{}' has missing excerpt index {}, skipping",
+                                    raw.title(),
+                                    raw.excerptIndex());
+                            return Stream.empty();
                         }
-                        return new TacticalFeedback(
+                        return Stream.of(new TacticalFeedback(
                                 raw.title(),
                                 instance.cleanMetadata(raw.description()),
-                                Objects.requireNonNull(excerpt),
-                                instance.cleanMetadata(raw.recommendation()));
+                                excerpt,
+                                instance.cleanMetadata(raw.recommendation())));
                     })
                     .toList();
 

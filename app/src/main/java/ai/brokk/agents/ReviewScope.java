@@ -86,7 +86,7 @@ public record ReviewScope(DiffService.CumulativeChanges changes, ReviewScope.Met
             var hasUpstream = upstreamRef != null && repo.listRemoteBranches().contains(upstreamRef);
 
             var baseline = defaultBranch;
-            if (hasUpstream) {
+            if (hasUpstream && upstreamRef != null) {
                 // Prefer upstream when it is ahead of the local default branch
                 var upstreamMergeBase = repo.getMergeBase(defaultBranch, upstreamRef);
                 var resolvedUpstream = repo.resolveToCommit(upstreamRef);
@@ -97,7 +97,7 @@ public record ReviewScope(DiffService.CumulativeChanges changes, ReviewScope.Met
 
             String label;
             if (currentBranch.equals(defaultBranch)) {
-                label = hasUpstream ? upstreamRef : "HEAD";
+                label = (hasUpstream && upstreamRef != null) ? upstreamRef : "HEAD";
             } else {
                 label = baseline;
             }

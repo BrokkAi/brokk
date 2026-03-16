@@ -1025,9 +1025,7 @@ public final class JobRunner {
                                                 var tnMap = new LinkedHashMap<String, Object>();
                                                 tnMap.put("title", tn.title());
                                                 tnMap.put("description", tn.description());
-                                                if (tn.excerpt() != null) {
-                                                    tnMap.put("excerpts", convertExcerpts(List.of(tn.excerpt())));
-                                                }
+                                                tnMap.put("excerpts", convertExcerpts(List.of(tn.excerpt())));
                                                 tnMap.put("recommendation", tn.recommendation());
                                                 tacticalNotes.add(tnMap);
                                             }
