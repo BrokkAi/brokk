@@ -1513,6 +1513,43 @@ async def test_chat_log_render_line_horizontal_scroll_selection():
         del log.screen.selections[log]
 
 
+@pytest.mark.asyncio
+async def test_session_costs_modal_scroll_exception_handling():
+    """Verify narrowed exception handling in session costs scroll path."""
+    from unittest.mock import MagicMock, patch
+
+    from textual.app import App, ComposeResult
+    from textual.css.query import NoMatches
+
+    from brokk_code.app import SessionCostsModalScreen
+
+    class TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield Static("host")
+
+    cost_data = {"events": [{"operationLabel": "Test"}], "totalCost": 0.01}
+    app = TestApp()
+
+    async with app.run_test() as pilot:
+        screen = SessionCostsModalScreen(cost_data)
+        await app.push_screen(screen)
+        await pilot.pause()
+
+        # 1. Test NoMatches is swallowed
+        with patch.object(screen, "query_one", side_effect=NoMatches("msg")):
+            # Should not raise
+            screen.on_list_view_highlighted(MagicMock(item=MagicMock()))
+
+        # 2. Test unexpected Exception is logged at debug
+        with patch("brokk_code.app.logger.debug") as mock_debug:
+            with patch.object(screen, "query_one", side_effect=RuntimeError("boom")):
+                screen.on_list_view_highlighted(MagicMock(item=MagicMock()))
+                mock_debug.assert_called_once()
+                args, kwargs = mock_debug.call_args
+                assert "Failed to scroll" in args[0]
+                assert kwargs.get("exc_info") is True
+
+
 def _force_autoscroll_off(panel, log):
     """Directly force autoscroll off as a test precondition.
 
