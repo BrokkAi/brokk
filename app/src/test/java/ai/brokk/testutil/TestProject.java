@@ -20,6 +20,7 @@ import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.util.Collections;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
@@ -48,7 +49,7 @@ public class TestProject implements IProject {
             FileFilteringService.createPatternMatcher(Set.of());
     private boolean gitConfigDeclined = false;
     private @Nullable String jdk;
-    private @Nullable MacroPolicy macroPolicy;
+    private Map<Language, MacroPolicy> macroPolicies = new java.util.HashMap<>();
     private @Nullable IGitRepo repo;
     private boolean repoExplicitlySetToNull = false;
     private @Nullable Supplier<Set<ProjectFile>> allFilesSupplier;
@@ -234,13 +235,17 @@ public class TestProject implements IProject {
     }
 
     @Override
-    public @Nullable MacroPolicy getMacroPolicy() {
-        return macroPolicy;
+    public Map<Language, MacroPolicy> getMacroPolicies() {
+        return java.util.Collections.unmodifiableMap(macroPolicies);
     }
 
     @Override
-    public void setMacroPolicy(@Nullable MacroPolicy policy) {
-        this.macroPolicy = policy;
+    public void setMacroPolicy(Language language, @Nullable MacroPolicy policy) {
+        if (policy == null) {
+            this.macroPolicies.remove(language);
+        } else {
+            this.macroPolicies.put(language, policy);
+        }
     }
 
     public TestProject withJdk(@Nullable String jdkHome) {

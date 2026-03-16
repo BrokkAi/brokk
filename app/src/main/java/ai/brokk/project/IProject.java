@@ -376,11 +376,11 @@ public interface IProject extends AutoCloseable {
 
     default void setAnalyzerLanguages(Set<Language> languages) {}
 
-    default @Nullable MacroPolicy getMacroPolicy() {
-        return null;
+    default Map<Language, MacroPolicy> getMacroPolicies() {
+        return Map.of();
     }
 
-    default void setMacroPolicy(@Nullable MacroPolicy policy) {}
+    default void setMacroPolicy(Language language, @Nullable MacroPolicy policy) {}
 
     /**
      * Invalidates any cached auto-detected languages. This should be called when project
