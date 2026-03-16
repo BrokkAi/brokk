@@ -1160,7 +1160,6 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
                 .thenAccept(preCreatedNodes -> SwingUtilities.invokeLater(() -> {
                     if (refreshGeneration.get() != thisGeneration) {
                         logger.trace("Refresh superseded (generation {})", thisGeneration);
-                        isRefreshing = false;
                         return;
                     }
 
@@ -1221,8 +1220,15 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
                 .exceptionally(ex -> {
                     logger.error("Error during parallel refresh", ex);
                     SwingUtilities.invokeLater(() -> {
-                        isRefreshing = false;
-                        chrome.toolError("Failed to refresh project tree: " + ex.getMessage());
+                        if (refreshGeneration.get() == thisGeneration) {
+                            isRefreshing = false;
+                            chrome.toolError("Failed to refresh project tree: " + ex.getMessage());
+                        } else {
+                            logger.trace(
+                                    "Ignoring error from superseded refresh (generation {}): {}",
+                                    thisGeneration,
+                                    ex.getMessage());
+                        }
                     });
                     return null;
                 });
