@@ -13,6 +13,7 @@ These variables control the commands used for project verification.
 | `BRK_TESTALL_CMD` | The command to run the entire test suite (e.g., `npm test`). |
 | `BRK_TESTALL_ENABLED` | Boolean (`true`/`false`) to enable or disable the "Test All" command. |
 | `BRK_TESTSOME_CMD` | A Mustache template used to run specific tests based on current workspace context. |
+| `BRK_TESTSOME_ENABLED` | Boolean (`true`/`false`) to enable or disable the "Test Some" command. |
 
 ### Mustache Templates in `BRK_TESTSOME_CMD`
 
