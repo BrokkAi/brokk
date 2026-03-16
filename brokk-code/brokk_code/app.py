@@ -508,6 +508,15 @@ class SessionCostsModalScreen(ModalScreen[None]):
         else:
             self.query_one("#session-costs-help-line").focus()
 
+    def on_list_view_highlighted(self, message: ListView.Highlighted) -> None:
+        """Ensure the highlighted cost row is scrolled into view."""
+        if message.item:
+            try:
+                scroll_wrap = self.query_one("#session-costs-list-wrap")
+                scroll_wrap.scroll_to_widget(message.item, animate=False)
+            except Exception:
+                pass
+
 
 class PrCreateModalScreen(ModalScreen[Optional[tuple[str, str, List[str]]]]):
     """Modal for creating a pull request with editable title, body, and session selection."""

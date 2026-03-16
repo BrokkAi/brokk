@@ -1156,6 +1156,60 @@ async def test_session_costs_modal_excludes_legacy_carryover_from_model_aggregat
 
 
 @pytest.mark.asyncio
+async def test_session_costs_modal_scrolls_on_navigation():
+    """Verify that navigating the cost list scrolls the highlighted row into view."""
+    from unittest.mock import MagicMock as _MagicMock
+
+    from textual.app import App, ComposeResult
+    from textual.widgets import ListItem, ListView
+
+    from brokk_code.app import SessionCostsModalScreen
+
+    class TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield Static("host")
+
+    # Create enough events to ensure many rows
+    events = [
+        {
+            "timestampMillis": 1737627240000 + (i * 1000),
+            "operationLabel": f"Task {i}",
+            "modelName": "gpt-4",
+            "costUsd": 0.01,
+        }
+        for i in range(50)
+    ]
+    cost_data = {"events": events, "totalCost": 0.50}
+
+    app = TestApp()
+    async with app.run_test(size=(120, 20)) as pilot:
+        screen = SessionCostsModalScreen(cost_data)
+        await app.push_screen(screen)
+        await pilot.pause()
+
+        list_view = screen.query_one(ListView)
+        scroll_wrap = screen.query_one("#session-costs-list-wrap")
+
+        # Monkeypatch/wrap scroll_to_widget to capture invocations
+        mock_scroll = _MagicMock(side_effect=scroll_wrap.scroll_to_widget)
+        scroll_wrap.scroll_to_widget = mock_scroll
+
+        # Set index near the end
+        list_view.index = 49
+
+        # Pause loop until call is captured or timeout
+        for _ in range(20):
+            await pilot.pause()
+            if mock_scroll.called:
+                break
+
+        assert mock_scroll.called, "scroll_to_widget was not called upon navigation"
+        # Assert the captured widget is a ListItem
+        args, _ = mock_scroll.call_args
+        assert isinstance(args[0], ListItem), f"Expected ListItem, got {type(args[0])}"
+
+
+@pytest.mark.asyncio
 async def test_chat_log_get_selection():
     """Verify that ChatLog.get_selection() extracts text from log content using real Selection."""
     from textual.app import App, ComposeResult
