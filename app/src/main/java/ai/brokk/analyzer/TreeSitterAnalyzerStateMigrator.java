@@ -17,13 +17,16 @@ public final class TreeSitterAnalyzerStateMigrator {
             return false;
         }
 
-        // Java and TypeScript require exact version matches within the current major line
-        // to ensure FQN and property consistency.
-        if (language != Languages.JAVA && language != Languages.TYPESCRIPT) {
-            return false;
+        // Java requires a rebuild to ensure synthetic flags are correctly populated
+        // in existing snapshots (transition from 2.0.0 -> 2.1.0).
+        if (language == Languages.JAVA) {
+            return fromVer == null || fromVer.compareTo(REBUILD_THRESHOLD) < 0;
         }
 
-        return fromVer == null || fromVer.compareTo(REBUILD_THRESHOLD) < 0;
+        // TypeScript remains strict but doesn't necessarily need a 2.1.0 force-rebuild
+        // if its definitions haven't changed in a way that requires it.
+        // For now, only Java is targeted for the 2.1.0 synthetic flag migration.
+        return false;
     }
 
     static TreeSitterStateIO.AnalyzerStateDto migrate(TreeSitterStateIO.AnalyzerStateDto dto, SemVer from, SemVer to) {
