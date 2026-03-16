@@ -768,6 +768,14 @@ class ChatInput(TextArea):
 class ChatPanel(Vertical):
     """Main chat interface with message display and input."""
 
+    DEFAULT_CSS = """
+    .session-loading-label {
+        color: #808080;
+        text-style: italic;
+        margin-right: 1;
+    }
+    """
+
     class Submitted(Message):
         """Posted when user submits a message."""
 
@@ -819,6 +827,9 @@ class ChatPanel(Vertical):
 
         self._suppressing_sync: bool = False
 
+        # Session loading state
+        self._session_loading: bool = False
+
     def compose(self) -> ComposeResult:
         yield ChatLog(highlight=True, markup=True, wrap=True, min_width=0, id="chat-log")
         yield TokenBar(id="chat-token-bar", classes="hidden")
@@ -831,6 +842,7 @@ class ChatPanel(Vertical):
         yield ReasoningSuggestions(id="reasoning-suggestions")
         with Horizontal(id="chat-help-row"):
             yield Button("Scroll to Bottom", id="scroll-to-bottom", classes="hidden")
+            yield Static(id="session-loading-label", classes="hidden session-loading-label")
             yield LoadingIndicator(id="help-spinner", classes="hidden")
             yield Static(id="help-elapsed", classes="hidden")
             yield Static(
@@ -1592,6 +1604,42 @@ class ChatPanel(Vertical):
         except Exception:
             pass
 
+    def set_session_loading(self, loading: bool, message: Optional[str] = None) -> None:
+        """Update session loading state with visual feedback.
+
+        When loading=True: Shows the label with the message, shows spinner,
+        and sets ChatInput to read-only.
+        When loading=False: Hides the label and restores ChatInput.
+        """
+        self._session_loading = loading
+
+        try:
+            label = self.query_one("#session-loading-label", Static)
+            if loading:
+                label.update(message or "Loading session...")
+                label.remove_class("hidden")
+            else:
+                label.add_class("hidden")
+        except Exception:
+            pass
+
+        try:
+            spinner = self.query_one("#help-spinner", LoadingIndicator)
+            # Show spinner if session loading OR job running
+            if loading:
+                spinner.remove_class("hidden")
+            elif not self._job_start_time:
+                # Only hide if no job is running
+                spinner.add_class("hidden")
+        except Exception:
+            pass
+
+        try:
+            chat_input = self.query_one("#chat-input", ChatInput)
+            chat_input.read_only = loading
+        except Exception:
+            pass
+
     def set_job_running(self, running: bool) -> None:
         """Update job progress state in StatusLine and the help row spinner/timer."""
         try:
@@ -1602,7 +1650,12 @@ class ChatPanel(Vertical):
 
         try:
             spinner = self.query_one("#help-spinner", LoadingIndicator)
-            spinner.set_class(not running, "hidden")
+            # Show spinner if job running OR session loading
+            if running:
+                spinner.remove_class("hidden")
+            elif not self._session_loading:
+                # Only hide if session is not loading
+                spinner.add_class("hidden")
         except Exception:
             pass
 

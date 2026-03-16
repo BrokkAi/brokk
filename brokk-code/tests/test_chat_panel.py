@@ -142,6 +142,104 @@ async def test_job_progress_in_chat_panel():
 
 
 @pytest.mark.asyncio
+async def test_session_loading_state():
+    """
+    Verify that session loading state shows the label, spinner, and makes input read-only.
+    """
+    from textual.app import App, ComposeResult
+
+    from brokk_code.widgets.chat_panel import ChatInput
+
+    class TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield ChatPanel(id="chat")
+
+    app = TestApp()
+    async with app.run_test():
+        chat = app.query_one(ChatPanel)
+        loading_label = chat.query_one("#session-loading-label", Static)
+        help_spinner = chat.query_one("#help-spinner")
+        chat_input = chat.query_one("#chat-input", ChatInput)
+
+        # Initially hidden
+        assert loading_label.has_class("hidden")
+        assert help_spinner.has_class("hidden")
+        assert chat_input.read_only is False
+
+        # Start session loading with default message
+        chat.set_session_loading(True)
+        assert not loading_label.has_class("hidden")
+        assert _static_rendered_text(loading_label) == "Loading session..."
+        assert not help_spinner.has_class("hidden")
+        assert chat_input.read_only is True
+
+        # Stop session loading
+        chat.set_session_loading(False)
+        assert loading_label.has_class("hidden")
+        assert help_spinner.has_class("hidden")
+        assert chat_input.read_only is False
+
+        # Start session loading with custom message
+        chat.set_session_loading(True, message="Switching to session 'test'...")
+        assert not loading_label.has_class("hidden")
+        assert _static_rendered_text(loading_label) == "Switching to session 'test'..."
+        assert chat_input.read_only is True
+
+        # Stop session loading
+        chat.set_session_loading(False)
+        assert loading_label.has_class("hidden")
+        assert chat_input.read_only is False
+
+
+@pytest.mark.asyncio
+async def test_session_loading_and_job_running_coordination():
+    """
+    Verify that session loading and job running coordinate properly with the spinner.
+    """
+    from textual.app import App, ComposeResult
+
+    class TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield ChatPanel(id="chat")
+
+    app = TestApp()
+    async with app.run_test():
+        chat = app.query_one(ChatPanel)
+        loading_label = chat.query_one("#session-loading-label", Static)
+        help_spinner = chat.query_one("#help-spinner")
+
+        # Initially both hidden
+        assert loading_label.has_class("hidden")
+        assert help_spinner.has_class("hidden")
+
+        # Start session loading
+        chat.set_session_loading(True)
+        assert not help_spinner.has_class("hidden")
+
+        # Stop session loading - spinner should hide
+        chat.set_session_loading(False)
+        assert help_spinner.has_class("hidden")
+
+        # Start job running
+        chat.set_job_running(True)
+        assert not help_spinner.has_class("hidden")
+
+        # Start session loading while job is running
+        chat.set_session_loading(True)
+        assert not help_spinner.has_class("hidden")
+        assert not loading_label.has_class("hidden")
+
+        # Stop session loading while job is still running - spinner should stay visible
+        chat.set_session_loading(False)
+        assert not help_spinner.has_class("hidden")
+        assert loading_label.has_class("hidden")
+
+        # Stop job running - now spinner should hide
+        chat.set_job_running(False)
+        assert help_spinner.has_class("hidden")
+
+
+@pytest.mark.asyncio
 async def test_token_bar_visibility_control():
     """Verify that the token bar visibility can be controlled explicitly."""
     from textual.app import App, ComposeResult
