@@ -45,6 +45,7 @@ import ai.brokk.watchservice.NoopWatchService;
 import ai.brokk.watchservice.WatchServiceFactory;
 import dev.langchain4j.data.message.*;
 import dev.langchain4j.model.chat.StreamingChatModel;
+import java.awt.GraphicsEnvironment;
 import java.awt.Image;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -2843,8 +2844,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                         %s
                         """
                                         .formatted(Service.TOP_UP_URL);
-                        SwingUtilities.invokeLater(
-                                () -> io.systemNotify(msg, "Balance Exhausted", JOptionPane.WARNING_MESSAGE));
+                        notifyBalanceWarning(msg, "Balance Exhausted");
                     }
                 } else if (balance < Service.LOW_BALANCE_WARN_AT) {
                     // Low balance warning
@@ -2853,8 +2853,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                         lowBalanceNotified = true;
                         var msg = "Low account balance: $%.2f.\nTop-up at %s to avoid interruptions."
                                 .formatted(balance, Service.TOP_UP_URL);
-                        SwingUtilities.invokeLater(
-                                () -> io.systemNotify(msg, "Low Balance Warning", JOptionPane.WARNING_MESSAGE));
+                        notifyBalanceWarning(msg, "Low Balance Warning");
                     }
                 } else {
                     // Healthy balance – clear flags
@@ -2865,6 +2864,15 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 logger.error("Failed to check user balance", e);
             }
         });
+    }
+
+    private void notifyBalanceWarning(String message, String title) {
+        Runnable notify = () -> io.systemNotify(message, title, JOptionPane.WARNING_MESSAGE);
+        if (GraphicsEnvironment.isHeadless()) {
+            notify.run();
+        } else {
+            SwingUtilities.invokeLater(notify);
+        }
     }
 
     /**
