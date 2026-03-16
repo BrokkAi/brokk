@@ -824,6 +824,8 @@ class ModelReasoningSelectModal(ModalScreen[tuple[str, str]]):
             m_list = self.query_one("#model-select-list", ListView)
             m_idx = self.models.index(self.selected_model)
             m_list.index = m_idx
+            if m_list.highlighted_child:
+                m_list.scroll_to_region(m_list.highlighted_child.region)
         except (ValueError, Exception):
             pass
 
@@ -832,11 +834,20 @@ class ModelReasoningSelectModal(ModalScreen[tuple[str, str]]):
             r_list = self.query_one("#reasoning-select-list", ListView)
             r_idx = self.reasoning_levels.index(self.selected_reasoning)
             r_list.index = r_idx
+            if r_list.highlighted_child:
+                r_list.scroll_to_region(r_list.highlighted_child.region)
         except (ValueError, Exception):
             pass
 
         # Focus the model list by default
         self.query_one("#model-select-list", ListView).focus()
+
+    def on_list_view_highlighted(self, message: ListView.Highlighted) -> None:
+        """Ensure the highlighted item is always scrolled into view."""
+        if message.item:
+            # ListView.scroll_to_region handles scrolling the item into view
+            # within the ListView's own scrollable area.
+            message.list_view.scroll_to_region(message.item.region)
 
     def on_list_view_selected(self, message: ListView.Selected) -> None:
         if not message.item or not message.item.id:
@@ -859,6 +870,8 @@ class ModelReasoningSelectModal(ModalScreen[tuple[str, str]]):
                 try:
                     r_idx = self.reasoning_levels.index(self.selected_reasoning)
                     r_list.index = r_idx
+                    if r_list.highlighted_child:
+                        r_list.scroll_to_region(r_list.highlighted_child.region)
                 except (ValueError, Exception):
                     pass
                 r_list.focus()

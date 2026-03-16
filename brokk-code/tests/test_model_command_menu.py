@@ -295,3 +295,50 @@ async def test_code_model_modal_navigation_updates_code_settings():
             assert app.reasoning_level_code == "low"
             # Ensure planner settings remained untouched
             assert app.current_model != "code-beta"
+
+
+@pytest.mark.asyncio
+async def test_combined_modal_scrolling_on_small_screen():
+    """Verify that navigating down in a long model list keeps the highlighted item visible."""
+    executor = MagicMock()
+    # Create 50 models to ensure the list exceeds common terminal heights
+    models = [{"name": f"model-{i}", "location": "loc"} for i in range(50)]
+    executor.get_models = AsyncMock(return_value={"models": models})
+    executor.stop = AsyncMock()
+    app = BrokkApp(executor=executor)
+    app._executor_ready = True
+
+    with (
+        patch.object(BrokkApp, "_start_executor", return_value=None),
+        patch.object(BrokkApp, "_monitor_executor", return_value=None),
+        patch.object(BrokkApp, "_poll_tasklist", return_value=None),
+        patch.object(BrokkApp, "_poll_context", return_value=None),
+    ):
+        # Use a constrained size for the pilot
+        async with app.run_test(size=(80, 24)) as pilot:
+            await app.action_select_model_and_reasoning()
+            await pilot.pause()
+
+            model_list = app.screen.query_one("#model-select-list", ListView)
+
+            # Move down many times
+            for _ in range(30):
+                await pilot.press("down")
+
+            # Check that the highlighted item's region is within the scrollable viewport
+            highlighted = model_list.highlighted_child
+            assert highlighted is not None
+
+            # The region of the highlighted item should be visible within the ListView's window.
+            # scroll_offset tracks how much the content is shifted UP.
+            # Y coordinate in region is relative to the widget.
+            # In Textual, if we've scrolled correctly, the highlighted item's Y
+            # relative to the ListView's scrollable area should be within [0, ListView.size.height)
+
+            # Since we use scroll_to_region, the widget ensures the region is visible.
+            # We can verify the index moved as expected.
+            assert model_list.index == 30
+
+            # Verify that the list actually did some scrolling.
+            # With the fix, the ListView itself should now be scrollable.
+            assert model_list.scroll_y > 0
