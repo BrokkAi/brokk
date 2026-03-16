@@ -43,7 +43,9 @@ import java.io.StringReader;
 import java.io.StringWriter;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
+import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.*;
@@ -452,6 +454,7 @@ public class BuildAgent {
                 """
                 You are an agent tasked with finding build information for the *development* environment of a software project.
                 Your goal is to identify key build commands (clean, compile/build, test all, test specific) and how to invoke those commands correctly.
+                Determine if there is a single command that builds/tests the entire project. If there is no discernable set of global root commands (e.g. in a multi-module project where commands must be run per-module), leave the root commands blank AND set `buildLintEnabled`, `testAllEnabled`, and `testSomeEnabled` to `false`. However, even in multi-module setups, there is often a root-level orchestrator (like a Makefile or a root Gradle/Maven file) that can route test commands for unspecified files; if so, populate the global `testSomeCommand` and set `testSomeEnabled` to `true`.
                 Focus *only* on details relevant to local development builds/profiles, explicitly ignoring production-specific
                 configurations unless they are the only ones available.
 
@@ -464,12 +467,14 @@ public class BuildAgent {
                 - Only documentation files (*.md, *.txt, LICENSE, README, etc.) with no build configuration
                 - The project structure is unclear or unsupported
 
-                Then call `abortBuildDetails` immediately with an explanation. Do NOT continue exploring indefinitely.
+                However, if `listTrackedFiles` reveals subdirectories that might contain code or modules (e.g. `backend/`, `frontend/`, `services/`), you MUST explore them using `listTrackedFiles` or `listFiles` before aborting.
+
+                Otherwise, call `abortBuildDetails` immediately with an explanation. Do NOT continue exploring indefinitely.
                 Examples of when to abort:
                 - `listTrackedFiles(".")` returns "No tracked files found"
-                - `listTrackedFiles(".")` returns files but none are recognized build configuration files
-                - Root directory contains only documentation files (*.md, *.txt, LICENSE, etc.) and no source code or build files
-                - After checking root directory, no recognized build system or project structure is found
+                - `listTrackedFiles(".")` returns files but none are recognized build configuration files, and no promising subdirectories exist
+                - Root directory contains only documentation files (*.md, *.txt, LICENSE, etc.) and no source code, build files, or promising subdirectories
+                - After checking root and promising subdirectories, no recognized build system or project structure is found
 
                 Note: `listTrackedFiles` shows all git-tracked files (unfiltered), while `listFiles` respects exclusion patterns.
                 Use `listTrackedFiles` to discover build configurations, then `listFiles` or other tools to explore filtered content.
@@ -494,9 +499,9 @@ public class BuildAgent {
                 Use `{{pyver}}` for the version string when needed (e.g. for Python projects: `python{{pyver}} -m pytest`).
                 Only these variables are supported; do not use other Mustache variables.
 
-                Note: Since the lists are file- and class-oriented, for test environments like `go test` and `cargo test`
-                that are function-oriented, it is acceptable to fall back to running all tests when targeting specific
-                tests is not feasible.
+                The lists are DecoratedCollection instances, so you get first/last/index/value fields.
+
+                For module- or package-oriented test runners like `go test` and `cargo test`, use the `{{#packages}}` section variable to target specific components.
 
                 Examples:
 
@@ -544,7 +549,56 @@ public class BuildAgent {
                 This project's languages are %s. Consider language-specific exclusions that are appropriate.
 
                 Remember to request the `reportBuildDetails` tool to finalize the process ONLY once all information is collected.
-                The reportBuildDetails tool expects exactly five parameters: buildLintCommand, testAllCommand, testSomeCommand, excludedDirectories, and excludedFilePatterns.
+                The reportBuildDetails tool expects eight parameters: buildLintCommand, buildLintEnabled, testAllCommand, testAllEnabled, testSomeCommand, testSomeEnabled, excludedDirectories, excludedFilePatterns, and modules.
+
+                If the project is a multi-module project (Maven modules, Gradle subprojects, Cargo workspaces, Go modules, Node.js workspaces, etc.), you MUST identify each module and provide its details in the single flat `modules` list.
+                For each module, identify its primary programming language (e.g., "Java", "Python", "Go", "Rust", "JavaScript", "TypeScript", "C#").
+                **IMPORTANT**: For polyglot or multi-language repositories, include all modules from ALL detected languages and frameworks in this same list.
+                Root commands (the top-level parameters) should represent repo-level orchestration. If no repo-level orchestration is possible, leave root commands blank and disable them by setting `buildLintEnabled`, `testAllEnabled`, and `testSomeEnabled` to `false`.
+                Module-specific commands must be executable from the project root (e.g., using flags like `-pl`, `-w`, or `cd`).
+
+                For monolithic repositories or single-module projects, you MUST report a single module with `relativePath: "."` and provide the relevant `testSomeCommand` in that module entry.
+
+                **Modules JSON Examples:**
+
+                **Maven (Nested Modules):**
+                ```json
+                "modules": [
+                  { "alias": "core", "relativePath": "core", "language": "Java", "buildLintCommand": "mvn compile -pl core", "testAllCommand": "mvn test -pl core", "testSomeCommand": "mvn test -pl core -Dtest={{#classes}}{{value}}{{^last}},{{/last}}{{/classes}}" },
+                  { "alias": "api", "relativePath": "api", "language": "Java", "buildLintCommand": "mvn compile -pl api", "testAllCommand": "mvn test -pl api", "testSomeCommand": "mvn test -pl api -Dtest={{#classes}}{{value}}{{^last}},{{/last}}{{/classes}}" }
+                ]
+                ```
+
+                **Gradle (Subprojects):**
+                ```json
+                "modules": [
+                  { "alias": "app", "relativePath": "app", "language": "Java", "buildLintCommand": "./gradlew :app:classes", "testAllCommand": "./gradlew :app:test", "testSomeCommand": "./gradlew :app:test {{#classes}}--tests {{value}}{{/classes}}" },
+                  { "alias": "lib", "relativePath": "lib", "language": "Java", "buildLintCommand": "./gradlew :lib:classes", "testAllCommand": "./gradlew :lib:test", "testSomeCommand": "./gradlew :lib:test {{#classes}}--tests {{value}}{{/classes}}" }
+                ]
+                ```
+
+                **Python (Poetry Monorepo / Sub-packages):**
+                ```json
+                "modules": [
+                  { "alias": "service-a", "relativePath": "services/a", "language": "Python", "buildLintCommand": "cd services/a && poetry run mypy .", "testAllCommand": "cd services/a && poetry run pytest", "testSomeCommand": "cd services/a && poetry run pytest {{#files}}{{value}}{{^last}} {{/last}}{{/files}}" }
+                ]
+                ```
+
+                **Node.js (Workspaces):**
+                ```json
+                "modules": [
+                  { "alias": "web", "relativePath": "packages/web", "language": "JavaScript", "buildLintCommand": "npm run build -w web", "testAllCommand": "npm test -w web", "testSomeCommand": "npm test -w web -- {{#files}}{{value}}{{^last}} {{/last}}{{/files}}" }
+                ]
+                ```
+
+                **Mixed Language / Polyglot (Mono-repo):**
+                ```json
+                "modules": [
+                  { "alias": "java-backend", "relativePath": "backend", "language": "Java", "buildLintCommand": "./gradlew :backend:classes", "testAllCommand": "./gradlew :backend:test", "testSomeCommand": "./gradlew :backend:test {{#classes}}--tests {{value}}{{/classes}}" },
+                  { "alias": "python-worker", "relativePath": "worker", "language": "Python", "buildLintCommand": "cd worker && poetry run mypy .", "testAllCommand": "cd worker && poetry run pytest", "testSomeCommand": "cd worker && poetry run pytest {{#files}}{{value}}{{^last}} {{/last}}{{/files}}" },
+                  { "alias": "frontend-app", "relativePath": "frontend", "language": "TypeScript", "buildLintCommand": "npm run build -w frontend", "testAllCommand": "npm test -w frontend", "testSomeCommand": "npm test -w frontend -- {{#files}}{{value}}{{^last}} {{/last}}{{/files}}" }
+                ]
+                ```
                 """
                         .formatted(wrapperScriptInstruction, currentExcludedDirectories, languageNames)));
 
@@ -584,18 +638,24 @@ public class BuildAgent {
             @P(
                             "Command to build or lint incrementally, e.g. mvn compile, cargo check, pyflakes. If a linter is not clearly in use, don't guess! it will cause problems; just leave it blank.")
                     String buildLintCommand,
+            @P("Whether the buildLintCommand is enabled.") boolean buildLintEnabled,
             @P(
                             "Command to run all tests. If no test framework is clearly in use, don't guess! it will cause problems; just leave it blank.")
                     String testAllCommand,
+            @P("Whether the testAllCommand is enabled.") boolean testAllEnabled,
             @P(
-                            "Command template to run specific tests using Mustache templating. Should use {{classes}}, {{fqclasses}}, {{files}}, or {{packages}}. {{packages}} provides dotted module paths for Python/Rust and directory paths for Go. Again, if no class- or file- based framework is in use, leave it blank.")
+                            "Command template to run specific tests using Mustache templating. Should use {{#classes}}, {{#fqclasses}}, {{#files}}, or {{#packages}}. {{#packages}} provides dotted module paths for Python/Rust and directory paths for Go. Again, if no class- or file- based framework is in use, leave it blank.")
                     String testSomeCommand,
+            @P("Whether the testSomeCommand is enabled.") boolean testSomeEnabled,
             @P(
                             "List of directories to exclude from code intelligence (e.g., generated code, build artifacts). Use literal paths, not glob patterns.")
                     List<String> excludedDirectories,
             @P(
                             "List of file patterns to exclude. Use '*.ext' for extensions (e.g., '*.svg'), literal names for specific files (e.g., 'package-lock.json'). Do NOT use **/ prefix or duplicate directories.")
-                    List<String> excludedFilePatterns) {
+                    List<String> excludedFilePatterns,
+            @P(
+                            "List of modules identified in the project. Each module should have: 'alias' (name), 'relativePath' (path from root), 'language' (e.g. Java, Python), 'buildLintCommand', 'testAllCommand', and 'testSomeCommand'.")
+                    List<ModuleBuildEntry> modules) {
         // Validate Mustache templates in command strings before proceeding
         validateCommandTemplateForTool("buildLintCommand", buildLintCommand);
         validateCommandTemplateForTool("testAllCommand", testAllCommand);
@@ -650,16 +710,25 @@ public class BuildAgent {
         this.llmAddedPatterns.addAll(filePatterns);
         this.llmAddedPatterns.retainAll(deduplicatedPatterns);
 
+        List<ModuleBuildEntry> finalModules = new ArrayList<>(modules);
+        if (!testSomeCommand.isBlank() && finalModules.isEmpty()) {
+            finalModules.add(new ModuleBuildEntry("root", ".", buildLintCommand, testAllCommand, testSomeCommand, ""));
+        }
+
         logger.debug("Final exclusionPatterns (existing + LLM, deduplicated): {}", deduplicatedPatterns);
         logger.debug("New patterns from this LLM run: {}", llmAddedPatterns);
         this.reportedDetails = new BuildDetails(
                 buildLintCommand,
+                buildLintEnabled,
                 testAllCommand,
+                testAllEnabled,
                 testSomeCommand,
+                testSomeEnabled,
                 deduplicatedPatterns,
                 defaultEnvForProject(),
                 null,
-                "");
+                "",
+                finalModules);
         logger.debug("reportBuildDetails tool executed. Exclusion patterns: {}", deduplicatedPatterns);
         return "Build details report received and processed.";
     }
@@ -719,28 +788,50 @@ public class BuildAgent {
         }
 
         // 2. Testsome command
-        if (!details.testSomeCommand().isBlank()) {
+        for (var module : details.modules()) {
+            String template = module.testSomeCommand();
+            if (template.isBlank()) {
+                continue;
+            }
+
             var testFiles = project.getRepo().getTrackedFiles().stream()
                     .filter(f -> f.toString().toLowerCase(Locale.ROOT).contains("test"))
                     .toList();
 
-            if (!testFiles.isEmpty()) {
-                var randomTestFile = testFiles.get(new Random().nextInt(testFiles.size()));
-                String relPath = randomTestFile.toString();
-                String template = details.testSomeCommand();
+            if (testFiles.isEmpty()) {
+                continue;
+            }
 
-                String interpolatedCmd = null;
-                if (template.contains("{{#files}}")) {
-                    interpolatedCmd = BuildTools.interpolateMustacheTemplate(template, List.of(relPath), "files");
-                }
+            var randomTestFile = testFiles.get(new Random().nextInt(testFiles.size()));
+            String relPath = toUnixPath(randomTestFile.getRelPath());
+            String fileName = randomTestFile.getFileName();
+            String simpleName = fileName.contains(".") ? fileName.substring(0, fileName.lastIndexOf('.')) : fileName;
 
-                if (interpolatedCmd != null) {
-                    var result = BuildVerifier.verify(project, interpolatedCmd, details.environmentVariables());
-                    if (!result.success()) {
-                        return "Test command failed (exit code %d):\n%s"
-                                .formatted(result.exitCode(), Objects.toString(result.output(), ""));
-                    }
+            List<String> items = List.of(relPath);
+            List<String> classItems = List.of(simpleName);
+
+            String interpolatedCmd = template;
+            if (template.contains("{{#files}}")) {
+                interpolatedCmd = BuildTools.interpolateMustacheTemplate(interpolatedCmd, items, "files");
+            }
+            if (template.contains("{{#classes}}")) {
+                interpolatedCmd = BuildTools.interpolateMustacheTemplate(interpolatedCmd, classItems, "classes");
+            }
+            if (template.contains("{{#fqclasses}}")) {
+                interpolatedCmd = BuildTools.interpolateMustacheTemplate(interpolatedCmd, classItems, "fqclasses");
+            }
+            if (template.contains("{{#packages}}")) {
+                interpolatedCmd = BuildTools.interpolateMustacheTemplate(interpolatedCmd, items, "packages");
+            }
+
+            if (!interpolatedCmd.equals(template)) {
+                var result = BuildVerifier.verify(project, interpolatedCmd, details.environmentVariables());
+                if (!result.success()) {
+                    return "Test command failed (exit code %d):\n%s"
+                            .formatted(result.exitCode(), Objects.toString(result.output(), ""));
                 }
+                // Successfully validated at least one module command
+                return null;
             }
         }
 
@@ -790,36 +881,140 @@ public class BuildAgent {
         return result;
     }
 
+    /**
+     * Represents a submodule build configuration.
+     */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record ModuleBuildEntry(
+            @JsonProperty("alias") String alias,
+            @JsonProperty("relativePath") String relativePath,
+            @JsonProperty("buildLintCommand") String buildLintCommand,
+            @JsonProperty("testAllCommand") String testAllCommand,
+            @JsonProperty("testSomeCommand") String testSomeCommand,
+            @JsonProperty("language") String language) {
+
+        @JsonCreator
+        public ModuleBuildEntry(
+                @JsonProperty("alias") @Nullable String alias,
+                @JsonProperty("relativePath") @Nullable String relativePath,
+                @JsonProperty("buildLintCommand") @Nullable String buildLintCommand,
+                @JsonProperty("testAllCommand") @Nullable String testAllCommand,
+                @JsonProperty("testSomeCommand") @Nullable String testSomeCommand,
+                @JsonProperty("language") @Nullable String language) {
+            this.alias = alias != null ? alias : "";
+
+            String normalized;
+            try {
+                // Normalize path segments and ensure consistent forward slashes
+                normalized = toUnixPath(
+                        Paths.get(relativePath != null ? relativePath : ".").normalize());
+            } catch (InvalidPathException e) {
+                logger.warn("Invalid module relativePath provided: '{}'. Falling back to '.'", relativePath);
+                normalized = ".";
+            }
+
+            if (normalized.equals(".") || normalized.isEmpty() || normalized.equals("/")) {
+                this.relativePath = ".";
+            } else {
+                // Ensure non-root paths end with / to prevent substring collisions (e.g., "app" vs "appendix")
+                this.relativePath = normalized.endsWith("/") ? normalized : normalized + "/";
+            }
+            this.buildLintCommand = buildLintCommand != null ? buildLintCommand : "";
+            this.testAllCommand = testAllCommand != null ? testAllCommand : "";
+            this.testSomeCommand = testSomeCommand != null ? testSomeCommand : "";
+            this.language = language != null ? language : "";
+        }
+
+        public ModuleBuildEntry(
+                String alias,
+                String relativePath,
+                String buildLintCommand,
+                String testAllCommand,
+                String testSomeCommand) {
+            this(alias, relativePath, buildLintCommand, testAllCommand, testSomeCommand, "");
+        }
+    }
+
     /** Holds semi-structured information about a project's build process */
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record BuildDetails(
             String buildLintCommand,
+            boolean buildLintEnabled,
             String testAllCommand,
+            boolean testAllEnabled,
             String testSomeCommand,
+            boolean testSomeEnabled,
             @JsonDeserialize(as = LinkedHashSet.class) @JsonSetter(nulls = Nulls.AS_EMPTY)
                     Set<String> exclusionPatterns,
             @JsonDeserialize(as = LinkedHashMap.class) @JsonSetter(nulls = Nulls.AS_EMPTY)
                     Map<String, String> environmentVariables,
             @Nullable Integer maxBuildAttempts,
             // blank = do nothing
-            String afterTaskListCommand) {
+            String afterTaskListCommand,
+            @JsonSetter(nulls = Nulls.AS_EMPTY) List<ModuleBuildEntry> modules) {
 
         @VisibleForTesting
         public BuildDetails(
-                String buildLintCommand, String testAllCommand, String testSomeCommand, Set<String> exclusionPatterns) {
-            this(buildLintCommand, testAllCommand, testSomeCommand, exclusionPatterns, Map.of(), null, "");
+                @Nullable String buildLintCommand,
+                @Nullable String testAllCommand,
+                @Nullable Set<String> exclusionPatterns) {
+            this(
+                    buildLintCommand != null ? buildLintCommand : "",
+                    true,
+                    testAllCommand != null ? testAllCommand : "",
+                    true,
+                    "",
+                    false,
+                    exclusionPatterns != null ? exclusionPatterns : Set.of(),
+                    Map.of(),
+                    null,
+                    "",
+                    List.of());
         }
 
         public BuildDetails(
-                String buildLintCommand,
-                String testAllCommand,
-                String testSomeCommand,
-                Set<String> exclusionPatterns,
-                Map<String, String> environmentVariables) {
-            this(buildLintCommand, testAllCommand, testSomeCommand, exclusionPatterns, environmentVariables, null, "");
+                @Nullable String buildLintCommand,
+                @Nullable String testAllCommand,
+                @Nullable Set<String> exclusionPatterns,
+                @Nullable Map<String, String> environmentVariables) {
+            this(
+                    buildLintCommand != null ? buildLintCommand : "",
+                    true,
+                    testAllCommand != null ? testAllCommand : "",
+                    true,
+                    "",
+                    false,
+                    exclusionPatterns != null ? exclusionPatterns : Set.of(),
+                    environmentVariables != null ? environmentVariables : Map.of(),
+                    null,
+                    "",
+                    List.of());
         }
 
-        public static final BuildDetails EMPTY = new BuildDetails("", "", "", Set.of(), Map.of(), null, "");
+        /** Backward compatibility for legacy callers (e.g. AbstractProject). */
+        public BuildDetails(
+                @Nullable String buildLintCommand,
+                @Nullable String testAllCommand,
+                @Nullable Set<String> exclusionPatterns,
+                @Nullable Map<String, String> environmentVariables,
+                @Nullable Integer maxBuildAttempts,
+                @Nullable String afterTaskListCommand) {
+            this(
+                    buildLintCommand != null ? buildLintCommand : "",
+                    true,
+                    testAllCommand != null ? testAllCommand : "",
+                    true,
+                    "",
+                    false,
+                    exclusionPatterns != null ? exclusionPatterns : Set.of(),
+                    environmentVariables != null ? environmentVariables : Map.of(),
+                    maxBuildAttempts,
+                    afterTaskListCommand != null ? afterTaskListCommand : "",
+                    List.of());
+        }
+
+        public static final BuildDetails EMPTY =
+                new BuildDetails("", false, "", false, "", false, Set.of(), Map.of(), null, "", List.of());
 
         /**
          * Migrate legacy excludedDirectories to exclusionPatterns.
@@ -828,13 +1023,17 @@ public class BuildAgent {
         @JsonCreator
         public static BuildDetails fromJson(
                 @JsonProperty("buildLintCommand") @Nullable String buildLintCommand,
+                @JsonProperty("buildLintEnabled") @Nullable Boolean buildLintEnabled,
                 @JsonProperty("testAllCommand") @Nullable String testAllCommand,
+                @JsonProperty("testAllEnabled") @Nullable Boolean testAllEnabled,
                 @JsonProperty("testSomeCommand") @Nullable String testSomeCommand,
+                @JsonProperty("testSomeEnabled") @Nullable Boolean testSomeEnabled,
                 @JsonProperty("exclusionPatterns") @Nullable Set<String> exclusionPatterns,
                 @JsonProperty("excludedDirectories") @Nullable Set<String> excludedDirectories,
                 @JsonProperty("environmentVariables") @Nullable Map<String, String> environmentVariables,
                 @JsonProperty("maxBuildAttempts") @Nullable Integer maxBuildAttempts,
-                @JsonProperty("afterTaskListCommand") @Nullable String afterTaskListCommand) {
+                @JsonProperty("afterTaskListCommand") @Nullable String afterTaskListCommand,
+                @JsonProperty("modules") @Nullable List<ModuleBuildEntry> modules) {
             // Migrate legacy excludedDirectories to exclusionPatterns
             Set<String> patterns = new LinkedHashSet<>();
             if (exclusionPatterns != null) {
@@ -843,14 +1042,19 @@ public class BuildAgent {
             if (excludedDirectories != null) {
                 patterns.addAll(excludedDirectories);
             }
+
             return new BuildDetails(
                     buildLintCommand != null ? buildLintCommand : "",
+                    buildLintEnabled != null ? buildLintEnabled : true,
                     testAllCommand != null ? testAllCommand : "",
+                    testAllEnabled != null ? testAllEnabled : true,
                     testSomeCommand != null ? testSomeCommand : "",
+                    testSomeEnabled != null ? testSomeEnabled : true,
                     patterns,
                     environmentVariables != null ? environmentVariables : Map.of(),
                     maxBuildAttempts,
-                    afterTaskListCommand != null ? afterTaskListCommand : "");
+                    afterTaskListCommand != null ? afterTaskListCommand : "",
+                    modules != null ? modules : List.of());
         }
     }
 
@@ -941,7 +1145,7 @@ public class BuildAgent {
     /**
      * Validates a Mustache template, throwing IllegalArgumentException if unsupported tags are found.
      *
-     * @param template the template to validate
+     * @param template the Mustache template string
      * @param listKey the list key used for this interpolation (added to allowed keys)
      * @throws IllegalArgumentException if unsupported tags are found
      */
@@ -1015,7 +1219,7 @@ public class BuildAgent {
      *   <li>{@code {{last}}} — boolean, true for the last item</li>
      *   <li>{@code {{index}}} — 0-based position in the list</li>
      * </ul>
-     * These keys are backed by {@link StringElement}. Changes to the field names or accessor methods
+     * These keys are backed by {@link MustacheTemplates.StringElement}. Changes to the field names or accessor methods
      * constitute an API change and require corresponding test updates.
      */
     public static String interpolateMustacheTemplate(

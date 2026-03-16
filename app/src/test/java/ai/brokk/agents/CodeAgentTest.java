@@ -369,7 +369,7 @@ class CodeAgentTest {
     // V-3: verifyPhase – build failure loop (mocking Environment.runShellCommand)
     @Test
     void testVerifyPhase_buildFailureAndSuccessCycle() {
-        var bd = new BuildAgent.BuildDetails("echo build", "echo testAll", "echo test {{files}}", Set.of());
+        var bd = new BuildAgent.BuildDetails("echo build", "echo testAll", Set.of());
         project.setBuildDetails(bd);
         project.setCodeAgentTestScope(IProject.CodeAgentTestScope.ALL); // to use testAllCommand
 
@@ -429,7 +429,7 @@ class CodeAgentTest {
     // INT-1: Interruption during verifyPhase (via Environment stub)
     @Test
     void testVerifyPhase_interruptionDuringBuild() {
-        var bd = new BuildAgent.BuildDetails("echo build", "echo testAll", "echo test {{files}}", Set.of());
+        var bd = new BuildAgent.BuildDetails("echo build", "echo testAll", Set.of());
         project.setBuildDetails(bd);
         project.setCodeAgentTestScope(IProject.CodeAgentTestScope.ALL);
 
@@ -482,7 +482,7 @@ class CodeAgentTest {
             return "Build successful";
         };
 
-        var bd = new BuildAgent.BuildDetails("echo build", "echo testAll", "echo test", Set.of());
+        var bd = new BuildAgent.BuildDetails("echo build", "echo testAll", Set.of());
         project.setBuildDetails(bd);
         project.setCodeAgentTestScope(IProject.CodeAgentTestScope.ALL);
 
@@ -515,7 +515,7 @@ class CodeAgentTest {
     // S-1: verifyPhase sanitizes Unix Java-style compiler output
     @Test
     void testVerifyPhase_sanitizesUnixJavaPaths() {
-        var bd = new BuildAgent.BuildDetails("echo build", "echo testAll", "echo test {{files}}", Set.of());
+        var bd = new BuildAgent.BuildDetails("echo build", "echo testAll", Set.of());
         project.setBuildDetails(bd);
         project.setCodeAgentTestScope(IProject.CodeAgentTestScope.ALL);
 
@@ -542,7 +542,7 @@ class CodeAgentTest {
     // S-2: verifyPhase sanitizes Windows Java-style compiler output
     @Test
     void testVerifyPhase_sanitizesWindowsJavaPaths() {
-        var bd = new BuildAgent.BuildDetails("echo build", "echo testAll", "echo test {{files}}", Set.of());
+        var bd = new BuildAgent.BuildDetails("echo build", "echo testAll", Set.of());
         project.setBuildDetails(bd);
         project.setCodeAgentTestScope(IProject.CodeAgentTestScope.ALL);
 
@@ -570,7 +570,7 @@ class CodeAgentTest {
     // S-3: verifyPhase sanitizes Python-style traceback paths
     @Test
     void testVerifyPhase_sanitizesPythonTracebackPaths() {
-        var bd = new BuildAgent.BuildDetails("echo build", "echo testAll", "echo test {{files}}", Set.of());
+        var bd = new BuildAgent.BuildDetails("echo build", "echo testAll", Set.of());
         project.setBuildDetails(bd);
         project.setCodeAgentTestScope(IProject.CodeAgentTestScope.ALL);
 
@@ -780,7 +780,7 @@ class CodeAgentTest {
         cm.getService().setModel(ModelType.BUILD_PROCESSOR, countingModel);
 
         // Configure build to fail with output that exceeds threshold (> 500 lines)
-        var bd = new BuildAgent.BuildDetails("echo build", "echo testAll", "echo test", Set.of());
+        var bd = new BuildAgent.BuildDetails("echo build", "echo testAll", Set.of());
         project.setBuildDetails(bd);
         project.setCodeAgentTestScope(IProject.CodeAgentTestScope.ALL);
 
@@ -921,7 +921,7 @@ class CodeAgentTest {
             return "Build successful";
         };
 
-        var bd = new BuildAgent.BuildDetails("echo build", "echo testAll", "echo test", Set.of());
+        var bd = new BuildAgent.BuildDetails("echo build", "echo testAll", Set.of());
         project.setBuildDetails(bd);
         project.setCodeAgentTestScope(IProject.CodeAgentTestScope.ALL);
 
@@ -1029,7 +1029,7 @@ class CodeAgentTest {
 
         // Mock build to succeed
         Environment.shellCommandRunnerFactory = (cmd, root) -> (outputConsumer, timeout) -> "Build successful";
-        var bd = new BuildAgent.BuildDetails("echo build", "echo testAll", "echo test", Set.of());
+        var bd = new BuildAgent.BuildDetails("echo build", "echo testAll", Set.of());
         project.setBuildDetails(bd);
         project.setCodeAgentTestScope(IProject.CodeAgentTestScope.ALL);
 

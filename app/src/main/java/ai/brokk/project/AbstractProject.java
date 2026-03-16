@@ -453,7 +453,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
             return saved;
         }
 
-        boolean isWorktree = this instanceof WorktreeProject;
+        boolean isWorktree = (Object) this instanceof WorktreeProject;
         return computeContextualFallback(frameWidth, isWorktree);
     }
 
@@ -895,19 +895,9 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         try {
             var details = objectMapper.readValue(json, BuildAgent.BuildDetails.class);
 
-            // Canonicalize exclusion patterns that look like paths
-            var canonicalExclusions = new LinkedHashSet<String>();
-            for (String pattern : details.exclusionPatterns()) {
-                // Only canonicalize patterns that look like directory paths (contain / or \\)
-                if (pattern.contains("/") || pattern.contains("\\")) {
-                    String c = PathNormalizer.canonicalizeForProject(pattern, getMasterRootPathForConfig());
-                    if (!c.isBlank()) {
-                        canonicalExclusions.add(c);
-                    }
-                } else {
-                    canonicalExclusions.add(pattern);
-                }
-            }
+            // Canonicalize exclusion patterns
+            var canonicalExclusions = PathNormalizer.canonicalizeExclusionPatterns(
+                    details.exclusionPatterns(), getMasterRootPathForConfig());
 
             // Normalize environment variables and migrate JAVA_HOME to workspace properties
             Map<String, String> envIn = details.environmentVariables();
@@ -934,12 +924,16 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
             // Return a re-wrapped BuildDetails with canonicalized content
             return Optional.of(new BuildAgent.BuildDetails(
                     details.buildLintCommand(),
+                    details.buildLintEnabled(),
                     details.testAllCommand(),
+                    details.testAllEnabled(),
                     details.testSomeCommand(),
+                    details.testSomeEnabled(),
                     canonicalExclusions,
                     canonicalEnv,
                     details.maxBuildAttempts(),
-                    details.afterTaskListCommand()));
+                    details.afterTaskListCommand(),
+                    details.modules()));
         } catch (JsonProcessingException e) {
             logger.error("Failed to deserialize BuildDetails from JSON: {}", json, e);
         }
@@ -978,12 +972,16 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
 
         var canonicalDetails = new BuildAgent.BuildDetails(
                 details.buildLintCommand(),
+                details.buildLintEnabled(),
                 details.testAllCommand(),
+                details.testAllEnabled(),
                 details.testSomeCommand(),
+                details.testSomeEnabled(),
                 canonicalExclusions,
                 canonicalEnv,
                 details.maxBuildAttempts(),
-                details.afterTaskListCommand());
+                details.afterTaskListCommand(),
+                details.modules());
 
         try {
             String json = objectMapper.writeValueAsString(canonicalDetails);

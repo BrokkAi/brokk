@@ -47,7 +47,7 @@ public class AnalyzerExclusionPatternsTest {
                 buildDir.resolve("generated.sql"), "CREATE TABLE generated_tbl (id INT);", StandardCharsets.UTF_8);
 
         // Create project and configure exclusion patterns
-        var details = new BuildAgent.BuildDetails("", "", "", new LinkedHashSet<>(List.of("build")));
+        var details = new BuildAgent.BuildDetails("", "", new LinkedHashSet<>(List.of("build")));
         var project = MainProject.forTests(tempDir, details);
 
         // Verify getAnalyzableFiles() excludes the build directory
@@ -83,7 +83,7 @@ public class AnalyzerExclusionPatternsTest {
                 StandardCharsets.UTF_8);
 
         // Create project and configure glob exclusion pattern
-        var details = new BuildAgent.BuildDetails("", "", "", new LinkedHashSet<>(List.of("*.generated.sql")));
+        var details = new BuildAgent.BuildDetails("", "", new LinkedHashSet<>(List.of("*.generated.sql")));
         var project = MainProject.forTests(tempDir, details);
 
         // Verify getAnalyzableFiles() excludes files matching the glob
@@ -129,8 +129,8 @@ public class AnalyzerExclusionPatternsTest {
                 tempDir.resolve("temp.generated.sql"), "CREATE TABLE temp_tbl (id INT);", StandardCharsets.UTF_8);
 
         // Configure multiple exclusion patterns
-        var details = new BuildAgent.BuildDetails(
-                "", "", "", new LinkedHashSet<>(List.of("build", "vendor", "*.generated.sql")));
+        var details =
+                new BuildAgent.BuildDetails("", "", new LinkedHashSet<>(List.of("build", "vendor", "*.generated.sql")));
         var project = MainProject.forTests(tempDir, details);
 
         // Verify only src/main.sql is analyzable
