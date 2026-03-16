@@ -649,7 +649,6 @@ public final class HeadlessExecutorMain {
             System.out.println("    GET  /v1/completions              - file and symbol completions");
             System.out.println("    GET  /v1/favorites                - user's favorite model configs");
             System.out.println("    POST /v1/review/submit            - submit guided code review job");
-            System.out.println("    GET  /v1/review/diff              - get unified diff for review scope");
             System.out.println();
 
             // Create and start executor

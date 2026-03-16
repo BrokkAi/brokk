@@ -1495,6 +1495,9 @@ public class SessionChangesPanel extends JPanel implements ThemeAware, AnalyzerC
         final String baselineRef = this.reviewBaselineRef;
 
         LoggingFuture.supplyAsync(() -> {
+                    if (baselineRef == null) {
+                        return ReviewScope.fromDefaultBranch(cm);
+                    }
                     var state = resolveBaselineState(baselineRef);
                     if (state.isError()) {
                         throw new RuntimeException("Cannot start review: " + state.baselineLabel());

@@ -64,8 +64,12 @@ public record ReviewScope(DiffService.CumulativeChanges changes, ReviewScope.Met
     }
 
     /**
-     * returns a ReviewScope for changes from the merge-base of the default branch and HEAD,
-     * up to the working tree.
+     * Returns a ReviewScope for changes from the effective baseline up to the working tree,
+     * matching the Swing UI's "review all changes" behaviour:
+     * <ul>
+     *   <li>Prefers {@code origin/<default>} over the local default branch when the remote is ahead.</li>
+     *   <li>When already on the default branch, compares against the upstream remote ref.</li>
+     * </ul>
      */
     @Blocking
     public static ReviewScope fromDefaultBranch(IContextManager cm) {
@@ -75,13 +79,40 @@ public record ReviewScope(DiffService.CumulativeChanges changes, ReviewScope.Met
         var repo = (GitRepo) cm.getProject().getRepo();
         try {
             var defaultBranch = repo.getDefaultBranch();
-            String mergeBase = repo.getMergeBase("HEAD", defaultBranch);
-            if (mergeBase == null) {
-                throw new IllegalArgumentException("Cannot find merge base with " + defaultBranch);
+            var currentBranch = repo.getCurrentBranch();
+
+            var remoteName = repo.remote().getOriginRemoteNameWithFallback();
+            var upstreamRef = remoteName == null ? null : remoteName + "/" + defaultBranch;
+            var hasUpstream = upstreamRef != null && repo.listRemoteBranches().contains(upstreamRef);
+
+            var baseline = defaultBranch;
+            if (hasUpstream) {
+                // Prefer upstream when it is ahead of the local default branch
+                var upstreamMergeBase = repo.getMergeBase(defaultBranch, upstreamRef);
+                var resolvedUpstream = repo.resolveToCommit(upstreamRef);
+                if (upstreamMergeBase != null && !upstreamMergeBase.equals(resolvedUpstream.name())) {
+                    baseline = upstreamRef;
+                }
             }
-            return fromBaseline(cm, mergeBase, "WORKING");
+
+            String label;
+            if (currentBranch.equals(defaultBranch)) {
+                label = hasUpstream ? upstreamRef : "HEAD";
+            } else {
+                label = baseline;
+            }
+
+            String resolvedRef;
+            if ("HEAD".equals(label)) {
+                resolvedRef = "HEAD";
+            } else {
+                resolvedRef = Objects.requireNonNull(
+                        repo.getMergeBase("HEAD", label), "Cannot find merge base with " + label);
+            }
+
+            return fromBaseline(cm, resolvedRef, "WORKING");
         } catch (GitAPIException e) {
-            throw new RuntimeException("Failed to compute merge base from default branch", e);
+            throw new RuntimeException("Failed to compute baseline from default branch", e);
         }
     }
 
