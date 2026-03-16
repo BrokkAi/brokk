@@ -1910,13 +1910,22 @@ class BrokkApp(App):
                         "Session operation in progress. Please wait.", level="WARNING"
                     )
                 return
-            elif check_text and self._current_switch_target_session_id:
-                # Queue non-slash prompts for execution after switch completes
-                if chat:
-                    chat.add_user_message(raw_text)
-                self._pending_switch_prompt = (self._current_switch_target_session_id, raw_text)
-                if chat:
-                    chat.add_system_message("Queuing prompt until session switch is complete...")
+            elif check_text:
+                if self._current_switch_target_session_id:
+                    # Queue non-slash prompts for execution after switch completes
+                    if chat:
+                        chat.add_user_message(raw_text)
+                    self._pending_switch_prompt = (self._current_switch_target_session_id, raw_text)
+                    if chat:
+                        chat.add_system_message(
+                            "Queuing prompt until session switch is complete..."
+                        )
+                else:
+                    # No target session (e.g. creating new session) — reject
+                    if chat:
+                        chat.add_system_message(
+                            "Session operation in progress. Please wait.", level="WARNING"
+                        )
                 return
 
         if check_text.startswith("/"):

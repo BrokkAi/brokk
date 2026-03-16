@@ -598,6 +598,66 @@ async def test_slash_command_rejected_during_session_switch(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_prompt_rejected_during_create_session(tmp_path):
+    """Verify non-slash prompts are rejected during _create_session_from_menu
+    (session_switch_in_progress=True but _current_switch_target_session_id=None)."""
+    from brokk_code.widgets.chat_panel import ChatPanel
+
+    app = BrokkApp(workspace_dir=tmp_path)
+    app.executor = MagicMock()
+    app.executor.workspace_dir = tmp_path
+    app._executor_ready = True
+
+    chat = MagicMock(spec=ChatPanel)
+    chat._message_history = []
+    log_mock = MagicMock()
+    log_mock.query.return_value.remove.return_value = None
+    chat.query_one.side_effect = lambda q: log_mock if q == "#chat-log" else MagicMock()
+    app._maybe_chat = MagicMock(return_value=chat)
+
+    # Simulate create-session in progress (no target session ID)
+    create_event = asyncio.Event()
+
+    async def slow_create():
+        await create_event.wait()
+        return "new-session-id"
+
+    app.executor.create_session = AsyncMock(side_effect=slow_create)
+    app._refresh_context_panel = AsyncMock()
+
+    # Start create session
+    create_task = asyncio.create_task(app._create_session_from_menu())
+    await asyncio.sleep(0.01)
+    assert app.session_switch_in_progress is True
+    assert app._current_switch_target_session_id is None
+
+    # Submit a non-slash prompt during create
+    msg = MagicMock()
+    msg.text = "Hello during create"
+    app.on_chat_panel_submitted(msg)
+
+    # Prompt should NOT be queued (no target session to queue against)
+    assert app._pending_switch_prompt is None
+
+    # Should have received a warning
+    any_warning = any(
+        "Session operation in progress" in str(call.args[0])
+        for call in chat.add_system_message.call_args_list
+        if call.kwargs.get("level") == "WARNING"
+    )
+    assert any_warning is True
+
+    # No job submission should have happened
+    app.executor.submit_job = AsyncMock()
+    app.executor.submit_job.assert_not_called()
+
+    # Complete the create
+    create_event.set()
+    await create_task
+    assert app.session_switch_in_progress is False
+
+
+@pytest.mark.asyncio
 async def test_create_session_blocked_during_switch(tmp_path):
     """Verify _create_session_from_menu is blocked if a session switch is in progress."""
     from brokk_code.widgets.chat_panel import ChatPanel
