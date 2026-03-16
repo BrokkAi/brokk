@@ -4,7 +4,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 import java.io.IOException;
 import java.io.InputStream;
-import java.util.Objects;
 import org.jetbrains.annotations.Blocking;
 
 public final class MacroPolicyLoader {
@@ -24,6 +23,6 @@ public final class MacroPolicyLoader {
 
     @Blocking
     public static MacroPolicy load(InputStream inputStream) throws IOException {
-        return YAML_MAPPER.readValue(Objects.requireNonNull(inputStream), MacroPolicy.class);
+        return YAML_MAPPER.readValue(inputStream, MacroPolicy.class);
     }
 }
