@@ -1266,11 +1266,20 @@ class ExecutorManager:
             await self._handle_http_error(e, "/v1/repo/pr/create")
             raise  # Should not be reached
 
-    async def submit_review_job(self, planner_model: str) -> str:
+    async def submit_review_job(
+        self,
+        planner_model: str,
+        severity_threshold: str | None = None,
+    ) -> str:
         """Submits a guided review job to the executor.
 
         Reviews all branch changes vs the merge-base with the default branch,
         including uncommitted working tree changes.
+
+        Args:
+            planner_model: The LLM model to use for the review.
+            severity_threshold: Minimum severity for review notes
+                (CRITICAL, HIGH, MEDIUM, LOW). Defaults to LOW (show everything).
 
         Returns:
             The jobId of the created review job.
@@ -1281,7 +1290,9 @@ class ExecutorManager:
         if not self._http_client:
             raise ExecutorError("Executor not started")
 
-        payload = {"plannerModel": planner_model}
+        payload: dict = {"plannerModel": planner_model}
+        if severity_threshold:
+            payload["severityThreshold"] = severity_threshold
 
         headers = {"Idempotency-Key": str(uuid.uuid4())}
         effective_session_id = self.session_id

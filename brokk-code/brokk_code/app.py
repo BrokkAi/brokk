@@ -2252,8 +2252,13 @@ class BrokkApp(App):
             )
         )
 
-    def _handle_local_review_command(self) -> None:
+    def _handle_local_review_command(self, parts: List[str]) -> None:
         """Handle the /review slash command for local guided reviews.
+
+        Supported syntax:
+          /review [--severity LEVEL]
+
+        LEVEL is one of CRITICAL, HIGH, MEDIUM, LOW (default: LOW -- show everything).
 
         Reviews all branch changes vs the merge-base with the default branch,
         including uncommitted working tree changes.
@@ -2269,8 +2274,33 @@ class BrokkApp(App):
             )
             return
 
+        # Parse optional --severity flag
+        raw_args = parts[1:] if len(parts) > 1 else []
+        severity: Optional[str] = None
+        i = 0
+        while i < len(raw_args):
+            if raw_args[i] == "--severity" and i + 1 < len(raw_args):
+                val = raw_args[i + 1].upper()
+                if val not in self._VALID_SEVERITIES:
+                    chat.add_system_message(
+                        f"Invalid severity: {raw_args[i + 1]}. "
+                        f"Must be one of: {', '.join(sorted(self._VALID_SEVERITIES))}",
+                        level="ERROR",
+                    )
+                    return
+                severity = val
+                i += 2
+            else:
+                chat.add_system_message(
+                    "Usage: /review [--severity LEVEL]",
+                    level="WARNING",
+                )
+                return
+
+        severity_msg = f" (severity>={severity})" if severity else ""
+        chat.add_system_message(f"Starting guided review{severity_msg}...")
         self._open_review_modal()
-        self.run_worker(self._run_review())
+        self.run_worker(self._run_review(severity_threshold=severity))
 
     def _open_review_modal(self) -> None:
         """Opens the review modal screen."""
@@ -2304,14 +2334,11 @@ class BrokkApp(App):
             pass
         return None
 
-    async def _run_review(self) -> None:
+    async def _run_review(self, severity_threshold: Optional[str] = None) -> None:
         """Run a guided review job and display results in the review panel."""
         from brokk_code.review_models import parse_guided_review
 
         chat = self._maybe_chat()
-
-        if chat:
-            chat.add_system_message("Starting guided review...")
 
         self.current_job_cost = 0.0
         self.job_in_progress = True
@@ -2329,6 +2356,7 @@ class BrokkApp(App):
         try:
             self.current_job_id = await self.executor.submit_review_job(
                 planner_model=self.current_model,
+                severity_threshold=severity_threshold,
             )
 
             # Re-fetch panel after the first await; modal is now guaranteed mounted
@@ -2897,7 +2925,7 @@ class BrokkApp(App):
                     base_branch = parts[1]
                 self.run_worker(self._create_pull_request(base_branch))
         elif base == "/review":
-            self._handle_local_review_command()
+            self._handle_local_review_command(parts)
         elif base in ("/quit", "/exit"):
             self.action_quit()
         else:
