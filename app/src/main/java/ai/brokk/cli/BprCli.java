@@ -431,10 +431,6 @@ public final class BprCli implements Callable<Integer> {
             }
         }
 
-        if (testSomeCmd != null && !testSomeCmd.isBlank() && modules.isEmpty()) {
-            modules = List.of(new BuildAgent.ModuleBuildEntry("root", ".", "", "", testSomeCmd, ""));
-        }
-
         var buildDetails = new BuildAgent.BuildDetails(
                 buildLintCmd != null ? buildLintCmd : "",
                 buildLintEnabled,

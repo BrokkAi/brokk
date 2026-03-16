@@ -438,7 +438,7 @@ public class ArchitectAgent {
     }
 
     @Tool(
-            "Set the project's build/test commands (build/lint, test-all) and excluded directories. Saves to project config. Optionally validates the build/lint command.")
+            "Set the project's build/test commands (build/lint, test-all, test-some) and excluded directories. Saves to project config. Optionally validates the build/lint command.")
     public String setBuildDetails(
             @P("Command to build/lint the project (e.g., 'mvn test', 'gradle test', 'npm test').")
                     String buildLintCommand,
@@ -452,7 +452,7 @@ public class ArchitectAgent {
                 testAllCommand,
                 existingDetails.testAllEnabled(),
                 testSomeCommand,
-                existingDetails.testSomeEnabled(),
+                true, // Enabled by default if set via tool
                 new LinkedHashSet<>(excludedDirectories),
                 existingDetails.environmentVariables(),
                 existingDetails.maxBuildAttempts(),

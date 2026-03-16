@@ -453,7 +453,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
             return saved;
         }
 
-        boolean isWorktree = this instanceof WorktreeProject;
+        boolean isWorktree = (Object) this instanceof WorktreeProject;
         return computeContextualFallback(frameWidth, isWorktree);
     }
 

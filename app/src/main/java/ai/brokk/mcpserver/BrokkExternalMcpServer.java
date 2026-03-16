@@ -518,34 +518,18 @@ public class BrokkExternalMcpServer {
                 .filter(f -> cm.getAnalyzerUninterrupted().containsTests(f))
                 .findFirst();
 
-        var modules = new ArrayList<>(existingDetails.modules());
-        if (modules.isEmpty() && !testSomeCmd.isBlank()) {
-            modules.add(new BuildAgent.ModuleBuildEntry("root", ".", "", "", testSomeCmd, ""));
-        } else if (!modules.isEmpty() && !testSomeCmd.isBlank()) {
-            var first = modules.getFirst();
-            modules.set(
-                    0,
-                    new BuildAgent.ModuleBuildEntry(
-                            first.alias(),
-                            first.relativePath(),
-                            first.buildLintCommand(),
-                            first.testAllCommand(),
-                            testSomeCmd,
-                            first.language()));
-        }
-
         var bd = new BuildAgent.BuildDetails(
                 buildOnlyCmd,
                 existingDetails.buildLintEnabled(),
                 existingDetails.testAllCommand(),
                 existingDetails.testAllEnabled(),
-                existingDetails.testSomeCommand(),
-                existingDetails.testSomeEnabled(),
+                testSomeCmd,
+                true, // Enabled by default if set via tool
                 existingDetails.exclusionPatterns(),
                 existingDetails.environmentVariables(),
                 existingDetails.maxBuildAttempts(),
                 existingDetails.afterTaskListCommand(),
-                modules);
+                existingDetails.modules());
         if (testFileOpt.isPresent()) {
             String interpolatedTestCmd = BuildTools.getBuildLintSomeCommand(cm, bd, List.of(testFileOpt.get()));
 

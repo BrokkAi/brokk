@@ -696,7 +696,7 @@ public final class MainProject extends AbstractProject {
 
         try {
             var tf = objectMapper.getTypeFactory();
-            var type = tf.constructCollectionType(List.class, String.class);
+            var type = tf.constructType(List.class);
             return objectMapper.readValue(json, type);
         } catch (JsonProcessingException e) {
             logger.error("Failed to deserialize source roots for {} from JSON: {}", language.name(), json, e);
