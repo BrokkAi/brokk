@@ -50,12 +50,13 @@ public class CSharpBuildTest {
                     true,
                     "dotnet test",
                     true,
+                    "dotnet test --filter {{#classes}}{{value}}{{^last}}|{{/last}}{{/classes}}",
+                    true,
                     Set.of(),
                     java.util.Collections.emptyMap(),
                     null,
                     "",
-                    List.of(new ai.brokk.agents.BuildAgent.ModuleBuildEntry("root", ".", "dotnet build", "dotnet test", "dotnet test --filter {{#classes}}{{value}}{{^last}}|{{/last}}{{/classes}}", ""))
-            );
+                    List.of());
 
             // Interpolate the command using BuildTools
             String command = BuildTools.getBuildLintSomeCommand(cm, details, List.of(testFile));
@@ -80,11 +81,13 @@ public class CSharpBuildTest {
                     true,
                     "",
                     true,
+                    "dotnet test --filter {{#classes}}{{value}}{{^last}}|{{/last}}{{/classes}}",
+                    true,
                     Set.of(),
                     java.util.Collections.emptyMap(),
                     null,
                     "",
-                    List.of(new ai.brokk.agents.BuildAgent.ModuleBuildEntry("root", ".", "", "", "dotnet test --filter {{#classes}}{{value}}{{^last}}|{{/last}}{{/classes}}", "")));
+                    List.of());
 
             String command = BuildTools.getBuildLintSomeCommand(cm, details, List.copyOf(project.getAllFiles()));
             assertEquals("dotnet test --filter T1|T2", command);

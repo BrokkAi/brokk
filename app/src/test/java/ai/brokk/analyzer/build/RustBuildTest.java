@@ -42,11 +42,13 @@ public class RustBuildTest {
                     true,
                     "cargo test",
                     true,
+                    "cargo test {{#classes}}{{value}}{{^last}} {{/last}}{{/classes}}",
+                    true,
                     Set.of(),
                     java.util.Collections.emptyMap(),
                     null,
                     "",
-                    List.of(new ai.brokk.agents.BuildAgent.ModuleBuildEntry("root", ".", "cargo build", "cargo test", "cargo test {{#classes}}{{value}}{{^last}} {{/last}}{{/classes}}", "")));
+                    List.of());
 
             // Act
             String command = BuildTools.getBuildLintSomeCommand(cm, details, List.of(testFile)).trim();
@@ -75,11 +77,13 @@ public class RustBuildTest {
                     true,
                     "",
                     true,
+                    "cargo test {{#classes}}{{value}}{{^last}} {{/last}}{{/classes}}",
+                    true,
                     Set.of(),
                     java.util.Collections.emptyMap(),
                     null,
                     "",
-                    List.of(new ai.brokk.agents.BuildAgent.ModuleBuildEntry("root", ".", "", "", "cargo test {{#classes}}{{value}}{{^last}} {{/last}}{{/classes}}", "")));
+                    List.of());
 
             String command = BuildTools.getBuildLintSomeCommand(cm, details, List.copyOf(project.getAllFiles()));
             assertEquals("cargo test test_a test_b", command.trim());

@@ -49,11 +49,13 @@ public class PhpBuildTest {
                     true,
                     "vendor/bin/phpunit",
                     true,
+                    "vendor/bin/phpunit --filter {{#classes}}{{value}}{{/classes}}",
+                    true,
                     Set.of(),
                     java.util.Collections.emptyMap(),
                     null,
                     "",
-                    List.of(new ai.brokk.agents.BuildAgent.ModuleBuildEntry("root", ".", "vendor/bin/phpunit", "vendor/bin/phpunit", "vendor/bin/phpunit --filter {{#classes}}{{value}}{{/classes}}", "")));
+                    List.of());
 
             String command = BuildTools.getBuildLintSomeCommand(cm, details, List.of(testFile));
 
@@ -77,11 +79,13 @@ public class PhpBuildTest {
                     true,
                     "",
                     true,
+                    "phpunit --filter {{#classes}}{{value}}{{^last}}|{{/last}}{{/classes}}",
+                    true,
                     Set.of(),
                     java.util.Collections.emptyMap(),
                     null,
                     "",
-                    List.of(new ai.brokk.agents.BuildAgent.ModuleBuildEntry("root", ".", "", "", "phpunit --filter {{#classes}}{{value}}{{^last}}|{{/last}}{{/classes}}", "")));
+                    List.of());
 
             String command = BuildTools.getBuildLintSomeCommand(cm, details, List.copyOf(project.getAllFiles()));
             assertEquals("phpunit --filter T1|T2", command.trim());

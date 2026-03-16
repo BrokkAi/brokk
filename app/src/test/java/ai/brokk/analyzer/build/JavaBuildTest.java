@@ -42,12 +42,13 @@ public class JavaBuildTest {
                     true,
                     "mvn test",
                     true,
+                    "mvn test -Dtest={{#classes}}{{value}}{{^last}},{{/last}}{{/classes}}",
+                    true,
                     Set.of(),
                     java.util.Collections.emptyMap(),
                     null,
                     "",
-                    List.of(new ai.brokk.agents.BuildAgent.ModuleBuildEntry("root", ".", "mvn compile", "mvn test", "mvn test -Dtest={{#classes}}{{value}}{{^last}},{{/last}}{{/classes}}", ""))
-            );
+                    List.of());
 
             // Assert interpolation
             String command = BuildTools.getBuildLintSomeCommand(cm, details, List.of(testFile));
@@ -71,11 +72,13 @@ public class JavaBuildTest {
                     true,
                     "",
                     true,
+                    "gradle test{{#classes}} --tests {{value}}{{/classes}}",
+                    true,
                     Set.of(),
                     java.util.Collections.emptyMap(),
                     null,
                     "",
-                    List.of(new ai.brokk.agents.BuildAgent.ModuleBuildEntry("root", ".", "", "", "gradle test{{#classes}} --tests {{value}}{{/classes}}", "")));
+                    List.of());
 
             String command = BuildTools.getBuildLintSomeCommand(cm, details, List.copyOf(project.getAllFiles()));
             // Ensure there is a space between the flags
@@ -98,11 +101,13 @@ public class JavaBuildTest {
                     true,
                     "",
                     true,
+                    "mvn test -Dtest={{#classes}}{{value}}{{^last}},{{/last}}{{/classes}}",
+                    true,
                     Set.of(),
                     java.util.Collections.emptyMap(),
                     null,
                     "",
-                    List.of(new ai.brokk.agents.BuildAgent.ModuleBuildEntry("root", ".", "", "", "mvn test -Dtest={{#classes}}{{value}}{{^last}},{{/last}}{{/classes}}", "")));
+                    List.of());
 
             String command = BuildTools.getBuildLintSomeCommand(cm, details, List.copyOf(project.getAllFiles()));
             assertEquals("mvn test -Dtest=Test1,Test2", command);

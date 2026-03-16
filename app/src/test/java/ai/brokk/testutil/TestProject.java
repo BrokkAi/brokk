@@ -252,11 +252,11 @@ public class TestProject implements IProject {
         return new TestProject(testDir.toAbsolutePath(), lang);
     }
 
-    private Set<Language> analyzerLanguages = Set.of();
+    private Set<Language> analyzerLanguages = Set.of(Languages.NONE);
 
     @Override
     public Set<Language> getAnalyzerLanguages() {
-        return analyzerLanguages.isEmpty() ? Set.of(Languages.NONE) : analyzerLanguages;
+        return analyzerLanguages;
     }
 
     @Override

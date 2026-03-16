@@ -41,11 +41,13 @@ public class JavaScriptBuildTest {
                     true,
                     "npm test",
                     true,
+                    "npx playwright test {{#files}}{{value}} {{/files}}",
+                    true,
                     Set.of(),
                     java.util.Collections.emptyMap(),
                     null,
                     "",
-                    List.of(new ai.brokk.agents.BuildAgent.ModuleBuildEntry("root", ".", "npm run build", "npm test", "npx playwright test {{#files}}{{value}} {{/files}}", "")));
+                    List.of());
 
             String commandFiles = BuildTools.getBuildLintSomeCommand(cm, detailsFiles, List.of(testFile));
             assertEquals("npx playwright test tests/logic.test.js", commandFiles.trim());
@@ -56,11 +58,13 @@ public class JavaScriptBuildTest {
                     true,
                     "npm test",
                     true,
+                    "jest --findRelatedTests {{#classes}}{{value}} {{/classes}}",
+                    true,
                     Set.of(),
                     java.util.Collections.emptyMap(),
                     null,
                     "",
-                    List.of(new ai.brokk.agents.BuildAgent.ModuleBuildEntry("root", ".", "npm run build", "npm test", "jest --findRelatedTests {{#classes}}{{value}} {{/classes}}", "")));
+                    List.of());
 
             String commandClasses = BuildTools.getBuildLintSomeCommand(cm, detailsClasses, List.of(testFile));
             assertEquals("jest --findRelatedTests logic.test.js", commandClasses.trim());
@@ -79,11 +83,13 @@ public class JavaScriptBuildTest {
                     true,
                     "",
                     true,
+                    "jest {{#classes}}{{value}} {{/classes}}",
+                    true,
                     Set.of(),
                     java.util.Collections.emptyMap(),
                     null,
                     "",
-                    List.of(new ai.brokk.agents.BuildAgent.ModuleBuildEntry("root", ".", "", "", "jest {{#classes}}{{value}} {{/classes}}", "")));
+                    List.of());
 
             String command = BuildTools.getBuildLintSomeCommand(cm, details, List.copyOf(project.getAllFiles()));
             assertEquals("jest a.test.js b.test.js", command.trim());

@@ -42,11 +42,13 @@ public class GoBuildTest {
                     true,
                     "go test ./...",
                     true,
+                    "go test {{#packages}}{{value}}{{/packages}} -run '^{{#classes}}{{value}}{{/classes}}$'",
+                    true,
                     Set.of(),
                     java.util.Collections.emptyMap(),
                     null,
                     "",
-                    List.of(new ai.brokk.agents.BuildAgent.ModuleBuildEntry("root", ".", "go build ./...", "go test ./...", "go test {{#packages}}{{value}}{{/packages}} -run '^{{#classes}}{{value}}{{/classes}}$'", "")));
+                    List.of());
 
             // Act
             String command = BuildTools.getBuildLintSomeCommand(cm, details, List.of(testFile));
@@ -73,11 +75,13 @@ public class GoBuildTest {
                     true,
                     "",
                     true,
+                    "go test ./mypkg -run '^{{#classes}}{{value}}{{^last}}|{{/last}}{{/classes}}$'",
+                    true,
                     Set.of(),
                     java.util.Collections.emptyMap(),
                     null,
                     "",
-                    List.of(new ai.brokk.agents.BuildAgent.ModuleBuildEntry("root", ".", "", "", "go test ./mypkg -run '^{{#classes}}{{value}}{{^last}}|{{/last}}{{/classes}}$'", "")));
+                    List.of());
 
             String command = BuildTools.getBuildLintSomeCommand(cm, details, List.copyOf(project.getAllFiles()));
             assertEquals("go test ./mypkg -run '^TestOne|TestTwo$'", command.trim());

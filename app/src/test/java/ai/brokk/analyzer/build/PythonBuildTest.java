@@ -41,11 +41,13 @@ public class PythonBuildTest {
                     true,
                     "pytest",
                     true,
+                    "pytest {{#classes}}{{value}} {{/classes}}",
+                    true,
                     Set.of(),
                     java.util.Collections.emptyMap(),
                     null,
                     "",
-                    List.of(new ai.brokk.agents.BuildAgent.ModuleBuildEntry("root", ".", "build-cmd", "pytest", "pytest {{#classes}}{{value}} {{/classes}}", "")));
+                    List.of());
 
             String command = BuildTools.getBuildLintSomeCommand(cm, details, List.of(testFile));
 
@@ -70,11 +72,13 @@ public class PythonBuildTest {
                     true,
                     "",
                     true,
+                    "pytest {{#classes}}{{value}} {{/classes}}",
+                    true,
                     Set.of(),
                     java.util.Collections.emptyMap(),
                     null,
                     "",
-                    List.of(new ai.brokk.agents.BuildAgent.ModuleBuildEntry("root", ".", "", "", "pytest {{#classes}}{{value}} {{/classes}}", "")));
+                    List.of());
 
             String command = BuildTools.getBuildLintSomeCommand(cm, details, List.copyOf(project.getAllFiles()));
             assertEquals("pytest test_one test_two", command.trim());

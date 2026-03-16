@@ -337,9 +337,14 @@ class OnboardingOrchestratorTest {
 
         var buildDetails = new BuildAgent.BuildDetails(
                 "mvn clean install",
+                true,
                 "mvn test",
+                true,
                 Set.of("target/", "*.class"),
-                Map.of("JAVA_HOME", "/usr/lib/jvm/java-21"));
+                Map.of("JAVA_HOME", "/usr/lib/jvm/java-21"),
+                null,
+                "",
+                List.of());
 
         project.saveBuildDetails(buildDetails);
 

@@ -42,11 +42,13 @@ public class TypeScriptBuildTest {
                     true,
                     "npm test",
                     true,
+                    "npx playwright test {{#files}}{{value}} {{/files}}",
+                    true,
                     Set.of(),
                     java.util.Collections.emptyMap(),
                     null,
                     "",
-                    List.of(new ai.brokk.agents.BuildAgent.ModuleBuildEntry("root", ".", "npm run build", "npm test", "npx playwright test {{#files}}{{value}} {{/files}}", "")));
+                    List.of());
 
             String commandFiles = BuildTools.getBuildLintSomeCommand(cm, detailsFiles, List.of(testFile));
             assertEquals("npx playwright test tests/logic.test.ts", commandFiles.trim());
@@ -59,11 +61,13 @@ public class TypeScriptBuildTest {
                     true,
                     "npm test",
                     true,
+                    "npx jest --findRelatedTests {{#classes}}{{value}} {{/classes}}",
+                    true,
                     Set.of(),
                     java.util.Collections.emptyMap(),
                     null,
                     "",
-                    List.of(new ai.brokk.agents.BuildAgent.ModuleBuildEntry("root", ".", "npm run build", "npm test", "npx jest --findRelatedTests {{#classes}}{{value}} {{/classes}}", "")));
+                    List.of());
 
             String commandClasses = BuildTools.getBuildLintSomeCommand(cm, detailsClasses, List.of(testFile));
             assertEquals("npx jest --findRelatedTests logic.test.ts", commandClasses.trim());
@@ -82,11 +86,13 @@ public class TypeScriptBuildTest {
                     true,
                     "",
                     true,
+                    "npx jest {{#classes}}{{value}} {{/classes}}",
+                    true,
                     Set.of(),
                     java.util.Collections.emptyMap(),
                     null,
                     "",
-                    List.of(new ai.brokk.agents.BuildAgent.ModuleBuildEntry("root", ".", "", "", "npx jest {{#classes}}{{value}} {{/classes}}", "")));
+                    List.of());
 
             String command = BuildTools.getBuildLintSomeCommand(cm, details, List.copyOf(project.getAllFiles()));
             assertEquals("npx jest a.test.ts b.test.ts", command.trim());

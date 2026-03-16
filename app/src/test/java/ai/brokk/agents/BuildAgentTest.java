@@ -1103,10 +1103,18 @@ class BuildAgentTest {
         ProjectFile file1 = new ProjectFile(tempDir, "main_test.go");
         ProjectFile file2 = new ProjectFile(tempDir, "auth/auth_test.go");
 
-        BuildAgent.ModuleBuildEntry mod = new BuildAgent.ModuleBuildEntry(
-                "root", ".", "go build", "go test ./...", "go test {{#packages}}{{value}} {{/packages}}", "");
         BuildAgent.BuildDetails details = new BuildAgent.BuildDetails(
-                "go build", true, "go test ./...", true, Set.of(), Map.of(), null, "", List.of(mod));
+                "go build",
+                true,
+                "go test ./...",
+                true,
+                "go test {{#packages}}{{value}} {{/packages}}",
+                true,
+                Set.of(),
+                Map.of(),
+                null,
+                "",
+                List.of());
 
         String result = BuildTools.getBuildLintSomeCommand(cm, details, List.of(file1, file2));
 
@@ -1134,15 +1142,18 @@ class BuildAgentTest {
         ProjectFile file1 = new ProjectFile(tempDir, "tests/test_foo.py");
         ProjectFile file2 = new ProjectFile(tempDir, "auth/test_login.py");
 
-        BuildAgent.ModuleBuildEntry mod = new BuildAgent.ModuleBuildEntry(
-                "root",
-                ".",
-                "python -m compile",
-                "python -m pytest",
-                "python -m pytest {{#packages}}{{value}} {{/packages}}",
-                "");
         BuildAgent.BuildDetails details = new BuildAgent.BuildDetails(
-                "python -m compile", true, "python -m pytest", true, Set.of(), Map.of(), null, "", List.of(mod));
+                "python -m compile",
+                true,
+                "python -m pytest",
+                true,
+                "python -m pytest {{#packages}}{{value}} {{/packages}}",
+                true,
+                Set.of(),
+                Map.of(),
+                null,
+                "",
+                List.of());
 
         String result = BuildTools.getBuildLintSomeCommand(cm, details, List.of(file1, file2));
 
@@ -1178,15 +1189,18 @@ class BuildAgentTest {
         analyzer.addDeclaration(CodeUnit.cls(file1, "com.example", "App"));
         analyzer.addDeclaration(CodeUnit.cls(file2, "com.example.util", "Helper"));
 
-        BuildAgent.ModuleBuildEntry mod = new BuildAgent.ModuleBuildEntry(
-                "root",
-                ".",
-                "mvn compile",
-                "mvn test",
-                "mvn test -Dtest={{#packages}}{{value}}.*{{^last}} {{/last}}{{/packages}}",
-                "");
         BuildAgent.BuildDetails details = new BuildAgent.BuildDetails(
-                "mvn compile", true, "mvn test", true, Set.of(), Map.of(), null, "", List.of(mod));
+                "mvn compile",
+                true,
+                "mvn test",
+                true,
+                "mvn test -Dtest={{#packages}}{{value}}.*{{^last}} {{/last}}{{/packages}}",
+                true,
+                Set.of(),
+                Map.of(),
+                null,
+                "",
+                List.of());
 
         String result = BuildTools.getBuildLintSomeCommand(cm, details, List.of(file1, file2));
 
@@ -1233,15 +1247,18 @@ class BuildAgentTest {
         analyzer.addDeclaration(new CodeUnit(file1, CodeUnitType.FUNCTION, "crate", "test_lib"));
         analyzer.addDeclaration(new CodeUnit(file2, CodeUnitType.FUNCTION, "crate::foo", "test_foo"));
 
-        BuildAgent.ModuleBuildEntry mod = new BuildAgent.ModuleBuildEntry(
-                "root",
-                ".",
-                "cargo check",
-                "cargo test",
-                "cargo test {{#packages}}{{value}}{{^last}} {{/last}}{{/packages}}",
-                "");
         BuildAgent.BuildDetails details = new BuildAgent.BuildDetails(
-                "cargo check", true, "cargo test", true, Set.of(), Map.of(), null, "", List.of(mod));
+                "cargo check",
+                true,
+                "cargo test",
+                true,
+                "cargo test {{#packages}}{{value}}{{^last}} {{/last}}{{/packages}}",
+                true,
+                Set.of(),
+                Map.of(),
+                null,
+                "",
+                List.of());
 
         String result = BuildTools.getBuildLintSomeCommand(cm, details, List.of(file1, file2));
 
