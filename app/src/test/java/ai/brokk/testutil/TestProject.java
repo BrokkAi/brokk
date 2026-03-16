@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.agents.BuildAgent;
 import ai.brokk.analyzer.Language;
+import ai.brokk.analyzer.macro.MacroPolicy;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.IGitRepo;
@@ -47,6 +48,7 @@ public class TestProject implements IProject {
             FileFilteringService.createPatternMatcher(Set.of());
     private boolean gitConfigDeclined = false;
     private @Nullable String jdk;
+    private @Nullable MacroPolicy macroPolicy;
     private @Nullable IGitRepo repo;
     private boolean repoExplicitlySetToNull = false;
     private @Nullable Supplier<Set<ProjectFile>> allFilesSupplier;
@@ -229,6 +231,16 @@ public class TestProject implements IProject {
     @Override
     public boolean hasJdkOverride() {
         return jdk != null;
+    }
+
+    @Override
+    public @Nullable MacroPolicy getMacroPolicy() {
+        return macroPolicy;
+    }
+
+    @Override
+    public void setMacroPolicy(@Nullable MacroPolicy policy) {
+        this.macroPolicy = policy;
     }
 
     public TestProject withJdk(@Nullable String jdkHome) {

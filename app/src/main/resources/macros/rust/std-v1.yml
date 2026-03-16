@@ -1,0 +1,13 @@
+version: "1"
+language: "rust"
+macros:
+  - name: "lazy_static"
+    strategy: "BYPASS"
+  - name: "Serialize"
+    strategy: "BYPASS"
+  - name: "Deserialize"
+    strategy: "BYPASS"
+  - name: "my_macro"
+    strategy: "TEMPLATE"
+    options:
+      template: "pub struct {{name}} { {{#fields}}{{name}}: {{type}}, {{/fields}} }"

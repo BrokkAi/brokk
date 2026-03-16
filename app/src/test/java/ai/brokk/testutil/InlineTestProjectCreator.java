@@ -21,6 +21,8 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import ai.brokk.analyzer.macro.MacroPolicy;
+import ai.brokk.analyzer.macro.MacroPolicyLoader;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
@@ -455,9 +457,19 @@ public class InlineTestProjectCreator {
 
     public static class TestProjectBuilder {
         protected final ProjectContentStrategy strategy;
+        protected MacroPolicy macroPolicy;
 
         protected TestProjectBuilder(ProjectContentStrategy strategy) {
             this.strategy = strategy;
+        }
+
+        public TestProjectBuilder withRustMacros() {
+            try {
+                this.macroPolicy = MacroPolicyLoader.loadFromResource("/macros/rust/std-v1.yml");
+            } catch (IOException e) {
+                throw new RuntimeException("Failed to load rust macro policy", e);
+            }
+            return this;
         }
 
         public TestProjectBuilder addFileContents(String contents, String filename) {
@@ -489,6 +501,9 @@ public class InlineTestProjectCreator {
                 Path projectRoot = existingGitRepoStrategy.getWorkTreeRoot();
                 var project = new ExistingRootTestProject(projectRoot);
                 project.setRepo(existingGitRepoStrategy.getRepo());
+                if (macroPolicy != null) {
+                    project.setMacroPolicy(macroPolicy);
+                }
                 initializeLanguages(project, projectRoot);
                 return project;
             }
@@ -534,6 +549,10 @@ public class InlineTestProjectCreator {
                 }
             } else {
                 project = new EphemeralTestProject(newTemporaryDirectory);
+            }
+
+            if (macroPolicy != null) {
+                project.setMacroPolicy(macroPolicy);
             }
 
             initializeLanguages(project, newTemporaryDirectory);
