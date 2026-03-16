@@ -1900,6 +1900,25 @@ class BrokkApp(App):
         raw_text = message.text
         check_text = raw_text.strip()
 
+        # Gate ALL input during session operations
+        if self.session_switch_in_progress:
+            chat = self._maybe_chat()
+            if check_text.startswith("/"):
+                # Reject slash commands during session switch
+                if chat:
+                    chat.add_system_message(
+                        "Session operation in progress. Please wait.", level="WARNING"
+                    )
+                return
+            elif check_text and self._current_switch_target_session_id:
+                # Queue non-slash prompts for execution after switch completes
+                if chat:
+                    chat.add_user_message(raw_text)
+                self._pending_switch_prompt = (self._current_switch_target_session_id, raw_text)
+                if chat:
+                    chat.add_system_message("Queuing prompt until session switch is complete...")
+                return
+
         if check_text.startswith("/"):
             self._handle_command(check_text)
         elif check_text:
@@ -1911,11 +1930,7 @@ class BrokkApp(App):
             if chat:
                 chat.add_history_entry(raw_text)
                 chat.add_user_message(raw_text)
-            if self.session_switch_in_progress and self._current_switch_target_session_id:
-                self._pending_switch_prompt = (self._current_switch_target_session_id, raw_text)
-                if chat:
-                    chat.add_system_message("Queuing prompt until session switch is complete...")
-            elif self.job_in_progress and self.current_job_id:
+            if self.job_in_progress and self.current_job_id:
                 self._pending_prompt = raw_text
                 now = time.monotonic()
                 self._pending_updated_at = now
