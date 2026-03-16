@@ -720,13 +720,8 @@ public class LutzAgent {
      */
     @Blocking
     public TaskResult callCodeAgent(String instructions) throws InterruptedException {
-        ArchitectAgent architect = new ArchitectAgent(
-                cm,
-                cm.getService().getModel(ModelType.ARCHITECT),
-                cm.getCodeModel(),
-                instructions,
-                scope,
-                currentState.context());
+        ArchitectAgent architect =
+                new ArchitectAgent(cm, model, cm.getCodeModel(), instructions, scope, currentState.context());
 
         return architect.execute();
     }
@@ -1301,7 +1296,7 @@ public class LutzAgent {
 
             var architect = new ArchitectAgent(
                     agent.cm,
-                    agent.cm.getService().getModel(ModelType.ARCHITECT),
+                    agent.model,
                     agent.cm.getCodeModel(),
                     instructions,
                     agent.scope,
