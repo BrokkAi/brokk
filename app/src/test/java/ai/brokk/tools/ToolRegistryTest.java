@@ -7,10 +7,14 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
+import dev.langchain4j.agent.tool.ToolSpecifications;
+import dev.langchain4j.model.chat.request.json.JsonObjectSchema;
 import java.lang.reflect.Method;
 import java.lang.reflect.Parameter;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -238,6 +242,21 @@ class ToolRegistryTest {
     }
 
     @Test
+    void toolSpec_MapParameterGetsAdditionalPropertiesTrue() {
+        var spec = ToolSpecifications.toolSpecificationFrom(Arrays.stream(TestTools.class.getMethods())
+                .filter(m -> m.getName().equals("mapParamTool"))
+                .findFirst()
+                .orElseThrow());
+        var params = spec.parameters();
+        assertNotNull(params);
+        var argsSchema = params.properties().get("args");
+        assertInstanceOf(JsonObjectSchema.class, argsSchema);
+        var objSchema = (JsonObjectSchema) argsSchema;
+        assertTrue(objSchema.additionalProperties());
+        assertTrue(objSchema.properties().isEmpty());
+    }
+
+    @Test
     void partitionByNames_preservesOrderAndSplitsCorrectly() {
         var r1 =
                 ToolExecutionRequest.builder().id("1").name("a").arguments("{}").build();
@@ -355,6 +374,11 @@ class ToolRegistryTest {
         @Tool("ToolOutput-returning tool")
         public ToolOutput richOutput() {
             return new RichOutput("LLM visible text", "side-channel-value");
+        }
+
+        @Tool("Tool with map param")
+        public String mapParamTool(@P("arbitrary args") Map<String, Object> args) {
+            return "";
         }
     }
 

@@ -88,6 +88,19 @@ public class JsonSchemaElementUtils {
                     .build();
         }
 
+        if (Map.class.isAssignableFrom(clazz)) {
+            Type valueType = getMapValueType(type);
+            if (valueType != null && valueType != Object.class) {
+                throw new UnsupportedOperationException(
+                        "Typed maps (e.g., Map<String, %s>) are not yet supported for JSON schema generation. Use Map<String, Object> for open-ended objects."
+                                .formatted(valueType.getTypeName()));
+            }
+            return JsonObjectSchema.builder()
+                    .description(fieldDescription)
+                    .additionalProperties(true)
+                    .build();
+        }
+
         return jsonObjectOrReferenceSchemaFrom(clazz, fieldDescription, areSubFieldsRequiredByDefault, visited, false);
     }
 
@@ -179,8 +192,18 @@ public class JsonSchemaElementUtils {
     private static Class<?> getActualType(Type type) {
         if (type instanceof final ParameterizedType parameterizedType) {
             Type[] actualTypeArguments = parameterizedType.getActualTypeArguments();
-            if (actualTypeArguments.length == 1) {
-                return (Class<?>) actualTypeArguments[0];
+            if (actualTypeArguments.length == 1 && actualTypeArguments[0] instanceof Class<?> clazz) {
+                return clazz;
+            }
+        }
+        return null;
+    }
+
+    private static Type getMapValueType(Type type) {
+        if (type instanceof final ParameterizedType parameterizedType) {
+            Type[] actualTypeArguments = parameterizedType.getActualTypeArguments();
+            if (actualTypeArguments.length == 2) {
+                return actualTypeArguments[1];
             }
         }
         return null;
@@ -234,23 +257,33 @@ public class JsonSchemaElementUtils {
                     .forEach((property, value) -> properties.put(
                             property,
                             toMap(value, strict, jsonObjectSchema.required().contains(property))));
-            map.put("properties", properties);
 
-            if (strict) {
-                // When using Structured Outputs with strict=true, all fields must be required.
-                // See
-                // https://platform.openai.com/docs/guides/structured-outputs/supported-schemas?api-mode=chat#all-fields-must-be-required
-                map.put(
-                        "required",
-                        jsonObjectSchema.properties().keySet().stream().toList());
-            } else {
-                if (jsonObjectSchema.required() != null) {
-                    map.put("required", jsonObjectSchema.required());
+            if (!properties.isEmpty()) {
+                map.put("properties", properties);
+
+                if (strict) {
+                    // When using Structured Outputs with strict=true, all fields must be required.
+                    // See
+                    // https://platform.openai.com/docs/guides/structured-outputs/supported-schemas?api-mode=chat#all-fields-must-be-required
+                    map.put(
+                            "required",
+                            jsonObjectSchema.properties().keySet().stream().toList());
+                } else {
+                    if (jsonObjectSchema.required() != null) {
+                        map.put("required", jsonObjectSchema.required());
+                    }
                 }
             }
 
             if (strict) {
+                if (Boolean.TRUE.equals(jsonObjectSchema.additionalProperties())) {
+                    throw new IllegalArgumentException(
+                            "Strict mode for Structured Outputs does not support open-ended objects (additionalProperties=true). "
+                                    + "This is often caused by using a Map parameter which is not supported in strict mode.");
+                }
                 map.put("additionalProperties", false);
+            } else if (jsonObjectSchema.additionalProperties() != null) {
+                map.put("additionalProperties", jsonObjectSchema.additionalProperties());
             }
 
             if (!jsonObjectSchema.definitions().isEmpty()) {
