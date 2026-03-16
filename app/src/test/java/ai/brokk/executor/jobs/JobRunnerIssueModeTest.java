@@ -208,7 +208,7 @@ class JobRunnerIssueModeTest {
     void testResolveIssueBuildDetails_blankSpecSettings_fallsBackToProjectBuildDetails() {
         // Create a TestProject with non-empty build details
         var project = new TestProject(tempDir);
-        var projectBuildDetails = new BuildDetails("./gradlew lint", "./gradlew test", "", Set.of());
+        var projectBuildDetails = new BuildDetails("./gradlew lint", "./gradlew test", Set.of());
         project.setBuildDetails(projectBuildDetails);
 
         // Create JobSpec with blank build settings (tag omitted)
@@ -227,7 +227,7 @@ class JobRunnerIssueModeTest {
     void testResolveIssueBuildDetails_nonBlankSpecSettings_usesSpecOverride() {
         // Create a TestProject with some build details
         var project = new TestProject(tempDir);
-        var projectBuildDetails = new BuildDetails("./gradlew projectLint", "./gradlew projectTest", "", Set.of());
+        var projectBuildDetails = new BuildDetails("./gradlew projectLint", "./gradlew projectTest", Set.of());
         project.setBuildDetails(projectBuildDetails);
 
         // Create JobSpec with explicit build settings
@@ -283,15 +283,13 @@ class JobRunnerIssueModeTest {
                 """
                 {
                     "buildLintCommand": "./gradlew classes",
-                    "testAllCommand": "./gradlew test",
-                    "testSomeCommand": "./gradlew test --tests"
+                    "testAllCommand": "./gradlew test"
                 }
                 """;
 
         BuildDetails details = IssueService.parseBuildSettings(json);
         assertEquals("./gradlew classes", details.buildLintCommand());
         assertEquals("./gradlew test", details.testAllCommand());
-        assertEquals("./gradlew test --tests", details.testSomeCommand());
     }
 
     @Test
@@ -434,7 +432,7 @@ class JobRunnerIssueModeTest {
                         progressSink,
                         commandRunner,
                         fixTaskRunner,
-                        new BuildDetails("./gradlew lint", "./gradlew test", "", Set.of()),
+                        new BuildDetails("./gradlew lint", "./gradlew test", Set.of()),
                         2));
 
         assertEquals(List.of("./gradlew test", "./gradlew test"), calls, "Lint must be skipped when tests fail");
@@ -479,7 +477,7 @@ class JobRunnerIssueModeTest {
                         progressSink,
                         commandRunner,
                         fixTaskRunner,
-                        new BuildDetails(lintCmd, testCmd, "", Set.of()),
+                        new BuildDetails(lintCmd, testCmd, Set.of()),
                         2));
 
         assertEquals(List.of(testCmd, testCmd), calls, "Should run only tests each iteration; lint is skipped");
@@ -521,7 +519,7 @@ class JobRunnerIssueModeTest {
                 progressSink,
                 commandRunner,
                 fixTaskRunner,
-                new BuildDetails(lintCmd, testCmd, "", Set.of()),
+                new BuildDetails(lintCmd, testCmd, Set.of()),
                 maxIterations);
 
         assertEquals(List.of(testCmd, lintCmd), calls, "Must run tests first, then lint second");
@@ -558,7 +556,7 @@ class JobRunnerIssueModeTest {
                         progressSink,
                         commandRunner,
                         fixTaskRunner,
-                        new BuildDetails("./gradlew lint", "./gradlew test", "", Set.of()),
+                        new BuildDetails("./gradlew lint", "./gradlew test", Set.of()),
                         maxIterations));
 
         assertEquals(List.of("./gradlew test", "./gradlew lint", "./gradlew test", "./gradlew lint"), calls);
@@ -598,7 +596,7 @@ class JobRunnerIssueModeTest {
                 progressSink,
                 commandRunner,
                 fixTaskRunner,
-                new BuildDetails("./gradlew lint", "./gradlew test", "", Set.of()),
+                new BuildDetails("./gradlew lint", "./gradlew test", Set.of()),
                 maxIterations);
 
         assertEquals(List.of("./gradlew test", "./gradlew lint"), calls, "Should run tests then lint once");
@@ -626,7 +624,7 @@ class JobRunnerIssueModeTest {
                 progressSink,
                 commandRunner,
                 fixTaskRunner,
-                new BuildDetails("./gradlew lint", "./gradlew test", "", Set.of()),
+                new BuildDetails("./gradlew lint", "./gradlew test", Set.of()),
                 3);
 
         var events = store.readEvents(jobId, -1, 0);
@@ -691,7 +689,7 @@ class JobRunnerIssueModeTest {
                         progressSink,
                         commandRunner,
                         fixTaskRunner,
-                        new BuildDetails(lintCmd, testCmd, "", Set.of()),
+                        new BuildDetails(lintCmd, testCmd, Set.of()),
                         1));
 
         assertEquals(List.of(testCmd), calls);
@@ -759,7 +757,7 @@ class JobRunnerIssueModeTest {
                         progressSink,
                         commandRunner,
                         out -> {},
-                        new BuildDetails(lintCmd, testCmd, "", Set.of()),
+                        new BuildDetails(lintCmd, testCmd, Set.of()),
                         1));
 
         var events = store.readEvents(jobId, -1, 0);
@@ -808,7 +806,7 @@ class JobRunnerIssueModeTest {
                         progressSink,
                         commandRunner,
                         fixTaskRunner,
-                        new BuildDetails("./gradlew lint", "./gradlew test", "", Set.of()),
+                        new BuildDetails("./gradlew lint", "./gradlew test", Set.of()),
                         0));
 
         assertEquals("maxIterations must be >= 1", ex.getMessage());
@@ -833,7 +831,7 @@ class JobRunnerIssueModeTest {
                         progressSink,
                         commandRunner,
                         fixTaskRunner,
-                        new BuildDetails("./gradlew lint", "./gradlew test", "", Set.of()),
+                        new BuildDetails("./gradlew lint", "./gradlew test", Set.of()),
                         -1));
 
         assertEquals("maxIterations must be >= 1", ex.getMessage());
@@ -860,7 +858,7 @@ class JobRunnerIssueModeTest {
                         progressSink,
                         commandRunner,
                         fixTaskRunner,
-                        new BuildDetails("./gradlew lint", "./gradlew test", "", Set.of()),
+                        new BuildDetails("./gradlew lint", "./gradlew test", Set.of()),
                         maxIterations));
     }
 
@@ -892,7 +890,7 @@ class JobRunnerIssueModeTest {
                         progressSink,
                         commandRunner,
                         fixTaskRunner,
-                        new BuildDetails("./gradlew lint", "./gradlew test", "", Set.of()),
+                        new BuildDetails("./gradlew lint", "./gradlew test", Set.of()),
                         maxIterations));
 
         assertEquals(maxIterations, testCalls.get(), "Must run exactly maxIterations iterations");
@@ -943,7 +941,7 @@ class JobRunnerIssueModeTest {
                         progressSink,
                         commandRunner,
                         fixTaskRunner,
-                        new BuildDetails(lintCmd, testCmd, "", Set.of()),
+                        new BuildDetails(lintCmd, testCmd, Set.of()),
                         maxIterations));
 
         assertEquals(maxIterations, lintCalls.get(), "Lint must be invoked once per iteration");
@@ -1331,7 +1329,7 @@ class JobRunnerIssueModeTest {
                     (a, m) -> {},
                     cmd -> verificationRunner.get(),
                     fixRunner,
-                    new BuildDetails("", "verification", "", Set.of()),
+                    new BuildDetails("", "verification", Set.of()),
                     1);
             // This line simulates PR creation that must not be reached if verification fails.
             prCreated.set(true);

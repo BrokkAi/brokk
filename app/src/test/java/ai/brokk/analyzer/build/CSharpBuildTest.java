@@ -47,10 +47,16 @@ public class CSharpBuildTest {
             // C# filters often use fully qualified or simple class names
             BuildDetails details = new BuildDetails(
                     "dotnet build",
+                    true,
                     "dotnet test",
+                    true,
                     "dotnet test --filter {{#classes}}{{value}}{{^last}}|{{/last}}{{/classes}}",
-                    Set.of()
-            );
+                    true,
+                    Set.of(),
+                    java.util.Collections.emptyMap(),
+                    null,
+                    "",
+                    List.of());
 
             // Interpolate the command using BuildTools
             String command = BuildTools.getBuildLintSomeCommand(cm, details, List.of(testFile));
@@ -70,7 +76,18 @@ public class CSharpBuildTest {
                 .addFileContents(code2, "T2.cs")
                 .build()) {
             TestContextManager cm = new TestContextManager(project.getRoot(), new NoOpConsoleIO(), project.getAnalyzer());
-            BuildDetails details = new BuildDetails("", "", "dotnet test --filter {{#classes}}{{value}}{{^last}}|{{/last}}{{/classes}}", Set.of());
+            BuildDetails details = new BuildDetails(
+                    "",
+                    true,
+                    "",
+                    true,
+                    "dotnet test --filter {{#classes}}{{value}}{{^last}}|{{/last}}{{/classes}}",
+                    true,
+                    Set.of(),
+                    java.util.Collections.emptyMap(),
+                    null,
+                    "",
+                    List.of());
 
             String command = BuildTools.getBuildLintSomeCommand(cm, details, List.copyOf(project.getAllFiles()));
             assertEquals("dotnet test --filter T1|T2", command);

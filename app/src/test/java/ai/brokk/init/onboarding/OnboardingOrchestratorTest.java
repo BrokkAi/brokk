@@ -6,6 +6,7 @@ import ai.brokk.agents.BuildAgent;
 import ai.brokk.project.IProject;
 import ai.brokk.testutil.InlineTestProjectCreator;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
@@ -337,10 +338,16 @@ class OnboardingOrchestratorTest {
 
         var buildDetails = new BuildAgent.BuildDetails(
                 "mvn clean install",
+                true,
                 "mvn test",
-                "mvn test -Dtest={{#classes}}",
+                true,
+                "",
+                false,
                 Set.of("target/", "*.class"),
-                Map.of("JAVA_HOME", "/usr/lib/jvm/java-21"));
+                Map.of("JAVA_HOME", "/usr/lib/jvm/java-21"),
+                null,
+                "",
+                List.of());
 
         project.saveBuildDetails(buildDetails);
 
@@ -349,7 +356,6 @@ class OnboardingOrchestratorTest {
         var retrieved = project.awaitBuildDetails();
         assertEquals("mvn clean install", retrieved.buildLintCommand());
         assertEquals("mvn test", retrieved.testAllCommand());
-        assertEquals("mvn test -Dtest={{#classes}}", retrieved.testSomeCommand());
         assertTrue(retrieved.exclusionPatterns().contains("target/"));
         assertEquals("/usr/lib/jvm/java-21", retrieved.environmentVariables().get("JAVA_HOME"));
     }

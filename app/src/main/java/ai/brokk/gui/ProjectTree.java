@@ -443,10 +443,16 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
 
                                 var newDetails = new BuildAgent.BuildDetails(
                                         currentDetails.buildLintCommand(),
+                                        currentDetails.buildLintEnabled(),
                                         currentDetails.testAllCommand(),
+                                        currentDetails.testAllEnabled(),
                                         currentDetails.testSomeCommand(),
+                                        currentDetails.testSomeEnabled(),
                                         patternsSet,
-                                        currentDetails.environmentVariables());
+                                        currentDetails.environmentVariables(),
+                                        currentDetails.maxBuildAttempts(),
+                                        currentDetails.afterTaskListCommand(),
+                                        currentDetails.modules());
 
                                 project.saveBuildDetails(newDetails);
 

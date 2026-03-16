@@ -2,8 +2,10 @@ package ai.brokk.util;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
+import ai.brokk.agents.BuildAgent;
 import ai.brokk.agents.BuildAgent.BuildDetails;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.Languages;
@@ -24,7 +26,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 class BuildToolsTest {
-
     @Test
     void testMixedTemplateInterpolation(@TempDir Path tempDir) throws Exception {
         // 1. Set up a realistic Python structure:
@@ -64,9 +65,16 @@ class BuildToolsTest {
 
         BuildDetails details = new BuildDetails(
                 "python -m compileall .",
+                true,
                 "pytest",
+                true,
                 "pytest {{#packages}}{{value}}{{/packages}} -k {{#classes}}{{value}}{{/classes}}",
-                Set.of());
+                true,
+                Set.of(),
+                Map.of(),
+                null,
+                "",
+                List.of());
 
         String result = BuildTools.getBuildLintSomeCommand(mockCm, details, List.of(testFile));
 
@@ -92,9 +100,16 @@ class BuildToolsTest {
         // Go style template
         BuildDetails details = new BuildDetails(
                 "go build",
+                true,
                 "go test ./...",
+                true,
                 "go test . -run '^{{#classes}}{{value}}{{^last}}|{{/last}}{{/classes}}$'",
-                Set.of());
+                true,
+                Set.of(),
+                Map.of(),
+                null,
+                "",
+                List.of());
 
         String result = BuildTools.getBuildLintSomeCommand(mockCm, details, List.of(testFile));
 
@@ -108,10 +123,12 @@ class BuildToolsTest {
         TestContextManager mockCm = new TestContextManager(project, new NoOpConsoleIO(), Set.of(), testAnalyzer);
 
         // A static command without any mustache tags
-        BuildDetails details = new BuildDetails("build-cmd", "test-all-cmd", "pytest -q", Set.of());
+        BuildDetails details = new BuildDetails(
+                "build-cmd", true, "test-all-cmd", true, "pytest -q", true, Set.of(), Map.of(), null, "", List.of());
 
-        // Even with empty workspace test files, it should return the static command verbatim
-        String result = BuildTools.getBuildLintSomeCommand(mockCm, details, List.of());
+        // We must provide at least one file that maps to the module for the command to be included
+        ProjectFile dummyFile = new ProjectFile(tempDir, "dummy.py");
+        String result = BuildTools.getBuildLintSomeCommand(mockCm, details, List.of(dummyFile));
         assertEquals("pytest -q", result);
     }
 
@@ -130,7 +147,17 @@ class BuildToolsTest {
 
         // Template that uses {{pyver}} - if Python version was probed, it would be "3.11"
         BuildDetails details = new BuildDetails(
-                "javac *.java", "java -jar test.jar", "java -jar test.jar --pyver={{pyver}}", Set.of());
+                "javac *.java",
+                true,
+                "java -jar test.jar",
+                true,
+                "java -jar test.jar --pyver={{pyver}}",
+                true,
+                Set.of(),
+                Map.of(),
+                null,
+                "",
+                List.of());
 
         ProjectFile testFile = new ProjectFile(tempDir, "Test.java");
 
@@ -145,8 +172,18 @@ class BuildToolsTest {
     @Test
     void testProjectExclusionPatternsArePassedToEnvironmentPython(@TempDir Path tempDir) throws Exception {
         // Template that interpolates {{pyver}} so we can see if exclusions affect the result
-        BuildDetails details =
-                new BuildDetails("python -m compileall .", "pytest", "pytest --python={{pyver}}", Set.of());
+        BuildDetails details = new BuildDetails(
+                "python -m compileall .",
+                true,
+                "pytest",
+                true,
+                "pytest --python={{pyver}}",
+                true,
+                Set.of(),
+                Map.of(),
+                null,
+                "",
+                List.of());
 
         // BASELINE: pyproject + normal Python source, NO distutils file
         Path baselineDir = tempDir.resolve("baseline");
@@ -245,9 +282,16 @@ class BuildToolsTest {
         // User's reported template
         BuildDetails details = new BuildDetails(
                 "go build",
+                true,
                 "go test ./...",
+                true,
                 "go test {{#packages}}{{value}} {{/packages}} -run '^{{#classes}}{{value}}{{^last}}|{{/last}}{{/classes}}$'",
-                Set.of());
+                true,
+                Set.of(),
+                Map.of(),
+                null,
+                "",
+                List.of());
 
         // 3. Interpolate
         String result = BuildTools.getBuildLintSomeCommand(mockCm, details, List.of(testFile));
@@ -255,6 +299,108 @@ class BuildToolsTest {
         // 4. Assertions
         // Ensure the package has the ./ prefix and the class (function) is present
         assertEquals("go test ./callbacks  -run '^TestCallbacks$'", result);
+    }
+
+    @Test
+    void testParseModulesJson() {
+        String json =
+                """
+            [
+              {
+                "alias": "core",
+                "relativePath": "app/core",
+                "language": "Java",
+                "buildLintCommand": "mvn compile",
+                "testAllCommand": "mvn test",
+                "testSomeCommand": "mvn test -Dtest={{#classes}}{{value}}{{/classes}}"
+              },
+              {
+                "alias": "web",
+                "relativePath": "app/web",
+                "language": "TypeScript",
+                "buildLintCommand": "npm run build",
+                "testAllCommand": "npm test"
+              }
+            ]
+            """;
+
+        List<BuildAgent.ModuleBuildEntry> modules = BuildTools.parseModulesJson(json);
+
+        assertEquals(2, modules.size());
+
+        var core = modules.get(0);
+        assertEquals("core", core.alias());
+        // ModuleBuildEntry normalizes paths to forward-slash and adds a trailing slash if not present
+        assertEquals("app/core/", core.relativePath());
+        assertEquals("Java", core.language());
+        assertEquals("mvn compile", core.buildLintCommand());
+        assertEquals("mvn test", core.testAllCommand());
+        assertEquals("mvn test -Dtest={{#classes}}{{value}}{{/classes}}", core.testSomeCommand());
+
+        var web = modules.get(1);
+        assertEquals("web", web.alias());
+        assertEquals("app/web/", web.relativePath());
+        assertEquals("TypeScript", web.language());
+        assertEquals("npm test", web.testAllCommand());
+        assertEquals("", web.testSomeCommand());
+    }
+
+    @Test
+    void testParseModulesJsonComplex() {
+        String json =
+                """
+            [
+              {
+                "alias": "service",
+                "relativePath": "./services/api/",
+                "language": "Go",
+                "buildLintCommand": "go build",
+                "testAllCommand": "go test ./...",
+                "testSomeCommand": "go test {{#packages}}{{value}}{{/packages}}"
+              }
+            ]
+            """;
+
+        List<BuildAgent.ModuleBuildEntry> modules = BuildTools.parseModulesJson(json);
+        assertEquals(1, modules.size());
+        var m = modules.getFirst();
+        assertEquals("services/api/", m.relativePath());
+        assertEquals("Go", m.language());
+        assertEquals("go test {{#packages}}{{value}}{{/packages}}", m.testSomeCommand());
+    }
+
+    @Test
+    void testParseModulesJson_InvalidReturnsEmpty() {
+        List<BuildAgent.ModuleBuildEntry> modules = BuildTools.parseModulesJson("invalid-json");
+        assertTrue(modules.isEmpty());
+    }
+
+    @Test
+    void testParseModulesJsonFullFieldVerification() {
+        String json =
+                """
+            [
+              {
+                "alias": "full-service",
+                "relativePath": "services/full",
+                "buildLintCommand": "make build",
+                "testAllCommand": "make test",
+                "testSomeCommand": "make test TARGET={{#classes}}{{value}}{{/classes}}",
+                "language": "C++"
+              }
+            ]
+            """;
+
+        List<BuildAgent.ModuleBuildEntry> modules = BuildTools.parseModulesJson(json);
+        assertEquals(1, modules.size());
+
+        var m = modules.getFirst();
+        assertEquals("full-service", m.alias());
+        assertEquals("services/full/", m.relativePath());
+        assertEquals("make build", m.buildLintCommand());
+        assertEquals("make test", m.testAllCommand());
+        assertEquals("make test TARGET={{#classes}}{{value}}{{/classes}}", m.testSomeCommand());
+        assertEquals("C++", m.language());
     }
 
     @Test
@@ -266,7 +412,18 @@ class BuildToolsTest {
 
         TestContextManager mockCm = new TestContextManager(project, new NoOpConsoleIO(), Set.of(), new TestAnalyzer());
 
-        BuildDetails details = new BuildDetails("build-cmd", "python{{pyver}} -m pytest", "unused-test-some", Set.of());
+        BuildDetails details = new BuildDetails(
+                "build-cmd",
+                true,
+                "python{{pyver}} -m pytest",
+                true,
+                "unused-test-some",
+                true,
+                Set.of(),
+                Map.of(),
+                null,
+                "",
+                List.of());
 
         String result = BuildTools.determineVerificationCommand(mockCm.liveContext(), details);
 
@@ -280,13 +437,167 @@ class BuildToolsTest {
 
         TestContextManager mockCm = new TestContextManager(project, new NoOpConsoleIO(), Set.of(), new TestAnalyzer());
 
-        BuildDetails details = new BuildDetails("build-cmd", "unused-test-all", "python{{pyver}} -m pytest", Set.of());
+        BuildDetails details = new BuildDetails(
+                "build-cmd",
+                true,
+                "unused-test-all",
+                true,
+                "python{{pyver}} -m pytest",
+                true,
+                Set.of(),
+                Map.of(),
+                null,
+                "",
+                List.of());
 
         ProjectFile testFile = new ProjectFile(tempDir, "src/test/java/com/example/AppTest.java");
 
         String result = BuildTools.getBuildLintSomeCommand(mockCm, details, List.of(testFile));
 
         assertEquals("python -m pytest", result);
+    }
+
+    @Test
+    void testGetBuildLintSomeCommand_ModuleSelection(@TempDir Path tempDir) throws Exception {
+        // Create actual directories to satisfy BuildAgent's directory verification if needed,
+        // though BuildTools specifically handles the path prefix logic.
+        Files.createDirectories(tempDir.resolve("backend/src/test/java/com"));
+        Files.createDirectories(tempDir.resolve("frontend/test"));
+
+        TestProject project = new TestProject(tempDir);
+        ProjectFile backendFile = new ProjectFile(tempDir, "backend/src/test/java/com/AppTest.java");
+        ProjectFile frontendFile = new ProjectFile(tempDir, "frontend/test/app.test.js");
+
+        TestAnalyzer testAnalyzer = new TestAnalyzer();
+        // Mocking backend class to provide 'AppTest' for {{#classes}}
+        testAnalyzer.addDeclaration(CodeUnit.cls(backendFile, "com", "AppTest"));
+
+        TestContextManager mockCm = new TestContextManager(project, new NoOpConsoleIO(), Set.of(), testAnalyzer);
+
+        // Define modules for backend and frontend.
+        // Note: ModuleBuildEntry constructor normalizes relativePath to include a trailing slash.
+        BuildAgent.ModuleBuildEntry backendModule = new BuildAgent.ModuleBuildEntry(
+                "backend",
+                "backend",
+                "mvn compile",
+                "mvn test",
+                "mvn test -pl backend -Dtest={{#classes}}{{value}}{{/classes}}",
+                "Java");
+
+        BuildAgent.ModuleBuildEntry frontendModule = new BuildAgent.ModuleBuildEntry(
+                "frontend",
+                "frontend",
+                "npm run build",
+                "npm test",
+                "npm test -w frontend -- {{#files}}{{value}}{{/files}}",
+                "JavaScript");
+
+        BuildDetails details = new BuildDetails(
+                "build-root",
+                true,
+                "test-all-root",
+                true,
+                "",
+                false,
+                Set.of(),
+                Map.of(),
+                null,
+                "",
+                List.of(backendModule, frontendModule));
+
+        // 1. Verify backend selection (interpolates AppTest via classes)
+        // BuildTools matches module by checking if file path starts with module relativePath
+        String backendResult = BuildTools.getBuildLintSomeCommand(mockCm, details, List.of(backendFile));
+        assertEquals("mvn test -pl backend -Dtest=AppTest", backendResult);
+
+        // 2. Verify frontend selection (interpolates path via files)
+        String frontendResult = BuildTools.getBuildLintSomeCommand(mockCm, details, List.of(frontendFile));
+        assertEquals("npm test -w frontend -- frontend/test/app.test.js", frontendResult);
+    }
+
+    @Test
+    void testGetBuildLintSomeCommand_ModuleSelection_WindowsPaths(@TempDir Path tempDir) throws Exception {
+        TestProject project = new TestProject(tempDir);
+
+        // Simulate Windows paths with backslashes in the ProjectFile
+        // Note: ProjectFile.toString() on Windows returns backslashes.
+        ProjectFile windowsFile = new ProjectFile(tempDir, "backend\\src\\test\\java\\AppTest.java");
+
+        TestAnalyzer testAnalyzer = new TestAnalyzer();
+        testAnalyzer.addDeclaration(CodeUnit.cls(windowsFile, "com.example", "AppTest"));
+        TestContextManager mockCm = new TestContextManager(project, new NoOpConsoleIO(), Set.of(), testAnalyzer);
+
+        // Module defined with Unix-style forward slashes
+        BuildAgent.ModuleBuildEntry backendModule = new BuildAgent.ModuleBuildEntry(
+                "backend",
+                "backend/",
+                "mvn compile",
+                "mvn test",
+                "mvn test -pl backend -Dtest={{#classes}}{{value}}{{/classes}}",
+                "Java");
+
+        BuildDetails details =
+                new BuildDetails("", true, "", true, "", false, Set.of(), Map.of(), null, "", List.of(backendModule));
+
+        // This should match despite the backslashes in ProjectFile.toString()
+        // because BuildTools normalizes paths using toUnixPath/replace
+        String result = BuildTools.getBuildLintSomeCommand(mockCm, details, List.of(windowsFile));
+
+        assertEquals("mvn test -pl backend -Dtest=AppTest", result);
+    }
+
+    @Test
+    void testGetBuildLintSomeCommand_MultipleModules(@TempDir Path tempDir) throws Exception {
+        TestProject project = new TestProject(tempDir);
+        ProjectFile backendFile = new ProjectFile(tempDir, "backend/src/test/java/com/AppTest.java");
+        ProjectFile frontendFile = new ProjectFile(tempDir, "frontend/test/app.test.js");
+
+        TestAnalyzer testAnalyzer = new TestAnalyzer();
+        testAnalyzer.addDeclaration(CodeUnit.cls(backendFile, "com", "AppTest"));
+        TestContextManager mockCm = new TestContextManager(project, new NoOpConsoleIO(), Set.of(), testAnalyzer);
+
+        BuildAgent.ModuleBuildEntry backendModule = new BuildAgent.ModuleBuildEntry(
+                "backend",
+                "backend",
+                "mvn compile",
+                "mvn test",
+                "mvn test -pl backend -Dtest={{#classes}}{{value}}{{/classes}}",
+                "Java");
+
+        BuildAgent.ModuleBuildEntry frontendModule = new BuildAgent.ModuleBuildEntry(
+                "frontend",
+                "frontend",
+                "npm run build",
+                "npm test",
+                "npm test -w frontend -- {{#files}}{{value}}{{/files}}",
+                "JavaScript");
+
+        BuildAgent.BuildDetails details = new BuildAgent.BuildDetails(
+                "build-root",
+                true,
+                "test-all-root",
+                true,
+                "",
+                false,
+                Set.of(),
+                Map.of(),
+                null,
+                "",
+                List.of(backendModule, frontendModule));
+
+        // Act: Provide files from both modules
+        String result = BuildTools.getBuildLintSomeCommand(mockCm, details, List.of(backendFile, frontendFile));
+
+        // Assert: Both commands are present, interpolated correctly, and joined by &&
+        assertTrue(result.contains("mvn test -pl backend -Dtest=AppTest"), "Should contain backend command");
+        assertTrue(
+                result.contains("npm test -w frontend -- frontend/test/app.test.js"),
+                "Should contain frontend command");
+        assertTrue(result.contains(" && "), "Commands should be joined by &&");
+
+        // Verify order (sorted by relativePath)
+        assertEquals(
+                "mvn test -pl backend -Dtest=AppTest && npm test -w frontend -- frontend/test/app.test.js", result);
     }
 
     @Test
