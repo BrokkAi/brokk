@@ -1605,21 +1605,19 @@ public class ContextFragments {
         private static String computeShortDescription(
                 String fqName, IContextManager contextManager, @Nullable CodeUnit eagerUnit) {
             if (eagerUnit != null) return eagerUnit.shortName();
-            var definitions = contextManager.getAnalyzerUninterrupted().getDefinitions(fqName);
-            if (!definitions.isEmpty()) {
-                return definitions.getFirst().shortName();
-            }
-            return fqName;
+            return contextManager.getAnalyzerUninterrupted().getDefinitions(fqName).stream()
+                    .findAny()
+                    .map(CodeUnit::shortName)
+                    .orElse(fqName);
         }
 
         private static String computeSyntaxStyle(
                 String fqName, IContextManager contextManager, @Nullable CodeUnit eagerUnit) {
             if (eagerUnit != null) return eagerUnit.source().getSyntaxStyle();
-            var definitions = contextManager.getAnalyzerUninterrupted().getDefinitions(fqName);
-            if (!definitions.isEmpty()) {
-                return definitions.getFirst().source().getSyntaxStyle();
-            }
-            return SyntaxConstants.SYNTAX_STYLE_NONE;
+            return contextManager.getAnalyzerUninterrupted().getDefinitions(fqName).stream()
+                    .findAny()
+                    .map(cu -> cu.source().getSyntaxStyle())
+                    .orElse(SyntaxConstants.SYNTAX_STYLE_NONE);
         }
 
         private static ContentSnapshot decodeFrozen(String fullyQualifiedName, byte[] bytes, IAnalyzer analyzer) {
@@ -1905,11 +1903,10 @@ public class ContextFragments {
             if (summaryType == SummaryType.FILE_SKELETONS) {
                 return "Summary of " + contextManager.toFile(targetIdentifier).getFileName();
             }
-            var definitions = contextManager.getAnalyzerUninterrupted().getDefinitions(targetIdentifier);
-            if (!definitions.isEmpty()) {
-                return "Summary of " + definitions.getFirst().shortName();
-            }
-            return "Summary of " + targetIdentifier;
+            return contextManager.getAnalyzerUninterrupted().getDefinitions(targetIdentifier).stream()
+                    .findAny()
+                    .map(cu -> "Summary of " + cu.shortName())
+                    .orElse("Summary of " + targetIdentifier);
         }
 
         public SummaryFragment(IContextManager contextManager, String targetIdentifier, SummaryType summaryType) {
