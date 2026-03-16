@@ -3,12 +3,14 @@ package ai.brokk.agents;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import ai.brokk.context.Context;
 import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.testutil.NoOpConsoleIO;
 import ai.brokk.testutil.TestContextManager;
 import ai.brokk.tools.ToolOutput;
 import ai.brokk.tools.ToolRegistry;
+import ai.brokk.util.Json;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import java.nio.file.Path;
 import org.junit.jupiter.api.BeforeEach;
@@ -35,7 +37,7 @@ class SearchAgentTerminalActionsTest {
                 """);
 
         assertEquals("TerminalStopOutput", result.result().getClass().getSimpleName());
-        assertEquals(
+        assertJsonEquals(
                 """
                 {
                   "explanation" : "The explanation"
@@ -50,7 +52,7 @@ class SearchAgentTerminalActionsTest {
                 """);
 
         assertEquals("TerminalStopOutput", result.result().getClass().getSimpleName());
-        assertEquals(
+        assertJsonEquals(
                 """
                 {
                   "explanation" : "The reason"
@@ -66,11 +68,12 @@ class SearchAgentTerminalActionsTest {
                 """);
 
         assertEquals("TerminalStopOutput", result.result().getClass().getSimpleName());
-        assertEquals(
+        assertJsonEquals(
                 """
                 {
                   "fragment_ids" : [ ]
-                }""", result.resultText());
+                }""",
+                result.resultText());
     }
 
     @Test
@@ -92,5 +95,13 @@ class SearchAgentTerminalActionsTest {
                 .arguments(arguments.strip())
                 .build();
         return registry.executeTool(request);
+    }
+
+    private static void assertJsonEquals(String expected, String actual) {
+        try {
+            assertEquals(Json.getMapper().readTree(expected), Json.getMapper().readTree(actual));
+        } catch (JsonProcessingException e) {
+            throw new AssertionError("Failed to parse JSON during assertion", e);
+        }
     }
 }
