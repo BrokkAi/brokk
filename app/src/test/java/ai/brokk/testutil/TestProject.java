@@ -4,9 +4,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.agents.BuildAgent;
 import ai.brokk.analyzer.Language;
-import ai.brokk.analyzer.macro.MacroPolicy;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.analyzer.macro.MacroPolicy;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.mcpclient.McpConfig;
 import ai.brokk.project.FileFilteringService;

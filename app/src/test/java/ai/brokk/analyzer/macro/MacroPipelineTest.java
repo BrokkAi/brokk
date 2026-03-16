@@ -14,7 +14,7 @@ public class MacroPipelineTest {
         MacroPolicy policy = MacroPolicyLoader.loadFromResource("/macros/rust/std-v1.yml");
         assertNotNull(policy);
         assertEquals("rust", policy.language());
-        
+
         boolean foundMyMacro = policy.macros().stream()
                 .anyMatch(m -> "my_macro".equals(m.name()) && m.strategy() == MacroPolicy.MacroStrategy.TEMPLATE);
         assertTrue(foundMyMacro, "Should find 'my_macro' with TEMPLATE strategy");
@@ -32,15 +32,13 @@ public class MacroPipelineTest {
         assertNotNull(template);
 
         Map<String, Object> context = Map.of(
-            "name", "User",
-            "fields", List.of(
-                Map.of("name", "id", "type", "u32"),
-                Map.of("name", "username", "type", "String")
-            )
-        );
+                "name",
+                "User",
+                "fields",
+                List.of(Map.of("name", "id", "type", "u32"), Map.of("name", "username", "type", "String")));
 
         String expanded = MacroTemplateExpander.expand(template, context);
-        
+
         // Normalize whitespace for comparison
         String normalized = expanded.replaceAll("\\s+", " ").trim();
         assertEquals("pub struct User { id: u32, username: String, }", normalized);
