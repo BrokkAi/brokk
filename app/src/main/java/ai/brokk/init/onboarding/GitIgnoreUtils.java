@@ -17,6 +17,15 @@ import org.apache.logging.log4j.Logger;
 public class GitIgnoreUtils {
     private static final Logger logger = LogManager.getLogger(GitIgnoreUtils.class);
 
+    /**
+     * Default Brokk .gitignore template lines.
+     */
+    public static final String BROKK_GITIGNORE_TEMPLATE =
+            """
+            .brokk/**
+            !.brokk/macros_*.yml
+            """;
+
     // Utility class - prevent instantiation
     private GitIgnoreUtils() {}
 
