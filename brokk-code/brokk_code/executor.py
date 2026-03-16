@@ -1300,7 +1300,9 @@ class ExecutorManager:
             headers["X-Session-Id"] = effective_session_id
 
         try:
-            resp = await self._http_client.post("/v1/review/submit", json=payload, headers=headers)
+            resp = await self._http_client.post(
+                "/v1/review/submit", json=payload, headers=headers, timeout=60.0
+            )
             resp.raise_for_status()
             return resp.json()["jobId"]
         except httpx.HTTPError as e:

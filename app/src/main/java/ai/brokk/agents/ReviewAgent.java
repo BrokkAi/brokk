@@ -109,8 +109,7 @@ public class ReviewAgent {
             ReviewScope scope,
             AbstractService.ModelConfig modelConfig,
             boolean optimizeForLatency,
-            IContextManager cm)
-    {
+            IContextManager cm) {
         this(scope, modelConfig, optimizeForLatency, cm, PrReviewService.Severity.HIGH);
     }
 
@@ -119,8 +118,7 @@ public class ReviewAgent {
             AbstractService.ModelConfig modelConfig,
             boolean optimizeForLatency,
             IContextManager cm,
-            PrReviewService.Severity severityThreshold)
-    {
+            PrReviewService.Severity severityThreshold) {
         this.changes = scope.changes();
         this.metadata = scope.metadata();
         this.modelConfig = modelConfig;
@@ -131,10 +129,11 @@ public class ReviewAgent {
 
     @TestOnly
     ReviewAgent(CumulativeChanges changes, List<UUID> sessionIds, IContextManager cm) {
-        this(new ReviewScope(changes, new ReviewScope.Metadata("HEAD~1", "HEAD", sessionIds)),
-             ModelType.ARCHITECT.defaultConfig(),
-             true,
-             cm);
+        this(
+                new ReviewScope(changes, new ReviewScope.Metadata("HEAD~1", "HEAD", sessionIds)),
+                ModelType.ARCHITECT.defaultConfig(),
+                true,
+                cm);
     }
 
     private @Nullable ProgressUpdater progressUpdater;
@@ -926,8 +925,8 @@ public class ReviewAgent {
                 Make your recommendations with confidence; if there are multiple options to remediate, give only the best one.
                 Don't equivocate; if it's too minor to address then leave it out entirely.
                 """
-                + severityGuidance()
-                + """
+                        + severityGuidance()
+                        + """
 
                 Overview comes LAST, after you've had time to think through the design.
 
@@ -998,7 +997,8 @@ public class ReviewAgent {
                 - HIGH: Significant design flaws, major performance issues
                 - MEDIUM: Style/clarity concerns, minor performance issues
                 - LOW: Nits, nice-to-haves
-                """.formatted(severityThreshold.name());
+                """
+                .formatted(severityThreshold.name());
     }
 
     @SuppressWarnings("UnusedMethod") // Called via reflection by ToolRegistry

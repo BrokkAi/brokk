@@ -976,8 +976,15 @@ public final class JobRunner {
                                                     spec.plannerModel(), spec.reasoningLevel(), spec.temperature());
                                             var modelConfig = Service.ModelConfig.from(plannerModel, cm.getService());
 
-                                            var severityThreshold = spec.getSeverityThreshold();
-                                            var reviewAgent = new ReviewAgent(reviewScope, modelConfig, false, cm, severityThreshold);
+                                            var rawSeverity = spec.tags().get("severity_threshold");
+                                            var reviewAgent = rawSeverity != null && !rawSeverity.isBlank()
+                                                    ? new ReviewAgent(
+                                                            reviewScope,
+                                                            modelConfig,
+                                                            false,
+                                                            cm,
+                                                            PrReviewService.Severity.normalize(rawSeverity))
+                                                    : new ReviewAgent(reviewScope, modelConfig, false, cm);
 
                                             reviewAgent.setProgressUpdater((stage, progress) -> {
                                                 try {
