@@ -1010,6 +1010,15 @@ public class GitRepoTest {
     }
 
     @Test
+    void testToProjectFileSkipsUnmappablePaths() {
+        String invalidGitPath = "bad-\uD800.txt";
+
+        var projectFile = repo.toProjectFile(invalidGitPath);
+
+        assertTrue(projectFile.isEmpty(), "Unmappable Git paths should be skipped instead of crashing");
+    }
+
+    @Test
     void testDiffEmptyRepository() throws Exception {
         var emptyRepoRoot = tempDir.resolve("emptyRepo2");
         Files.createDirectories(emptyRepoRoot);
