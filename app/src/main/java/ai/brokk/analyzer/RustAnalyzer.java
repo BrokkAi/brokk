@@ -148,8 +148,7 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements MacroExpan
         // Path.toString() on an empty path (e.g., if fileParentDir is effectiveModuleRoot) results in an empty string.
         // Ensure that leading/trailing dots from malformed paths or separator replacement are handled if necessary,
         // though Path relativize and toString usually behave well. Here, simple replacement is okay.
-        if (".".equals(relativeDirModulePath)
-                || relativeDirModulePath.startsWith(".निया")) { // Handle potential dot from root relativization
+        if (".".equals(relativeDirModulePath)) { // Handle potential dot from root relativization
             relativeDirModulePath = "";
         }
 
