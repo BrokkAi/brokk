@@ -37,11 +37,13 @@ public class ParallelSearch {
     private static final String SEARCHAGENT_USES_PLANNER_ENV_VAR = "BRK_SEARCHAGENT_USES_PLANNER";
 
     private final IContextManager cm;
+    private final Context ctx;
     private final String goal;
     private final StreamingChatModel delegatedSearchModel;
 
-    public ParallelSearch(IContextManager cm, String goal, StreamingChatModel model) {
-        this.cm = cm;
+    public ParallelSearch(Context ctx, String goal, StreamingChatModel model) {
+        this.ctx = ctx;
+        this.cm = ctx.getContextManager();
         this.goal = goal;
         this.delegatedSearchModel = model;
     }
@@ -108,7 +110,7 @@ public class ParallelSearch {
                     taskIo = echoClaimed ? io : mutedIo;
                 }
 
-                return executeSearchRequest(req, new Context(cm), tr, taskIo);
+                return executeSearchRequest(req, ctx, tr, taskIo);
             });
             tasks.add(new SearchTask(req, future));
         }
@@ -182,8 +184,7 @@ public class ParallelSearch {
     }
 
     private SearchTaskResult executeSearchRequest(
-            ToolExecutionRequest request, Context searchStartContext, ToolRegistry tr, IConsoleIO io)
-            throws InterruptedException {
+            ToolExecutionRequest request, Context searchStartContext, ToolRegistry tr, IConsoleIO io) {
         io.beforeToolCall(request);
 
         ToolExecutionResult toolResult;

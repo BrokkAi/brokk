@@ -857,7 +857,7 @@ public class ArchitectAgent {
                     buildPrompt(workspaceTokenSize, maxInputTokensForPrompt, workspaceContentMessages, harnessNote);
 
             WorkspaceTools wst = new WorkspaceTools(this.context);
-            ParallelSearch parallelSearch = new ParallelSearch(cm, goal, delegatedSearchModel());
+            ParallelSearch parallelSearch = new ParallelSearch(context, goal, delegatedSearchModel());
 
             var depTools = DependencyTools.isSupported(cm.getProject())
                     ? Optional.of(new DependencyTools(cm))
