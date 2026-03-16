@@ -295,3 +295,47 @@ async def test_code_model_modal_navigation_updates_code_settings():
             assert app.reasoning_level_code == "low"
             # Ensure planner settings remained untouched
             assert app.current_model != "code-beta"
+
+
+@pytest.mark.asyncio
+async def test_combined_modal_scrolling_on_small_screen():
+    """Verify that navigating down in a long model list keeps the highlighted item visible."""
+    executor = MagicMock()
+    # Create 50 models to ensure the list exceeds common terminal heights
+    models = [{"name": f"model-{i}", "location": "loc"} for i in range(50)]
+    executor.get_models = AsyncMock(return_value={"models": models})
+    executor.stop = AsyncMock()
+    app = BrokkApp(executor=executor)
+    app._executor_ready = True
+
+    with (
+        patch.object(BrokkApp, "_start_executor", return_value=None),
+        patch.object(BrokkApp, "_monitor_executor", return_value=None),
+        patch.object(BrokkApp, "_poll_tasklist", return_value=None),
+        patch.object(BrokkApp, "_poll_context", return_value=None),
+    ):
+        # Use a constrained size for the pilot
+        async with app.run_test(size=(80, 24)) as pilot:
+            await app.action_select_model_and_reasoning()
+            await pilot.pause()
+
+            model_list = app.screen.query_one("#model-select-list", ListView)
+
+            # Move down many times
+            for _ in range(30):
+                await pilot.press("down")
+
+            # Check that the highlighted item's region is within the scrollable viewport
+            highlighted = model_list.highlighted_child
+            assert highlighted is not None
+
+            # Verify the index moved as expected.
+            assert model_list.index == 30
+
+            # Verify the highlighted item's Y is within the visible list area.
+            # We check the region relative to the list's own viewport.
+            item_y_in_list = highlighted.region.y - model_list.region.y
+            assert 0 <= item_y_in_list < model_list.size.height, (
+                f"Highlighted item at Y={item_y_in_list} is not visible "
+                f"in ListView (height={model_list.size.height})"
+            )
