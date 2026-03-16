@@ -1095,6 +1095,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         checkStale("searchDefinitionsInternal");
         var threadLocalMatcher = ThreadLocal.withInitial(() -> compiledPattern.matcher(""));
         return this.state.codeUnitState.keySet().parallelStream()
+                .filter(cu -> !cu.isSynthetic())
                 .filter(cu -> substringFilter == null
                         || cu.fqName().toLowerCase(Locale.ROOT).contains(substringFilter))
                 .filter(cu -> threadLocalMatcher.get().reset(cu.fqName()).find())
@@ -1182,6 +1183,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
         return results.stream()
                 .filter(Objects::nonNull)
+                .filter(cu -> !cu.isSynthetic())
                 .filter(cu -> !isAnonymousStructure(cu.fqName()))
                 .sorted(IAnalyzer.autocompleteDefinitionsSortComparator())
                 .collect(Collectors.toCollection(LinkedHashSet::new));
