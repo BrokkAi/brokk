@@ -65,6 +65,9 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
     private static final String LOADING_PLACEHOLDER = "Loading...";
     private static final ExecutorService IO_EXECUTOR = ExecutorsUtil.newFixedThreadExecutor("ProjectTree-IO-", 4);
 
+    // INSTRUMENTATION - remove after profiling
+    private volatile int activeRefreshId = -1;
+
     /** Generation counter for refresh operations; incremented at the start of each refresh
      * so that async continuations from a stale refresh can detect they've been superseded. */
     private final AtomicInteger refreshGeneration = new AtomicInteger(0);
@@ -648,15 +651,21 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
         // Atomically try to start loading - avoids all race conditions
         var result = new CompletableFuture<Void>();
         if (!treeNode.tryStartLoading(result)) {
-            // Someone else is loading or already loaded - return their future
+            logger.info(
+                    "loadChildren: {} (CAS=false, already loaded/loading)",
+                    treeNode.getFile().getName());
             var existing = treeNode.getLoadFuture();
             return existing != null ? existing : CompletableFuture.completedFuture(null);
         }
+        logger.info("loadChildren: {} (CAS=true, loading)", treeNode.getFile().getName());
 
         // We won the race - proceed with loading
         // Ensure there's a visible "Loading..." placeholder while background work runs.
         if (node.getChildCount() == 0) {
             node.add(new DefaultMutableTreeNode(LOADING_PLACEHOLDER));
+            logger.info(
+                    "nodeStructureChanged: placeholder for {}",
+                    treeNode.getFile().getName());
             ((DefaultTreeModel) getModel()).nodeStructureChanged(node);
         }
 
@@ -731,6 +740,11 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
                                 node.add(childNode);
                             }
 
+                            logger.info(
+                                    "nodeStructureChanged: children loaded for {}",
+                                    ((ProjectTreeNode) node.getUserObject())
+                                            .getFile()
+                                            .getName());
                             ((DefaultTreeModel) getModel()).nodeStructureChanged(node);
 
                             // Attempt to auto-expand single-directory chains as before.
@@ -780,6 +794,8 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
                             && onlyChild.getFirstChild() instanceof DefaultMutableTreeNode
                             && LOADING_PLACEHOLDER.equals(
                                     ((DefaultMutableTreeNode) onlyChild.getFirstChild()).getUserObject())) {
+                        logger.info(
+                                "expandSingleDir: {}", childTreeNode.getFile().getName());
                         expandPath(childPath); // This will trigger the TreeWillExpandListener.
                         // The listener calls loadChildrenForNode.
                         // loadChildrenForNode calls this method again, forming the recursive chain.
@@ -827,6 +843,10 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
         if (isRestoringExpansion) {
             return;
         }
+        logger.info(
+                "scheduleExpansionSave (isRestoringExpansion={}, activeRefreshId={})",
+                isRestoringExpansion,
+                activeRefreshId);
         if (expansionSaveTimer != null) {
             expansionSaveTimer.stop();
         }
@@ -921,6 +941,11 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
                     batch.getFiles().size());
         }
 
+        logger.info(
+                "onFilesChanged: scheduling refresh (overflow={}, gitignoreChanged={}, fileCount={})",
+                batch.isOverflowed(),
+                batch.isUntrackedGitignoreChanged(),
+                batch.getFiles().size());
         scheduleRefresh();
     }
 
@@ -956,6 +981,13 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
 
     private void performRefreshInternal() {
         int thisGeneration = refreshGeneration.incrementAndGet();
+        int previousActive = activeRefreshId;
+        activeRefreshId = thisGeneration;
+        if (previousActive >= 0) {
+            logger.info(">>> REFRESH START id={} (SUPERSEDING stale id={})", thisGeneration, previousActive);
+        } else {
+            logger.info(">>> REFRESH START id={}", thisGeneration);
+        }
 
         pendingRefreshWhenShown = false; // Clear flag when actually refreshing
 
@@ -979,6 +1011,7 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
         invalidateAllChildrenRecursively(root);
         root.removeAllChildren();
         root.add(new DefaultMutableTreeNode(LOADING_PLACEHOLDER));
+        logger.info("nodeStructureChanged: root cleared (refresh id={})", thisGeneration);
         ((DefaultTreeModel) getModel()).nodeStructureChanged(root);
 
         // Load root children async, then restore expansions and selections.
@@ -987,7 +1020,7 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
         loadChildrenForNodeAsync(root)
                 .thenCompose(ignored -> {
                     if (refreshGeneration.get() != thisGeneration) {
-                        logger.debug("Refresh superseded after root load (generation {})", thisGeneration);
+                        logger.info("--- REFRESH ABANDONED id={} (superseded)", thisGeneration);
                         return CompletableFuture.<Void>completedFuture(null);
                     }
                     // Restore expanded directories - process sequentially by depth to avoid race conditions.
@@ -1037,7 +1070,10 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
                             .toArray(CompletableFuture[]::new);
                     return CompletableFuture.allOf(selectionFutures).thenAccept(v -> {
                         SwingUtilities.invokeLater(() -> {
-                            if (refreshGeneration.get() != thisGeneration) return;
+                            if (refreshGeneration.get() != thisGeneration) {
+                                logger.info("--- REFRESH ABANDONED id={} at selection restore (superseded)", thisGeneration);
+                                return;
+                            }
                             var pathsToSelect = new ArrayList<TreePath>();
                             for (ProjectFile pf : previouslySelectedFiles) {
                                 if (!pf.exists()) continue;
@@ -1057,6 +1093,8 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
                                     scrollPathToVisible(pathsToSelect.getFirst());
                                 }
                             }
+                            logger.info("<<< REFRESH END id={}", thisGeneration);
+                            activeRefreshId = -1;
                             logger.trace("ProjectTree refresh complete.");
                         });
                     });
