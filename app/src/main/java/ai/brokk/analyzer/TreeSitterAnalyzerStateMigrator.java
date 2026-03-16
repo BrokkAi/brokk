@@ -8,7 +8,7 @@ public final class TreeSitterAnalyzerStateMigrator {
     /**
      * Threshold within the current major version line that triggers a rebuild for strict languages.
      */
-    public static final SemVer REBUILD_THRESHOLD = SemVer.parse("2.0.0");
+    public static final SemVer REBUILD_THRESHOLD = SemVer.parse("2.1.0");
 
     private TreeSitterAnalyzerStateMigrator() {}
 
