@@ -1,11 +1,11 @@
 package ai.brokk.gui.util;
 
 import ai.brokk.IConsoleIO;
+import ai.brokk.agents.ArchitectPrompts;
 import ai.brokk.analyzer.BrokkFile;
 import ai.brokk.analyzer.ExternalFile;
 import ai.brokk.concurrent.LoggingFuture;
-import ai.brokk.gui.Chrome;
-import ai.brokk.prompts.ArchitectPrompts;
+import ai.brokk.gui.ProjectTreeHost;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -117,18 +117,18 @@ public final class ContextSizeGuard {
      * with a warning notification. This prioritizes usability over strict protection.
      *
      * @param files Files to evaluate (collection of BrokkFile)
-     * @param chrome Chrome instance for dialogs and model info
+     * @param host ProjectTreeHost instance for dialogs and model info
      * @param onDecision Called with the decision result
      */
     public static void checkAndConfirm(
-            Collection<? extends BrokkFile> files, Chrome chrome, Consumer<Decision> onDecision) {
+            Collection<? extends BrokkFile> files, ProjectTreeHost host, Consumer<Decision> onDecision) {
         LoggingFuture.supplyAsync(() -> estimateTokens(files))
                 .thenAccept(estimate -> {
-                    var contextManager = chrome.getContextManager();
+                    var contextManager = host.getContextManager();
                     var service = contextManager.getService();
 
                     // Get threshold based on current model
-                    var model = chrome.getInstructionsPanel().getSelectedModel();
+                    var model = host.getInstructionsPanel().getSelectedModel();
                     int maxInputTokens = service.getMaxInputTokens(model);
 
                     long hardLimit = (long) (maxInputTokens * HARD_LIMIT_MULTIPLIER);
@@ -136,8 +136,7 @@ public final class ContextSizeGuard {
 
                     // Hard limit - reject without asking
                     if (estimate.estimatedTokens() > hardLimit) {
-                        chrome.toolError(
-                                formatHardLimitMessage(estimate, maxInputTokens, hardLimit), "Context Size Limit");
+                        host.toolError(formatHardLimitMessage(estimate, maxInputTokens, hardLimit), "Context Size Limit");
                         onDecision.accept(Decision.BLOCKED);
                         return;
                     }
@@ -151,7 +150,7 @@ public final class ContextSizeGuard {
                     // Between warning and hard limit - ask for confirmation
                     SwingUtilities.invokeLater(() -> {
                         var message = formatConfirmationMessage(estimate, maxInputTokens);
-                        int result = chrome.showConfirmDialog(
+                        int result = host.showConfirmDialog(
                                 message,
                                 "Large Context Warning",
                                 JOptionPane.YES_NO_OPTION,
@@ -162,7 +161,7 @@ public final class ContextSizeGuard {
                 .exceptionally(ex -> {
                     logger.error("Error estimating context size", ex);
                     // Fail-open: allow operation but warn user that size check was skipped
-                    chrome.showNotification(
+                    host.showNotification(
                             IConsoleIO.NotificationRole.INFO,
                             "Could not estimate context size; proceeding without size checks");
                     onDecision.accept(Decision.ALLOW);
@@ -179,7 +178,7 @@ public final class ContextSizeGuard {
         sb.append(" tokens.\n\n");
 
         if (estimate.isTruncated()) {
-            sb.append("Estimate may undercount: enumeration stopped at ");
+            sb.append("WARNING: Estimate may undercount: enumeration stopped at ");
             sb.append(String.format("%,d", MAX_FILES_TO_ENUMERATE));
             sb.append(" files.\n   The actual size is likely larger.\n\n");
         }
@@ -204,7 +203,7 @@ public final class ContextSizeGuard {
         sb.append(" tokens.\n\n");
 
         if (estimate.isTruncated()) {
-            sb.append("⚠ Estimate may undercount: enumeration stopped at ");
+            sb.append("WARNING: Estimate may undercount: enumeration stopped at ");
             sb.append(String.format("%,d", MAX_FILES_TO_ENUMERATE));
             sb.append(" files.\n   The actual size is likely larger.\n\n");
         }
