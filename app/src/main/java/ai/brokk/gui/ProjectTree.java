@@ -44,6 +44,7 @@ import java.util.TreeSet;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 import javax.swing.*;
@@ -73,6 +74,8 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
 
     @Nullable
     private Timer refreshDebounceTimer;
+
+    private final AtomicBoolean refreshDebounceEdtUpdateQueued = new AtomicBoolean(false);
 
     @Nullable
     private Timer expansionSaveTimer;
@@ -943,15 +946,30 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
             return;
         }
 
-        // Debounce rapid calls - only refresh after 100ms of no new calls
+        if (SwingUtilities.isEventDispatchThread()) {
+            restartRefreshDebounceTimerOnEdt();
+            return;
+        }
+
+        if (!refreshDebounceEdtUpdateQueued.compareAndSet(false, true)) {
+            return;
+        }
+
         SwingUtilities.invokeLater(() -> {
-            if (refreshDebounceTimer != null) {
-                refreshDebounceTimer.stop();
-            }
+            refreshDebounceEdtUpdateQueued.set(false);
+            restartRefreshDebounceTimerOnEdt();
+        });
+    }
+
+    private void restartRefreshDebounceTimerOnEdt() {
+        assert SwingUtilities.isEventDispatchThread();
+
+        if (refreshDebounceTimer == null) {
             refreshDebounceTimer = new Timer(100, evt -> performRefresh());
             refreshDebounceTimer.setRepeats(false);
-            refreshDebounceTimer.start();
-        });
+        }
+
+        refreshDebounceTimer.restart();
     }
 
     private void performRefresh() {
