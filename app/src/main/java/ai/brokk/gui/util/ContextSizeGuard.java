@@ -1,8 +1,8 @@
 package ai.brokk.gui.util;
 
 import ai.brokk.IConsoleIO;
-import ai.brokk.agents.ArchitectPrompts;
 import ai.brokk.analyzer.BrokkFile;
+import ai.brokk.prompts.ArchitectPrompts;
 import ai.brokk.analyzer.ExternalFile;
 import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.gui.ProjectTreeHost;
