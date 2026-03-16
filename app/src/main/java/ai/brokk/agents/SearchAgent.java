@@ -21,7 +21,6 @@ import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolOutput;
 import ai.brokk.tools.ToolRegistry;
 import ai.brokk.tools.WorkspaceTools;
-import ai.brokk.util.Json;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolContext;
@@ -457,24 +456,28 @@ public class SearchAgent {
 
     @Tool("Abort search immediately.")
     public TerminalStopOutput abortSearch(@P("Reason for abort.") String explanation) {
-        var details = jsonWithExplanation(explanation);
-        var stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.LLM_ABORTED, details);
+        var stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.LLM_ABORTED, explanation);
         io.llmOutput(explanation, ChatMessageType.AI, LlmOutputMeta.DEFAULT);
-        return new TerminalStopOutput(details, stopDetails);
+        return new TerminalStopOutput(explanation, stopDetails);
     }
 
     @Tool("Provide final answer.")
-    public TerminalStopOutput answer(@P("Comprehensive final answer in Markdown.") String explanation) {
-        var details = jsonWithExplanation(explanation);
+    public TerminalStopOutput answer(
+            @P("Comprehensive final answer in Markdown.") String explanation,
+            @P("What to investigate next. Use the empty string if there is nothing else to investigate.")
+                    String furtherInvestigation) {
+        var details = formatAnswerOutput(explanation, furtherInvestigation);
         var stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS, details);
-        io.llmOutput("# Answer\n\n" + explanation, ChatMessageType.AI, LlmOutputMeta.newMessage());
+        io.llmOutput(details, ChatMessageType.AI, LlmOutputMeta.newMessage());
         return new TerminalStopOutput(details, stopDetails);
     }
 
     @Tool("Signal workspace preparation is complete.")
     public ToolOutput workspaceComplete(
             @P("Selected workspace fragments as IDs, or exact fragment descriptions.")
-                    List<String> fragmentIdsOrDescriptions) {
+                    List<String> fragmentIdsOrDescriptions,
+            @P("What to investigate next. Use the empty string if there is nothing else to investigate.")
+                    String furtherInvestigation) {
         var acceptedIds = new LinkedHashSet<String>();
         if (pendingWorkspaceCompleteIds != null) {
             acceptedIds.addAll(pendingWorkspaceCompleteIds);
@@ -492,6 +495,7 @@ public class SearchAgent {
                     Invalid fragment selections: %s
                     Accepted fragment IDs: %s
                     Accepted selections are saved and do not need to be repeated.
+                    Include the required furtherInvestigation field, using the empty string if there is nothing else to investigate.
                     Call workspaceComplete one more time with only corrected selections.
                     """
                             .formatted(resolved.badSelections(), acceptedIds);
@@ -502,7 +506,7 @@ public class SearchAgent {
         workspaceCompleteRetryOffered = false;
         pendingWorkspaceCompleteIds = null;
 
-        var details = jsonWithFragmentIds(List.copyOf(acceptedIds));
+        var details = formatWorkspaceCompleteOutput(List.copyOf(acceptedIds), furtherInvestigation);
         var stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS, details);
         io.llmOutput(details, ChatMessageType.AI, LlmOutputMeta.newMessage());
         return new TerminalStopOutput(details, stopDetails);
@@ -552,11 +556,45 @@ public class SearchAgent {
         return new FragmentSelectionResolution(List.copyOf(accepted), List.copyOf(bad));
     }
 
-    private static String jsonWithExplanation(String explanation) {
-        return Json.toJson(Map.of("explanation", explanation));
+    private static String formatAnswerOutput(String explanation, String furtherInvestigation) {
+        var normalizedFurtherInvestigation = furtherInvestigation.strip();
+        return normalizedFurtherInvestigation.isEmpty()
+                ? "# Answer\n\n" + explanation
+                : """
+                # Answer
+
+                %s
+
+                ### Further Investigation
+
+                %s
+                """
+                        .stripIndent()
+                        .formatted(explanation, normalizedFurtherInvestigation)
+                        .stripTrailing();
     }
 
-    private static String jsonWithFragmentIds(List<String> fragmentIds) {
-        return Json.toJson(Map.of("fragment_ids", fragmentIds));
+    private static String formatWorkspaceCompleteOutput(List<String> fragmentIds, String furtherInvestigation) {
+        var selectedFragments = fragmentIds.isEmpty() ? "(none)" : String.join("\n", fragmentIds);
+        var normalizedFurtherInvestigation = furtherInvestigation.strip();
+        return normalizedFurtherInvestigation.isEmpty()
+                ? """
+                Selected Fragments:
+                %s
+                """
+                        .stripIndent()
+                        .formatted(selectedFragments)
+                        .stripTrailing()
+                : """
+                Selected Fragments:
+                %s
+
+                ### Further Investigation
+
+                %s
+                """
+                        .stripIndent()
+                        .formatted(selectedFragments, normalizedFurtherInvestigation)
+                        .stripTrailing();
     }
 }

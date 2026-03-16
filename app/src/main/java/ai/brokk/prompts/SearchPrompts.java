@@ -474,7 +474,7 @@ public class SearchPrompts {
                 - describeIssue(String title, String body): finalize with this tool. abortSearch is the only other allowed final tool.
                 {{/if}}
                 {{#if terminalAnswer}}
-                - answer(String): call this once the Workspace contains sufficient context to justify the answer, OR when the question is explicitly codebase-independent. Must be Markdown-formatted (see <markdown-reminder>).
+                - answer(String explanation, String furtherInvestigation): call this once the Workspace contains sufficient context to justify the answer, OR when the question is explicitly codebase-independent. Must be Markdown-formatted (see <markdown-reminder>). `furtherInvestigation` is required; use the empty string when there is nothing else to investigate.
                 - askForClarification(String queryForUser): when the goal is unclear or you cannot find the necessary information; asks the user directly and stops.
                 {{/if}}
                 {{#if terminalTasks}}
@@ -486,7 +486,7 @@ public class SearchPrompts {
                     - Given the above, DO NOT create pure "testing" tasks.
                 {{/if}}
                 {{#if terminalWorkspace}}
-                - workspaceComplete(): when the Workspace contains all the information necessary to accomplish the goal.
+                - workspaceComplete(List<String> fragmentIdsOrDescriptions, String furtherInvestigation): when the Workspace contains all the information necessary to accomplish the goal. `furtherInvestigation` is required; use the empty string when there is nothing else to investigate.
                 {{/if}}
                 {{#if terminalCode}}
                 - callCodeAgent(String instructions, boolean deferBuild): the task is simple enough to attempt implementation now in a single shot without creating a formal task list.
