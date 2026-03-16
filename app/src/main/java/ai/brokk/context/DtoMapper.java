@@ -569,7 +569,12 @@ public class DtoMapper {
         ProjectFileDto pfd =
                 new ProjectFileDto("0", pf.getRoot().toString(), pf.getRelPath().toString(), null);
         return new CodeUnitDto(
-                pfd, codeUnit.kind().name(), codeUnit.packageName(), codeUnit.shortName(), codeUnit.signature());
+                pfd,
+                codeUnit.kind().name(),
+                codeUnit.packageName(),
+                codeUnit.shortName(),
+                codeUnit.signature(),
+                codeUnit.isSynthetic());
     }
 
     private static CodeUnit fromCodeUnitDto(CodeUnitDto dto, IContextManager mgr) {
@@ -577,7 +582,8 @@ public class DtoMapper {
         // Use current project root for cross-platform compatibility
         ProjectFile source = mgr.toFile(pfd.relPath());
         var kind = CodeUnitType.valueOf(dto.kind());
-        return new CodeUnit(source, kind, dto.packageName(), dto.shortName(), dto.signature());
+        boolean synthetic = dto.synthetic() != null && dto.synthetic();
+        return new CodeUnit(source, kind, dto.packageName(), dto.shortName(), dto.signature(), synthetic);
     }
 
     private static boolean isDeprecatedBuildFragment(FrozenFragmentDto ffd) {
