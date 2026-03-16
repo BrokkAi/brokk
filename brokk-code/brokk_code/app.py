@@ -15,6 +15,7 @@ from textual import events
 from textual.app import App, ComposeResult, ScreenStackError
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.css.query import NoMatches
 from textual.screen import ModalScreen
 from textual.widgets import Button, Input, ListItem, ListView, Static, TextArea
 
@@ -507,6 +508,18 @@ class SessionCostsModalScreen(ModalScreen[None]):
             self.query_one(ListView).focus()
         else:
             self.query_one("#session-costs-help-line").focus()
+
+    def on_list_view_highlighted(self, message: ListView.Highlighted) -> None:
+        """Ensure the highlighted cost row is scrolled into view."""
+        if message.item:
+            try:
+                scroll_wrap = self.query_one("#session-costs-list-wrap")
+                scroll_wrap.scroll_to_widget(message.item, animate=False)
+            except NoMatches:
+                # Benign if the modal is unmounting or layout hasn't settled.
+                pass
+            except Exception:
+                logger.debug("Failed to scroll cost item into view", exc_info=True)
 
 
 class PrCreateModalScreen(ModalScreen[Optional[tuple[str, str, List[str]]]]):
