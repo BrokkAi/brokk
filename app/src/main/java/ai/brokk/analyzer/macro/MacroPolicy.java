@@ -9,9 +9,23 @@ public record MacroPolicy(String version, String language, List<MacroMatch> macr
     public record MacroMatch(
             String name, @Nullable String path, MacroStrategy strategy, @Nullable Map<String, Object> options) {}
 
+    /**
+     * Defines the strategy used to handle macro expansion.
+     */
     public enum MacroStrategy {
+        /**
+         * Do not expand the macro; it will be treated as an opaque call.
+         */
         BYPASS,
+
+        /**
+         * Use an LLM to generate code definitions from the macro call site.
+         */
         AI_EXPAND,
+
+        /**
+         * Use a pre-defined template (e.g., Mustache) for expansion.
+         */
         BUILTIN
     }
 }
