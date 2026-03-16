@@ -58,13 +58,22 @@ def test_main_defaults_to_tui(monkeypatch, tmp_path) -> None:
 
 def test_main_acp_routes_to_server(monkeypatch, tmp_path) -> None:
     captured: dict[str, Any] = {}
-    fake_acp_module = ModuleType("brokk_code.acp_server")
 
-    async def fake_run_acp_server(**kwargs: Any) -> None:
+    def fake_build_acp_command(**kwargs: Any) -> list[str]:
         captured["kwargs"] = kwargs
+        return ["java", "brokk-acp"]
 
-    fake_acp_module.run_acp_server = fake_run_acp_server
-    monkeypatch.setitem(sys.modules, "brokk_code.acp_server", fake_acp_module)
+    def fake_run(command: list[str], **kwargs: Any):
+        captured["command"] = command
+        captured["run_kwargs"] = kwargs
+
+        class Result:
+            returncode = 0
+
+        return Result()
+
+    monkeypatch.setattr(main_module, "_build_acp_command", fake_build_acp_command)
+    monkeypatch.setattr(main_module.subprocess, "run", fake_run)
     monkeypatch.setattr(
         sys,
         "argv",
@@ -79,24 +88,33 @@ def test_main_acp_routes_to_server(monkeypatch, tmp_path) -> None:
         ],
     )
 
-    main_module.main()
+    with pytest.raises(SystemExit) as exc:
+        main_module.main()
 
+    assert exc.value.code == 0
     assert captured["kwargs"]["workspace_dir"] == tmp_path.resolve()
-    assert captured["kwargs"]["executor_snapshot"] is False
     assert captured["kwargs"]["vendor"] == "Gemini"
-    # Ensure no residual ide parameter is passed from CLI to run_acp_server
+    assert captured["command"] == ["java", "brokk-acp"]
     assert "ide" not in captured["kwargs"]
 
 
 def test_main_acp_accepts_legacy_ide_flag_but_ignores_it(monkeypatch, tmp_path) -> None:
     captured: dict[str, Any] = {}
-    fake_acp_module = ModuleType("brokk_code.acp_server")
 
-    async def fake_run_acp_server(**kwargs: Any) -> None:
+    def fake_build_acp_command(**kwargs: Any) -> list[str]:
         captured["kwargs"] = kwargs
+        return ["java", "brokk-acp"]
 
-    fake_acp_module.run_acp_server = fake_run_acp_server
-    monkeypatch.setitem(sys.modules, "brokk_code.acp_server", fake_acp_module)
+    def fake_run(command: list[str], **kwargs: Any):
+        captured["command"] = command
+
+        class Result:
+            returncode = 0
+
+        return Result()
+
+    monkeypatch.setattr(main_module, "_build_acp_command", fake_build_acp_command)
+    monkeypatch.setattr(main_module.subprocess, "run", fake_run)
     monkeypatch.setattr(
         sys,
         "argv",
@@ -113,13 +131,13 @@ def test_main_acp_accepts_legacy_ide_flag_but_ignores_it(monkeypatch, tmp_path) 
         ],
     )
 
-    main_module.main()
+    with pytest.raises(SystemExit) as exc:
+        main_module.main()
 
-    # Still routes correctly
+    assert exc.value.code == 0
     assert captured["kwargs"]["workspace_dir"] == tmp_path.resolve()
-    assert captured["kwargs"]["executor_snapshot"] is False
     assert captured["kwargs"]["vendor"] == "Gemini"
-    # Critically: ide is not forwarded to run_acp_server
+    assert captured["command"] == ["java", "brokk-acp"]
     assert "ide" not in captured["kwargs"]
 
 

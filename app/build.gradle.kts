@@ -65,6 +65,12 @@ repositories {
     mavenLocal()
 
     mavenCentral()
+    maven {
+        url = uri("https://central.sonatype.com/repository/maven-snapshots/")
+        mavenContent {
+            snapshotsOnly()
+        }
+    }
     google()
 
     // Additional repositories for dependencies
@@ -155,6 +161,8 @@ dependencies {
     implementation(libs.disklrucache)
     implementation(libs.uuid.creator)
     implementation(libs.mcp.sdk)
+    implementation(libs.acp.core)
+    implementation(libs.acp.agent.support)
     implementation(libs.pcollections)
     implementation(libs.caffeine)
     // For JSON serialization interfaces (used by CodeUnit)
@@ -191,6 +199,7 @@ dependencies {
     testImplementation(platform(libs.junit.bom))
     testImplementation(libs.bundles.junit)
     testImplementation(libs.jupiter.iface)
+    testImplementation(libs.acp.test)
     testRuntimeOnly(libs.bundles.junit.runtime)
 
     // Error Prone and NullAway for null safety checking

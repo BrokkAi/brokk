@@ -37,6 +37,7 @@ from brokk_code.zed_config import ExistingBrokkCodeEntryError, configure_zed_acp
 REPO_COMPONENT_ALLOWLIST_REGEX = r"^[A-Za-z0-9_.-]+$"
 _EXECUTOR_JAR_BASE_URL = "https://github.com/BrokkAi/brokk-releases/releases/download"
 _HEADLESS_EXECUTOR_MAIN_CLASS = "ai.brokk.executor.HeadlessExecutorMain"
+_ACP_SERVER_MAIN_CLASS = "ai.brokk.acpserver.BrokkAcpServerMain"
 _MCP_SERVER_MAIN_CLASS = "ai.brokk.mcpserver.BrokkExternalMcpServer"
 _MCP_JBANG_PACKAGE = "brokk-headless@brokkai/brokk-releases"
 _JBANG_PREFETCH_TIMEOUT_SECONDS = 120.0
@@ -125,6 +126,68 @@ def _build_mcp_prefetch_command(*, jbang_binary: str) -> list[str]:
         _MCP_SERVER_MAIN_CLASS,
         _MCP_JBANG_PACKAGE,
         "--help",
+    ]
+
+
+def _build_acp_command(
+    *,
+    workspace_dir: Path,
+    jar_path: Path | None,
+    executor_version: str | None,
+    vendor: str | None,
+    brokk_api_key: str | None,
+) -> list[str]:
+    args = ["--workspace-dir", str(workspace_dir)]
+    if vendor and vendor.strip():
+        args.extend(["--vendor", vendor.strip()])
+    if brokk_api_key and brokk_api_key.strip():
+        args.extend(["--brokk-api-key", brokk_api_key.strip()])
+
+    if jar_path:
+        return [
+            "java",
+            "-Djava.awt.headless=true",
+            "-Dapple.awt.UIElement=true",
+            "-cp",
+            str(jar_path),
+            _ACP_SERVER_MAIN_CLASS,
+            *args,
+        ]
+
+    libs_dir = workspace_dir
+    while libs_dir != libs_dir.parent:
+        if (libs_dir / "gradlew").exists():
+            candidate_dir = libs_dir / "app" / "build" / "libs"
+            if candidate_dir.exists():
+                jars = list(candidate_dir.glob("brokk-*.jar"))
+                if jars:
+                    latest = max(jars, key=lambda jar: jar.stat().st_mtime)
+                    return [
+                        "java",
+                        "-Djava.awt.headless=true",
+                        "-Dapple.awt.UIElement=true",
+                        "-cp",
+                        str(latest),
+                        _ACP_SERVER_MAIN_CLASS,
+                        *args,
+                    ]
+        libs_dir = libs_dir.parent
+
+    jbang_binary = ensure_jbang_ready()
+    version = executor_version or BUNDLED_EXECUTOR_VERSION
+    jar_url = f"{_EXECUTOR_JAR_BASE_URL}/{version}/brokk-{version}.jar"
+    return [
+        jbang_binary,
+        "--java",
+        "21",
+        "-R",
+        "-Djava.awt.headless=true "
+        + "-Dapple.awt.UIElement=true "
+        + "--enable-native-access=ALL-UNNAMED",
+        "--main",
+        _ACP_SERVER_MAIN_CLASS,
+        jar_url,
+        *args,
     ]
 
 
@@ -1350,21 +1413,16 @@ def main():
     jar_path = Path(args.jar).resolve() if args.jar else None
 
     if args.command == "acp":
-        try:
-            from brokk_code.acp_server import run_acp_server
-        except ImportError:
-            print("Error: Could not import ACP server module.", file=sys.stderr)
-            sys.exit(1)
-
-        asyncio.run(
-            run_acp_server(
-                workspace_dir=workspace_path,
-                jar_path=jar_path,
-                executor_version=args.executor_version,
-                executor_snapshot=args.executor_snapshot,
-                vendor=args.vendor,
-            )
+        settings = Settings.load()
+        command = _build_acp_command(
+            workspace_dir=workspace_path,
+            jar_path=jar_path,
+            executor_version=args.executor_version,
+            vendor=args.vendor,
+            brokk_api_key=settings.get_brokk_api_key(),
         )
+        completed = subprocess.run(command)
+        sys.exit(completed.returncode)
         return
 
     try:

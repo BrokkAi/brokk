@@ -22,6 +22,7 @@ jediterm = "3.54"
 jediterm-pty = "2.69"
 pty4j = "0.13.11"
 lz4 = "1.10.3"
+acpSdk = "0.9.0-SNAPSHOT"
 
 [libraries]
 # Logging
@@ -75,6 +76,9 @@ apache-commons-text = "org.apache.commons:commons-text:1.12.0"
 handlebars = "com.github.jknack:handlebars:4.5.0"
 mustache = "com.github.spullara.mustache.java:compiler:0.9.10"
 mcp-sdk = { module = "io.modelcontextprotocol.sdk:mcp", version = "0.18.1" }
+acp-core = { module = "com.agentclientprotocol:acp-core", version.ref = "acpSdk" }
+acp-agent-support = { module = "com.agentclientprotocol:acp-agent-support", version.ref = "acpSdk" }
+acp-test = { module = "com.agentclientprotocol:acp-test", version.ref = "acpSdk" }
 uuid-creator = "com.github.f4b6a3:uuid-creator:6.1.1"
 pcollections = "org.pcollections:pcollections:5.0.0"
 
