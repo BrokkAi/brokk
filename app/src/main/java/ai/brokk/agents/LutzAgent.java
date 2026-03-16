@@ -469,10 +469,8 @@ public class LutzAgent {
         IContextManager cm = initialContext.getContextManager();
 
         // async referenceagent
-        CompletableFuture<Set<ContextFragment>> referencesFuture = goal.isBlank()
-                ? CompletableFuture.completedFuture(Set.of())
-                : LoggingFuture.supplyCallableAsync(
-                        () -> new ReferenceAgent(cm).resolveReferencedFragments(goal, initialContext));
+        CompletableFuture<Set<ContextFragment>> referencesFuture = LoggingFuture.supplyCallableAsync(
+                () -> new ReferenceAgent(cm).resolveReferencedFragments(goal, initialContext));
 
         // async janitoragent
         CompletableFuture<Context> pruneFuture;
@@ -705,7 +703,17 @@ public class LutzAgent {
     }
 
     private boolean toolTriggersScan(String toolName) {
-        return toolName.startsWith("search") || toolName.startsWith("find") || "callSearchAgent".equals(toolName);
+        if (toolName.startsWith("search") || toolName.startsWith("find")) {
+            return true;
+        }
+
+        if ("callSearchAgent".equals(toolName)) {
+            CompletableFuture<Set<ContextFragment>> referencesFuture = LoggingFuture.supplyCallableAsync(
+                    () -> new ReferenceAgent(cm).resolveReferencedFragments(goal, currentState.context()));
+            return !referencesFuture.join().isEmpty();
+        }
+
+        return false;
     }
 
     private StreamingChatModel delegatedSearchModel() {
