@@ -250,6 +250,10 @@ public class BuildTools {
                 ? Boolean.parseBoolean(System.getenv("BRK_TESTALL_ENABLED"))
                 : details.testAllEnabled();
 
+        boolean testSomeEnabled = System.getenv("BRK_TESTSOME_ENABLED") != null
+                ? Boolean.parseBoolean(System.getenv("BRK_TESTSOME_ENABLED"))
+                : details.testAllEnabled();
+
         List<BuildAgent.ModuleBuildEntry> modules = new ArrayList<>(details.modules());
         String modulesJson = System.getenv("BRK_MODULES_JSON");
         if (modulesJson != null && !modulesJson.isBlank()) {
@@ -286,6 +290,8 @@ public class BuildTools {
                 buildLintEnabled,
                 details.testAllCommand(),
                 testAllEnabled,
+                details.testSomeCommand(),
+                testSomeEnabled,
                 details.exclusionPatterns(),
                 details.environmentVariables(),
                 details.maxBuildAttempts(),

@@ -1254,6 +1254,8 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
                     currentDetails.buildLintEnabled(),
                     currentDetails.testAllCommand(),
                     currentDetails.testAllEnabled(),
+                    currentDetails.testSomeCommand(),
+                    currentDetails.testSomeEnabled(),
                     exclusionPatterns,
                     currentDetails.environmentVariables(),
                     currentDetails.maxBuildAttempts(),

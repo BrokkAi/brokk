@@ -978,6 +978,8 @@ public class SettingsProjectBuildPanel extends JPanel {
                 blEnabled,
                 newTestAll,
                 taEnabled,
+                "todo",
+                false,
                 diskDetails.exclusionPatterns(),
                 envVars,
                 diskDetails.maxBuildAttempts(),

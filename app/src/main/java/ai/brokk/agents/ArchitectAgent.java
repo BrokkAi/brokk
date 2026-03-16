@@ -443,6 +443,7 @@ public class ArchitectAgent {
             @P("Command to build/lint the project (e.g., 'mvn test', 'gradle test', 'npm test').")
                     String buildLintCommand,
             @P("Command to run all tests.") String testAllCommand,
+            @P("Command to run a subset of tests (e.g., a single module/file/class).") String testSomeCommand,
             @P("Directories to exclude from analysis/build context.") List<String> excludedDirectories) {
         var existingDetails = cm.getProject().awaitBuildDetails();
         var details = new BuildAgent.BuildDetails(
@@ -450,6 +451,8 @@ public class ArchitectAgent {
                 existingDetails.buildLintEnabled(),
                 testAllCommand,
                 existingDetails.testAllEnabled(),
+                testSomeCommand,
+                existingDetails.testSomeEnabled(),
                 new LinkedHashSet<>(excludedDirectories),
                 existingDetails.environmentVariables(),
                 existingDetails.maxBuildAttempts(),

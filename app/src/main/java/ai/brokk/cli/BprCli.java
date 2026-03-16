@@ -416,6 +416,8 @@ public final class BprCli implements Callable<Integer> {
                 || Boolean.parseBoolean(System.getenv("BRK_BUILDLINT_ENABLED"));
         boolean testAllEnabled = System.getenv("BRK_TESTALL_ENABLED") == null
                 || Boolean.parseBoolean(System.getenv("BRK_TESTALL_ENABLED"));
+        boolean testSomeEnabled = System.getenv("BRK_TESTSOME_ENABLED") == null
+                || Boolean.parseBoolean(System.getenv("BRK_TESTSOME_ENABLED"));
 
         List<BuildAgent.ModuleBuildEntry> modules = List.of();
         String modulesJson = System.getenv("BRK_MODULES_JSON");
@@ -438,6 +440,8 @@ public final class BprCli implements Callable<Integer> {
                 buildLintEnabled,
                 testAllCmd != null ? testAllCmd : "",
                 testAllEnabled,
+                testSomeCmd != null ? testSomeCmd : "",
+                testSomeEnabled,
                 Set.of(),
                 Map.of("VIRTUAL_ENV", ".venv"), // venv is hardcoded to override swebench task runner
                 null,

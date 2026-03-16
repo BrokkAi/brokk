@@ -539,6 +539,8 @@ public class BrokkExternalMcpServer {
                 existingDetails.buildLintEnabled(),
                 existingDetails.testAllCommand(),
                 existingDetails.testAllEnabled(),
+                existingDetails.testSomeCommand(),
+                existingDetails.testSomeEnabled(),
                 existingDetails.exclusionPatterns(),
                 existingDetails.environmentVariables(),
                 existingDetails.maxBuildAttempts(),

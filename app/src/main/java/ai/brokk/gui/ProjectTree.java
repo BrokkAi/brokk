@@ -446,6 +446,8 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
                                         currentDetails.buildLintEnabled(),
                                         currentDetails.testAllCommand(),
                                         currentDetails.testAllEnabled(),
+                                        currentDetails.testSomeCommand(),
+                                        currentDetails.testSomeEnabled(),
                                         patternsSet,
                                         currentDetails.environmentVariables(),
                                         currentDetails.maxBuildAttempts(),

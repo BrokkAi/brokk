@@ -549,7 +549,7 @@ public class BuildAgent {
                 This project's languages are %s. Consider language-specific exclusions that are appropriate.
 
                 Remember to request the `reportBuildDetails` tool to finalize the process ONLY once all information is collected.
-                The reportBuildDetails tool expects eight parameters: buildLintCommand, buildLintEnabled, testAllCommand, testAllEnabled, testSomeCommand, excludedDirectories, excludedFilePatterns, and modules.
+                The reportBuildDetails tool expects eight parameters: buildLintCommand, buildLintEnabled, testAllCommand, testAllEnabled, testSomeCommand, testSomeEnabled, excludedDirectories, excludedFilePatterns, and modules.
 
                 If the project is a multi-module project (Maven modules, Gradle subprojects, Cargo workspaces, Go modules, Node.js workspaces, etc.), you MUST identify each module and provide its details in the single flat `modules` list.
                 For each module, identify its primary programming language (e.g., "Java", "Python", "Go", "Rust", "JavaScript", "TypeScript", "C#").
@@ -646,6 +646,7 @@ public class BuildAgent {
             @P(
                             "Command template to run specific tests using Mustache templating. Should use {{#classes}}, {{#fqclasses}}, {{#files}}, or {{#packages}}. {{#packages}} provides dotted module paths for Python/Rust and directory paths for Go. Again, if no class- or file- based framework is in use, leave it blank.")
                     String testSomeCommand,
+            @P("Whether the testSomeCommand is enabled.") boolean testSomeEnabled,
             @P(
                             "List of directories to exclude from code intelligence (e.g., generated code, build artifacts). Use literal paths, not glob patterns.")
                     List<String> excludedDirectories,
@@ -721,6 +722,8 @@ public class BuildAgent {
                 buildLintEnabled,
                 testAllCommand,
                 testAllEnabled,
+                testSomeCommand,
+                testSomeEnabled,
                 deduplicatedPatterns,
                 defaultEnvForProject(),
                 null,
@@ -939,6 +942,8 @@ public class BuildAgent {
             boolean buildLintEnabled,
             String testAllCommand,
             boolean testAllEnabled,
+            String testSomeCommand,
+            boolean testSomeEnabled,
             @JsonDeserialize(as = LinkedHashSet.class) @JsonSetter(nulls = Nulls.AS_EMPTY)
                     Set<String> exclusionPatterns,
             @JsonDeserialize(as = LinkedHashMap.class) @JsonSetter(nulls = Nulls.AS_EMPTY)
@@ -958,6 +963,8 @@ public class BuildAgent {
                     true,
                     testAllCommand != null ? testAllCommand : "",
                     true,
+                    "",
+                    false,
                     exclusionPatterns != null ? exclusionPatterns : Set.of(),
                     Map.of(),
                     null,
@@ -975,6 +982,8 @@ public class BuildAgent {
                     true,
                     testAllCommand != null ? testAllCommand : "",
                     true,
+                    "",
+                    false,
                     exclusionPatterns != null ? exclusionPatterns : Set.of(),
                     environmentVariables != null ? environmentVariables : Map.of(),
                     null,
@@ -995,6 +1004,8 @@ public class BuildAgent {
                     true,
                     testAllCommand != null ? testAllCommand : "",
                     true,
+                    "",
+                    false,
                     exclusionPatterns != null ? exclusionPatterns : Set.of(),
                     environmentVariables != null ? environmentVariables : Map.of(),
                     maxBuildAttempts,
@@ -1003,11 +1014,10 @@ public class BuildAgent {
         }
 
         public static final BuildDetails EMPTY =
-                new BuildDetails("", false, "", false, Set.of(), Map.of(), null, "", List.of());
+                new BuildDetails("", false, "", false, "", false, Set.of(), Map.of(), null, "", List.of());
 
         /**
          * Migrate legacy excludedDirectories to exclusionPatterns.
-         * Migrate legacy testSomeCommand to a root module if modules is empty.
          * Called during JSON deserialization for backward compatibility.
          */
         @JsonCreator
@@ -1017,6 +1027,7 @@ public class BuildAgent {
                 @JsonProperty("testAllCommand") @Nullable String testAllCommand,
                 @JsonProperty("testAllEnabled") @Nullable Boolean testAllEnabled,
                 @JsonProperty("testSomeCommand") @Nullable String testSomeCommand,
+                @JsonProperty("testSomeEnabled") @Nullable Boolean testSomeEnabled,
                 @JsonProperty("exclusionPatterns") @Nullable Set<String> exclusionPatterns,
                 @JsonProperty("excludedDirectories") @Nullable Set<String> excludedDirectories,
                 @JsonProperty("environmentVariables") @Nullable Map<String, String> environmentVariables,
@@ -1032,22 +1043,18 @@ public class BuildAgent {
                 patterns.addAll(excludedDirectories);
             }
 
-            List<ModuleBuildEntry> finalModules = modules != null ? new ArrayList<>(modules) : new ArrayList<>();
-            if (testSomeCommand != null && !testSomeCommand.isBlank() && finalModules.isEmpty()) {
-                finalModules.add(
-                        new ModuleBuildEntry("root", ".", buildLintCommand, testAllCommand, testSomeCommand, ""));
-            }
-
             return new BuildDetails(
                     buildLintCommand != null ? buildLintCommand : "",
                     buildLintEnabled != null ? buildLintEnabled : true,
                     testAllCommand != null ? testAllCommand : "",
                     testAllEnabled != null ? testAllEnabled : true,
+                    testSomeCommand != null ? testSomeCommand : "",
+                    testSomeEnabled != null ? testSomeEnabled : true,
                     patterns,
                     environmentVariables != null ? environmentVariables : Map.of(),
                     maxBuildAttempts,
                     afterTaskListCommand != null ? afterTaskListCommand : "",
-                    finalModules);
+                    modules != null ? modules : List.of());
         }
     }
 
@@ -1138,7 +1145,7 @@ public class BuildAgent {
     /**
      * Validates a Mustache template, throwing IllegalArgumentException if unsupported tags are found.
      *
-     * @param template the template to validate
+     * @param template the Mustache template string
      * @param listKey the list key used for this interpolation (added to allowed keys)
      * @throws IllegalArgumentException if unsupported tags are found
      */
@@ -1212,7 +1219,7 @@ public class BuildAgent {
      *   <li>{@code {{last}}} — boolean, true for the last item</li>
      *   <li>{@code {{index}}} — 0-based position in the list</li>
      * </ul>
-     * These keys are backed by {@link StringElement}. Changes to the field names or accessor methods
+     * These keys are backed by {@link MustacheTemplates.StringElement}. Changes to the field names or accessor methods
      * constitute an API change and require corresponding test updates.
      */
     public static String interpolateMustacheTemplate(
