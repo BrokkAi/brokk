@@ -373,7 +373,7 @@ class BuildAgentTest {
 
     private String report(
             BuildAgent agent, String lint, String testAll, String testSome, List<String> dirs, List<String> patterns) {
-        return agent.reportBuildDetails(lint, true, testAll, true, testSome, dirs, patterns, List.of());
+        return agent.reportBuildDetails(lint, true, testAll, true, testSome, true, dirs, patterns, List.of());
     }
 
     @Test

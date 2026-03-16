@@ -497,6 +497,8 @@ class BuildToolsTest {
                 true,
                 "test-all-root",
                 true,
+                "",
+                false,
                 Set.of(),
                 Map.of(),
                 null,
@@ -535,7 +537,7 @@ class BuildToolsTest {
                 "Java");
 
         BuildDetails details =
-                new BuildDetails("", true, "", true, Set.of(), Map.of(), null, "", List.of(backendModule));
+                new BuildDetails("", true, "", true, "", false, Set.of(), Map.of(), null, "", List.of(backendModule));
 
         // This should match despite the backslashes in ProjectFile.toString()
         // because BuildTools normalizes paths using toUnixPath/replace
@@ -575,6 +577,8 @@ class BuildToolsTest {
                 true,
                 "test-all-root",
                 true,
+                "",
+                false,
                 Set.of(),
                 Map.of(),
                 null,

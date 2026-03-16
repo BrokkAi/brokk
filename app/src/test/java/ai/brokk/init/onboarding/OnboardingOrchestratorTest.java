@@ -6,6 +6,7 @@ import ai.brokk.agents.BuildAgent;
 import ai.brokk.project.IProject;
 import ai.brokk.testutil.InlineTestProjectCreator;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
@@ -340,6 +341,8 @@ class OnboardingOrchestratorTest {
                 true,
                 "mvn test",
                 true,
+                "",
+                false,
                 Set.of("target/", "*.class"),
                 Map.of("JAVA_HOME", "/usr/lib/jvm/java-21"),
                 null,
