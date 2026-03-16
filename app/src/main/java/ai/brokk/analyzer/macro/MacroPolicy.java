@@ -26,6 +26,11 @@ public record MacroPolicy(String version, String language, List<MacroMatch> macr
         /**
          * Use a pre-defined template (e.g., Mustache) for expansion.
          */
-        BUILTIN
+        BUILTIN,
+
+        /**
+         * Use a Mustache template provided in the policy options for expansion.
+         */
+        TEMPLATE
     }
 }
