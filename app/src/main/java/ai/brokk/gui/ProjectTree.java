@@ -21,7 +21,6 @@ import java.awt.datatransfer.DataFlavor;
 import java.awt.datatransfer.Transferable;
 import java.awt.datatransfer.UnsupportedFlavorException;
 import java.awt.event.ActionEvent;
-import java.awt.event.HierarchyEvent;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
@@ -89,9 +88,6 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
     /** Flag to track if a refresh was requested during expansion restoration */
     private volatile boolean pendingRefreshDuringRestore = false;
 
-    /** Flag to track if a refresh should occur when component becomes visible */
-    private volatile boolean pendingRefreshWhenShown = false;
-
     /** Flag to suppress expansion saves during performRefreshInternal's restoration phase */
     private volatile boolean isRefreshing = false;
 
@@ -103,17 +99,6 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
 
         initializeTree();
         setupTreeBehavior(); // Includes mouse listeners and keyboard bindings now
-
-        // Defer tree refreshes when component is not visible
-        addHierarchyListener(e -> {
-            if ((e.getChangeFlags() & HierarchyEvent.SHOWING_CHANGED) != 0) {
-                if (isShowing() && pendingRefreshWhenShown) {
-                    logger.trace("Component now visible, executing deferred refresh");
-                    pendingRefreshWhenShown = false;
-                    performRefreshInternal();
-                }
-            }
-        });
     }
 
     private void initializeTree() {
@@ -927,8 +912,8 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
         if (isRestoringExpansion || isRefreshing) {
             return;
         }
-        logger.trace("scheduleExpansionSave (isRestoringExpansion={}, isRefreshing={})",
-                     isRestoringExpansion, isRefreshing);
+        logger.trace(
+                "scheduleExpansionSave (isRestoringExpansion={}, isRefreshing={})", isRestoringExpansion, isRefreshing);
         if (expansionSaveTimer != null) {
             expansionSaveTimer.stop();
         }
@@ -1053,11 +1038,6 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
     }
 
     private void performRefresh() {
-        if (!isShowing()) {
-            logger.trace("Tree not visible, deferring refresh");
-            pendingRefreshWhenShown = true;
-            return;
-        }
         performRefreshInternal();
     }
 
@@ -1065,7 +1045,6 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
         int thisGeneration = refreshGeneration.incrementAndGet();
 
         logger.trace("Refresh start (generation {})", thisGeneration);
-        pendingRefreshWhenShown = false;
         isRefreshing = true;
 
         var root = (DefaultMutableTreeNode) getModel().getRoot();
