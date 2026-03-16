@@ -6,10 +6,12 @@ import ai.brokk.analyzer.cache.AnalyzerCache;
 import ai.brokk.project.IProject;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Function;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -444,6 +446,44 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements MacroExpan
     @Override
     protected Set<String> getLeadingMetadataNodeTypes() {
         return Set.of(ATTRIBUTE_ITEM, INNER_ATTRIBUTE);
+    }
+
+    @Override
+    public <R> R withSource(ProjectFile file, Function<SourceContent, R> fn, R defaultValue) {
+        return super.withSource(file, fn, defaultValue);
+    }
+
+    @Override
+    public <R> R withTreeOf(ProjectFile file, Function<TSTree, R> fn, R defaultValue) {
+        return super.withTreeOf(file, fn, defaultValue);
+    }
+
+    /**
+     * Scans the given tree for macro invocations and returns the set of macro names found.
+     */
+    public Set<String> findMacroNames(TSTree tree, SourceContent sourceContent) {
+        Set<String> names = new HashSet<>();
+        withCachedQuery(QueryType.MACROS, query -> {
+            try (TSQueryCursor cursor = new TSQueryCursor()) {
+                cursor.exec(query, tree.getRootNode());
+                TSQueryMatch match = new TSQueryMatch();
+                while (cursor.nextMatch(match)) {
+                    for (TSQueryCapture capture : match.getCaptures()) {
+                        String captureName = query.getCaptureNameForId(capture.getIndex());
+                        if (captureName.endsWith(".invocation")) {
+                            String macroText = sourceContent
+                                    .substringFrom(capture.getNode())
+                                    .strip();
+                            int bangIndex = macroText.indexOf('!');
+                            if (bangIndex > 0) {
+                                names.add(macroText.substring(0, bangIndex).strip());
+                            }
+                        }
+                    }
+                }
+            }
+        });
+        return names;
     }
 
     @Override

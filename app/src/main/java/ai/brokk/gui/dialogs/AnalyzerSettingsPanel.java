@@ -35,6 +35,9 @@ public abstract class AnalyzerSettingsPanel extends JPanel {
         if (language == Languages.JAVA || language.internalName().equals("JAVA")) {
             return new JavaAnalyzerSettingsPanel(language, project, io);
         }
+        if (language == Languages.RUST || language.internalName().equals("RUST")) {
+            return new RustAnalyzerSettingsPanel(language, project, io);
+        }
         return new EmptyAnalyzerSettingsPanel(language, projectRoot, project, io);
     }
 

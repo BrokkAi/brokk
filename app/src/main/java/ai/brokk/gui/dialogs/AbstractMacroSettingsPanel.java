@@ -17,8 +17,8 @@ import javax.swing.*;
 
 public abstract class AbstractMacroSettingsPanel extends AnalyzerSettingsPanel {
 
-    private final JTextArea yamlEditor;
-    private static final ObjectMapper YAML_MAPPER = new ObjectMapper(new YAMLFactory());
+    protected final JTextArea yamlEditor;
+    protected static final ObjectMapper YAML_MAPPER = new ObjectMapper(new YAMLFactory());
 
     protected AbstractMacroSettingsPanel(Language language, IProject project, IConsoleIO io) {
         super(new BorderLayout(), language, project.getRoot(), project, io);
