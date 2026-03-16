@@ -15,7 +15,8 @@ import org.junit.jupiter.api.io.TempDir;
 
 class MacroPolicyStorageTest {
 
-    @TempDir Path tempDir;
+    @TempDir
+    Path tempDir;
 
     @Test
     void testSaveAndLoadMacroPolicy() throws IOException {
@@ -24,10 +25,9 @@ class MacroPolicyStorageTest {
         project.setAnalyzerLanguages(Set.of(lang));
 
         MacroPolicy policy = new MacroPolicy(
-            "1.0", 
-            "rust", 
-            List.of(new MacroPolicy.MacroMatch("my_macro", null, MacroPolicy.MacroStrategy.AI_EXPAND, Map.of()))
-        );
+                "1.0",
+                "rust",
+                List.of(new MacroPolicy.MacroMatch("my_macro", null, MacroPolicy.MacroStrategy.AI_EXPAND, Map.of())));
 
         project.setMacroPolicy(lang, policy);
 
@@ -51,7 +51,7 @@ class MacroPolicyStorageTest {
 
         MacroPolicy policy = new MacroPolicy("1.0", "java", List.of());
         project.setMacroPolicy(lang, policy);
-        
+
         Path expectedFile = tempDir.resolve(".brokk").resolve("macros_java.yml");
         assertTrue(java.nio.file.Files.exists(expectedFile));
 
