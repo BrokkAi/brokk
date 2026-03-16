@@ -66,9 +66,6 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
     private static final String LOADING_PLACEHOLDER = "Loading...";
     private static final ExecutorService IO_EXECUTOR = ExecutorsUtil.newFixedThreadExecutor("ProjectTree-IO-", 4);
 
-    // INSTRUMENTATION - remove after profiling
-    private volatile int activeRefreshId = -1;
-
     /** Generation counter for refresh operations; incremented at the start of each refresh
      * so that async continuations from a stale refresh can detect they've been superseded. */
     private final AtomicInteger refreshGeneration = new AtomicInteger(0);
@@ -655,19 +652,19 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
         // Atomically try to start loading - avoids all race conditions
         var result = new CompletableFuture<Void>();
         if (!treeNode.tryStartLoading(result)) {
-            logger.info(
+            logger.trace(
                     "loadChildren: {} (CAS=false, already loaded/loading)",
                     treeNode.getFile().getName());
             var existing = treeNode.getLoadFuture();
             return existing != null ? existing : CompletableFuture.completedFuture(null);
         }
-        logger.info("loadChildren: {} (CAS=true, loading)", treeNode.getFile().getName());
+        logger.trace("loadChildren: {} (CAS=true, loading)", treeNode.getFile().getName());
 
         // We won the race - proceed with loading
         // Ensure there's a visible "Loading..." placeholder while background work runs.
         if (node.getChildCount() == 0) {
             node.add(new DefaultMutableTreeNode(LOADING_PLACEHOLDER));
-            logger.info(
+            logger.trace(
                     "nodeStructureChanged: placeholder for {}",
                     treeNode.getFile().getName());
             ((DefaultTreeModel) getModel()).nodeStructureChanged(node);
@@ -744,7 +741,7 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
                                 node.add(childNode);
                             }
 
-                            logger.info(
+                            logger.trace(
                                     "nodeStructureChanged: children loaded for {}",
                                     ((ProjectTreeNode) node.getUserObject())
                                             .getFile()
@@ -798,7 +795,7 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
                             && onlyChild.getFirstChild() instanceof DefaultMutableTreeNode
                             && LOADING_PLACEHOLDER.equals(
                                     ((DefaultMutableTreeNode) onlyChild.getFirstChild()).getUserObject())) {
-                        logger.info(
+                        logger.trace(
                                 "expandSingleDir: {}", childTreeNode.getFile().getName());
                         expandPath(childPath); // This will trigger the TreeWillExpandListener.
                         // The listener calls loadChildrenForNode.
@@ -930,10 +927,8 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
         if (isRestoringExpansion || isRefreshing) {
             return;
         }
-        logger.info(
-                "scheduleExpansionSave (isRestoringExpansion={}, activeRefreshId={})",
-                isRestoringExpansion,
-                activeRefreshId);
+        logger.trace("scheduleExpansionSave (isRestoringExpansion={}, isRefreshing={})",
+                     isRestoringExpansion, isRefreshing);
         if (expansionSaveTimer != null) {
             expansionSaveTimer.stop();
         }
@@ -1028,7 +1023,7 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
                     batch.getFiles().size());
         }
 
-        logger.info(
+        logger.trace(
                 "onFilesChanged: scheduling refresh (overflow={}, gitignoreChanged={}, fileCount={})",
                 batch.isOverflowed(),
                 batch.isUntrackedGitignoreChanged(),
@@ -1069,6 +1064,7 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
     private void performRefreshInternal() {
         int thisGeneration = refreshGeneration.incrementAndGet();
 
+        logger.trace("Refresh start (generation {})", thisGeneration);
         pendingRefreshWhenShown = false;
         isRefreshing = true;
 
@@ -1177,6 +1173,7 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
                         IO_EXECUTOR)
                 .thenAccept(preCreatedNodes -> SwingUtilities.invokeLater(() -> {
                     if (refreshGeneration.get() != thisGeneration) {
+                        logger.trace("Refresh superseded (generation {})", thisGeneration);
                         isRefreshing = false;
                         return;
                     }
