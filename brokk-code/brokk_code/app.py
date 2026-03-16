@@ -1163,20 +1163,27 @@ class BrokkApp(App):
         self, role: str, model_id: str, reasoning: str, label: str
     ) -> None:
         chat = self._maybe_chat()
+        if role == "CODE":
+            self.code_model = model_id
+            self.reasoning_level_code = reasoning
+            self.settings.last_code_model = model_id
+            self.settings.last_code_reasoning_level = reasoning
+        else:
+            self.current_model = model_id
+            self.reasoning_level = reasoning
+            self.settings.last_model = model_id
+            self.settings.last_reasoning_level = reasoning
+
         try:
-            await self.executor.set_model_config(role=role, model=model_id, reasoning=reasoning)
-            if role == "CODE":
-                self.code_model = model_id
-                self.reasoning_level_code = reasoning
-                self.settings.last_code_model = model_id
-                self.settings.last_code_reasoning_level = reasoning
-            else:
-                self.current_model = model_id
-                self.reasoning_level = reasoning
-                self.settings.last_model = model_id
-                self.settings.last_reasoning_level = reasoning
             self.settings.save()
             self._update_statusline()
+
+            setter = getattr(self.executor, "set_model_config", None)
+            if setter is not None:
+                result = setter(role=role, model=model_id, reasoning=reasoning)
+                if hasattr(result, "__await__"):
+                    await result
+
             if chat:
                 chat.add_system_message_markup(
                     f"{label}: [bold]{model_id}[/] (Reasoning: [bold]{reasoning}[/])"
