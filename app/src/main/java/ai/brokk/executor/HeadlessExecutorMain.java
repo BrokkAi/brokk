@@ -14,6 +14,7 @@ import ai.brokk.executor.routers.CompletionsRouter;
 import ai.brokk.executor.routers.ContextRouter;
 import ai.brokk.executor.routers.FavoritesRouter;
 import ai.brokk.executor.routers.JobsRouter;
+import ai.brokk.executor.routers.ModelConfigRouter;
 import ai.brokk.executor.routers.ModelsRouter;
 import ai.brokk.executor.routers.OpenAiAuthRouter;
 import ai.brokk.executor.routers.RepoRouter;
@@ -290,6 +291,9 @@ public final class HeadlessExecutorMain {
 
         var modelsRouter = new ModelsRouter(this.contextManager);
         this.server.registerAuthenticatedContext("/v1/models", modelsRouter);
+
+        var modelConfigRouter = new ModelConfigRouter(this.contextManager);
+        this.server.registerAuthenticatedContext("/v1/model-config", modelConfigRouter);
 
         var activityRouter = new ActivityRouter(this.contextManager);
         this.server.registerAuthenticatedContext("/v1/activity", activityRouter);
@@ -644,6 +648,8 @@ public final class HeadlessExecutorMain {
             System.out.println("    POST /v1/repo/commit              - commit current changes");
             System.out.println("    GET  /v1/completions              - file and symbol completions");
             System.out.println("    GET  /v1/favorites                - user's favorite model configs");
+            System.out.println("    GET  /v1/model-config             - current CODE/ARCHITECT model configs");
+            System.out.println("    POST /v1/model-config             - update CODE/ARCHITECT model config");
             System.out.println();
 
             // Create and start executor

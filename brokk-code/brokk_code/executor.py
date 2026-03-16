@@ -892,6 +892,44 @@ class ExecutorManager:
             await self._handle_http_error(e, "/v1/models")
             raise  # Should not be reached
 
+    async def get_model_config(self) -> Dict[str, Any]:
+        """Returns the persisted CODE and ARCHITECT model configs from the executor."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+
+        try:
+            resp = await self._http_client.get("/v1/model-config")
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            await self._handle_http_error(e, "/v1/model-config")
+            raise  # Should not be reached
+
+    async def set_model_config(
+        self,
+        role: str,
+        model: str,
+        reasoning: Optional[str] = None,
+        tier: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Updates a persisted CODE or ARCHITECT model config in the executor."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+
+        payload: Dict[str, Any] = {"role": role, "model": model}
+        if reasoning:
+            payload["reasoning"] = reasoning
+        if tier:
+            payload["tier"] = tier
+
+        try:
+            resp = await self._http_client.post("/v1/model-config", json=payload)
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            await self._handle_http_error(e, "/v1/model-config")
+            raise  # Should not be reached
+
     async def get_completions(self, query: str, limit: int = 20) -> Dict[str, Any]:
         """Returns file/symbol completions for a query string."""
         if not self._http_client:
