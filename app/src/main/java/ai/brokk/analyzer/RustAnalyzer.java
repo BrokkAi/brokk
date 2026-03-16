@@ -447,6 +447,12 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements MacroExpan
     }
 
     @Override
+    protected void postProcessAnalysis(
+            TSNode rootNode, ProjectFile file, SourceContent sourceContent, FileAnalysisAccumulator acc) {
+        discoverMacros(this, rootNode, file, sourceContent);
+    }
+
+    @Override
     protected boolean containsTestMarkers(TSTree tree, SourceContent sourceContent) {
         return withCachedQuery(
                 QueryType.DEFINITIONS,

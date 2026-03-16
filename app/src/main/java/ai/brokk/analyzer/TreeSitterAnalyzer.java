@@ -2188,40 +2188,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                             },
                             false);
 
-                    // Phase 2: Macros Pass
-                    if (this instanceof MacroExpansionProvider) {
-                        withCachedQuery(
-                                QueryType.MACROS,
-                                macrosQuery -> {
-                                    try (TSQueryCursor cursor = new TSQueryCursor()) {
-                                        cursor.exec(macrosQuery, rootNode);
-                                        TSQueryMatch match = new TSQueryMatch();
-                                        while (cursor.nextMatch(match)) {
-                                            for (TSQueryCapture capture : match.getCaptures()) {
-                                                String captureName =
-                                                        macrosQuery.getCaptureNameForId(capture.getIndex());
-                                                TSNode node = capture.getNode();
-                                                if (node != null
-                                                        && !node.isNull()
-                                                        && captureName.endsWith(".invocation")) {
-                                                    String macroText = sourceContent
-                                                            .substringFrom(node)
-                                                            .strip();
-                                                    log.warn(
-                                                            "[{}] Unhandled macro invocation found in {}: {}",
-                                                            language.name(),
-                                                            file.getFileName(),
-                                                            macroText);
-                                                }
-                                            }
-                                        }
-                                    }
-                                    return true;
-                                },
-                                false);
-                    }
-
-                    // Phase 3: Definitions Pass (Includes legacy imports pass if QueryType.IMPORTS is missing)
+                    // Phase 2: Definitions Pass (Includes legacy imports pass if QueryType.IMPORTS is missing)
                     List<Map.Entry<TSNode, DefinitionInfoRecord>> declarationNodes =
                             collectDefinitions(rootNode, sourceContent, localImportInfos, file);
 
@@ -2406,6 +2373,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                     }
 
                     boolean containsTests = containsTestMarkers(tree, sourceContent);
+
+                    // Phase 3: Post-processing Hook (e.g., Macros)
+                    postProcessAnalysis(rootNode, file, sourceContent, acc);
+
                     Map<CodeUnit, CodeUnitProperties> localStates = acc.toCodeUnitProperties();
 
                     long __processEnd = System.nanoTime();
@@ -4202,6 +4173,15 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             }
         }
         return best;
+    }
+
+    /**
+     * Optional hook for subclasses to perform additional analysis passes (like macro discovery)
+     * after the primary definitions pass is complete.
+     */
+    protected void postProcessAnalysis(
+            TSNode rootNode, ProjectFile file, SourceContent sourceContent, FileAnalysisAccumulator acc) {
+        // No-op by default
     }
 
     protected boolean isBlankNameAllowed(String captureName, String simpleName, String nodeType, String file) {
