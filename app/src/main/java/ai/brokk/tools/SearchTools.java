@@ -9,10 +9,10 @@ import ai.brokk.AnalyzerUtil;
 import ai.brokk.Completions;
 import ai.brokk.ContextManager;
 import ai.brokk.IContextManager;
-import ai.brokk.analyzer.BrokkFile;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.git.CommitInfo;
 import ai.brokk.git.GitRepo;
@@ -34,17 +34,16 @@ import java.nio.file.Path;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ForkJoinPool;
@@ -52,7 +51,6 @@ import java.util.concurrent.ForkJoinWorkerThread;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BiFunction;
-import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -92,13 +90,13 @@ public class SearchTools {
     private static final Logger logger = LogManager.getLogger(SearchTools.class);
     private static final Pattern STRIP_PARAMS_PATTERN = Pattern.compile("(?<=\\w)\\([^)]*\\)$");
 
-    private static final int FILE_SEARCH_LIMIT = 200;
+    static final int FILE_SEARCH_LIMIT = 100;
     private static final int FILE_SKIM_LIMIT = 20;
     private static final int CLASS_COUNT_LIMIT = 10;
 
-    private static final int SEARCH_FILE_CONTENTS_MAX_CONTEXT_LINES = 5;
-    private static final int SEARCH_FILE_CONTENTS_MAX_TOTAL_MATCHES = 500;
-    private static final int SEARCH_FILE_CONTENTS_MAX_PARAMETER_VALUE = 500;
+    private static final int FILE_CONTENTS_CONTEXT_LINES_LIMIT = 5;
+    static final int FILE_CONTENTS_MATCHES_PER_FILE = 20;
+    static final int FILE_CONTENTS_TOTAL_MATCH_LIMIT = 500;
 
     private static final int SEARCH_TOOLS_PARALLELISM =
             max(2, Runtime.getRuntime().availableProcessors());
@@ -164,15 +162,15 @@ public class SearchTools {
                     .maximumSize(4L * Runtime.getRuntime().availableProcessors())
                     .build());
 
-    private static final class RegexMatchOverflowException extends RuntimeException {
+    static final class RegexMatchOverflowException extends RuntimeException {
         private final String pattern;
 
-        private RegexMatchOverflowException(String pattern, StackOverflowError cause) {
+        RegexMatchOverflowException(String pattern, StackOverflowError cause) {
             super("Regex '%s' caused StackOverflowError during matching".formatted(pattern), cause);
             this.pattern = pattern;
         }
 
-        private String pattern() {
+        String pattern() {
             return pattern;
         }
     }
@@ -839,7 +837,7 @@ public class SearchTools {
                             "Case-insensitive regex patterns to search for code symbols. Since ^ and $ are implicitly included, YOU MUST use explicit wildcarding (e.g., .*Foo.*, Abstract.*, [a-z]*DAO) unless you really want exact matches.")
                     List<String> patterns,
             @P("Include test files in results.") boolean includeTests,
-            @P("Maximum number of matching files to return (capped at 200).") int limit)
+            @P("Maximum number of matching files to return (capped at 100).") int limit)
             throws InterruptedException {
         // Sanitize patterns: LLM might add `()` to symbols, Joern regex usually doesn't want that unless intentional.
         patterns = stripParams(patterns);
@@ -1292,7 +1290,7 @@ public class SearchTools {
                     """)
     public String searchGitCommitMessages(
             @P("Java-style regex pattern to search for within commit messages.") String pattern,
-            @P("Maximum number of matching commits to return (capped at 200).") int limit) {
+            @P("Maximum number of matching commits to return (capped at 100).") int limit) {
         if (pattern.isBlank()) {
             throw new IllegalArgumentException("Cannot search commit messages: pattern is empty");
         }
@@ -1383,7 +1381,7 @@ public class SearchTools {
             @P(
                             "Java-style regex patterns to search for within file contents. Unlike searchSymbols this does not automatically include any implicit anchors or case insensitivity.")
                     List<String> patterns,
-            @P("Maximum number of files to return (capped at 200).") int limit)
+            @P("Maximum number of files to return (capped at 100).") int limit)
             throws InterruptedException {
         if (patterns.isEmpty()) {
             throw new IllegalArgumentException("Cannot search substrings: patterns list is empty");
@@ -1446,83 +1444,9 @@ public class SearchTools {
 
     public record FindFilesContainingResult(Set<ProjectFile> matches, List<String> errors) {}
 
-    private record FilePatternSearchResult(@Nullable ProjectFile match, @Nullable String error) {}
-
     public static FindFilesContainingResult findFilesContainingPatterns(
             List<Pattern> patterns, Set<ProjectFile> filesToSearch) throws InterruptedException {
-        if (patterns.isEmpty()) {
-            return new FindFilesContainingResult(Set.of(), List.of());
-        }
-
-        var orderedFiles = filesToSearch.stream().sorted().toList();
-        int batchSize = 2 * FILE_SEARCH_LIMIT;
-
-        var results = new ArrayList<FilePatternSearchResult>(orderedFiles.size());
-
-        for (int start = 0; start < orderedFiles.size(); start += batchSize) {
-            if (Thread.interrupted()) {
-                throw new InterruptedException("Interrupted between file search batches");
-            }
-            var batch = orderedFiles.subList(start, min(start + batchSize, orderedFiles.size()));
-
-            final List<FilePatternSearchResult> batchResults;
-            try {
-                batchResults = runInSearchToolsPool(() -> batch.parallelStream()
-                        .map(file -> {
-                            try {
-                                if (!file.isText()) {
-                                    return new FilePatternSearchResult(null, null);
-                                }
-                                var fileContentsOpt = file.read();
-                                if (fileContentsOpt.isEmpty()) {
-                                    return new FilePatternSearchResult(null, null);
-                                }
-
-                                String fileContents = fileContentsOpt.get();
-                                boolean matched;
-                                try {
-                                    matched = patterns.stream().anyMatch(p -> findWithOverflowGuard(p, fileContents));
-                                } catch (RegexMatchOverflowException e) {
-                                    String message = "regex '%s' caused StackOverflowError".formatted(e.pattern());
-                                    logger.warn("Regex stack overflow while searching file {}", file, e);
-                                    return new FilePatternSearchResult(null, file + ": " + message);
-                                }
-
-                                return matched
-                                        ? new FilePatternSearchResult(file, null)
-                                        : new FilePatternSearchResult(null, null);
-                            } catch (Exception e) {
-                                String message = e.getMessage() == null ? e.toString() : e.getMessage();
-                                return new FilePatternSearchResult(null, file + ": " + message);
-                            }
-                        })
-                        .toList());
-            } catch (RuntimeException e) {
-                logger.error("Error searching file contents", e);
-                String message = e.getMessage() == null ? e.toString() : e.getMessage();
-                return new FindFilesContainingResult(Set.of(), List.of(message));
-            }
-
-            results.addAll(batchResults);
-        }
-
-        var matches = results.stream()
-                .map(FilePatternSearchResult::match)
-                .filter(Objects::nonNull)
-                .map(Objects::requireNonNull)
-                .collect(Collectors.toSet());
-
-        var errors = results.stream()
-                .map(FilePatternSearchResult::error)
-                .filter(Objects::nonNull)
-                .map(Objects::requireNonNull)
-                .toList();
-
-        if (!errors.isEmpty()) {
-            logger.warn("Errors searching file contents: {}", errors);
-        }
-
-        return new FindFilesContainingResult(matches, errors);
+        return AlmostGrep.findFilesContainingPatterns(patterns, filesToSearch);
     }
 
     private record BatchResult<T>(List<T> results, List<String> errors, boolean truncatedByMaxFiles) {}
@@ -1552,11 +1476,31 @@ public class SearchTools {
             var batch = files.subList(start, min(start + batchSize, files.size()));
             final int batchOffset = start;
 
-            List<IndexedResult<T>> batchResults = runInSearchToolsPool(() -> IntStream.range(0, batch.size())
-                    .parallel()
-                    .mapToObj(idx -> processor.apply(batch.get(idx), batchOffset + idx))
-                    .sorted(Comparator.comparingInt(IndexedResult::index))
-                    .toList());
+            List<CompletableFuture<IndexedResult<T>>> batchFutures = IntStream.range(0, batch.size())
+                    .mapToObj(idx ->
+                            LoggingFuture.supplyVirtual(() -> processor.apply(batch.get(idx), batchOffset + idx)))
+                    .toList();
+            CompletableFuture<Void> batchDone = LoggingFuture.allOf(batchFutures.toArray(new CompletableFuture[0]));
+
+            try {
+                batchDone.get();
+            } catch (InterruptedException e) {
+                batchFutures.forEach(future -> future.cancel(true));
+                throw e;
+            } catch (ExecutionException e) {
+                batchFutures.forEach(future -> future.cancel(true));
+                Throwable cause = e.getCause();
+                if (cause instanceof RuntimeException re) {
+                    throw re;
+                }
+                if (cause instanceof Error er) {
+                    throw er;
+                }
+                throw new RuntimeException("Error executing SearchTools batch", cause);
+            }
+
+            List<IndexedResult<T>> batchResults =
+                    batchFutures.stream().map(CompletableFuture::join).toList();
 
             for (var res : batchResults) {
                 if (res.error() != null) {
@@ -1583,8 +1527,9 @@ public class SearchTools {
 
             Notes:
             - This tool enforces a global limit of 500 total matching lines across all returned files.
-            - If maxFiles * matchesPerFile is greater than 500, results may be truncated early.
-            - matchesPerFile is the per-file hit count (matching lines), not the number of printed lines (context lines do not count).
+            - maxFiles is capped at 100.
+            - Per file+pattern block, at most 20 matching lines are shown (context lines do not count).
+            - The 500-match cap is soft within the currently processing file; that file is fully processed before truncation.
             """)
     public String searchFileContents(
             @P("Java-style regex patterns to search for.") List<String> patterns,
@@ -1593,40 +1538,15 @@ public class SearchTools {
                     boolean caseInsensitive,
             @P("Enable multiline mode (equivalent to Pattern.MULTILINE, affecting ^ and $).") boolean multiline,
             @P("Number of context lines to show around each match (0-5).") int contextLines,
-            @P("Maximum number of files to return results for. Capped at 500.") int maxFiles,
-            @P("Maximum number of matching lines (hits) per file. Capped at 500.") int matchesPerFile)
+            @P("Maximum number of files to return results for. Capped at 100.") int maxFiles)
             throws InterruptedException {
         if (patterns.isEmpty()) {
             throw new IllegalArgumentException("Cannot search file contents: patterns list is empty");
         }
 
-        var project = contextManager.getProject();
-        var files = Completions.expandPath(project, filepath).stream()
-                .filter(ProjectFile.class::isInstance)
-                .map(ProjectFile.class::cast)
-                .filter(BrokkFile::isText)
-                .sorted()
-                .toList();
+        int clampedContext = max(0, min(contextLines, FILE_CONTENTS_CONTEXT_LINES_LIMIT));
 
-        // Retry without leading **/ if no files found, to support matching root files
-        if (files.isEmpty() && (filepath.startsWith("**/") || filepath.startsWith("**\\"))) {
-            files = Completions.expandPath(project, filepath.substring(3)).stream()
-                    .filter(ProjectFile.class::isInstance)
-                    .map(ProjectFile.class::cast)
-                    .filter(BrokkFile::isText)
-                    .sorted()
-                    .toList();
-        }
-
-        if (files.isEmpty()) {
-            return "No text files found matching: " + filepath;
-        }
-
-        int clampedContext = max(0, min(contextLines, SEARCH_FILE_CONTENTS_MAX_CONTEXT_LINES));
-
-        int effectiveMaxFiles = min(max(1, maxFiles), SEARCH_FILE_CONTENTS_MAX_PARAMETER_VALUE);
-
-        int effectiveMatchesPerFile = min(max(1, matchesPerFile), SEARCH_FILE_CONTENTS_MAX_PARAMETER_VALUE);
+        int effectiveMaxFiles = min(max(1, maxFiles), FILE_SEARCH_LIMIT);
 
         int flags = 0;
         if (caseInsensitive) {
@@ -1646,16 +1566,28 @@ public class SearchTools {
             return e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
         }
 
-        record FileHit(ProjectFile file, String output, int matches) {}
+        var project = contextManager.getProject();
+        var files = AlmostGrep.findProjectTextFilesByGlob(project.getAllFiles(), filepath);
+
+        // Retry without leading **/ if no files found, to support matching root files
+        if (files.isEmpty() && (filepath.startsWith("**/") || filepath.startsWith("**\\"))) {
+            files = AlmostGrep.findProjectTextFilesByGlob(project.getAllFiles(), filepath.substring(3));
+        }
+
+        if (files.isEmpty()) {
+            return "No text files found matching: " + filepath;
+        }
+
+        record FileHit(ProjectFile file, List<AlmostGrep.FileContentSearchResult> blocks) {}
 
         String patternsLabel = String.join(", ", patterns);
         BatchResult<FileHit> batchResult;
         try {
             batchResult = batchProcessFiles(files, effectiveMaxFiles, (file, idx) -> {
                 try {
-                    var res = searchFileContentsInFile(file, compiledPatterns, clampedContext, effectiveMatchesPerFile);
-                    if (res == null) return new IndexedResult<>(idx, null, null);
-                    return new IndexedResult<>(idx, new FileHit(file, res.output(), res.matches()), null);
+                    var res = AlmostGrep.searchFileContentsInFile(file, compiledPatterns, clampedContext);
+                    if (res.isEmpty()) return new IndexedResult<>(idx, null, null);
+                    return new IndexedResult<>(idx, new FileHit(file, res), null);
                 } catch (RegexMatchOverflowException e) {
                     String message = "%s: regex '%s' caused StackOverflowError".formatted(file, e.pattern());
                     logger.warn("Regex stack overflow while searching file contents in {}", file, e);
@@ -1673,32 +1605,14 @@ public class SearchTools {
         boolean truncatedByTotalMatches = false;
 
         for (var hit : batchResult.results()) {
-            if (totalMatches >= SEARCH_FILE_CONTENTS_MAX_TOTAL_MATCHES) {
+            if (totalMatches >= FILE_CONTENTS_TOTAL_MATCH_LIMIT) {
                 truncatedByTotalMatches = true;
                 break;
             }
 
-            int remaining = SEARCH_FILE_CONTENTS_MAX_TOTAL_MATCHES - totalMatches;
-            if (hit.matches() <= remaining) {
-                fileBlocks.add(hit.output());
-                totalMatches += hit.matches();
-            } else {
-                if (remaining > 0) {
-                    try {
-                        var recomputed =
-                                searchFileContentsInFile(hit.file(), compiledPatterns, clampedContext, remaining);
-                        if (recomputed != null) {
-                            fileBlocks.add(recomputed.output());
-                            totalMatches += recomputed.matches();
-                        }
-                    } catch (RegexMatchOverflowException e) {
-                        String message = "%s: regex '%s' caused StackOverflowError".formatted(hit.file(), e.pattern());
-                        processingErrors.add(message);
-                        logger.warn("Regex stack overflow while recomputing content search for {}", hit.file(), e);
-                    }
-                }
-                truncatedByTotalMatches = true;
-                break;
+            for (var block : hit.blocks()) {
+                fileBlocks.add(block.output());
+                totalMatches += block.matches();
             }
         }
 
@@ -1712,8 +1626,8 @@ public class SearchTools {
 
         var suffixLines = new ArrayList<String>(3);
         if (truncatedByTotalMatches) {
-            suffixLines.add("TRUNCATED: reached global limit of %d total matches"
-                    .formatted(SEARCH_FILE_CONTENTS_MAX_TOTAL_MATCHES));
+            suffixLines.add(
+                    "TRUNCATED: reached global limit of %d total matches".formatted(FILE_CONTENTS_TOTAL_MATCH_LIMIT));
         }
         if (batchResult.truncatedByMaxFiles()) {
             suffixLines.add("TRUNCATED: reached maxFiles=%d".formatted(effectiveMaxFiles));
@@ -1731,146 +1645,16 @@ public class SearchTools {
         return recordResearchTokens(output);
     }
 
-    private record FileContentSearchResult(String output, int matches, int totalMatchesInFile) {}
-
-    private record LineRef(int lineNo, int startInclusive, int endExclusive) {}
-
-    private static List<LineRef> computeLineRefs(String content) {
-        if (content.isEmpty()) return List.of();
-
-        int length = content.length();
-        int lineNo = 1;
-        int lineStart = 0;
-
-        List<LineRef> refs = new ArrayList<>();
-
-        int i = 0;
-        while (i < length) {
-            char c = content.charAt(i);
-            if (c != '\n' && c != '\r') {
-                i++;
-                continue;
-            }
-
-            int lineEnd = i;
-            int next = i + 1;
-            if (c == '\r' && next < length && content.charAt(next) == '\n') {
-                next++;
-            }
-
-            refs.add(new LineRef(lineNo, lineStart, lineEnd));
-
-            lineNo++;
-            lineStart = next;
-            i = next;
-        }
-
-        if (lineStart < length) {
-            refs.add(new LineRef(lineNo, lineStart, length));
-        }
-
-        return List.copyOf(refs);
-    }
-
-    @Nullable
-    private FileContentSearchResult searchFileContentsInFile(
-            ProjectFile file, List<Pattern> patterns, int contextLines, int maxMatchesToTake) {
-        var contentOpt = file.read();
-        if (contentOpt.isEmpty()) {
-            return null;
-        }
-
-        String content = contentOpt.get();
-        if (content.isEmpty()) {
-            return null;
-        }
-
-        List<LineRef> lineRefs = computeLineRefs(content);
-        if (lineRefs.isEmpty()) {
-            return null;
-        }
-
-        int[] lineStartOffsets =
-                lineRefs.stream().mapToInt(LineRef::startInclusive).toArray();
-        int lineCount = lineRefs.size();
-
-        // 0: unseen, 1: seen but not stored (beyond maxMatchesToTake), 2: stored as a hit line
-        byte[] lineStates = new byte[lineCount + 1];
-        int matchesTaken = 0;
-        int totalMatchesInFile = 0;
-
-        for (Pattern pattern : patterns) {
-            try {
-                Matcher matcher = pattern.matcher(content);
-                int lineIdx = 0; // 0-based index into lineStartOffsets/lineRefs
-                while (matcher.find()) {
-                    int matchStart = matcher.start();
-                    while (lineIdx + 1 < lineCount && lineStartOffsets[lineIdx + 1] <= matchStart) {
-                        lineIdx++;
-                    }
-
-                    int lineNo = lineIdx + 1; // convert to 1-based
-                    byte state = lineStates[lineNo];
-                    if (state == 0) {
-                        totalMatchesInFile++;
-                        if (matchesTaken < maxMatchesToTake) {
-                            lineStates[lineNo] = 2;
-                            matchesTaken++;
-                        } else {
-                            lineStates[lineNo] = 1;
-                        }
-                    }
-                }
-            } catch (StackOverflowError e) {
-                throw new RegexMatchOverflowException(pattern.pattern(), e);
-            }
-        }
-
-        if (matchesTaken == 0) {
-            return null;
-        }
-
-        boolean[] toPrint = new boolean[lineCount + 1]; // 1-based indexing for convenience
-        for (int lineNo = 1; lineNo <= lineCount; lineNo++) {
-            if (lineStates[lineNo] != 2) {
-                continue;
-            }
-            int from = max(1, lineNo - contextLines);
-            int to = min(lineCount, lineNo + contextLines);
-            for (int ln = from; ln <= to; ln++) {
-                toPrint[ln] = true;
-            }
-        }
-
-        List<String> outLines = new ArrayList<>();
-        for (LineRef ref : lineRefs) {
-            if (!toPrint[ref.lineNo()]) continue;
-            outLines.add(
-                    "%d: %s".formatted(ref.lineNo(), truncateLine(content, ref.startInclusive(), ref.endExclusive())));
-        }
-
-        String matchCountLabel = "first %d/%d matches".formatted(matchesTaken, totalMatchesInFile);
-
-        String filePath = file.toString().replace('\\', '/');
-        String header = "%s (%d loc) (%s)".formatted(filePath, lineCount, matchCountLabel);
-
-        List<String> resultLines = new ArrayList<>(outLines.size() + 1);
-        resultLines.add(header);
-        resultLines.addAll(outLines);
-
-        return new FileContentSearchResult(String.join("\n", resultLines), matchesTaken, totalMatchesInFile);
-    }
-
     private record EffectiveLimits(int maxFiles, int matchesPerFile) {}
 
     private static EffectiveLimits clampMaxFilesAndMatchesPerFile(int maxFiles, int matchesPerFile) {
-        int effectiveMaxFiles = min(max(1, maxFiles), SEARCH_FILE_CONTENTS_MAX_PARAMETER_VALUE);
+        int effectiveMaxFiles = min(max(1, maxFiles), FILE_SEARCH_LIMIT);
 
-        int effectiveMatchesPerFile = min(max(1, matchesPerFile), SEARCH_FILE_CONTENTS_MAX_PARAMETER_VALUE);
+        int effectiveMatchesPerFile = min(max(1, matchesPerFile), FILE_SEARCH_LIMIT);
 
         long product = (long) effectiveMaxFiles * (long) effectiveMatchesPerFile;
-        if (product > SEARCH_FILE_CONTENTS_MAX_TOTAL_MATCHES) {
-            effectiveMatchesPerFile = max(1, SEARCH_FILE_CONTENTS_MAX_TOTAL_MATCHES / effectiveMaxFiles);
+        if (product > FILE_CONTENTS_TOTAL_MATCH_LIMIT) {
+            effectiveMatchesPerFile = max(1, FILE_CONTENTS_TOTAL_MATCH_LIMIT / effectiveMaxFiles);
         }
 
         return new EffectiveLimits(effectiveMaxFiles, effectiveMatchesPerFile);
@@ -1887,14 +1671,14 @@ public class SearchTools {
               similar to xmlSkim.
 
             Notes:
-            - maxFiles and matchesPerFile are capped at 500 each.
+            - maxFiles and matchesPerFile are capped at 100 each.
             - maxFiles * matchesPerFile is forced to be <= 500.
             """)
     public String jq(
             @P("File path or glob pattern (e.g., 'package.json', '**/data/*.json').") String filepath,
             @P("jq filter to apply.") String filter,
-            @P("Maximum number of files to return results for. Capped at 500.") int maxFiles,
-            @P("Maximum number of output values to return per file. Capped at 500.") int matchesPerFile)
+            @P("Maximum number of files to return results for. Capped at 100.") int maxFiles,
+            @P("Maximum number of output values to return per file. Capped at 100.") int matchesPerFile)
             throws InterruptedException {
         var project = contextManager.getProject();
         var files = Completions.expandPath(project, filepath).stream()
@@ -2016,7 +1800,7 @@ public class SearchTools {
             """)
     public String xmlSkim(
             @P("File path or glob pattern (e.g., 'pom.xml', '**/*.xml').") String filepath,
-            @P("Maximum number of files to return results for. Capped at 500.") int maxFiles)
+            @P("Maximum number of files to return results for. Capped at 100.") int maxFiles)
             throws InterruptedException {
         var project = contextManager.getProject();
         var files = Completions.expandPath(project, filepath).stream()
@@ -2041,7 +1825,7 @@ public class SearchTools {
             return "No XML files found matching: " + filepath;
         }
 
-        int effectiveMaxFiles = min(max(1, maxFiles), SEARCH_FILE_CONTENTS_MAX_PARAMETER_VALUE);
+        int effectiveMaxFiles = min(max(1, maxFiles), FILE_SEARCH_LIMIT);
 
         BatchResult<String> batchResult;
         try {
@@ -2110,7 +1894,7 @@ public class SearchTools {
               is returned instead (capped at MAX_CHARS_PER_LINE).
 
             Notes:
-            - maxFiles and matchesPerFile are capped at 500 each.
+            - maxFiles and matchesPerFile are capped at 100 each.
             - maxFiles * matchesPerFile is forced to be <= 500.
             """)
     public String xmlSelect(
@@ -2118,8 +1902,8 @@ public class SearchTools {
             @P("XPath selector (namespace-agnostic rewrite is applied).") String xpath,
             @P("Extraction mode: TEXT, NAME, PATH, ATTR, ATTRS, XML.") String output,
             @P("Attribute name (required when output=ATTR; ignored otherwise).") String attrName,
-            @P("Maximum number of files to return results for. Capped at 500.") int maxFiles,
-            @P("Maximum number of matches to return per file. Capped at 500.") int matchesPerFile)
+            @P("Maximum number of files to return results for. Capped at 100.") int maxFiles,
+            @P("Maximum number of matches to return per file. Capped at 100.") int matchesPerFile)
             throws InterruptedException {
         var project = contextManager.getProject();
         var files = Completions.expandPath(project, filepath).stream()
@@ -2291,7 +2075,7 @@ public class SearchTools {
                     """)
     public String findFilenames(
             @P("Java-style regex patterns to match against filenames.") List<String> patterns,
-            @P("Maximum number of filenames to return (capped at 200).") int limit) {
+            @P("Maximum number of filenames to return (capped at 100).") int limit) {
         if (patterns.isEmpty()) {
             throw new IllegalArgumentException("Cannot search filenames: patterns list is empty");
         }
@@ -2641,24 +2425,5 @@ public class SearchTools {
                         .formatted(filesCdl);
 
         return prefix + filenamesResult;
-    }
-
-    private static <T> T runInSearchToolsPool(Callable<T> callable) throws InterruptedException {
-        Future<T> future = searchToolsPool.submit(callable);
-        try {
-            return future.get();
-        } catch (InterruptedException e) {
-            future.cancel(true);
-            throw e;
-        } catch (ExecutionException e) {
-            Throwable cause = e.getCause();
-            if (cause instanceof RuntimeException re) {
-                throw re;
-            }
-            if (cause instanceof Error er) {
-                throw er;
-            }
-            throw new RuntimeException("Error executing SearchTools task", cause);
-        }
     }
 }

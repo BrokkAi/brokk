@@ -492,7 +492,8 @@ public final class BprCli implements Callable<Integer> {
         // --- Name Resolution and Context Building ---
 
         // Resolve and add to context using WorkspaceTools
-        var tools = new WorkspaceTools(cm.liveContext());
+        Context context = cm.liveContext();
+        var tools = new WorkspaceTools(context);
 
         // Resolve files and classes
         var resolvedEditFiles = resolveFiles(editFiles, "editable file");
@@ -509,30 +510,43 @@ public final class BprCli implements Callable<Integer> {
         }
 
         if (!resolvedEditFiles.isEmpty()) {
-            tools.addFilesToWorkspace(resolvedEditFiles);
+            context = tools.addFilesToWorkspace(resolvedEditFiles).context();
+            tools = new WorkspaceTools(context);
         }
 
         for (var readFile : resolvedReadFiles) {
             var pf = cm.toFile(readFile);
             var fragment = new ContextFragments.ProjectPathFragment(pf, cm);
-            tools.setContext(tools.getContext().addFragments(fragment).setReadonly(fragment, true));
+            context = context.addFragments(fragment).setReadonly(fragment, true);
+            tools = new WorkspaceTools(context);
         }
 
-        if (!resolvedClasses.isEmpty()) tools.addClassesToWorkspace(resolvedClasses);
-        if (!resolvedSummaryClasses.isEmpty()) tools.addClassSummariesToWorkspace(resolvedSummaryClasses);
-        if (!addSummaryFiles.isEmpty()) tools.addFileSummariesToWorkspace(addSummaryFiles);
-        if (!addMethodSources.isEmpty()) tools.addMethodsToWorkspace(addMethodSources);
+        if (!resolvedClasses.isEmpty()) {
+            context = tools.addClassesToWorkspace(resolvedClasses).context();
+            tools = new WorkspaceTools(context);
+        }
+        if (!resolvedSummaryClasses.isEmpty()) {
+            context = tools.addClassSummariesToWorkspace(resolvedSummaryClasses).context();
+            tools = new WorkspaceTools(context);
+        }
+        if (!addSummaryFiles.isEmpty()) {
+            context = tools.addFileSummariesToWorkspace(addSummaryFiles).context();
+            tools = new WorkspaceTools(context);
+        }
+        if (!addMethodSources.isEmpty()) {
+            context = tools.addMethodsToWorkspace(addMethodSources).context();
+            tools = new WorkspaceTools(context);
+        }
         // Pin CLI fragments if --infer-context is active
         if (inferContextPrompt != null) {
-            var ctx = tools.getContext();
-            for (var f : ctx.allFragments().toList()) {
-                ctx = ctx.withPinned(f, true);
+            for (var f : context.allFragments().toList()) {
+                context = context.withPinned(f, true);
             }
-            tools.setContext(ctx);
         }
 
-        cm.pushContext(ctx -> tools.getContext());
-        var context = cm.liveContext();
+        var finalContextForPush = context;
+        cm.pushContext(ctx -> finalContextForPush);
+        context = cm.liveContext();
 
         if (deepScan) {
             if (planModel == null) {

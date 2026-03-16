@@ -110,7 +110,7 @@ public final class GitWorkflow {
                     "LLM failed to generate commit message: {}", result.error().getMessage());
             return Optional.empty();
         }
-        return Optional.of(result.text());
+        return Optional.of(stripCommitPreamble(result.text()));
     }
 
     /**
@@ -151,7 +151,23 @@ public final class GitWorkflow {
             throw new RuntimeException("LLM error while generating commit message", result.error());
         }
 
-        return result.text();
+        return stripCommitPreamble(result.text());
+    }
+
+    // Some models (e.g. gemini-2.5-flash) leak internal reasoning artifacts as leading single-word
+    // lines (e.g. " thought\n") even when thinking tokens are disabled. Strip them so they don't
+    // become the commit subject. A line is considered a real commit line if it contains a space or
+    // colon, matching both conventional commits ("type: …") and plain prose subjects.
+    static String stripCommitPreamble(String text) {
+        var result = text.strip()
+                .lines()
+                .dropWhile(l -> {
+                    var t = l.strip();
+                    return t.isEmpty() || (!t.contains(" ") && !t.contains(":"));
+                })
+                .collect(Collectors.joining("\n"))
+                .strip();
+        return result.isEmpty() ? text.strip() : result;
     }
 
     public PushPullState evaluatePushPull(String branch) throws GitAPIException {

@@ -17,6 +17,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Comparator;
@@ -55,6 +56,15 @@ public class SearchToolsTest {
 
     @Nullable
     private static TestProject javaTestProject;
+
+    private static boolean matchesPlatformGlob(String globPattern, String relativePath) {
+        char separator = FileSystems.getDefault().getSeparator().charAt(0);
+        String normalizedPattern = globPattern.replace('\\', '/').replace('/', separator);
+        String normalizedPath = relativePath.replace('/', separator);
+        return FileSystems.getDefault()
+                .getPathMatcher("glob:" + normalizedPattern)
+                .matches(Path.of(normalizedPath));
+    }
 
     @BeforeAll
     static void setupAnalyzer() throws IOException {
@@ -410,9 +420,9 @@ public class SearchToolsTest {
         Files.writeString(txt, "line1\nline2 MATCH\nline3\nline4");
         mockProjectFiles.add(new ProjectFile(projectRoot, "grep_test.txt"));
 
-        String result = searchTools.searchFileContents(List.of("MATCH"), "**/grep_test.txt", false, false, 1, 200, 200);
+        String result = searchTools.searchFileContents(List.of("MATCH"), "**/grep_test.txt", false, false, 1, 200);
 
-        assertTrue(result.contains("grep_test.txt (4 loc) (first 1/1 matches)"));
+        assertTrue(result.contains("grep_test.txt (4 loc) (pattern: MATCH) (first 1/1 matches)"));
         assertTrue(result.contains("1: line1"));
         assertTrue(result.contains("2: line2 MATCH"));
         assertTrue(result.contains("3: line3"));
@@ -422,7 +432,7 @@ public class SearchToolsTest {
     @Test
     void testSearchFileContents_invalidRegexThrows() throws Exception {
         // "[[" is invalid regex, should return error message
-        String result = searchTools.searchFileContents(List.of("[["), "README.md", false, false, 0, 200, 200);
+        String result = searchTools.searchFileContents(List.of("[["), "README.md", false, false, 0, 200);
         assertTrue(result.contains("Invalid regex pattern"), "Should report regex error");
     }
 
@@ -488,7 +498,7 @@ public class SearchToolsTest {
         mockProjectFiles.add(new ProjectFile(projectRoot, "root.txt"));
 
         // Verify that **/root.txt matches a file at the project root via the retry logic
-        String result = searchTools.searchFileContents(List.of("found"), "**/root.txt", false, false, 0, 200, 200);
+        String result = searchTools.searchFileContents(List.of("found"), "**/root.txt", false, false, 0, 200);
         assertTrue(result.contains("root.txt"), "Should find file at root even with **/ prefix");
     }
 
@@ -499,13 +509,12 @@ public class SearchToolsTest {
         mockProjectFiles.add(new ProjectFile(projectRoot, "case_insensitive.txt"));
 
         String withoutFlag =
-                searchTools.searchFileContents(List.of("match"), "case_insensitive.txt", false, false, 0, 200, 200);
+                searchTools.searchFileContents(List.of("match"), "case_insensitive.txt", false, false, 0, 200);
         assertTrue(withoutFlag.contains("No matches found"), "Should not match without case-insensitive flag");
 
-        String withFlag =
-                searchTools.searchFileContents(List.of("match"), "case_insensitive.txt", true, false, 0, 200, 200);
+        String withFlag = searchTools.searchFileContents(List.of("match"), "case_insensitive.txt", true, false, 0, 200);
         assertTrue(
-                withFlag.contains("case_insensitive.txt (3 loc) (first 1/1 matches)"),
+                withFlag.contains("case_insensitive.txt (3 loc) (pattern: match) (first 1/1 matches)"),
                 "Should match with case-insensitive flag and show LOC");
         assertTrue(withFlag.contains("2: Line2 MATCH"), "Should show matching line");
     }
@@ -516,13 +525,12 @@ public class SearchToolsTest {
         Files.writeString(txt, "line1\nline2\nline3");
         mockProjectFiles.add(new ProjectFile(projectRoot, "multiline.txt"));
 
-        String withoutFlag =
-                searchTools.searchFileContents(List.of("^line2$"), "multiline.txt", false, false, 0, 200, 200);
+        String withoutFlag = searchTools.searchFileContents(List.of("^line2$"), "multiline.txt", false, false, 0, 200);
         assertTrue(withoutFlag.contains("No matches found"), "Should not match ^/$ without multiline flag");
 
-        String withFlag = searchTools.searchFileContents(List.of("^line2$"), "multiline.txt", false, true, 0, 200, 200);
+        String withFlag = searchTools.searchFileContents(List.of("^line2$"), "multiline.txt", false, true, 0, 200);
         assertTrue(
-                withFlag.contains("multiline.txt (3 loc) (first 1/1 matches)"),
+                withFlag.contains("multiline.txt (3 loc) (pattern: ^line2$) (first 1/1 matches)"),
                 "Should match with multiline flag and show LOC");
         assertTrue(withFlag.contains("2: line2"), "Should show the anchored match line");
     }
@@ -643,7 +651,7 @@ public class SearchToolsTest {
         // Match 1 (idx 1) -> lines 0, 1, 2
         // Match 2 (idx 3) -> lines 2, 3, 4
         // De-duped output should show L1, L2, L3, L4, L5 exactly once.
-        String result = searchTools.searchFileContents(List.of("MATCH"), "context_test.txt", false, false, 1, 200, 200);
+        String result = searchTools.searchFileContents(List.of("MATCH"), "context_test.txt", false, false, 1, 200);
 
         assertTrue(result.contains("1: L1"));
         assertTrue(result.contains("2: L2 MATCH"));
@@ -655,57 +663,60 @@ public class SearchToolsTest {
         assertEquals(
                 1, countOccurrences(result, "3: L3"), "Line 3 should only be printed once despite overlapping context");
 
-        // Verify clamping: contextLines=999 should be clamped to 50
+        // Verify clamping: contextLines=999 should be clamped to 5
         // Our file is small, so it should just show everything.
         String resultsCapped =
-                searchTools.searchFileContents(List.of("MATCH"), "context_test.txt", false, false, 999, 200, 200);
+                searchTools.searchFileContents(List.of("MATCH"), "context_test.txt", false, false, 999, 200);
         assertTrue(resultsCapped.contains("7: L7"));
     }
 
     @Test
-    void testSearchFileContents_MatchesPerFileIsHitCount() throws Exception {
+    void testSearchFileContents_FixedPerPatternLimitIsHitCount() throws Exception {
         Path txt = projectRoot.resolve("matches_per_file_test.txt");
-        String content = java.util.stream.IntStream.rangeClosed(1, 20)
+        String content = java.util.stream.IntStream.rangeClosed(1, 30)
                 .mapToObj(i -> "MATCH " + i)
                 .collect(java.util.stream.Collectors.joining("\n"));
         Files.writeString(txt, content);
         mockProjectFiles.add(new ProjectFile(projectRoot, "matches_per_file_test.txt"));
 
         String result =
-                searchTools.searchFileContents(List.of("MATCH"), "matches_per_file_test.txt", false, false, 0, 200, 10);
+                searchTools.searchFileContents(List.of("MATCH"), "matches_per_file_test.txt", false, false, 0, 200);
 
-        assertTrue(result.contains("matches_per_file_test.txt (20 loc) (first 10/20 matches)"));
-        assertTrue(result.contains("10: MATCH 10"));
-        assertFalse(result.contains("11: MATCH 11"));
+        assertTrue(result.contains("matches_per_file_test.txt (30 loc) (pattern: MATCH) (first 20/30 matches)"));
+        assertTrue(result.contains("20: MATCH 20"));
+        assertFalse(result.contains("21: MATCH 21"));
     }
 
     @Test
-    void testSearchFileContents_GlobalMatchBudget500() throws Exception {
-        Path f1 = projectRoot.resolve("budget1.txt");
-        Path f2 = projectRoot.resolve("budget2.txt");
+    void testSearchFileContents_GlobalMatchBudget500IsSoftWithinFile() throws Exception {
+        String twentyA = java.util.stream.IntStream.rangeClosed(1, 20)
+                .mapToObj(i -> "A " + i)
+                .collect(java.util.stream.Collectors.joining("\n"));
+        for (int i = 1; i <= 24; i++) {
+            String filename = "budget%02d.txt".formatted(i);
+            Files.writeString(projectRoot.resolve(filename), twentyA);
+            mockProjectFiles.add(new ProjectFile(projectRoot, filename));
+        }
 
-        Files.writeString(
-                f1,
-                java.util.stream.IntStream.rangeClosed(1, 100)
-                        .mapToObj(i -> "MATCH " + i)
-                        .collect(java.util.stream.Collectors.joining("\n")));
-        Files.writeString(
-                f2,
-                java.util.stream.IntStream.rangeClosed(1, 600)
-                        .mapToObj(i -> "MATCH " + i)
-                        .collect(java.util.stream.Collectors.joining("\n")));
+        String twentyB = java.util.stream.IntStream.rangeClosed(1, 20)
+                .mapToObj(i -> "B " + i)
+                .collect(java.util.stream.Collectors.joining("\n"));
+        String twentyC = java.util.stream.IntStream.rangeClosed(1, 20)
+                .mapToObj(i -> "C " + i)
+                .collect(java.util.stream.Collectors.joining("\n"));
+        Files.writeString(projectRoot.resolve("budget25.txt"), twentyB + "\n" + twentyC);
+        mockProjectFiles.add(new ProjectFile(projectRoot, "budget25.txt"));
 
-        mockProjectFiles.add(new ProjectFile(projectRoot, "budget1.txt"));
-        mockProjectFiles.add(new ProjectFile(projectRoot, "budget2.txt"));
+        Files.writeString(projectRoot.resolve("budget26.txt"), twentyA);
+        mockProjectFiles.add(new ProjectFile(projectRoot, "budget26.txt"));
 
-        String result = searchTools.searchFileContents(List.of("MATCH"), "budget*.txt", false, false, 0, 999, 999);
+        String result = searchTools.searchFileContents(List.of("A", "B", "C"), "budget*.txt", false, false, 0, 999);
 
-        assertTrue(result.contains("budget1.txt"));
-        assertTrue(result.contains("100: MATCH 100"));
-
-        assertTrue(result.contains("budget2.txt"));
-        assertTrue(result.contains("400: MATCH 400"));
-        assertFalse(result.contains("401: MATCH 401"));
+        assertTrue(result.contains("budget25.txt (40 loc) (pattern: B) (first 20/20 matches)"));
+        assertTrue(result.contains("budget25.txt (40 loc) (pattern: C) (first 20/20 matches)"));
+        assertFalse(
+                result.contains("budget26.txt"), "Should stop before the next file after crossing the 500-match limit");
+        assertTrue(result.contains("TRUNCATED: reached global limit of 500 total matches"));
     }
 
     @Test
@@ -716,9 +727,11 @@ public class SearchToolsTest {
         mockProjectFiles.add(new ProjectFile(projectRoot, "exact_limit.txt"));
 
         // Ask for exactly 3 matches.
-        String result = searchTools.searchFileContents(List.of("MATCH"), "exact_limit.txt", false, false, 0, 10, 3);
+        String result = searchTools.searchFileContents(List.of("MATCH"), "exact_limit.txt", false, false, 0, 10);
 
-        assertTrue(result.contains("exact_limit.txt (3 loc) (first 3/3 matches)"), "Should show hit limit in header");
+        assertTrue(
+                result.contains("exact_limit.txt (3 loc) (pattern: MATCH) (first 3/3 matches)"),
+                "Should show hit limit in header");
         assertTrue(result.contains("3: MATCH 3"), "Should contain the last match");
         assertFalse(
                 result.contains("TRUNCATED: reached matchesPerFile"),
@@ -732,8 +745,7 @@ public class SearchToolsTest {
         Files.writeString(txt, "L1\nL2 MATCH\nL3\n");
         mockProjectFiles.add(new ProjectFile(projectRoot, "trailing_newline.txt"));
 
-        String result =
-                searchTools.searchFileContents(List.of("MATCH"), "trailing_newline.txt", false, false, 1, 10, 10);
+        String result = searchTools.searchFileContents(List.of("MATCH"), "trailing_newline.txt", false, false, 1, 10);
 
         assertTrue(result.contains("1: L1"), "Should include context above");
         assertTrue(result.contains("2: L2 MATCH"), "Should include match");
@@ -748,10 +760,55 @@ public class SearchToolsTest {
         Files.writeString(txt, "MATCH " + longTail);
         mockProjectFiles.add(new ProjectFile(projectRoot, "long_line.txt"));
 
-        String result = searchTools.searchFileContents(List.of("MATCH"), "long_line.txt", false, false, 0, 200, 200);
+        String result = searchTools.searchFileContents(List.of("MATCH"), "long_line.txt", false, false, 0, 200);
 
         assertTrue(result.contains("1: MATCH "), "Should include matching line");
         assertTrue(result.contains("[TRUNCATED"), "Should truncate very long lines");
+    }
+
+    @Test
+    void testSearchFileContents_GlobRecursiveJava() throws Exception {
+        Path nestedDir = projectRoot.resolve("src/main/java");
+        Files.createDirectories(nestedDir);
+        Path file = nestedDir.resolve("Nested.java");
+        Files.writeString(file, "class Nested { String token = \"MATCH\"; }");
+        mockProjectFiles.add(new ProjectFile(projectRoot, "src/main/java/Nested.java"));
+
+        String result = searchTools.searchFileContents(List.of("MATCH"), "**/*.java", false, false, 0, 200);
+        assertEquals(
+                matchesPlatformGlob("**/*.java", "src/main/java/Nested.java"),
+                result.contains("src/main/java/Nested.java"),
+                "searchFileContents should follow the platform glob matcher for **/*.java");
+    }
+
+    @Test
+    void testSearchFileContents_GlobBackslashInput() throws Exception {
+        Path nestedDir = projectRoot.resolve("a/b");
+        Files.createDirectories(nestedDir);
+        Path file = nestedDir.resolve("Backslash.java");
+        Files.writeString(file, "class Backslash { String token = \"MATCH\"; }");
+        mockProjectFiles.add(new ProjectFile(projectRoot, "a/b/Backslash.java"));
+
+        String result = searchTools.searchFileContents(List.of("MATCH"), "a\\**\\*.java", false, false, 0, 200);
+        assertEquals(
+                matchesPlatformGlob("a\\**\\*.java", "a/b/Backslash.java"),
+                result.contains("a/b/Backslash.java"),
+                "searchFileContents should follow the platform glob matcher for backslash-separated input");
+    }
+
+    @Test
+    void testSearchFileContents_MultiplePatternsSameLine_Deduped() throws Exception {
+        Path txt = projectRoot.resolve("multi_pattern_dedupe.txt");
+        Files.writeString(txt, "alpha beta gamma");
+        mockProjectFiles.add(new ProjectFile(projectRoot, "multi_pattern_dedupe.txt"));
+
+        String result = searchTools.searchFileContents(
+                List.of("alpha", "beta", "gamma"), "multi_pattern_dedupe.txt", false, false, 0, 200);
+
+        assertEquals(
+                3,
+                countOccurrences(result, "1: alpha beta gamma"),
+                "Line should be emitted once for each matching pattern block");
     }
 
     @Test
@@ -760,11 +817,11 @@ public class SearchToolsTest {
         Files.writeString(json, "{\"a\": [{\"id\": 1001}, {\"id\": 1002}]}");
         mockProjectFiles.add(new ProjectFile(projectRoot, "budget.json"));
 
-        // product budget: maxFiles=400 and matchesPerFile=2 => clamped matchesPerFile becomes 1
-        String result = searchTools.jq("budget.json", ".a[] | .id", 400, 2);
+        // product budget: maxFiles=100 and matchesPerFile=10 => clamped matchesPerFile becomes 5
+        String result = searchTools.jq("budget.json", ".a[] | .id", 100, 10);
 
         assertTrue(result.contains("1001"), "Should include first output");
-        assertFalse(result.contains("1002"), "Should be clamped to a single output by the product budget");
+        assertTrue(result.contains("1002"), "Should still include second output");
     }
 
     @Test

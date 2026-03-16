@@ -34,11 +34,11 @@ public class WorkspaceToolsTest {
 
         var result = wst.createOrReplaceTaskList(explanation, tasks);
 
-        assertTrue(result.contains("Task 1"));
-        assertTrue(result.contains("Task 2"));
-        assertTrue(result.contains("Task 3"));
+        assertTrue(result.llmText().contains("Task 1"));
+        assertTrue(result.llmText().contains("Task 2"));
+        assertTrue(result.llmText().contains("Task 3"));
 
-        var updatedContext = wst.getContext();
+        var updatedContext = result.context();
         var data = updatedContext.getTaskListDataOrEmpty();
         assertEquals(3, data.tasks().size());
     }
@@ -52,10 +52,11 @@ public class WorkspaceToolsTest {
         String filePath = Path.of("src", "range.txt").toString();
 
         var wst = new WorkspaceTools(new Context(cm));
-        String result = wst.addLineRangeToWorkspace(filePath, 2, 4);
-        assertTrue(result.contains("Added: %s (lines 2-4)".formatted(filePath)));
+        var result = wst.addLineRangeToWorkspace(filePath, 2, 4);
+        assertTrue(result.llmText().contains("Added: %s (lines 2-4)".formatted(filePath)));
+        assertEquals(1, result.addedFragments().size());
 
-        var ctx = wst.getContext();
+        var ctx = result.context();
         var fragment = ctx.allFragments()
                 .filter(f -> f.getType() == ContextFragment.FragmentType.LINE_RANGE)
                 .findFirst()
@@ -75,9 +76,8 @@ public class WorkspaceToolsTest {
         Files.writeString(tempDir.resolve(filePath), "1\n2\n3\n");
 
         var wst = new WorkspaceTools(new Context(cm));
-        wst.addLineRangeToWorkspace(filePath, 1, 200);
-
-        var fragment = wst.getContext()
+        var result = wst.addLineRangeToWorkspace(filePath, 1, 200);
+        var fragment = result.context()
                 .allFragments()
                 .filter(f -> f.getType() == ContextFragment.FragmentType.LINE_RANGE)
                 .findFirst()
@@ -98,9 +98,8 @@ public class WorkspaceToolsTest {
         Files.writeString(tempDir.resolve(filePath), content);
 
         var wst = new WorkspaceTools(new Context(cm));
-        wst.addLineRangeToWorkspace(filePath, 1, 500);
-
-        var fragment = wst.getContext()
+        var result = wst.addLineRangeToWorkspace(filePath, 1, 500);
+        var fragment = result.context()
                 .allFragments()
                 .filter(f -> f.getType() == ContextFragment.FragmentType.LINE_RANGE)
                 .findFirst()
@@ -120,10 +119,10 @@ public class WorkspaceToolsTest {
 
         var wst = new WorkspaceTools(new Context(cm));
         wst.addLineRangeToWorkspace(filePath, 1, 2);
-        String second = wst.addLineRangeToWorkspace(filePath, 1, 2);
+        var second = wst.addLineRangeToWorkspace(filePath, 1, 2);
 
-        assertTrue(second.contains("Already present (no-op): %s:1-2".formatted(filePath)));
-        long lineRangeCount = wst.getContext()
+        assertTrue(second.llmText().contains("Already present (no-op): %s:1-2".formatted(filePath)));
+        long lineRangeCount = second.context()
                 .allFragments()
                 .filter(f -> f.getType() == ContextFragment.FragmentType.LINE_RANGE)
                 .count();
@@ -135,8 +134,38 @@ public class WorkspaceToolsTest {
         var cm = new TestContextManager(tempDir, new TestConsoleIO());
         var wst = new WorkspaceTools(new Context(cm));
 
-        String result = wst.addLineRangeToWorkspace("missing.txt", 1, 10);
-        assertTrue(result.contains("File not found: missing.txt"));
-        assertEquals(0L, wst.getContext().allFragments().count());
+        var result = wst.addLineRangeToWorkspace("missing.txt", 1, 10);
+        assertTrue(result.llmText().contains("File not found: missing.txt"));
+        assertEquals(0L, result.context().allFragments().count());
+    }
+
+    @Test
+    void dropWorkspaceFragments_reportsRemovedFragmentsAndPreservesReport() throws Exception {
+        var cm = new TestContextManager(tempDir, new TestConsoleIO());
+        var ctx = new Context(cm);
+
+        Files.writeString(tempDir.resolve("to-drop.txt"), "content");
+        var file = cm.toFile("to-drop.txt");
+        var fragment = new ContextFragments.ProjectPathFragment(file, cm);
+        ctx = ctx.addFragments(fragment);
+
+        var wst = new WorkspaceTools(ctx);
+        var removal = new WorkspaceTools.FragmentRemoval(fragment.id(), "facts", "reason");
+        var result = wst.dropWorkspaceFragments(List.of(removal));
+
+        assertEquals(1, result.removedFragments().size());
+        assertEquals(fragment.id(), result.removedFragments().getFirst().id());
+        assertTrue(result.dropReport().droppedFragmentIds().contains(fragment.id()));
+        assertTrue(result.context().findWithSameSource(fragment).isEmpty());
+    }
+
+    @Test
+    void addUrlContentsToWorkspace_invalidUrl_returnsTypedErrorOutput() {
+        var cm = new TestContextManager(tempDir, new TestConsoleIO());
+        var wst = new WorkspaceTools(new Context(cm));
+
+        var result = wst.addUrlContentsToWorkspace("not-a-url");
+        assertTrue(result.llmText().contains("Invalid URL format"));
+        assertEquals(0L, result.context().allFragments().count());
     }
 }

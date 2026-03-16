@@ -1098,6 +1098,64 @@ async def test_costs_command_opens_modal():
 
 
 @pytest.mark.asyncio
+async def test_session_costs_modal_excludes_legacy_carryover_from_model_aggregates():
+    """Synthetic legacy carryover should not appear as a real model aggregate."""
+    from textual.app import App, ComposeResult
+
+    from brokk_code.app import SessionCostsModalScreen
+
+    class TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield Static("host")
+
+    cost_data = {
+        "sessionId": "test-session",
+        "totalCost": 12.75,
+        "events": [
+            {
+                "timestampMillis": 1737627240000,
+                "operationLabel": "Legacy session cost carryover",
+                "operationType": "LEGACY_MIGRATION",
+                "modelName": "legacy",
+                "tier": "legacy",
+                "inputTokens": 0,
+                "cachedInputTokens": 0,
+                "thinkingTokens": 0,
+                "outputTokens": 0,
+                "costUsd": 12.5,
+            },
+            {
+                "timestampMillis": 1737627300000,
+                "operationLabel": "Test Task",
+                "operationType": "ARCHITECT",
+                "modelName": "gpt-5",
+                "tier": "default",
+                "inputTokens": 100,
+                "cachedInputTokens": 0,
+                "thinkingTokens": 0,
+                "outputTokens": 50,
+                "costUsd": 0.25,
+            },
+        ],
+    }
+
+    app = TestApp()
+    async with app.run_test() as pilot:
+        screen = SessionCostsModalScreen(cost_data)
+        app.push_screen(screen)
+        await pilot.pause()
+
+        aggregates_widget = screen.query_one("#session-costs-aggregates", Static)
+        total_widget = screen.query_one("#session-costs-total", Static)
+
+        aggregates_text = _static_rendered_text(aggregates_widget)
+        assert "gpt-5 (default): $0.2500" in aggregates_text
+        assert "legacy (legacy)" not in aggregates_text
+        assert "Legacy carryover (not a model): $12.5000" in aggregates_text
+        assert "12.7500" in _static_rendered_text(total_widget)
+
+
+@pytest.mark.asyncio
 async def test_chat_log_get_selection():
     """Verify that ChatLog.get_selection() extracts text from log content using real Selection."""
     from textual.app import App, ComposeResult

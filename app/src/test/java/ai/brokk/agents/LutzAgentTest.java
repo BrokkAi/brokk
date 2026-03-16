@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.AbstractService.OfflineStreamingModel;
+import ai.brokk.TaskResult;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
@@ -176,6 +177,37 @@ class LutzAgentTest {
 
         assertTrue(pinned.isPinned(f1), "Old fragment with high cache loss should be pinned");
         assertFalse(pinned.isPinned(f2), "New fragment should never be pinned");
+    }
+
+    @Test
+    void normalizeVisibleContext_removesTemporaryPinsAndPreservesWorkspace() throws InterruptedException {
+        var cm = new TestContextManager(tempDir, new NoOpConsoleIO());
+        ContextFragment originalPinned =
+                new ContextFragments.StringFragment("orig", cm, "original", "orig", SyntaxConstants.SYNTAX_STYLE_NONE);
+        ContextFragment tempPinned =
+                new ContextFragments.StringFragment("temp", cm, "temporary", "temp", SyntaxConstants.SYNTAX_STYLE_NONE);
+        ContextFragment unpinned =
+                new ContextFragments.StringFragment("free", cm, "free", "free", SyntaxConstants.SYNTAX_STYLE_NONE);
+
+        Context base = new Context(cm)
+                .addFragments(List.of(originalPinned, tempPinned, unpinned))
+                .withPinned(originalPinned, true);
+        LutzAgent agent = new LutzAgent(
+                base, "goal", new OfflineStreamingModel(), null, new NoOpConsoleIO(), LutzAgent.ScanConfig.disabled());
+
+        Context tempPinnedContext = base.withPinned(tempPinned, true)
+                .addHistoryEntry(List.of(), TaskResult.Type.SEARCH, new OfflineStreamingModel(), "goal");
+
+        Context normalized = agent.resetPinsToOriginal(tempPinnedContext);
+
+        assertTrue(normalized.isPinned(originalPinned));
+        assertFalse(normalized.isPinned(tempPinned));
+        assertFalse(normalized.isPinned(unpinned));
+        assertTrue(normalized.workspaceContentEquals(tempPinnedContext));
+        assertEquals(
+                tempPinnedContext.getTaskHistory().size(),
+                normalized.getTaskHistory().size(),
+                "Normalizing visible context should not change task history");
     }
 
     @Test

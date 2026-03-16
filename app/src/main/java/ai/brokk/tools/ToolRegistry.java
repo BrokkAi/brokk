@@ -229,24 +229,26 @@ public class ToolRegistry {
 
     /** Executes a tool exclusively from the registry (no instance tools). */
     public ToolExecutionResult executeTool(ToolExecutionRequest request) throws InterruptedException {
+        long startNanos = System.nanoTime();
         try {
-            return executeToolInternal(request);
+            return executeToolInternal(request, startNanos);
         } catch (InterruptedException ie) {
             throw ie;
         } catch (Exception e) {
             GlobalExceptionHandler.handle(e);
             String msg = e.getMessage() == null ? e.getClass().getName() : e.getMessage();
-            return ToolExecutionResult.internalError(request, msg);
+            return ToolExecutionResult.internalError(request, msg, elapsedMs(startNanos));
         }
     }
 
-    private ToolExecutionResult executeToolInternal(ToolExecutionRequest request) throws InterruptedException {
+    private ToolExecutionResult executeToolInternal(ToolExecutionRequest request, long startNanos)
+            throws InterruptedException {
         ValidatedInvocation validated;
         try {
             validated = validateTool(request);
         } catch (ToolValidationException e) {
             var msg = e.getMessage() == null ? e.getClass().getName() : e.getMessage();
-            return ToolExecutionResult.requestError(request, msg);
+            return ToolExecutionResult.requestError(request, msg, elapsedMs(startNanos));
         }
 
         try {
@@ -254,8 +256,11 @@ public class ToolRegistry {
             Object resultObject = validated
                     .method()
                     .invoke(validated.instance(), validated.parameters().toArray());
+            if (resultObject instanceof ToolOutput output) {
+                return ToolExecutionResult.success(request, output, elapsedMs(startNanos));
+            }
             String resultString = resultObject != null ? resultObject.toString() : "";
-            return ToolExecutionResult.success(request, resultString);
+            return ToolExecutionResult.success(request, resultString, elapsedMs(startNanos));
         } catch (InvocationTargetException e) {
             for (var e2 = (Throwable) e; e2 != null; e2 = e2.getCause()) {
                 if (e2 instanceof InterruptedException ie) {
@@ -264,9 +269,9 @@ public class ToolRegistry {
                 if (e2 instanceof ToolCallException tce) {
                     var msg = tce.getMessage() == null ? "[no message]" : tce.getMessage();
                     return switch (tce.status()) {
-                        case REQUEST_ERROR -> ToolExecutionResult.requestError(request, msg);
-                        case INTERNAL_ERROR -> ToolExecutionResult.internalError(request, msg);
-                        case FATAL -> ToolExecutionResult.fatal(request, msg);
+                        case REQUEST_ERROR -> ToolExecutionResult.requestError(request, msg, elapsedMs(startNanos));
+                        case INTERNAL_ERROR -> ToolExecutionResult.internalError(request, msg, elapsedMs(startNanos));
+                        case FATAL -> ToolExecutionResult.fatal(request, msg, elapsedMs(startNanos));
                         default -> {
                             throw new AssertionError(
                                     "Status %s should not be used in ToolCallException".formatted(tce.status()));
@@ -280,6 +285,10 @@ public class ToolRegistry {
         }
     }
 
+    private static long elapsedMs(long startNanos) {
+        return Math.max(0L, (System.nanoTime() - startNanos) / 1_000_000L);
+    }
+
     /** Remove duplicate ToolExecutionRequests from an AiMessage while preserving order. */
     public static AiMessage removeDuplicateToolRequests(AiMessage message) {
         if (!message.hasToolExecutionRequests()) {
@@ -290,6 +299,21 @@ public class ToolRegistry {
             return message;
         }
         return AiMessage.from(message.text(), deduplicated);
+    }
+
+    public record PartitionedRequests(
+            List<ToolExecutionRequest> matchingRequests, List<ToolExecutionRequest> otherRequests) {}
+
+    /**
+     * Partitions requests by name while preserving original order.
+     */
+    public static PartitionedRequests partitionByNames(
+            Collection<ToolExecutionRequest> requests, Collection<String> matchingToolNames) {
+        var names = Set.copyOf(matchingToolNames);
+        var matching =
+                requests.stream().filter(req -> names.contains(req.name())).toList();
+        var other = requests.stream().filter(req -> !names.contains(req.name())).toList();
+        return new PartitionedRequests(matching, other);
     }
 
     @Tool(

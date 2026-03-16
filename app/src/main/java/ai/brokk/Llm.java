@@ -7,6 +7,7 @@ import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNul
 import ai.brokk.concurrent.AtomicWrites;
 import ai.brokk.project.AbstractProject;
 import ai.brokk.project.ModelProperties;
+import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
 import ai.brokk.util.GlobalUiSettings;
 import ai.brokk.util.LogDescription;
@@ -1037,6 +1038,39 @@ public class Llm {
                 usage.costUsd() != null ? usage.costUsd() : 0.0);
 
         sessionManager.recordCostEvent(sessionId, event);
+    }
+
+    public synchronized void recordToolExecution(ToolExecutionResult result) {
+        try {
+            var dir = getOrCreateTaskHistoryDir();
+            var turnSequence = requestSequence - 1;
+            var toolId = requireNonNullElse(result.toolId(), "");
+            var arguments = requireNonNullElse(result.arguments(), "{}");
+            var filePath = dir.resolve("%s %03d-tools.jsonl".formatted(logFileTimestamp(), turnSequence));
+            var logLine = Map.ofEntries(
+                    Map.entry("timestamp", Instant.now().toString()),
+                    Map.entry("turn", turnSequence),
+                    Map.entry("toolName", result.toolName()),
+                    Map.entry("toolId", toolId),
+                    Map.entry("status", result.status().name()),
+                    Map.entry("elapsedMs", result.elapsedMs()),
+                    Map.entry("arguments", arguments),
+                    Map.entry("resultType", result.result().getClass().getName()),
+                    Map.entry(
+                            "summary",
+                            LogDescription.getShortDescription(result.resultText())
+                                    .replace('\n', ' ')),
+                    Map.entry("resultText", result.resultText()));
+
+            Files.writeString(
+                    filePath,
+                    objectMapper.writeValueAsString(logLine) + "\n",
+                    StandardOpenOption.CREATE,
+                    StandardOpenOption.WRITE,
+                    StandardOpenOption.APPEND);
+        } catch (IOException e) {
+            logger.error("Failed to write tool execution history file", e);
+        }
     }
 
     public record NullSafeResponse(
