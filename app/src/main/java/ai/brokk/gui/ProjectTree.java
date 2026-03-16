@@ -44,6 +44,7 @@ import java.util.TreeSet;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 import javax.swing.*;
@@ -63,6 +64,10 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
     private static final Logger logger = LogManager.getLogger(ProjectTree.class);
     private static final String LOADING_PLACEHOLDER = "Loading...";
     private static final ExecutorService IO_EXECUTOR = ExecutorsUtil.newFixedThreadExecutor("ProjectTree-IO-", 4);
+
+    /** Generation counter for refresh operations; incremented at the start of each refresh
+     * so that async continuations from a stale refresh can detect they've been superseded. */
+    private final AtomicInteger refreshGeneration = new AtomicInteger(0);
 
     private final IProject project;
     private final ContextManager contextManager;
@@ -950,6 +955,8 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
     }
 
     private void performRefreshInternal() {
+        int thisGeneration = refreshGeneration.incrementAndGet();
+
         pendingRefreshWhenShown = false; // Clear flag when actually refreshing
 
         var root = (DefaultMutableTreeNode) getModel().getRoot();
@@ -974,10 +981,15 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
         root.add(new DefaultMutableTreeNode(LOADING_PLACEHOLDER));
         ((DefaultTreeModel) getModel()).nodeStructureChanged(root);
 
-        // Load root children async, then restore expansions and selections
+        // Load root children async, then restore expansions and selections.
+        // Each async stage checks refreshGeneration to bail out if a newer refresh has started.
         final var rootRef = root;
         loadChildrenForNodeAsync(root)
                 .thenCompose(ignored -> {
+                    if (refreshGeneration.get() != thisGeneration) {
+                        logger.debug("Refresh superseded after root load (generation {})", thisGeneration);
+                        return CompletableFuture.<Void>completedFuture(null);
+                    }
                     // Restore expanded directories - process sequentially by depth to avoid race conditions.
                     // Shorter paths (parents) must be expanded before longer paths (children) that depend on them.
                     // Note: empty paths are filtered at the source in collectExpandedDirectoryPathsRecursive
@@ -988,23 +1000,33 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
                     CompletableFuture<Void> chain = CompletableFuture.completedFuture(null);
                     for (Path expandedDirPath : sortedPaths) {
                         final Path pathForLambda = expandedDirPath;
-                        chain = chain.thenCompose(v -> findAndExpandNodeAsync(rootRef, pathForLambda, 0)
-                                .thenAccept(nodeToExpand -> {
-                                    if (nodeToExpand != null) {
-                                        SwingUtilities.invokeLater(() -> {
-                                            TreePath pathToExpand = new TreePath(nodeToExpand.getPath());
-                                            if (!isExpanded(pathToExpand)) {
-                                                expandPath(pathToExpand);
-                                            }
-                                        });
-                                    } else {
-                                        logger.trace("Could not find previously expanded directory: {}", pathForLambda);
-                                    }
-                                }));
+                        chain = chain.thenCompose(v -> {
+                            if (refreshGeneration.get() != thisGeneration) {
+                                return CompletableFuture.<Void>completedFuture(null);
+                            }
+                            return findAndExpandNodeAsync(rootRef, pathForLambda, 0)
+                                    .thenAccept(nodeToExpand -> {
+                                        if (refreshGeneration.get() != thisGeneration) return;
+                                        if (nodeToExpand != null) {
+                                            SwingUtilities.invokeLater(() -> {
+                                                if (refreshGeneration.get() != thisGeneration) return;
+                                                TreePath pathToExpand = new TreePath(nodeToExpand.getPath());
+                                                if (!isExpanded(pathToExpand)) {
+                                                    expandPath(pathToExpand);
+                                                }
+                                            });
+                                        } else {
+                                            logger.trace("Could not find previously expanded directory: {}", pathForLambda);
+                                        }
+                                    });
+                        });
                     }
                     return chain;
                 })
                 .thenCompose(ignored -> {
+                    if (refreshGeneration.get() != thisGeneration) {
+                        return CompletableFuture.<Void>completedFuture(null);
+                    }
                     // Restore selections
                     if (previouslySelectedFiles.isEmpty()) {
                         return CompletableFuture.completedFuture(null);
@@ -1015,6 +1037,7 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
                             .toArray(CompletableFuture[]::new);
                     return CompletableFuture.allOf(selectionFutures).thenAccept(v -> {
                         SwingUtilities.invokeLater(() -> {
+                            if (refreshGeneration.get() != thisGeneration) return;
                             var pathsToSelect = new ArrayList<TreePath>();
                             for (ProjectFile pf : previouslySelectedFiles) {
                                 if (!pf.exists()) continue;
