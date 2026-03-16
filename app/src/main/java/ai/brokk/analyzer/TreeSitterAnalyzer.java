@@ -115,7 +115,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     public enum QueryType {
         DEFINITIONS,
         IMPORTS,
-        IDENTIFIERS
+        IDENTIFIERS,
+        MACROS
     }
 
     private final Map<QueryType, String> querySources;

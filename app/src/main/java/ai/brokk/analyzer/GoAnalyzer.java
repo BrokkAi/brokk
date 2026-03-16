@@ -108,6 +108,7 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
             case DEFINITIONS -> Optional.of("treesitter/go/definitions.scm");
             case IMPORTS -> Optional.of("treesitter/go/imports.scm");
             case IDENTIFIERS -> Optional.of("treesitter/go/identifiers.scm");
+            case MACROS -> Optional.empty();
         };
     }
 

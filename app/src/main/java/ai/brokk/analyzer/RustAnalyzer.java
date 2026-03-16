@@ -78,6 +78,7 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements MacroExpan
             case DEFINITIONS -> Optional.of("treesitter/rust/definitions.scm");
             case IMPORTS -> Optional.of("treesitter/rust/imports.scm");
             case IDENTIFIERS -> Optional.empty();
+            case MACROS -> Optional.of("treesitter/rust/macros.scm");
         };
     }
 

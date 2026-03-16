@@ -78,6 +78,7 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
             case DEFINITIONS -> Optional.of("treesitter/javascript/definitions.scm");
             case IMPORTS -> Optional.of("treesitter/javascript/imports.scm");
             case IDENTIFIERS -> Optional.of("treesitter/javascript/identifiers.scm");
+            case MACROS -> Optional.empty();
         };
     }
 
