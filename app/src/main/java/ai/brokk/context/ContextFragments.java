@@ -1597,7 +1597,9 @@ public class ContextFragments {
 
         private static ContentSnapshot decodeFrozen(String fullyQualifiedName, byte[] bytes, IAnalyzer analyzer) {
             String text = new String(bytes, StandardCharsets.UTF_8);
-            Set<CodeUnit> units = Set.copyOf(analyzer.getDefinitions(fullyQualifiedName));
+            Set<CodeUnit> units = analyzer.getDefinitions(fullyQualifiedName).stream()
+                    .filter(cu -> cu.isClass() || cu.isFunction())
+                    .collect(Collectors.toSet());
             Set<ProjectFile> files = units.stream().map(CodeUnit::source).collect(Collectors.toSet());
             if (units.isEmpty()) {
                 logger.warn("Unable to resolve CodeUnit for fqName: {}", fullyQualifiedName);
@@ -1627,8 +1629,11 @@ public class ContextFragments {
         private static ContentSnapshot computeSnapshotFor(
                 String fqName, IContextManager contextManager, @Nullable CodeUnit preResolvedUnit) {
             var analyzer = contextManager.getAnalyzerUninterrupted();
-            List<CodeUnit> units =
-                    preResolvedUnit != null ? List.of(preResolvedUnit) : List.copyOf(analyzer.getDefinitions(fqName));
+            List<CodeUnit> units = preResolvedUnit != null
+                    ? List.of(preResolvedUnit)
+                    : analyzer.getDefinitions(fqName).stream()
+                            .filter(cu -> cu.isClass() || cu.isFunction())
+                            .toList();
 
             if (units.isEmpty()) {
                 return new ContentSnapshot("", Set.of(), Set.of(), (byte[]) null, false);
