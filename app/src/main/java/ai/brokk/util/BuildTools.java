@@ -128,6 +128,8 @@ public class BuildTools {
 
         // Group files by their most specific module
         Map<BuildAgent.ModuleBuildEntry, List<ProjectFile>> moduleToFiles = new HashMap<>();
+        List<ProjectFile> fallbackFiles = new ArrayList<>();
+
         for (ProjectFile f : workspaceTestFiles) {
             String unixPath = FileFilteringService.toUnixPath(f.getRelPath());
             var bestModule = details.modules().stream()
@@ -143,10 +145,12 @@ public class BuildTools {
                     .max(Comparator.comparingInt(m -> m.relativePath().length()))
                     .orElse(null);
 
-            if (bestModule != null) {
+            if (bestModule != null && !bestModule.testSomeCommand().isBlank()) {
                 moduleToFiles
                         .computeIfAbsent(bestModule, k -> new ArrayList<>())
                         .add(f);
+            } else {
+                fallbackFiles.add(f);
             }
         }
 
@@ -168,17 +172,18 @@ public class BuildTools {
             }
         }
 
-        if (!commands.isEmpty()) {
-            return String.join(" && ", commands);
+        if (!fallbackFiles.isEmpty()
+                && details.testSomeEnabled()
+                && !details.testSomeCommand().isBlank()) {
+            String interpolated =
+                    interpolateModuleCommand(cm, details.testSomeCommand(), fallbackFiles, pythonVersionOverride);
+            if (!interpolated.isBlank()) {
+                commands.add(interpolated);
+            }
         }
 
-        // Fallback to global testSomeCommand if no module matched
-        if (details.testSomeEnabled() && !details.testSomeCommand().isBlank()) {
-            String interpolated =
-                    interpolateModuleCommand(cm, details.testSomeCommand(), workspaceTestFiles, pythonVersionOverride);
-            if (!interpolated.isBlank()) {
-                return interpolated;
-            }
+        if (!commands.isEmpty()) {
+            return String.join(" && ", commands);
         }
 
         return details.buildLintEnabled() ? details.buildLintCommand() : "";
