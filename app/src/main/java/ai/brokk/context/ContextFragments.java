@@ -1606,7 +1606,7 @@ public class ContextFragments {
                 String fqName, IContextManager contextManager, @Nullable CodeUnit eagerUnit) {
             if (eagerUnit != null) return eagerUnit.shortName();
             return contextManager.getAnalyzerUninterrupted().getDefinitions(fqName).stream()
-                    .findAny()
+                    .findFirst()
                     .map(CodeUnit::shortName)
                     .orElse(fqName);
         }
@@ -1615,7 +1615,7 @@ public class ContextFragments {
                 String fqName, IContextManager contextManager, @Nullable CodeUnit eagerUnit) {
             if (eagerUnit != null) return eagerUnit.source().getSyntaxStyle();
             return contextManager.getAnalyzerUninterrupted().getDefinitions(fqName).stream()
-                    .findAny()
+                    .findFirst()
                     .map(cu -> cu.source().getSyntaxStyle())
                     .orElse(SyntaxConstants.SYNTAX_STYLE_NONE);
         }
