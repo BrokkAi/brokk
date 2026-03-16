@@ -16,6 +16,7 @@ import ai.brokk.util.Environment;
 import ai.brokk.util.ProjectBuildRunner;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.util.Map;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
