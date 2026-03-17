@@ -320,9 +320,12 @@ class CodeAgentTest {
         assertInstanceOf(CodeAgent.Step.Retry.class, result);
         var retryStep = (CodeAgent.Step.Retry) result;
 
-        // On partial success, consecutive failures should reset, and applied count should increment.
+        // With the new retry policy, partial success still counts toward apply-failure streak.
+        // Applied count should still increment for successfully applied blocks.
         assertEquals(
-                0, retryStep.es().consecutiveApplyFailures(), "Consecutive failures should reset on partial success");
+                1,
+                retryStep.es().consecutiveApplyFailures(),
+                "Consecutive failures should increment even on partial success");
         assertEquals(1, retryStep.es().blocksAppliedWithoutBuild(), "One block should have been applied");
 
         // The retry message should reflect both the success and the failure.
