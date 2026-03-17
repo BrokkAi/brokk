@@ -160,11 +160,15 @@ public abstract class AbstractMacroSettingsPanel extends AnalyzerSettingsPanel {
 
     @Override
     public void saveSettings() {
-        if (macroList.isEmpty()) {
+        List<MacroMatch> validMacros = macroList.stream()
+                .filter(m -> m.name() != null && !m.name().isBlank())
+                .toList();
+
+        if (validMacros.isEmpty()) {
             project.setMacroPolicy(language, null);
         } else {
             MacroPolicy policy = new MacroPolicy(
-                    "1.0", language.internalName().toLowerCase(Locale.ROOT), new ArrayList<>(macroList));
+                    "1.0", language.internalName().toLowerCase(Locale.ROOT), new ArrayList<>(validMacros));
             project.setMacroPolicy(language, policy);
         }
     }
@@ -193,7 +197,7 @@ public abstract class AbstractMacroSettingsPanel extends AnalyzerSettingsPanel {
             return switch (columnIndex) {
                 case 0 -> match.name();
                 case 1 -> match.strategy();
-                default -> null;
+                default -> "";
             };
         }
     }
