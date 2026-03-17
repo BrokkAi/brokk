@@ -6,7 +6,7 @@ from textual.binding import Binding
 from textual.containers import Vertical, VerticalScroll
 from textual.message import Message
 from textual.widget import Widget
-from textual.widgets import ListView, ListItem, Static
+from textual.widgets import ListItem, ListView, Static
 
 
 class DependenciesPanel(Widget):
