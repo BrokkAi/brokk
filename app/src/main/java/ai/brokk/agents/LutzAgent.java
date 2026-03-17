@@ -709,17 +709,9 @@ public class LutzAgent {
             var parameters = invocation.parameters();
             assert parameters.size() >= 2 : "callSearchAgent should include query and mode parameters";
             String mode = (String) parameters.get(1);
-            String query = (String) parameters.get(0);
 
             // don't scan if callSearchAgent mode is ANSWER
-            if ("ANSWER".equalsIgnoreCase(mode)) {
-                return false;
-            }
-
-            // don't scan if LA already has references to known symbols
-            CompletableFuture<Set<ContextFragment>> referencesFuture = LoggingFuture.supplyCallableAsync(
-                    () -> new ReferenceAgent(cm).resolveReferencedFragments(query, currentState.context()));
-            return referencesFuture.join().isEmpty();
+            return !"ANSWER".equalsIgnoreCase(mode);
         }
 
         return false;
