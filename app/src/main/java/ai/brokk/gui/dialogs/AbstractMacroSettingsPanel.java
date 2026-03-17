@@ -3,16 +3,17 @@ package ai.brokk.gui.dialogs;
 import ai.brokk.IConsoleIO;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.macro.MacroPolicy;
+import ai.brokk.analyzer.macro.MacroPolicy.AIExpandConfig;
+import ai.brokk.analyzer.macro.MacroPolicy.BuiltinConfig;
+import ai.brokk.analyzer.macro.MacroPolicy.BypassConfig;
+import ai.brokk.analyzer.macro.MacroPolicy.MacroConfig;
 import ai.brokk.analyzer.macro.MacroPolicy.MacroMatch;
+import ai.brokk.analyzer.macro.MacroPolicy.MacroScope;
 import ai.brokk.analyzer.macro.MacroPolicy.MacroStrategy;
+import ai.brokk.analyzer.macro.MacroPolicy.TemplateConfig;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.project.IProject;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.dataformat.yaml.JacksonYAMLParseException;
-import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 import java.awt.*;
-import java.awt.event.KeyAdapter;
-import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.ArrayList;
@@ -24,11 +25,9 @@ import javax.swing.table.AbstractTableModel;
 
 public abstract class AbstractMacroSettingsPanel extends AnalyzerSettingsPanel {
 
-    protected final JTextArea yamlEditor;
     protected final JTable macroTable;
     protected final MacroTableModel tableModel;
     protected final List<MacroMatch> macroList;
-    protected static final ObjectMapper YAML_MAPPER = new ObjectMapper(new YAMLFactory());
 
     protected AbstractMacroSettingsPanel(Language language, IProject project, IConsoleIO io) {
         super(new BorderLayout(), language, project.getRoot(), project, io);
@@ -37,21 +36,6 @@ public abstract class AbstractMacroSettingsPanel extends AnalyzerSettingsPanel {
         this.macroList = new ArrayList<>(policy != null ? policy.macros() : List.of());
         this.tableModel = new MacroTableModel();
         this.macroTable = new JTable(tableModel);
-
-        this.yamlEditor = new JTextArea();
-        this.yamlEditor.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
-        this.yamlEditor.setTabSize(2);
-
-        // Intercept Tab to insert 2 spaces
-        this.yamlEditor.addKeyListener(new KeyAdapter() {
-            @Override
-            public void keyPressed(KeyEvent e) {
-                if (e.getKeyCode() == KeyEvent.VK_TAB) {
-                    e.consume();
-                    yamlEditor.replaceSelection("  ");
-                }
-            }
-        });
 
         initComponents();
     }
@@ -119,38 +103,100 @@ public abstract class AbstractMacroSettingsPanel extends AnalyzerSettingsPanel {
 
     private void editRow(int row) {
         MacroMatch match = macroList.get(row);
-        try {
-            yamlEditor.setText(YAML_MAPPER.writerWithDefaultPrettyPrinter().writeValueAsString(match));
-            yamlEditor.setCaretPosition(0);
 
-            JScrollPane scrollPane = new JScrollPane(yamlEditor);
-            scrollPane.setPreferredSize(new Dimension(500, 400));
+        JPanel panel = new JPanel(new GridBagLayout());
+        GridBagConstraints gbc = new GridBagConstraints();
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.insets = new Insets(5, 5, 5, 5);
+        gbc.anchor = GridBagConstraints.NORTHWEST;
 
-            while (true) {
-                int result = JOptionPane.showConfirmDialog(
-                        this, scrollPane, "Edit Macro Entry", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+        JTextField nameField = new JTextField(match.name());
+        JComboBox<MacroScope> scopeCombo = new JComboBox<>(new MacroScope[] {null, MacroScope.APPLICATION, MacroScope.LIBRARY});
+        scopeCombo.setSelectedItem(match.scope());
+        JComboBox<MacroStrategy> strategyCombo = new JComboBox<>(MacroStrategy.values());
+        strategyCombo.setSelectedItem(match.strategy());
 
-                if (result != JOptionPane.OK_OPTION) {
-                    break;
+        // Options sub-panel with CardLayout
+        CardLayout cardLayout = new CardLayout();
+        JPanel optionsCards = new JPanel(cardLayout);
+
+        // BYPASS card
+        optionsCards.add(new JPanel(), MacroStrategy.BYPASS.name());
+
+        // BUILTIN card
+        optionsCards.add(new JPanel(), MacroStrategy.BUILTIN.name());
+
+        // TEMPLATE card
+        JTextArea templateArea = new JTextArea(5, 30);
+        templateArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
+        if (match.options() instanceof TemplateConfig tc) {
+            templateArea.setText(tc.template());
+        }
+        JPanel templatePanel = new JPanel(new BorderLayout());
+        templatePanel.add(new JLabel("Template:"), BorderLayout.NORTH);
+        templatePanel.add(new JScrollPane(templateArea), BorderLayout.CENTER);
+        optionsCards.add(templatePanel, MacroStrategy.TEMPLATE.name());
+
+        // AI_EXPAND card
+        JTextField maxTokensField = new JTextField();
+        JTextField promptHintField = new JTextField();
+        if (match.options() instanceof AIExpandConfig ac) {
+            maxTokensField.setText(ac.max_tokens() != null ? ac.max_tokens().toString() : "");
+            promptHintField.setText(ac.prompt_hint() != null ? ac.prompt_hint() : "");
+        }
+        JPanel aiExpandPanel = new JPanel(new GridLayout(2, 2, 5, 5));
+        aiExpandPanel.add(new JLabel("Max Tokens:"));
+        aiExpandPanel.add(maxTokensField);
+        aiExpandPanel.add(new JLabel("Prompt Hint:"));
+        aiExpandPanel.add(promptHintField);
+        optionsCards.add(aiExpandPanel, MacroStrategy.AI_EXPAND.name());
+
+        strategyCombo.addActionListener(e -> cardLayout.show(optionsCards, strategyCombo.getSelectedItem().toString()));
+        cardLayout.show(optionsCards, match.strategy().name());
+
+        gbc.gridx = 0; gbc.gridy = 0;
+        panel.add(new JLabel("Name:"), gbc);
+        gbc.gridx = 1; gbc.weightx = 1.0;
+        panel.add(nameField, gbc);
+
+        gbc.gridx = 0; gbc.gridy = 1; gbc.weightx = 0;
+        panel.add(new JLabel("Scope:"), gbc);
+        gbc.gridx = 1; gbc.weightx = 1.0;
+        panel.add(scopeCombo, gbc);
+
+        gbc.gridx = 0; gbc.gridy = 2; gbc.weightx = 0;
+        panel.add(new JLabel("Strategy:"), gbc);
+        gbc.gridx = 1; gbc.weightx = 1.0;
+        panel.add(strategyCombo, gbc);
+
+        gbc.gridx = 0; gbc.gridy = 3; gbc.gridwidth = 2; gbc.weighty = 1.0; gbc.fill = GridBagConstraints.BOTH;
+        panel.add(optionsCards, gbc);
+
+        int result = JOptionPane.showConfirmDialog(
+                this, panel, "Edit Macro Entry", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+
+        if (result == JOptionPane.OK_OPTION) {
+            String newName = nameField.getText().trim();
+            MacroScope newScope = (MacroScope) scopeCombo.getSelectedItem();
+            MacroStrategy newStrategy = (MacroStrategy) strategyCombo.getSelectedItem();
+            MacroConfig newOptions = switch (newStrategy) {
+                case BYPASS -> new BypassConfig();
+                case BUILTIN -> new BuiltinConfig();
+                case TEMPLATE -> new TemplateConfig(templateArea.getText());
+                case AI_EXPAND -> {
+                    Integer maxTokens = null;
+                    try {
+                        String txt = maxTokensField.getText().trim();
+                        if (!txt.isEmpty()) maxTokens = Integer.parseInt(txt);
+                    } catch (NumberFormatException ignored) {}
+                    String hint = promptHintField.getText().trim();
+                    yield new AIExpandConfig(maxTokens, hint.isEmpty() ? null : hint);
                 }
+            };
 
-                try {
-                    MacroMatch updated = YAML_MAPPER.readValue(yamlEditor.getText(), MacroMatch.class);
-                    macroList.set(row, updated);
-                    tableModel.fireTableRowsUpdated(row, row);
-                    break;
-                } catch (JacksonYAMLParseException parseException) {
-                    var location = parseException.getLocation();
-                    io.toolError("Failed to parse macro entry. Error at location " + location.getLineNr() + ":"
-                            + location.getColumnNr());
-                } catch (Exception ex) {
-                    String msg = ex.getMessage();
-                    io.toolError("Failed to parse macro entry: " + msg);
-                    // Loop continues, re-showing the dialog with current yamlEditor content
-                }
-            }
-        } catch (Exception ex) {
-            io.toolError("Failed to serialize macro entry: " + ex.getMessage());
+            MacroMatch updated = new MacroMatch(newName, newScope, newStrategy, newOptions);
+            macroList.set(row, updated);
+            tableModel.fireTableRowsUpdated(row, row);
         }
     }
 
