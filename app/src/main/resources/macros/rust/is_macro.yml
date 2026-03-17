@@ -4,4 +4,4 @@ macros:
   - name: "Is"
     strategy: "TEMPLATE"
     options:
-      template: "pub struct {{name}} {}"
+      template: "pub fn is_{{variant_name}}(&self) -> bool { matches!(self, Self::{{variant_name}} { .. }) }"

@@ -21,14 +21,24 @@ public class MacroPipelineTest {
     }
 
     @Test
-    void testLoadIsMacroPolicy() throws IOException {
+    void testLoadIsMacroPolicyAndExpand() throws IOException {
         MacroPolicy policy = MacroPolicyLoader.loadFromResource("/macros/rust/is_macro.yml");
         assertNotNull(policy);
         assertEquals("rust", policy.language());
 
-        boolean foundIs = policy.macros().stream()
-                .anyMatch(m -> "Is".equals(m.name()) && m.strategy() == MacroPolicy.MacroStrategy.TEMPLATE);
-        assertTrue(foundIs, "Should find 'Is' macro with TEMPLATE strategy");
+        MacroPolicy.MacroMatch isMacro = policy.macros().stream()
+                .filter(m -> "Is".equals(m.name()))
+                .findFirst()
+                .orElseThrow();
+
+        assertEquals(MacroPolicy.MacroStrategy.TEMPLATE, isMacro.strategy());
+        assertInstanceOf(MacroPolicy.TemplateConfig.class, isMacro.options());
+
+        String template = ((MacroPolicy.TemplateConfig) isMacro.options()).template();
+        Map<String, Object> context = Map.of("variant_name", "Running");
+        String expanded = MacroTemplateExpander.expand(template, context);
+
+        assertEquals("pub fn is_Running(&self) -> bool { matches!(self, Self::Running { .. }) }", expanded);
     }
 
     @Test
