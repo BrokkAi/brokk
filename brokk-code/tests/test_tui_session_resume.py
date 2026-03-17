@@ -388,6 +388,9 @@ class FakeChat:
     def set_job_running(self, running: bool):
         pass
 
+    def set_session_loading(self, loading: bool, message: str | None = None):
+        pass
+
     def set_token_usage(self, used, max_tokens, fragments, session_cost=None):
         self.last_session_cost = session_cost
 

@@ -2043,6 +2043,35 @@ class BrokkApp(App):
         raw_text = message.text
         check_text = raw_text.strip()
 
+        # Gate ALL input during session operations
+        if self.session_switch_in_progress:
+            chat = self._maybe_chat()
+            if check_text.startswith("/"):
+                # Reject slash commands during session switch
+                if chat:
+                    chat.add_system_message(
+                        "Session operation in progress. Please wait.", level="WARNING"
+                    )
+                return
+            elif check_text:
+                if self._current_switch_target_session_id:
+                    # Queue non-slash prompts for execution after switch completes
+                    if chat:
+                        chat.add_history_entry(raw_text)
+                        chat.add_user_message(raw_text)
+                    self._pending_switch_prompt = (self._current_switch_target_session_id, raw_text)
+                    if chat:
+                        chat.add_system_message(
+                            "Queuing prompt until session switch is complete..."
+                        )
+                else:
+                    # No target session (e.g. creating new session) — reject
+                    if chat:
+                        chat.add_system_message(
+                            "Session operation in progress. Please wait.", level="WARNING"
+                        )
+                return
+
         if check_text.startswith("/"):
             self._handle_command(check_text)
         elif check_text:
@@ -2054,11 +2083,7 @@ class BrokkApp(App):
             if chat:
                 chat.add_history_entry(raw_text)
                 chat.add_user_message(raw_text)
-            if self.session_switch_in_progress and self._current_switch_target_session_id:
-                self._pending_switch_prompt = (self._current_switch_target_session_id, raw_text)
-                if chat:
-                    chat.add_system_message("Queuing prompt until session switch is complete...")
-            elif self.job_in_progress and self.current_job_id:
+            if self.job_in_progress and self.current_job_id:
                 self._pending_prompt = raw_text
                 now = time.monotonic()
                 self._pending_updated_at = now
@@ -3744,19 +3769,34 @@ class BrokkApp(App):
         if not chat:
             return
 
+        async with self._session_switch_lock:
+            if self.session_switch_in_progress:
+                chat.add_system_message("A session switch is already in progress.", level="WARNING")
+                return
+            self.session_switch_in_progress = True
+
         try:
-            chat.add_system_message("Creating new session...")
+            chat.set_session_loading(True, "Creating new session...")
             session_id = await self.executor.create_session()
             save_last_session_id(self.executor.workspace_dir, session_id)
 
             chat._message_history.clear()
             log = chat.query_one("#chat-log")
-            await log.query("*").remove()
+            res = log.query("*").remove()
+            if asyncio.iscoroutine(res):
+                await res
+
+            # Reset cost accumulators for new session
+            self.current_job_cost = 0.0
+            self.session_total_cost = 0.0
 
             await self._refresh_context_panel()
             chat.add_system_message(f"Created and switched to session {session_id}.")
         except Exception as e:
             chat.add_system_message(f"Failed to create session: {e}", level="ERROR")
+        finally:
+            self.session_switch_in_progress = False
+            chat.set_session_loading(False)
 
     async def _rename_session_workflow(
         self, session_id: str, sessions: List[Dict[str, Any]]
@@ -3812,9 +3852,7 @@ class BrokkApp(App):
         _prev_session_cost = self.session_total_cost
 
         try:
-            chat.add_system_message(f"Switching to session {session_id}...")
-            # Set job running to block input UI during switch
-            chat.set_job_running(True)
+            chat.set_session_loading(True, f"Switching to session {session_id}...")
 
             # Reset accumulators immediately so UI doesn't show previous session's
             # stale costs during the switch transition. _refresh_context_panel
@@ -3870,7 +3908,7 @@ class BrokkApp(App):
         finally:
             self.session_switch_in_progress = False
             self._current_switch_target_session_id = None
-            chat.set_job_running(False)
+            chat.set_session_loading(False)
 
     async def _fetch_latest_pypi_version(self) -> Optional[str]:
         """Fetches the latest version of 'brokk' from PyPI."""
