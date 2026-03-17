@@ -2,7 +2,9 @@ package ai.brokk.analyzer.macro;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import ai.brokk.analyzer.CodeUnit;
 import java.io.IOException;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -35,15 +37,22 @@ public class MacroPipelineTest {
         assertInstanceOf(MacroPolicy.TemplateConfig.class, isMacro.options());
 
         String template = ((MacroPolicy.TemplateConfig) isMacro.options()).template();
-        
-        // Mock a child CodeUnit (e.g. an Enum variant)
-        Map<String, Object> variant = Map.of("identifier", "Running");
-        Map<String, Object> codeUnit = Map.of("children", List.of(variant));
-        Map<String, Object> context = Map.of("code_unit", codeUnit);
-        
+
+        // Create a parent CodeUnit (Enum) with child variants. 
+        // We use null for ProjectFile as it's not needed for template expansion.
+        CodeUnit parent = CodeUnit.cls(null, "state", "Status");
+
+        CodeUnit variant1 = CodeUnit.field(null, "state", "Status.Running");
+        CodeUnit variant2 = CodeUnit.field(null, "state", "Status.Stopped");
+
+        parent = parent.withChildren(List.of(variant1, variant2));
+
+        Map<String, Object> context = Map.of("code_unit", parent);
+
         String expanded = MacroTemplateExpander.expand(template, context);
 
-        assertEquals("pub fn is_Running(&self) -> bool { matches!(self, Self::Running { .. }) } ", expanded);
+        assertTrue(expanded.contains("pub fn is_Running(&self) -> bool { matches!(self, Self::Running { .. }) }"));
+        assertTrue(expanded.contains("pub fn is_Stopped(&self) -> bool { matches!(self, Self::Stopped { .. }) }"));
     }
 
     @Test
