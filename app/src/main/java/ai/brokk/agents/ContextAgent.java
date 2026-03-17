@@ -352,13 +352,13 @@ public class ContextAgent {
                 cm.getLlm(new Llm.Options(model, "ContextAgent (Unanalyzed): " + goal, TaskResult.Type.SCAN));
         llmUnanalyzed.setOutput(io);
 
-        // Process groups in parallel: Analyzed, Unanalyzed, and Tests (filename-only)
-        LlmRecommendation[] results = new LlmRecommendation[3];
-        Throwable[] errors = new Throwable[3];
+        // Process non-test groups in parallel first (tests depend on their results).
+        LlmRecommendation[] nonTestResults = new LlmRecommendation[2];
+        Throwable[] nonTestErrors = new Throwable[2];
 
         Thread t1 = Thread.ofVirtual().start(() -> {
             try {
-                results[0] = processGroup(
+                nonTestResults[0] = processGroup(
                         GroupType.ANALYZED,
                         analyzedFiles,
                         workspaceRepresentation,
@@ -367,13 +367,13 @@ public class ContextAgent {
                         filesLlmAnalyzed,
                         llmAnalyzed);
             } catch (Throwable t) {
-                errors[0] = t;
+                nonTestErrors[0] = t;
             }
         });
 
         Thread t2 = Thread.ofVirtual().start(() -> {
             try {
-                results[1] = processGroup(
+                nonTestResults[1] = processGroup(
                         GroupType.UNANALYZED,
                         unAnalyzedFiles,
                         workspaceRepresentation,
@@ -382,47 +382,43 @@ public class ContextAgent {
                         filesLlmUnanalyzed,
                         llmUnanalyzed);
             } catch (Throwable t) {
-                errors[1] = t;
-            }
-        });
-
-        Thread t3 = Thread.ofVirtual().start(() -> {
-            try {
-                if (testCandidates.isEmpty()) {
-                    results[2] = LlmRecommendation.EMPTY;
-                    return;
-                }
-                logger.debug("Processing {} test candidates via filename-only pass.", testCandidates.size());
-                var testFilenames =
-                        testCandidates.stream().map(ProjectFile::toString).toList();
-                // Test selection is filename-only and lightweight; use a fixed smaller budget (e.g. 50k)
-                // and the quicker summarization model.
-                var testRec = askLlmDeepPruneFilenamesWithChunking(
-                        testFilenames,
-                        workspaceRepresentation,
-                        min(50_000, pruneBudgetRemaining),
-                        filesLlmTests,
-                        false);
-
-                // Map results to recommendedTests specifically
-                results[2] =
-                        new LlmRecommendation(Set.of(), testRec.recommendedFiles(), Set.of(), testRec.tokenUsage());
-            } catch (Throwable t) {
-                errors[2] = t;
+                nonTestErrors[1] = t;
             }
         });
 
         t1.join();
         t2.join();
-        t3.join();
-
-        for (var err : errors) {
-            if (err != null) throw new RuntimeException(err);
+        for (var err : nonTestErrors) {
+            // array entries are initialized to null, null check is not redundant
+            if (err != null) {
+                throw new RuntimeException(err);
+            }
         }
 
-        var analyzedRec = results[0];
-        var unAnalyzedRec = results[1];
-        var testsRec = results[2];
+        var analyzedRec = nonTestResults[0];
+        var unAnalyzedRec = nonTestResults[1];
+
+        var mergedFiles = new HashSet<>(analyzedRec.recommendedFiles());
+        mergedFiles.addAll(unAnalyzedRec.recommendedFiles());
+
+        Context rankingContext = context.addFragments(cm.toPathFragments(mergedFiles));
+        List<ChatMessage> rankingOverview = List.of(
+                UserMessage.from("<workspace_summary>\n" + rankingContext.overview() + "\n</workspace_summary>"),
+                new AiMessage("Thank you for the workspace summary."));
+
+        int rankingWorkspaceTokens = Messages.getApproximateMessageTokens(rankingOverview);
+        int testPruneBudgetRemaining = filesPruningBudget - rankingWorkspaceTokens;
+
+        LlmRecommendation testsRec = LlmRecommendation.EMPTY;
+        if (!testCandidates.isEmpty()) {
+            logger.debug("Processing {} test candidates via filename-only pass.", testCandidates.size());
+            var testFilenames =
+                    testCandidates.stream().map(ProjectFile::toString).toList();
+            var testRec = askLlmDeepPruneFilenamesWithChunking(
+                    testFilenames, rankingOverview, min(50_000, testPruneBudgetRemaining), filesLlmTests, false);
+
+            testsRec = new LlmRecommendation(Set.of(), testRec.recommendedFiles(), Set.of(), testRec.tokenUsage());
+        }
 
         boolean success = !analyzedRec.recommendedFiles().isEmpty()
                 || !analyzedRec.recommendedTests().isEmpty()
@@ -433,8 +429,6 @@ public class ContextAgent {
                 || !testsRec.recommendedTests().isEmpty();
 
         // Union files and classes from all groups.
-        var mergedFiles = new HashSet<>(analyzedRec.recommendedFiles());
-        mergedFiles.addAll(unAnalyzedRec.recommendedFiles());
         mergedFiles.addAll(testsRec.recommendedFiles());
 
         var mergedClasses = new HashSet<>(analyzedRec.recommendedClasses());
@@ -448,7 +442,7 @@ public class ContextAgent {
         var candidateTests = new HashSet<>(analyzedRec.recommendedTests());
         candidateTests.addAll(unAnalyzedRec.recommendedTests());
         candidateTests.addAll(testsRec.recommendedTests());
-        Set<ProjectFile> mergedTests = capRecommendedTests(context, mergedFiles, candidateTests);
+        Set<ProjectFile> mergedTests = capRecommendedTests(rankingContext, candidateTests);
 
         var unifiedRec = new LlmRecommendation(mergedFiles, mergedTests, mergedClasses, combinedUsage);
         var result = createResult(unifiedRec, existingFiles);
@@ -1121,13 +1115,12 @@ public class ContextAgent {
     }
 
     @Blocking
-    Set<ProjectFile> capRecommendedTests(Context context, Set<ProjectFile> mergedFiles, Set<ProjectFile> candidateTests)
+    Set<ProjectFile> capRecommendedTests(Context rankingContext, Set<ProjectFile> candidateTests)
             throws InterruptedException {
         if (candidateTests.size() <= 3) {
             return candidateTests;
         }
 
-        Context rankingContext = context.addFragments(cm.toPathFragments(mergedFiles));
         var ranked = rankingContext.getMostRelevantFiles(100);
         Set<ProjectFile> mergedTests = ranked.stream()
                 .filter(candidateTests::contains)

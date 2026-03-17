@@ -11,7 +11,6 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
-import ai.brokk.context.ContextFragments.ProjectPathFragment;
 import ai.brokk.context.ContextFragments.SummaryFragment;
 import ai.brokk.git.GitDistance;
 import ai.brokk.project.ModelProperties;
@@ -445,7 +444,7 @@ public class ContextAgentTest {
         var testRec = new ContextAgent.LlmRecommendation(List.of(prodFile), testFiles, List.of());
 
         // We need a context that has the prod file so distance can be calculated.
-        Context contextWithProd = new Context(cm).addFragments(new ProjectPathFragment(prodFile, cm));
+        Context contextWithProd = new Context(cm).addFragments(new ContextFragments.ProjectPathFragment(prodFile, cm));
 
         StreamingChatModel model = cm.getService().quickestModel();
         var agent = new ContextAgent(cm, model, "goal") {
@@ -456,7 +455,7 @@ public class ContextAgentTest {
                 var candidateTests = new HashSet<>(testRec.recommendedTests());
                 var mergedClasses = new HashSet<>(testRec.recommendedClasses());
 
-                Set<ProjectFile> cappedTests = capRecommendedTests(context, mergedFiles, candidateTests);
+                Set<ProjectFile> cappedTests = capRecommendedTests(context, candidateTests);
                 var unifiedRec = new LlmRecommendation(mergedFiles, cappedTests, mergedClasses, null);
                 var fragments = createResult(unifiedRec, Set.of());
                 return new RecommendationResult(true, fragments, null);
@@ -481,7 +480,6 @@ public class ContextAgentTest {
         var analyzer = new TestAnalyzer();
         var cm = new TestContextManager(root, new TestConsoleIO(), analyzer);
 
-        ProjectFile prodFile = cm.toFile("src/main/java/New.java");
         ProjectFile test1 = cm.toFile("src/test/java/Test1.java");
         ProjectFile test2 = cm.toFile("src/test/java/Test2.java");
         ProjectFile test3 = cm.toFile("src/test/java/Test3.java");
@@ -506,7 +504,7 @@ public class ContextAgentTest {
         var agent = new ContextAgent(cm, model, "goal");
 
         var candidates = Set.of(test1, test2, test3, test4);
-        var capped = agent.capRecommendedTests(recordingContext, Set.of(prodFile), candidates);
+        var capped = agent.capRecommendedTests(recordingContext, candidates);
 
         assertEquals(3, capped.size());
         // Verify ranking order (test4, test3, test2) was respected
@@ -515,10 +513,7 @@ public class ContextAgentTest {
         assertTrue(capped.contains(test2));
         assertFalse(capped.contains(test1));
 
-        // Verify non-test recommendations were added to the ranking context
-        boolean addedProd = addedToRankingContext.stream()
-                .anyMatch(f -> f instanceof ProjectPathFragment pf && pf.file().equals(prodFile));
-        assertTrue(addedProd, "Non-test recommendations should be added to context before ranking");
+        assertTrue(addedToRankingContext.isEmpty());
     }
 
     @Test
@@ -543,7 +538,7 @@ public class ContextAgentTest {
         var agent = new ContextAgent(cm, model, "goal");
 
         var candidates = Set.of(t4, t2, t3, t1);
-        var capped = agent.capRecommendedTests(emptyRankingContext, Set.of(), candidates);
+        var capped = agent.capRecommendedTests(emptyRankingContext, candidates);
 
         assertEquals(3, capped.size());
 
