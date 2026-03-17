@@ -346,8 +346,9 @@ public class LutzAgent {
 
         currentState = currentState.withContext(preparedContext);
 
-        if (shouldAutomaticallyScan() && currentState.context().isFileContentEmpty()) {
-            performAutoScan();
+        // disable autoscan if post-reference-check workspace is non-empty
+        if (!currentState.context().isFileContentEmpty()) {
+            scanConfig = ScanConfig.disabled();
         }
     }
 
@@ -702,18 +703,13 @@ public class LutzAgent {
         return scanConfig.scanModel() == null ? cm.getService().getScanModel() : scanConfig.scanModel();
     }
 
-    private boolean toolTriggersScan(String toolName) {
+    private boolean toolTriggersScan(ToolExecutionRequest req) {
+        String toolName = req.name();
         if (toolName.startsWith("search") || toolName.startsWith("find")) {
             return true;
         }
 
-        if ("callSearchAgent".equals(toolName)) {
-            CompletableFuture<Set<ContextFragment>> referencesFuture = LoggingFuture.supplyCallableAsync(
-                    () -> new ReferenceAgent(cm).resolveReferencedFragments(goal, currentState.context()));
-            return referencesFuture.join().isEmpty();
-        }
-
-        return false;
+        return "callSearchAgent".equals(toolName);
     }
 
     private StreamingChatModel delegatedSearchModel() {
@@ -851,7 +847,7 @@ public class LutzAgent {
                 ai = ToolRegistry.removeDuplicateToolRequests(result.aiMessage());
 
                 if (agent.shouldAutomaticallyScan()
-                        && ai.toolExecutionRequests().stream().anyMatch(req -> agent.toolTriggersScan(req.name()))) {
+                        && ai.toolExecutionRequests().stream().anyMatch(req -> agent.toolTriggersScan(req))) {
                     return TurnOutcome.AutoScan.INSTANCE;
                 }
 
