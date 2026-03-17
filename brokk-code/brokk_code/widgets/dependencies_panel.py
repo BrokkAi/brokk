@@ -1,4 +1,3 @@
-import re
 from typing import Any, Dict, List, Optional
 
 from textual.app import ComposeResult
@@ -67,8 +66,7 @@ class DependenciesPanel(Widget):
             file_count = dep.get("fileCount", 0)
             marker = "[x]" if is_live else "[ ]"
             label = f"{marker} {display_name} ({file_count} files)"
-            safe_id = "dep-" + re.sub(r"[^a-zA-Z0-9_-]", "-", name)
-            list_view.append(ListItem(Static(label, markup=False), id=safe_id))
+            list_view.append(ListItem(Static(label, markup=False)))
 
     def selected_dependency(self) -> Optional[Dict[str, Any]]:
         """Returns the currently selected dependency."""
