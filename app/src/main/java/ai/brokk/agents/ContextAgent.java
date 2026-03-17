@@ -76,7 +76,7 @@ public class ContextAgent {
     private static final int UNANALYZED_TOP_SHOWN = 25;
     private static final int UNANALYZED_BOTTOM_SHOWN = 25;
 
-    private enum GroupType {
+    enum GroupType {
         ANALYZED,
         UNANALYZED
     }
@@ -432,14 +432,10 @@ public class ContextAgent {
                 || !unAnalyzedRec.recommendedClasses().isEmpty()
                 || !testsRec.recommendedTests().isEmpty();
 
-        // Union files, tests, and classes from all groups.
+        // Union files and classes from all groups.
         var mergedFiles = new HashSet<>(analyzedRec.recommendedFiles());
         mergedFiles.addAll(unAnalyzedRec.recommendedFiles());
         mergedFiles.addAll(testsRec.recommendedFiles());
-
-        var mergedTests = new HashSet<>(analyzedRec.recommendedTests());
-        mergedTests.addAll(unAnalyzedRec.recommendedTests());
-        mergedTests.addAll(testsRec.recommendedTests());
 
         var mergedClasses = new HashSet<>(analyzedRec.recommendedClasses());
         mergedClasses.addAll(unAnalyzedRec.recommendedClasses());
@@ -447,6 +443,12 @@ public class ContextAgent {
 
         var combinedUsage = Llm.ResponseMetadata.sum(
                 Llm.ResponseMetadata.sum(analyzedRec.tokenUsage(), unAnalyzedRec.tokenUsage()), testsRec.tokenUsage());
+
+        // Rank test by relevance to (input context + non-test recommendations) and cap at 3.
+        var candidateTests = new HashSet<>(analyzedRec.recommendedTests());
+        candidateTests.addAll(unAnalyzedRec.recommendedTests());
+        candidateTests.addAll(testsRec.recommendedTests());
+        Set<ProjectFile> mergedTests = capRecommendedTests(context, mergedFiles, candidateTests);
 
         var unifiedRec = new LlmRecommendation(mergedFiles, mergedTests, mergedClasses, combinedUsage);
         var result = createResult(unifiedRec, existingFiles);
@@ -563,7 +565,7 @@ public class ContextAgent {
     /**
      * Evaluates relevance for the current file set, halving on context overflow.
      */
-    private LlmRecommendation evaluateWithHalving(
+    LlmRecommendation evaluateWithHalving(
             GroupType type, List<ProjectFile> files, Collection<ChatMessage> workspaceRepresentation, Llm llm)
             throws InterruptedException {
 
@@ -1116,6 +1118,32 @@ public class ContextAgent {
 
     static Lines.HeadTail capUnanalyzedTextForPrompt(String content) {
         return Lines.cap(content, UNANALYZED_MAX_LINES, UNANALYZED_TOP_SHOWN, UNANALYZED_BOTTOM_SHOWN);
+    }
+
+    @Blocking
+    Set<ProjectFile> capRecommendedTests(Context context, Set<ProjectFile> mergedFiles, Set<ProjectFile> candidateTests)
+            throws InterruptedException {
+        if (candidateTests.size() <= 3) {
+            return candidateTests;
+        }
+
+        Context rankingContext = context.addFragments(cm.toPathFragments(mergedFiles));
+        var ranked = rankingContext.getMostRelevantFiles(100);
+        Set<ProjectFile> mergedTests = ranked.stream()
+                .filter(candidateTests::contains)
+                .limit(3)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+
+        // Fallback: if context-aware ranking found fewer than 3, add from candidates deterministically
+        if (mergedTests.size() < 3) {
+            GitDistance.sortByImportance(candidateTests, cm.getRepo()).stream()
+                    .filter(f -> !mergedTests.contains(f))
+                    .limit(3 - mergedTests.size())
+                    .forEach(mergedTests::add);
+        }
+        logger.debug("Capped test recommendations from {} to 3 based on relevance", candidateTests.size());
+
+        return mergedTests;
     }
 
     static String renderFileForPrompt(ProjectFile file, Lines.HeadTail content) {

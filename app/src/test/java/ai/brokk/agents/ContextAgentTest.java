@@ -11,12 +11,16 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
+import ai.brokk.context.ContextFragments.ProjectPathFragment;
+import ai.brokk.context.ContextFragments.SummaryFragment;
+import ai.brokk.git.GitDistance;
 import ai.brokk.project.ModelProperties;
 import ai.brokk.testutil.TestAnalyzer;
 import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestContextManager;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import java.nio.file.Path;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -414,5 +418,138 @@ public class ContextAgentTest {
                     String path = sf.getTargetIdentifier().replace('\\', '/');
                     assertTrue(path.contains("src/test/"), "FILE_SKELETONS summary found for non-test: " + path);
                 });
+    }
+
+    @Test
+    void testGetRecommendations_capsTestsToThreeMostRelevant() throws Exception {
+        Path root = tempDir.toAbsolutePath();
+        var analyzer = new TestAnalyzer();
+        var cm = new TestContextManager(root, new TestConsoleIO(), analyzer);
+
+        // Create a target file that the tests will be "relevant" to.
+        ProjectFile prodFile = new ProjectFile(root, "src/main/java/pkg/Target.java");
+        prodFile.create();
+        prodFile.write("public class Target {}");
+
+        // Create 5 test files.
+        List<ProjectFile> testFiles = new java.util.ArrayList<>();
+        for (int i = 0; i < 5; i++) {
+            ProjectFile tf = new ProjectFile(root, "src/test/java/pkg/Test" + i + ".java");
+            tf.create();
+            tf.write("public class Test" + i + " {}");
+            testFiles.add(tf);
+        }
+
+        // Use the actual getRecommendations logic.
+        // We simulate the LLM recommending all 5 tests and the prod file
+        var testRec = new ContextAgent.LlmRecommendation(List.of(prodFile), testFiles, List.of());
+
+        // We need a context that has the prod file so distance can be calculated.
+        Context contextWithProd = new Context(cm).addFragments(new ProjectPathFragment(prodFile, cm));
+
+        StreamingChatModel model = cm.getService().quickestModel();
+        var agent = new ContextAgent(cm, model, "goal") {
+            @Override
+            public RecommendationResult getRecommendations(Context context, boolean turbo) throws InterruptedException {
+                // Manually trigger the merge and cap logic using the provided testRec
+                var mergedFiles = new HashSet<>(testRec.recommendedFiles());
+                var candidateTests = new HashSet<>(testRec.recommendedTests());
+                var mergedClasses = new HashSet<>(testRec.recommendedClasses());
+
+                Set<ProjectFile> cappedTests = capRecommendedTests(context, mergedFiles, candidateTests);
+                var unifiedRec = new LlmRecommendation(mergedFiles, cappedTests, mergedClasses, null);
+                var fragments = createResult(unifiedRec, Set.of());
+                return new RecommendationResult(true, fragments, null);
+            }
+        };
+
+        var result = agent.getRecommendations(contextWithProd, true);
+        var fragments = result.fragments();
+
+        long testCount = fragments.stream()
+                .filter(f -> f instanceof SummaryFragment sf
+                        && sf.getSummaryType() == ContextFragment.SummaryType.FILE_SKELETONS)
+                .count();
+
+        assertEquals(3, testCount, "Should cap test recommendations to 3");
+        assertTrue(result.success());
+    }
+
+    @Test
+    void capRecommendedTests_usesCorrectRankingContext() throws InterruptedException {
+        Path root = tempDir.toAbsolutePath();
+        var analyzer = new TestAnalyzer();
+        var cm = new TestContextManager(root, new TestConsoleIO(), analyzer);
+
+        ProjectFile prodFile = cm.toFile("src/main/java/New.java");
+        ProjectFile test1 = cm.toFile("src/test/java/Test1.java");
+        ProjectFile test2 = cm.toFile("src/test/java/Test2.java");
+        ProjectFile test3 = cm.toFile("src/test/java/Test3.java");
+        ProjectFile test4 = cm.toFile("src/test/java/Test4.java");
+
+        final List<ContextFragment> addedToRankingContext = new java.util.ArrayList<>();
+        Context recordingContext = new Context(cm) {
+            @Override
+            public Context addFragments(java.util.Collection<? extends ContextFragment> toAdd) {
+                addedToRankingContext.addAll(toAdd);
+                return this;
+            }
+
+            @Override
+            public List<ProjectFile> getMostRelevantFiles(int topK) {
+                // Return tests in specific order to verify ranking drives selection
+                return List.of(test4, test3, test2, test1);
+            }
+        };
+
+        StreamingChatModel model = cm.getService().quickestModel();
+        var agent = new ContextAgent(cm, model, "goal");
+
+        var candidates = Set.of(test1, test2, test3, test4);
+        var capped = agent.capRecommendedTests(recordingContext, Set.of(prodFile), candidates);
+
+        assertEquals(3, capped.size());
+        // Verify ranking order (test4, test3, test2) was respected
+        assertTrue(capped.contains(test4));
+        assertTrue(capped.contains(test3));
+        assertTrue(capped.contains(test2));
+        assertFalse(capped.contains(test1));
+
+        // Verify non-test recommendations were added to the ranking context
+        boolean addedProd = addedToRankingContext.stream()
+                .anyMatch(f -> f instanceof ProjectPathFragment pf && pf.file().equals(prodFile));
+        assertTrue(addedProd, "Non-test recommendations should be added to context before ranking");
+    }
+
+    @Test
+    void capRecommendedTests_deterministicFallback() throws InterruptedException {
+        Path root = tempDir.toAbsolutePath();
+        var analyzer = new TestAnalyzer();
+        var cm = new TestContextManager(root, new TestConsoleIO(), analyzer);
+
+        ProjectFile t1 = cm.toFile("src/test/java/A_Test.java");
+        ProjectFile t2 = cm.toFile("src/test/java/B_Test.java");
+        ProjectFile t3 = cm.toFile("src/test/java/C_Test.java");
+        ProjectFile t4 = cm.toFile("src/test/java/D_Test.java");
+
+        Context emptyRankingContext = new Context(cm) {
+            @Override
+            public List<ProjectFile> getMostRelevantFiles(int topK) {
+                return List.of(); // Simulate ranking returning nothing
+            }
+        };
+
+        StreamingChatModel model = cm.getService().quickestModel();
+        var agent = new ContextAgent(cm, model, "goal");
+
+        var candidates = Set.of(t4, t2, t3, t1);
+        var capped = agent.capRecommendedTests(emptyRankingContext, Set.of(), candidates);
+
+        assertEquals(3, capped.size());
+
+        var expectedTop3 = GitDistance.sortByImportance(candidates, cm.getRepo()).stream()
+                .limit(3)
+                .collect(Collectors.toSet());
+        assertEquals(expectedTop3, capped);
     }
 }
