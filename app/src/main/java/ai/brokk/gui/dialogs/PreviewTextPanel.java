@@ -36,21 +36,31 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.*;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import javax.swing.border.TitledBorder;
+import javax.swing.event.CaretListener;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import javax.swing.event.PopupMenuEvent;
 import javax.swing.event.PopupMenuListener;
 import javax.swing.text.BadLocationException;
+import javax.swing.text.JTextComponent;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.fife.ui.autocomplete.AutoCompletion;
+import org.fife.ui.autocomplete.AutoCompletionEvent;
+import org.fife.ui.autocomplete.AutoCompletionListener;
+import org.fife.ui.autocomplete.Completion;
+import org.fife.ui.autocomplete.DefaultCompletionProvider;
+import org.fife.ui.autocomplete.ShorthandCompletion;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.fife.ui.rsyntaxtextarea.TokenTypes;
@@ -65,6 +75,10 @@ import org.jetbrains.annotations.Nullable;
  */
 public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSizeControl, FontSizeAware {
     private static final Logger logger = LogManager.getLogger(PreviewTextPanel.class);
+    private static final int PREVIEW_AUTOCOMPLETE_DEBOUNCE_MS = 350;
+    private static final int PREVIEW_AUTOCOMPLETE_CONTEXT_CHARS = 4000;
+    private static final int PREVIEW_AUTOCOMPLETE_MAX_TOKENS = 128;
+    private static final int PREVIEW_AUTOCOMPLETE_MIN_PREFIX_CHARS = 2;
     private final PreviewTextArea textArea;
     private final GenericSearchBar searchBar;
     private final RTextScrollPane scrollPane;
@@ -103,6 +117,9 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
     @Nullable
     private Future<Set<String>> symbolsFuture;
 
+    @Nullable
+    private final PreviewAutocompleteController previewAutocompleteController;
+
     private final List<JComponent> dynamicMenuItems = new ArrayList<>(); // For usage capture items
 
     // Font size state - implements EditorFontSizeControl
@@ -136,6 +153,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
         // === Text area with syntax highlighting ===
         // Initialize textArea *before* search bar that references it
         textArea = new PreviewTextArea(content, syntaxStyle, file != null); // syntaxStyle can be null here
+        previewAutocompleteController = shouldEnablePreviewAutocomplete() ? new PreviewAutocompleteController() : null;
 
         // === Top search/action bar ===
         var topPanel = new JPanel(new BorderLayout(8, 4));
@@ -373,6 +391,276 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
         }
         layeredPane.revalidate();
         layeredPane.repaint();
+    }
+
+    static boolean shouldEnablePreviewAutocomplete(@Nullable ProjectFile file, boolean isEditable) {
+        return file != null && isEditable;
+    }
+
+    private boolean shouldEnablePreviewAutocomplete() {
+        return shouldEnablePreviewAutocomplete(file, textArea.isEditable());
+    }
+
+    static @Nullable AbstractService.PreviewAutocompleteRequest buildPreviewAutocompleteRequest(
+            String text, int caretPosition, @Nullable String selectedText) {
+        if (selectedText != null && !selectedText.isEmpty()) {
+            return null;
+        }
+        if (caretPosition <= 0 || caretPosition > text.length()) {
+            return null;
+        }
+
+        int prefixStart = Math.max(0, caretPosition - PREVIEW_AUTOCOMPLETE_CONTEXT_CHARS);
+        int suffixEnd = Math.min(text.length(), caretPosition + PREVIEW_AUTOCOMPLETE_CONTEXT_CHARS);
+        String prefix = text.substring(prefixStart, caretPosition);
+        String suffix = text.substring(caretPosition, suffixEnd);
+        long nonWhitespacePrefixChars = prefix.chars().filter(ch -> !Character.isWhitespace(ch)).count();
+        if (nonWhitespacePrefixChars < PREVIEW_AUTOCOMPLETE_MIN_PREFIX_CHARS) {
+            return null;
+        }
+
+        return new AbstractService.PreviewAutocompleteRequest(prefix, suffix, PREVIEW_AUTOCOMPLETE_MAX_TOKENS, 0.1);
+    }
+
+    boolean hasPreviewAutocomplete() {
+        return previewAutocompleteController != null;
+    }
+
+    private final class PreviewAutocompleteController {
+        private final PreviewAutocompleteProvider provider = new PreviewAutocompleteProvider();
+        private final AutoCompletion autoCompletion = new AutoCompletion(provider);
+        private final javax.swing.Timer debounceTimer;
+        private final AtomicInteger requestGeneration = new AtomicInteger();
+
+        @Nullable
+        private CompletableFuture<Optional<AbstractService.PreviewAutocompleteResult>> pendingRequest;
+
+        @Nullable
+        private Action originalEnterAction;
+
+        @Nullable
+        private Action acceptAction;
+
+        private PreviewAutocompleteController() {
+            autoCompletion.setAutoActivationEnabled(false);
+            autoCompletion.setAutoCompleteSingleChoices(false);
+            autoCompletion.setShowDescWindow(false);
+            
+            // Capture the default Enter action before installing AutoCompletion
+            KeyStroke enter = KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0);
+            Object defaultEnterKey = textArea.getInputMap(JComponent.WHEN_FOCUSED).get(enter);
+            if (defaultEnterKey != null) {
+                originalEnterAction = textArea.getActionMap().get(defaultEnterKey);
+            }
+
+            autoCompletion.install(textArea);
+            
+            autoCompletion.addAutoCompletionListener(e -> {
+                if (e.getEventType() == AutoCompletionEvent.Type.POPUP_SHOWN) {
+                    var inputMap = textArea.getInputMap(JComponent.WHEN_FOCUSED);
+                    var actionMap = textArea.getActionMap();
+                    Object actionKey = inputMap.get(enter);
+                    if (actionKey != null) {
+                        Action currentAction = actionMap.get(actionKey);
+                        if (currentAction != null && !(currentAction instanceof RejectAndNewlineAction)) {
+                            acceptAction = currentAction;
+                            actionMap.put(actionKey, new RejectAndNewlineAction());
+                        }
+                    }
+                }
+            });
+
+            bindTabAcceptance();
+
+            debounceTimer = new javax.swing.Timer(PREVIEW_AUTOCOMPLETE_DEBOUNCE_MS, e -> requestSuggestion());
+            debounceTimer.setRepeats(false);
+
+            var documentListener = new DocumentListener() {
+                @Override
+                public void insertUpdate(DocumentEvent e) {
+                    scheduleRefresh();
+                }
+
+                @Override
+                public void removeUpdate(DocumentEvent e) {
+                    scheduleRefresh();
+                }
+
+                @Override
+                public void changedUpdate(DocumentEvent e) {
+                    scheduleRefresh();
+                }
+            };
+            textArea.getDocument().addDocumentListener(documentListener);
+
+            CaretListener caretListener = e -> scheduleRefresh();
+            textArea.addCaretListener(caretListener);
+        }
+
+        private class RejectAndNewlineAction extends AbstractAction {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                autoCompletion.hideChildWindows();
+                if (originalEnterAction != null) {
+                    originalEnterAction.actionPerformed(e);
+                } else {
+                    textArea.replaceSelection("\n");
+                }
+            }
+        }
+
+        private void bindTabAcceptance() {
+            KeyStroke tab = KeyStroke.getKeyStroke(KeyEvent.VK_TAB, 0);
+            var inputMap = textArea.getInputMap(JComponent.WHEN_FOCUSED);
+            var previousKey = inputMap.get(tab);
+            Action previousAction = previousKey == null ? null : textArea.getActionMap().get(previousKey);
+
+            inputMap.put(tab, "previewAutocompleteAcceptOrTab");
+            textArea.getActionMap().put("previewAutocompleteAcceptOrTab", new AbstractAction() {
+                @Override
+                public void actionPerformed(ActionEvent e) {
+                    if (autoCompletion.isPopupVisible()) {
+                        if (acceptAction != null) {
+                            acceptAction.actionPerformed(new ActionEvent(
+                                    textArea, ActionEvent.ACTION_PERFORMED, "previewAutocompleteAccept"));
+                        }
+                        return;
+                    }
+
+                    if (previousAction != null) {
+                        previousAction.actionPerformed(e);
+                    } else {
+                        textArea.replaceSelection("\t");
+                    }
+                }
+            });
+        }
+
+        private void scheduleRefresh() {
+            requestGeneration.incrementAndGet();
+            provider.clearSuggestion();
+            if (pendingRequest != null) {
+                pendingRequest.cancel(true);
+                pendingRequest = null;
+            }
+            debounceTimer.stop();
+
+            if (!shouldRequestAutocomplete()) {
+                return;
+            }
+
+            debounceTimer.restart();
+        }
+
+        private boolean shouldRequestAutocomplete() {
+            return textArea.isEditable() && textArea.isFocusOwner();
+        }
+
+        private void requestSuggestion() {
+            var request = buildPreviewAutocompleteRequest(textArea.getText(), textArea.getCaretPosition(), textArea.getSelectedText());
+            if (request == null) {
+                return;
+            }
+
+            int generation = requestGeneration.get();
+            var future = ai.brokk.concurrent.LoggingFuture.supplyCallableAsync(
+                    () -> {
+                        logger.info("Requesting FIM suggestion for prefix length: {}, suffix length: {}, caret: {}",
+                                request.prefix().length(), request.suffix().length(), textArea.getCaretPosition());
+                        logger.debug("Prefix: '{}'", request.prefix().substring(Math.max(0, request.prefix().length() - 50)));
+                        return cm.getService().previewAutocomplete(request);
+                    }, cm.getBackgroundTasks());
+            pendingRequest = future;
+            future.thenAccept(result -> SwingUtilities.invokeLater(() -> applySuggestion(generation, future, request, result)));
+        }
+
+        private void applySuggestion(
+                int generation,
+                CompletableFuture<Optional<AbstractService.PreviewAutocompleteResult>> future,
+                AbstractService.PreviewAutocompleteRequest request,
+                Optional<AbstractService.PreviewAutocompleteResult> result) {
+            if (future.isCancelled() || pendingRequest != future || generation != requestGeneration.get()) {
+                logger.debug("Ignoring stale or cancelled suggestion result");
+                return;
+            }
+            pendingRequest = null;
+            if (result.isEmpty()) {
+                logger.info("FIM suggestion result is empty");
+                return;
+            }
+            if (!shouldRequestAutocomplete()) {
+                logger.debug("Autocomplete no longer requested (focus lost or not editable)");
+                return;
+            }
+
+            var suggestion = CachedSuggestion.from(request, textArea.getCaretPosition(), result.get());
+            if (!suggestion.matches(textArea)) {
+                logger.info("FIM suggestion does not match current editor state");
+                return;
+            }
+
+            logger.info("Applying FIM suggestion from model {}: {}", suggestion.modelName(), suggestion.displayText());
+            provider.setSuggestion(suggestion);
+            autoCompletion.doCompletion();
+        }
+    }
+
+    private static final class PreviewAutocompleteProvider extends DefaultCompletionProvider {
+        @Nullable
+        private CachedSuggestion suggestion;
+
+        @Override
+        public String getAlreadyEnteredText(JTextComponent comp) {
+            return "";
+        }
+
+        @Override
+        public List<Completion> getCompletions(JTextComponent comp) {
+            if (suggestion == null || !suggestion.matches(comp)) {
+                return List.of();
+            }
+
+            return List.of(new ShorthandCompletion(
+                    this,
+                    suggestion.displayText(),
+                    suggestion.completion(),
+                    "Preview autocomplete via " + suggestion.modelName()));
+        }
+
+        private void clearSuggestion() {
+            suggestion = null;
+            clear();
+        }
+
+        private void setSuggestion(CachedSuggestion suggestion) {
+            this.suggestion = suggestion;
+        }
+    }
+
+    private record CachedSuggestion(String prefix, String suffix, int caretPosition, String completion, String modelName) {
+        private static CachedSuggestion from(
+                AbstractService.PreviewAutocompleteRequest request,
+                int caretPosition,
+                AbstractService.PreviewAutocompleteResult result) {
+            return new CachedSuggestion(request.prefix(), request.suffix(), caretPosition, result.completion(), result.modelName());
+        }
+
+        private boolean matches(JTextComponent component) {
+            if (component.getCaretPosition() != caretPosition) {
+                return false;
+            }
+
+            var request = buildPreviewAutocompleteRequest(component.getText(), component.getCaretPosition(), component.getSelectedText());
+            return request != null && prefix.equals(request.prefix()) && suffix.equals(request.suffix());
+        }
+
+        private String displayText() {
+            var compact = completion.replace("\r", "\\r").replace("\n", "\\n").replace("\t", "\\t");
+            if (compact.length() <= 80) {
+                return compact;
+            }
+            return compact.substring(0, 77) + "...";
+        }
     }
 
     /** Custom RSyntaxTextArea implementation for preview panels with custom popup menu */

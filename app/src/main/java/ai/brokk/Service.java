@@ -32,7 +32,7 @@ import org.jetbrains.annotations.Nullable;
 /**
  * Concrete service that performs HTTP operations and initializes models.
  */
-public class Service extends AbstractService implements ExceptionReporter.ReportingService {
+public class Service extends AbstractService {
 
     private static final Logger log = LogManager.getLogger(Service.class);
 
@@ -99,6 +99,102 @@ public class Service extends AbstractService implements ExceptionReporter.Report
     @Override
     public float getUserBalance() throws IOException {
         return getUserBalance(MainProject.getBrokkKey());
+    }
+
+    @Override
+    public Optional<PreviewAutocompleteResult> previewAutocomplete(PreviewAutocompleteRequest request) throws IOException {
+        var modelName = previewAutocompleteModelName();
+        if (modelName == null || request.prefix().isBlank()) {
+            return Optional.empty();
+        }
+
+        var payload = objectMapper.createObjectNode();
+        payload.put("model", modelName);
+        payload.put("prompt", request.prefix());
+        payload.put("suffix", request.suffix());
+        payload.put("max_tokens", request.maxTokens());
+        payload.put("stream", false);
+
+        var brokkKey = MainProject.getBrokkKey();
+        if (!brokkKey.isBlank() && brokkKey.contains("+")) {
+            var kp = parseKey(brokkKey);
+            payload.put("user", kp.userId().toString());
+            payload.put("user_id", kp.userId().toString()); // Add both just in case
+        }
+
+        if (request.temperature() != null && supportsTemperature(modelName)) {
+            payload.put("temperature", request.temperature());
+        }
+
+        var requestBody = RequestBody.create(payload.toString(), MediaType.parse("application/json"));
+        var endpoint = MainProject.getProxyUrl() + "/fim/completions";
+        log.debug("Sending FIM request to model {} at {}", modelName, endpoint);
+        var httpRequest =
+                BrokkHttp.proxyRequest().url(endpoint).post(requestBody).build();
+
+        try (Response response = BrokkHttp.execute(httpRequest)) {
+            String responseBody = response.body() != null ? response.body().string() : "";
+            if (!response.isSuccessful()) {
+                log.debug(
+                        "Preview autocomplete request failed for model {} with HTTP {}: {}",
+                        modelName,
+                        response.code(),
+                        responseBody);
+                
+                // Fallback to a dummy completion if the endpoint doesn't exist yet
+                if (response.code() == 404) {
+                    return Optional.of(new PreviewAutocompleteResult(" /* dummy completion */", modelName));
+                }
+                
+                return Optional.empty();
+            }
+
+            log.debug("Preview autocomplete response received from model {}: {}", modelName, responseBody);
+            var completion = extractFimCompletionText(objectMapper.readTree(responseBody));
+            if (completion == null || completion.isBlank()) {
+                return Optional.empty();
+            }
+            return Optional.of(new PreviewAutocompleteResult(completion, modelName));
+        }
+    }
+
+    static @Nullable String extractFimCompletionText(JsonNode responseBody) {
+        var choices = responseBody.path("choices");
+        if (!choices.isArray() || choices.isEmpty()) {
+            return null;
+        }
+
+        var firstChoice = choices.get(0);
+        if (firstChoice == null || firstChoice.isNull()) {
+            return null;
+        }
+
+        var textNode = firstChoice.get("text");
+        if (textNode != null && textNode.isTextual()) {
+            return textNode.asText();
+        }
+
+        var messageContent = firstChoice.path("message").path("content");
+        if (messageContent.isTextual()) {
+            return messageContent.asText();
+        }
+        if (messageContent.isArray()) {
+            var content = new StringBuilder();
+            for (var item : messageContent) {
+                if (item.isTextual()) {
+                    content.append(item.asText());
+                    continue;
+                }
+
+                var text = item.path("text");
+                if (text.isTextual()) {
+                    content.append(text.asText());
+                }
+            }
+            return content.isEmpty() ? null : content.toString();
+        }
+
+        return null;
     }
 
     /**

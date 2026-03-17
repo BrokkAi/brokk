@@ -257,6 +257,28 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
     /** Represents a user-defined favorite model alias. */
     public record FavoriteModel(String alias, ModelConfig config) {}
 
+    /** Lightweight request payload for Preview autocomplete. */
+    public record PreviewAutocompleteRequest(
+            String prefix, String suffix, int maxTokens, @Nullable Double temperature) {
+        public PreviewAutocompleteRequest {
+            Objects.requireNonNull(prefix, "prefix");
+            Objects.requireNonNull(suffix, "suffix");
+            assert maxTokens > 0 : "maxTokens must be positive";
+        }
+
+        public PreviewAutocompleteRequest(String prefix, String suffix, int maxTokens) {
+            this(prefix, suffix, maxTokens, null);
+        }
+    }
+
+    /** Represents a single model-backed Preview autocomplete suggestion. */
+    public record PreviewAutocompleteResult(String completion, String modelName) {
+        public PreviewAutocompleteResult {
+            Objects.requireNonNull(completion, "completion");
+            Objects.requireNonNull(modelName, "modelName");
+        }
+    }
+
     /**
      * Parses a Brokk API key of the form 'brk+<userId>+<token>'. The userId must be a valid UUID.
      * The `sk-` prefix is added implicitly to tokens.
@@ -385,6 +407,58 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
                 .filter(name -> !ModelProperties.SYSTEM_ONLY_MODELS.contains(name))
                 .filter(name -> codexConnected || !isCodexModel(name))
                 .collect(Collectors.toMap(name -> name, name -> modelLocations.getOrDefault(name, name)));
+    }
+
+    /**
+     * Returns the model name to use for Preview autocomplete, preferring known FIM-capable code models and falling
+     * back to the configured code model when necessary.
+     */
+    public @Nullable String previewAutocompleteModelName() {
+        var configuredCodeModel = project.getModelConfig(ModelType.CODE).name();
+        if (!getModelInfo(configuredCodeModel).isEmpty() && previewAutocompleteModelRank(configuredCodeModel) < 100) {
+            return configuredCodeModel;
+        }
+
+        var preferredModel = modelInfoMap.keySet().stream()
+                .filter(name -> !UNAVAILABLE.equals(name))
+                .filter(name -> previewAutocompleteModelRank(name) < 100)
+                .min(Comparator.comparingInt(AbstractService::previewAutocompleteModelRank).thenComparing(String::compareToIgnoreCase));
+        if (preferredModel.isPresent()) {
+            return preferredModel.get();
+        }
+
+        if (!getModelInfo(configuredCodeModel).isEmpty()) {
+            return configuredCodeModel;
+        }
+
+        return modelInfoMap.keySet().stream()
+                .filter(name -> !UNAVAILABLE.equals(name))
+                .filter(name -> name.toLowerCase(Locale.ROOT).contains("code"))
+                .min(String::compareToIgnoreCase)
+                .orElse(null);
+    }
+
+    private static int previewAutocompleteModelRank(String modelName) {
+        var lower = modelName.toLowerCase(Locale.ROOT);
+        if (lower.contains("codestral")) {
+            return 0;
+        }
+        if (lower.contains("qwen") && lower.contains("coder")) {
+            return 10;
+        }
+        if (lower.contains("starcoder")) {
+            return 20;
+        }
+        if (lower.contains("deepseek") && lower.contains("coder")) {
+            return 30;
+        }
+        if (lower.contains("codex")) {
+            return 40;
+        }
+        if (lower.contains("coder") || lower.contains("code")) {
+            return 50;
+        }
+        return 100;
     }
 
     /**
@@ -710,6 +784,14 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
 
     public boolean isFreeTier(StreamingChatModel model) {
         return isFreeTier(nameOf(model));
+    }
+
+    /**
+     * Requests a Preview autocomplete suggestion from the backing service. Services that do not implement a dedicated
+     * completion endpoint return an empty result.
+     */
+    public Optional<PreviewAutocompleteResult> previewAutocomplete(PreviewAutocompleteRequest request) throws IOException {
+        return Optional.empty();
     }
 
     public StreamingChatModel quickestModel() {
