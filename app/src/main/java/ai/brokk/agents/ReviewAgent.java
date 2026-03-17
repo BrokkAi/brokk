@@ -20,6 +20,7 @@ import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.context.DiffService.CumulativeChanges;
 import ai.brokk.context.SpecialTextType;
+import ai.brokk.executor.jobs.PrReviewService;
 import ai.brokk.git.GitRepoData.FileDiff;
 import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.prompts.WorkspacePrompts;
@@ -91,6 +92,7 @@ public class ReviewAgent {
     private final AbstractService.ModelConfig modelConfig;
     private final boolean optimizeForLatency;
     private final IContextManager cm;
+    private final PrReviewService.Severity severityThreshold;
     private @Nullable Context contextBeingBuilt;
     private boolean isComplex = false;
 
@@ -108,11 +110,21 @@ public class ReviewAgent {
             AbstractService.ModelConfig modelConfig,
             boolean optimizeForLatency,
             IContextManager cm) {
+        this(scope, modelConfig, optimizeForLatency, cm, PrReviewService.Severity.HIGH);
+    }
+
+    public ReviewAgent(
+            ReviewScope scope,
+            AbstractService.ModelConfig modelConfig,
+            boolean optimizeForLatency,
+            IContextManager cm,
+            PrReviewService.Severity severityThreshold) {
         this.changes = scope.changes();
         this.metadata = scope.metadata();
         this.modelConfig = modelConfig;
         this.optimizeForLatency = optimizeForLatency;
         this.cm = cm;
+        this.severityThreshold = severityThreshold;
     }
 
     @TestOnly
@@ -912,6 +924,9 @@ public class ReviewAgent {
 
                 Make your recommendations with confidence; if there are multiple options to remediate, give only the best one.
                 Don't equivocate; if it's too minor to address then leave it out entirely.
+                """
+                        + severityGuidance()
+                        + """
 
                 Overview comes LAST, after you've had time to think through the design.
 
@@ -969,6 +984,29 @@ public class ReviewAgent {
                 [One or more paragraphs describing what the changes accomplish and big-picture analysis]
                 </review_format>
                 """);
+    }
+
+    private String severityGuidance() {
+        if (severityThreshold.rank() >= PrReviewService.Severity.LOW.rank()) {
+            return "";
+        }
+        return """
+
+                Focus ONLY on issues with severity >= %s. Omit anything below that threshold.
+
+                SEVERITY DEFINITIONS:
+                - CRITICAL: likely exploitable security issue, data loss/corruption, auth/permission bypass, remote crash, or severe production outage risk.
+                - HIGH: likely bug, race condition, broken error handling, incorrect logic, resource leak, or significant performance regression.
+                - MEDIUM: could become a bug; edge-case correctness; maintainability risks or non-trivial readability concerns.
+                - LOW: style, nits, subjective preference, minor readability, minor refactors, or standard maintainability improvements.
+
+                STRICT FILTERING CRITERIA:
+                - Do NOT report "hardcoded defaults" or "configuration constants" as HIGH or CRITICAL.
+                - Do NOT report "future refactoring opportunities" as HIGH or CRITICAL.
+                - Only report functional bugs, security issues, or critical performance flaws as HIGH or CRITICAL.
+                - "Maintainability" issues alone should be considered MEDIUM or LOW, never HIGH or CRITICAL.
+                """
+                .formatted(severityThreshold.name());
     }
 
     @SuppressWarnings("UnusedMethod") // Called via reflection by ToolRegistry

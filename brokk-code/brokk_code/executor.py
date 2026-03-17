@@ -1304,6 +1304,49 @@ class ExecutorManager:
             await self._handle_http_error(e, "/v1/repo/pr/create")
             raise  # Should not be reached
 
+    async def submit_review_job(
+        self,
+        planner_model: str,
+        severity_threshold: str | None = None,
+    ) -> str:
+        """Submits a guided review job to the executor.
+
+        Reviews all branch changes vs the merge-base with the default branch,
+        including uncommitted working tree changes.
+
+        Args:
+            planner_model: The LLM model to use for the review.
+            severity_threshold: Minimum severity for review notes
+                (CRITICAL, HIGH, MEDIUM, LOW). Defaults to LOW (show everything).
+
+        Returns:
+            The jobId of the created review job.
+
+        Raises:
+            ExecutorError: If the executor is not started or the request fails.
+        """
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+
+        payload: dict = {"plannerModel": planner_model}
+        if severity_threshold:
+            payload["severityThreshold"] = severity_threshold
+
+        headers = {"Idempotency-Key": str(uuid.uuid4())}
+        effective_session_id = self.session_id
+        if effective_session_id:
+            headers["X-Session-Id"] = effective_session_id
+
+        try:
+            resp = await self._http_client.post(
+                "/v1/review/submit", json=payload, headers=headers, timeout=60.0
+            )
+            resp.raise_for_status()
+            return resp.json()["jobId"]
+        except httpx.HTTPError as e:
+            await self._handle_http_error(e, "/v1/review/submit")
+            raise  # Should not be reached
+
     async def cancel_job(self, job_id: str):
         """Cancels an active job."""
         if not self._http_client:

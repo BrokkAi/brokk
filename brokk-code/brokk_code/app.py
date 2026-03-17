@@ -5,6 +5,7 @@ import random
 import re
 import signal
 import time
+import uuid
 import webbrowser
 from datetime import datetime
 from enum import StrEnum
@@ -32,6 +33,7 @@ from brokk_code.settings import (
 from brokk_code.welcome import build_welcome_message, get_braille_icon
 from brokk_code.widgets.chat_panel import ChatInput, ChatPanel
 from brokk_code.widgets.context_panel import ContextPanel
+from brokk_code.widgets.review_panel import GuidedReviewPanel
 from brokk_code.widgets.status_line import StatusLine
 from brokk_code.widgets.tasklist_panel import TaskListPanel
 from brokk_code.workspace import resolve_workspace_dir
@@ -77,6 +79,29 @@ class ContextModalScreen(ModalScreen[None]):
                 self.app.push_screen(BrokkDefenseScreen())
 
     def action_close_context(self) -> None:
+        self._on_close()
+        self.dismiss(None)
+
+
+class ReviewModalScreen(ModalScreen[None]):
+    """Full-screen modal wrapper for the guided review panel."""
+
+    BINDINGS = [
+        Binding("escape", "close_review", "Close", show=False),
+    ]
+
+    def __init__(self, on_close: Callable[[], None]) -> None:
+        super().__init__()
+        self._on_close = on_close
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="review-modal-container"):
+            yield GuidedReviewPanel(id="review-panel")
+
+    def on_mount(self) -> None:
+        self.query_one(GuidedReviewPanel).focus()
+
+    def action_close_review(self) -> None:
         self._on_close()
         self.dismiss(None)
 
@@ -1953,6 +1978,25 @@ class BrokkApp(App):
         elif result == _JobLifecycleResult.CANCELLED and chat:
             chat.add_system_message(f"Task '{display_name}' was cancelled.")
 
+    def on_guided_review_panel_enqueue_requested(
+        self, message: GuidedReviewPanel.EnqueueRequested
+    ) -> None:
+        self.run_worker(self._enqueue_review_task(message.title, message.text))
+
+    async def _enqueue_review_task(self, title: str, text: str) -> None:
+        chat = self._maybe_chat()
+        try:
+            tasklist = await self.executor.get_tasklist()
+            tasks = tasklist.get("tasks", [])
+            tasks.append({"id": str(uuid.uuid4()), "title": title, "text": text, "done": False})
+            tasklist["tasks"] = tasks
+            await self.executor.set_tasklist(tasklist)
+            if chat:
+                chat.add_system_message(f"Task added: {title}", level="SUCCESS")
+        except Exception as e:
+            if chat:
+                chat.add_system_message(f"Failed to add task: {e}", level="ERROR")
+
     def on_chat_panel_mode_selected(self, message: ChatPanel.ModeSelected) -> None:
         self._set_mode(message.mode.upper())
 
@@ -2180,18 +2224,26 @@ class BrokkApp(App):
 
     _VALID_SEVERITIES = {"CRITICAL", "HIGH", "MEDIUM", "LOW"}
 
-    def _handle_review_command(self, parts: List[str]) -> None:
-        """Handle the /review slash command.
+    def _handle_review_command(self, parts: List[str], *, from_alias: bool = False) -> None:
+        """Handle the /pr review slash command.
 
         Supported syntaxes:
-          /review <pr_number> [--severity LEVEL]
-          /review <owner> <repo> <pr_number> [--severity LEVEL]
+          /pr review <pr_number> [--severity LEVEL]
+          /pr review <owner> <repo> <pr_number> [--severity LEVEL]
 
         LEVEL is one of CRITICAL, HIGH, MEDIUM, LOW (default: HIGH).
+
+        When from_alias=True, the command was invoked via the deprecated /review alias.
         """
         chat = self._maybe_chat()
         if not chat:
             return
+
+        if from_alias:
+            chat.add_system_message(
+                "/review is deprecated; use /pr review instead.",
+                level="WARNING",
+            )
 
         if not self._executor_ready:
             chat.add_system_message(
@@ -2201,6 +2253,8 @@ class BrokkApp(App):
             return
 
         # Extract --severity flag before positional parsing
+        # When called from /pr review, parts[0] is "review" and args start at parts[1]
+        # When called from /review alias, parts[0] is "/review" and args start at parts[1]
         raw_args = parts[1:] if len(parts) > 1 else []
         severity_threshold: Optional[str] = None
         positional: List[str] = []
@@ -2225,8 +2279,8 @@ class BrokkApp(App):
 
         if len(args) == 0:
             chat.add_system_message(
-                "Usage: /review <pr_number> [--severity LEVEL] "
-                "or /review <owner> <repo> <pr_number> [--severity LEVEL]",
+                "Usage: /pr review <pr_number> [--severity LEVEL] "
+                "or /pr review <owner> <repo> <pr_number> [--severity LEVEL]",
                 level="WARNING",
             )
             return
@@ -2236,7 +2290,7 @@ class BrokkApp(App):
         repo: Optional[str] = None
 
         if len(args) == 1:
-            # /review <pr_number> - infer owner/repo
+            # /pr review <pr_number> - infer owner/repo
             try:
                 pr_number = int(args[0])
             except ValueError:
@@ -2249,12 +2303,12 @@ class BrokkApp(App):
             if not owner or not repo:
                 chat.add_system_message(
                     "Could not infer GitHub owner/repo from git remote. "
-                    "Use: /review <owner> <repo> <pr_number>",
+                    "Use: /pr review <owner> <repo> <pr_number>",
                     level="ERROR",
                 )
                 return
         elif len(args) == 3:
-            # /review <owner> <repo> <pr_number>
+            # /pr review <owner> <repo> <pr_number>
             owner = args[0]
             repo = args[1]
             try:
@@ -2267,8 +2321,8 @@ class BrokkApp(App):
                 return
         else:
             chat.add_system_message(
-                "Usage: /review <pr_number> [--severity LEVEL] "
-                "or /review <owner> <repo> <pr_number> [--severity LEVEL]",
+                "Usage: /pr review <pr_number> [--severity LEVEL] "
+                "or /pr review <owner> <repo> <pr_number> [--severity LEVEL]",
                 level="WARNING",
             )
             return
@@ -2296,6 +2350,189 @@ class BrokkApp(App):
                 severity_threshold=severity_threshold,
             )
         )
+
+    def _handle_local_review_command(self, parts: List[str]) -> None:
+        """Handle the /review slash command for local guided reviews.
+
+        Supported syntax:
+          /review [--severity LEVEL]
+
+        LEVEL is one of CRITICAL, HIGH, MEDIUM, LOW (default: LOW -- show everything).
+
+        Reviews all branch changes vs the merge-base with the default branch,
+        including uncommitted working tree changes.
+        """
+        chat = self._maybe_chat()
+        if not chat:
+            return
+
+        if not self._executor_ready:
+            chat.add_system_message(
+                "Executor is not ready. Cannot start review.",
+                level="ERROR",
+            )
+            return
+
+        # Parse optional --severity flag
+        raw_args = parts[1:] if len(parts) > 1 else []
+        severity: Optional[str] = None
+        i = 0
+        while i < len(raw_args):
+            if raw_args[i] == "--severity" and i + 1 < len(raw_args):
+                val = raw_args[i + 1].upper()
+                if val not in self._VALID_SEVERITIES:
+                    chat.add_system_message(
+                        f"Invalid severity: {raw_args[i + 1]}. "
+                        f"Must be one of: {', '.join(sorted(self._VALID_SEVERITIES))}",
+                        level="ERROR",
+                    )
+                    return
+                severity = val
+                i += 2
+            else:
+                chat.add_system_message(
+                    "Usage: /review [--severity LEVEL]",
+                    level="WARNING",
+                )
+                return
+
+        severity_msg = f" (severity>={severity})" if severity else ""
+        chat.add_system_message(f"Starting guided review{severity_msg}...")
+        self._open_review_modal()
+        self.run_worker(self._run_review(severity_threshold=severity))
+
+    def _open_review_modal(self) -> None:
+        """Opens the review modal screen."""
+        if isinstance(self.screen, ReviewModalScreen):
+            return
+
+        def on_close() -> None:
+            if self.job_in_progress and self.current_job_id:
+                chat = self._maybe_chat()
+                if chat:
+                    chat.add_system_message("Cancelling review job...")
+                self.run_worker(self.executor.cancel_job(self.current_job_id))
+
+        self.push_screen(ReviewModalScreen(on_close=on_close))
+
+    def _close_review_modal(self) -> None:
+        """Closes the review modal if it is currently active."""
+        try:
+            current_screen = self.screen
+        except ScreenStackError:
+            return
+        if isinstance(current_screen, ReviewModalScreen):
+            current_screen.dismiss(None)
+
+    def _get_review_panel(self) -> Optional[GuidedReviewPanel]:
+        """Returns the GuidedReviewPanel from the current modal screen, or None."""
+        try:
+            if isinstance(self.screen, ReviewModalScreen):
+                return self.screen.query_one(GuidedReviewPanel)
+        except Exception:
+            pass
+        return None
+
+    async def _run_review(self, severity_threshold: Optional[str] = None) -> None:
+        """Run a guided review job and display results in the review panel."""
+        from brokk_code.review_models import parse_guided_review
+
+        chat = self._maybe_chat()
+
+        self.current_job_cost = 0.0
+        self.job_in_progress = True
+        if chat:
+            chat.set_job_running(True)
+
+        # Defer panel lookup until after the first await so the modal is mounted
+        panel = self._get_review_panel()
+        if panel:
+            panel.set_loading(True)
+
+        job_failed = False
+        review_loaded = False
+
+        try:
+            self.current_job_id = await self.executor.submit_review_job(
+                planner_model=self.current_model,
+                severity_threshold=severity_threshold,
+            )
+
+            # Re-fetch panel after the first await; modal is now guaranteed mounted
+            panel = self._get_review_panel()
+            if panel:
+                panel.set_loading(True)
+
+            async for event in self.executor.stream_events(self.current_job_id):
+                if not isinstance(event, dict):
+                    continue
+
+                event_type = event.get("type")
+                data = safe_data(event)
+
+                # The backend emits REVIEW_COMPLETE with the full review data
+                if event_type == "REVIEW_COMPLETE":
+                    try:
+                        guided_review = parse_guided_review(data)
+                        review_loaded = True
+                        panel = self._get_review_panel()
+                        if panel:
+                            panel.set_loading(False)
+                            panel.update_review(guided_review)
+                        if chat:
+                            chat.add_system_message(
+                                "Guided review completed successfully.", level="SUCCESS"
+                            )
+                    except Exception as e:
+                        logger.exception("Failed to process review data")
+                        if chat:
+                            chat.add_system_message(f"Failed to process review: {e}", level="ERROR")
+                        panel = self._get_review_panel()
+                        if panel:
+                            panel.set_loading(False)
+                    continue
+
+                if event_type == "STATE_CHANGE":
+                    state = data.get("state")
+                    if state and is_failure_state(state):
+                        job_failed = True
+                    continue
+
+                if event_type == "ERROR":
+                    job_failed = True
+
+                # Handle other events (notifications, costs, etc.)
+                self._handle_event(event)
+
+            # Post-loop: handle failure or missing review
+            if not review_loaded:
+                panel = self._get_review_panel()
+                if job_failed:
+                    if panel:
+                        panel.set_loading(False)
+                    if chat:
+                        chat.add_system_message("Review job failed.", level="ERROR")
+                else:
+                    if panel:
+                        panel.set_loading(False)
+
+        except Exception as e:
+            logger.exception("Review job failed")
+            job_failed = True
+            if chat:
+                err_type = type(e).__name__
+                chat.add_system_message(
+                    f"Review job failed ({err_type}): {e}",
+                    level="ERROR",
+                )
+            panel = self._get_review_panel()
+            if panel:
+                panel.set_loading(False)
+        finally:
+            if chat:
+                chat.set_job_running(False)
+            self.job_in_progress = False
+            self.current_job_id = None
 
     async def _run_pr_review_job(
         self,
@@ -2630,11 +2867,12 @@ class BrokkApp(App):
             {"command": "/sessions", "description": "List and switch between sessions"},
             {"command": "/commit", "description": "Commit current changes"},
             {"command": "/pr", "description": "Create a pull request"},
-            {"command": "/info", "description": "Show current configuration and status"},
             {
-                "command": "/review",
+                "command": "/pr review",
                 "description": "Submit a PR review job (supports --severity LEVEL)",
             },
+            {"command": "/review", "description": "Generate guided review of changes"},
+            {"command": "/info", "description": "Show current configuration and status"},
             {"command": "/quit", "description": "Exit the application"},
             {"command": "/exit", "description": "Exit the application"},
         ]
@@ -2757,19 +2995,26 @@ class BrokkApp(App):
                 return
             self.run_worker(self._show_costs())
         elif base == "/pr":
-            if not self._executor_ready:
-                chat.add_system_message(
-                    "Executor is not ready. Cannot create pull request.",
-                    level="ERROR",
-                )
-                return
-            # Parse optional base branch: /pr [base-branch]
-            base_branch: Optional[str] = None
-            if len(parts) > 1:
-                base_branch = parts[1]
-            self.run_worker(self._create_pull_request(base_branch))
+            # /pr supports subcommands: /pr review ... or /pr [base-branch] for create
+            if len(parts) > 1 and parts[1].lower() == "review":
+                # /pr review <args...> - route to review handler
+                # Build parts list as ["review", ...remaining args...]
+                review_parts = parts[1:]  # ["review", ...]
+                self._handle_review_command(review_parts)
+            else:
+                # /pr [base-branch] - PR creation flow
+                if not self._executor_ready:
+                    chat.add_system_message(
+                        "Executor is not ready. Cannot create pull request.",
+                        level="ERROR",
+                    )
+                    return
+                base_branch: Optional[str] = None
+                if len(parts) > 1:
+                    base_branch = parts[1]
+                self.run_worker(self._create_pull_request(base_branch))
         elif base == "/review":
-            self._handle_review_command(parts)
+            self._handle_local_review_command(parts)
         elif base in ("/quit", "/exit"):
             self.action_quit()
         else:
