@@ -26,11 +26,13 @@ import org.jspecify.annotations.NullMarked;
 
 @NullMarked
 public class JavaAnalyzerSettingsPanel extends AnalyzerSettingsPanel {
+    private final IProject project;
     private final DefaultTableModel tableModel;
     private final JTable table;
 
     public JavaAnalyzerSettingsPanel(Language language, IProject project, IConsoleIO io) {
-        super(new BorderLayout(), language, project.getRoot(), project, io);
+        super(new BorderLayout(), language, project.getRoot(), io);
+        this.project = project;
 
         JPanel contentPanel = new JPanel(new BorderLayout(5, 5));
         contentPanel.add(new JLabel("Source Roots (relative to project root):"), BorderLayout.NORTH);
