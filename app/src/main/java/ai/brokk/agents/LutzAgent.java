@@ -710,7 +710,7 @@ public class LutzAgent {
         if ("callSearchAgent".equals(toolName)) {
             CompletableFuture<Set<ContextFragment>> referencesFuture = LoggingFuture.supplyCallableAsync(
                     () -> new ReferenceAgent(cm).resolveReferencedFragments(goal, currentState.context()));
-            return !referencesFuture.join().isEmpty();
+            return referencesFuture.join().isEmpty();
         }
 
         return false;
