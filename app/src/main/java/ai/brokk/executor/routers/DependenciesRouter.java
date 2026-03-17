@@ -189,7 +189,12 @@ public final class DependenciesRouter implements SimpleHttpServer.CheckedHttpHan
             var newLiveDependencyDirs = new HashSet<Path>();
             for (var name : names) {
                 if (name != null && !name.isBlank()) {
-                    newLiveDependencyDirs.add(dependenciesDir.resolve(name.strip()));
+                    var resolved = dependenciesDir.resolve(name.strip());
+                    if (!resolved.normalize().startsWith(dependenciesDir.normalize())) {
+                        logger.warn("Skipping path-traversal dependency name: {}", name);
+                        continue;
+                    }
+                    newLiveDependencyDirs.add(resolved);
                 }
             }
 
@@ -298,6 +303,11 @@ public final class DependenciesRouter implements SimpleHttpServer.CheckedHttpHan
             var dependenciesDir =
                     masterRoot.resolve(AbstractProject.BROKK_DIR).resolve(AbstractProject.DEPENDENCIES_DIR);
             var depPath = dependenciesDir.resolve(depName);
+
+            if (!depPath.normalize().startsWith(dependenciesDir.normalize())) {
+                RouterUtil.sendValidationError(exchange, "Invalid dependency name: " + depName);
+                return;
+            }
 
             if (!Files.exists(depPath) || !Files.isDirectory(depPath)) {
                 SimpleHttpServer.sendJsonResponse(
