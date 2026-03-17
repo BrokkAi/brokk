@@ -65,22 +65,28 @@ class DependenciesPanel(Widget):
         return f"{marker} {display_name} ({file_count} files)"
 
     def _rebuild_list(self) -> None:
-        """Rebuild the ListView with current dependencies."""
+        """Rebuild the ListView with current dependencies, avoiding clear() to preserve focus."""
         list_view = self.query_one("#dependencies-list", ListView)
         prev_index = list_view.index
         children = list(list_view.children)
-        if len(children) == len(self._dependencies):
-            for child, dep in zip(children, self._dependencies):
-                child.query_one(Static).update(self._dep_label(dep))
-        else:
-            list_view.clear()
-            for dep in self._dependencies:
-                list_view.append(ListItem(Static(self._dep_label(dep), markup=False)))
-            if self._dependencies:
-                list_view.index = (
-                    min(prev_index, len(self._dependencies) - 1) if prev_index is not None else 0
-                )
-            self.set_timer(0.05, list_view.focus)
+        old_count = len(children)
+        new_count = len(self._dependencies)
+
+        # Remove excess items from the end
+        for child in children[new_count:]:
+            child.remove()
+
+        # Update existing items in-place
+        for child, dep in zip(children[:new_count], self._dependencies):
+            child.query_one(Static).update(self._dep_label(dep))
+
+        # Append any new items
+        for dep in self._dependencies[old_count:]:
+            list_view.append(ListItem(Static(self._dep_label(dep), markup=False)))
+
+        # Restore highlight position
+        if new_count > 0:
+            list_view.index = min(prev_index, new_count - 1) if prev_index is not None else 0
 
     def selected_dependency(self) -> Optional[Dict[str, Any]]:
         """Returns the currently selected dependency."""
