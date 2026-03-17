@@ -3,25 +3,38 @@ package ai.brokk.gui.dialogs;
 import ai.brokk.IConsoleIO;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.macro.MacroPolicy;
-import ai.brokk.analyzer.macro.MacroPolicyLoader;
+import ai.brokk.analyzer.macro.MacroPolicy.MacroMatch;
+import ai.brokk.analyzer.macro.MacroPolicy.MacroStrategy;
+import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.project.IProject;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 import java.awt.*;
 import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
-import java.io.ByteArrayInputStream;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Locale;
 import javax.swing.*;
+import javax.swing.table.AbstractTableModel;
 
 public abstract class AbstractMacroSettingsPanel extends AnalyzerSettingsPanel {
 
     protected final JTextArea yamlEditor;
+    protected final JTable macroTable;
+    protected final MacroTableModel tableModel;
+    protected final List<MacroMatch> macroList;
     protected static final ObjectMapper YAML_MAPPER = new ObjectMapper(new YAMLFactory());
 
     protected AbstractMacroSettingsPanel(Language language, IProject project, IConsoleIO io) {
         super(new BorderLayout(), language, project.getRoot(), project, io);
+
+        MacroPolicy policy = project.getMacroPolicies().get(language);
+        this.macroList = new ArrayList<>(policy != null ? policy.macros() : List.of());
+        this.tableModel = new MacroTableModel();
+        this.macroTable = new JTable(tableModel);
 
         this.yamlEditor = new JTextArea();
         this.yamlEditor.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
@@ -38,45 +51,150 @@ public abstract class AbstractMacroSettingsPanel extends AnalyzerSettingsPanel {
             }
         });
 
-        MacroPolicy policy = project.getMacroPolicies().get(language);
-        if (policy != null) {
+        initComponents();
+    }
+
+    private void initComponents() {
+        JSplitPane splitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
+        splitPane.setDividerLocation(200);
+
+        // Top: Table and buttons
+        JPanel topPanel = new JPanel(new BorderLayout());
+        macroTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        macroTable.getSelectionModel().addListSelectionListener(e -> {
+            if (!e.getValueIsAdjusting()) {
+                updateEditorFromSelectedRow();
+            }
+        });
+
+        topPanel.add(new JScrollPane(macroTable), BorderLayout.CENTER);
+
+        JPanel tableButtons = new JPanel(new GridBagLayout());
+        GridBagConstraints gbc = new GridBagConstraints();
+        gbc.gridx = 0;
+        gbc.gridy = 0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.insets = new Insets(0, 5, 2, 0);
+
+        MaterialButton addBtn = new MaterialButton("+");
+        addBtn.addActionListener(e -> {
+            macroList.add(new MacroMatch("new_macro", null, MacroStrategy.BYPASS, null));
+            tableModel.fireTableDataChanged();
+            macroTable.setRowSelectionInterval(macroList.size() - 1, macroList.size() - 1);
+        });
+        tableButtons.add(addBtn, gbc);
+
+        MaterialButton removeBtn = new MaterialButton("-");
+        removeBtn.addActionListener(e -> {
+            int row = macroTable.getSelectedRow();
+            if (row != -1) {
+                macroList.remove(row);
+                tableModel.fireTableDataChanged();
+                yamlEditor.setText("");
+            }
+        });
+        gbc.gridy++;
+        tableButtons.add(removeBtn, gbc);
+
+        MaterialButton upBtn = new MaterialButton("▲");
+        upBtn.addActionListener(e -> moveRow(-1));
+        gbc.gridy++;
+        tableButtons.add(upBtn, gbc);
+
+        MaterialButton downBtn = new MaterialButton("▼");
+        downBtn.addActionListener(e -> moveRow(1));
+        gbc.gridy++;
+        tableButtons.add(downBtn, gbc);
+
+        topPanel.add(tableButtons, BorderLayout.EAST);
+        splitPane.setTopComponent(topPanel);
+
+        // Bottom: Editor and Apply button
+        JPanel bottomPanel = new JPanel(new BorderLayout());
+        bottomPanel.add(new JLabel("Macro Entry Details (YAML):"), BorderLayout.NORTH);
+        bottomPanel.add(new JScrollPane(yamlEditor), BorderLayout.CENTER);
+
+        MaterialButton applyEntryBtn = new MaterialButton("Apply Entry Changes");
+        applyEntryBtn.addActionListener(e -> applyEntryChanges());
+        bottomPanel.add(applyEntryBtn, BorderLayout.SOUTH);
+
+        splitPane.setBottomComponent(bottomPanel);
+        add(splitPane, BorderLayout.CENTER);
+    }
+
+    private void moveRow(int delta) {
+        int row = macroTable.getSelectedRow();
+        if (row == -1) return;
+        int next = row + delta;
+        if (next >= 0 && next < macroList.size()) {
+            Collections.swap(macroList, row, next);
+            tableModel.fireTableDataChanged();
+            macroTable.setRowSelectionInterval(next, next);
+        }
+    }
+
+    private void updateEditorFromSelectedRow() {
+        int row = macroTable.getSelectedRow();
+        if (row != -1) {
             try {
-                this.yamlEditor.setText(
-                        YAML_MAPPER.writerWithDefaultPrettyPrinter().writeValueAsString(policy));
-            } catch (IOException e) {
-                logger.error("Error formatting macro policy for display", e);
+                MacroMatch match = macroList.get(row);
+                yamlEditor.setText(YAML_MAPPER.writerWithDefaultPrettyPrinter().writeValueAsString(match));
+            } catch (IOException ex) {
+                logger.error("Error formatting macro match", ex);
             }
         }
+    }
 
-        JScrollPane scrollPane = new JScrollPane(yamlEditor);
-        this.add(new JLabel("Macro Policy (YAML):"), BorderLayout.NORTH);
-        this.add(scrollPane, BorderLayout.CENTER);
+    private void applyEntryChanges() {
+        int row = macroTable.getSelectedRow();
+        if (row == -1) return;
+
+        try {
+            MacroMatch updated = YAML_MAPPER.readValue(yamlEditor.getText(), MacroMatch.class);
+            macroList.set(row, updated);
+            tableModel.fireTableRowsUpdated(row, row);
+        } catch (Exception ex) {
+            io.toolError("Failed to parse macro entry: " + ex.getMessage());
+        }
     }
 
     @Override
     public void saveSettings() {
-        String text = yamlEditor.getText();
-        if (text == null
-                || text.isBlank()
-                || text.trim().equals("# Use \"Find unmapped macros\" to populate macros used in your codebase")) {
+        if (macroList.isEmpty()) {
             project.setMacroPolicy(language, null);
-            return;
+        } else {
+            MacroPolicy policy = new MacroPolicy(
+                    "1.0", language.internalName().toLowerCase(Locale.ROOT), new ArrayList<>(macroList));
+            project.setMacroPolicy(language, policy);
+        }
+    }
+
+    protected class MacroTableModel extends AbstractTableModel {
+        private final String[] columns = {"Name", "Strategy"};
+
+        @Override
+        public int getRowCount() {
+            return macroList.size();
         }
 
-        try (var is = new ByteArrayInputStream(text.getBytes(StandardCharsets.UTF_8))) {
-            MacroPolicy policy = MacroPolicyLoader.load(is);
-            if (policy == null) {
-                project.setMacroPolicy(language, null);
-            } else {
-                project.setMacroPolicy(language, policy);
-            }
-        } catch (Exception e) {
-            if (e.getMessage() != null && e.getMessage().contains("No content to map due to end-of-input")) {
-                project.setMacroPolicy(language, null);
-                return;
-            }
-            logger.warn("Invalid macro policy YAML for {}: {}", language.name(), e.getMessage());
-            io.toolError("Failed to save macro policy: " + e.getMessage());
+        @Override
+        public int getColumnCount() {
+            return columns.length;
+        }
+
+        @Override
+        public String getColumnName(int column) {
+            return columns[column];
+        }
+
+        @Override
+        public Object getValueAt(int rowIndex, int columnIndex) {
+            MacroMatch match = macroList.get(rowIndex);
+            return switch (columnIndex) {
+                case 0 -> match.name();
+                case 1 -> match.strategy();
+                default -> null;
+            };
         }
     }
 }

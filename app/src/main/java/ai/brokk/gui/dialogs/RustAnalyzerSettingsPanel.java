@@ -6,12 +6,11 @@ import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.RustAnalyzer;
 import ai.brokk.analyzer.macro.MacroPolicy;
+import ai.brokk.analyzer.macro.MacroPolicy.MacroMatch;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.project.IProject;
 import java.awt.BorderLayout;
 import java.awt.FlowLayout;
-import java.io.ByteArrayInputStream;
-import java.nio.charset.StandardCharsets;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -30,10 +29,6 @@ public class RustAnalyzerSettingsPanel extends AbstractMacroSettingsPanel {
         JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
         buttonPanel.add(findMacrosBtn);
         add(buttonPanel, BorderLayout.SOUTH);
-
-        if (yamlEditor.getText().isBlank()) {
-            yamlEditor.setText("# Use \"Find unmapped macros\" to populate macros used in your codebase\n");
-        }
     }
 
     private void findUnmappedMacros() {
@@ -57,37 +52,20 @@ public class RustAnalyzerSettingsPanel extends AbstractMacroSettingsPanel {
                     false);
         }
 
-        // Parse current YAML to see what we already have
-        Set<String> existingNames = new HashSet<>();
-        try {
-            String currentText = yamlEditor.getText();
-            if (currentText != null && !currentText.isBlank()) {
-                try (var is = new ByteArrayInputStream(currentText.getBytes(StandardCharsets.UTF_8))) {
-                    MacroPolicy policy = YAML_MAPPER.readValue(is, MacroPolicy.class);
-                    existingNames.addAll(
-                            policy.macros().stream().map(m -> m.name()).collect(Collectors.toSet()));
-                }
-            }
-        } catch (Exception ex) {
-            // If YAML is invalid, we'll just append to whatever is there
-            logger.warn("Could not parse existing macro policy during discovery", ex);
-        }
+        // Check macroList which is now the source of truth
+        Set<String> existingNames = macroList.stream().map(MacroMatch::name).collect(Collectors.toSet());
 
-        StringBuilder newEntries = new StringBuilder();
+        boolean added = false;
         for (String name : discoveredMacroNames) {
             if (!existingNames.contains(name)) {
-                newEntries.append("\n  - name: \"").append(name).append("\"\n");
-                newEntries.append("    strategy: \"BYPASS\"\n");
+                macroList.add(new MacroMatch(name, null, MacroPolicy.MacroStrategy.BYPASS, null));
+                added = true;
             }
         }
 
-        if (newEntries.length() > 0) {
-            String currentText = yamlEditor.getText();
-            if (currentText == null || currentText.isBlank() || !currentText.contains("macros:")) {
-                yamlEditor.setText("version: \"1.0\"\nlanguage: \"rust\"\nmacros:" + newEntries.toString());
-            } else {
-                yamlEditor.append(newEntries.toString());
-            }
+        if (added) {
+            tableModel.fireTableDataChanged();
+            io.showNotification(IConsoleIO.NotificationRole.INFO, "Discovered and added new unmapped macros.");
         } else {
             io.showNotification(IConsoleIO.NotificationRole.INFO, "No new unmapped macros discovered.");
         }
