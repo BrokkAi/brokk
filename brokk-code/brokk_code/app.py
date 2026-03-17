@@ -33,6 +33,7 @@ from brokk_code.settings import (
 from brokk_code.welcome import build_welcome_message, get_braille_icon
 from brokk_code.widgets.chat_panel import ChatInput, ChatPanel
 from brokk_code.widgets.context_panel import ContextPanel
+from brokk_code.widgets.dependencies_panel import DependenciesPanel
 from brokk_code.widgets.review_panel import GuidedReviewPanel
 from brokk_code.widgets.status_line import StatusLine
 from brokk_code.widgets.tasklist_panel import TaskListPanel
@@ -102,6 +103,29 @@ class ReviewModalScreen(ModalScreen[None]):
         self.query_one(GuidedReviewPanel).focus()
 
     def action_close_review(self) -> None:
+        self._on_close()
+        self.dismiss(None)
+
+
+class DependenciesModalScreen(ModalScreen[None]):
+    """Full-screen modal wrapper for the dependencies panel."""
+
+    BINDINGS = [
+        Binding("escape", "close_dependencies", "Close", show=False),
+    ]
+
+    def __init__(self, on_close: Callable[[], None]) -> None:
+        super().__init__()
+        self._on_close = on_close
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="dependencies-modal-container"):
+            yield DependenciesPanel(id="dependencies-panel")
+
+    def on_mount(self) -> None:
+        self.query_one(DependenciesPanel).focus()
+
+    def action_close_dependencies(self) -> None:
         self._on_close()
         self.dismiss(None)
 
@@ -2891,6 +2915,7 @@ class BrokkApp(App):
             {"command": "/task", "description": "Open/close the task list"},
             {"command": "/sessions", "description": "List and switch between sessions"},
             {"command": "/commit", "description": "Commit current changes"},
+            {"command": "/dependencies", "description": "Manage project dependencies"},
             {"command": "/pr", "description": "Create a pull request"},
             {
                 "command": "/pr review",
@@ -2998,6 +3023,8 @@ class BrokkApp(App):
                 )
                 return
             self.action_toggle_tasklist()
+        elif base == "/dependencies":
+            self.action_toggle_dependencies()
         elif base == "/commit":
             if not self._executor_ready:
                 chat.add_system_message(
@@ -3149,6 +3176,82 @@ class BrokkApp(App):
         chat = self._maybe_chat()
         if chat:
             chat.open_mode_menu(["CODE", "ASK", "LUTZ", "PLAN"], self.agent_mode)
+
+    def action_toggle_dependencies(self) -> None:
+        if isinstance(self.screen, DependenciesModalScreen):
+            self.screen.dismiss(None)
+            return
+
+        def on_close() -> None:
+            pass
+
+        self.push_screen(DependenciesModalScreen(on_close=on_close))
+
+        if self._executor_ready:
+            self.run_worker(self._refresh_dependencies_panel())
+
+    async def _refresh_dependencies_panel(self) -> None:
+        """Fetches latest dependencies and updates the panel."""
+        if not self._executor_ready:
+            return
+        try:
+            data = await self.executor.get_dependencies()
+            deps_list = data.get("dependencies", [])
+            if isinstance(self.screen, DependenciesModalScreen):
+                panel = self.screen.query_one(DependenciesPanel)
+                panel.refresh_dependencies(deps_list)
+        except Exception as e:
+            chat = self._maybe_chat()
+            if chat:
+                chat.add_system_message(f"Failed to fetch dependencies: {e}", level="ERROR")
+
+    def on_dependencies_panel_action_requested(
+        self, message: DependenciesPanel.ActionRequested
+    ) -> None:
+        self.run_worker(self._execute_dependencies_action(message))
+
+    async def _execute_dependencies_action(
+        self, message: DependenciesPanel.ActionRequested
+    ) -> None:
+        if not self._executor_ready:
+            return
+        chat = self._maybe_chat()
+
+        try:
+            if message.action == "toggle_live":
+                data = await self.executor.get_dependencies()
+                deps = data.get("dependencies", [])
+                current_live = [d["name"] for d in deps if d.get("isLive")]
+                if message.dependency_name in current_live:
+                    current_live.remove(message.dependency_name)
+                else:
+                    current_live.append(message.dependency_name)
+                await self.executor.update_live_dependencies(current_live)
+                if chat:
+                    chat.add_system_message("Updated live dependencies")
+
+            elif message.action == "update":
+                if chat:
+                    chat.add_system_message(f"Updating {message.dependency_name}...")
+                result = await self.executor.update_dependency(message.dependency_name)
+                changed = result.get("changedFiles", 0)
+                if chat:
+                    chat.add_system_message(
+                        f"Updated {message.dependency_name}: {changed} files changed"
+                    )
+
+            elif message.action == "delete":
+                await self.executor.delete_dependency(message.dependency_name)
+                if chat:
+                    chat.add_system_message(f"Deleted dependency: {message.dependency_name}")
+
+            elif message.action == "refresh":
+                pass
+
+            await self._refresh_dependencies_panel()
+        except Exception as e:
+            if chat:
+                chat.add_system_message(f"Dependency action failed: {e}", level="ERROR")
 
     def action_toggle_context(self) -> None:
         if isinstance(self.screen, ContextModalScreen):

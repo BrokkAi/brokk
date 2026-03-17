@@ -2,8 +2,15 @@ Screen {
     background: $surface;
 }
 
-ContextModalScreen, TaskListModalScreen, SessionCostsModalScreen {
+ContextModalScreen, TaskListModalScreen, SessionCostsModalScreen, DependenciesModalScreen {
     align: center middle;
+}
+
+#dependencies-modal-container {
+    width: 100%;
+    height: 100%;
+    padding: 1 2;
+    background: $surface;
 }
 
 BrokkApiKeyModalScreen, TaskTitleModalScreen, ModelReasoningSelectModal {
