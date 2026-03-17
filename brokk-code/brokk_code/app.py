@@ -2274,16 +2274,20 @@ class BrokkApp(App):
                         )
                 return
 
-        if check_text.startswith("/"):
-            self._handle_command(check_text)
-        elif check_text:
-            # Record in history regardless of routing
+        # Record ALL non-empty input in history (both prompts and slash commands)
+        if check_text:
             append_prompt(
                 self.executor.workspace_dir, raw_text, max_history=self.settings.prompt_history_size
             )
             chat = self._maybe_chat()
             if chat:
                 chat.add_history_entry(raw_text)
+
+        if check_text.startswith("/"):
+            self._handle_command(check_text)
+        elif check_text:
+            chat = self._maybe_chat()
+            if chat:
                 chat.add_user_message(raw_text)
             if self.job_in_progress and self.current_job_id:
                 self._pending_prompt = raw_text
