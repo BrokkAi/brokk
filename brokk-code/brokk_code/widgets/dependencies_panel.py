@@ -22,6 +22,7 @@ class DependenciesPanel(Widget):
     BINDINGS = [
         Binding("space", "toggle_live", "Toggle Live", show=False),
         Binding("enter", "toggle_live", "Toggle Live", show=False),
+        Binding("a", "add_dependency", "Add", show=False),
         Binding("u", "update_dependency", "Update", show=False),
         Binding("d", "delete_dependency", "Delete", show=False),
         Binding("x", "delete_dependency", "Delete", show=False),
@@ -44,6 +45,7 @@ class DependenciesPanel(Widget):
         """Derive a concise help line from BINDINGS."""
         return (
             "[bold bright_magenta]Esc[/] Close  "
+            "[b]A[/b] Add  "
             "[b]Space/Enter[/b] Toggle Live  "
             "[b]U[/b] Update  "
             "[b]D/X[/b] Delete  "
@@ -114,6 +116,9 @@ class DependenciesPanel(Widget):
     def on_focus(self) -> None:
         """Delegate focus to the inner ListView so arrow keys work."""
         self.query_one("#dependencies-list", ListView).focus()
+
+    def action_add_dependency(self) -> None:
+        self.post_message(self.ActionRequested("add"))
 
     def action_refresh(self) -> None:
         self.post_message(self.ActionRequested("refresh"))

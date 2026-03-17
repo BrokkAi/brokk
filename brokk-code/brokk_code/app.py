@@ -131,6 +131,117 @@ class DependenciesModalScreen(ModalScreen[None]):
         self.dismiss(None)
 
 
+class AddDependencyModalScreen(ModalScreen[Optional[Dict[str, Any]]]):
+    """Modal for adding a new dependency from local path or Git repository."""
+
+    BINDINGS = [
+        Binding("escape", "dismiss", "Cancel", show=False),
+    ]
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._mode: str = "local"
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="add-dependency-modal-container"):
+            yield Static("Add Dependency", id="add-dependency-title")
+
+            yield Static("Name:", id="add-dependency-name-label")
+            yield Input(placeholder="Dependency name (directory name)", id="add-dependency-name")
+
+            yield Static("Source:", id="add-dependency-source-label")
+            with Horizontal(id="add-dependency-mode-select"):
+                yield Button("Local Path", id="add-dependency-mode-local", variant="primary")
+                yield Button("Git Repository", id="add-dependency-mode-git")
+
+            # Local path input
+            with Vertical(id="add-dependency-local-section"):
+                yield Static("Local Path:", id="add-dependency-path-label")
+                yield Input(placeholder="/path/to/source/directory", id="add-dependency-path")
+
+            # Git input (hidden by default)
+            with Vertical(id="add-dependency-git-section", classes="hidden"):
+                yield Static("Repository URL:", id="add-dependency-repo-label")
+                yield Input(placeholder="https://github.com/owner/repo", id="add-dependency-repo")
+                yield Static("Branch/Tag/Ref (optional):", id="add-dependency-ref-label")
+                yield Input(placeholder="main", id="add-dependency-ref")
+
+            yield Static("", id="add-dependency-error")
+
+            with Horizontal(id="add-dependency-actions"):
+                yield Button("Import", id="add-dependency-submit", variant="primary")
+                yield Button("Cancel", id="add-dependency-cancel")
+
+    def on_mount(self) -> None:
+        self.query_one("#add-dependency-name", Input).focus()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        button_id = event.button.id or ""
+
+        if button_id == "add-dependency-mode-local":
+            self._set_mode("local")
+        elif button_id == "add-dependency-mode-git":
+            self._set_mode("git")
+        elif button_id == "add-dependency-submit":
+            self._do_submit()
+        elif button_id == "add-dependency-cancel":
+            self.dismiss(None)
+
+    def _set_mode(self, mode: str) -> None:
+        self._mode = mode
+        local_btn = self.query_one("#add-dependency-mode-local", Button)
+        git_btn = self.query_one("#add-dependency-mode-git", Button)
+        local_section = self.query_one("#add-dependency-local-section")
+        git_section = self.query_one("#add-dependency-git-section")
+
+        if mode == "local":
+            local_btn.variant = "primary"
+            git_btn.variant = "default"
+            local_section.remove_class("hidden")
+            git_section.add_class("hidden")
+        else:
+            local_btn.variant = "default"
+            git_btn.variant = "primary"
+            local_section.add_class("hidden")
+            git_section.remove_class("hidden")
+
+    def _do_submit(self) -> None:
+        error_label = self.query_one("#add-dependency-error", Static)
+        error_label.update("")
+
+        name = self.query_one("#add-dependency-name", Input).value.strip()
+        if not name:
+            error_label.update("[bold red]Name is required[/]")
+            return
+
+        if self._mode == "local":
+            source_path = self.query_one("#add-dependency-path", Input).value.strip()
+            if not source_path:
+                error_label.update("[bold red]Local path is required[/]")
+                return
+            self.dismiss(
+                {
+                    "name": name,
+                    "mode": "local",
+                    "source_path": source_path,
+                }
+            )
+        else:
+            repo_url = self.query_one("#add-dependency-repo", Input).value.strip()
+            if not repo_url:
+                error_label.update("[bold red]Repository URL is required[/]")
+                return
+            ref = self.query_one("#add-dependency-ref", Input).value.strip() or None
+            self.dismiss(
+                {
+                    "name": name,
+                    "mode": "git",
+                    "repo_url": repo_url,
+                    "ref": ref,
+                }
+            )
+
+
 class TaskListModalScreen(ModalScreen[None]):
     """Full-screen modal wrapper for the task list panel."""
 
@@ -3203,6 +3314,44 @@ class BrokkApp(App):
             if chat:
                 chat.add_system_message(f"Failed to fetch dependencies: {e}", level="ERROR")
 
+    def _open_add_dependency_modal(self) -> None:
+        def on_result(result: Optional[Dict[str, Any]]) -> None:
+            if result:
+                self.run_worker(self._do_import_dependency(result))
+
+        self.push_screen(AddDependencyModalScreen(), on_result)
+
+    async def _do_import_dependency(self, params: Dict[str, Any]) -> None:
+        chat = self._maybe_chat()
+        name = params.get("name", "")
+        mode = params.get("mode", "local")
+
+        try:
+            if chat:
+                chat.add_system_message(f"Importing dependency '{name}'...")
+
+            if mode == "local":
+                await self.executor.import_dependency(
+                    name=name,
+                    source_path=params.get("source_path"),
+                )
+            else:  # git
+                await self.executor.import_dependency(
+                    name=name,
+                    repo_url=params.get("repo_url"),
+                    ref=params.get("ref"),
+                )
+
+            if chat:
+                chat.add_system_message(
+                    f"Successfully imported dependency: {name}", level="SUCCESS"
+                )
+
+            await self._refresh_dependencies_panel()
+        except Exception as e:
+            if chat:
+                chat.add_system_message(f"Failed to import dependency: {e}", level="ERROR")
+
     def on_dependencies_panel_action_requested(
         self, message: DependenciesPanel.ActionRequested
     ) -> None:
@@ -3242,6 +3391,10 @@ class BrokkApp(App):
                 await self.executor.delete_dependency(message.dependency_name)
                 if chat:
                     chat.add_system_message(f"Deleted dependency: {message.dependency_name}")
+
+            elif message.action == "add":
+                self._open_add_dependency_modal()
+                return
 
             elif message.action == "refresh":
                 pass

@@ -56,6 +56,15 @@ public final class DependenciesRouter implements SimpleHttpServer.CheckedHttpHan
             return;
         }
 
+        if (normalizedPath.equals("/v1/dependencies/import")) {
+            if (method.equals("POST")) {
+                handlePostImportDependency(exchange);
+            } else {
+                RouterUtil.sendMethodNotAllowed(exchange);
+            }
+            return;
+        }
+
         // Check for /v1/dependencies/{name}/update pattern
         if (normalizedPath.startsWith("/v1/dependencies/") && normalizedPath.endsWith("/update")) {
             if (method.equals("POST")) {
@@ -339,7 +348,115 @@ public final class DependenciesRouter implements SimpleHttpServer.CheckedHttpHan
         }
     }
 
+    // ── POST /v1/dependencies/import ──────────────────────
+
+    private void handlePostImportDependency(HttpExchange exchange) throws IOException {
+        var request = RouterUtil.parseJsonOr400(exchange, ImportDependencyRequest.class, "/v1/dependencies/import");
+        if (request == null) return;
+
+        // Validate name is required and non-blank
+        if (request.name() == null || request.name().isBlank()) {
+            RouterUtil.sendValidationError(exchange, "name is required and must not be blank");
+            return;
+        }
+
+        var name = request.name().strip();
+        var type = request.type() != null ? request.type().strip().toLowerCase() : "local";
+        var isGit = "git".equals(type);
+
+        // Validate source: either sourcePath (for local) or repoUrl (for git)
+        if (isGit) {
+            if (request.repoUrl() == null || request.repoUrl().isBlank()) {
+                RouterUtil.sendValidationError(exchange, "repoUrl is required for git imports");
+                return;
+            }
+        } else {
+            if (request.sourcePath() == null || request.sourcePath().isBlank()) {
+                RouterUtil.sendValidationError(exchange, "sourcePath is required for local imports");
+                return;
+            }
+        }
+
+        try {
+            var project = contextManager.getProject();
+            var masterRoot = project.getMasterRootPathForConfig();
+            var dependenciesDir =
+                    masterRoot.resolve(AbstractProject.BROKK_DIR).resolve(AbstractProject.DEPENDENCIES_DIR);
+
+            var targetPath = dependenciesDir.resolve(name);
+
+            // Check for path traversal attacks
+            if (!targetPath.normalize().startsWith(dependenciesDir.normalize())) {
+                RouterUtil.sendValidationError(exchange, "Invalid dependency name: " + name);
+                return;
+            }
+
+            // Check if target already exists
+            if (Files.exists(targetPath)) {
+                SimpleHttpServer.sendJsonResponse(
+                        exchange,
+                        409,
+                        ErrorPayload.of(ErrorPayload.Code.VALIDATION_ERROR, "Dependency already exists: " + name));
+                return;
+            }
+
+            // Create the target directory
+            Files.createDirectories(targetPath);
+
+            // Create ProjectFile for the new dependency root
+            var depRoot = new ProjectFile(targetPath, Path.of(""));
+
+            // Write metadata and update dependency on disk
+            if (isGit) {
+                var repoUrl = request.repoUrl().strip();
+                var ref = request.ref() != null && !request.ref().isBlank()
+                        ? request.ref().strip()
+                        : "main";
+
+                DependencyUpdater.writeGitDependencyMetadata(targetPath, repoUrl, ref, null);
+                var metadata =
+                        DependencyUpdater.readDependencyMetadata(targetPath).orElseThrow();
+                DependencyUpdater.updateGitDependencyOnDisk(project, depRoot, metadata);
+            } else {
+                var sourcePath = Path.of(request.sourcePath().strip());
+
+                DependencyUpdater.writeLocalPathDependencyMetadata(targetPath, sourcePath);
+                var metadata =
+                        DependencyUpdater.readDependencyMetadata(targetPath).orElseThrow();
+                DependencyUpdater.updateLocalPathDependencyOnDisk(project, depRoot, metadata);
+            }
+
+            // Mark as live if requested (default: true when field is absent)
+            var markLive = request.markLive() == null || request.markLive();
+            if (markLive) {
+                var currentLiveDirs = project.getLiveDependencies().stream()
+                        .map(dep -> dep.root().absPath())
+                        .collect(Collectors.toSet());
+
+                var newLiveDirs = new HashSet<>(currentLiveDirs);
+                newLiveDirs.add(targetPath);
+
+                project.updateLiveDependencies(newLiveDirs, null).join();
+            }
+
+            SimpleHttpServer.sendJsonResponse(
+                    exchange, Map.of("status", "imported", "name", name, "path", targetPath.toString()));
+        } catch (Exception e) {
+            logger.error("Error handling POST /v1/dependencies/import", e);
+            SimpleHttpServer.sendJsonResponse(
+                    exchange, 500, ErrorPayload.internalError("Failed to import dependency", e));
+        }
+    }
+
     // ── Request DTOs ──────────────────────────────────────
 
     private record UpdateLiveDepsRequest(@Nullable List<String> liveDependencyNames) {}
+
+    private record ImportDependencyRequest(
+            @Nullable String name,
+            @Nullable String type,
+            @Nullable String sourcePath,
+            @Nullable String repoUrl,
+            @Nullable String ref,
+            @Nullable Boolean markLive) {}
 }
