@@ -4,7 +4,6 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.analyzer.CodeUnit;
 import java.io.IOException;
-import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -38,7 +37,7 @@ public class MacroPipelineTest {
 
         String template = ((MacroPolicy.TemplateConfig) isMacro.options()).template();
 
-        // Create a parent CodeUnit (Enum) with child variants. 
+        // Create a parent CodeUnit (Enum) with child variants.
         // We use null for ProjectFile as it's not needed for template expansion.
         CodeUnit parent = CodeUnit.cls(null, "state", "Status");
 

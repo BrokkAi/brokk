@@ -66,11 +66,7 @@ public class CodeUnit implements Comparable<CodeUnit> {
     }
 
     public CodeUnit(
-            ProjectFile source,
-            CodeUnitType kind,
-            String packageName,
-            String shortName,
-            @Nullable String signature) {
+            ProjectFile source, CodeUnitType kind, String packageName, String shortName, @Nullable String signature) {
         this(source, kind, packageName, shortName, signature, false, List.of());
     }
 
