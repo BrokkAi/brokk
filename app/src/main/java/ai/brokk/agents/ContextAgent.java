@@ -744,7 +744,7 @@ public class ContextAgent {
                 Constraints:
                  - You MUST select zero or more files EXCLUSIVELY from the provided <filenames> list.
                  - Do NOT include any filename that is not exactly present in <filenames>.
-                 - If no files apply, return an empty selection (i.e., no lines).
+                 - If no files apply, return `BRK_NO_SUITABLE_CANDIDATES`
 
                 Reason step-by-step:
                  - Identify all files corresponding to class names explicitly mentioned in the <goal>.
@@ -758,7 +758,9 @@ public class ContextAgent {
                    do not recommend files that are listed in the <discarded_context> section.
 
                 Output format (strict):
-                 - Return ONLY the selected filenames, EXACTLY as they appear in <filenames>, one per line.
+                 - Either:
+                   1) one or more exact filenames (one per line), OR
+                   2) exactly `BRK_NO_SUITABLE_CANDIDATES`
                  - No quotes, no bullets, no markdown, and no extra commentary outside of the filenames list.
 
                 </instructions>

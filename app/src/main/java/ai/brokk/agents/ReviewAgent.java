@@ -752,7 +752,7 @@ public class ReviewAgent {
                                                         """
                                         I could not parse the following note because: %s.
                                         Please review the format instructions and give the corrected Markdown text for this note only.
-                                        If you prefer to skip this note entirely rather than fixing it, return empty text.
+                                        If you prefer to skip this note entirely rather than fixing it, return exactly BRK_SKIP_NOTE.
 
                                         The note title was: "%s"
 
@@ -768,7 +768,11 @@ public class ReviewAgent {
                                             Llm.StreamingResult result = correctionLlm.sendRequest(messages);
                                             String correctionText = result.text();
 
-                                            // Treat responses with no header as empty/skipped
+                                            if (correctionText.strip().equals("BRK_SKIP_NOTE")) {
+                                                return "";
+                                            }
+
+                                            // Treat responses with no header as invalid
                                             if (!correctionText.contains("#") || correctionText.isBlank()) {
                                                 return "";
                                             }
