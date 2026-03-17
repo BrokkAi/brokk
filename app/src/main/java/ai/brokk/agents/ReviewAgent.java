@@ -110,7 +110,7 @@ public class ReviewAgent {
             AbstractService.ModelConfig modelConfig,
             boolean optimizeForLatency,
             IContextManager cm) {
-        this(scope, modelConfig, optimizeForLatency, cm, PrReviewService.Severity.CRITICAL);
+        this(scope, modelConfig, optimizeForLatency, cm, PrReviewService.Severity.HIGH);
     }
 
     public ReviewAgent(
@@ -992,11 +992,19 @@ public class ReviewAgent {
         }
         return """
 
-                Focus ONLY on issues with severity >= %s. Omit anything below that threshold. Severity levels:
-                - CRITICAL: Bugs, security vulnerabilities, data corruption risks
-                - HIGH: Significant design flaws, major performance issues
-                - MEDIUM: Style/clarity concerns, minor performance issues
-                - LOW: Nits, nice-to-haves
+                Focus ONLY on issues with severity >= %s. Omit anything below that threshold.
+
+                SEVERITY DEFINITIONS:
+                - CRITICAL: likely exploitable security issue, data loss/corruption, auth/permission bypass, remote crash, or severe production outage risk.
+                - HIGH: likely bug, race condition, broken error handling, incorrect logic, resource leak, or significant performance regression.
+                - MEDIUM: could become a bug; edge-case correctness; maintainability risks or non-trivial readability concerns.
+                - LOW: style, nits, subjective preference, minor readability, minor refactors, or standard maintainability improvements.
+
+                STRICT FILTERING CRITERIA:
+                - Do NOT report "hardcoded defaults" or "configuration constants" as HIGH or CRITICAL.
+                - Do NOT report "future refactoring opportunities" as HIGH or CRITICAL.
+                - Only report functional bugs, security issues, or critical performance flaws as HIGH or CRITICAL.
+                - "Maintainability" issues alone should be considered MEDIUM or LOW, never HIGH or CRITICAL.
                 """
                 .formatted(severityThreshold.name());
     }
