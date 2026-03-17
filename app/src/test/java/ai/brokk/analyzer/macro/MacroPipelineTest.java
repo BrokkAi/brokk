@@ -35,10 +35,15 @@ public class MacroPipelineTest {
         assertInstanceOf(MacroPolicy.TemplateConfig.class, isMacro.options());
 
         String template = ((MacroPolicy.TemplateConfig) isMacro.options()).template();
-        Map<String, Object> context = Map.of("variant_name", "Running");
+        
+        // Mock a child CodeUnit (e.g. an Enum variant)
+        Map<String, Object> variant = Map.of("identifier", "Running");
+        Map<String, Object> codeUnit = Map.of("children", List.of(variant));
+        Map<String, Object> context = Map.of("code_unit", codeUnit);
+        
         String expanded = MacroTemplateExpander.expand(template, context);
 
-        assertEquals("pub fn is_Running(&self) -> bool { matches!(self, Self::Running { .. }) }", expanded);
+        assertEquals("pub fn is_Running(&self) -> bool { matches!(self, Self::Running { .. }) } ", expanded);
     }
 
     @Test
