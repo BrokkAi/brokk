@@ -55,18 +55,30 @@ class DependenciesPanel(Widget):
         self._dependencies = data
         self._rebuild_list()
 
+    @staticmethod
+    def _dep_label(dep: Dict[str, Any]) -> str:
+        name = dep.get("name", "")
+        display_name = dep.get("displayName", name)
+        is_live = dep.get("isLive", False)
+        file_count = dep.get("fileCount", 0)
+        marker = "[x]" if is_live else "[ ]"
+        return f"{marker} {display_name} ({file_count} files)"
+
     def _rebuild_list(self) -> None:
         """Rebuild the ListView with current dependencies."""
         list_view = self.query_one("#dependencies-list", ListView)
-        list_view.clear()
-        for dep in self._dependencies:
-            name = dep.get("name", "")
-            display_name = dep.get("displayName", name)
-            is_live = dep.get("isLive", False)
-            file_count = dep.get("fileCount", 0)
-            marker = "[x]" if is_live else "[ ]"
-            label = f"{marker} {display_name} ({file_count} files)"
-            list_view.append(ListItem(Static(label, markup=False)))
+        prev_index = list_view.index
+        children = list(list_view.children)
+        if len(children) == len(self._dependencies):
+            for child, dep in zip(children, self._dependencies):
+                child.query_one(Static).update(self._dep_label(dep))
+        else:
+            list_view.clear()
+            for dep in self._dependencies:
+                list_view.append(ListItem(Static(self._dep_label(dep), markup=False)))
+            if prev_index is not None and self._dependencies:
+                list_view.index = min(prev_index, len(self._dependencies) - 1)
+            self.set_timer(0.05, list_view.focus)
 
     def selected_dependency(self) -> Optional[Dict[str, Any]]:
         """Returns the currently selected dependency."""
