@@ -8,6 +8,7 @@ import ai.brokk.analyzer.macro.MacroPolicy.MacroStrategy;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.project.IProject;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.dataformat.yaml.JacksonYAMLParseException;
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 import java.awt.*;
 import java.awt.event.KeyAdapter;
@@ -138,13 +139,12 @@ public abstract class AbstractMacroSettingsPanel extends AnalyzerSettingsPanel {
                     macroList.set(row, updated);
                     tableModel.fireTableRowsUpdated(row, row);
                     break;
+                } catch (JacksonYAMLParseException parseException) {
+                    var location = parseException.getLocation();
+                    io.toolError("Failed to parse macro entry. Error at location " + location.getLineNr() + ":"
+                            + location.getColumnNr());
                 } catch (Exception ex) {
                     String msg = ex.getMessage();
-                    if (ex instanceof com.fasterxml.jackson.core.JsonProcessingException jpe) {
-                        msg = jpe.getOriginalMessage();
-                    } else if (ex.getCause() instanceof com.fasterxml.jackson.core.JsonProcessingException jpe) {
-                        msg = jpe.getOriginalMessage();
-                    }
                     io.toolError("Failed to parse macro entry: " + msg);
                     // Loop continues, re-showing the dialog with current yamlEditor content
                 }
