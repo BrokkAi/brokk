@@ -30,7 +30,6 @@ from brokk_code.mcp_config import (
 )
 from brokk_code.nvim_config import configure_nvim_codecompanion_acp_settings
 from brokk_code.nvim_init_patch import wire_nvim_plugin_setup
-from brokk_code.settings import Settings
 from brokk_code.workspace import resolve_workspace_dir
 from brokk_code.zed_config import ExistingBrokkCodeEntryError, configure_zed_acp_settings
 
@@ -406,8 +405,8 @@ def _build_parser() -> argparse.ArgumentParser:
     issue_create_parser.add_argument(
         "--github-token",
         type=str,
-        default=Settings().get_github_token(),
-        help="GitHub API token (from brokk.properties, GITHUB_TOKEN env var, or --github-token)",
+        default=None,
+        help="GitHub API token (from GITHUB_TOKEN env var or --github-token)",
     )
     issue_create_parser.add_argument(
         "--repo-owner",
@@ -446,8 +445,8 @@ def _build_parser() -> argparse.ArgumentParser:
     issue_solve_parser.add_argument(
         "--github-token",
         type=str,
-        default=Settings().get_github_token(),
-        help="GitHub API token (from brokk.properties, GITHUB_TOKEN env var, or --github-token)",
+        default=None,
+        help="GitHub API token (from GITHUB_TOKEN env var or --github-token)",
     )
     issue_solve_parser.add_argument(
         "--repo-owner",
@@ -542,8 +541,8 @@ def _build_parser() -> argparse.ArgumentParser:
     pr_create_parser.add_argument(
         "--github-token",
         type=str,
-        default=Settings().get_github_token(),
-        help="GitHub API token (from brokk.properties, GITHUB_TOKEN env var, or --github-token)",
+        default=None,
+        help="GitHub API token (from GITHUB_TOKEN env var or --github-token)",
     )
 
     pr_review_parser = pr_subparsers.add_parser("review", help="Review a pull request")
@@ -557,8 +556,8 @@ def _build_parser() -> argparse.ArgumentParser:
     pr_review_parser.add_argument(
         "--github-token",
         type=str,
-        default=Settings().get_github_token(),
-        help="GitHub API token (from brokk.properties, GITHUB_TOKEN env var, or --github-token)",
+        default=None,
+        help="GitHub API token (from GITHUB_TOKEN env var or --github-token)",
     )
     pr_review_parser.add_argument(
         "--repo-owner",
@@ -1348,6 +1347,9 @@ def main():
 
     workspace_path = Path(args.workspace).resolve()
     jar_path = Path(args.jar).resolve() if args.jar else None
+    env_github_token = os.getenv("GITHUB_TOKEN")
+    if env_github_token is not None:
+        env_github_token = env_github_token.strip() or None
 
     if args.command == "acp":
         try:
@@ -1401,6 +1403,10 @@ def main():
 
     if args.command == "pr":
         if args.pr_command == "create":
+            cli_github_token = args.github_token.strip() if args.github_token else None
+            if cli_github_token == "":
+                cli_github_token = None
+
             asyncio.run(
                 run_pr_create(
                     workspace_dir=workspace_path,
@@ -1408,7 +1414,7 @@ def main():
                     body=args.body,
                     base_branch=args.base,
                     head_branch=args.head,
-                    github_token=args.github_token,
+                    github_token=cli_github_token or env_github_token,
                     jar_path=jar_path,
                     executor_version=args.executor_version,
                     executor_snapshot=args.executor_snapshot,
@@ -1425,13 +1431,17 @@ def main():
                 if not repo_name:
                     repo_name = inferred_repo
 
-            _validate_github_params(args.github_token, repo_owner, repo_name, "pr review")
+            cli_github_token = args.github_token.strip() if args.github_token else None
+            if cli_github_token == "":
+                cli_github_token = None
+            effective_github_token = cli_github_token or env_github_token
+            _validate_github_params(effective_github_token, repo_owner, repo_name, "pr review")
 
             asyncio.run(
                 run_pr_review_job(
                     workspace_dir=workspace_path,
                     pr_number=args.pr_number,
-                    github_token=args.github_token,
+                    github_token=effective_github_token,
                     repo_owner=repo_owner,
                     repo_name=repo_name,
                     planner_model=args.planner_model,
@@ -1447,12 +1457,16 @@ def main():
 
     if args.command == "issue":
         if args.issue_command == "create":
+            cli_github_token = args.github_token.strip() if args.github_token else None
+            if cli_github_token == "":
+                cli_github_token = None
+            effective_github_token = cli_github_token or env_github_token
             _validate_github_params(
-                args.github_token, args.repo_owner, args.repo_name, "issue create"
+                effective_github_token, args.repo_owner, args.repo_name, "issue create"
             )
             # Handle issue create mode by launching a non-interactive job
             tags = {
-                "github_token": args.github_token,
+                "github_token": effective_github_token,
                 "repo_owner": args.repo_owner,
                 "repo_name": args.repo_name,
             }
@@ -1460,7 +1474,7 @@ def main():
             with _temporary_issue_repo_checkout(
                 repo_owner=args.repo_owner,
                 repo_name=args.repo_name,
-                github_token=args.github_token,
+                github_token=effective_github_token,
                 action_label="Issue create",
             ) as issue_workspace_path:
                 asyncio.run(
@@ -1481,11 +1495,15 @@ def main():
             return
 
         if args.issue_command == "solve":
+            cli_github_token = args.github_token.strip() if args.github_token else None
+            if cli_github_token == "":
+                cli_github_token = None
+            effective_github_token = cli_github_token or env_github_token
             _validate_github_params(
-                args.github_token, args.repo_owner, args.repo_name, "issue solve"
+                effective_github_token, args.repo_owner, args.repo_name, "issue solve"
             )
             tags = {
-                "github_token": args.github_token,
+                "github_token": effective_github_token,
                 "repo_owner": args.repo_owner,
                 "repo_name": args.repo_name,
                 "issue_number": str(args.issue_number),
@@ -1498,7 +1516,7 @@ def main():
             with _temporary_issue_repo_checkout(
                 repo_owner=args.repo_owner,
                 repo_name=args.repo_name,
-                github_token=args.github_token,
+                github_token=effective_github_token,
                 action_label="Issue solve",
             ) as issue_workspace_path:
                 asyncio.run(

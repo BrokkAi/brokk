@@ -27,7 +27,8 @@ public final class HostCommandTool {
 
         var verification = BuildVerifier.verify(project, trimmed, Map.of());
         String status = verification.success() ? "ok" : "failed";
-        return new CommandOutput(formatResult(status, displayedCommand, verification.exitCode(), verification.output()));
+        return new CommandOutput(
+                formatResult(status, displayedCommand, verification.exitCode(), verification.output()));
     }
 
     public record CommandOutput(String llmText) implements ToolOutput {}

@@ -2352,12 +2352,11 @@ class BrokkApp(App):
             )
             return
 
-        # Get GitHub token from brokk.properties or environment
-        github_token = self.settings.get_github_token()
+        github_token = os.getenv("GITHUB_TOKEN")
+        github_token = github_token.strip() if github_token is not None else None
         if not github_token:
             chat.add_system_message(
-                "GitHub token not found. Set githubToken in brokk.properties "
-                "or the GITHUB_TOKEN environment variable.",
+                "GitHub token not found. Set the GITHUB_TOKEN environment variable.",
                 level="ERROR",
             )
             return

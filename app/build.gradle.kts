@@ -55,6 +55,12 @@ node {
 }
 
 tasks.named("pnpmInstall") {
+    val isWindows = System.getProperty("os.name").contains("Windows", ignoreCase = true)
+    if (isWindows) {
+        // pnpm's Windows link layout can produce transient/unreadable paths in node_modules
+        // that fail Gradle 9 output snapshotting. Run this task as untracked on Windows only.
+        doNotTrackState("pnpm node_modules tree may contain unreadable linked paths on Windows")
+    }
     inputs.file("${project.rootDir}/frontend-mop/package.json")
     inputs.file("${project.rootDir}/frontend-mop/pnpm-lock.yaml")
     outputs.dir("${project.rootDir}/frontend-mop/node_modules")

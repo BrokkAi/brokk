@@ -274,9 +274,7 @@ class ToolRegistryTest {
     void executeTool_HostCommandSubprocessFailure_IsDiagnosableSuccessfulOutput() throws Exception {
         Environment.shellCommandRunnerFactory = (command, root) -> (outputConsumer, timeout) -> {
             throw new Environment.FailureException(
-                    "process 'false' signaled error code 7",
-                    "stdout:\nfirst line\n\nstderr:\nboom details",
-                    7);
+                    "process 'false' signaled error code 7", "stdout:\nfirst line\n\nstderr:\nboom details", 7);
         };
 
         var hostRegistry = new ToolRegistry()

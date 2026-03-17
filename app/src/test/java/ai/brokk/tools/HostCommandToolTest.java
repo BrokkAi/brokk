@@ -73,7 +73,8 @@ class HostCommandToolTest {
 
     @Test
     void runBashCommand_success_fallsBackToReturnedOutputWhenNoLinesAreStreamed() {
-        Environment.shellCommandRunnerFactory = (command, root) -> (outputConsumer, timeout) -> "returned only\nstill visible";
+        Environment.shellCommandRunnerFactory =
+                (command, root) -> (outputConsumer, timeout) -> "returned only\nstill visible";
 
         var tool = new HostCommandTool(new TestProject(tempDir));
         String text = tool.runBashCommand("git status").llmText();
@@ -138,8 +139,10 @@ class HostCommandToolTest {
             return "ok from runner";
         };
 
-        var registry =
-                new ToolRegistry().builder().register(new HostCommandTool(new TestProject(tempDir))).build();
+        var registry = new ToolRegistry()
+                .builder()
+                .register(new HostCommandTool(new TestProject(tempDir)))
+                .build();
         Method method = HostCommandTool.class.getDeclaredMethod("runBashCommand", String.class);
         var request = ToolExecutionRequest.builder()
                 .id("tool-1")
@@ -161,13 +164,13 @@ class HostCommandToolTest {
     void toolRegistry_executesAnnotatedRunBashCommandTool_failurePathPreservesDiagnostics() throws Exception {
         Environment.shellCommandRunnerFactory = (command, root) -> (outputConsumer, timeout) -> {
             throw new Environment.FailureException(
-                    "process 'false' signaled error code 9",
-                    "stdout:\nregistry boom\n\nstderr:\nregistry kaput",
-                    9);
+                    "process 'false' signaled error code 9", "stdout:\nregistry boom\n\nstderr:\nregistry kaput", 9);
         };
 
-        var registry =
-                new ToolRegistry().builder().register(new HostCommandTool(new TestProject(tempDir))).build();
+        var registry = new ToolRegistry()
+                .builder()
+                .register(new HostCommandTool(new TestProject(tempDir)))
+                .build();
         Method method = HostCommandTool.class.getDeclaredMethod("runBashCommand", String.class);
         var request = ToolExecutionRequest.builder()
                 .id("tool-2")
