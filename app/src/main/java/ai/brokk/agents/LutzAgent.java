@@ -688,7 +688,7 @@ public class LutzAgent {
         filesAdded.removeAll(filesBeforeScan);
         metrics.recordContextScan(filesAdded.size(), false, toRelativePaths(filesAdded), md);
         context = context.addHistoryEntry(
-                io.getLlmRawMessages(), TaskResult.Type.SCAN, scanModel, "Locate relevant context");
+                io.getLlmRawMessages(), List.of(), TaskResult.Type.SCAN, scanModel, "Locate relevant context");
 
         if (scanConfig.appendToScope) {
             this.scope.append(context);
