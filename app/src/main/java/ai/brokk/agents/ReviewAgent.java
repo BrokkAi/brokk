@@ -110,7 +110,7 @@ public class ReviewAgent {
             AbstractService.ModelConfig modelConfig,
             boolean optimizeForLatency,
             IContextManager cm) {
-        this(scope, modelConfig, optimizeForLatency, cm, PrReviewService.Severity.HIGH);
+        this(scope, modelConfig, optimizeForLatency, cm, PrReviewService.Severity.CRITICAL);
     }
 
     public ReviewAgent(
