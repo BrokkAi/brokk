@@ -12,6 +12,8 @@ import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 import java.awt.*;
 import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -55,15 +57,19 @@ public abstract class AbstractMacroSettingsPanel extends AnalyzerSettingsPanel {
     }
 
     private void initComponents() {
-        JSplitPane splitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
-        splitPane.setDividerLocation(200);
-
-        // Top: Table and buttons
+        // Main: Table and buttons
         JPanel topPanel = new JPanel(new BorderLayout());
         macroTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-        macroTable.getSelectionModel().addListSelectionListener(e -> {
-            if (!e.getValueIsAdjusting()) {
-                updateEditorFromSelectedRow();
+
+        macroTable.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                if (e.getClickCount() == 2) {
+                    int row = macroTable.rowAtPoint(e.getPoint());
+                    if (row != -1) {
+                        editRow(row);
+                    }
+                }
             }
         });
 
@@ -80,7 +86,9 @@ public abstract class AbstractMacroSettingsPanel extends AnalyzerSettingsPanel {
         addBtn.addActionListener(e -> {
             macroList.add(new MacroMatch("new_macro", null, MacroStrategy.BYPASS, null));
             tableModel.fireTableDataChanged();
-            macroTable.setRowSelectionInterval(macroList.size() - 1, macroList.size() - 1);
+            int newRow = macroList.size() - 1;
+            macroTable.setRowSelectionInterval(newRow, newRow);
+            editRow(newRow);
         });
         tableButtons.add(addBtn, gbc);
 
@@ -90,7 +98,6 @@ public abstract class AbstractMacroSettingsPanel extends AnalyzerSettingsPanel {
             if (row != -1) {
                 macroList.remove(row);
                 tableModel.fireTableDataChanged();
-                yamlEditor.setText("");
             }
         });
         gbc.gridy++;
@@ -107,19 +114,29 @@ public abstract class AbstractMacroSettingsPanel extends AnalyzerSettingsPanel {
         tableButtons.add(downBtn, gbc);
 
         topPanel.add(tableButtons, BorderLayout.EAST);
-        splitPane.setTopComponent(topPanel);
+        add(topPanel, BorderLayout.CENTER);
+    }
 
-        // Bottom: Editor and Apply button
-        JPanel bottomPanel = new JPanel(new BorderLayout());
-        bottomPanel.add(new JLabel("Macro Entry Details (YAML):"), BorderLayout.NORTH);
-        bottomPanel.add(new JScrollPane(yamlEditor), BorderLayout.CENTER);
+    private void editRow(int row) {
+        MacroMatch match = macroList.get(row);
+        try {
+            yamlEditor.setText(YAML_MAPPER.writerWithDefaultPrettyPrinter().writeValueAsString(match));
+            yamlEditor.setCaretPosition(0);
 
-        MaterialButton applyEntryBtn = new MaterialButton("Apply Entry Changes");
-        applyEntryBtn.addActionListener(e -> applyEntryChanges());
-        bottomPanel.add(applyEntryBtn, BorderLayout.SOUTH);
+            JScrollPane scrollPane = new JScrollPane(yamlEditor);
+            scrollPane.setPreferredSize(new Dimension(500, 400));
 
-        splitPane.setBottomComponent(bottomPanel);
-        add(splitPane, BorderLayout.CENTER);
+            int result = JOptionPane.showConfirmDialog(
+                    this, scrollPane, "Edit Macro Entry", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+
+            if (result == JOptionPane.OK_OPTION) {
+                MacroMatch updated = YAML_MAPPER.readValue(yamlEditor.getText(), MacroMatch.class);
+                macroList.set(row, updated);
+                tableModel.fireTableRowsUpdated(row, row);
+            }
+        } catch (Exception ex) {
+            io.toolError("Failed to parse macro entry: " + ex.getMessage());
+        }
     }
 
     private void moveRow(int delta) {
@@ -133,30 +150,6 @@ public abstract class AbstractMacroSettingsPanel extends AnalyzerSettingsPanel {
         }
     }
 
-    private void updateEditorFromSelectedRow() {
-        int row = macroTable.getSelectedRow();
-        if (row != -1) {
-            try {
-                MacroMatch match = macroList.get(row);
-                yamlEditor.setText(YAML_MAPPER.writerWithDefaultPrettyPrinter().writeValueAsString(match));
-            } catch (IOException ex) {
-                logger.error("Error formatting macro match", ex);
-            }
-        }
-    }
-
-    private void applyEntryChanges() {
-        int row = macroTable.getSelectedRow();
-        if (row == -1) return;
-
-        try {
-            MacroMatch updated = YAML_MAPPER.readValue(yamlEditor.getText(), MacroMatch.class);
-            macroList.set(row, updated);
-            tableModel.fireTableRowsUpdated(row, row);
-        } catch (Exception ex) {
-            io.toolError("Failed to parse macro entry: " + ex.getMessage());
-        }
-    }
 
     @Override
     public void saveSettings() {
