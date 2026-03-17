@@ -770,6 +770,11 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
         rightScrollPane.setBorder(BorderFactory.createTitledBorder("Language Details"));
         rightScrollPane.getVerticalScrollBar().setUnitIncrement(16);
 
+        // Ensure the panel is wide enough for macro tables and other details
+        Dimension detailSize = new Dimension(650, 500);
+        rightScrollPane.setPreferredSize(detailSize);
+        rightScrollPane.setMinimumSize(detailSize);
+
         var noSelectionLabel = new JLabel("Select a language to view settings.");
         noSelectionLabel.setHorizontalAlignment(SwingConstants.CENTER);
         noSelectionLabel.setVerticalAlignment(SwingConstants.CENTER);
