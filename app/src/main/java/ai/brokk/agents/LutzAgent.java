@@ -345,11 +345,6 @@ public class LutzAgent {
         }
 
         currentState = currentState.withContext(preparedContext);
-
-        // disable autoscan if post-reference-check workspace is non-empty
-        if (!currentState.context().isFileContentEmpty()) {
-            scanConfig = ScanConfig.disabled();
-        }
     }
 
     private TaskResult executeInternal() throws InterruptedException {
@@ -703,13 +698,31 @@ public class LutzAgent {
         return scanConfig.scanModel() == null ? cm.getService().getScanModel() : scanConfig.scanModel();
     }
 
-    private boolean toolTriggersScan(ToolExecutionRequest req) {
+    private boolean toolTriggersScan(ToolExecutionRequest req, ToolRegistry tr) {
         String toolName = req.name();
         if (toolName.startsWith("search") || toolName.startsWith("find")) {
             return true;
         }
 
-        return "callSearchAgent".equals(toolName);
+        if ("callSearchAgent".equals(toolName)) {
+            var invocation = tr.validateTool(req);
+            var parameters = invocation.parameters();
+            assert parameters.size() >= 2 : "callSearchAgent should include query and mode parameters";
+            String mode = (String) parameters.get(1);
+            String query = (String) parameters.get(0);
+
+            // don't scan if callSearchAgent mode is ANSWER
+            if ("ANSWER".equalsIgnoreCase(mode)) {
+                return false;
+            }
+
+            // don't scan if LA already has references to known symbols
+            CompletableFuture<Set<ContextFragment>> referencesFuture = LoggingFuture.supplyCallableAsync(
+                    () -> new ReferenceAgent(cm).resolveReferencedFragments(query, currentState.context()));
+            return referencesFuture.join().isEmpty();
+        }
+
+        return false;
     }
 
     private StreamingChatModel delegatedSearchModel() {
@@ -847,7 +860,7 @@ public class LutzAgent {
                 ai = ToolRegistry.removeDuplicateToolRequests(result.aiMessage());
 
                 if (agent.shouldAutomaticallyScan()
-                        && ai.toolExecutionRequests().stream().anyMatch(req -> agent.toolTriggersScan(req))) {
+                        && ai.toolExecutionRequests().stream().anyMatch(req -> agent.toolTriggersScan(req, tr))) {
                     return TurnOutcome.AutoScan.INSTANCE;
                 }
 
