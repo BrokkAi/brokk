@@ -2,6 +2,8 @@ package ai.brokk.tools;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import ai.brokk.testutil.TestProject;
+import ai.brokk.util.Environment;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.langchain4j.agent.tool.P;
@@ -11,16 +13,24 @@ import dev.langchain4j.agent.tool.ToolSpecifications;
 import dev.langchain4j.model.chat.request.json.JsonObjectSchema;
 import java.lang.reflect.Method;
 import java.lang.reflect.Parameter;
+import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.parallel.Execution;
+import org.junit.jupiter.api.parallel.ExecutionMode;
+import org.junit.jupiter.api.parallel.ResourceLock;
 
+@Execution(ExecutionMode.SAME_THREAD)
+@ResourceLock("ai.brokk.util.Environment.shellCommandRunnerFactory")
 class ToolRegistryTest {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final Path HOST_COMMAND_ROOT = Path.of(".");
 
     private ToolRegistry registry;
     private TestTools tools;
@@ -30,6 +40,11 @@ class ToolRegistryTest {
         var rootRegistry = new ToolRegistry();
         tools = new TestTools();
         registry = rootRegistry.builder().register(tools).build();
+    }
+
+    @AfterEach
+    void resetShellCommandRunnerFactory() {
+        Environment.shellCommandRunnerFactory = Environment.DEFAULT_SHELL_COMMAND_RUNNER_FACTORY;
     }
 
     @Test
@@ -109,7 +124,6 @@ class ToolRegistryTest {
 
     @Test
     void validateTool_ThrowsOnMissingParameter() throws Exception {
-        // Build args missing the second parameter ("reasoning")
         var map = new LinkedHashMap<String, Object>();
         map.put("classNames", List.of("com.a.A", "com.b.B"));
         var json = MAPPER.writeValueAsString(map);
@@ -141,7 +155,6 @@ class ToolRegistryTest {
 
     @Test
     void validateTool_ThrowsOnListElementTypeError() throws Exception {
-        // listInts expects List<Integer>; provide strings to trigger conversion/type error
         var bad = new LinkedHashMap<String, Object>();
         bad.put("ids", List.of("a", "b", "c"));
         bad.put("reason", "r");
@@ -154,7 +167,6 @@ class ToolRegistryTest {
 
     @Test
     void validateToolGlobal_SucceedsForRegisteredGlobalTool() throws Exception {
-        // "think" is registered globally in ToolRegistry constructor
         var map = new LinkedHashMap<String, Object>();
         map.put("reasoning", "Let me work through this");
         var json = MAPPER.writeValueAsString(map);
@@ -199,7 +211,6 @@ class ToolRegistryTest {
 
     @Test
     void executeToolGlobal_SucceedsForRegisteredGlobalTool() throws Exception {
-        // "think" is registered globally in ToolRegistry constructor
         var map = new LinkedHashMap<String, Object>();
         map.put("reasoning", "Consider the options");
         var json = MAPPER.writeValueAsString(map);
@@ -222,6 +233,77 @@ class ToolRegistryTest {
         assertInstanceOf(RichOutput.class, result.result());
         assertEquals("side-channel-value", ((RichOutput) result.result()).value());
         assertTrue(result.elapsedMs() >= 0);
+    }
+
+    @Test
+    void executeTool_HostCommandStructuredOutput_IsSuccessful() throws Exception {
+        Environment.shellCommandRunnerFactory = (command, root) -> (outputConsumer, timeout) -> {
+            outputConsumer.accept("line from subprocess");
+            return "line from subprocess";
+        };
+
+        var hostRegistry = new ToolRegistry()
+                .builder()
+                .register(new HostCommandTool(new TestProject(HOST_COMMAND_ROOT)))
+                .build();
+        Method method = HostCommandTool.class.getDeclaredMethod("runBashCommand", String.class);
+        var req = ToolExecutionRequest.builder()
+                .id("run-bash-1")
+                .name("runBashCommand")
+                .arguments(jsonArgs(method, "echo ok"))
+                .build();
+
+        var result = hostRegistry.executeTool(req);
+
+        assertEquals(ToolExecutionResult.Status.SUCCESS, result.status());
+        assertInstanceOf(HostCommandTool.CommandOutput.class, result.result());
+        assertTrue(result.resultText().contains("### Success"));
+        assertTrue(result.resultText().contains("echo ok"));
+        assertTrue(result.resultText().contains("line from subprocess"));
+        assertEquals("run-bash-1", result.toMessage().id());
+        assertEquals("runBashCommand", result.toMessage().toolName());
+        assertEquals(result.resultText(), result.toMessage().text());
+        assertFalse(result.toMessage().text().startsWith("Request error:"));
+        assertFalse(result.toMessage().text().startsWith("Internal error:"));
+        assertFalse(result.toMessage().text().startsWith("Fatal error:"));
+    }
+
+    @Test
+    void executeTool_HostCommandSubprocessFailure_IsDiagnosableSuccessfulOutput() throws Exception {
+        Environment.shellCommandRunnerFactory = (command, root) -> (outputConsumer, timeout) -> {
+            throw new Environment.FailureException(
+                    "process 'false' signaled error code 7",
+                    "stdout:\nfirst line\n\nstderr:\nboom details",
+                    7);
+        };
+
+        var hostRegistry = new ToolRegistry()
+                .builder()
+                .register(new HostCommandTool(new TestProject(HOST_COMMAND_ROOT)))
+                .build();
+        Method method = HostCommandTool.class.getDeclaredMethod("runBashCommand", String.class);
+        var req = ToolExecutionRequest.builder()
+                .id("run-bash-2")
+                .name("runBashCommand")
+                .arguments(jsonArgs(method, "false"))
+                .build();
+
+        var result = hostRegistry.executeTool(req);
+
+        assertEquals(ToolExecutionResult.Status.SUCCESS, result.status());
+        assertInstanceOf(HostCommandTool.CommandOutput.class, result.result());
+        assertTrue(result.resultText().contains("### Non-zero exit status"));
+        assertTrue(result.resultText().contains("false"));
+        assertTrue(result.resultText().contains("Exit code: 7"));
+        assertTrue(result.resultText().contains("first line"));
+        assertTrue(result.resultText().contains("boom details"));
+        assertEquals(result.resultText(), result.toMessage().text());
+        assertTrue(result.toMessage().text().contains("### Non-zero exit status"));
+        assertTrue(result.toMessage().text().contains("Exit code: 7"));
+        assertTrue(result.toMessage().text().contains("boom details"));
+        assertFalse(result.toMessage().text().startsWith("Request error:"));
+        assertFalse(result.toMessage().text().startsWith("Internal error:"));
+        assertFalse(result.toMessage().text().startsWith("Fatal error:"));
     }
 
     @Test
@@ -292,7 +374,6 @@ class ToolRegistryTest {
 
     @Test
     void getExplanationForToolRequest_MissingParameter() throws Exception {
-        // Build args missing the second parameter ("reasoning")
         var map = new LinkedHashMap<String, Object>();
         map.put("classNames", List.of("com.a.A"));
         var json = MAPPER.writeValueAsString(map);
@@ -302,7 +383,6 @@ class ToolRegistryTest {
                 .arguments(json)
                 .build();
 
-        // Should NOT throw - validation errors return a short, user-friendly message (details also logged)
         String explanation = registry.getExplanationForToolRequest(req);
 
         assertFalse(explanation.isBlank());
@@ -316,7 +396,6 @@ class ToolRegistryTest {
                 .arguments("not valid json at all")
                 .build();
 
-        // Should NOT throw - validation errors return a short, user-friendly message (details also logged)
         String explanation = registry.getExplanationForToolRequest(req);
 
         assertFalse(explanation.isBlank());
@@ -330,15 +409,12 @@ class ToolRegistryTest {
                 .arguments("{}")
                 .build();
 
-        // Should NOT throw - validation errors return a short, user-friendly message (details also logged)
         String explanation = registry.getExplanationForToolRequest(req);
 
         assertFalse(explanation.isBlank());
         assertEquals("Skip invalid tool request.", explanation);
     }
 
-    // Build a JSON args string using actual parameter names as seen by reflection,
-    // to be robust regardless of -parameters compiler flag.
     private static String jsonArgs(Method m, Object... values) throws JsonProcessingException {
         Parameter[] ps = m.getParameters();
         assertEquals(ps.length, values.length, "value count mismatch");
@@ -349,7 +425,6 @@ class ToolRegistryTest {
         return MAPPER.writeValueAsString(map);
     }
 
-    // Local tool provider for testing
     static class TestTools {
         @Tool("Fetch class sources for testing")
         public String getClassSources(@P("classes") List<String> classNames, @P("reason") String reasoning) {
