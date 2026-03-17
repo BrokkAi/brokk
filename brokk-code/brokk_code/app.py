@@ -124,6 +124,7 @@ class DependenciesModalScreen(ModalScreen[None]):
 
     def on_mount(self) -> None:
         self.query_one(DependenciesPanel).focus()
+        self.app.run_worker(self.app._refresh_dependencies_panel())
 
     def action_close_dependencies(self) -> None:
         self._on_close()
@@ -3186,9 +3187,6 @@ class BrokkApp(App):
             pass
 
         self.push_screen(DependenciesModalScreen(on_close=on_close))
-
-        if self._executor_ready:
-            self.run_worker(self._refresh_dependencies_panel())
 
     async def _refresh_dependencies_panel(self) -> None:
         """Fetches latest dependencies and updates the panel."""
