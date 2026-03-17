@@ -1092,11 +1092,9 @@ public class CodeAgent {
                             .formatted(es.blocksAppliedWithoutBuild(), succeededCount);
 
             if (!failedResults.isEmpty()) { // Some blocks failed the direct apply
-                if (succeededCount == 0) { // Total failure for this batch of blocksToApply
-                    updatedConsecutiveApplyFailures++;
-                } else { // Partial success
-                    updatedConsecutiveApplyFailures = 0;
-                }
+                // Count any apply round with failures toward retry cutoff, including partial successes.
+                // This prevents long retry loops when one block keeps failing while others apply.
+                updatedConsecutiveApplyFailures++;
 
                 if (updatedConsecutiveApplyFailures >= MAX_APPLY_FAILURES) {
                     var files = failedResults.stream()

@@ -292,18 +292,7 @@ public class CodePrompts {
         var failures = blockResults.stream().filter(r -> !r.succeeded()).toList();
         assert !failures.isEmpty();
 
-        // Remove any existing BRK_BLOCK markers before re-tagging
-        var cleanedText = originalAiText.replaceAll("(?m)^\\s*\\[BRK_BLOCK_\\d+\\]\\s*\\n?", "");
-
-        // Build the tagged AI message
-        var taggedText =
-                """
-        [HARNESS NOTE: some edits in this message failed to apply. Your SEARCH/REPLACE blocks have been tagged
-        with BRK_BLOCK_$N markers that will be referenced in the subsequent feedback.]
-        %s
-        """
-                        .formatted(EditBlockParser.instance.tagBlocks(cleanedText, startingIndex));
-        var taggedAiMessage = new AiMessage(taggedText);
+        var taggedAiMessage = new AiMessage(buildCompactApplyRetryContext(originalAiText, blockResults, startingIndex));
 
         var successIndices = IntStream.range(0, blockResults.size())
                 .filter(i -> blockResults.get(i).succeeded())
@@ -349,6 +338,54 @@ public class CodePrompts {
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
+    }
+
+    private static String buildCompactApplyRetryContext(
+            String originalAiText, List<EditBlock.ApplyResult> blockResults, int startingIndex) {
+        // Keep only non-edit narrative from the previous response (if any), and include failed blocks only.
+        // This avoids repeatedly re-injecting full successful blocks into context during apply retries.
+        var narrative = redactEditBlocks(new AiMessage(originalAiText), false)
+                .map(AiMessage::text)
+                .orElse("")
+                .trim();
+        if (!narrative.isBlank()) {
+            narrative = clip(narrative, 1500);
+        }
+
+        record IndexedFailure(EditBlock.ApplyResult result, int blockIndex) {}
+        var failedBlocks = IntStream.range(0, blockResults.size())
+                .filter(i -> !blockResults.get(i).succeeded())
+                .mapToObj(i -> new IndexedFailure(blockResults.get(i), startingIndex + i + 1))
+                .toList();
+
+        var failedBlockDigest = failedBlocks.stream()
+                .map(f -> {
+                    var rendered = clip(f.result().block().repr(), 3500);
+                    return """
+                            [BRK_BLOCK_%d]
+                            %s
+                            """
+                            .formatted(f.blockIndex(), rendered);
+                })
+                .collect(Collectors.joining("\n"));
+
+        return """
+                [HARNESS NOTE: some edits in this message failed to apply. Failed blocks are listed below using BRK_BLOCK_$N markers.
+                Use the marker references in the follow-up feedback, inspect current Workspace contents, and provide corrected SEARCH/REPLACE blocks only where still needed.]
+                %s
+                %s
+                """
+                .formatted(
+                        narrative.isBlank() ? "" : "\n<prior_narrative>\n" + narrative + "\n</prior_narrative>\n",
+                        failedBlockDigest)
+                .trim();
+    }
+
+    private static String clip(String text, int maxChars) {
+        if (text.length() <= maxChars) {
+            return text;
+        }
+        return text.substring(0, maxChars) + "\n...[truncated]...";
     }
 
     private static String formatBlockFailure(EditBlock.ApplyResult f, int blockIndex) {

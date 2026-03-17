@@ -3,6 +3,7 @@ package ai.brokk.prompts;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.AbstractService;
+import ai.brokk.EditBlock;
 import ai.brokk.IContextManager;
 import ai.brokk.TaskEntry;
 import ai.brokk.TaskResult;
@@ -387,6 +388,63 @@ class CodePromptsTest {
     void handlesEmptyMessageList() {
         var result = CodePrompts.redactHistoryMessages(List.of(), true);
         assertTrue(result.isEmpty());
+    }
+
+    @Test
+    void buildApplyRetryMessages_includesOnlyFailedBlocksInTaggedContext() {
+        var successBlock = new EditBlock.SearchReplaceBlock("src/A.java", "oldA", "newA");
+        var failedBlock = new EditBlock.SearchReplaceBlock("src/B.java", "oldB", "newB");
+        var results = List.of(
+                new EditBlock.ApplyResult(successBlock, null, true, null, null),
+                EditBlock.ApplyResult.failure(
+                        failedBlock, null, EditBlock.EditBlockFailureReason.NO_MATCH, "not found"));
+
+        var prior =
+                """
+                I updated two files.
+                ```java
+                src/A.java
+                <<<<<<< SEARCH
+                oldA
+                =======
+                newA
+                >>>>>>> REPLACE
+                ```
+                ```java
+                src/B.java
+                <<<<<<< SEARCH
+                oldB
+                =======
+                newB
+                >>>>>>> REPLACE
+                ```
+                """;
+
+        var retry = CodePrompts.buildApplyRetryMessages(prior, results, "", 0, false);
+
+        var tagged = retry.taggedAiMessage().text();
+        assertTrue(tagged.contains("BRK_BLOCK_2"));
+        assertFalse(tagged.contains("BRK_BLOCK_1"));
+        assertTrue(tagged.contains("src/B.java"));
+        assertFalse(tagged.contains("src/A.java"));
+
+        var request = Messages.getText(retry.retryRequest());
+        assertTrue(request.contains("BRK_BLOCK_2"));
+        assertTrue(request.contains("src/B.java"));
+    }
+
+    @Test
+    void buildApplyRetryMessages_truncatesOversizedFailedBlockContext() {
+        var longSearch = "x".repeat(5000);
+        var failedBlock = new EditBlock.SearchReplaceBlock("src/Big.java", longSearch, "y");
+        var results = List.of(
+                EditBlock.ApplyResult.failure(failedBlock, null, EditBlock.EditBlockFailureReason.NO_MATCH, "missing"));
+
+        var retry = CodePrompts.buildApplyRetryMessages("narrative", results, "", 0, false);
+        var tagged = retry.taggedAiMessage().text();
+
+        assertTrue(tagged.contains("...[truncated]..."));
+        assertTrue(tagged.contains("BRK_BLOCK_1"));
     }
 
     // --- History Fetching (getHistoryMessages) Tests ---
