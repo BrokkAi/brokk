@@ -56,15 +56,25 @@ public abstract class AbstractMacroSettingsPanel extends AnalyzerSettingsPanel {
     @Override
     public void saveSettings() {
         String text = yamlEditor.getText();
-        if (text == null || text.isBlank()) {
+        if (text == null
+                || text.isBlank()
+                || text.trim().equals("# Use \"Find unmapped macros\" to populate macros used in your codebase")) {
             project.setMacroPolicy(language, null);
             return;
         }
 
         try (var is = new ByteArrayInputStream(text.getBytes(StandardCharsets.UTF_8))) {
             MacroPolicy policy = MacroPolicyLoader.load(is);
-            project.setMacroPolicy(language, policy);
+            if (policy == null) {
+                project.setMacroPolicy(language, null);
+            } else {
+                project.setMacroPolicy(language, policy);
+            }
         } catch (Exception e) {
+            if (e.getMessage() != null && e.getMessage().contains("No content to map due to end-of-input")) {
+                project.setMacroPolicy(language, null);
+                return;
+            }
             logger.warn("Invalid macro policy YAML for {}: {}", language.name(), e.getMessage());
             io.toolError("Failed to save macro policy: " + e.getMessage());
         }

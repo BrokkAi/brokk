@@ -30,6 +30,10 @@ public class RustAnalyzerSettingsPanel extends AbstractMacroSettingsPanel {
         JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
         buttonPanel.add(findMacrosBtn);
         add(buttonPanel, BorderLayout.SOUTH);
+
+        if (yamlEditor.getText().isBlank()) {
+            yamlEditor.setText("# Use \"Find unmapped macros\" to populate macros used in your codebase\n");
+        }
     }
 
     private void findUnmappedMacros() {
