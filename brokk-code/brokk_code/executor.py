@@ -10,6 +10,7 @@ from urllib.parse import quote
 
 import httpx
 
+from brokk_code.runtime_paths import resolve_go_executor_binary
 from brokk_code.workspace import resolve_workspace_dir
 
 logger = logging.getLogger(__name__)
@@ -122,6 +123,7 @@ class ExecutorManager:
         vendor: Optional[str] = None,
         exit_on_stdin_eof: bool = False,
         brokk_api_key: Optional[str] = None,
+        go_binary_path: Optional[Path] = None,
     ):
         self.workspace_dir = resolve_workspace_dir(workspace_dir or Path.cwd())
         self.jar_override = jar_path
@@ -130,6 +132,7 @@ class ExecutorManager:
         self.vendor = vendor
         self.exit_on_stdin_eof = exit_on_stdin_eof
         self.brokk_api_key = brokk_api_key
+        self.go_binary_path = go_binary_path
         self.auth_token = str(uuid.uuid4())
         self.base_url: Optional[str] = None
         self.session_id: Optional[str] = None
@@ -184,7 +187,7 @@ class ExecutorManager:
         )
 
     def _get_executor_args(self, exec_id: str) -> List[str]:
-        """Returns the common command-line arguments for the HeadlessExecutorMain."""
+        """Returns the common command-line arguments for the Brokk executor runtimes."""
         args = [
             "--exec-id",
             exec_id,
@@ -213,6 +216,12 @@ class ExecutorManager:
             str(jar_path),
             self._main_class,
         ]
+        cmd.extend(self._get_executor_args(exec_id))
+        return cmd
+
+    def _get_go_command(self, go_binary: Path, exec_id: str) -> List[str]:
+        """Returns the command for the Go executor runtime."""
+        cmd = [str(go_binary)]
         cmd.extend(self._get_executor_args(exec_id))
         return cmd
 
@@ -264,7 +273,7 @@ class ExecutorManager:
         return None
 
     async def start(self):
-        """Starts the Java HeadlessExecutorMain subprocess."""
+        """Starts the Brokk executor subprocess, preferring Go when available."""
         exec_id = str(uuid.uuid4())
 
         if self.jar_override:
@@ -272,31 +281,37 @@ class ExecutorManager:
             print(f"Running in dev mode with JAR: {self.jar_override}")
             cmd = self._get_direct_java_command(self.jar_override, exec_id)
         else:
-            dev_jar = self._find_dev_jar()
-            if dev_jar:
-                self.resolved_jar_path = dev_jar
-                print(f"Running in dev mode with local JAR: {dev_jar}")
-                cmd = self._get_direct_java_command(dev_jar, exec_id)
+            resolved_go_binary = resolve_go_executor_binary()
+            go_binary = self.go_binary_path or (Path(resolved_go_binary) if resolved_go_binary else None)
+            if go_binary is not None:
+                print(f"Running with Go executor: {go_binary}")
+                cmd = self._get_go_command(go_binary, exec_id)
             else:
-                cmd = await self._get_jbang_command(exec_id)
+                dev_jar = self._find_dev_jar()
+                if dev_jar:
+                    self.resolved_jar_path = dev_jar
+                    print(f"Running in dev mode with local JAR: {dev_jar}")
+                    cmd = self._get_direct_java_command(dev_jar, exec_id)
+                else:
+                    cmd = await self._get_jbang_command(exec_id)
 
         logger.info(f"Starting executor: {' '.join(cmd)}")
 
         try:
-            # Create subprocess with a dedicated stdin pipe so the Java
-            # executor can detect parent death.
+            # Create subprocess with a dedicated stdin pipe so the runtime
+            # can detect parent death.
             logger.info(f"Launching executor via {cmd[0]}...")
             #
             # Implementation note / lifecycle guarantee:
             # - We intentionally open the child's stdin as a PIPE and retain the StreamWriter
-            #   (self._stdin) reference. The Java HeadlessExecutorMain watches System.in for EOF
-            #   and treats that as a parent-death signal, initiating a controlled shutdown.
+            #   (self._stdin) reference so both the Java and Go runtimes can observe stdin EOF
+            #   and treat that as a parent-death signal for controlled shutdown.
             # - IDEs like IntelliJ will close the child's stdin when the run/debug profile is
             #   terminated or the parent process is killed. Relying on stdin EOF allows the Java
             #   executor to exit even when the Python process's 'finally' cleanup does not run,
             #   preventing lingering brokk.jar/HeadlessExecutorMain processes.
             #
-            # See HeadlessExecutorMain's stdin monitor for more details.
+            # This keeps the shutdown behavior aligned across both runtimes.
             self._process = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdin=asyncio.subprocess.PIPE,
@@ -314,11 +329,15 @@ class ExecutorManager:
                     f"jbang executable not found at '{binary}'. "
                     "Please ensure jbang is installed or provide a local JAR with --jar."
                 )
-            else:
+            if binary.lower().endswith("brokk-go-executor") or binary.lower().endswith("brokk-go-executor.exe"):
                 raise ExecutorError(
-                    f"Java executable not found ('{binary}'). "
-                    "Please ensure JDK 21+ is installed and 'java' is in your PATH."
+                    f"Go executor executable not found ('{binary}'). "
+                    "Build go-runtime/bin/brokk-go-executor or set BROKK_GO_EXECUTOR."
                 )
+            raise ExecutorError(
+                f"Java executable not found ('{binary}'). "
+                "Please ensure JDK 21+ is installed and 'java' is in your PATH."
+            )
 
         try:
             port = await self._await_ready(exec_id)

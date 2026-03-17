@@ -112,3 +112,16 @@ def test_configure_codex_mcp_settings_skips_duplicate_brokk_mark(tmp_path, monke
     content = agents_md.read_text()
     assert content.count("# Brokk") == 1
     assert "Already here" in content
+
+
+def test_configure_claude_code_mcp_settings_prefers_go_binary(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    go_binary = tmp_path / ("brokk-go-mcp.exe" if __import__("sys").platform == "win32" else "brokk-go-mcp")
+    go_binary.write_text("binary")
+    monkeypatch.setenv("BROKK_GO_MCP", str(go_binary))
+
+    returned_path = configure_claude_code_mcp_settings(force=True)
+
+    data = json.loads(returned_path.read_text(encoding="utf-8"))
+    assert data["mcpServers"]["brokk"]["command"] == str(go_binary)
+    assert data["mcpServers"]["brokk"]["args"] == []

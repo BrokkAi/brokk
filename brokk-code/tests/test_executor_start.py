@@ -1,4 +1,5 @@
 import asyncio
+import sys
 
 import pytest
 
@@ -479,5 +480,67 @@ async def test_executor_start_includes_brokk_api_key_flag(monkeypatch, tmp_path)
     assert "--brokk-api-key" in captured_cmd
     idx = captured_cmd.index("--brokk-api-key")
     assert captured_cmd[idx + 1] == "sk-test-123"
+
+    await manager.stop()
+
+@pytest.mark.asyncio
+async def test_executor_start_prefers_go_binary_when_available(monkeypatch, tmp_path):
+    go_binary = tmp_path / ("brokk-go-executor.exe" if sys.platform == "win32" else "brokk-go-executor")
+    go_binary.write_text("dummy")
+    captured_cmd = None
+
+    async def fake_create_subprocess_exec(*cmd, stdin=None, stdout=None, stderr=None, cwd=None):
+        nonlocal captured_cmd
+        captured_cmd = list(cmd)
+
+        class FakeStdout:
+            def __init__(self):
+                self._lines = [
+                    b"Executor listening on http://127.0.0.1:12345\n",
+                    b"",
+                ]
+                self._idx = 0
+
+            async def readline(self):
+                if self._idx < len(self._lines):
+                    ln = self._lines[self._idx]
+                    self._idx += 1
+                    await asyncio.sleep(0)
+                    return ln
+                return b""
+
+        class FakeStdin:
+            def close(self):
+                pass
+
+            async def wait_closed(self):
+                pass
+
+        class FakeProcess:
+            def __init__(self):
+                self.stdout = FakeStdout()
+                self.stdin = FakeStdin() if stdin is not None else None
+                self.returncode = None
+
+            async def wait(self):
+                return 0
+
+            def terminate(self):
+                pass
+
+            def kill(self):
+                pass
+
+        return FakeProcess()
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_create_subprocess_exec)
+    monkeypatch.setattr("brokk_code.executor.resolve_go_executor_binary", lambda: str(go_binary))
+
+    manager = ExecutorManager(workspace_dir=tmp_path)
+    await manager.start()
+
+    assert captured_cmd is not None
+    assert captured_cmd[0] == str(go_binary)
+    assert "java" not in captured_cmd[0].lower()
 
     await manager.stop()

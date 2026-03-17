@@ -5,6 +5,7 @@ import tomllib
 from pathlib import Path
 from typing import Any
 
+from brokk_code.runtime_paths import resolve_go_mcp_binary
 from brokk_code.zed_config import ExistingBrokkCodeEntryError, atomic_write_settings
 
 _IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -118,6 +119,13 @@ def _atomic_write_toml(path: Path, text: str) -> None:
 
 
 def _brokk_mcp_config() -> dict[str, Any]:
+    go_binary = resolve_go_mcp_binary()
+    if go_binary:
+        return {
+            "command": go_binary,
+            "args": [],
+            "type": "stdio",
+        }
     return {
         "command": "jbang",
         "args": [
