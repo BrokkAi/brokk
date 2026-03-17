@@ -14,7 +14,6 @@ import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -150,12 +149,10 @@ public abstract class AbstractMacroSettingsPanel extends AnalyzerSettingsPanel {
         }
     }
 
-
     @Override
     public void saveSettings() {
-        List<MacroMatch> validMacros = macroList.stream()
-                .filter(m -> m.name() != null && !m.name().isBlank())
-                .toList();
+        List<MacroMatch> validMacros =
+                macroList.stream().filter(m -> !m.name().isBlank()).toList();
 
         if (validMacros.isEmpty()) {
             project.setMacroPolicy(language, null);
