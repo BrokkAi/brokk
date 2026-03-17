@@ -41,7 +41,6 @@ public class MacroPipelineTest {
 
         assertInstanceOf(MacroPolicy.TemplateConfig.class, myMacro.options());
         String template = ((MacroPolicy.TemplateConfig) myMacro.options()).template();
-        assertNotNull(template);
 
         Map<String, Object> context = Map.of(
                 "name",
