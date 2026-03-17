@@ -300,6 +300,9 @@ public final class DependenciesPanel extends JPanel implements IContextManager.A
         table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         table.getTableHeader().setReorderingAllowed(false);
 
+        // Explicitly ensure table is focusable for keyboard navigation (arrow keys)
+        table.setFocusable(true);
+
         // Ensure Tab/Shift+Tab move focus forward/backward out of the table (not just within cells)
         table.getInputMap(JComponent.WHEN_FOCUSED).put(KeyStroke.getKeyStroke(KeyEvent.VK_TAB, 0), "transferFocusOut");
         table.getActionMap().put("transferFocusOut", new AbstractAction() {
@@ -431,6 +434,10 @@ public final class DependenciesPanel extends JPanel implements IContextManager.A
         table.addMouseListener(new MouseAdapter() {
             @Override
             public void mousePressed(MouseEvent e) {
+                // Request focus when table is clicked for keyboard navigation
+                if (!table.hasFocus()) {
+                    table.requestFocusInWindow();
+                }
                 showTablePopup(e);
             }
 
