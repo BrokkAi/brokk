@@ -111,7 +111,8 @@ public abstract class AbstractMacroSettingsPanel extends AnalyzerSettingsPanel {
         gbc.anchor = GridBagConstraints.NORTHWEST;
 
         JTextField nameField = new JTextField(match.name());
-        JComboBox<MacroScope> scopeCombo = new JComboBox<>(new MacroScope[] {null, MacroScope.APPLICATION, MacroScope.LIBRARY});
+        JComboBox<MacroScope> scopeCombo =
+                new JComboBox<>(new MacroScope[] {null, MacroScope.APPLICATION, MacroScope.LIBRARY});
         scopeCombo.setSelectedItem(match.scope());
         JComboBox<MacroStrategy> strategyCombo = new JComboBox<>(MacroStrategy.values());
         strategyCombo.setSelectedItem(match.strategy());
@@ -151,25 +152,38 @@ public abstract class AbstractMacroSettingsPanel extends AnalyzerSettingsPanel {
         aiExpandPanel.add(promptHintField);
         optionsCards.add(aiExpandPanel, MacroStrategy.AI_EXPAND.name());
 
-        strategyCombo.addActionListener(e -> cardLayout.show(optionsCards, strategyCombo.getSelectedItem().toString()));
+        strategyCombo.addActionListener(e ->
+                cardLayout.show(optionsCards, strategyCombo.getSelectedItem().toString()));
         cardLayout.show(optionsCards, match.strategy().name());
 
-        gbc.gridx = 0; gbc.gridy = 0;
+        gbc.gridx = 0;
+        gbc.gridy = 0;
         panel.add(new JLabel("Name:"), gbc);
-        gbc.gridx = 1; gbc.weightx = 1.0;
+        gbc.gridx = 1;
+        gbc.weightx = 1.0;
         panel.add(nameField, gbc);
 
-        gbc.gridx = 0; gbc.gridy = 1; gbc.weightx = 0;
+        gbc.gridx = 0;
+        gbc.gridy = 1;
+        gbc.weightx = 0;
         panel.add(new JLabel("Scope:"), gbc);
-        gbc.gridx = 1; gbc.weightx = 1.0;
+        gbc.gridx = 1;
+        gbc.weightx = 1.0;
         panel.add(scopeCombo, gbc);
 
-        gbc.gridx = 0; gbc.gridy = 2; gbc.weightx = 0;
+        gbc.gridx = 0;
+        gbc.gridy = 2;
+        gbc.weightx = 0;
         panel.add(new JLabel("Strategy:"), gbc);
-        gbc.gridx = 1; gbc.weightx = 1.0;
+        gbc.gridx = 1;
+        gbc.weightx = 1.0;
         panel.add(strategyCombo, gbc);
 
-        gbc.gridx = 0; gbc.gridy = 3; gbc.gridwidth = 2; gbc.weighty = 1.0; gbc.fill = GridBagConstraints.BOTH;
+        gbc.gridx = 0;
+        gbc.gridy = 3;
+        gbc.gridwidth = 2;
+        gbc.weighty = 1.0;
+        gbc.fill = GridBagConstraints.BOTH;
         panel.add(optionsCards, gbc);
 
         int result = JOptionPane.showConfirmDialog(
@@ -179,20 +193,23 @@ public abstract class AbstractMacroSettingsPanel extends AnalyzerSettingsPanel {
             String newName = nameField.getText().trim();
             MacroScope newScope = (MacroScope) scopeCombo.getSelectedItem();
             MacroStrategy newStrategy = (MacroStrategy) strategyCombo.getSelectedItem();
-            MacroConfig newOptions = switch (newStrategy) {
-                case BYPASS -> new BypassConfig();
-                case BUILTIN -> new BuiltinConfig();
-                case TEMPLATE -> new TemplateConfig(templateArea.getText());
-                case AI_EXPAND -> {
-                    Integer maxTokens = null;
-                    try {
-                        String txt = maxTokensField.getText().trim();
-                        if (!txt.isEmpty()) maxTokens = Integer.parseInt(txt);
-                    } catch (NumberFormatException ignored) {}
-                    String hint = promptHintField.getText().trim();
-                    yield new AIExpandConfig(maxTokens, hint.isEmpty() ? null : hint);
-                }
-            };
+            MacroConfig newOptions =
+                    switch (newStrategy) {
+                        case BYPASS -> new BypassConfig();
+                        case BUILTIN -> new BuiltinConfig();
+                        case TEMPLATE -> new TemplateConfig(templateArea.getText());
+                        case AI_EXPAND -> {
+                            Integer maxTokens = null;
+                            try {
+                                String txt = maxTokensField.getText().trim();
+                                if (!txt.isEmpty()) maxTokens = Integer.parseInt(txt);
+                            } catch (NumberFormatException ex) {
+                                logger.warn("Invalid max tokens value: {}", maxTokensField.getText(), ex);
+                            }
+                            String hint = promptHintField.getText().trim();
+                            yield new AIExpandConfig(maxTokens, hint.isEmpty() ? null : hint);
+                        }
+                    };
 
             MacroMatch updated = new MacroMatch(newName, newScope, newStrategy, newOptions);
             macroList.set(row, updated);

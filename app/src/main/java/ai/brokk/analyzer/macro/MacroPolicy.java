@@ -57,8 +57,7 @@ public record MacroPolicy(String version, String language, List<MacroMatch> macr
         TEMPLATE
     }
 
-    public sealed interface MacroConfig
-            permits AIExpandConfig, TemplateConfig, BuiltinConfig, BypassConfig {}
+    public sealed interface MacroConfig permits AIExpandConfig, TemplateConfig, BuiltinConfig, BypassConfig {}
 
     public record AIExpandConfig(@Nullable Integer max_tokens, @Nullable String prompt_hint) implements MacroConfig {}
 
