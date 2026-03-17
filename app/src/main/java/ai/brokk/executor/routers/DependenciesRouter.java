@@ -82,6 +82,7 @@ public final class DependenciesRouter implements SimpleHttpServer.CheckedHttpHan
     private void handleGetDependencies(HttpExchange exchange) throws IOException {
         try {
             var project = contextManager.getProject();
+            project.reloadWorkspaceProperties();
             var allDeps = project.getAllOnDiskDependencies();
             var liveDeps = project.getLiveDependencies();
 

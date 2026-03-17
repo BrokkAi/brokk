@@ -76,8 +76,10 @@ class DependenciesPanel(Widget):
             list_view.clear()
             for dep in self._dependencies:
                 list_view.append(ListItem(Static(self._dep_label(dep), markup=False)))
-            if prev_index is not None and self._dependencies:
-                list_view.index = min(prev_index, len(self._dependencies) - 1)
+            if self._dependencies:
+                list_view.index = (
+                    min(prev_index, len(self._dependencies) - 1) if prev_index is not None else 0
+                )
             self.set_timer(0.05, list_view.focus)
 
     def selected_dependency(self) -> Optional[Dict[str, Any]]:
