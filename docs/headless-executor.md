@@ -2,7 +2,7 @@
 
 The Headless Executor runs Brokk sessions in a server mode, controllable via HTTP+JSON API. It's designed for remote execution, CI/CD pipelines, and programmatic task automation.
 
-The `brokk-code` client currently bundles or targets headless executor version **0.23.0.beta9** by default when launched via JBang.
+The `brokk-code` client currently bundles or targets headless executor version **0.23.1.beta6** by default when launched via JBang.
 
 For end-to-end request examples (sessions, jobs, events, and mode-specific payloads), see [headless-executor-testing-with-curl.md](headless-executor-testing-with-curl.md).
 
@@ -594,7 +594,7 @@ Run the JAR:
 
 ```bash
 java -Djava.awt.headless=true -Dapple.awt.UIElement=true \
-  -cp app/build/libs/brokk-0.23.0.beta9.jar \
+  -cp app/build/libs/brokk-0.23.1.beta6.jar \
   ai.brokk.executor.HeadlessExecutorMain \
   --exec-id 550e8400-e29b-41d4-a716-446655440000 \
   --listen-addr 0.0.0.0:8080 \

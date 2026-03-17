@@ -109,7 +109,6 @@ public class LutzAgent {
     }
 
     private static final int MAX_TOTAL_TURNS = 20;
-
     private final IContextManager cm;
     private final StreamingChatModel model;
     private final ContextManager.TaskScope scope;
@@ -470,10 +469,8 @@ public class LutzAgent {
         IContextManager cm = initialContext.getContextManager();
 
         // async referenceagent
-        CompletableFuture<Set<ContextFragment>> referencesFuture = goal.isBlank()
-                ? CompletableFuture.completedFuture(Set.of())
-                : LoggingFuture.supplyCallableAsync(
-                        () -> new ReferenceAgent(cm).resolveReferencedFragments(goal, initialContext));
+        CompletableFuture<Set<ContextFragment>> referencesFuture = LoggingFuture.supplyCallableAsync(
+                () -> new ReferenceAgent(cm).resolveReferencedFragments(goal, initialContext));
 
         // async janitoragent
         CompletableFuture<Context> pruneFuture;
@@ -706,7 +703,23 @@ public class LutzAgent {
     }
 
     private boolean toolTriggersScan(String toolName) {
-        return toolName.startsWith("search") || toolName.startsWith("find") || "callSearchAgent".equals(toolName);
+        if (toolName.startsWith("search") || toolName.startsWith("find")) {
+            return true;
+        }
+
+        if ("callSearchAgent".equals(toolName)) {
+            CompletableFuture<Set<ContextFragment>> referencesFuture = LoggingFuture.supplyCallableAsync(
+                    () -> new ReferenceAgent(cm).resolveReferencedFragments(goal, currentState.context()));
+            return !referencesFuture.join().isEmpty();
+        }
+
+        return false;
+    }
+
+    private StreamingChatModel delegatedSearchModel() {
+        return ParallelSearch.usePlannerModelForSearchAgent()
+                ? model
+                : cm.getService().getModel(ModelType.SEARCH);
     }
 
     /**
@@ -715,13 +728,8 @@ public class LutzAgent {
      */
     @Blocking
     public TaskResult callCodeAgent(String instructions) throws InterruptedException {
-        ArchitectAgent architect = new ArchitectAgent(
-                cm,
-                cm.getService().getModel(ModelType.ARCHITECT),
-                cm.getCodeModel(),
-                instructions,
-                scope,
-                currentState.context());
+        ArchitectAgent architect =
+                new ArchitectAgent(cm, model, cm.getCodeModel(), instructions, scope, currentState.context());
 
         return architect.execute();
     }
@@ -773,7 +781,7 @@ public class LutzAgent {
             this.lastTurnContext = stateAtTurnStart.lastTurnContext();
             this.sessionMessages = new ArrayList<>(stateAtTurnStart.sessionMessages());
 
-            this.parallelSearch = new ParallelSearch(agent.cm, agent.goal);
+            this.parallelSearch = new ParallelSearch(context, agent.goal, agent.delegatedSearchModel());
             this.tr = agent.createToolRegistry(new WorkspaceTools(context), this, parallelSearch);
         }
 
@@ -1296,7 +1304,7 @@ public class LutzAgent {
 
             var architect = new ArchitectAgent(
                     agent.cm,
-                    agent.cm.getService().getModel(ModelType.ARCHITECT),
+                    agent.model,
                     agent.cm.getCodeModel(),
                     instructions,
                     agent.scope,

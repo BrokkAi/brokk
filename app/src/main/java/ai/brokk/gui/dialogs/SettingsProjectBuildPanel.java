@@ -5,11 +5,11 @@ import ai.brokk.TaskResult;
 import ai.brokk.agents.BuildAgent;
 import ai.brokk.analyzer.*;
 import ai.brokk.gui.Chrome;
+import ai.brokk.gui.SwingUtil;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
 import ai.brokk.tools.SearchTools;
-import ai.brokk.util.BuildTools;
 import ai.brokk.util.BuildVerifier;
 import ai.brokk.util.Environment;
 import ai.brokk.util.EnvironmentJava;
@@ -17,6 +17,8 @@ import ai.brokk.util.ShellConfig;
 import java.awt.*;
 import java.awt.event.FocusAdapter;
 import java.awt.event.FocusEvent;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.util.*;
@@ -26,11 +28,13 @@ import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.Future;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import javax.swing.*;
 import javax.swing.BorderFactory;
 import javax.swing.SwingWorker;
 import javax.swing.plaf.basic.BasicComboBoxEditor;
+import javax.swing.table.AbstractTableModel;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -41,6 +45,38 @@ import org.jetbrains.annotations.Nullable;
  */
 public class SettingsProjectBuildPanel extends JPanel {
     private static final Logger logger = LogManager.getLogger(SettingsProjectBuildPanel.class);
+
+    private static class ScrollablePanel extends JPanel implements Scrollable {
+        public ScrollablePanel(LayoutManager layout) {
+            super(layout);
+        }
+
+        @Override
+        public Dimension getPreferredScrollableViewportSize() {
+            return getPreferredSize();
+        }
+
+        @Override
+        public int getScrollableUnitIncrement(Rectangle visibleRect, int orientation, int direction) {
+            return 16;
+        }
+
+        @Override
+        public int getScrollableBlockIncrement(Rectangle visibleRect, int orientation, int direction) {
+            return 32;
+        }
+
+        @Override
+        public boolean getScrollableTracksViewportWidth() {
+            return true;
+        }
+
+        @Override
+        public boolean getScrollableTracksViewportHeight() {
+            return false;
+        }
+    }
+
     // Action command constants
     private static final String ACTION_INFER = "infer";
     private static final String ACTION_CANCEL = "cancel";
@@ -53,9 +89,12 @@ public class SettingsProjectBuildPanel extends JPanel {
     private final IProject project;
 
     // UI components
-    private JTextField buildCleanCommandField = new JTextField();
-    private JTextField allTestsCommandField = new JTextField();
-    private JTextField someTestsCommandField = new JTextField();
+    private final JCheckBox buildCleanCommandCheck = new JCheckBox("Enable");
+    private final JTextField buildCleanCommandField = new JTextField();
+    private final JCheckBox allTestsCommandCheck = new JCheckBox("Enable");
+    private final JTextField allTestsCommandField = new JTextField();
+    private final JCheckBox someTestsCommandCheck = new JCheckBox("Enable");
+    private final JTextField someTestsCommandField = new JTextField();
     private JTextField afterTaskListCommandField = new JTextField();
 
     private JRadioButton runAllTestsRadio = new JRadioButton(IProject.CodeAgentTestScope.ALL.toString());
@@ -79,6 +118,13 @@ public class SettingsProjectBuildPanel extends JPanel {
 
     private JProgressBar buildProgressBar = new JProgressBar();
     private MaterialButton inferBuildDetailsButton = new MaterialButton("Infer Build Details");
+
+    // Modules UI
+    private final List<BuildAgent.ModuleBuildEntry> modulesList = new ArrayList<>();
+    private final ModulesTableModel modulesTableModel = new ModulesTableModel();
+    private final JTable modulesTable = new JTable(modulesTableModel);
+
+    private final JPanel languagePanel = new JPanel(new GridBagLayout());
     private JCheckBox setJavaHomeCheckbox = new JCheckBox("Set JAVA_HOME to");
     private JdkSelector jdkSelector = new JdkSelector();
 
@@ -104,11 +150,11 @@ public class SettingsProjectBuildPanel extends JPanel {
     private Set<String> pendingLlmAddedPatterns;
 
     private final JPanel bannerPanel;
+    private final JPanel contentPanel = new ScrollablePanel(new GridBagLayout());
 
     public SettingsProjectBuildPanel(
             Chrome chrome, SettingsDialog parentDialog, JButton okButton, JButton cancelButton, JButton applyButton) {
-        super(new GridBagLayout());
-        setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        super(new BorderLayout());
         this.chrome = chrome;
         this.parentDialog = parentDialog;
         this.okButtonParent = okButton;
@@ -118,6 +164,12 @@ public class SettingsProjectBuildPanel extends JPanel {
         this.bannerPanel = createBanner();
 
         initComponents();
+
+        contentPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        JScrollPane scrollPane = new JScrollPane(contentPanel);
+        scrollPane.setBorder(null);
+        scrollPane.getVerticalScrollBar().setUnitIncrement(16);
+        add(scrollPane, BorderLayout.CENTER);
     }
 
     private JPanel createBanner() {
@@ -180,12 +232,11 @@ public class SettingsProjectBuildPanel extends JPanel {
         gbc.gridx = 0;
         gbc.gridy = row++;
         gbc.insets = new Insets(2, 2, 2, 2);
-        this.add(bannerPanel, gbc);
+        contentPanel.add(bannerPanel, gbc);
         gbc.insets = new Insets(5, 0, 5, 0);
 
-        // --- 1. JDK Configuration Panel ---
-        var languagePanel = new JPanel(new GridBagLayout());
-        languagePanel.setBorder(BorderFactory.createTitledBorder("JDK Configuration"));
+        // --- 1. Language Configuration Panel ---
+        languagePanel.setBorder(BorderFactory.createTitledBorder("Language Configuration"));
         var langGbc = new GridBagConstraints();
         langGbc.insets = new Insets(2, 2, 2, 2);
         langGbc.fill = GridBagConstraints.HORIZONTAL;
@@ -211,7 +262,7 @@ public class SettingsProjectBuildPanel extends JPanel {
         setJavaHomeCheckbox.addActionListener(e -> jdkSelector.setEnabled(setJavaHomeCheckbox.isSelected()));
 
         gbc.gridy = row++;
-        this.add(languagePanel, gbc);
+        contentPanel.add(languagePanel, gbc);
 
         // --- 2. Build Configuration Panel ---
         var buildConfigPanel = new JPanel(new GridBagLayout());
@@ -227,30 +278,54 @@ public class SettingsProjectBuildPanel extends JPanel {
         buildGbc.weightx = 0.0;
         buildGbc.anchor = GridBagConstraints.WEST;
         buildConfigPanel.add(new JLabel("Build/Lint Command:"), buildGbc);
+
+        JPanel buildWrapper = new JPanel(new BorderLayout(5, 0));
+        buildWrapper.setOpaque(false);
+        buildWrapper.add(buildCleanCommandCheck, BorderLayout.WEST);
+        buildWrapper.add(buildCleanCommandField, BorderLayout.CENTER);
+        buildCleanCommandCheck.addActionListener(
+                e -> buildCleanCommandField.setEnabled(buildCleanCommandCheck.isSelected()));
+
         buildGbc.gridx = 1;
         buildGbc.gridy = buildRow++;
         buildGbc.weightx = 1.0;
-        buildConfigPanel.add(buildCleanCommandField, buildGbc);
+        buildConfigPanel.add(buildWrapper, buildGbc);
 
         // Test All Command
         buildGbc.gridx = 0;
         buildGbc.gridy = buildRow;
         buildGbc.weightx = 0.0;
         buildConfigPanel.add(new JLabel("Test All Command:"), buildGbc);
+
+        JPanel testWrapper = new JPanel(new BorderLayout(5, 0));
+        testWrapper.setOpaque(false);
+        testWrapper.add(allTestsCommandCheck, BorderLayout.WEST);
+        testWrapper.add(allTestsCommandField, BorderLayout.CENTER);
+        allTestsCommandCheck.addActionListener(e -> allTestsCommandField.setEnabled(allTestsCommandCheck.isSelected()));
+
         buildGbc.gridx = 1;
         buildGbc.gridy = buildRow++;
         buildGbc.weightx = 1.0;
-        buildConfigPanel.add(allTestsCommandField, buildGbc);
+        buildConfigPanel.add(testWrapper, buildGbc);
 
         // Test Some Command
         buildGbc.gridx = 0;
         buildGbc.gridy = buildRow;
         buildGbc.weightx = 0.0;
         buildConfigPanel.add(new JLabel("Test Some Command:"), buildGbc);
+
+        JPanel someWrapper = new JPanel(new BorderLayout(5, 0));
+        someWrapper.setOpaque(false);
+        someWrapper.add(someTestsCommandCheck, BorderLayout.WEST);
+        someWrapper.add(someTestsCommandField, BorderLayout.CENTER);
+        someTestsCommandCheck.addActionListener(
+                e -> someTestsCommandField.setEnabled(someTestsCommandCheck.isSelected()));
+
         buildGbc.gridx = 1;
         buildGbc.gridy = buildRow++;
         buildGbc.weightx = 1.0;
-        buildConfigPanel.add(someTestsCommandField, buildGbc);
+        buildConfigPanel.add(someWrapper, buildGbc);
+
         var testSomeInfo = new JLabel(
                 "<html>Mustache variables {{#files}}, {{#classes}}, {{#fqclasses}}, or {{#packages}} will be interpolated with filenames, class names, fully-qualified class names, or package/module/directory paths, respectively</html>");
         testSomeInfo.setFont(testSomeInfo
@@ -260,6 +335,15 @@ public class SettingsProjectBuildPanel extends JPanel {
         buildGbc.gridy = buildRow++;
         buildGbc.insets = new Insets(0, 2, 8, 2);
         buildConfigPanel.add(testSomeInfo, buildGbc);
+
+        var globalCommandNote = new JLabel("Note: Disabling global commands defers to module-specific commands.");
+        globalCommandNote.setFont(globalCommandNote
+                .getFont()
+                .deriveFont(Font.ITALIC, globalCommandNote.getFont().getSize() * 0.9f));
+        buildGbc.gridx = 1;
+        buildGbc.gridy = buildRow++;
+        buildGbc.insets = new Insets(0, 2, 8, 2);
+        buildConfigPanel.add(globalCommandNote, buildGbc);
         buildGbc.insets = new Insets(2, 2, 2, 2); // Reset insets
 
         // Post-Task List Command
@@ -350,6 +434,65 @@ public class SettingsProjectBuildPanel extends JPanel {
         buildGbc.anchor = GridBagConstraints.WEST;
         buildConfigPanel.add(buttonsPanel, buildGbc);
 
+        // --- 3. Modules Configuration Panel ---
+        var modulesPanel = new JPanel(new BorderLayout(5, 5));
+        modulesPanel.setBorder(BorderFactory.createTitledBorder("Modules"));
+        modulesPanel.setPreferredSize(new Dimension(400, 200));
+
+        modulesTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        modulesTable.getTableHeader().setReorderingAllowed(false);
+        modulesTable.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                if (e.getClickCount() == 2 && modulesTable.getSelectedRow() != -1) {
+                    editModule();
+                }
+            }
+        });
+
+        var modulesScroll = new JScrollPane(modulesTable);
+        modulesPanel.add(modulesScroll, BorderLayout.CENTER);
+
+        var moduleButtons = new JPanel(new GridBagLayout());
+        var mbGbc = new GridBagConstraints();
+        mbGbc.gridx = 0;
+        mbGbc.gridy = 0;
+        mbGbc.fill = GridBagConstraints.HORIZONTAL;
+        mbGbc.insets = new Insets(0, 5, 2, 0);
+
+        var addBtn = new MaterialButton("+");
+        addBtn.addActionListener(e -> addModule());
+        moduleButtons.add(addBtn, mbGbc);
+
+        var removeBtn = new MaterialButton("-");
+        removeBtn.addActionListener(e -> removeModule());
+        mbGbc.gridy++;
+        moduleButtons.add(removeBtn, mbGbc);
+
+        var editBtn = new MaterialButton("Edit");
+        editBtn.addActionListener(e -> editModule());
+        mbGbc.gridy++;
+        moduleButtons.add(editBtn, mbGbc);
+
+        var upBtn = new MaterialButton("▲");
+        upBtn.addActionListener(e -> moveModule(-1));
+        mbGbc.gridy++;
+        moduleButtons.add(upBtn, mbGbc);
+
+        var downBtn = new MaterialButton("▼");
+        downBtn.addActionListener(e -> moveModule(1));
+        mbGbc.gridy++;
+        moduleButtons.add(downBtn, mbGbc);
+
+        modulesPanel.add(moduleButtons, BorderLayout.EAST);
+
+        gbc.gridy = row++;
+        gbc.weighty = 0.5;
+        gbc.fill = GridBagConstraints.BOTH;
+        contentPanel.add(modulesPanel, gbc);
+        gbc.weighty = 0.0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+
         // Progress bar for Build Agent
         JPanel progressWrapper = new JPanel(new BorderLayout());
         progressWrapper.setPreferredSize(buildProgressBar.getPreferredSize());
@@ -362,7 +505,7 @@ public class SettingsProjectBuildPanel extends JPanel {
         buildConfigPanel.add(progressWrapper, buildGbc);
 
         gbc.gridy = row++;
-        this.add(buildConfigPanel, gbc);
+        contentPanel.add(buildConfigPanel, gbc);
 
         // --- 3. Shell Configuration Panel ---
         var shellConfigPanel = new JPanel(new GridBagLayout());
@@ -418,7 +561,7 @@ public class SettingsProjectBuildPanel extends JPanel {
         shellConfigPanel.add(executorTestPanel, shellGbc);
 
         gbc.gridy = row++;
-        this.add(shellConfigPanel, gbc);
+        contentPanel.add(shellConfigPanel, gbc);
 
         // Agent running check, listeners, and glue
         CompletableFuture<BuildAgent.BuildDetails> detailsFuture = project.getBuildDetailsFuture();
@@ -446,7 +589,7 @@ public class SettingsProjectBuildPanel extends JPanel {
         gbc.gridy = row;
         gbc.weighty = 1.0;
         gbc.fill = GridBagConstraints.VERTICAL;
-        this.add(Box.createVerticalGlue(), gbc);
+        contentPanel.add(Box.createVerticalGlue(), gbc);
 
         // Populate initial values
         updateJdkControlsVisibility(hasJvm);
@@ -607,7 +750,7 @@ public class SettingsProjectBuildPanel extends JPanel {
 
                     String interpolatedCmd;
                     if (listKey != null) {
-                        interpolatedCmd = BuildTools.interpolateMustacheTemplate(testSomeTemplate, items, listKey);
+                        interpolatedCmd = BuildAgent.interpolateMustacheTemplate(testSomeTemplate, items, listKey);
                         publish("Interpolated command with placeholder: " + interpolatedCmd + "\n");
                     } else {
                         interpolatedCmd = testSomeTemplate;
@@ -771,8 +914,11 @@ public class SettingsProjectBuildPanel extends JPanel {
         buildProgressBar.setVisible(!enabled);
 
         Stream.of(
+                        buildCleanCommandCheck,
                         buildCleanCommandField,
+                        allTestsCommandCheck,
                         allTestsCommandField,
+                        someTestsCommandCheck,
                         someTestsCommandField,
                         afterTaskListCommandField,
                         runAllTestsRadio,
@@ -789,10 +935,33 @@ public class SettingsProjectBuildPanel extends JPanel {
             BuildAgent.BuildDetails details, @Nullable Set<String> llmAddedPatterns) {
         SwingUtilities.invokeLater(() -> {
             // Update this panel's fields
-            buildCleanCommandField.setText(details.buildLintCommand());
-            allTestsCommandField.setText(details.testAllCommand());
-            someTestsCommandField.setText(details.testSomeCommand());
-            afterTaskListCommandField.setText(details.afterTaskListCommand());
+            buildCleanCommandCheck.setSelected(details.buildLintEnabled());
+            buildCleanCommandField.setEnabled(details.buildLintEnabled());
+            if (!details.buildLintCommand().isBlank()) {
+                buildCleanCommandField.setText(details.buildLintCommand());
+            }
+
+            allTestsCommandCheck.setSelected(details.testAllEnabled());
+            allTestsCommandField.setEnabled(details.testAllEnabled());
+            if (!details.testAllCommand().isBlank()) {
+                allTestsCommandField.setText(details.testAllCommand());
+            }
+
+            someTestsCommandCheck.setSelected(details.testSomeEnabled());
+            someTestsCommandField.setEnabled(details.testSomeEnabled());
+            if (!details.testSomeCommand().isBlank()) {
+                someTestsCommandField.setText(details.testSomeCommand());
+            }
+
+            if (!details.afterTaskListCommand().isBlank()) {
+                afterTaskListCommandField.setText(details.afterTaskListCommand());
+            }
+
+            if (!details.modules().isEmpty()) {
+                modulesList.clear();
+                modulesList.addAll(details.modules());
+                modulesTableModel.fireTableDataChanged();
+            }
 
             // Also refresh the CI exclusions list in the parent SettingsProjectPanel
             try {
@@ -807,19 +976,34 @@ public class SettingsProjectBuildPanel extends JPanel {
     }
 
     public void loadBuildPanelSettings() {
-        BuildAgent.BuildDetails details;
         try {
-            details = project.awaitBuildDetails();
+            var buildDetails = project.awaitBuildDetails();
+            populateUiFromDetails(buildDetails);
         } catch (Exception e) {
             logger.warn("Could not load build details for settings panel, using EMPTY. Error: {}", e.getMessage(), e);
-            details = BuildAgent.BuildDetails.EMPTY; // Fallback to EMPTY
+            populateUiFromDetails(BuildAgent.BuildDetails.EMPTY);
             chrome.toolError("Error loading build details: " + e.getMessage() + ". Using defaults.");
         }
+    }
 
+    public void populateUiFromDetails(BuildAgent.BuildDetails details) {
+        buildCleanCommandCheck.setSelected(details.buildLintEnabled());
         buildCleanCommandField.setText(details.buildLintCommand());
+        buildCleanCommandField.setEnabled(details.buildLintEnabled());
+
+        allTestsCommandCheck.setSelected(details.testAllEnabled());
         allTestsCommandField.setText(details.testAllCommand());
+        allTestsCommandField.setEnabled(details.testAllEnabled());
+
+        someTestsCommandCheck.setSelected(details.testSomeEnabled());
         someTestsCommandField.setText(details.testSomeCommand());
+        someTestsCommandField.setEnabled(details.testSomeEnabled());
+
         afterTaskListCommandField.setText(details.afterTaskListCommand());
+
+        modulesList.clear();
+        modulesList.addAll(details.modules());
+        modulesTableModel.fireTableDataChanged();
 
         if (project.getCodeAgentTestScope() == IProject.CodeAgentTestScope.ALL) {
             runAllTestsRadio.setSelected(true);
@@ -861,7 +1045,7 @@ public class SettingsProjectBuildPanel extends JPanel {
         }
         executorArgsField.setText(executorArgs);
 
-        logger.trace("Build panel settings loaded/reloaded with details: {}", details);
+        logger.trace("Build panel settings populated with details: {}", details);
     }
 
     public boolean applySettings() {
@@ -870,32 +1054,37 @@ public class SettingsProjectBuildPanel extends JPanel {
         // but always read exclusion patterns from disk (saveCiExclusions() just updated them)
         var diskDetails = project.awaitBuildDetails();
         var baseDetails = pendingBuildDetails != null ? pendingBuildDetails : diskDetails;
-        var newBuildLint = buildCleanCommandField.getText();
-        var newTestAll = allTestsCommandField.getText();
-        var newTestSome = someTestsCommandField.getText();
-        var newAfterTaskList = afterTaskListCommandField.getText();
 
-        // Analyzer languages
-        var languages = project.getAnalyzerLanguages();
+        boolean blEnabled = buildCleanCommandCheck.isSelected();
+        String newBuildLint = buildCleanCommandField.getText();
+
+        boolean taEnabled = allTestsCommandCheck.isSelected();
+        String newTestAll = allTestsCommandField.getText();
+
+        boolean tsEnabled = someTestsCommandCheck.isSelected();
+        String newTestSome = someTestsCommandField.getText();
+
+        var newAfterTaskList = afterTaskListCommandField.getText();
 
         // Build environment variables map
         var envVars = new HashMap<>(baseDetails.environmentVariables());
         // JAVA_HOME is now managed via project.setJdk() and stored in workspace.properties
         envVars.remove("JAVA_HOME");
         envVars.remove("VIRTUAL_ENV");
-        if (languages.contains(Languages.PYTHON)) {
-            envVars.put("VIRTUAL_ENV", ".venv");
-        }
 
         // Always use exclusion patterns from disk - Code Intelligence panel is the source of truth
         var newDetails = new BuildAgent.BuildDetails(
                 newBuildLint,
+                blEnabled,
                 newTestAll,
+                taEnabled,
                 newTestSome,
+                tsEnabled,
                 diskDetails.exclusionPatterns(),
                 envVars,
                 diskDetails.maxBuildAttempts(),
-                newAfterTaskList);
+                newAfterTaskList,
+                new ArrayList<>(modulesList));
 
         // Compare against what's currently saved on disk
         var currentDetails = project.awaitBuildDetails();
@@ -931,7 +1120,7 @@ public class SettingsProjectBuildPanel extends JPanel {
         }
 
         // JDK Controls (only for JVM languages)
-        if (languages.stream().anyMatch(Languages::isJvmLanguage)) {
+        if (project.getAnalyzerLanguages().stream().anyMatch(Languages::isJvmLanguage)) {
             if (setJavaHomeCheckbox.isSelected()) {
                 String rawPath = jdkSelector.getSelectedJdkPath();
                 if (!validateAndApplyJdkOverride(rawPath)) {
@@ -1070,6 +1259,7 @@ public class SettingsProjectBuildPanel extends JPanel {
 
     private void updateJdkControlsVisibility(boolean isJvmVisible) {
         Runnable apply = () -> {
+            languagePanel.setVisible(isJvmVisible);
             setJavaHomeCheckbox.setVisible(isJvmVisible);
             jdkSelector.setVisible(isJvmVisible);
         };
@@ -1311,6 +1501,187 @@ public class SettingsProjectBuildPanel extends JPanel {
                     this, validation.errorMessage(), "Invalid Timeout", JOptionPane.ERROR_MESSAGE);
             // Revert to last valid
             combo.setSelectedItem(isRunTimeout ? lastValidRunTimeout : lastValidTestTimeout);
+        }
+    }
+
+    private void addModule() {
+        var entry = new BuildAgent.ModuleBuildEntry("", "", "", "", "", "");
+        var dialog = new ModuleEditDialog(parentDialog, entry);
+        dialog.setVisible(true);
+        if (dialog.isSaved()) {
+            modulesList.add(dialog.getResult());
+            modulesTableModel.fireTableDataChanged();
+        }
+    }
+
+    private void editModule() {
+        int row = modulesTable.getSelectedRow();
+        if (row == -1) return;
+        var entry = modulesList.get(row);
+        var dialog = new ModuleEditDialog(parentDialog, entry);
+        dialog.setVisible(true);
+        if (dialog.isSaved()) {
+            modulesList.set(row, dialog.getResult());
+            modulesTableModel.fireTableDataChanged();
+        }
+    }
+
+    private void removeModule() {
+        int row = modulesTable.getSelectedRow();
+        if (row != -1) {
+            modulesList.remove(row);
+            modulesTableModel.fireTableDataChanged();
+        }
+    }
+
+    private void moveModule(int delta) {
+        int row = modulesTable.getSelectedRow();
+        if (row == -1) return;
+        int next = row + delta;
+        if (next >= 0 && next < modulesList.size()) {
+            Collections.swap(modulesList, row, next);
+            modulesTableModel.fireTableDataChanged();
+            modulesTable.setRowSelectionInterval(next, next);
+        }
+    }
+
+    private class ModulesTableModel extends AbstractTableModel {
+        private final String[] columns = {"Alias", "Language", "Path"};
+
+        @Override
+        public int getRowCount() {
+            return modulesList.size();
+        }
+
+        @Override
+        public int getColumnCount() {
+            return columns.length;
+        }
+
+        @Override
+        public String getColumnName(int col) {
+            return columns[col];
+        }
+
+        @Override
+        public Class<?> getColumnClass(int col) {
+            return String.class;
+        }
+
+        @Override
+        public Object getValueAt(int row, int col) {
+            var m = modulesList.get(row);
+            return switch (col) {
+                case 0 -> m.alias();
+                case 1 -> m.language();
+                case 2 -> m.relativePath();
+                default -> "";
+            };
+        }
+    }
+
+    private static class ModuleEditDialog extends BaseThemedDialog {
+        private final JTextField aliasField = new JTextField();
+        private final JTextField pathField = new JTextField();
+        private final JComboBox<String> languageComboBox = new JComboBox<>();
+        private final JTextField buildCmdField = new JTextField();
+        private final JTextField testAllField = new JTextField();
+        private final JTextField testSomeField = new JTextField();
+        private boolean saved = false;
+
+        public ModuleEditDialog(Window owner, BuildAgent.ModuleBuildEntry entry) {
+            super(owner, "Edit Module");
+            setSize(500, 360);
+            setLocationRelativeTo(owner);
+            setModal(true);
+
+            aliasField.setText(entry.alias());
+            pathField.setText(entry.relativePath());
+
+            // Setup language combo with common languages + current value
+            var langs = Languages.ALL_LANGUAGES.stream()
+                    .map(Language::name)
+                    .filter(n -> !n.equalsIgnoreCase("None"))
+                    .sorted()
+                    .collect(Collectors.toCollection(ArrayList::new));
+            languageComboBox.setModel(new DefaultComboBoxModel<>(langs.toArray(new String[0])));
+            languageComboBox.setEditable(true);
+            languageComboBox.setSelectedItem(entry.language().isEmpty() ? "Java" : entry.language());
+
+            buildCmdField.setText(entry.buildLintCommand());
+            testAllField.setText(entry.testAllCommand());
+            testSomeField.setText(entry.testSomeCommand());
+
+            var p = getContentRoot();
+            p.setLayout(new GridBagLayout());
+            var gbc = new GridBagConstraints();
+            gbc.insets = new Insets(5, 5, 5, 5);
+            gbc.fill = GridBagConstraints.HORIZONTAL;
+
+            int row = 0;
+            addField(p, "Alias:", aliasField, gbc, row++);
+            addField(p, "Language:", languageComboBox, gbc, row++);
+            addField(p, "Relative Path:", pathField, gbc, row++);
+            addField(p, "Build/Lint Command:", buildCmdField, gbc, row++);
+            addField(p, "Test All Command:", testAllField, gbc, row++);
+            addField(p, "Test Some Command:", testSomeField, gbc, row++);
+
+            var testSomeNote = new JLabel(
+                    "<html>Mustache variables {{#files}}, {{#classes}}, {{#fqclasses}}, or {{#packages}} will be interpolated with filenames, class names, fully-qualified class names, or package/module/directory paths, respectively</html>");
+            testSomeNote.setFont(testSomeNote
+                    .getFont()
+                    .deriveFont(Font.ITALIC, testSomeNote.getFont().getSize() * 0.9f));
+            gbc.gridx = 1;
+            gbc.gridy = row++;
+            gbc.insets = new Insets(0, 5, 8, 5);
+            p.add(testSomeNote, gbc);
+            gbc.insets = new Insets(5, 5, 5, 5); // Reset
+
+            var buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+            var ok = new MaterialButton("Ok");
+            SwingUtil.applyPrimaryButtonStyle(ok);
+            ok.addActionListener(e -> {
+                saved = true;
+                dispose();
+            });
+            var cancel = new MaterialButton("Cancel");
+            cancel.addActionListener(e -> dispose());
+            buttons.add(ok);
+            buttons.add(cancel);
+
+            gbc.gridy = row;
+            gbc.gridx = 0;
+            gbc.gridwidth = 2;
+            gbc.weighty = 1.0;
+            gbc.anchor = GridBagConstraints.SOUTH;
+            p.add(buttons, gbc);
+        }
+
+        private void addField(JPanel p, String label, JComponent field, GridBagConstraints gbc, int row) {
+            gbc.gridx = 0;
+            gbc.gridy = row;
+            gbc.weightx = 0.0;
+            p.add(new JLabel(label), gbc);
+            gbc.gridx = 1;
+            gbc.weightx = 1.0;
+            p.add(field, gbc);
+        }
+
+        public boolean isSaved() {
+            return saved;
+        }
+
+        public BuildAgent.ModuleBuildEntry getResult() {
+            Object selected = languageComboBox.getSelectedItem();
+            String lang = selected == null ? "" : selected.toString().trim();
+
+            return new BuildAgent.ModuleBuildEntry(
+                    aliasField.getText().trim(),
+                    pathField.getText().trim(),
+                    buildCmdField.getText().trim(),
+                    testAllField.getText().trim(),
+                    testSomeField.getText().trim(),
+                    lang);
         }
     }
 }

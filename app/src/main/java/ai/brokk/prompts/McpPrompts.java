@@ -90,7 +90,13 @@ public class McpPrompts {
         if (sections.isBlank()) {
             return null;
         }
-        var header = "Available MCP tools callable by `callMcpTool` (restricted to this project configuration):";
+        var header =
+                """
+                Available MCP tools callable by `callMcpTool` (restricted to this project configuration):
+
+                When calling an MCP tool, you MUST supply all fields listed in `inputSchema.required`.
+                Provide meaningful values inferred from the user's intent rather than empty defaults."""
+                        .stripIndent();
         return header + "\n" + sections;
     }
 

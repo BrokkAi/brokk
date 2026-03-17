@@ -258,7 +258,7 @@ class ProjectFilteringGitRepoTest {
         trackFiles(tempDir);
 
         // Set baseline exclusions via forTests
-        var buildDetails = new BuildAgent.BuildDetails("", "", "", Set.of("generated", "vendor"));
+        var buildDetails = new BuildAgent.BuildDetails("", "", Set.of("generated", "vendor"));
         var project = MainProject.forTests(tempDir, buildDetails);
 
         var allFiles = project.getAllFiles();
@@ -285,7 +285,7 @@ class ProjectFilteringGitRepoTest {
         Files.writeString(tempDir.resolve(".gitignore"), "build/\n");
 
         // Set baseline exclusions via forTests
-        var buildDetails = new BuildAgent.BuildDetails("", "", "", Set.of("vendor"));
+        var buildDetails = new BuildAgent.BuildDetails("", "", Set.of("vendor"));
         var project = MainProject.forTests(tempDir, buildDetails);
 
         var allFiles = project.getAllFiles();
@@ -426,7 +426,7 @@ class ProjectFilteringGitRepoTest {
         trackFiles(tempDir);
 
         // Set baseline exclusions via forTests
-        var buildDetails = new BuildAgent.BuildDetails("", "", "", Set.of("generated"));
+        var buildDetails = new BuildAgent.BuildDetails("", "", Set.of("generated"));
         var project = MainProject.forTests(tempDir, buildDetails);
 
         var javaFiles = project.getAnalyzableFiles(Languages.JAVA);
@@ -454,7 +454,7 @@ class ProjectFilteringGitRepoTest {
         Files.writeString(tempDir.resolve(".gitignore"), "build/\n");
 
         // Set baseline exclusions via forTests
-        var buildDetails = new BuildAgent.BuildDetails("", "", "", Set.of("vendor"));
+        var buildDetails = new BuildAgent.BuildDetails("", "", Set.of("vendor"));
         var project = MainProject.forTests(tempDir, buildDetails);
 
         var javaFiles = project.getAnalyzableFiles(Languages.JAVA);
@@ -2002,7 +2002,7 @@ class ProjectFilteringGitRepoTest {
         trackFiles(tempDir);
 
         // Set file pattern exclusion for exact filename via forTests
-        var buildDetails = new BuildAgent.BuildDetails("", "", "", Set.of("package-lock.json"), Map.of());
+        var buildDetails = new BuildAgent.BuildDetails("", "", Set.of("package-lock.json"), Map.of());
         var project = MainProject.forTests(tempDir, buildDetails);
 
         var allFiles = project.getAllFiles();
@@ -2026,7 +2026,7 @@ class ProjectFilteringGitRepoTest {
         trackFiles(tempDir);
 
         // Set file pattern exclusions for extension patterns via forTests
-        var buildDetails = new BuildAgent.BuildDetails("", "", "", Set.of("*.svg", "*.min.js"), Map.of());
+        var buildDetails = new BuildAgent.BuildDetails("", "", Set.of("*.svg", "*.min.js"), Map.of());
         var project = MainProject.forTests(tempDir, buildDetails);
 
         var allFiles = project.getAllFiles();
@@ -2050,7 +2050,7 @@ class ProjectFilteringGitRepoTest {
         trackFiles(tempDir);
 
         // Set file pattern exclusion for path glob via forTests
-        var buildDetails = new BuildAgent.BuildDetails("", "", "", Set.of("**/test/resources/**"), Map.of());
+        var buildDetails = new BuildAgent.BuildDetails("", "", Set.of("**/test/resources/**"), Map.of());
         var project = MainProject.forTests(tempDir, buildDetails);
 
         var allFiles = project.getAllFiles();
@@ -2075,7 +2075,7 @@ class ProjectFilteringGitRepoTest {
 
         // Set both directory and file pattern exclusions via forTests
         var buildDetails =
-                new BuildAgent.BuildDetails("", "", "", Set.of("vendor", "package-lock.json", "*.svg"), Map.of());
+                new BuildAgent.BuildDetails("", "", Set.of("vendor", "package-lock.json", "*.svg"), Map.of());
         var project = MainProject.forTests(tempDir, buildDetails);
 
         var allFiles = project.getAllFiles();
@@ -2098,8 +2098,7 @@ class ProjectFilteringGitRepoTest {
         trackFiles(tempDir);
 
         // Save build details with exclusion patterns via forTests
-        var buildDetails =
-                new BuildAgent.BuildDetails("build", "test", "test {{files}}", Set.of("yarn.lock", "*.svg"), Map.of());
+        var buildDetails = new BuildAgent.BuildDetails("build", "test", Set.of("yarn.lock", "*.svg"), Map.of());
         var project = MainProject.forTests(tempDir, buildDetails);
 
         // Reload and verify patterns are preserved
@@ -2128,7 +2127,7 @@ class ProjectFilteringGitRepoTest {
         trackFiles(tempDir);
 
         // Save build details with *.* pattern via forTests
-        var buildDetails = new BuildAgent.BuildDetails("", "", "", Set.of("*.*"), Map.of());
+        var buildDetails = new BuildAgent.BuildDetails("", "", Set.of("*.*"), Map.of());
         var project = MainProject.forTests(tempDir, buildDetails);
 
         var allFiles = project.getAllFiles();
@@ -2158,7 +2157,7 @@ class ProjectFilteringGitRepoTest {
         trackFiles(tempDir);
 
         // Save build details with uppercase extension pattern via forTests
-        var buildDetails = new BuildAgent.BuildDetails("", "", "", Set.of("*.SVG", "package-lock.json"), Map.of());
+        var buildDetails = new BuildAgent.BuildDetails("", "", Set.of("*.SVG", "package-lock.json"), Map.of());
         var project = MainProject.forTests(tempDir, buildDetails);
 
         var allFiles = project.getAllFiles();
@@ -2187,7 +2186,7 @@ class ProjectFilteringGitRepoTest {
         trackFiles(tempDir);
 
         // Include an invalid glob pattern alongside valid ones via forTests
-        var buildDetails = new BuildAgent.BuildDetails("", "", "", Set.of("[invalid", "*.xml"), Map.of());
+        var buildDetails = new BuildAgent.BuildDetails("", "", Set.of("[invalid", "*.xml"), Map.of());
         var project = MainProject.forTests(tempDir, buildDetails);
 
         var allFiles = project.getAllFiles();
@@ -2215,7 +2214,7 @@ class ProjectFilteringGitRepoTest {
         trackFiles(tempDir);
 
         // Pattern *.* should exclude dotfiles via forTests
-        var buildDetails = new BuildAgent.BuildDetails("", "", "", Set.of("*.*"), Map.of());
+        var buildDetails = new BuildAgent.BuildDetails("", "", Set.of("*.*"), Map.of());
         var project = MainProject.forTests(tempDir, buildDetails);
 
         var allFiles = project.getAllFiles();
@@ -2242,7 +2241,7 @@ class ProjectFilteringGitRepoTest {
         trackFiles(tempDir);
 
         // *.js should exclude both dotfile and regular file via forTests
-        var buildDetails = new BuildAgent.BuildDetails("", "", "", Set.of("*.js"), Map.of());
+        var buildDetails = new BuildAgent.BuildDetails("", "", Set.of("*.js"), Map.of());
         var project = MainProject.forTests(tempDir, buildDetails);
 
         var allFiles = project.getAllFiles();
@@ -2268,7 +2267,7 @@ class ProjectFilteringGitRepoTest {
         trackFiles(tempDir);
 
         // Uppercase extension patterns via forTests
-        var buildDetails = new BuildAgent.BuildDetails("", "", "", Set.of("**/*.JSON", "**/*.MD"), Map.of());
+        var buildDetails = new BuildAgent.BuildDetails("", "", Set.of("**/*.JSON", "**/*.MD"), Map.of());
         var project = MainProject.forTests(tempDir, buildDetails);
 
         var allFiles = project.getAllFiles();
@@ -2296,7 +2295,7 @@ class ProjectFilteringGitRepoTest {
         trackFiles(tempDir);
 
         // Pattern "src/test/resources" via forTests
-        var buildDetails = new BuildAgent.BuildDetails("", "", "", Set.of("src/test/resources"), Map.of());
+        var buildDetails = new BuildAgent.BuildDetails("", "", Set.of("src/test/resources"), Map.of());
         var project = MainProject.forTests(tempDir, buildDetails);
 
         var allFiles = project.getAllFiles();
@@ -2327,7 +2326,7 @@ class ProjectFilteringGitRepoTest {
         }
 
         // Add file pattern "*.java" via forTests
-        var buildDetails = new BuildAgent.BuildDetails("", "", "", Set.of("*.java"), Map.of());
+        var buildDetails = new BuildAgent.BuildDetails("", "", Set.of("*.java"), Map.of());
         var project = MainProject.forTests(tempDir, buildDetails);
 
         var allFiles = project.getAllFiles();
@@ -2353,7 +2352,7 @@ class ProjectFilteringGitRepoTest {
         trackFiles(tempDir);
 
         // Empty/whitespace patterns via forTests
-        var buildDetails = new BuildAgent.BuildDetails("", "", "", Set.of("  ", "\t", "", "  *.xml  "), Map.of());
+        var buildDetails = new BuildAgent.BuildDetails("", "", Set.of("  ", "\t", "", "  *.xml  "), Map.of());
         var project = MainProject.forTests(tempDir, buildDetails);
 
         var allFiles = project.getAllFiles();

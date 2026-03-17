@@ -38,9 +38,16 @@ public class JavaScriptBuildTest {
             // Template using {{#files}}
             BuildDetails detailsFiles = new BuildDetails(
                     "npm run build",
+                    true,
                     "npm test",
+                    true,
                     "npx playwright test {{#files}}{{value}} {{/files}}",
-                    Set.of());
+                    true,
+                    Set.of(),
+                    java.util.Collections.emptyMap(),
+                    null,
+                    "",
+                    List.of());
 
             String commandFiles = BuildTools.getBuildLintSomeCommand(cm, detailsFiles, List.of(testFile));
             assertEquals("npx playwright test tests/logic.test.js", commandFiles.trim());
@@ -48,9 +55,16 @@ public class JavaScriptBuildTest {
             // Template using {{#classes}} (which should resolve to the module name in JS)
             BuildDetails detailsClasses = new BuildDetails(
                     "npm run build",
+                    true,
                     "npm test",
+                    true,
                     "jest --findRelatedTests {{#classes}}{{value}} {{/classes}}",
-                    Set.of());
+                    true,
+                    Set.of(),
+                    java.util.Collections.emptyMap(),
+                    null,
+                    "",
+                    List.of());
 
             String commandClasses = BuildTools.getBuildLintSomeCommand(cm, detailsClasses, List.of(testFile));
             assertEquals("jest --findRelatedTests logic.test.js", commandClasses.trim());
@@ -64,7 +78,18 @@ public class JavaScriptBuildTest {
                 .addFileContents("import { test } from '@playwright/test'; test('b', () => {})", "b.test.js")
                 .build()) {
             TestContextManager cm = new TestContextManager(project, new NoOpConsoleIO(), Set.of(), project.getAnalyzer());
-            BuildDetails details = new BuildDetails("", "", "jest {{#classes}}{{value}} {{/classes}}", Set.of());
+            BuildDetails details = new BuildDetails(
+                    "",
+                    true,
+                    "",
+                    true,
+                    "jest {{#classes}}{{value}} {{/classes}}",
+                    true,
+                    Set.of(),
+                    java.util.Collections.emptyMap(),
+                    null,
+                    "",
+                    List.of());
 
             String command = BuildTools.getBuildLintSomeCommand(cm, details, List.copyOf(project.getAllFiles()));
             assertEquals("jest a.test.js b.test.js", command.trim());

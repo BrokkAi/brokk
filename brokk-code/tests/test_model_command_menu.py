@@ -295,3 +295,67 @@ async def test_code_model_modal_navigation_updates_code_settings():
             assert app.reasoning_level_code == "low"
             # Ensure planner settings remained untouched
             assert app.current_model != "code-beta"
+
+
+@pytest.mark.asyncio
+async def test_combined_modal_scrolling_on_small_screen():
+    """Verify that navigating down in a long model list keeps the highlighted item visible."""
+    executor = MagicMock()
+    # Create 50 models to ensure the list exceeds common terminal heights
+    models = [{"name": f"model-{i}", "location": "loc"} for i in range(50)]
+    executor.get_models = AsyncMock(return_value={"models": models})
+    executor.stop = AsyncMock()
+    app = BrokkApp(executor=executor)
+    app._executor_ready = True
+
+    with (
+        patch.object(BrokkApp, "_start_executor", return_value=None),
+        patch.object(BrokkApp, "_monitor_executor", return_value=None),
+        patch.object(BrokkApp, "_poll_tasklist", return_value=None),
+        patch.object(BrokkApp, "_poll_context", return_value=None),
+    ):
+        # Use a constrained size for the pilot
+        async with app.run_test(size=(80, 24)) as pilot:
+            await app.action_select_model_and_reasoning()
+            await pilot.pause()
+
+            model_list = app.screen.query_one("#model-select-list", ListView)
+
+            # Move down many times.
+            for i in range(30):
+                await pilot.press("down")
+                if i % 5 == 0:
+                    await pilot.pause()
+                    await pilot.wait_for_scheduled_animations()
+
+            # Ensure geometry and scroll positions have fully stabilized after loop.
+            await pilot.pause()
+            await pilot.wait_for_scheduled_animations()
+
+            highlighted = model_list.highlighted_child
+            assert highlighted is not None, "No item highlighted after 30 down presses"
+            assert model_list.index == 30
+
+            # Explicitly trigger scroll_visible to ensure visibility, then settle.
+            highlighted.scroll_visible(animate=False)
+            await pilot.pause()
+            await pilot.wait_for_scheduled_animations()
+
+            # Compute viewport boundaries relative to screen/parent
+            viewport_top = model_list.region.y
+            viewport_bottom = viewport_top + model_list.size.height
+
+            # Compute highlighted row boundaries
+            row_top = highlighted.region.y
+            row_bottom = row_top + highlighted.size.height
+
+            # Robust visibility check: the item should be within the viewport.
+            # Use tolerance of 1 for rounding or border offsets on different CI environments.
+            is_visible = (row_bottom >= viewport_top - 1) and (row_top <= viewport_bottom + 1)
+
+            assert is_visible, (
+                f"Highlighted item (index 30) is not visible.\n"
+                f"Viewport: y={viewport_top} to {viewport_bottom}\n"
+                f"Row: y={row_top} to {row_bottom}\n"
+                f"Relative Y (RowTop - ViewportTop): {row_top - viewport_top}"
+            )

@@ -50,7 +50,7 @@ public final class TreeSitterStateIO {
     private static final Logger log = LoggerFactory.getLogger(TreeSitterStateIO.class);
 
     // Current analyzer snapshot schema version. Bump MAJOR for incompatible changes.
-    static final SemVer CURRENT_SCHEMA = SemVer.parse("2.0.0");
+    static final SemVer CURRENT_SCHEMA = SemVer.parse("2.1.0");
 
     // Dedicated Smile ObjectMapper
     private static final ObjectMapper SMILE_MAPPER =
@@ -157,6 +157,7 @@ public final class TreeSitterStateIO {
             if (value.signature() != null) {
                 gen.writeStringField("signature", value.signature());
             }
+            gen.writeBooleanField("synthetic", value.isSynthetic());
             gen.writeEndObject();
         }
     }
@@ -196,7 +197,11 @@ public final class TreeSitterStateIO {
             JsonNode sigNode = node.get("signature");
             String signature = sigNode != null && !sigNode.isNull() ? sigNode.asText() : null;
 
-            return new CodeUnit(source, kind, pkg, shortName, signature);
+            // Optional synthetic flag (backward compatible)
+            JsonNode synthNode = node.get("synthetic");
+            boolean synthetic = synthNode != null && synthNode.asBoolean();
+
+            return new CodeUnit(source, kind, pkg, shortName, signature, synthetic);
         }
     }
 
@@ -218,7 +223,8 @@ public final class TreeSitterStateIO {
             CodeUnitType kind,
             String packageName,
             String shortName,
-            @Nullable String signature) {}
+            @Nullable String signature,
+            @Nullable Boolean synthetic) {}
 
     /**
      * DTO for structured import information.
@@ -627,11 +633,18 @@ public final class TreeSitterStateIO {
     }
 
     private static CodeUnitDto toDto(CodeUnit cu) {
-        return new CodeUnitDto(toDto(cu.source()), cu.kind(), cu.packageName(), cu.shortName(), cu.signature());
+        return new CodeUnitDto(
+                toDto(cu.source()), cu.kind(), cu.packageName(), cu.shortName(), cu.signature(), cu.isSynthetic());
     }
 
     private static CodeUnit fromDto(CodeUnitDto dto) {
-        return new CodeUnit(fromDto(dto.source()), dto.kind(), dto.packageName(), dto.shortName(), dto.signature());
+        return new CodeUnit(
+                fromDto(dto.source()),
+                dto.kind(),
+                dto.packageName(),
+                dto.shortName(),
+                dto.signature(),
+                dto.synthetic() != null && dto.synthetic());
     }
 
     private static ProjectFileDto toDto(ProjectFile pf) {

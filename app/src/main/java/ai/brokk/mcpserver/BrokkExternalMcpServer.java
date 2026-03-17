@@ -520,12 +520,16 @@ public class BrokkExternalMcpServer {
 
         var bd = new BuildAgent.BuildDetails(
                 buildOnlyCmd,
+                existingDetails.buildLintEnabled(),
                 existingDetails.testAllCommand(),
+                existingDetails.testAllEnabled(),
                 testSomeCmd,
+                true, // Enabled by default if set via tool
                 existingDetails.exclusionPatterns(),
                 existingDetails.environmentVariables(),
                 existingDetails.maxBuildAttempts(),
-                existingDetails.afterTaskListCommand());
+                existingDetails.afterTaskListCommand(),
+                existingDetails.modules());
         if (testFileOpt.isPresent()) {
             String interpolatedTestCmd = BuildTools.getBuildLintSomeCommand(cm, bd, List.of(testFileOpt.get()));
 

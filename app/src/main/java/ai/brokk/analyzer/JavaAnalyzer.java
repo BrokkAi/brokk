@@ -1480,7 +1480,8 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
         String constructorName = enclosingClass.identifier();
         String shortName = enclosingClass.shortName() + "." + constructorName;
 
-        return new CodeUnit(enclosingClass.source(), CodeUnitType.FUNCTION, enclosingClass.packageName(), shortName);
+        return new CodeUnit(enclosingClass.source(), CodeUnitType.FUNCTION, enclosingClass.packageName(), shortName)
+                .withSynthetic(true);
     }
 
     @Override

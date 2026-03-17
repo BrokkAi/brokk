@@ -404,6 +404,17 @@ public class ToolRegistry {
                             logger.debug(
                                     "Retrying conversion of '{}' to {} by wrapping in list", param.getName(), javaType);
                             converted = OBJECT_MAPPER.convertValue(List.of(argValue), javaType);
+                        } else if (javaType.isMapLikeType() && argValue instanceof String s) {
+                            logger.debug(
+                                    "Retrying conversion of '{}' to {} by re-parsing double-encoded JSON string",
+                                    param.getName(),
+                                    javaType);
+                            try {
+                                converted = OBJECT_MAPPER.readValue(s, javaType);
+                            } catch (JsonProcessingException ex) {
+                                throw new ToolValidationException("Error parsing double-encoded map argument '"
+                                        + param.getName() + "': " + ex.getMessage());
+                            }
                         } else {
                             throw e;
                         }

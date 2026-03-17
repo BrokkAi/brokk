@@ -640,7 +640,7 @@ public class TreeSitterStateIOTest {
         Path file = tempDir.resolve("java" + Language.ANALYZER_STATE_SUFFIX);
         var root = tempDir.toAbsolutePath().normalize();
         var pfDto = new TreeSitterStateIO.ProjectFileDto(root.toString(), "src/Test.java");
-        var cuDto = new TreeSitterStateIO.CodeUnitDto(pfDto, CodeUnitType.CLASS, "com.pkg", "Test", null);
+        var cuDto = new TreeSitterStateIO.CodeUnitDto(pfDto, CodeUnitType.CLASS, "com.pkg", "Test", null, null);
 
         // Legacy properties map with extra fields
         Map<String, Object> legacyProps = new HashMap<>();
@@ -670,7 +670,7 @@ public class TreeSitterStateIOTest {
         stateDtoMap.put("subtypes", List.of());
         stateDtoMap.put("symbolKeys", List.of());
         stateDtoMap.put("snapshotEpochNanos", 12345L);
-        stateDtoMap.put("schemaVersion", "2.0.0");
+        stateDtoMap.put("schemaVersion", "2.1.0");
 
         // Serialize to file using Smile + LZ4
         ObjectMapper mapper = new ObjectMapper(new SmileFactory());
@@ -697,7 +697,7 @@ public class TreeSitterStateIOTest {
         Path out = tempDir.resolve("java" + Language.ANALYZER_STATE_SUFFIX);
 
         var pfDto = new TreeSitterStateIO.ProjectFileDto(tempDir.toString(), "Test.java");
-        var cuDto = new TreeSitterStateIO.CodeUnitDto(pfDto, CodeUnitType.CLASS, "com.pkg", "Test", null);
+        var cuDto = new TreeSitterStateIO.CodeUnitDto(pfDto, CodeUnitType.CLASS, "com.pkg", "Test", null, null);
 
         // Simulate removed 'supertypes' and 'supertypesComputed' fields
         Map<String, Object> legacyProps = new HashMap<>();
@@ -718,7 +718,7 @@ public class TreeSitterStateIOTest {
         stateDtoMap.put("reverseImports", List.of());
         stateDtoMap.put("symbolKeys", List.of());
         stateDtoMap.put("snapshotEpochNanos", 1L);
-        stateDtoMap.put("schemaVersion", "2.0.0");
+        stateDtoMap.put("schemaVersion", "2.1.0");
 
         var mapper = new ObjectMapper(new SmileFactory())
                 .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
@@ -735,7 +735,7 @@ public class TreeSitterStateIOTest {
         Path out = tempDir.resolve("java" + Language.ANALYZER_STATE_SUFFIX);
 
         var pfDto = new TreeSitterStateIO.ProjectFileDto(tempDir.toString(), "Test.java");
-        var cuDto = new TreeSitterStateIO.CodeUnitDto(pfDto, CodeUnitType.CLASS, "com.pkg", "Test", null);
+        var cuDto = new TreeSitterStateIO.CodeUnitDto(pfDto, CodeUnitType.CLASS, "com.pkg", "Test", null, null);
 
         // Simulate a cache entry where children, signatures, and ranges are null
         Map<String, Object> propsWithNulls = new HashMap<>();
@@ -754,7 +754,7 @@ public class TreeSitterStateIOTest {
         stateDtoMap.put("reverseImports", List.of());
         stateDtoMap.put("symbolKeys", List.of());
         stateDtoMap.put("snapshotEpochNanos", 1L);
-        stateDtoMap.put("schemaVersion", "2.0.0");
+        stateDtoMap.put("schemaVersion", "2.1.0");
 
         var mapper = new ObjectMapper(new SmileFactory())
                 .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
@@ -838,13 +838,20 @@ public class TreeSitterStateIOTest {
 
     @Test
     void javaStrictSchemaGating(@TempDir Path tempDir) throws Exception {
-        Path v110 = tempDir.resolve("java" + Language.ANALYZER_STATE_SUFFIX);
-        writeDtoWithSchemaVersion(v110, "1.1.0", 110L);
-        assertTrue(TreeSitterStateIO.load(v110).isEmpty(), "Java should REJECT legacy major schemaVersion 1.1.0");
+        // We provide languageInternalName="JAVA" explicitly to avoid reliance on filename inference
+        // during strict gating tests.
+        Path javaFile = tempDir.resolve("java-gating" + Language.ANALYZER_STATE_SUFFIX);
 
-        Path v200 = tempDir.resolve("java" + Language.ANALYZER_STATE_SUFFIX);
-        writeDtoWithSchemaVersion(v200, "2.0.0", 200L);
-        assertTrue(TreeSitterStateIO.load(v200).isPresent(), "Java should accept current schemaVersion 2.0.0");
+        writeDtoWithSchemaVersion(javaFile, "1.1.0", 110L, "JAVA");
+        assertTrue(TreeSitterStateIO.load(javaFile).isEmpty(), "Java should REJECT legacy major schemaVersion 1.1.0");
+
+        writeDtoWithSchemaVersion(javaFile, "2.0.0", 200L, "JAVA");
+        assertTrue(
+                TreeSitterStateIO.load(javaFile).isEmpty(),
+                "Java should REJECT schemaVersion 2.0.0 as it is below JAVA_REBUILD_THRESHOLD (2.1.0)");
+
+        writeDtoWithSchemaVersion(javaFile, "2.1.0", 210L, "JAVA");
+        assertTrue(TreeSitterStateIO.load(javaFile).isPresent(), "Java should accept current schemaVersion 2.1.0");
     }
 
     @Test
@@ -856,6 +863,35 @@ public class TreeSitterStateIOTest {
         Path v200 = tempDir.resolve("typescript" + Language.ANALYZER_STATE_SUFFIX);
         writeDtoWithSchemaVersion(v200, "2.0.0", 200L);
         assertTrue(TreeSitterStateIO.load(v200).isPresent(), "TypeScript should accept current schemaVersion 2.0.0");
+    }
+
+    @Test
+    void javaSchemaMigrationTo210ForcesRebuild(@TempDir Path tempDir) throws Exception {
+        // Java is strict and we've set JAVA_REBUILD_THRESHOLD to 2.1.0 in the migrator.
+        // A 2.0.0 snapshot should now be rejected to force regeneration of synthetic flags.
+        Path java200 = tempDir.resolve("java-rebuild" + Language.ANALYZER_STATE_SUFFIX);
+        writeDtoWithSchemaVersion(java200, "2.0.0", 200L, "JAVA");
+
+        var loaded = TreeSitterStateIO.load(java200);
+        assertTrue(
+                loaded.isEmpty(), "Java should REJECT schema 2.0.0 because it is below JAVA_REBUILD_THRESHOLD (2.1.0)");
+
+        // A 2.1.0 snapshot should be accepted.
+        Path java210 = tempDir.resolve("java_new" + Language.ANALYZER_STATE_SUFFIX);
+        writeDtoWithSchemaVersion(java210, "2.1.0", 210L, "JAVA");
+        assertTrue(TreeSitterStateIO.load(java210).isPresent(), "Java should accept schema 2.1.0");
+    }
+
+    @Test
+    void pythonSchemaMigrationTo210AllowsMinorMismatch(@TempDir Path tempDir) throws Exception {
+        // Python is not strict. 2.0.0 is same major as 2.1.0, so it should still be accepted
+        // and migrated instead of being rejected.
+        Path python200 = tempDir.resolve("python" + Language.ANALYZER_STATE_SUFFIX);
+        writeDtoWithSchemaVersion(python200, "2.0.0", 200L);
+
+        var loaded = TreeSitterStateIO.load(python200);
+        assertTrue(loaded.isPresent(), "Python should accept schema 2.0.0 as it is within the same major version");
+        assertEquals(200L, loaded.get().snapshotEpochNanos());
     }
 
     @Test
@@ -903,7 +939,7 @@ public class TreeSitterStateIOTest {
 
         // Manually construct a CodeUnitPropertiesDto-like map that includes the old 'rawSupertypes' field
         var pfDto = new TreeSitterStateIO.ProjectFileDto(tempDir.toString(), "Test.java");
-        var cuDto = new TreeSitterStateIO.CodeUnitDto(pfDto, CodeUnitType.CLASS, "com.pkg", "Test", null);
+        var cuDto = new TreeSitterStateIO.CodeUnitDto(pfDto, CodeUnitType.CLASS, "com.pkg", "Test", null, null);
 
         Map<String, Object> legacyProps = new HashMap<>();
         legacyProps.put("children", List.of());
@@ -924,7 +960,7 @@ public class TreeSitterStateIOTest {
         stateDtoMap.put("reverseImports", List.of());
         stateDtoMap.put("symbolKeys", List.of());
         stateDtoMap.put("snapshotEpochNanos", 1L);
-        stateDtoMap.put("schemaVersion", "2.0.0");
+        stateDtoMap.put("schemaVersion", "2.1.0");
 
         var mapper = new ObjectMapper(new SmileFactory())
                 .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);

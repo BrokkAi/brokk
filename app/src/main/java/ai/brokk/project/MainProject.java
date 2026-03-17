@@ -25,6 +25,7 @@ import ai.brokk.util.DependencyUpdateScheduler;
 import ai.brokk.util.Environment;
 import ai.brokk.util.GlobalUiSettings;
 import ai.brokk.util.IStringDiskCache;
+import ai.brokk.util.PathNormalizer;
 import ai.brokk.util.StringDiskCache;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.google.common.annotations.VisibleForTesting;
@@ -695,7 +696,7 @@ public final class MainProject extends AbstractProject {
 
         try {
             var tf = objectMapper.getTypeFactory();
-            var type = tf.constructCollectionType(List.class, String.class);
+            var type = tf.constructType(List.class);
             return objectMapper.readValue(json, type);
         } catch (JsonProcessingException e) {
             logger.error("Failed to deserialize source roots for {} from JSON: {}", language.name(), json, e);
@@ -2300,5 +2301,42 @@ public final class MainProject extends AbstractProject {
         for (var chrome : Brokk.getProjectAndWorktreeChromes(this)) {
             SwingUtilities.invokeLater(() -> chrome.getRightPanel().updateSessionComboBox());
         }
+    }
+
+    @Override
+    public void saveBuildDetails(BuildAgent.BuildDetails details) {
+        // Filter environment variables to remove platform-specific or transient defaults
+        Map<String, String> canonicalEnv = new HashMap<>(details.environmentVariables());
+        canonicalEnv.remove("JAVA_HOME");
+        canonicalEnv.remove("VIRTUAL_ENV");
+
+        // Sort and deduplicate exclusion patterns for consistent storage
+        Set<String> canonicalExclusions =
+                PathNormalizer.canonicalizeExclusionPatterns(details.exclusionPatterns(), getMasterRootPathForConfig())
+                        .stream()
+                        .sorted()
+                        .collect(Collectors.toCollection(LinkedHashSet::new));
+
+        var canonicalDetails = new BuildAgent.BuildDetails(
+                details.buildLintCommand(),
+                details.buildLintEnabled(),
+                details.testAllCommand(),
+                details.testAllEnabled(),
+                details.testSomeCommand(),
+                details.testSomeEnabled(),
+                canonicalExclusions,
+                canonicalEnv,
+                details.maxBuildAttempts(),
+                details.afterTaskListCommand(),
+                details.modules());
+
+        try {
+            String json = objectMapper.writeValueAsString(canonicalDetails);
+            projectProps.setProperty("buildDetailsJson", json);
+            saveProjectProperties();
+        } catch (JsonProcessingException e) {
+            logger.error("Failed to serialize BuildDetails to JSON: {}", details, e);
+        }
+        setBuildDetails(details);
     }
 }

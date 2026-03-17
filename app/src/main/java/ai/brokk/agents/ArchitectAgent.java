@@ -18,6 +18,7 @@ import ai.brokk.context.ContextDelta;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.SpecialTextType;
 import ai.brokk.exception.GlobalExceptionHandler;
+import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.prompts.ArchitectPrompts;
 import ai.brokk.prompts.WorkspacePrompts;
 import ai.brokk.tools.DependencyTools;
@@ -62,7 +63,6 @@ import org.jetbrains.annotations.Nullable;
 public class ArchitectAgent {
     private static final Logger logger = LogManager.getLogger(ArchitectAgent.class);
     private static final int MAX_TURNS = 10;
-
     /**
      * Listener for ArchitectAgent events.
      */
@@ -219,6 +219,12 @@ public class ArchitectAgent {
 
     public void setDeferBuildForInitialCodeAgentCall(boolean deferBuildForInitialCodeAgentCall) {
         this.deferBuildForInitialCodeAgentCall = deferBuildForInitialCodeAgentCall;
+    }
+
+    private StreamingChatModel delegatedSearchModel() {
+        return ParallelSearch.usePlannerModelForSearchAgent()
+                ? planningModel
+                : cm.getService().getModel(ModelType.SEARCH);
     }
 
     public void setListener(@Nullable ArchitectListener listener) {
@@ -448,10 +454,16 @@ public class ArchitectAgent {
         var existingDetails = cm.getProject().awaitBuildDetails();
         var details = new BuildAgent.BuildDetails(
                 buildLintCommand,
+                existingDetails.buildLintEnabled(),
                 testAllCommand,
+                existingDetails.testAllEnabled(),
                 testSomeCommand,
+                true, // Enabled by default if set via tool
                 new LinkedHashSet<>(excludedDirectories),
-                existingDetails.environmentVariables());
+                existingDetails.environmentVariables(),
+                existingDetails.maxBuildAttempts(),
+                existingDetails.afterTaskListCommand(),
+                existingDetails.modules());
         cm.getProject().saveBuildDetails(details);
 
         cm.getIo().showNotification(IConsoleIO.NotificationRole.INFO, "Saved build details.");
@@ -845,7 +857,7 @@ public class ArchitectAgent {
                     buildPrompt(workspaceTokenSize, maxInputTokensForPrompt, workspaceContentMessages, harnessNote);
 
             WorkspaceTools wst = new WorkspaceTools(this.context);
-            ParallelSearch parallelSearch = new ParallelSearch(cm, goal);
+            ParallelSearch parallelSearch = new ParallelSearch(context, goal, delegatedSearchModel());
 
             var depTools = DependencyTools.isSupported(cm.getProject())
                     ? Optional.of(new DependencyTools(cm))

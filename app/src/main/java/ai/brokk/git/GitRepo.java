@@ -358,6 +358,9 @@ public class GitRepo implements Closeable, IGitRepo {
         try {
             Path workingTreeRoot = repository.getWorkTree().toPath().normalize();
             Path absolutePath = workingTreeRoot.resolve(gitPath);
+            if (!absolutePath.startsWith(projectRoot)) {
+                return Optional.empty();
+            }
             Path pathRelativeToProjectRoot = projectRoot.relativize(absolutePath);
             return Optional.of(new ProjectFile(projectRoot, pathRelativeToProjectRoot));
         } catch (InvalidPathException e) {
@@ -577,7 +580,7 @@ public class GitRepo implements Closeable, IGitRepo {
         if (trackedFilesCache != null) {
             return trackedFilesCache;
         }
-        var trackedPaths = new HashSet<String>();
+        var trackedFiles = new HashSet<ProjectFile>();
         try {
             // HEAD (unchanged) files
             ObjectId headTreeId = null;
@@ -597,42 +600,28 @@ public class GitRepo implements Closeable, IGitRepo {
                         if (!isFileMode(treeWalk.getRawMode(0))) {
                             continue;
                         }
-
-                        String gitPath = treeWalk.getPathString();
-                        // Only add paths that are under the projectRoot
-                        Path workingTreeRoot = repository.getWorkTree().toPath().normalize();
-                        Path absoluteFilePathInWorktree = workingTreeRoot.resolve(gitPath);
-                        if (absoluteFilePathInWorktree.startsWith(projectRoot)) {
-                            trackedPaths.add(gitPath);
-                        }
+                        toProjectFile(treeWalk.getPathString()).ifPresent(trackedFiles::add);
                     }
                 }
             }
             // Staged/modified/added/removed
             var status = git.status().call();
             DirCache index = repository.readDirCache();
-            Path workingTreeRoot = repository.getWorkTree().toPath().normalize();
             Stream.of(status.getChanged(), status.getModified(), status.getAdded(), status.getRemoved())
                     .flatMap(Collection::stream)
                     .filter(gitPath -> {
-                        Path absoluteFilePathInWorktree = workingTreeRoot.resolve(gitPath);
-                        if (!absoluteFilePathInWorktree.startsWith(projectRoot)) {
-                            return false;
-                        }
                         var entry = index.getEntry(gitPath);
                         return entry != null && isFileMode(entry.getRawMode());
                     })
-                    .forEach(trackedPaths::add);
+                    .map(this::toProjectFile)
+                    .flatMap(Optional::stream)
+                    .forEach(trackedFiles::add);
         } catch (IOException | GitAPIException e) {
             logger.error("getTrackedFiles failed", e);
             // not really much caller can do about this, it's a critical method
             throw new RuntimeException(e);
         }
-        trackedFilesCache = trackedPaths.stream()
-                .map(this::toProjectFile)
-                .filter(Optional::isPresent)
-                .map(Optional::get)
-                .collect(Collectors.toSet());
+        trackedFilesCache = Set.copyOf(trackedFiles);
         trackedPathsCache =
                 trackedFilesCache.stream().map(ProjectFile::getRelPath).collect(Collectors.toSet());
         return trackedFilesCache;
