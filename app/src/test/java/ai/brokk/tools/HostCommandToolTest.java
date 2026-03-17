@@ -7,6 +7,7 @@ import ai.brokk.agents.LutzAgent;
 import ai.brokk.agents.SearchAgent;
 import ai.brokk.prompts.SearchPrompts.Objective;
 import ai.brokk.testutil.TestProject;
+import ai.brokk.util.BuildVerifier;
 import ai.brokk.util.Environment;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -61,13 +62,13 @@ class HostCommandToolTest {
         assertEquals(tempDir, seenRoot.get());
         assertEquals(Environment.DEFAULT_TIMEOUT, seenTimeout.get());
         assertInstanceOf(HostCommandTool.CommandOutput.class, output);
-        assertTrue(text.contains("### Success"));
-        assertTrue(text.contains("Command:"));
-        assertTrue(text.contains("echo hi"));
-        assertTrue(text.contains("Output:"));
+        assertTrue(text.contains("runBashCommand: ok"));
+        assertTrue(text.contains("command: echo hi"));
+        assertTrue(text.contains("exit_code: 0"));
+        assertTrue(text.contains("output:"));
         assertTrue(text.contains("hello"));
         assertTrue(text.contains("world"));
-        assertFalse(text.contains("Exit code:"));
+        assertFalse(text.contains("```"));
     }
 
     @Test
@@ -77,10 +78,12 @@ class HostCommandToolTest {
         var tool = new HostCommandTool(new TestProject(tempDir));
         String text = tool.runBashCommand("git status").llmText();
 
-        assertTrue(text.contains("### Success"));
-        assertTrue(text.contains("git status"));
+        assertTrue(text.contains("runBashCommand: ok"));
+        assertTrue(text.contains("command: git status"));
+        assertTrue(text.contains("exit_code: 0"));
         assertTrue(text.contains("returned only"));
         assertTrue(text.contains("still visible"));
+        assertFalse(text.contains("### "));
     }
 
     @Test
@@ -95,15 +98,37 @@ class HostCommandToolTest {
         String text = output.llmText();
 
         assertInstanceOf(HostCommandTool.CommandOutput.class, output);
-        assertTrue(text.contains("### Non-zero exit status"));
-        assertTrue(text.contains("bad command"));
-        assertTrue(text.contains("Exit code: 42"));
+        assertTrue(text.contains("runBashCommand: failed"));
+        assertTrue(text.contains("command: bad command"));
+        assertTrue(text.contains("exit_code: 42"));
         assertTrue(text.contains("process 'bad command' signaled error code 42"));
         assertTrue(text.contains("stdout:"));
         assertTrue(text.contains("boom"));
         assertTrue(text.contains("stderr:"));
         assertTrue(text.contains("kaput"));
         assertFalse(text.contains("null"));
+        assertFalse(text.contains("```"));
+    }
+
+    @Test
+    void runBashCommand_outputIsBoundedToBuildVerifierLimit() {
+        int totalLines = BuildVerifier.MAX_OUTPUT_LINES + 5;
+        Environment.shellCommandRunnerFactory = (command, root) -> (outputConsumer, timeout) -> {
+            for (int i = 0; i < totalLines; i++) {
+                outputConsumer.accept("line-" + i);
+            }
+            return "";
+        };
+
+        var tool = new HostCommandTool(new TestProject(tempDir));
+        String text = tool.runBashCommand("many-lines").llmText();
+
+        assertTrue(text.contains("runBashCommand: ok"));
+        assertTrue(text.contains("command: many-lines"));
+        assertTrue(text.contains("line-" + (totalLines - 1)));
+        assertTrue(text.contains("line-5"));
+        assertFalse(text.contains("line-0"));
+        assertFalse(text.contains("line-4"));
     }
 
     @Test
@@ -126,8 +151,9 @@ class HostCommandToolTest {
 
         assertEquals(ToolExecutionResult.Status.SUCCESS, result.status());
         assertInstanceOf(HostCommandTool.CommandOutput.class, result.result());
-        assertTrue(result.resultText().contains("### Success"));
-        assertTrue(result.resultText().contains("pwd"));
+        assertTrue(result.resultText().contains("runBashCommand: ok"));
+        assertTrue(result.resultText().contains("command: pwd"));
+        assertTrue(result.resultText().contains("exit_code: 0"));
         assertTrue(result.resultText().contains("ok from runner"));
     }
 
@@ -153,9 +179,9 @@ class HostCommandToolTest {
 
         assertEquals(ToolExecutionResult.Status.SUCCESS, result.status());
         assertInstanceOf(HostCommandTool.CommandOutput.class, result.result());
-        assertTrue(result.resultText().contains("### Non-zero exit status"));
-        assertTrue(result.resultText().contains("false"));
-        assertTrue(result.resultText().contains("Exit code: 9"));
+        assertTrue(result.resultText().contains("runBashCommand: failed"));
+        assertTrue(result.resultText().contains("command: false"));
+        assertTrue(result.resultText().contains("exit_code: 9"));
         assertTrue(result.resultText().contains("registry boom"));
         assertTrue(result.resultText().contains("registry kaput"));
         assertFalse(result.resultText().contains("null"));

@@ -257,8 +257,9 @@ class ToolRegistryTest {
 
         assertEquals(ToolExecutionResult.Status.SUCCESS, result.status());
         assertInstanceOf(HostCommandTool.CommandOutput.class, result.result());
-        assertTrue(result.resultText().contains("### Success"));
-        assertTrue(result.resultText().contains("echo ok"));
+        assertTrue(result.resultText().contains("runBashCommand: ok"));
+        assertTrue(result.resultText().contains("command: echo ok"));
+        assertTrue(result.resultText().contains("exit_code: 0"));
         assertTrue(result.resultText().contains("line from subprocess"));
         assertEquals("run-bash-1", result.toMessage().id());
         assertEquals("runBashCommand", result.toMessage().toolName());
@@ -266,6 +267,7 @@ class ToolRegistryTest {
         assertFalse(result.toMessage().text().startsWith("Request error:"));
         assertFalse(result.toMessage().text().startsWith("Internal error:"));
         assertFalse(result.toMessage().text().startsWith("Fatal error:"));
+        assertFalse(result.toMessage().text().contains("```"));
     }
 
     @Test
@@ -292,18 +294,19 @@ class ToolRegistryTest {
 
         assertEquals(ToolExecutionResult.Status.SUCCESS, result.status());
         assertInstanceOf(HostCommandTool.CommandOutput.class, result.result());
-        assertTrue(result.resultText().contains("### Non-zero exit status"));
-        assertTrue(result.resultText().contains("false"));
-        assertTrue(result.resultText().contains("Exit code: 7"));
+        assertTrue(result.resultText().contains("runBashCommand: failed"));
+        assertTrue(result.resultText().contains("command: false"));
+        assertTrue(result.resultText().contains("exit_code: 7"));
         assertTrue(result.resultText().contains("first line"));
         assertTrue(result.resultText().contains("boom details"));
         assertEquals(result.resultText(), result.toMessage().text());
-        assertTrue(result.toMessage().text().contains("### Non-zero exit status"));
-        assertTrue(result.toMessage().text().contains("Exit code: 7"));
+        assertTrue(result.toMessage().text().contains("runBashCommand: failed"));
+        assertTrue(result.toMessage().text().contains("exit_code: 7"));
         assertTrue(result.toMessage().text().contains("boom details"));
         assertFalse(result.toMessage().text().startsWith("Request error:"));
         assertFalse(result.toMessage().text().startsWith("Internal error:"));
         assertFalse(result.toMessage().text().startsWith("Fatal error:"));
+        assertFalse(result.toMessage().text().contains("### "));
     }
 
     @Test
