@@ -12,6 +12,7 @@ import ai.brokk.executor.jobs.JobStore;
 import ai.brokk.executor.routers.ActivityRouter;
 import ai.brokk.executor.routers.CompletionsRouter;
 import ai.brokk.executor.routers.ContextRouter;
+import ai.brokk.executor.routers.DependenciesRouter;
 import ai.brokk.executor.routers.FavoritesRouter;
 import ai.brokk.executor.routers.JobsRouter;
 import ai.brokk.executor.routers.ModelConfigRouter;
@@ -310,6 +311,9 @@ public final class HeadlessExecutorMain {
 
         var reviewRouter = new ReviewRouter(this.jobStore, this.jobRunner, this.jobReservation, this.headlessInit);
         this.server.registerAuthenticatedContext("/v1/review", reviewRouter);
+
+        var dependenciesRouter = new DependenciesRouter(this.contextManager);
+        this.server.registerAuthenticatedContext("/v1/dependencies", dependenciesRouter);
 
         logger.info("HeadlessExecutorMain initialized successfully");
     }
@@ -655,6 +659,7 @@ public final class HeadlessExecutorMain {
             System.out.println("    POST /v1/review/submit            - submit guided code review job");
             System.out.println("    GET  /v1/model-config             - current CODE/ARCHITECT model configs");
             System.out.println("    POST /v1/model-config             - update CODE/ARCHITECT model config");
+            System.out.println("    GET  /v1/dependencies             - list all imported dependencies");
             System.out.println();
 
             // Create and start executor
