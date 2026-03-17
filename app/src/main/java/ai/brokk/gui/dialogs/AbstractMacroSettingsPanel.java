@@ -125,16 +125,32 @@ public abstract class AbstractMacroSettingsPanel extends AnalyzerSettingsPanel {
             JScrollPane scrollPane = new JScrollPane(yamlEditor);
             scrollPane.setPreferredSize(new Dimension(500, 400));
 
-            int result = JOptionPane.showConfirmDialog(
-                    this, scrollPane, "Edit Macro Entry", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+            while (true) {
+                int result = JOptionPane.showConfirmDialog(
+                        this, scrollPane, "Edit Macro Entry", JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
 
-            if (result == JOptionPane.OK_OPTION) {
-                MacroMatch updated = YAML_MAPPER.readValue(yamlEditor.getText(), MacroMatch.class);
-                macroList.set(row, updated);
-                tableModel.fireTableRowsUpdated(row, row);
+                if (result != JOptionPane.OK_OPTION) {
+                    break;
+                }
+
+                try {
+                    MacroMatch updated = YAML_MAPPER.readValue(yamlEditor.getText(), MacroMatch.class);
+                    macroList.set(row, updated);
+                    tableModel.fireTableRowsUpdated(row, row);
+                    break;
+                } catch (Exception ex) {
+                    String msg = ex.getMessage();
+                    if (ex instanceof com.fasterxml.jackson.core.JsonProcessingException jpe) {
+                        msg = jpe.getOriginalMessage();
+                    } else if (ex.getCause() instanceof com.fasterxml.jackson.core.JsonProcessingException jpe) {
+                        msg = jpe.getOriginalMessage();
+                    }
+                    io.toolError("Failed to parse macro entry: " + msg);
+                    // Loop continues, re-showing the dialog with current yamlEditor content
+                }
             }
         } catch (Exception ex) {
-            io.toolError("Failed to parse macro entry: " + ex.getMessage());
+            io.toolError("Failed to serialize macro entry: " + ex.getMessage());
         }
     }
 
