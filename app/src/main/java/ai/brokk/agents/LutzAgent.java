@@ -244,7 +244,7 @@ public class LutzAgent {
         return tools;
     }
 
-    private static List<String> initStaticTools(IProject project, List<McpPrompts.McpTool> mcpTools) {
+    public static List<String> initStaticTools(IProject project, List<McpPrompts.McpTool> mcpTools) {
         var tools = new ArrayList<String>();
 
         tools.add("callSearchAgent");
@@ -259,6 +259,7 @@ public class LutzAgent {
         tools.add("addLineRangeToWorkspace");
         tools.add("addFilesToWorkspace");
         tools.add("addUrlContentsToWorkspace");
+        tools.add("runBashCommand");
 
         if (!mcpTools.isEmpty()) {
             tools.add("callMcpTool");
@@ -623,6 +624,7 @@ public class LutzAgent {
             case "getClassSkeletons", "getClassSources", "getMethodSources" -> 30;
             case "getCallGraphTo", "getCallGraphFrom", "getFileContents", "getFileSummaries", "skimFiles" -> 40;
 
+            case "runBashCommand" -> 98;
             case "callCodeAgent" -> 99;
             case "createOrReplaceTaskList" -> 100;
             case "answer", "askForClarification", "workspaceComplete" -> 101;

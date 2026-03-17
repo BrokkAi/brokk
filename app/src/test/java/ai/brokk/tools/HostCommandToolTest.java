@@ -2,6 +2,10 @@ package ai.brokk.tools;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import ai.brokk.ContextManager;
+import ai.brokk.agents.LutzAgent;
+import ai.brokk.agents.SearchAgent;
+import ai.brokk.prompts.SearchPrompts.Objective;
 import ai.brokk.testutil.TestProject;
 import ai.brokk.util.Environment;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -12,6 +16,7 @@ import java.lang.reflect.Parameter;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -154,6 +159,30 @@ class HostCommandToolTest {
         assertTrue(result.resultText().contains("registry boom"));
         assertTrue(result.resultText().contains("registry kaput"));
         assertFalse(result.resultText().contains("null"));
+    }
+
+    @Test
+    void contextManagerBaseRegistry_registersRunBashCommand() {
+        var project = new TestProject(tempDir);
+        try (var contextManager = new ContextManager(project)) {
+            assertTrue(contextManager.getToolRegistry().isRegistered("runBashCommand"));
+        }
+    }
+
+    @Test
+    void lutzAgentStaticTools_includeRunBashCommand() {
+        var project = new TestProject(tempDir);
+        List<String> toolNames = LutzAgent.initStaticTools(project, List.of());
+
+        assertTrue(toolNames.contains("runBashCommand"));
+    }
+
+    @Test
+    void searchAgentAllowedToolNames_includeRunBashCommand() {
+        var project = new TestProject(tempDir);
+        List<String> toolNames = SearchAgent.allowedToolNames(project, Objective.WORKSPACE_ONLY);
+
+        assertTrue(toolNames.contains("runBashCommand"));
     }
 
     private static String jsonArgs(Method method, Object... values) throws JsonProcessingException {

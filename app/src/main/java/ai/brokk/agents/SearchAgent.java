@@ -164,7 +164,7 @@ public class SearchAgent {
                 .register(workspaceTools)
                 .register(this)
                 .build();
-        var allowedTools = allowedToolNames(cm.getProject());
+        var allowedTools = allowedToolNames(cm.getProject(), objective);
         var toolContext = new ToolContext(toolRegistry.getTools(allowedTools), ToolChoice.REQUIRED, toolRegistry);
 
         var messages = new ArrayList<ChatMessage>();
@@ -346,7 +346,7 @@ public class SearchAgent {
         };
     }
 
-    private List<String> allowedToolNames(IProject project) {
+    public static List<String> allowedToolNames(IProject project, Objective objective) {
         var names = new ArrayList<String>();
 
         names.add("searchSymbols");
@@ -364,6 +364,7 @@ public class SearchAgent {
         names.add("addLineRangeToWorkspace");
         names.add("addFilesToWorkspace");
         names.add("addUrlContentsToWorkspace");
+        names.add("runBashCommand");
 
         if (project.hasGit()) {
             names.add("searchGitCommitMessages");
