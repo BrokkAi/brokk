@@ -29,7 +29,7 @@ class MacroPolicyStorageTest {
                 "rust",
                 List.of(new MacroPolicy.MacroMatch(
                         "my_macro",
-                        null,
+                        MacroPolicy.MacroScope.LIBRARY,
                         MacroPolicy.MacroStrategy.AI_EXPAND,
                         new MacroPolicy.AIExpandConfig(null, null))));
 

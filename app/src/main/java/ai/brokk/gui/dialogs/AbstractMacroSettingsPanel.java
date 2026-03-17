@@ -11,6 +11,8 @@ import ai.brokk.analyzer.macro.MacroPolicy.MacroMatch;
 import ai.brokk.analyzer.macro.MacroPolicy.MacroScope;
 import ai.brokk.analyzer.macro.MacroPolicy.MacroStrategy;
 import ai.brokk.analyzer.macro.MacroPolicy.TemplateConfig;
+import static java.util.Objects.requireNonNull;
+
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.project.IProject;
 import java.awt.*;
@@ -111,8 +113,7 @@ public abstract class AbstractMacroSettingsPanel extends AnalyzerSettingsPanel {
         gbc.anchor = GridBagConstraints.NORTHWEST;
 
         JTextField nameField = new JTextField(match.name());
-        JComboBox<MacroScope> scopeCombo =
-                new JComboBox<>(new MacroScope[] {null, MacroScope.APPLICATION, MacroScope.LIBRARY});
+        JComboBox<MacroScope> scopeCombo = new JComboBox<>(MacroScope.values());
         scopeCombo.setSelectedItem(match.scope());
         JComboBox<MacroStrategy> strategyCombo = new JComboBox<>(MacroStrategy.values());
         strategyCombo.setSelectedItem(match.strategy());
@@ -152,8 +153,8 @@ public abstract class AbstractMacroSettingsPanel extends AnalyzerSettingsPanel {
         aiExpandPanel.add(promptHintField);
         optionsCards.add(aiExpandPanel, MacroStrategy.AI_EXPAND.name());
 
-        strategyCombo.addActionListener(e ->
-                cardLayout.show(optionsCards, strategyCombo.getSelectedItem().toString()));
+        strategyCombo.addActionListener(
+                e -> cardLayout.show(optionsCards, strategyCombo.getSelectedItem().toString()));
         cardLayout.show(optionsCards, match.strategy().name());
 
         gbc.gridx = 0;
@@ -211,7 +212,7 @@ public abstract class AbstractMacroSettingsPanel extends AnalyzerSettingsPanel {
                         }
                     };
 
-            MacroMatch updated = new MacroMatch(newName, newScope, newStrategy, newOptions);
+            MacroMatch updated = new MacroMatch(newName, requireNonNull(newScope), newStrategy, newOptions);
             macroList.set(row, updated);
             tableModel.fireTableRowsUpdated(row, row);
         }

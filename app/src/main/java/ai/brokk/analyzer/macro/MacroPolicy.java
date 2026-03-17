@@ -10,7 +10,7 @@ public record MacroPolicy(String version, String language, List<MacroMatch> macr
 
     public record MacroMatch(
             @JsonProperty("name") String name,
-            @JsonProperty("scope") @Nullable MacroScope scope,
+            @JsonProperty("scope") MacroScope scope,
             @JsonProperty("strategy") MacroStrategy strategy,
             @JsonTypeInfo(
                             use = JsonTypeInfo.Id.NAME,
@@ -25,7 +25,13 @@ public record MacroPolicy(String version, String language, List<MacroMatch> macr
                     })
                     @JsonProperty("options")
                     @Nullable
-                    MacroConfig options) {}
+                    MacroConfig options) {
+        public MacroMatch {
+            if (scope == null) {
+                scope = MacroScope.LIBRARY;
+            }
+        }
+    }
 
     public enum MacroScope {
         APPLICATION,
@@ -57,7 +63,8 @@ public record MacroPolicy(String version, String language, List<MacroMatch> macr
         TEMPLATE
     }
 
-    public sealed interface MacroConfig permits AIExpandConfig, TemplateConfig, BuiltinConfig, BypassConfig {}
+    public sealed interface MacroConfig
+            permits AIExpandConfig, TemplateConfig, BuiltinConfig, BypassConfig {}
 
     public record AIExpandConfig(@Nullable Integer max_tokens, @Nullable String prompt_hint) implements MacroConfig {}
 
