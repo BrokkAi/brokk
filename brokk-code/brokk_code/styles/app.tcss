@@ -560,6 +560,38 @@ SlashCommandSuggestions ListItem, ModeSuggestions ListItem, ReasoningSuggestions
     border: tall $primary-darken-1;
 }
 
+#dependencies-container {
+    width: 100%;
+    height: 100%;
+    padding: 1 2;
+}
+
+#dependencies-title {
+    text-style: bold;
+    color: $text;
+    margin-bottom: 1;
+}
+
+#dependencies-help-line {
+    width: 100%;
+    height: 1;
+    color: $text-disabled;
+    margin-bottom: 1;
+}
+
+#dependencies-list-scroll {
+    height: 1fr;
+    border: tall $primary-darken-1;
+}
+
+#dependencies-list {
+    background: transparent;
+}
+
+#dependencies-list > ListItem:focus {
+    background: $accent 20%;
+}
+
 PrCreateModalScreen {
     align: center middle;
 }
