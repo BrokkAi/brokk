@@ -84,7 +84,7 @@ public abstract class AbstractMacroSettingsPanel extends AnalyzerSettingsPanel {
 
         MaterialButton addBtn = new MaterialButton("+");
         addBtn.addActionListener(e -> {
-            macroList.add(new MacroMatch("new_macro", null, MacroStrategy.BYPASS, null));
+            macroList.add(new MacroMatch("new_macro", null, MacroStrategy.BYPASS, new MacroPolicy.BypassConfig()));
             tableModel.fireTableDataChanged();
             int newRow = macroList.size() - 1;
             macroTable.setRowSelectionInterval(newRow, newRow);

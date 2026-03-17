@@ -3,10 +3,13 @@ language: "rust"
 macros:
   - name: "lazy_static"
     strategy: "BYPASS"
+    options: {}
   - name: "Serialize"
     strategy: "BYPASS"
+    options: {}
   - name: "Deserialize"
     strategy: "BYPASS"
+    options: {}
   - name: "my_macro"
     strategy: "TEMPLATE"
     options:

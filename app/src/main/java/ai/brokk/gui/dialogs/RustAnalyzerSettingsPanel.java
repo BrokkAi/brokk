@@ -85,7 +85,8 @@ public class RustAnalyzerSettingsPanel extends AbstractMacroSettingsPanel {
         int addedCount = 0;
         for (String name : discoveredMacroNames) {
             if (!existingNames.contains(name)) {
-                macroList.add(new MacroMatch(name, null, MacroPolicy.MacroStrategy.BYPASS, null));
+                macroList.add(
+                        new MacroMatch(name, null, MacroPolicy.MacroStrategy.BYPASS, new MacroPolicy.BypassConfig()));
                 addedCount++;
             }
         }

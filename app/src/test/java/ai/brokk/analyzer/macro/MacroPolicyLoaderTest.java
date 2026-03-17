@@ -18,8 +18,9 @@ class MacroPolicyLoaderTest {
                 macros:
                   - name: "println"
                     strategy: "BYPASS"
+                    options: {}
                   - name: "vec"
-                    path: "std::vec"
+                    scope: "LIBRARY"
                     strategy: "AI_EXPAND"
                     options:
                       max_tokens: 500
@@ -34,13 +35,13 @@ class MacroPolicyLoaderTest {
         MacroPolicy.MacroMatch println = policy.macros().get(0);
         assertEquals("println", println.name());
         assertEquals(MacroPolicy.MacroStrategy.BYPASS, println.strategy());
-        assertNull(println.path());
+        assertNull(println.scope());
 
         MacroPolicy.MacroMatch vec = policy.macros().get(1);
         assertEquals("vec", vec.name());
-        assertEquals("std::vec", vec.path());
         assertEquals(MacroPolicy.MacroStrategy.AI_EXPAND, vec.strategy());
         assertNotNull(vec.options());
-        assertEquals(500, vec.options().get("max_tokens"));
+        assertInstanceOf(MacroPolicy.AIExpandConfig.class, vec.options());
+        assertEquals(500, ((MacroPolicy.AIExpandConfig) vec.options()).max_tokens());
     }
 }

@@ -2,4 +2,6 @@ version: "1.0"
 language: "rust"
 macros:
   - name: "Is"
-    strategy: "AI_EXPAND"
+    strategy: "TEMPLATE"
+    options:
+      template: "pub struct {{name}} {}"

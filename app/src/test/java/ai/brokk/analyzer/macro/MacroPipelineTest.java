@@ -27,8 +27,8 @@ public class MacroPipelineTest {
         assertEquals("rust", policy.language());
 
         boolean foundIs = policy.macros().stream()
-                .anyMatch(m -> "Is".equals(m.name()) && m.strategy() == MacroPolicy.MacroStrategy.AI_EXPAND);
-        assertTrue(foundIs, "Should find 'Is' macro with AI_EXPAND strategy");
+                .anyMatch(m -> "Is".equals(m.name()) && m.strategy() == MacroPolicy.MacroStrategy.TEMPLATE);
+        assertTrue(foundIs, "Should find 'Is' macro with TEMPLATE strategy");
     }
 
     @Test
@@ -39,7 +39,8 @@ public class MacroPipelineTest {
                 .findFirst()
                 .orElseThrow();
 
-        String template = (String) myMacro.options().get("template");
+        assertInstanceOf(MacroPolicy.TemplateConfig.class, myMacro.options());
+        String template = ((MacroPolicy.TemplateConfig) myMacro.options()).template();
         assertNotNull(template);
 
         Map<String, Object> context = Map.of(

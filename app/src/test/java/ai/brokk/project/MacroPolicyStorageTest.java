@@ -27,7 +27,11 @@ class MacroPolicyStorageTest {
         MacroPolicy policy = new MacroPolicy(
                 "1.0",
                 "rust",
-                List.of(new MacroPolicy.MacroMatch("my_macro", null, MacroPolicy.MacroStrategy.AI_EXPAND, Map.of())));
+                List.of(new MacroPolicy.MacroMatch(
+                        "my_macro",
+                        null,
+                        MacroPolicy.MacroStrategy.AI_EXPAND,
+                        new MacroPolicy.AIExpandConfig(null, null))));
 
         project.setMacroPolicy(lang, policy);
 
