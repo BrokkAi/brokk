@@ -123,7 +123,7 @@ class DependenciesModalScreen(ModalScreen[None]):
             yield DependenciesPanel(id="dependencies-panel")
 
     def on_mount(self) -> None:
-        self.query_one(DependenciesPanel).focus()
+        self.query_one("#dependencies-list", ListView).focus()
         self.app.run_worker(self.app._refresh_dependencies_panel())
 
     def action_close_dependencies(self) -> None:

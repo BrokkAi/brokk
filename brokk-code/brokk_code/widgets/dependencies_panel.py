@@ -12,8 +12,6 @@ from textual.widgets import ListItem, ListView, Static
 class DependenciesPanel(Widget):
     """Panel for managing project dependencies."""
 
-    can_focus = True
-
     class ActionRequested(Message):
         """Message emitted when user requests an action."""
 
@@ -94,6 +92,10 @@ class DependenciesPanel(Widget):
         dep = self.selected_dependency()
         if dep:
             self.post_message(self.ActionRequested("delete", dep.get("name")))
+
+    def on_focus(self) -> None:
+        """Delegate focus to the inner ListView so arrow keys work."""
+        self.query_one("#dependencies-list", ListView).focus()
 
     def action_refresh(self) -> None:
         self.post_message(self.ActionRequested("refresh"))
