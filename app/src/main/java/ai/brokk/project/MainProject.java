@@ -1169,6 +1169,21 @@ public final class MainProject extends AbstractProject {
     public Set<Dependency> getLiveDependencies() {
         var liveDepsNames = workspaceProps.getProperty(LIVE_DEPENDENCIES_KEY);
 
+        // When running from a worktree, fall back to the master root's workspace.properties
+        if (liveDepsNames == null && !root.equals(masterRootPathForConfig)) {
+            var masterPropsFile = masterRootPathForConfig.resolve(BROKK_DIR).resolve(WORKSPACE_PROPERTIES_FILE);
+            if (Files.exists(masterPropsFile)) {
+                var masterProps = new Properties();
+                try (var reader = Files.newBufferedReader(masterPropsFile)) {
+                    masterProps.load(reader);
+                    liveDepsNames = masterProps.getProperty(LIVE_DEPENDENCIES_KEY);
+                    logger.debug("Read liveDependencies from master workspace.properties: '{}'", liveDepsNames);
+                } catch (IOException e) {
+                    logger.debug("Failed to read master workspace.properties: {}", e.getMessage());
+                }
+            }
+        }
+
         if (liveDepsNames == null || liveDepsNames.isBlank()) {
             return Set.of();
         }
