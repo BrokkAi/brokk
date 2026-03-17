@@ -236,13 +236,15 @@ public class BrokkExternalMcpServer {
                                                             .build();
 
                                                     var result = registry.executeTool(lc4jRequest);
+                                                    String resultText = formatMcpSourceRetrievalResponse(
+                                                            spec.name(), result.status(), result.resultText());
+
                                                     return McpSchema.CallToolResult.builder()
-                                                            .addTextContent(result.resultText())
+                                                            .addTextContent(resultText)
                                                             .isError(result.status()
                                                                     != ToolExecutionResult.Status.SUCCESS)
                                                             .build();
-                                                } catch (InterruptedException e) {
-                                                    Thread.currentThread().interrupt();
+                                                } catch (Exception e) {
                                                     throw new RuntimeException(e);
                                                 }
                                             });
@@ -325,6 +327,51 @@ public class BrokkExternalMcpServer {
             map.put("description", desc);
         }
         return map;
+    }
+
+    static String formatMcpSourceRetrievalResponse(
+            String toolName, ToolExecutionResult.Status status, String text) {
+        if (status == ToolExecutionResult.Status.SUCCESS
+                && ("getClassSources".equals(toolName) || "getMethodSources".equals(toolName))) {
+            return numberFencedCodeBlocks(text);
+        }
+        return text;
+    }
+
+    static String numberFencedCodeBlocks(String text) {
+        String[] lines = text.split("\r?\n", -1);
+        boolean inFence = false;
+        List<Integer> startIndices = new ArrayList<>();
+        List<Integer> endIndices = new ArrayList<>();
+
+        for (int i = 0; i < lines.length; i++) {
+            if (lines[i].trim().startsWith("```")) {
+                if (inFence) {
+                    endIndices.add(i);
+                    inFence = false;
+                } else {
+                    startIndices.add(i);
+                    inFence = true;
+                }
+            }
+        }
+
+        // Return original if there's an unclosed fence or no fences at all
+        if (inFence || startIndices.isEmpty()) {
+            return text;
+        }
+
+        String[] output = lines.clone();
+        for (int k = 0; k < startIndices.size(); k++) {
+            int start = startIndices.get(k);
+            int end = endIndices.get(k);
+            int lineNum = 1;
+            for (int j = start + 1; j < end; j++) {
+                output[j] = String.format("%4d | %s", lineNum++, lines[j]);
+            }
+        }
+
+        return String.join("\n", output);
     }
 
     public List<McpServerFeatures.SyncToolSpecification> toolSpecifications() {
