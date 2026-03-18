@@ -314,14 +314,53 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
 
                 String modifiers = modifiersBuilder.toString();
                 String typeStr = sourceContent.substringFrom(typeNode).strip();
-                String declaratorStr = sourceContent.substringFrom(declarator).strip();
 
-                int commaIdx = declaratorStr.indexOf(',');
-                if (commaIdx != -1) {
-                    declaratorStr = declaratorStr.substring(0, commaIdx).strip();
+                TSNode nameNode = declarator.getChildByFieldName("name");
+                String nameStr = nameNode != null && !nameNode.isNull()
+                        ? sourceContent.substringFrom(nameNode).strip()
+                        : simpleName;
+
+                // Locate the initializer expression. In C#, it might be inside an equals_value_clause
+                // or a direct child of the declarator depending on the grammar version/context.
+                TSNode expression = null;
+                TSNode valueClause = null;
+                for (int i = 0; i < declarator.getChildCount(); i++) {
+                    TSNode child = declarator.getChild(i);
+                    if (child == null || !child.isNamed()) continue;
+                    if ("equals_value_clause".equals(child.getType())) {
+                        valueClause = child;
+                        break;
+                    }
+                    // If we find a literal directly, use it
+                    if (isLiteralType(child.getType())) {
+                        expression = child;
+                        break;
+                    }
                 }
 
-                String full = (modifiers + typeStr + " " + declaratorStr + ";").strip();
+                if (valueClause != null) {
+                    expression = valueClause.getChildByFieldName("value");
+                    if (expression == null || expression.isNull()) {
+                        // Fallback: first named child in the clause that isn't the '=' operator
+                        for (int i = 0; i < valueClause.getChildCount(); i++) {
+                            TSNode child = valueClause.getChild(i);
+                            if (child != null && child.isNamed() && !"=".equals(child.getType())) {
+                                expression = child;
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                String initializerStr = "";
+                if (expression != null && !expression.isNull()) {
+                    TSNode literalNode = findLiteralNode(expression);
+                    if (literalNode != null) {
+                        initializerStr = " = " + sourceContent.substringFrom(literalNode).strip();
+                    }
+                }
+
+                String full = (modifiers + typeStr + " " + nameStr + initializerStr + ";").strip();
                 return baseIndent + full;
             }
         }
@@ -333,6 +372,44 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
             fullSignature += ";";
         }
         return baseIndent + fullSignature;
+    }
+
+    private boolean isLiteralType(@Nullable String type) {
+        if (type == null) return false;
+        return type.endsWith("_literal")
+                || type.equals("boolean_literal")
+                || type.equals("integer_literal")
+                || type.equals("real_literal")
+                || type.equals("character_literal")
+                || type.equals("string_literal")
+                || type.equals("null_literal")
+                || type.equals("true")
+                || type.equals("false")
+                || type.equals("null");
+    }
+
+    private @Nullable TSNode findLiteralNode(TSNode node) {
+        if (node.isNull()) return null;
+        String type = node.getType();
+
+        // 1. Direct hit
+        if (isLiteralType(type)) return node;
+
+        // 2. Look through named children (handles wrapper nodes like 'literal' or 'parenthesized_expression')
+        for (int i = 0; i < node.getChildCount(); i++) {
+            TSNode child = node.getChild(i);
+            if (child == null || child.isNull() || !child.isNamed()) continue;
+
+            if (isLiteralType(child.getType())) {
+                return child;
+            }
+
+            // Recurse for nested wrappers (e.g. ((1)))
+            TSNode found = findLiteralNode(child);
+            if (found != null) return found;
+        }
+
+        return null;
     }
 
     @Override
