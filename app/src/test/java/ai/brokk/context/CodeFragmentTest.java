@@ -297,6 +297,22 @@ public static void verify(IProject p, String s, Map m) {}
     }
 
     @Test
+    void testCodeFragmentResolvesShortDescriptionFromFqmn() {
+        ProjectFile file = new ProjectFile(tempDir, "Example.java");
+        CodeUnit method = CodeUnit.fn(file, "com.example", "Example.run");
+
+        analyzer.addDeclaration(method);
+        analyzer.setSource(method, "void run() {}");
+
+        // Pass only the FQMN (null eagerUnit) to simulate ReferenceAgent's behavior
+        var fragment = new ContextFragments.CodeFragment(contextManager, "com.example.Example.run");
+
+        // The dynamically resolved shortDescription should match the method's short name, not the FQMN
+        String shortDesc = fragment.shortDescription().join();
+        assertEquals(method.shortName(), shortDesc);
+    }
+
+    @Test
     void testProjectPathFragmentIncludesAncestorSkeletons() {
         ProjectFile parentFile = new ProjectFile(tempDir, "Parent.java");
         ProjectFile childFile = new ProjectFile(tempDir, "Child.java");
