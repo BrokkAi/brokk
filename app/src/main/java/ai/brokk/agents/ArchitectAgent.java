@@ -546,7 +546,7 @@ public class ArchitectAgent {
     }
 
     /**
-     * Execute Architect with a ContextAgent pass first. Both the Context scan and the Architect
+     * Execute Architect with a ReferenceAgent pass first. The Architect
      * results are appended to the provided scope.
      */
     public TaskResult executeWithScan() throws InterruptedException {

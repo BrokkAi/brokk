@@ -16,12 +16,14 @@ import ai.brokk.context.SpecialTextType;
 import ai.brokk.git.GitDistance;
 import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.prompts.WorkspacePrompts;
+import ai.brokk.tools.ToolExecutionResult;
+import ai.brokk.tools.ToolOutput;
+import ai.brokk.tools.ToolRegistry;
 import ai.brokk.util.Lines;
 import ai.brokk.util.Messages;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolContext;
-import dev.langchain4j.agent.tool.ToolSpecifications;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
@@ -76,7 +78,7 @@ public class ContextAgent {
     private static final int UNANALYZED_TOP_SHOWN = 25;
     private static final int UNANALYZED_BOTTOM_SHOWN = 25;
 
-    private enum GroupType {
+    enum GroupType {
         ANALYZED,
         UNANALYZED
     }
@@ -132,59 +134,48 @@ public class ContextAgent {
     /** Result record for the LLM tool call, holding recommended files, class names, and token usage. */
     record LlmRecommendation(
             Set<ProjectFile> recommendedFiles,
-            Set<ProjectFile> recommendedTests,
             Set<CodeUnit> recommendedClasses,
             @Nullable Llm.ResponseMetadata tokenUsage) {
-        static final LlmRecommendation EMPTY = new LlmRecommendation(Set.of(), Set.of(), Set.of(), null);
+        static final LlmRecommendation EMPTY = new LlmRecommendation(Set.of(), Set.of(), null);
 
-        public LlmRecommendation(List<ProjectFile> files, List<ProjectFile> tests, List<CodeUnit> classes) {
-            this(new HashSet<>(files), new HashSet<>(tests), new HashSet<>(classes), null);
+        public LlmRecommendation(List<ProjectFile> files, List<CodeUnit> classes) {
+            this(new HashSet<>(files), new HashSet<>(classes), null);
         }
 
         LlmRecommendation withUsage(@Nullable Llm.ResponseMetadata newUsage) {
-            return new LlmRecommendation(recommendedFiles, recommendedTests, recommendedClasses, newUsage);
+            return new LlmRecommendation(recommendedFiles, recommendedClasses, newUsage);
         }
     }
 
-    /** Inner class representing the tool that the LLM can call to recommend context. */
-    public static class ContextRecommendationTool {
-        private final List<String> recommendedFiles = new ArrayList<>();
-        private final List<String> recommendedClasses = new ArrayList<>();
-        private final List<String> recommendedTests = new ArrayList<>();
-
-        @Tool(
-                "Recommend relevant files, tests, and classes needed to achieve the user's goal. All file paths must exactly match a file path provided in the request; do not invent paths.")
-        public void recommendContext(
-                @P(
-                                "List of full paths of files to edit or whose full text is necessary. Must exactly match one of the file paths provided in the request.")
-                        List<String> filesToAdd,
-                @P(
-                                "List of fully-qualified class names for classes whose APIs are relevant to the goal but which do not need to be edited.")
-                        List<String> classesToSummarize,
-                @P(
-                                "List of related test/spec/e2e/integration file paths that help understand or verify the goal. These will be included as summaries/skeletons only. Must exactly match one of the file paths provided in the request.")
-                        List<String> testsToAdd) {
-            recommendedFiles.addAll(filesToAdd);
-            recommendedClasses.addAll(classesToSummarize);
-            recommendedTests.addAll(testsToAdd);
-            logger.debug(
-                    "ContextTool called recommendContext: files={}, classes={}, tests={}",
-                    filesToAdd,
-                    classesToSummarize,
-                    testsToAdd);
+    record RecommendationToolOutput(String llmText, List<String> filesToAdd, List<String> classesToSummarize)
+            implements ToolOutput {
+        RecommendationToolOutput {
+            filesToAdd = List.copyOf(filesToAdd);
+            classesToSummarize = List.copyOf(classesToSummarize);
         }
+    }
 
-        public List<String> getRecommendedFiles() {
-            return recommendedFiles;
-        }
+    @Tool(
+            "Recommend relevant files and classes needed to achieve the user's goal. All file paths must exactly match a file path provided in the request; do not invent paths.")
+    public RecommendationToolOutput recommendContext(
+            @P(
+                            "List of full paths of files to edit or whose full text is necessary. Must exactly match one of the file paths provided in the request.")
+                    List<String> filesToAdd,
+            @P(
+                            "List of fully-qualified class names for classes whose APIs are relevant to the goal but which do not need to be edited.")
+                    List<String> classesToSummarize) {
+        logger.debug("ContextAgent called recommendContext: files={}, classes={}", filesToAdd, classesToSummarize);
+        return new RecommendationToolOutput("Recommended files and classes.", filesToAdd, classesToSummarize);
+    }
 
-        public List<String> getRecommendedClasses() {
-            return recommendedClasses;
-        }
-
-        public List<String> getRecommendedTests() {
-            return recommendedTests;
-        }
+    @Tool(
+            "Recommend relevant files needed to achieve the user's goal. Use this when class summaries are not available. All file paths must exactly match a file path provided in the request; do not invent paths.")
+    public RecommendationToolOutput recommendFiles(
+            @P(
+                            "List of full paths of files to edit or whose full text is necessary. Must exactly match one of the file paths provided in the request.")
+                    List<String> filesToAdd) {
+        logger.debug("ContextAgent called recommendFiles: files={}", filesToAdd);
+        return new RecommendationToolOutput("Recommended files.", filesToAdd, List.of());
     }
 
     /** Calculates the approximate token count for a list of ContextFragments. */
@@ -352,13 +343,13 @@ public class ContextAgent {
                 cm.getLlm(new Llm.Options(model, "ContextAgent (Unanalyzed): " + goal, TaskResult.Type.SCAN));
         llmUnanalyzed.setOutput(io);
 
-        // Process groups in parallel: Analyzed, Unanalyzed, and Tests (filename-only)
-        LlmRecommendation[] results = new LlmRecommendation[3];
-        Throwable[] errors = new Throwable[3];
+        // Process non-test groups in parallel first (tests depend on their results).
+        LlmRecommendation[] nonTestResults = new LlmRecommendation[2];
+        Throwable[] nonTestErrors = new Throwable[2];
 
         Thread t1 = Thread.ofVirtual().start(() -> {
             try {
-                results[0] = processGroup(
+                nonTestResults[0] = processGroup(
                         GroupType.ANALYZED,
                         analyzedFiles,
                         workspaceRepresentation,
@@ -367,13 +358,13 @@ public class ContextAgent {
                         filesLlmAnalyzed,
                         llmAnalyzed);
             } catch (Throwable t) {
-                errors[0] = t;
+                nonTestErrors[0] = t;
             }
         });
 
         Thread t2 = Thread.ofVirtual().start(() -> {
             try {
-                results[1] = processGroup(
+                nonTestResults[1] = processGroup(
                         GroupType.UNANALYZED,
                         unAnalyzedFiles,
                         workspaceRepresentation,
@@ -382,74 +373,63 @@ public class ContextAgent {
                         filesLlmUnanalyzed,
                         llmUnanalyzed);
             } catch (Throwable t) {
-                errors[1] = t;
-            }
-        });
-
-        Thread t3 = Thread.ofVirtual().start(() -> {
-            try {
-                if (testCandidates.isEmpty()) {
-                    results[2] = LlmRecommendation.EMPTY;
-                    return;
-                }
-                logger.debug("Processing {} test candidates via filename-only pass.", testCandidates.size());
-                var testFilenames =
-                        testCandidates.stream().map(ProjectFile::toString).toList();
-                // Test selection is filename-only and lightweight; use a fixed smaller budget (e.g. 50k)
-                // and the quicker summarization model.
-                var testRec = askLlmDeepPruneFilenamesWithChunking(
-                        testFilenames,
-                        workspaceRepresentation,
-                        min(50_000, pruneBudgetRemaining),
-                        filesLlmTests,
-                        false);
-
-                // Map results to recommendedTests specifically
-                results[2] =
-                        new LlmRecommendation(Set.of(), testRec.recommendedFiles(), Set.of(), testRec.tokenUsage());
-            } catch (Throwable t) {
-                errors[2] = t;
+                nonTestErrors[1] = t;
             }
         });
 
         t1.join();
         t2.join();
-        t3.join();
-
-        for (var err : errors) {
-            if (err != null) throw new RuntimeException(err);
+        for (var err : nonTestErrors) {
+            // array entries are initialized to null, null check is not redundant
+            if (err != null) {
+                throw new RuntimeException(err);
+            }
         }
 
-        var analyzedRec = results[0];
-        var unAnalyzedRec = results[1];
-        var testsRec = results[2];
+        var analyzedRec = nonTestResults[0];
+        var unAnalyzedRec = nonTestResults[1];
 
-        boolean success = !analyzedRec.recommendedFiles().isEmpty()
-                || !analyzedRec.recommendedTests().isEmpty()
-                || !analyzedRec.recommendedClasses().isEmpty()
-                || !unAnalyzedRec.recommendedFiles().isEmpty()
-                || !unAnalyzedRec.recommendedTests().isEmpty()
-                || !unAnalyzedRec.recommendedClasses().isEmpty()
-                || !testsRec.recommendedTests().isEmpty();
-
-        // Union files, tests, and classes from all groups.
         var mergedFiles = new HashSet<>(analyzedRec.recommendedFiles());
         mergedFiles.addAll(unAnalyzedRec.recommendedFiles());
-        mergedFiles.addAll(testsRec.recommendedFiles());
 
-        var mergedTests = new HashSet<>(analyzedRec.recommendedTests());
-        mergedTests.addAll(unAnalyzedRec.recommendedTests());
-        mergedTests.addAll(testsRec.recommendedTests());
+        Context rankingContext = context.addFragments(cm.toPathFragments(mergedFiles));
+        List<ChatMessage> rankingOverview = List.of(
+                UserMessage.from("<workspace_summary>\n" + rankingContext.overview() + "\n</workspace_summary>"),
+                new AiMessage("Thank you for the workspace summary."));
 
+        int rankingWorkspaceTokens = Messages.getApproximateMessageTokens(rankingOverview);
+        int testPruneBudgetRemaining = filesPruningBudget - rankingWorkspaceTokens;
+
+        LlmRecommendation testsRec = LlmRecommendation.EMPTY;
+        if (!testCandidates.isEmpty()) {
+            logger.debug("Processing {} test candidates via filename-only pass.", testCandidates.size());
+            var testFilenames =
+                    testCandidates.stream().map(ProjectFile::toString).toList();
+            var testRec = askLlmDeepPruneFilenamesWithChunking(
+                    testFilenames, rankingOverview, min(50_000, testPruneBudgetRemaining), filesLlmTests, false);
+
+            testsRec = new LlmRecommendation(testRec.recommendedFiles(), Set.of(), testRec.tokenUsage());
+        }
+        List<ProjectFile> inferredTests = testsRec.recommendedFiles().stream().toList();
+
+        boolean success = !analyzedRec.recommendedFiles().isEmpty()
+                || !analyzedRec.recommendedClasses().isEmpty()
+                || !unAnalyzedRec.recommendedFiles().isEmpty()
+                || !unAnalyzedRec.recommendedClasses().isEmpty()
+                || !inferredTests.isEmpty();
+
+        // Union files and classes from analyzed/unanalyzed groups.
         var mergedClasses = new HashSet<>(analyzedRec.recommendedClasses());
         mergedClasses.addAll(unAnalyzedRec.recommendedClasses());
-        mergedClasses.addAll(testsRec.recommendedClasses());
 
         var combinedUsage = Llm.ResponseMetadata.sum(
                 Llm.ResponseMetadata.sum(analyzedRec.tokenUsage(), unAnalyzedRec.tokenUsage()), testsRec.tokenUsage());
 
-        var unifiedRec = new LlmRecommendation(mergedFiles, mergedTests, mergedClasses, combinedUsage);
-        var result = createResult(unifiedRec, existingFiles);
+        // Rank inferred tests by relevance to (input context + non-test recommendations) and cap at 3.
+        Set<ProjectFile> mergedTests = capRecommendedTests(rankingContext, new HashSet<>(inferredTests));
+
+        var unifiedRec = new LlmRecommendation(mergedFiles, mergedClasses, combinedUsage);
+        var result = createResult(unifiedRec, mergedTests.stream().toList(), existingFiles);
 
         return new RecommendationResult(success, result, combinedUsage);
     }
@@ -477,7 +457,7 @@ public class ContextAgent {
             throws InterruptedException {
 
         if (groupFiles.isEmpty()) {
-            return new LlmRecommendation(Set.of(), Set.of(), Set.of(), null);
+            return new LlmRecommendation(Set.of(), Set.of(), null);
         }
 
         // Build initial payload preview for token estimation
@@ -511,7 +491,7 @@ public class ContextAgent {
             var prunedFiles = pruneRec.recommendedFiles();
             if (prunedFiles.isEmpty()) {
                 logger.debug("{} group: filename pruning produced an empty set.", type);
-                return new LlmRecommendation(Set.of(), Set.of(), Set.of(), usage);
+                return new LlmRecommendation(Set.of(), Set.of(), usage);
             }
 
             // Expand to include most-relevant neighbors
@@ -535,7 +515,8 @@ public class ContextAgent {
 
         // Evaluate-for-relevance stage: call LLM with a context window containing ONLY this group's data.
         // If we still get a context-window error, iteratively cut off the least important half.
-        LlmRecommendation evalRec = evaluateWithHalving(type, workingFiles, workspaceRepresentation, llm);
+        LlmRecommendation evalRec =
+                evaluateWithHalving(type, workingFiles, workspaceRepresentation, llm, type == GroupType.ANALYZED);
         usage = Llm.ResponseMetadata.sum(usage, evalRec.tokenUsage());
         return evalRec.withUsage(usage);
     }
@@ -563,8 +544,12 @@ public class ContextAgent {
     /**
      * Evaluates relevance for the current file set, halving on context overflow.
      */
-    private LlmRecommendation evaluateWithHalving(
-            GroupType type, List<ProjectFile> files, Collection<ChatMessage> workspaceRepresentation, Llm llm)
+    LlmRecommendation evaluateWithHalving(
+            GroupType type,
+            List<ProjectFile> files,
+            Collection<ChatMessage> workspaceRepresentation,
+            Llm llm,
+            boolean allowClassSummaries)
             throws InterruptedException {
 
         List<ProjectFile> current = new ArrayList<>(files);
@@ -576,7 +561,7 @@ public class ContextAgent {
                     : readFileContentsCappedForPrompt(current);
 
             try {
-                return askLlmDeepRecommendContext(fileText, workspaceRepresentation, llm);
+                return askLlmDeepRecommendContext(fileText, workspaceRepresentation, llm, allowClassSummaries);
             } catch (ContextTooLargeException e) {
                 if (current.size() <= 1) {
                     logger.debug("{} group still too large with a single file; returning empty.", type);
@@ -607,7 +592,8 @@ public class ContextAgent {
 
     // --- Result assembly ---
 
-    List<ContextFragment> createResult(LlmRecommendation llmRecommendation, Set<ProjectFile> existingFiles) {
+    List<ContextFragment> createResult(
+            LlmRecommendation llmRecommendation, List<ProjectFile> recommendedTests, Set<ProjectFile> existingFiles) {
         var originalFiles = llmRecommendation.recommendedFiles();
         var filteredFiles =
                 originalFiles.stream().filter(f -> !existingFiles.contains(f)).toList();
@@ -618,15 +604,14 @@ public class ContextAgent {
                     filteredFiles.size());
         }
 
-        var originalTests = llmRecommendation.recommendedTests();
-        var filteredTests = originalTests.stream()
+        var filteredTests = recommendedTests.stream()
                 .filter(f -> !existingFiles.contains(f))
                 .filter(f -> !filteredFiles.contains(f))
                 .toList();
-        if (filteredTests.size() != originalTests.size()) {
+        if (filteredTests.size() != recommendedTests.size()) {
             logger.debug(
                     "Post-filtered LLM recommended tests from {} to {} by excluding already-present or selected files",
-                    originalTests.size(),
+                    recommendedTests.size(),
                     filteredTests.size());
         }
 
@@ -748,7 +733,7 @@ public class ContextAgent {
                 Constraints:
                  - You MUST select zero or more files EXCLUSIVELY from the provided <filenames> list.
                  - Do NOT include any filename that is not exactly present in <filenames>.
-                 - If no files apply, return an empty selection (i.e., no lines).
+                 - If no files apply, return `BRK_NO_SUITABLE_CANDIDATES`
 
                 Reason step-by-step:
                  - Identify all files corresponding to class names explicitly mentioned in the <goal>.
@@ -762,7 +747,9 @@ public class ContextAgent {
                    do not recommend files that are listed in the <discarded_context> section.
 
                 Output format (strict):
-                 - Return ONLY the selected filenames, EXACTLY as they appear in <filenames>, one per line.
+                 - Either:
+                   1) one or more exact filenames (one per line), OR
+                   2) exactly `BRK_NO_SUITABLE_CANDIDATES`
                  - No quotes, no bullets, no markdown, and no extra commentary outside of the filenames list.
 
                 </instructions>
@@ -806,15 +793,12 @@ public class ContextAgent {
                 var mergedFiles = new HashSet<>(rec1.recommendedFiles());
                 mergedFiles.addAll(rec2.recommendedFiles());
 
-                var mergedTests = new HashSet<>(rec1.recommendedTests());
-                mergedTests.addAll(rec2.recommendedTests());
-
                 var mergedClasses = new HashSet<>(rec1.recommendedClasses());
                 mergedClasses.addAll(rec2.recommendedClasses());
 
                 var mergedUsage = Llm.ResponseMetadata.sum(rec1.tokenUsage(), rec2.tokenUsage());
 
-                return new LlmRecommendation(mergedFiles, mergedTests, mergedClasses, mergedUsage);
+                return new LlmRecommendation(mergedFiles, mergedClasses, mergedUsage);
             }
 
             logger.warn(
@@ -829,7 +813,7 @@ public class ContextAgent {
                 .parallel()
                 .filter(f -> Lines.containsBareToken(result.text(), f))
                 .toList();
-        return new LlmRecommendation(toProjectFiles(selected), Set.of(), Set.of(), tokenUsage);
+        return new LlmRecommendation(toProjectFiles(selected), Set.of(), tokenUsage);
     }
 
     private boolean isContextError(Throwable error) {
@@ -902,7 +886,6 @@ public class ContextAgent {
         }
 
         var combinedFiles = new HashSet<ProjectFile>();
-        var combinedTests = new HashSet<ProjectFile>();
         var combinedClasses = new HashSet<CodeUnit>();
         @Nullable Llm.ResponseMetadata combinedUsage = null;
 
@@ -914,7 +897,6 @@ public class ContextAgent {
                 throw new RuntimeException(e);
             }
             combinedFiles.addAll(rec.recommendedFiles());
-            combinedTests.addAll(rec.recommendedTests());
             combinedClasses.addAll(rec.recommendedClasses());
             combinedUsage = Llm.ResponseMetadata.sum(combinedUsage, rec.tokenUsage());
         }
@@ -926,7 +908,7 @@ public class ContextAgent {
                     LlmOutputMeta.reasoning());
         }
 
-        return new LlmRecommendation(combinedFiles, combinedTests, combinedClasses, combinedUsage);
+        return new LlmRecommendation(combinedFiles, combinedClasses, combinedUsage);
     }
 
     // --- Evaluate-for-relevance (single-group context window) ---
@@ -938,13 +920,17 @@ public class ContextAgent {
      * and identifies which should be added as full files, summaries, or tests.
      */
     private LlmRecommendation askLlmDeepRecommendContext(
-            Map<ProjectFile, Lines.HeadTail> filesMap, Collection<ChatMessage> workspaceRepresentation, Llm llm)
+            Map<ProjectFile, Lines.HeadTail> filesMap,
+            Collection<ChatMessage> workspaceRepresentation,
+            Llm llm,
+            boolean allowClassSummaries)
             throws InterruptedException, ContextTooLargeException {
 
-        var contextTool = new ContextRecommendationTool();
-        var tr = cm.getToolRegistry().builder().register(contextTool).build();
-        var toolSpecs = ToolSpecifications.toolSpecificationsFrom(contextTool);
-        assert toolSpecs.size() == 1 : "Expected exactly one tool specification from ContextRecommendationTool";
+        ToolRegistry tr = cm.getToolRegistry().builder().register(this).build();
+        String toolName = allowClassSummaries ? "recommendContext" : "recommendFiles";
+        var toolSpecs = tr.getTools(List.of(toolName));
+
+        ToolContext toolContext = new ToolContext(toolSpecs, ToolChoice.REQUIRED, tr);
 
         var deepPromptTemplate =
                 """
@@ -987,8 +973,8 @@ public class ContextAgent {
         }
 
         userMessageText.append("\n<goal>\n").append(goal).append("\n</goal>\n");
-        var userPrompt =
-                """
+        var userPrompt = allowClassSummaries
+                ? """
                 Identify code context relevant to the goal by calling `recommendContext`.
 
                 Before calling `recommendContext`, reason step-by-step:
@@ -1010,9 +996,31 @@ public class ContextAgent {
 
                 - Populate `filesToAdd` with full (relative) paths of files to edit or whose full text is necessary. Must exactly match one of the file paths provided in this message.
                 - Populate `classesToSummarize` with fully-qualified names of classes whose APIs or structure are relevant but which do not need to be edited.
-                - Populate `testsToAdd`: relevant tests are usually selected in a separate pass, so prefer leaving testsToAdd empty in this stage. Only use testsToAdd if a test file is explicitly present among the selectable file entries for this request and you are confident it is relevant.
 
                 Either or all arguments may be empty. Do NOT invent or guess file paths. Only use file paths that are present in the file list provided in this message. If no file list is provided, call `recommendContext` with empty lists.
+                """
+                : """
+                Identify code context relevant to the goal by calling `recommendFiles`.
+
+                Before calling `recommendFiles`, reason step-by-step:
+                - Identify all class names explicitly mentioned in the <goal>.
+                - Identify all class types used in the <workspace> code.
+                - Think about how you would solve the <goal>, and identify additional files relevant to your plan.
+                  For example, if the plan involves instantiating class Foo, or calling a method of class Bar,
+                  then the files containing Foo and Bar are relevant files.
+                - It's possible that files that were previously discarded are newly relevant, but when in doubt,
+                  do not recommend files that are listed in the <discarded_context> section.
+                - Compare this combined list against the items in the provided section (file content entries only).
+
+                Selection rubric (important):
+                - Use `filesToAdd` for files you expect to edit or where exact implementation details are required.
+                - If a file entry is truncated/excerpted (truncated="true") and you need details that might be in the omitted portion to decide or to implement the goal correctly, you SHOULD recommend that file in `filesToAdd`.
+
+                Then call the `recommendFiles` tool with the appropriate entries:
+
+                - Populate `filesToAdd` with full (relative) paths of files to edit or whose full text is necessary. Must exactly match one of the file paths provided in this message.
+
+                Either or all arguments may be empty. Do NOT invent or guess file paths. Only use file paths that are present in the file list provided in this message. If no file list is provided, call `recommendFiles` with empty lists.
                 """;
         userMessageText.append(userPrompt);
 
@@ -1026,7 +1034,7 @@ public class ContextAgent {
         int promptTokens = Messages.getApproximateMessageTokens(messages);
         logger.debug("Invoking LLM to recommend context via tool call (prompt size ~{} tokens)", promptTokens);
 
-        var result = llm.sendRequest(messages, new ToolContext(toolSpecs, ToolChoice.REQUIRED, tr));
+        var result = llm.sendRequest(messages, toolContext);
         var tokenUsage = result.metadata();
         if (result.error() != null) {
             var error = result.error();
@@ -1039,13 +1047,26 @@ public class ContextAgent {
         }
         var toolRequests = result.toolRequests();
         logger.debug("LLM ToolRequests: {}", toolRequests);
+
+        Set<String> recommendedFilePaths = new HashSet<>();
+        Set<String> recommendedClassNames = new HashSet<>();
+
         for (var request : toolRequests) {
-            tr.executeTool(request);
+            ToolExecutionResult toolResult = tr.executeTool(request);
+            if (toolResult.status() != ToolExecutionResult.Status.SUCCESS) {
+                logger.debug("Tool execution failed for {} with status {}", request.name(), toolResult.status());
+                continue;
+            }
+
+            var output = toolResult.result();
+            if (output instanceof RecommendationToolOutput recommendationToolOutput) {
+                recommendedFilePaths.addAll(recommendationToolOutput.filesToAdd());
+                recommendedClassNames.addAll(recommendationToolOutput.classesToSummarize());
+            }
         }
 
-        var projectFiles = toProjectFiles(contextTool.getRecommendedFiles());
-        var projectTests = toProjectFiles(contextTool.getRecommendedTests());
-        var projectClasses = contextTool.getRecommendedClasses().stream()
+        var projectFiles = toProjectFiles(recommendedFilePaths.stream().toList());
+        var projectClasses = recommendedClassNames.stream()
                 .flatMap(name -> analyzer.getDefinitions(name).stream())
                 .filter(CodeUnit::isClass)
                 .collect(Collectors.toSet());
@@ -1054,12 +1075,9 @@ public class ContextAgent {
                 "Tool recommended files: {}",
                 projectFiles.stream().map(ProjectFile::getFileName).collect(Collectors.joining(", ")));
         logger.debug(
-                "Tool recommended tests: {}",
-                projectTests.stream().map(ProjectFile::getFileName).collect(Collectors.joining(", ")));
-        logger.debug(
                 "Tool recommended classes: {}",
                 projectClasses.stream().map(CodeUnit::identifier).collect(Collectors.joining(", ")));
-        return new LlmRecommendation(projectFiles, projectTests, projectClasses, tokenUsage);
+        return new LlmRecommendation(projectFiles, projectClasses, tokenUsage);
     }
 
     private Set<ProjectFile> toProjectFiles(List<String> filenames) {
@@ -1116,6 +1134,31 @@ public class ContextAgent {
 
     static Lines.HeadTail capUnanalyzedTextForPrompt(String content) {
         return Lines.cap(content, UNANALYZED_MAX_LINES, UNANALYZED_TOP_SHOWN, UNANALYZED_BOTTOM_SHOWN);
+    }
+
+    @Blocking
+    Set<ProjectFile> capRecommendedTests(Context rankingContext, Set<ProjectFile> candidateTests)
+            throws InterruptedException {
+        if (candidateTests.size() <= 3) {
+            return candidateTests;
+        }
+
+        var ranked = rankingContext.getMostRelevantFiles(100);
+        Set<ProjectFile> mergedTests = ranked.stream()
+                .filter(candidateTests::contains)
+                .limit(3)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+
+        // Fallback: if context-aware ranking found fewer than 3, add from candidates deterministically
+        if (mergedTests.size() < 3) {
+            GitDistance.sortByImportance(candidateTests, cm.getRepo()).stream()
+                    .filter(f -> !mergedTests.contains(f))
+                    .limit(3 - mergedTests.size())
+                    .forEach(mergedTests::add);
+        }
+        logger.debug("Capped test recommendations from {} to 3 based on relevance", candidateTests.size());
+
+        return mergedTests;
     }
 
     static String renderFileForPrompt(ProjectFile file, Lines.HeadTail content) {

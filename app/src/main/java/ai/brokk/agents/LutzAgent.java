@@ -345,10 +345,6 @@ public class LutzAgent {
         }
 
         currentState = currentState.withContext(preparedContext);
-
-        if (shouldAutomaticallyScan() && currentState.context().isFileContentEmpty()) {
-            performAutoScan();
-        }
     }
 
     private TaskResult executeInternal() throws InterruptedException {
@@ -688,7 +684,7 @@ public class LutzAgent {
         filesAdded.removeAll(filesBeforeScan);
         metrics.recordContextScan(filesAdded.size(), false, toRelativePaths(filesAdded), md);
         context = context.addHistoryEntry(
-                io.getLlmRawMessages(), TaskResult.Type.SCAN, scanModel, "Locate relevant context");
+                io.getLlmRawMessages(), List.of(), TaskResult.Type.SCAN, scanModel, "Locate relevant context");
 
         if (scanConfig.appendToScope) {
             this.scope.append(context);
@@ -702,15 +698,20 @@ public class LutzAgent {
         return scanConfig.scanModel() == null ? cm.getService().getScanModel() : scanConfig.scanModel();
     }
 
-    private boolean toolTriggersScan(String toolName) {
+    private boolean toolTriggersScan(ToolExecutionRequest req, ToolRegistry tr) {
+        String toolName = req.name();
         if (toolName.startsWith("search") || toolName.startsWith("find")) {
             return true;
         }
 
         if ("callSearchAgent".equals(toolName)) {
-            CompletableFuture<Set<ContextFragment>> referencesFuture = LoggingFuture.supplyCallableAsync(
-                    () -> new ReferenceAgent(cm).resolveReferencedFragments(goal, currentState.context()));
-            return !referencesFuture.join().isEmpty();
+            var invocation = tr.validateTool(req);
+            var parameters = invocation.parameters();
+            assert parameters.size() >= 2 : "callSearchAgent should include query and mode parameters";
+            String mode = (String) parameters.get(1);
+
+            // don't scan if callSearchAgent mode is ANSWER
+            return !"ANSWER".equalsIgnoreCase(mode);
         }
 
         return false;
@@ -851,7 +852,7 @@ public class LutzAgent {
                 ai = ToolRegistry.removeDuplicateToolRequests(result.aiMessage());
 
                 if (agent.shouldAutomaticallyScan()
-                        && ai.toolExecutionRequests().stream().anyMatch(req -> agent.toolTriggersScan(req.name()))) {
+                        && ai.toolExecutionRequests().stream().anyMatch(req -> agent.toolTriggersScan(req, tr))) {
                     return TurnOutcome.AutoScan.INSTANCE;
                 }
 

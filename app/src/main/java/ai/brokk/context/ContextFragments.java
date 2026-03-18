@@ -1577,12 +1577,28 @@ public class ContextFragments {
                 String fullyQualifiedName,
                 @Nullable String snapshotText,
                 @Nullable CodeUnit eagerUnit) {
+            this(
+                    id,
+                    contextManager,
+                    fullyQualifiedName,
+                    snapshotText,
+                    eagerUnit,
+                    getFragmentExecutor().submit(() -> resolveMetadata(fullyQualifiedName, contextManager, eagerUnit)));
+        }
+
+        private CodeFragment(
+                String id,
+                IContextManager contextManager,
+                String fullyQualifiedName,
+                @Nullable String snapshotText,
+                @Nullable CodeUnit eagerUnit,
+                CompletableFuture<CodeUnitMetadata> metadataFuture) {
             super(
                     id,
                     contextManager,
-                    "Source for " + fullyQualifiedName,
-                    eagerUnit != null ? eagerUnit.shortName() : fullyQualifiedName,
-                    eagerUnit != null ? eagerUnit.source().getSyntaxStyle() : SyntaxConstants.SYNTAX_STYLE_NONE,
+                    ComputedValue.completed("desc-" + id, "Source for " + fullyQualifiedName),
+                    new ComputedValue<>("short-" + id, metadataFuture.thenApply(CodeUnitMetadata::shortDescription)),
+                    new ComputedValue<>("syntax-" + id, metadataFuture.thenApply(CodeUnitMetadata::syntaxStyle)),
                     snapshotText == null
                             ? null
                             : decodeFrozen(
@@ -1593,6 +1609,20 @@ public class ContextFragments {
                             ? () -> computeSnapshotFor(fullyQualifiedName, contextManager, eagerUnit)
                             : null);
             this.fullyQualifiedName = fullyQualifiedName;
+        }
+
+        private record CodeUnitMetadata(String shortDescription, String syntaxStyle) {}
+
+        private static CodeUnitMetadata resolveMetadata(
+                String fqName, IContextManager contextManager, @Nullable CodeUnit eagerUnit) {
+            if (eagerUnit != null) {
+                return new CodeUnitMetadata(
+                        eagerUnit.shortName(), eagerUnit.source().getSyntaxStyle());
+            }
+            return contextManager.getAnalyzerUninterrupted().getDefinitions(fqName).stream()
+                    .findFirst()
+                    .map(cu -> new CodeUnitMetadata(cu.shortName(), cu.source().getSyntaxStyle()))
+                    .orElseGet(() -> new CodeUnitMetadata(fqName, SyntaxConstants.SYNTAX_STYLE_NONE));
         }
 
         private static ContentSnapshot decodeFrozen(String fullyQualifiedName, byte[] bytes, IAnalyzer analyzer) {
@@ -1878,11 +1908,10 @@ public class ContextFragments {
             if (summaryType == SummaryType.FILE_SKELETONS) {
                 return "Summary of " + contextManager.toFile(targetIdentifier).getFileName();
             }
-            var definitions = contextManager.getAnalyzerUninterrupted().getDefinitions(targetIdentifier);
-            if (!definitions.isEmpty()) {
-                return "Summary of " + definitions.getFirst().shortName();
-            }
-            return "Summary of " + targetIdentifier;
+            return contextManager.getAnalyzerUninterrupted().getDefinitions(targetIdentifier).stream()
+                    .findAny()
+                    .map(cu -> "Summary of " + cu.shortName())
+                    .orElse("Summary of " + targetIdentifier);
         }
 
         public SummaryFragment(IContextManager contextManager, String targetIdentifier, SummaryType summaryType) {

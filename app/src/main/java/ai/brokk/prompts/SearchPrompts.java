@@ -496,7 +496,9 @@ public class SearchPrompts {
                     - Each task must be self-contained; the Code Agent will not have access to your instructions or conversation history.
                     - It is CRITICAL to keep the project buildable and testable after each task; in the VERY RARE case where breaking the build
                       temporarily is necessary, YOU MUST BE EXPLICIT about this to avoid confusing the Code Agent.
-                    - Given the above, DO NOT create pure "testing" tasks.
+                    - Given the above, DO NOT create pure "testing" tasks unless the user explicitly asked for tests only or the remaining work is genuinely test-only.
+                      Always group regression-test edits with the behavior change they validate.
+                    - If you only have test context and not the likely implementation/source file for the behavior change, keep searching before finalizing the task list.
                 {{/if}}
                 {{#if terminalWorkspace}}
                 - workspaceComplete(): when the Workspace contains all the information necessary to accomplish the goal.
