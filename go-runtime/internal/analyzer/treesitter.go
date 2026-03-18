@@ -47,26 +47,26 @@ const treeSitterJavaQuery = `
 (package_declaration
   [(identifier) (scoped_identifier)] @package.name)
 
+(annotation_type_declaration
+  name: (identifier) @annotation.name) @annotation.definition
+
 (class_declaration
   name: (identifier) @class.name) @class.definition
 
 (interface_declaration
-  name: (identifier) @class.name) @class.definition
+  name: (identifier) @interface.name) @interface.definition
 
 (record_declaration
-  name: (identifier) @class.name) @class.definition
+  name: (identifier) @record.name) @record.definition
 
 (enum_declaration
-  name: (identifier) @class.name) @class.definition
-
-(annotation_type_declaration
-  name: (identifier) @class.name) @class.definition
+  name: (identifier) @enum.name) @enum.definition
 
 (method_declaration
-  name: (identifier) @function.name) @function.definition
+  name: (identifier) @method.name) @method.definition
 
 (constructor_declaration
-  name: (identifier) @function.name) @function.definition
+  name: (identifier) @constructor.name) @constructor.definition
 
 (field_declaration
   (variable_declarator
@@ -88,13 +88,13 @@ const treeSitterGoQuery = `
 
 (type_declaration
   (type_spec
-    name: (type_identifier) @class.name)
-) @class.definition
+    name: (type_identifier) @type.name
+    type: (_) @type.kind) @type.definition)
 
 (type_declaration
   (type_alias
-    name: (type_identifier) @class.name)
-) @class.definition
+    name: (type_identifier) @type.name
+    type: (_) @type.kind) @type.definition)
 
 (function_declaration
   name: (identifier) @function.name) @function.definition
@@ -103,26 +103,26 @@ const treeSitterGoQuery = `
   receiver: (parameter_list
     (parameter_declaration
       type: [
-        (type_identifier) @receiver.type
-        (pointer_type (type_identifier) @receiver.type)
+        (type_identifier) @method.receiver.type
+        (pointer_type (type_identifier) @method.receiver.type)
       ]
     )
   )
-  name: (field_identifier) @function.name
-) @function.definition
+  name: (field_identifier) @method.name
+) @method.definition
 
 (struct_type
   (field_declaration_list
     (field_declaration
-      name: (field_identifier) @field.name
-    ) @field.definition
+      name: (field_identifier) @struct.field.name
+    ) @struct.field.definition
   )
 )
 
 (interface_type
   (method_elem
-    name: (field_identifier) @function.name
-  ) @function.definition
+    name: (field_identifier) @interface.method.name
+  ) @interface.method.definition
 )
 `
 
@@ -130,8 +130,18 @@ const treeSitterPythonQuery = `
 (class_definition
   name: (identifier) @class.name) @class.definition
 
+(decorated_definition
+  definition: (class_definition
+    name: (identifier) @class.name)
+) @class.definition
+
 (function_definition
   name: (identifier) @function.name) @function.definition
+
+(decorated_definition
+  definition: (function_definition
+    name: (identifier) @function.name)
+) @function.definition
 
 (import_statement) @import.declaration
 (import_from_statement) @import.declaration
@@ -143,54 +153,135 @@ const treeSitterPythonQuery = `
 `
 
 const treeSitterJavaScriptQuery = `
+(program
+  (class_declaration
+    name: (identifier) @class.name) @class.definition)
+
+(program
+  (function_declaration
+    name: (identifier) @function.name) @function.definition)
+
+(program
+  (lexical_declaration
+    ["const" "let"]
+    (variable_declarator
+      name: (identifier) @arrow_function.name
+      value: (arrow_function))) @arrow_function.definition)
+
+(export_statement
+  declaration: (class_declaration
+    name: (identifier) @class.name)
+) @class.definition
+
+(export_statement
+  declaration: (function_declaration
+    name: (identifier) @function.name)
+) @function.definition
+
+(export_statement
+  declaration: (lexical_declaration
+    ["const" "let"]
+    (variable_declarator
+      name: (identifier) @arrow_function.name
+      value: (arrow_function)))
+) @arrow_function.definition
+
 (class_declaration
-  name: (identifier) @class.name) @class.definition
+  body: (class_body
+    (method_definition
+      name: [
+        (property_identifier)
+        (private_property_identifier)
+        (identifier)
+      ] @function.name
+    ) @function.definition))
 
-(function_declaration
-  name: (identifier) @function.name) @function.definition
+(class_declaration
+  body: (class_body
+    (field_definition
+      property: [
+        (property_identifier)
+        (private_property_identifier)
+        (identifier)
+      ] @field.name
+    ) @field.definition))
 
-(method_definition
-  name: [
-    (property_identifier)
-    (private_property_identifier)
-    (identifier)
-  ] @function.name
-) @function.definition
-
-(field_definition
-  property: [
-    (property_identifier)
-    (private_property_identifier)
-    (identifier)
-  ] @field.name
-) @field.definition
-
-(variable_declarator
-  name: (identifier) @function.name
-  value: (arrow_function)
-) @function.definition
+(program
+  (lexical_declaration
+    ["const" "let"]
+    (variable_declarator
+      name: (identifier) @field.name
+      value: [
+        (string)
+        (template_string)
+        (number)
+        (regex)
+        (true)
+        (false)
+        (null)
+        (undefined)
+        (object)
+        (array)
+        (identifier)
+        (binary_expression)
+        (unary_expression)
+        (member_expression)
+        (subscript_expression)
+        (call_expression)
+      ]
+    ) @field.definition))
 
 (import_statement) @import.declaration
 `
 
 const treeSitterTypeScriptQuery = `
-(class_declaration
-  name: [(identifier) (type_identifier)] @class.name) @class.definition
+(export_statement
+  (class_declaration
+    name: (type_identifier) @type.name)
+) @type.definition
 
-(abstract_class_declaration
-  name: (type_identifier) @class.name) @class.definition
+(export_statement
+  (abstract_class_declaration
+    name: (type_identifier) @type.name)
+) @type.definition
 
-(interface_declaration
-  name: (type_identifier) @class.name) @class.definition
+(export_statement
+  (enum_declaration
+    name: (identifier) @type.name)
+) @type.definition
 
-(enum_declaration
-  name: (identifier) @class.name) @class.definition
+(export_statement
+  (interface_declaration
+    name: (type_identifier) @type.name)
+) @type.definition
 
-(type_alias_declaration
-  name: (type_identifier) @class.name) @class.definition
+(export_statement
+  (internal_module
+    name: (_) @type.name)
+) @type.definition
 
-(internal_module
-  name: (_) @class.name) @class.definition
+(program
+  [
+    (class_declaration
+      name: (type_identifier) @type.name) @type.definition
+    (abstract_class_declaration
+      name: (type_identifier) @type.name) @type.definition
+    (interface_declaration
+      name: (type_identifier) @type.name) @type.definition
+    (enum_declaration
+      name: (identifier) @type.name) @type.definition
+    (internal_module
+      name: (_) @type.name) @type.definition
+  ])
+
+(export_statement
+  (type_alias_declaration
+    name: (type_identifier) @typealias.name)
+) @typealias.definition
+
+(program
+  (type_alias_declaration
+    name: (type_identifier) @typealias.name) @typealias.definition)
 
 (function_declaration
   name: (identifier) @function.name) @function.definition
@@ -221,14 +312,6 @@ const treeSitterTypeScriptQuery = `
   ] @field.name
 ) @field.definition
 
-(field_definition
-  property: [
-    (property_identifier)
-    (private_property_identifier)
-    (identifier)
-  ] @field.name
-) @field.definition
-
 (property_signature
   name: [
     (property_identifier)
@@ -237,9 +320,9 @@ const treeSitterTypeScriptQuery = `
 ) @field.definition
 
 (variable_declarator
-  name: (identifier) @function.name
+  name: (identifier) @arrow_function.name
   value: (arrow_function)
-) @function.definition
+) @arrow_function.definition
 
 (import_statement) @import.declaration
 `
@@ -286,19 +369,17 @@ func parseTreeSitterSymbols(relativePath string, content string) ([]Symbol, bool
 				if text != "" {
 					packageName = text
 				}
-			case "class.definition":
-				populateTreeSitterDefinition(&definition, "class", capture.Node, content)
-			case "function.definition":
-				populateTreeSitterDefinition(&definition, "function", capture.Node, content)
-			case "field.definition":
-				populateTreeSitterDefinition(&definition, "field", capture.Node, content)
-			case "class.name", "function.name", "field.name":
-				if definition.name == "" {
-					definition.name = normalizeTreeSitterName(text)
-				}
-			case "receiver.type":
-				if definition.receiverType == "" {
-					definition.receiverType = normalizeTreeSitterTypeName(text)
+			default:
+				if kind, ok := treeSitterCaptureKind(name); ok {
+					populateTreeSitterDefinition(&definition, kind, capture.Node, content)
+				} else if treeSitterNameCapture(name) {
+					if definition.name == "" {
+						definition.name = normalizeTreeSitterName(text)
+					}
+				} else if treeSitterReceiverCapture(name) {
+					if definition.receiverType == "" {
+						definition.receiverType = normalizeTreeSitterTypeName(text)
+					}
 				}
 			}
 		}
@@ -307,6 +388,7 @@ func parseTreeSitterSymbols(relativePath string, content string) ([]Symbol, bool
 		}
 		definitions = append(definitions, definition)
 	}
+	definitions = collapseWrappedTreeSitterDefinitions(definitions)
 
 	return buildTreeSitterSymbols(relativePath, spec.languageName, packageName, definitions), true
 }
@@ -375,6 +457,58 @@ func populateTreeSitterDefinition(definition *treeSitterDefinition, kind string,
 	if definition.kind == "field" && definition.signature == "" {
 		definition.signature = definition.snippet
 	}
+}
+
+func treeSitterCaptureKind(name string) (string, bool) {
+	switch name {
+	case "class.definition", "interface.definition", "record.definition", "enum.definition", "annotation.definition",
+		"type.definition", "typealias.definition", "trait.definition", "object.definition", "module.definition",
+		"namespace.definition":
+		return "class", true
+	case "function.definition", "method.definition", "constructor.definition", "arrow_function.definition",
+		"interface.method.definition":
+		return "function", true
+	case "field.definition", "variable.definition", "constant.definition", "value.definition", "struct.field.definition":
+		return "field", true
+	default:
+		return "", false
+	}
+}
+
+func treeSitterNameCapture(name string) bool {
+	if name == "package.name" {
+		return false
+	}
+	return strings.HasSuffix(name, ".name")
+}
+
+func treeSitterReceiverCapture(name string) bool {
+	return strings.HasSuffix(name, ".receiver.type")
+}
+
+func collapseWrappedTreeSitterDefinitions(definitions []treeSitterDefinition) []treeSitterDefinition {
+	results := make([]treeSitterDefinition, 0, len(definitions))
+	for i, definition := range definitions {
+		wrapped := false
+		for j, candidate := range definitions {
+			if i == j {
+				continue
+			}
+			if definition.kind != candidate.kind || definition.name != candidate.name {
+				continue
+			}
+			if candidate.start <= definition.start && candidate.end >= definition.end {
+				if candidate.start < definition.start || candidate.end > definition.end {
+					wrapped = true
+					break
+				}
+			}
+		}
+		if !wrapped {
+			results = append(results, definition)
+		}
+	}
+	return results
 }
 
 func buildTreeSitterSymbols(relativePath string, language string, packageName string, definitions []treeSitterDefinition) []Symbol {

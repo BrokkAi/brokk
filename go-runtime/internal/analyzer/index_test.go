@@ -34,7 +34,6 @@ func TestResolveClassesMatchesShortNameAndNestedClass(t *testing.T) {
 }
 
 func TestParseTreeSitterSymbolsJava(t *testing.T) {
-	t.Parallel()
 	if !treeSitterEnabled() {
 		t.Skip("tree-sitter requires cgo support on this machine")
 	}
@@ -67,7 +66,6 @@ func TestParseTreeSitterSymbolsJava(t *testing.T) {
 }
 
 func TestParseTreeSitterSymbolsGoMethodReceiver(t *testing.T) {
-	t.Parallel()
 	if !treeSitterEnabled() {
 		t.Skip("tree-sitter requires cgo support on this machine")
 	}
@@ -97,6 +95,97 @@ func TestParseTreeSitterSymbolsGoMethodReceiver(t *testing.T) {
 	fields := filterByKind(symbols, "field")
 	if len(fields) != 1 || fields[0].FQName != "service.UserService.cacheKey" {
 		t.Fatalf("fields = %#v, want service.UserService.cacheKey", fields)
+	}
+}
+
+func TestParseTreeSitterSymbolsPythonDecoratedDefinitions(t *testing.T) {
+	if !treeSitterEnabled() {
+		t.Skip("tree-sitter requires cgo support on this machine")
+	}
+
+	symbols, ok := parseTreeSitterSymbols("pkg/service.py", ""+
+		"import json\n\n"+
+		"@tracked\n"+
+		"class UserService:\n"+
+		"    @cached\n"+
+		"    def find_user(self, user_id):\n"+
+		"        return user_id\n")
+	if !ok {
+		t.Fatal("parseTreeSitterSymbols() = false, want true")
+	}
+
+	classes := filterByKind(symbols, "class")
+	if len(classes) != 1 || classes[0].FQName != "pkg.service.UserService" {
+		t.Fatalf("classes = %#v, want pkg.service.UserService", classes)
+	}
+	if !strings.Contains(classes[0].Snippet, "@tracked") {
+		t.Fatalf("class snippet = %q, want decorator text", classes[0].Snippet)
+	}
+
+	methods := filterByKind(symbols, "function")
+	if len(methods) != 1 || methods[0].FQName != "pkg.service.UserService.find_user" {
+		t.Fatalf("methods = %#v, want pkg.service.UserService.find_user", methods)
+	}
+	if !strings.Contains(methods[0].Snippet, "@cached") {
+		t.Fatalf("method snippet = %q, want decorator text", methods[0].Snippet)
+	}
+}
+
+func TestParseTreeSitterSymbolsJavaScriptExportedArrowFunction(t *testing.T) {
+	if !treeSitterEnabled() {
+		t.Skip("tree-sitter requires cgo support on this machine")
+	}
+
+	symbols, ok := parseTreeSitterSymbols("web/user-service.js", ""+
+		"import { http } from './http';\n\n"+
+		"export const loadUser = (id) => {\n"+
+		"  return http.get(id);\n"+
+		"};\n")
+	if !ok {
+		t.Fatal("parseTreeSitterSymbols() = false, want true")
+	}
+
+	methods := filterByKind(symbols, "function")
+	if len(methods) != 1 || methods[0].FQName != "web.user-service.loadUser" {
+		t.Fatalf("methods = %#v, want web.user-service.loadUser", methods)
+	}
+}
+
+func TestParseTreeSitterSymbolsTypeScriptExportedInterfaceAndAlias(t *testing.T) {
+	if !treeSitterEnabled() {
+		t.Skip("tree-sitter requires cgo support on this machine")
+	}
+
+	symbols, ok := parseTreeSitterSymbols("web/user-service.ts", ""+
+		"export interface UserRecord {\n"+
+		"  id: string;\n"+
+		"}\n\n"+
+		"export type UserId = string;\n\n"+
+		"export class UserService {\n"+
+		"  findUser(id: UserId): UserRecord {\n"+
+		"    return { id };\n"+
+		"  }\n"+
+		"}\n")
+	if !ok {
+		t.Fatal("parseTreeSitterSymbols() = false, want true")
+	}
+
+	classes := filterByKind(symbols, "class")
+	foundRecord := false
+	foundAlias := false
+	foundService := false
+	for _, classSymbol := range classes {
+		switch classSymbol.FQName {
+		case "web.user-service.UserRecord":
+			foundRecord = true
+		case "web.user-service.UserId":
+			foundAlias = true
+		case "web.user-service.UserService":
+			foundService = true
+		}
+	}
+	if !foundRecord || !foundAlias || !foundService {
+		t.Fatalf("classes = %#v, want interface, alias, and class captures", classes)
 	}
 }
 
