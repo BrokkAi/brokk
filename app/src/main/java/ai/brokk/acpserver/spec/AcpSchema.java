@@ -1,0 +1,90 @@
+package ai.brokk.acpserver.spec;
+
+import com.fasterxml.jackson.annotation.JsonSubTypes;
+import com.fasterxml.jackson.annotation.JsonTypeInfo;
+import java.util.List;
+import org.jetbrains.annotations.Nullable;
+
+/**
+ * ACP (Agent Client Protocol) schema types.
+ * <p>
+ * This mirrors the official SDK's {@code com.agentclientprotocol.sdk.spec.AcpSchema} structure,
+ * providing Java records for protocol messages, responses, and content types.
+ */
+public final class AcpSchema {
+
+    private AcpSchema() {}
+
+    // ========== Requests ==========
+
+    public record InitializeRequest(int protocolVersion, @Nullable ClientCapabilities capabilities) {}
+
+    public record NewSessionRequest(String workingDirectory, List<TextContent> context) {}
+
+    public record PromptRequest(String sessionId, List<Content> messages) {}
+
+    // ========== Responses ==========
+
+    public record InitializeResponse(
+            int protocolVersion, AgentCapabilities capabilities, @Nullable AgentInfo agentInfo) {
+        public static InitializeResponse ok() {
+            return new InitializeResponse(1, AgentCapabilities.DEFAULT, null);
+        }
+    }
+
+    public record NewSessionResponse(String sessionId, @Nullable String error, @Nullable Object _meta) {}
+
+    public record PromptResponse(StopReason stopReason, @Nullable Object _meta) {
+        public static PromptResponse endTurn() {
+            return new PromptResponse(StopReason.END_TURN, null);
+        }
+    }
+
+    // ========== Content Types ==========
+
+    @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, include = JsonTypeInfo.As.PROPERTY, property = "type")
+    @JsonSubTypes({
+        @JsonSubTypes.Type(value = TextContent.class, name = "text"),
+        @JsonSubTypes.Type(value = ImageContent.class, name = "image")
+    })
+    public sealed interface Content permits TextContent, ImageContent {}
+
+    public record TextContent(String text) implements Content {}
+
+    public record ImageContent(String data, String mimeType) implements Content {}
+
+    // ========== Session Updates (for streaming) ==========
+
+    @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, include = JsonTypeInfo.As.PROPERTY, property = "type")
+    @JsonSubTypes({
+        @JsonSubTypes.Type(value = AgentMessageChunk.class, name = "agent_message_chunk"),
+        @JsonSubTypes.Type(value = AgentThought.class, name = "agent_thought")
+    })
+    public sealed interface SessionUpdate permits AgentMessageChunk, AgentThought {}
+
+    public record AgentMessageChunk(Content content) implements SessionUpdate {}
+
+    public record AgentThought(String thought) implements SessionUpdate {}
+
+    public record SessionUpdateNotification(String sessionId, SessionUpdate update) {}
+
+    // ========== Capabilities ==========
+
+    public record ClientCapabilities(boolean readTextFile, boolean writeTextFile) {
+        public static final ClientCapabilities DEFAULT = new ClientCapabilities(false, false);
+    }
+
+    public record AgentCapabilities(boolean streaming) {
+        public static final AgentCapabilities DEFAULT = new AgentCapabilities(true);
+    }
+
+    public record AgentInfo(String name, String version) {}
+
+    // ========== Enums ==========
+
+    public enum StopReason {
+        END_TURN,
+        MAX_TOKENS,
+        ERROR
+    }
+}

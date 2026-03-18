@@ -24,7 +24,6 @@ import ai.brokk.project.MainProject;
 import ai.brokk.project.ModelProperties;
 import ai.brokk.tools.SearchTools;
 import ai.brokk.tools.ToolRegistry;
-import ai.brokk.tools.WorkspaceTools;
 import java.nio.file.Path;
 import java.util.EnumSet;
 import java.util.HashMap;
@@ -34,7 +33,6 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.jspecify.annotations.NullMarked;
 
 /**
  * ACP (Agent Client Protocol) server entry point for Brokk.
@@ -42,7 +40,6 @@ import org.jspecify.annotations.NullMarked;
  * This provides MCP-like tool access via the Agent Client Protocol,
  * allowing IDE integrations to interact with Brokk's agentic tools.
  */
-@NullMarked
 public class BrokkAcpServer {
     private static final Logger logger = LogManager.getLogger(BrokkAcpServer.class);
 
@@ -192,9 +189,6 @@ public class BrokkAcpServer {
      */
     public ToolRegistry getToolRegistry() {
         SearchTools searchTools = new SearchTools(cm);
-        return ToolRegistry.fromBase(cm.getToolRegistry())
-                .register(searchTools)
-                .register(new WorkspaceTools(cm.liveContext()))
-                .build();
+        return ToolRegistry.fromBase(ToolRegistry.empty()).register(searchTools).build();
     }
 }

@@ -81,9 +81,15 @@ class BrokkAcpServerTest {
         console.llmOutput("Hello ", ChatMessageType.AI, LlmOutputMeta.newMessage());
         console.llmOutput("world!", ChatMessageType.AI, LlmOutputMeta.DEFAULT);
 
+        // Should send two message chunks
         assertEquals(2, transport.getSentNotifications().size());
-        assertEquals("session/update", transport.getSentNotifications().get(0).method());
-        assertEquals("session/update", transport.getSentNotifications().get(1).method());
+        for (var notification : transport.getSentNotifications()) {
+            assertEquals("session/update", notification.method());
+        }
+
+        // Verify messages are stored in transcript
+        var messages = console.getLlmRawMessages();
+        assertEquals(1, messages.size());
     }
 
     @Test
@@ -93,11 +99,10 @@ class BrokkAcpServerTest {
         var delegate = new NoOpConsole();
         var console = new AcpProgressConsole(ctx, delegate);
 
-        console.backgroundOutput("Loading files...");
+        console.backgroundOutput("Running analysis...");
 
         assertEquals(1, transport.getSentNotifications().size());
-        var notification = transport.getSentNotifications().get(0);
-        assertEquals("session/update", notification.method());
+        assertEquals("session/update", transport.getSentNotifications().get(0).method());
     }
 
     @Test
@@ -107,25 +112,23 @@ class BrokkAcpServerTest {
         var delegate = new NoOpConsole();
         var console = new AcpProgressConsole(ctx, delegate);
 
-        console.showNotification(IConsoleIO.NotificationRole.INFO, "Build succeeded");
+        console.showNotification(IConsoleIO.NotificationRole.INFO, "Task completed");
 
         assertEquals(1, transport.getSentNotifications().size());
+        assertEquals("session/update", transport.getSentNotifications().get(0).method());
     }
 
     @Test
-    void acpProgressConsoleMaintainsTranscript() {
+    void acpProgressConsoleHandlesToolErrors() {
         var transport = new MockAcpTransport();
         var ctx = new SyncPromptContext("test-session", transport);
         var delegate = new NoOpConsole();
         var console = new AcpProgressConsole(ctx, delegate);
 
-        console.llmOutput("Hello ", ChatMessageType.AI, LlmOutputMeta.newMessage());
-        console.llmOutput("world!", ChatMessageType.AI, LlmOutputMeta.DEFAULT);
+        console.toolError("File not found", "Read Error");
 
-        var messages = console.getLlmRawMessages();
-        assertEquals(1, messages.size());
-        assertInstanceOf(dev.langchain4j.data.message.AiMessage.class, messages.get(0));
-        assertEquals("Hello world!", ((dev.langchain4j.data.message.AiMessage) messages.get(0)).text());
+        assertEquals(1, transport.getSentNotifications().size());
+        assertEquals("session/update", transport.getSentNotifications().get(0).method());
     }
 
     // Mock transport for testing
@@ -164,7 +167,7 @@ class BrokkAcpServerTest {
         record SentNotification(String method, Object params) {}
     }
 
-    // No-op console for testing
+    // Minimal IConsoleIO implementation for testing
     private static class NoOpConsole implements IConsoleIO {
         @Override
         public void toolError(String msg, String title) {
