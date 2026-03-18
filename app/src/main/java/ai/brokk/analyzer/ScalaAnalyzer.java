@@ -228,18 +228,33 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer implements JvmBasedAnalyze
                     fieldNode, sourceContent, exportPrefix, signatureText, simpleName, baseIndent, file);
         }
 
-        // Decide whether this is a single-name or multi-name definition based on the AST shape,
-        // not by scanning raw text for commas. This avoids brittle handling and works for:
-        //   var x, y: Int = 1
-        // where the grammar provides:
-        //   (var_definition pattern: (identifiers (identifier) (identifier)) type: ... value: ...)
-        String keyword = VAL_DEFINITION.equals(nodeType) ? "val" : "var";
+        String trimmedSignature = signatureText.strip();
 
+        // Single-name fast path: preserve the raw slice (modifiers, annotations) but truncate non-literals.
+        TSNode patternNode = fieldNode.getChildByFieldName("pattern");
+        if (patternNode != null && !patternNode.isNull() && "identifier".equals(patternNode.getType())) {
+            String patternText = sourceContent.substringFrom(patternNode).strip();
+            if (patternText.equals(simpleName)) {
+                TSNode valueNode = fieldNode.getChildByFieldName("value");
+                String result = (exportPrefix.isEmpty() ? trimmedSignature : (exportPrefix + trimmedSignature));
+
+                if (valueNode != null && !valueNode.isNull() && !isLiteral(valueNode)) {
+                    // Truncate non-literal initializer
+                    int eqIndex = result.indexOf('=');
+                    if (eqIndex > 0) {
+                        result = result.substring(0, eqIndex).strip();
+                    }
+                }
+                return baseIndent + result;
+            }
+        }
+
+        // Multi-name pattern or fallback: reconstruct from AST fields.
+        String keyword = VAL_DEFINITION.equals(nodeType) ? "val" : "var";
         StringBuilder sb = new StringBuilder();
         sb.append(baseIndent);
-        String prefix = exportPrefix.stripTrailing();
-        if (!prefix.isEmpty()) {
-            sb.append(prefix).append(" ");
+        if (!exportPrefix.isEmpty()) {
+            sb.append(exportPrefix);
         }
         sb.append(keyword).append(" ").append(simpleName);
 
@@ -249,10 +264,8 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer implements JvmBasedAnalyze
         }
 
         TSNode valueNode = fieldNode.getChildByFieldName("value");
-        if (valueNode != null && !valueNode.isNull()) {
-            if (isLiteral(valueNode)) {
-                sb.append(" = ").append(sourceContent.substringFrom(valueNode));
-            }
+        if (valueNode != null && !valueNode.isNull() && isLiteral(valueNode)) {
+            sb.append(" = ").append(sourceContent.substringFrom(valueNode));
         }
 
         return sb.toString();

@@ -518,4 +518,32 @@ public class ScalaAnalyzerTest {
             assertCodeEquals("val obj", skeleton.get());
         }
     }
+
+    @Test
+    public void testPrivateFieldContextIsPreserved() throws IOException {
+        String code =
+                """
+                package ai.brokk
+
+                class PrivateField {
+                  private val secret = "password"
+                  protected var count: Int = 0
+                }
+                """;
+        try (var testProject = InlineTestProjectCreator.code(code, "ai/brokk/PrivateField.scala")
+                .build()) {
+            var analyzer = createTreeSitterAnalyzer(testProject);
+            var file = new ProjectFile(testProject.getRoot(), "ai/brokk/PrivateField.scala");
+
+            var secretCu = new CodeUnit(file, CodeUnitType.FIELD, "ai.brokk", "PrivateField.secret");
+            assertCodeEquals(
+                    "private val secret = \"password\"",
+                    analyzer.getSkeleton(secretCu).get());
+
+            var countCu = new CodeUnit(file, CodeUnitType.FIELD, "ai.brokk", "PrivateField.count");
+            assertCodeEquals(
+                    "protected var count: Int = 0",
+                    analyzer.getSkeleton(countCu).get());
+        }
+    }
 }
