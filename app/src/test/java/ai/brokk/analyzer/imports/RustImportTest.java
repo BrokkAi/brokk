@@ -19,7 +19,6 @@ import org.junit.jupiter.api.Test;
 class RustImportTest {
 
     @Test
-    @Disabled("Functionality for Rust import extraction is pending")
     void testBasicImport() throws IOException {
         String code = "use std::collections::HashMap;";
         IProject project = InlineTestProjectCreator.code(code, "src/main.rs").build();
@@ -31,7 +30,6 @@ class RustImportTest {
     }
 
     @Test
-    @Disabled("Functionality for Rust nested import extraction is pending")
     void testNestedImports() throws IOException {
         String code = "use std::collections::{HashMap, HashSet};";
         IProject project = InlineTestProjectCreator.code(code, "src/main.rs").build();
@@ -39,12 +37,12 @@ class RustImportTest {
         ProjectFile file = new ProjectFile(project.getRoot(), "src/main.rs");
 
         List<String> imports = analyzer.importStatementsOf(file);
-        // Depending on implementation, this might be one raw snippet or split
-        assertTrue(imports.contains("use std::collections::{HashMap, HashSet};"));
+        // Implementation flattens nested imports into discrete statements for better symbol resolution
+        assertTrue(imports.contains("use std::collections::HashMap;"));
+        assertTrue(imports.contains("use std::collections::HashSet;"));
     }
 
     @Test
-    @Disabled("Functionality for Rust aliased import extraction is pending")
     void testAliasedImport() throws IOException {
         String code = "use std::collections::HashMap as MyMap;";
         IProject project = InlineTestProjectCreator.code(code, "src/main.rs").build();
@@ -56,7 +54,6 @@ class RustImportTest {
     }
 
     @Test
-    @Disabled("Functionality for Rust wildcard import extraction is pending")
     void testWildcardImport() throws IOException {
         String code = "use std::collections::*;";
         IProject project = InlineTestProjectCreator.code(code, "src/main.rs").build();
@@ -68,7 +65,6 @@ class RustImportTest {
     }
 
     @Test
-    @Disabled("Functionality for Rust 'self' in imports is pending")
     void testSelfInImports() throws IOException {
         String code = "use std::io::{self, Read, Write};";
         IProject project = InlineTestProjectCreator.code(code, "src/main.rs").build();
@@ -76,7 +72,9 @@ class RustImportTest {
         ProjectFile file = new ProjectFile(project.getRoot(), "src/main.rs");
 
         List<String> imports = analyzer.importStatementsOf(file);
-        assertTrue(imports.contains("use std::io::{self, Read, Write};"));
+        assertTrue(imports.contains("use std::io;"));
+        assertTrue(imports.contains("use std::io::Read;"));
+        assertTrue(imports.contains("use std::io::Write;"));
     }
 
     @Test

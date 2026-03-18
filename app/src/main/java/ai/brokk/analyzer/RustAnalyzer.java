@@ -15,7 +15,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.treesitter.*;
 
-public final class RustAnalyzer extends TreeSitterAnalyzer {
+public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisProvider {
     private static final Logger log = LoggerFactory.getLogger(RustAnalyzer.class);
 
     @Override
@@ -29,7 +29,7 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
             Set.of(FIELD_DECLARATION, CONST_ITEM, STATIC_ITEM, ENUM_VARIANT),
             Set.of(ATTRIBUTE_ITEM), // Rust attributes like #[derive(...)]
             Set.of(),
-            IMPORT_DECLARATION,
+            CaptureNames.IMPORT_DECLARATION, // matches @import.declaration in imports.scm
             "name", // Common field name for identifiers
             "body", // e.g., function_item.body, impl_item.body
             "parameters", // e.g., function_item.parameters
@@ -463,6 +463,122 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
     @Override
     protected Set<String> getLeadingMetadataNodeTypes() {
         return Set.of(ATTRIBUTE_ITEM, INNER_ATTRIBUTE);
+    }
+
+    @Override
+    public Set<CodeUnit> importedCodeUnitsOf(ProjectFile file) {
+        return performImportedCodeUnitsOf(file);
+    }
+
+    @Override
+    public Set<ProjectFile> referencingFilesOf(ProjectFile file) {
+        return performReferencingFilesOf(file);
+    }
+
+    @Override
+    protected void extractImports(
+            Map<String, TSNode> capturedNodesForMatch, SourceContent sourceContent, List<ImportInfo> localImportInfos) {
+        TSNode importNode = capturedNodesForMatch.get(RS_SYNTAX_PROFILE.importNodeType());
+        if (importNode == null || importNode.isNull()) {
+            return;
+        }
+
+        String fullSnippet = sourceContent.substringFrom(importNode).trim();
+        if (fullSnippet.isEmpty()) {
+            return;
+        }
+
+        // Clean snippet: remove 'use ' and trailing ';'
+        String pathArea = fullSnippet;
+        if (pathArea.startsWith("use ")) {
+            pathArea = pathArea.substring(4).trim();
+        }
+        if (pathArea.endsWith(";")) {
+            pathArea = pathArea.substring(0, pathArea.length() - 1).trim();
+        }
+
+        flattenRustImports(pathArea, "", localImportInfos);
+    }
+
+    private void flattenRustImports(String pathPart, String prefix, List<ImportInfo> localImportInfos) {
+        pathPart = pathPart.trim();
+        if (pathPart.isEmpty()) return;
+
+        // Handle nesting: "prefix::{a, b, c::{d, e}}"
+        int braceIdx = pathPart.indexOf('{');
+        if (braceIdx != -1) {
+            String base = pathPart.substring(0, braceIdx).trim();
+            if (base.endsWith("::")) {
+                base = base.substring(0, base.length() - 2);
+            }
+
+            String newPrefix;
+            if (base.isEmpty()) {
+                newPrefix = prefix;
+            } else {
+                newPrefix = prefix.isEmpty() ? base : prefix + "::" + base;
+            }
+
+            String listContent = pathPart.substring(braceIdx + 1);
+            int lastBrace = listContent.lastIndexOf('}');
+            if (lastBrace != -1) {
+                listContent = listContent.substring(0, lastBrace);
+            }
+
+            // Split by comma, but respect nested braces
+            int depth = 0;
+            int start = 0;
+            for (int i = 0; i < listContent.length(); i++) {
+                char c = listContent.charAt(i);
+                if (c == '{') depth++;
+                else if (c == '}') depth--;
+                else if (c == ',' && depth == 0) {
+                    flattenRustImports(listContent.substring(start, i), newPrefix, localImportInfos);
+                    start = i + 1;
+                }
+            }
+            flattenRustImports(listContent.substring(start), newPrefix, localImportInfos);
+        } else {
+            // Leaf node: "path::to::Symbol [as Alias]" or "*"
+            String fullPath = prefix.isEmpty() ? pathPart : prefix + "::" + pathPart;
+            boolean isWildcard = fullPath.endsWith("*");
+
+            String identifier = null;
+            String alias = null;
+            String resolvedPath = fullPath;
+
+            if (!isWildcard) {
+                // Check for alias "path as alias"
+                int asIdx = fullPath.toLowerCase().lastIndexOf(" as ");
+                if (asIdx != -1) {
+                    resolvedPath = fullPath.substring(0, asIdx).trim();
+                    alias = fullPath.substring(asIdx + 4).trim();
+                    identifier = alias;
+                } else {
+                    // Extract identifier from last segment
+                    int lastSep = fullPath.lastIndexOf("::");
+                    identifier = (lastSep != -1) ? fullPath.substring(lastSep + 2) : fullPath;
+
+                    // Handle "self" keyword: "use std::io::{self, Read}"
+                    // "use std::io::self" -> "use std::io;"
+                    if ("self".equals(identifier)) {
+                        if (lastSep != -1) {
+                            resolvedPath = fullPath.substring(0, lastSep);
+                            // After stripping ::self, update identifier to the new last segment
+                            int prevSep = resolvedPath.lastIndexOf("::");
+                            identifier = (prevSep != -1) ? resolvedPath.substring(prevSep + 2) : resolvedPath;
+                        } else {
+                            // "use self;" (crate root or relative)
+                            identifier = "self";
+                        }
+                    }
+                }
+            }
+
+            // The rawSnippet in ImportInfo should be a clean standalone "use ...;" statement for the specific leaf.
+            String standaloneSnippet = "use " + resolvedPath + (alias != null ? " as " + alias : "") + ";";
+            localImportInfos.add(new ImportInfo(standaloneSnippet, isWildcard, identifier, alias));
+        }
     }
 
     @Override
