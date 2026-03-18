@@ -29,6 +29,7 @@ type treeSitterDefinition struct {
 	name         string
 	receiverType string
 	supertypes   []string
+	hasBody      bool
 	start        int
 	end          int
 	startLine    int
@@ -257,6 +258,7 @@ func populateTreeSitterDefinition(definition *treeSitterDefinition, kind string,
 	definition.endLine = int(node.EndPosition().Row) + 1
 	definition.snippet = strings.TrimSpace(node.Utf8Text([]byte(content)))
 	definition.signature = extractSignature(content, definition.start)
+	definition.hasBody = treeSitterDefinitionHasBody(kind, definition.snippet)
 	if definition.kind == "field" && definition.signature == "" {
 		definition.signature = definition.snippet
 	}
@@ -389,6 +391,7 @@ func buildTreeSitterSymbols(relativePath string, language string, packageName st
 			StartLine:     definition.startLine,
 			EndLine:       definition.endLine,
 			TopLevel:      parentIndex < 0,
+			HasBody:       definition.hasBody,
 			RawSupertypes: append([]string(nil), definition.supertypes...),
 		}
 	}
@@ -420,6 +423,7 @@ func buildTreeSitterSymbols(relativePath string, language string, packageName st
 			StartLine:    definition.startLine,
 			EndLine:      definition.endLine,
 			TopLevel:     parentFQName == "",
+			HasBody:      definition.hasBody,
 		})
 	}
 
@@ -444,6 +448,7 @@ func buildTreeSitterSymbols(relativePath string, language string, packageName st
 			StartLine:    definition.startLine,
 			EndLine:      definition.endLine,
 			TopLevel:     parentFQName == "",
+			HasBody:      definition.hasBody,
 		})
 	}
 
@@ -458,6 +463,20 @@ func normalizeTreeSitterTypeName(name string) string {
 	trimmed := strings.TrimSpace(name)
 	trimmed = strings.TrimPrefix(trimmed, "*")
 	return strings.TrimSpace(trimmed)
+}
+
+func treeSitterDefinitionHasBody(kind string, snippet string) bool {
+	trimmed := strings.TrimSpace(snippet)
+	if trimmed == "" {
+		return false
+	}
+
+	switch kind {
+	case "function", "class":
+		return strings.Contains(trimmed, "{") || strings.Contains(trimmed, ":\n") || strings.Contains(trimmed, ":\r\n")
+	default:
+		return false
+	}
 }
 
 func treeSitterContainsTestMarker(language string, marker string) bool {

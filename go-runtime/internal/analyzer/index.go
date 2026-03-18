@@ -33,6 +33,7 @@ type Symbol struct {
 	StartLine     int
 	EndLine       int
 	TopLevel      bool
+	HasBody       bool
 	RawSupertypes []string
 }
 
@@ -2105,16 +2106,51 @@ func collectMatching(symbols []Symbol, keep func(Symbol) bool) []Symbol {
 
 func dedupeSymbols(symbols []Symbol) []Symbol {
 	results := make([]Symbol, 0, len(symbols))
-	seen := map[string]struct{}{}
+	indexByKey := map[string]int{}
 	for _, symbol := range symbols {
 		key := symbol.Kind + ":" + symbol.FQName + ":" + symbol.Signature
-		if _, ok := seen[key]; ok {
+		if idx, ok := indexByKey[key]; ok {
+			results[idx] = mergeDuplicateSymbol(results[idx], symbol)
 			continue
 		}
-		seen[key] = struct{}{}
+		indexByKey[key] = len(results)
 		results = append(results, symbol)
 	}
 	return results
+}
+
+func mergeDuplicateSymbol(existing Symbol, candidate Symbol) Symbol {
+	preferred := existing
+	other := candidate
+	if symbolDefinitionRank(candidate) < symbolDefinitionRank(existing) {
+		preferred = candidate
+		other = existing
+	}
+
+	if len(preferred.RawSupertypes) == 0 && len(other.RawSupertypes) > 0 {
+		preferred.RawSupertypes = append([]string(nil), other.RawSupertypes...)
+	}
+	if !preferred.HasBody && other.HasBody {
+		preferred.HasBody = true
+	}
+	if strings.TrimSpace(preferred.Snippet) == "" && strings.TrimSpace(other.Snippet) != "" {
+		preferred.Snippet = other.Snippet
+	}
+	if strings.TrimSpace(preferred.Signature) == "" && strings.TrimSpace(other.Signature) != "" {
+		preferred.Signature = other.Signature
+	}
+	return preferred
+}
+
+func symbolDefinitionRank(symbol Symbol) int {
+	switch {
+	case symbol.HasBody:
+		return 0
+	case strings.TrimSpace(symbol.Snippet) != "":
+		return 1
+	default:
+		return 2
+	}
 }
 
 func isHierarchicalQuery(query string) bool {

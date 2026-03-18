@@ -58,6 +58,9 @@ func TestParseTreeSitterSymbolsJava(t *testing.T) {
 	if len(methods) != 1 || methods[0].FQName != "com.example.service.UserService.findUserById" {
 		t.Fatalf("methods = %#v, want java fqName", methods)
 	}
+	if !methods[0].HasBody {
+		t.Fatalf("methods[0].HasBody = false, want true")
+	}
 
 	fields := filterByKind(symbols, "field")
 	if len(fields) != 1 || fields[0].FQName != "com.example.service.UserService.cachedId" {
@@ -238,6 +241,35 @@ func TestParseTreeSitterFileCapturesGoTests(t *testing.T) {
 	}
 	if !analysis.containsTests {
 		t.Fatal("analysis.containsTests = false, want true")
+	}
+}
+
+func TestDedupeSymbolsPrefersDefinitionWithBody(t *testing.T) {
+	symbols := dedupeSymbols([]Symbol{
+		{
+			Kind:      "function",
+			FQName:    "pkg.UserService.loadUser",
+			Signature: "loadUser(id: string): User;",
+			Snippet:   "loadUser(id: string): User;",
+			HasBody:   false,
+		},
+		{
+			Kind:      "function",
+			FQName:    "pkg.UserService.loadUser",
+			Signature: "loadUser(id: string): User;",
+			Snippet:   "loadUser(id: string): User { return user; }",
+			HasBody:   true,
+		},
+	})
+
+	if len(symbols) != 1 {
+		t.Fatalf("len(symbols) = %d, want 1", len(symbols))
+	}
+	if !symbols[0].HasBody {
+		t.Fatalf("symbols[0].HasBody = false, want true")
+	}
+	if !strings.Contains(symbols[0].Snippet, "return user") {
+		t.Fatalf("symbols[0].Snippet = %q, want body-bearing definition", symbols[0].Snippet)
 	}
 }
 
