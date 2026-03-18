@@ -28,6 +28,7 @@ class PreviewTextPanelAutocompleteTest {
     void buildPreviewAutocompleteRequest_rejectsSelectionsAndVeryShortPrefixes() {
         assertNull(PreviewTextPanel.buildPreviewAutocompleteRequest("a", 1, null));
         assertNull(PreviewTextPanel.buildPreviewAutocompleteRequest("ab", 2, "b"));
+        assertNull(PreviewTextPanel.buildPreviewAutocompleteRequest("Loading...", 10, null));
     }
 
     @Test

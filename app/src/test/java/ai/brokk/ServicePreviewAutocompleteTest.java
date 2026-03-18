@@ -32,6 +32,16 @@ class ServicePreviewAutocompleteTest {
     }
 
     @Test
+    void previewAutocompleteModelName_prefersMistralFitmWhenCodestralConfigured() {
+        var project = new ConfigurableTestProject(tempDir, "codestral-2501");
+        var service = new PreviewAutocompleteTestService(project);
+        service.addModel("codestral-2501");
+        service.addModel("mistral-fitm-latest");
+
+        assertEquals("mistral-fitm-latest", service.previewAutocompleteModelName());
+    }
+
+    @Test
     void previewAutocompleteModelName_prefersCodestralWhenConfiguredCodeModelIsGeneric() {
         var project = new ConfigurableTestProject(tempDir, "gpt-5-mini");
         var service = new PreviewAutocompleteTestService(project);
@@ -44,7 +54,8 @@ class ServicePreviewAutocompleteTest {
 
     @Test
     void extractFimCompletionText_readsTextChoice() throws Exception {
-        JsonNode response = OBJECT_MAPPER.readTree("""
+        JsonNode response = OBJECT_MAPPER.readTree(
+                """
                 {
                   "choices": [
                     {
@@ -59,7 +70,8 @@ class ServicePreviewAutocompleteTest {
 
     @Test
     void extractFimCompletionText_readsStructuredMessageContent() throws Exception {
-        JsonNode response = OBJECT_MAPPER.readTree("""
+        JsonNode response = OBJECT_MAPPER.readTree(
+                """
                 {
                   "choices": [
                     {

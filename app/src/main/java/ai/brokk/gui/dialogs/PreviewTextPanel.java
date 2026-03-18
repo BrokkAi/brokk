@@ -57,7 +57,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.fife.ui.autocomplete.AutoCompletion;
 import org.fife.ui.autocomplete.AutoCompletionEvent;
-import org.fife.ui.autocomplete.AutoCompletionListener;
 import org.fife.ui.autocomplete.Completion;
 import org.fife.ui.autocomplete.DefaultCompletionProvider;
 import org.fife.ui.autocomplete.ShorthandCompletion;
@@ -79,6 +78,11 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
     private static final int PREVIEW_AUTOCOMPLETE_CONTEXT_CHARS = 4000;
     private static final int PREVIEW_AUTOCOMPLETE_MAX_TOKENS = 128;
     private static final int PREVIEW_AUTOCOMPLETE_MIN_PREFIX_CHARS = 2;
+    private static final int PREVIEW_AUTOCOMPLETE_POPUP_MIN_WIDTH = 160;
+    private static final int PREVIEW_AUTOCOMPLETE_POPUP_MAX_WIDTH = 520;
+    private static final int PREVIEW_AUTOCOMPLETE_POPUP_MAX_HEIGHT = 220;
+    private static final int PREVIEW_AUTOCOMPLETE_POPUP_MARGIN = 24;
+    private static final int PREVIEW_AUTOCOMPLETE_POPUP_PADDING = 12;
     private final PreviewTextArea textArea;
     private final GenericSearchBar searchBar;
     private final RTextScrollPane scrollPane;
@@ -153,7 +157,6 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
         // === Text area with syntax highlighting ===
         // Initialize textArea *before* search bar that references it
         textArea = new PreviewTextArea(content, syntaxStyle, file != null); // syntaxStyle can be null here
-        previewAutocompleteController = shouldEnablePreviewAutocomplete() ? new PreviewAutocompleteController() : null;
 
         // === Top search/action bar ===
         var topPanel = new JPanel(new BorderLayout(8, 4));
@@ -331,6 +334,9 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
         add(topPanel, BorderLayout.NORTH);
         add(layeredPane, BorderLayout.CENTER);
 
+        // Initialize autocomplete controller only after scrollPane and layeredPane are ready
+        previewAutocompleteController = shouldEnablePreviewAutocomplete() ? new PreviewAutocompleteController() : null;
+
         // Register global shortcuts for the search bar
         searchBar.registerGlobalShortcuts(this);
 
@@ -403,6 +409,9 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
 
     static @Nullable AbstractService.PreviewAutocompleteRequest buildPreviewAutocompleteRequest(
             String text, int caretPosition, @Nullable String selectedText) {
+        if (text.isBlank() || "Loading...".equals(text)) {
+            return null;
+        }
         if (selectedText != null && !selectedText.isEmpty()) {
             return null;
         }
@@ -414,7 +423,8 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
         int suffixEnd = Math.min(text.length(), caretPosition + PREVIEW_AUTOCOMPLETE_CONTEXT_CHARS);
         String prefix = text.substring(prefixStart, caretPosition);
         String suffix = text.substring(caretPosition, suffixEnd);
-        long nonWhitespacePrefixChars = prefix.chars().filter(ch -> !Character.isWhitespace(ch)).count();
+        long nonWhitespacePrefixChars =
+                prefix.chars().filter(ch -> !Character.isWhitespace(ch)).count();
         if (nonWhitespacePrefixChars < PREVIEW_AUTOCOMPLETE_MIN_PREFIX_CHARS) {
             return null;
         }
@@ -441,20 +451,24 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
         @Nullable
         private Action acceptAction;
 
+        private int popupWrapWidth = PREVIEW_AUTOCOMPLETE_POPUP_MIN_WIDTH;
+
         private PreviewAutocompleteController() {
             autoCompletion.setAutoActivationEnabled(false);
             autoCompletion.setAutoCompleteSingleChoices(false);
             autoCompletion.setShowDescWindow(false);
-            
+            autoCompletion.setListCellRenderer(new PreviewAutocompleteRenderer());
+
             // Capture the default Enter action before installing AutoCompletion
             KeyStroke enter = KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0);
-            Object defaultEnterKey = textArea.getInputMap(JComponent.WHEN_FOCUSED).get(enter);
+            Object defaultEnterKey =
+                    textArea.getInputMap(JComponent.WHEN_FOCUSED).get(enter);
             if (defaultEnterKey != null) {
                 originalEnterAction = textArea.getActionMap().get(defaultEnterKey);
             }
 
             autoCompletion.install(textArea);
-            
+
             autoCompletion.addAutoCompletionListener(e -> {
                 if (e.getEventType() == AutoCompletionEvent.Type.POPUP_SHOWN) {
                     var inputMap = textArea.getInputMap(JComponent.WHEN_FOCUSED);
@@ -471,6 +485,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
             });
 
             bindTabAcceptance();
+            installPopupDismissListeners();
 
             debounceTimer = new javax.swing.Timer(PREVIEW_AUTOCOMPLETE_DEBOUNCE_MS, e -> requestSuggestion());
             debounceTimer.setRepeats(false);
@@ -497,6 +512,42 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
             textArea.addCaretListener(caretListener);
         }
 
+        private void installPopupDismissListeners() {
+            scrollPane.getViewport().addChangeListener(e -> hideSuggestionPopup());
+            textArea.addFocusListener(new FocusAdapter() {
+                @Override
+                public void focusLost(FocusEvent e) {
+                    hideSuggestionPopup();
+                }
+            });
+            textArea.addComponentListener(new ComponentAdapter() {
+                @Override
+                public void componentHidden(ComponentEvent e) {
+                    hideSuggestionPopup();
+                }
+
+                @Override
+                public void componentMoved(ComponentEvent e) {
+                    hideSuggestionPopup();
+                }
+
+                @Override
+                public void componentResized(ComponentEvent e) {
+                    hideSuggestionPopup();
+                }
+            });
+            scrollPane.addComponentListener(new ComponentAdapter() {
+                @Override
+                public void componentResized(ComponentEvent e) {
+                    hideSuggestionPopup();
+                }
+            });
+        }
+
+        private void hideSuggestionPopup() {
+            autoCompletion.hideChildWindows();
+        }
+
         private class RejectAndNewlineAction extends AbstractAction {
             @Override
             public void actionPerformed(ActionEvent e) {
@@ -513,7 +564,8 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
             KeyStroke tab = KeyStroke.getKeyStroke(KeyEvent.VK_TAB, 0);
             var inputMap = textArea.getInputMap(JComponent.WHEN_FOCUSED);
             var previousKey = inputMap.get(tab);
-            Action previousAction = previousKey == null ? null : textArea.getActionMap().get(previousKey);
+            Action previousAction =
+                    previousKey == null ? null : textArea.getActionMap().get(previousKey);
 
             inputMap.put(tab, "previewAutocompleteAcceptOrTab");
             textArea.getActionMap().put("previewAutocompleteAcceptOrTab", new AbstractAction() {
@@ -538,6 +590,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
 
         private void scheduleRefresh() {
             requestGeneration.incrementAndGet();
+            hideSuggestionPopup();
             provider.clearSuggestion();
             if (pendingRequest != null) {
                 pendingRequest.cancel(true);
@@ -553,11 +606,12 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
         }
 
         private boolean shouldRequestAutocomplete() {
-            return textArea.isEditable() && textArea.isFocusOwner();
+            return textArea.isEditable() && textArea.isFocusOwner() && textArea.isShowing();
         }
 
         private void requestSuggestion() {
-            var request = buildPreviewAutocompleteRequest(textArea.getText(), textArea.getCaretPosition(), textArea.getSelectedText());
+            var request = buildPreviewAutocompleteRequest(
+                    textArea.getText(), textArea.getCaretPosition(), textArea.getSelectedText());
             if (request == null) {
                 return;
             }
@@ -565,13 +619,21 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
             int generation = requestGeneration.get();
             var future = ai.brokk.concurrent.LoggingFuture.supplyCallableAsync(
                     () -> {
-                        logger.info("Requesting FIM suggestion for prefix length: {}, suffix length: {}, caret: {}",
-                                request.prefix().length(), request.suffix().length(), textArea.getCaretPosition());
-                        logger.debug("Prefix: '{}'", request.prefix().substring(Math.max(0, request.prefix().length() - 50)));
+                        logger.debug(
+                                "Requesting FIM suggestion for prefix length: {}, suffix length: {}, caret: {}",
+                                request.prefix().length(),
+                                request.suffix().length(),
+                                textArea.getCaretPosition());
+                        logger.debug(
+                                "Prefix: '{}'",
+                                request.prefix()
+                                        .substring(Math.max(0, request.prefix().length() - 50)));
                         return cm.getService().previewAutocomplete(request);
-                    }, cm.getBackgroundTasks());
+                    },
+                    cm.getBackgroundTasks());
             pendingRequest = future;
-            future.thenAccept(result -> SwingUtilities.invokeLater(() -> applySuggestion(generation, future, request, result)));
+            future.thenAccept(
+                    result -> SwingUtilities.invokeLater(() -> applySuggestion(generation, future, request, result)));
         }
 
         private void applySuggestion(
@@ -585,7 +647,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
             }
             pendingRequest = null;
             if (result.isEmpty()) {
-                logger.info("FIM suggestion result is empty");
+                logger.debug("FIM suggestion result is empty");
                 return;
             }
             if (!shouldRequestAutocomplete()) {
@@ -595,13 +657,78 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
 
             var suggestion = CachedSuggestion.from(request, textArea.getCaretPosition(), result.get());
             if (!suggestion.matches(textArea)) {
-                logger.info("FIM suggestion does not match current editor state");
+                logger.debug("FIM suggestion does not match current editor state");
                 return;
             }
 
-            logger.info("Applying FIM suggestion from model {}: {}", suggestion.modelName(), suggestion.displayText());
+            logger.debug("Applying FIM suggestion from model {}: {}", suggestion.modelName(), suggestion.displayText());
             provider.setSuggestion(suggestion);
+            sizePopupForSuggestion(suggestion);
+            hideSuggestionPopup();
             autoCompletion.doCompletion();
+        }
+
+        private void sizePopupForSuggestion(CachedSuggestion suggestion) {
+            var fontMetrics = textArea.getFontMetrics(textArea.getFont());
+            int viewportWidth = Math.max(
+                    PREVIEW_AUTOCOMPLETE_POPUP_MIN_WIDTH,
+                    scrollPane.getViewport().getExtentSize().width);
+            int maxPopupWidth = Math.max(
+                    PREVIEW_AUTOCOMPLETE_POPUP_MIN_WIDTH,
+                    Math.min(PREVIEW_AUTOCOMPLETE_POPUP_MAX_WIDTH, viewportWidth - PREVIEW_AUTOCOMPLETE_POPUP_MARGIN));
+            int idealWidth = suggestion.longestLinePixelWidth(fontMetrics) + PREVIEW_AUTOCOMPLETE_POPUP_PADDING;
+            popupWrapWidth = Math.max(PREVIEW_AUTOCOMPLETE_POPUP_MIN_WIDTH, Math.min(maxPopupWidth, idealWidth));
+
+            var measuringArea = createPopupTextArea();
+            measuringArea.setText(suggestion.popupText());
+            measuringArea.setSize(new Dimension(popupWrapWidth, Short.MAX_VALUE));
+            var preferredSize = measuringArea.getPreferredSize();
+
+            int viewportHeight = Math.max(
+                    fontMetrics.getHeight() * 2, scrollPane.getViewport().getExtentSize().height);
+            int maxPopupHeight = Math.max(
+                    fontMetrics.getHeight() + PREVIEW_AUTOCOMPLETE_POPUP_PADDING,
+                    Math.min(PREVIEW_AUTOCOMPLETE_POPUP_MAX_HEIGHT, viewportHeight / 2));
+
+            autoCompletion.setChoicesWindowSize(
+                    popupWrapWidth + PREVIEW_AUTOCOMPLETE_POPUP_PADDING,
+                    Math.min(maxPopupHeight, preferredSize.height + PREVIEW_AUTOCOMPLETE_POPUP_PADDING));
+        }
+
+        private JTextArea createPopupTextArea() {
+            var area = new JTextArea();
+            area.setEditable(false);
+            area.setLineWrap(true);
+            area.setWrapStyleWord(false);
+            area.setTabSize(4);
+            area.setFont(textArea.getFont());
+            area.setBorder(BorderFactory.createEmptyBorder(4, 6, 4, 6));
+            return area;
+        }
+
+        private final class PreviewAutocompleteRenderer extends JTextArea implements ListCellRenderer<Object> {
+            private PreviewAutocompleteRenderer() {
+                setEditable(false);
+                setLineWrap(true);
+                setWrapStyleWord(false);
+                setTabSize(4);
+                setOpaque(true);
+                setBorder(BorderFactory.createEmptyBorder(4, 6, 4, 6));
+            }
+
+            @Override
+            public Component getListCellRendererComponent(
+                    JList<?> list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
+                setFont(textArea.getFont());
+                setText(
+                        value instanceof PreviewAutocompleteCompletion completion
+                                ? completion.suggestion().popupText()
+                                : Objects.toString(value, ""));
+                setForeground(isSelected ? list.getSelectionForeground() : list.getForeground());
+                setBackground(isSelected ? list.getSelectionBackground() : list.getBackground());
+                setSize(new Dimension(popupWrapWidth, Short.MAX_VALUE));
+                return this;
+            }
         }
     }
 
@@ -620,11 +747,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
                 return List.of();
             }
 
-            return List.of(new ShorthandCompletion(
-                    this,
-                    suggestion.displayText(),
-                    suggestion.completion(),
-                    "Preview autocomplete via " + suggestion.modelName()));
+            return List.of(new PreviewAutocompleteCompletion(this, suggestion));
         }
 
         private void clearSuggestion() {
@@ -637,12 +760,31 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
         }
     }
 
-    private record CachedSuggestion(String prefix, String suffix, int caretPosition, String completion, String modelName) {
+    private static final class PreviewAutocompleteCompletion extends ShorthandCompletion {
+        private final CachedSuggestion suggestion;
+
+        private PreviewAutocompleteCompletion(PreviewAutocompleteProvider provider, CachedSuggestion suggestion) {
+            super(
+                    provider,
+                    suggestion.displayText(),
+                    suggestion.completion(),
+                    "Preview autocomplete via " + suggestion.modelName());
+            this.suggestion = suggestion;
+        }
+
+        private CachedSuggestion suggestion() {
+            return suggestion;
+        }
+    }
+
+    private record CachedSuggestion(
+            String prefix, String suffix, int caretPosition, String completion, String modelName) {
         private static CachedSuggestion from(
                 AbstractService.PreviewAutocompleteRequest request,
                 int caretPosition,
                 AbstractService.PreviewAutocompleteResult result) {
-            return new CachedSuggestion(request.prefix(), request.suffix(), caretPosition, result.completion(), result.modelName());
+            return new CachedSuggestion(
+                    request.prefix(), request.suffix(), caretPosition, result.completion(), result.modelName());
         }
 
         private boolean matches(JTextComponent component) {
@@ -650,16 +792,25 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
                 return false;
             }
 
-            var request = buildPreviewAutocompleteRequest(component.getText(), component.getCaretPosition(), component.getSelectedText());
+            var request = buildPreviewAutocompleteRequest(
+                    component.getText(), component.getCaretPosition(), component.getSelectedText());
             return request != null && prefix.equals(request.prefix()) && suffix.equals(request.suffix());
         }
 
         private String displayText() {
-            var compact = completion.replace("\r", "\\r").replace("\n", "\\n").replace("\t", "\\t");
+            var compact = popupText().replace("\n", "\\n");
             if (compact.length() <= 80) {
                 return compact;
             }
             return compact.substring(0, 77) + "...";
+        }
+
+        private String popupText() {
+            return completion.replace("\r\n", "\n").replace('\r', '\n').replace("\t", "    ");
+        }
+
+        private int longestLinePixelWidth(FontMetrics fontMetrics) {
+            return popupText().lines().mapToInt(fontMetrics::stringWidth).max().orElse(0);
         }
     }
 
@@ -1544,16 +1695,6 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
                                         // TODO distinguish human edits from AI Quick Edits
                                         cm.getService().quickEditModel(),
                                         actionDescription);
-
-                        // Determine TaskMeta only if there was LLM activity in quick edits.
-                        TaskResult.TaskMeta meta = null;
-                        boolean llmInvolved = quickEditMessages.stream().anyMatch(m -> m instanceof AiMessage);
-                        if (llmInvolved) {
-                            var svc = cm.getService();
-                            var model = svc.quickEditModel();
-                            var modelConfig = Service.ModelConfig.from(model, svc);
-                            meta = new TaskResult.TaskMeta(TaskResult.Type.CODE, modelConfig);
-                        }
 
                         var saveResult = TaskResult.from(ctx, TaskResult.StopReason.SUCCESS);
                         try (var scope = cm.beginTaskUngrouped("File changed saved")) {

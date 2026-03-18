@@ -102,7 +102,8 @@ public class Service extends AbstractService {
     }
 
     @Override
-    public Optional<PreviewAutocompleteResult> previewAutocomplete(PreviewAutocompleteRequest request) throws IOException {
+    public Optional<PreviewAutocompleteResult> previewAutocomplete(PreviewAutocompleteRequest request)
+            throws IOException {
         var modelName = previewAutocompleteModelName();
         if (modelName == null || request.prefix().isBlank()) {
             return Optional.empty();
@@ -127,7 +128,8 @@ public class Service extends AbstractService {
         }
 
         var requestBody = RequestBody.create(payload.toString(), MediaType.parse("application/json"));
-        var endpoint = MainProject.getProxyUrl() + "/fim/completions";
+        // Use the standard completions endpoint; FIM-capable models honor the suffix field here.
+        var endpoint = MainProject.getProxyUrl() + "/completions";
         log.debug("Sending FIM request to model {} at {}", modelName, endpoint);
         var httpRequest =
                 BrokkHttp.proxyRequest().url(endpoint).post(requestBody).build();
@@ -135,18 +137,14 @@ public class Service extends AbstractService {
         try (Response response = BrokkHttp.execute(httpRequest)) {
             String responseBody = response.body() != null ? response.body().string() : "";
             if (!response.isSuccessful()) {
-                log.debug(
+                log.warn(
                         "Preview autocomplete request failed for model {} with HTTP {}: {}",
                         modelName,
                         response.code(),
                         responseBody);
-                
-                // Fallback to a dummy completion if the endpoint doesn't exist yet
-                if (response.code() == 404) {
-                    return Optional.of(new PreviewAutocompleteResult(" /* dummy completion */", modelName));
-                }
-                
-                return Optional.empty();
+                String warningText = "/* preview autocomplete failed (HTTP "
+                        + response.code() + ") */";
+                return Optional.of(new PreviewAutocompleteResult(warningText, modelName));
             }
 
             log.debug("Preview autocomplete response received from model {}: {}", modelName, responseBody);
@@ -384,7 +382,6 @@ public class Service extends AbstractService {
                 if (!modelName.isBlank() && !modelLocation.isBlank()) {
                     Map<String, Object> modelInfo = new HashMap<>();
                     if (modelInfoData.isObject()) {
-                        @SuppressWarnings("deprecation")
                         Iterator<Map.Entry<String, JsonNode>> fields = modelInfoData.fields();
                         while (fields.hasNext()) {
                             Map.Entry<String, JsonNode> field = fields.next();

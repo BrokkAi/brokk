@@ -415,14 +415,11 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
      */
     public @Nullable String previewAutocompleteModelName() {
         var configuredCodeModel = project.getModelConfig(ModelType.CODE).name();
-        if (!getModelInfo(configuredCodeModel).isEmpty() && previewAutocompleteModelRank(configuredCodeModel) < 100) {
-            return configuredCodeModel;
-        }
-
         var preferredModel = modelInfoMap.keySet().stream()
                 .filter(name -> !UNAVAILABLE.equals(name))
                 .filter(name -> previewAutocompleteModelRank(name) < 100)
-                .min(Comparator.comparingInt(AbstractService::previewAutocompleteModelRank).thenComparing(String::compareToIgnoreCase));
+                .min(Comparator.comparingInt(AbstractService::previewAutocompleteModelRank)
+                        .thenComparing(String::compareToIgnoreCase));
         if (preferredModel.isPresent()) {
             return preferredModel.get();
         }
@@ -440,6 +437,10 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
 
     private static int previewAutocompleteModelRank(String modelName) {
         var lower = modelName.toLowerCase(Locale.ROOT);
+        if (lower.contains("mistral") && (lower.contains("fitm") || lower.contains("fim"))) {
+            // If the proxy exposes an explicit Mistral FIM/FiTM model, prefer it over Codestral.
+            return -10;
+        }
         if (lower.contains("codestral")) {
             return 0;
         }
@@ -790,7 +791,8 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
      * Requests a Preview autocomplete suggestion from the backing service. Services that do not implement a dedicated
      * completion endpoint return an empty result.
      */
-    public Optional<PreviewAutocompleteResult> previewAutocomplete(PreviewAutocompleteRequest request) throws IOException {
+    public Optional<PreviewAutocompleteResult> previewAutocomplete(PreviewAutocompleteRequest request)
+            throws IOException {
         return Optional.empty();
     }
 
