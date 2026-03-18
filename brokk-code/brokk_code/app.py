@@ -9,7 +9,7 @@ import uuid
 import webbrowser
 from datetime import datetime
 from enum import StrEnum
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from textual import events
@@ -141,7 +141,7 @@ class AddDependencyModalScreen(ModalScreen[Optional[Dict[str, Any]]]):
 
     @staticmethod
     def _derive_name_from_path(path: str) -> str:
-        return path.strip().rstrip("/").rsplit("/", 1)[-1]
+        return PurePosixPath(path.strip().replace("\\", "/")).name
 
     @staticmethod
     def _derive_name_from_url(url: str) -> str:
