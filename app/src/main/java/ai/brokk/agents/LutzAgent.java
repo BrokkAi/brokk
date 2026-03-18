@@ -30,6 +30,7 @@ import ai.brokk.prompts.SearchPrompts.Terminal;
 import ai.brokk.tools.DependencyTools;
 import ai.brokk.tools.ExplanationRenderer;
 import ai.brokk.tools.ParallelSearch;
+import ai.brokk.tools.SearchTools;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
 import ai.brokk.tools.WorkspaceTools;
@@ -117,6 +118,7 @@ public class LutzAgent {
     private final IConsoleIO io;
     private final String goal;
     private final List<McpPrompts.McpTool> mcpTools;
+    private final SearchTools searchTools;
     private final List<String> staticTools;
     private final List<String> terminalTools;
     private final Set<String> terminalToolNames;
@@ -220,6 +222,7 @@ public class LutzAgent {
                 : SearchMetrics.noOp();
 
         this.mcpTools = initMcpTools(cm.getProject());
+        this.searchTools = new SearchTools(cm);
         this.currentState = SearchState.initial(initialContext);
         this.checkpointState = currentState;
         this.originalPinnedFragments = initialContext.getPinnedFragments().collect(Collectors.toSet());
@@ -248,6 +251,13 @@ public class LutzAgent {
         var tools = new ArrayList<String>();
 
         tools.add("callSearchAgent");
+
+        // Direct anchored-lookup tools. These cover cheap one-hop discovery when the agent already has
+        // concrete symbols, filenames, or string anchors and only needs exact locations.
+        tools.add("searchSymbols");
+        tools.add("scanUsages");
+        tools.add("findFilenames");
+        tools.add("searchFileContents");
 
         // Workspace analyzer tools
         tools.add("addClassesToWorkspace");
@@ -504,6 +514,7 @@ public class LutzAgent {
     private ToolRegistry createToolRegistry(WorkspaceTools wst, Object toolProvider, ParallelSearch parallelSearch) {
         var builder = cm.getToolRegistry()
                 .builder()
+                .register(searchTools)
                 .register(wst)
                 .register(toolProvider)
                 .register(parallelSearch);
@@ -614,6 +625,7 @@ public class LutzAgent {
                     "getSymbolLocations",
                     "scanUsages",
                     "findFilesContaining",
+                    "searchFileContents",
                     "findFilenames",
                     "searchGitCommitMessages" -> 20;
             case "getClassSkeletons", "getClassSources", "getMethodSources" -> 30;
@@ -700,10 +712,6 @@ public class LutzAgent {
 
     private boolean toolTriggersScan(ToolExecutionRequest req) {
         String toolName = req.name();
-        if (toolName.startsWith("search") || toolName.startsWith("find")) {
-            return true;
-        }
-
         return "callSearchAgent".equals(toolName);
     }
 
