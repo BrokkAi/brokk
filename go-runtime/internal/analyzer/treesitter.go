@@ -3,6 +3,8 @@
 package analyzer
 
 import (
+	"embed"
+	"fmt"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -34,6 +36,9 @@ type treeSitterDefinition struct {
 	snippet      string
 }
 
+//go:embed queries/*.scm
+var treeSitterQueryFiles embed.FS
+
 var (
 	treeSitterJavaLanguage       = tree_sitter.NewLanguage(tree_sitter_java.Language())
 	treeSitterGoLanguage         = tree_sitter.NewLanguage(tree_sitter_go.Language())
@@ -41,291 +46,20 @@ var (
 	treeSitterJavaScriptLanguage = tree_sitter.NewLanguage(tree_sitter_javascript.Language())
 	treeSitterTypeScriptLanguage = tree_sitter.NewLanguage(tree_sitter_typescript.LanguageTypescript())
 	treeSitterTSXLanguage        = tree_sitter.NewLanguage(tree_sitter_typescript.LanguageTSX())
+	treeSitterJavaQuery          = mustReadTreeSitterQuery("queries/java.scm")
+	treeSitterGoQuery            = mustReadTreeSitterQuery("queries/go.scm")
+	treeSitterPythonQuery        = mustReadTreeSitterQuery("queries/python.scm")
+	treeSitterJavaScriptQuery    = mustReadTreeSitterQuery("queries/javascript.scm")
+	treeSitterTypeScriptQuery    = mustReadTreeSitterQuery("queries/typescript.scm")
 )
 
-const treeSitterJavaQuery = `
-(package_declaration
-  [(identifier) (scoped_identifier)] @package.name)
-
-(annotation_type_declaration
-  name: (identifier) @annotation.name) @annotation.definition
-
-(class_declaration
-  name: (identifier) @class.name) @class.definition
-
-(interface_declaration
-  name: (identifier) @interface.name) @interface.definition
-
-(record_declaration
-  name: (identifier) @record.name) @record.definition
-
-(enum_declaration
-  name: (identifier) @enum.name) @enum.definition
-
-(method_declaration
-  name: (identifier) @method.name) @method.definition
-
-(constructor_declaration
-  name: (identifier) @constructor.name) @constructor.definition
-
-(field_declaration
-  (variable_declarator
-    name: (identifier) @field.name)
-) @field.definition
-
-(constant_declaration
-  (variable_declarator
-    name: (identifier) @field.name)
-) @field.definition
-
-(enum_constant
-  name: (identifier) @field.name) @field.definition
-`
-
-const treeSitterGoQuery = `
-(package_clause
-  (package_identifier) @package.name)
-
-(type_declaration
-  (type_spec
-    name: (type_identifier) @type.name
-    type: (_) @type.kind) @type.definition)
-
-(type_declaration
-  (type_alias
-    name: (type_identifier) @type.name
-    type: (_) @type.kind) @type.definition)
-
-(function_declaration
-  name: (identifier) @function.name) @function.definition
-
-(method_declaration
-  receiver: (parameter_list
-    (parameter_declaration
-      type: [
-        (type_identifier) @method.receiver.type
-        (pointer_type (type_identifier) @method.receiver.type)
-      ]
-    )
-  )
-  name: (field_identifier) @method.name
-) @method.definition
-
-(struct_type
-  (field_declaration_list
-    (field_declaration
-      name: (field_identifier) @struct.field.name
-    ) @struct.field.definition
-  )
-)
-
-(interface_type
-  (method_elem
-    name: (field_identifier) @interface.method.name
-  ) @interface.method.definition
-)
-`
-
-const treeSitterPythonQuery = `
-(class_definition
-  name: (identifier) @class.name) @class.definition
-
-(decorated_definition
-  definition: (class_definition
-    name: (identifier) @class.name)
-) @class.definition
-
-(function_definition
-  name: (identifier) @function.name) @function.definition
-
-(decorated_definition
-  definition: (function_definition
-    name: (identifier) @function.name)
-) @function.definition
-
-(import_statement) @import.declaration
-(import_from_statement) @import.declaration
-
-(expression_statement
-  (assignment
-    left: (identifier) @field.name)
-) @field.definition
-`
-
-const treeSitterJavaScriptQuery = `
-(program
-  (class_declaration
-    name: (identifier) @class.name) @class.definition)
-
-(program
-  (function_declaration
-    name: (identifier) @function.name) @function.definition)
-
-(program
-  (lexical_declaration
-    ["const" "let"]
-    (variable_declarator
-      name: (identifier) @arrow_function.name
-      value: (arrow_function))) @arrow_function.definition)
-
-(export_statement
-  declaration: (class_declaration
-    name: (identifier) @class.name)
-) @class.definition
-
-(export_statement
-  declaration: (function_declaration
-    name: (identifier) @function.name)
-) @function.definition
-
-(export_statement
-  declaration: (lexical_declaration
-    ["const" "let"]
-    (variable_declarator
-      name: (identifier) @arrow_function.name
-      value: (arrow_function)))
-) @arrow_function.definition
-
-(class_declaration
-  body: (class_body
-    (method_definition
-      name: [
-        (property_identifier)
-        (private_property_identifier)
-        (identifier)
-      ] @function.name
-    ) @function.definition))
-
-(class_declaration
-  body: (class_body
-    (field_definition
-      property: [
-        (property_identifier)
-        (private_property_identifier)
-        (identifier)
-      ] @field.name
-    ) @field.definition))
-
-(program
-  (lexical_declaration
-    ["const" "let"]
-    (variable_declarator
-      name: (identifier) @field.name
-      value: [
-        (string)
-        (template_string)
-        (number)
-        (regex)
-        (true)
-        (false)
-        (null)
-        (undefined)
-        (object)
-        (array)
-        (identifier)
-        (binary_expression)
-        (unary_expression)
-        (member_expression)
-        (subscript_expression)
-        (call_expression)
-      ]
-    ) @field.definition))
-
-(import_statement) @import.declaration
-`
-
-const treeSitterTypeScriptQuery = `
-(export_statement
-  (class_declaration
-    name: (type_identifier) @type.name)
-) @type.definition
-
-(export_statement
-  (abstract_class_declaration
-    name: (type_identifier) @type.name)
-) @type.definition
-
-(export_statement
-  (enum_declaration
-    name: (identifier) @type.name)
-) @type.definition
-
-(export_statement
-  (interface_declaration
-    name: (type_identifier) @type.name)
-) @type.definition
-
-(export_statement
-  (internal_module
-    name: (_) @type.name)
-) @type.definition
-
-(program
-  [
-    (class_declaration
-      name: (type_identifier) @type.name) @type.definition
-    (abstract_class_declaration
-      name: (type_identifier) @type.name) @type.definition
-    (interface_declaration
-      name: (type_identifier) @type.name) @type.definition
-    (enum_declaration
-      name: (identifier) @type.name) @type.definition
-    (internal_module
-      name: (_) @type.name) @type.definition
-  ])
-
-(export_statement
-  (type_alias_declaration
-    name: (type_identifier) @typealias.name)
-) @typealias.definition
-
-(program
-  (type_alias_declaration
-    name: (type_identifier) @typealias.name) @typealias.definition)
-
-(function_declaration
-  name: (identifier) @function.name) @function.definition
-
-(function_signature
-  name: (identifier) @function.name) @function.definition
-
-(method_definition
-  name: [
-    (property_identifier)
-    (private_property_identifier)
-    (identifier)
-  ] @function.name
-) @function.definition
-
-(method_signature
-  name: [
-    (property_identifier)
-    (identifier)
-  ] @function.name
-) @function.definition
-
-(public_field_definition
-  name: [
-    (property_identifier)
-    (private_property_identifier)
-    (identifier)
-  ] @field.name
-) @field.definition
-
-(property_signature
-  name: [
-    (property_identifier)
-    (identifier)
-  ] @field.name
-) @field.definition
-
-(variable_declarator
-  name: (identifier) @arrow_function.name
-  value: (arrow_function)
-) @arrow_function.definition
-
-(import_statement) @import.declaration
-`
+func mustReadTreeSitterQuery(path string) string {
+	query, err := treeSitterQueryFiles.ReadFile(path)
+	if err != nil {
+		panic(fmt.Sprintf("read tree-sitter query %s: %v", path, err))
+	}
+	return string(query)
+}
 
 func parseTreeSitterSymbols(relativePath string, content string) ([]Symbol, bool) {
 	spec, ok := treeSitterSpecForPath(relativePath)
