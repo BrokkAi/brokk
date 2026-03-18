@@ -40,7 +40,7 @@ class HostCommandToolTest {
     }
 
     @Test
-    void runBashCommand_success_includesCommandAndCapturedOutput() {
+    void runShellCommand_success_includesCommandAndCapturedOutput() {
         AtomicReference<String> seenCommand = new AtomicReference<>();
         AtomicReference<Path> seenRoot = new AtomicReference<>();
         AtomicReference<Duration> seenTimeout = new AtomicReference<>();
@@ -55,14 +55,14 @@ class HostCommandToolTest {
         };
 
         var tool = new HostCommandTool(new TestProject(tempDir));
-        ToolOutput output = tool.runBashCommand("echo hi");
+        ToolOutput output = tool.runShellCommand("echo hi");
         String text = output.llmText();
 
         assertEquals("echo hi", seenCommand.get());
         assertEquals(tempDir, seenRoot.get());
         assertEquals(Environment.DEFAULT_TIMEOUT, seenTimeout.get());
         assertInstanceOf(HostCommandTool.CommandOutput.class, output);
-        assertTrue(text.contains("runBashCommand: ok"));
+        assertTrue(text.contains("runShellCommand: ok"));
         assertTrue(text.contains("command: echo hi"));
         assertTrue(text.contains("exit_code: 0"));
         assertTrue(text.contains("output:"));
@@ -72,14 +72,14 @@ class HostCommandToolTest {
     }
 
     @Test
-    void runBashCommand_success_fallsBackToReturnedOutputWhenNoLinesAreStreamed() {
+    void runShellCommand_success_fallsBackToReturnedOutputWhenNoLinesAreStreamed() {
         Environment.shellCommandRunnerFactory =
                 (command, root) -> (outputConsumer, timeout) -> "returned only\nstill visible";
 
         var tool = new HostCommandTool(new TestProject(tempDir));
-        String text = tool.runBashCommand("git status").llmText();
+        String text = tool.runShellCommand("git status").llmText();
 
-        assertTrue(text.contains("runBashCommand: ok"));
+        assertTrue(text.contains("runShellCommand: ok"));
         assertTrue(text.contains("command: git status"));
         assertTrue(text.contains("exit_code: 0"));
         assertTrue(text.contains("returned only"));
@@ -88,18 +88,18 @@ class HostCommandToolTest {
     }
 
     @Test
-    void runBashCommand_failure_includesExitCodeAndPreservedOutputText() {
+    void runShellCommand_failure_includesExitCodeAndPreservedOutputText() {
         Environment.shellCommandRunnerFactory = (command, root) -> (outputConsumer, timeout) -> {
             throw new Environment.FailureException(
                     "process 'bad command' signaled error code 42", "stdout:\nboom\n\nstderr:\nkaput", 42);
         };
 
         var tool = new HostCommandTool(new TestProject(tempDir));
-        ToolOutput output = tool.runBashCommand("bad command");
+        ToolOutput output = tool.runShellCommand("bad command");
         String text = output.llmText();
 
         assertInstanceOf(HostCommandTool.CommandOutput.class, output);
-        assertTrue(text.contains("runBashCommand: failed"));
+        assertTrue(text.contains("runShellCommand: failed"));
         assertTrue(text.contains("command: bad command"));
         assertTrue(text.contains("exit_code: 42"));
         assertTrue(text.contains("process 'bad command' signaled error code 42"));
@@ -112,7 +112,7 @@ class HostCommandToolTest {
     }
 
     @Test
-    void runBashCommand_outputIsBoundedToBuildVerifierLimit() {
+    void runShellCommand_outputIsBoundedToBuildVerifierLimit() {
         int totalLines = BuildVerifier.MAX_OUTPUT_LINES + 5;
         Environment.shellCommandRunnerFactory = (command, root) -> (outputConsumer, timeout) -> {
             for (int i = 0; i < totalLines; i++) {
@@ -122,9 +122,9 @@ class HostCommandToolTest {
         };
 
         var tool = new HostCommandTool(new TestProject(tempDir));
-        String text = tool.runBashCommand("many-lines").llmText();
+        String text = tool.runShellCommand("many-lines").llmText();
 
-        assertTrue(text.contains("runBashCommand: ok"));
+        assertTrue(text.contains("runShellCommand: ok"));
         assertTrue(text.contains("command: many-lines"));
         assertTrue(text.contains("line-" + (totalLines - 1)));
         assertTrue(text.contains("line-5"));
@@ -133,7 +133,7 @@ class HostCommandToolTest {
     }
 
     @Test
-    void toolRegistry_executesAnnotatedRunBashCommandTool() throws Exception {
+    void toolRegistry_executesAnnotatedRunShellCommandTool() throws Exception {
         Environment.shellCommandRunnerFactory = (command, root) -> (outputConsumer, timeout) -> {
             outputConsumer.accept("ok from runner");
             return "ok from runner";
@@ -143,10 +143,10 @@ class HostCommandToolTest {
                 .builder()
                 .register(new HostCommandTool(new TestProject(tempDir)))
                 .build();
-        Method method = HostCommandTool.class.getDeclaredMethod("runBashCommand", String.class);
+        Method method = HostCommandTool.class.getDeclaredMethod("runShellCommand", String.class);
         var request = ToolExecutionRequest.builder()
                 .id("tool-1")
-                .name("runBashCommand")
+                .name("runShellCommand")
                 .arguments(jsonArgs(method, "pwd"))
                 .build();
 
@@ -154,14 +154,14 @@ class HostCommandToolTest {
 
         assertEquals(ToolExecutionResult.Status.SUCCESS, result.status());
         assertInstanceOf(HostCommandTool.CommandOutput.class, result.result());
-        assertTrue(result.resultText().contains("runBashCommand: ok"));
+        assertTrue(result.resultText().contains("runShellCommand: ok"));
         assertTrue(result.resultText().contains("command: pwd"));
         assertTrue(result.resultText().contains("exit_code: 0"));
         assertTrue(result.resultText().contains("ok from runner"));
     }
 
     @Test
-    void toolRegistry_executesAnnotatedRunBashCommandTool_failurePathPreservesDiagnostics() throws Exception {
+    void toolRegistry_executesAnnotatedRunShellCommandTool_failurePathPreservesDiagnostics() throws Exception {
         Environment.shellCommandRunnerFactory = (command, root) -> (outputConsumer, timeout) -> {
             throw new Environment.FailureException(
                     "process 'false' signaled error code 9", "stdout:\nregistry boom\n\nstderr:\nregistry kaput", 9);
@@ -171,10 +171,10 @@ class HostCommandToolTest {
                 .builder()
                 .register(new HostCommandTool(new TestProject(tempDir)))
                 .build();
-        Method method = HostCommandTool.class.getDeclaredMethod("runBashCommand", String.class);
+        Method method = HostCommandTool.class.getDeclaredMethod("runShellCommand", String.class);
         var request = ToolExecutionRequest.builder()
                 .id("tool-2")
-                .name("runBashCommand")
+                .name("runShellCommand")
                 .arguments(jsonArgs(method, "false"))
                 .build();
 
@@ -182,7 +182,7 @@ class HostCommandToolTest {
 
         assertEquals(ToolExecutionResult.Status.SUCCESS, result.status());
         assertInstanceOf(HostCommandTool.CommandOutput.class, result.result());
-        assertTrue(result.resultText().contains("runBashCommand: failed"));
+        assertTrue(result.resultText().contains("runShellCommand: failed"));
         assertTrue(result.resultText().contains("command: false"));
         assertTrue(result.resultText().contains("exit_code: 9"));
         assertTrue(result.resultText().contains("registry boom"));
@@ -191,27 +191,27 @@ class HostCommandToolTest {
     }
 
     @Test
-    void contextManagerBaseRegistry_registersRunBashCommand() {
+    void contextManagerBaseRegistry_registersRunShellCommand() {
         var project = new TestProject(tempDir);
         try (var contextManager = new ContextManager(project)) {
-            assertTrue(contextManager.getToolRegistry().isRegistered("runBashCommand"));
+            assertTrue(contextManager.getToolRegistry().isRegistered("runShellCommand"));
         }
     }
 
     @Test
-    void lutzAgentStaticTools_includeRunBashCommand() {
+    void lutzAgentStaticTools_includeRunShellCommand() {
         var project = new TestProject(tempDir);
         List<String> toolNames = LutzAgent.initStaticTools(project, List.of());
 
-        assertTrue(toolNames.contains("runBashCommand"));
+        assertTrue(toolNames.contains("runShellCommand"));
     }
 
     @Test
-    void searchAgentAllowedToolNames_includeRunBashCommand() {
+    void searchAgentAllowedToolNames_includeRunShellCommand() {
         var project = new TestProject(tempDir);
         List<String> toolNames = SearchAgent.allowedToolNames(project, Objective.WORKSPACE_ONLY);
 
-        assertTrue(toolNames.contains("runBashCommand"));
+        assertTrue(toolNames.contains("runShellCommand"));
     }
 
     private static String jsonArgs(Method method, Object... values) throws JsonProcessingException {

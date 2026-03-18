@@ -331,6 +331,9 @@ public class SearchPrompts {
                      Note: Code Agent will also take care of creating new files; you only need to add existing files to the Workspace.
                   5) When you have enough information to take a final action, do so.
                      There are no bonus points for grooming the perfect Workspace.
+                  6) When the user asks to run project commands (for example npm, npx, pnpm, yarn, go mod tidy,
+                     go test, cargo, gradle, mvn, pytest, make), execute them with runShellCommand instead of
+                     only describing what command should be run.
 
                 Working efficiently:
                   - Before calling callSearchAgent, identify the exact missing fact and the concrete anchors you already have.
@@ -385,6 +388,9 @@ public class SearchPrompts {
                 {{/if}}
                     - Preserve project-relative paths and fully-qualified symbols in your final response.
                     - For clear communication, avoid using emojis.
+                    - If the request includes running project commands (for example npm, npx, pnpm, yarn,
+                      go mod tidy, go test, cargo, gradle, mvn, pytest, make), call runShellCommand to execute
+                      them instead of only suggesting commands.
                 {{#if answerObjective}}
                     - Finalize with `answer(String)` once you have enough evidence; if you hit a dead end, use `abortSearch(String)` instead of guessing.
                 {{/if}}
@@ -457,6 +463,11 @@ public class SearchPrompts {
                   1. What exact fact is missing?
                   2. What anchors already exist?
                   3. What is the narrowest request that could answer it?
+
+                Command execution:
+                  - If the user asks to run a project command, use runShellCommand directly.
+                  - Prefer execution over advice-only text for runnable commands.
+                  - Typical examples: npm, npx, pnpm, yarn, go mod tidy, go test, cargo, gradle, mvn, pytest, make.
 
                 {{#if (eq turnsLeftAfterThisTurn 1)~}}
                 [HARNESS NOTE This is the penultimate turn. If you need any final information from non-terminal tools, request it now because you will only have one more turn after this.]

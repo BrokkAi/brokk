@@ -259,7 +259,7 @@ public class LutzAgent {
         tools.add("addLineRangeToWorkspace");
         tools.add("addFilesToWorkspace");
         tools.add("addUrlContentsToWorkspace");
-        tools.add("runBashCommand");
+        tools.add("runShellCommand");
 
         if (!mcpTools.isEmpty()) {
             tools.add("callMcpTool");
@@ -624,7 +624,7 @@ public class LutzAgent {
             case "getClassSkeletons", "getClassSources", "getMethodSources" -> 30;
             case "getCallGraphTo", "getCallGraphFrom", "getFileContents", "getFileSummaries", "skimFiles" -> 40;
 
-            case "runBashCommand" -> 98;
+            case "runShellCommand" -> 98;
             case "callCodeAgent" -> 99;
             case "createOrReplaceTaskList" -> 100;
             case "answer", "askForClarification", "workspaceComplete" -> 101;

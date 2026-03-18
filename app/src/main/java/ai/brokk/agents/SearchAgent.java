@@ -364,7 +364,7 @@ public class SearchAgent {
         names.add("addLineRangeToWorkspace");
         names.add("addFilesToWorkspace");
         names.add("addUrlContentsToWorkspace");
-        names.add("runBashCommand");
+        names.add("runShellCommand");
 
         if (project.hasGit()) {
             names.add("searchGitCommitMessages");

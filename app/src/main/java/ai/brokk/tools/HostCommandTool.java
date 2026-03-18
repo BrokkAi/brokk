@@ -16,9 +16,12 @@ public final class HostCommandTool {
         this.project = project;
     }
 
-    @Tool("Run a shell command in the project root and return a concise bounded summary of the result.")
+    @Tool(
+            "Execute a shell command in the project root and return a concise bounded summary of the result. "
+                    + "Use this to actually run programming/build commands such as npm, npx, pnpm, yarn, "
+                    + "go mod tidy, go test, cargo, gradle, mvn, pytest, and make.")
     @Blocking
-    public ToolOutput runBashCommand(@P("Shell command to execute") String command) {
+    public ToolOutput runShellCommand(@P("Shell command to execute") String command) {
         String trimmed = command.trim();
         String displayedCommand = trimmed.isEmpty() ? "(blank)" : trimmed;
         if (trimmed.isEmpty()) {
@@ -35,7 +38,7 @@ public final class HostCommandTool {
 
     private static String formatResult(String status, String command, int exitCode, String output) {
         List<String> lines = new ArrayList<>();
-        lines.add("runBashCommand: " + status);
+        lines.add("runShellCommand: " + status);
         lines.add("command: " + command);
         if (exitCode >= 0) {
             lines.add("exit_code: " + exitCode);

@@ -246,10 +246,10 @@ class ToolRegistryTest {
                 .builder()
                 .register(new HostCommandTool(new TestProject(HOST_COMMAND_ROOT)))
                 .build();
-        Method method = HostCommandTool.class.getDeclaredMethod("runBashCommand", String.class);
+        Method method = HostCommandTool.class.getDeclaredMethod("runShellCommand", String.class);
         var req = ToolExecutionRequest.builder()
-                .id("run-bash-1")
-                .name("runBashCommand")
+                .id("run-shell-1")
+                .name("runShellCommand")
                 .arguments(jsonArgs(method, "echo ok"))
                 .build();
 
@@ -257,12 +257,12 @@ class ToolRegistryTest {
 
         assertEquals(ToolExecutionResult.Status.SUCCESS, result.status());
         assertInstanceOf(HostCommandTool.CommandOutput.class, result.result());
-        assertTrue(result.resultText().contains("runBashCommand: ok"));
+        assertTrue(result.resultText().contains("runShellCommand: ok"));
         assertTrue(result.resultText().contains("command: echo ok"));
         assertTrue(result.resultText().contains("exit_code: 0"));
         assertTrue(result.resultText().contains("line from subprocess"));
-        assertEquals("run-bash-1", result.toMessage().id());
-        assertEquals("runBashCommand", result.toMessage().toolName());
+        assertEquals("run-shell-1", result.toMessage().id());
+        assertEquals("runShellCommand", result.toMessage().toolName());
         assertEquals(result.resultText(), result.toMessage().text());
         assertFalse(result.toMessage().text().startsWith("Request error:"));
         assertFalse(result.toMessage().text().startsWith("Internal error:"));
@@ -281,10 +281,10 @@ class ToolRegistryTest {
                 .builder()
                 .register(new HostCommandTool(new TestProject(HOST_COMMAND_ROOT)))
                 .build();
-        Method method = HostCommandTool.class.getDeclaredMethod("runBashCommand", String.class);
+        Method method = HostCommandTool.class.getDeclaredMethod("runShellCommand", String.class);
         var req = ToolExecutionRequest.builder()
-                .id("run-bash-2")
-                .name("runBashCommand")
+                .id("run-shell-2")
+                .name("runShellCommand")
                 .arguments(jsonArgs(method, "false"))
                 .build();
 
@@ -292,13 +292,13 @@ class ToolRegistryTest {
 
         assertEquals(ToolExecutionResult.Status.SUCCESS, result.status());
         assertInstanceOf(HostCommandTool.CommandOutput.class, result.result());
-        assertTrue(result.resultText().contains("runBashCommand: failed"));
+        assertTrue(result.resultText().contains("runShellCommand: failed"));
         assertTrue(result.resultText().contains("command: false"));
         assertTrue(result.resultText().contains("exit_code: 7"));
         assertTrue(result.resultText().contains("first line"));
         assertTrue(result.resultText().contains("boom details"));
         assertEquals(result.resultText(), result.toMessage().text());
-        assertTrue(result.toMessage().text().contains("runBashCommand: failed"));
+        assertTrue(result.toMessage().text().contains("runShellCommand: failed"));
         assertTrue(result.toMessage().text().contains("exit_code: 7"));
         assertTrue(result.toMessage().text().contains("boom details"));
         assertFalse(result.toMessage().text().startsWith("Request error:"));
