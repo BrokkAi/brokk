@@ -40,7 +40,8 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
                     CaptureNames.IMPL_DEFINITION, SkeletonType.CLASS_LIKE,
                     CaptureNames.MODULE_DEFINITION, SkeletonType.MODULE_STATEMENT,
                     CaptureNames.FUNCTION_DEFINITION, SkeletonType.FUNCTION_LIKE,
-                    CaptureNames.FIELD_DEFINITION, SkeletonType.FIELD_LIKE),
+                    CaptureNames.FIELD_DEFINITION, SkeletonType.FIELD_LIKE,
+                    CaptureNames.TYPEALIAS_DEFINITION, SkeletonType.ALIAS_LIKE),
             "",
             Set.of(VISIBILITY_MODIFIER));
 
@@ -220,6 +221,7 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
                 String fieldShortName = classChain.isEmpty() ? "_module_." + simpleName : classChain + "." + simpleName;
                 yield CodeUnit.field(file, packageName, fieldShortName);
             }
+            case CaptureNames.TYPEALIAS_DEFINITION -> CodeUnit.cls(file, packageName, simpleName);
             default -> {
                 log.warn(
                         "Unhandled capture name in RustAnalyzer.createCodeUnit: '{}' for simple name '{}' in file '{}'. Returning null.",
@@ -229,6 +231,16 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
                 yield null; // Explicitly yield null
             }
         };
+    }
+
+    @Override
+    public boolean isTypeAlias(CodeUnit cu) {
+        return cu.isClass() && withTreeOf(cu.source(), tree -> {
+            var ranges = rangesOf(cu);
+            if (ranges.isEmpty()) return false;
+            var node = tree.getRootNode().getDescendantForByteRange(ranges.getFirst().startByte(), ranges.getFirst().endByte());
+            return node != null && TYPE_ITEM.equals(node.getType());
+        }, false);
     }
 
     @Override

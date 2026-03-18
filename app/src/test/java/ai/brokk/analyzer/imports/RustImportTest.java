@@ -80,7 +80,6 @@ class RustImportTest {
     }
 
     @Test
-    @Disabled("Functionality for Rust type alias detection is pending")
     void testTypeAlias() throws IOException {
         String code = "type MyResult<T> = Result<T, Error>;";
         IProject project = InlineTestProjectCreator.code(code, "src/main.rs").build();
