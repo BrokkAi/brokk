@@ -459,7 +459,9 @@ public class CodePrompts {
         If an appropriate test file is in the Workspace, add or update tests to cover the changes you make.
         If no such test file exists, only create a new one if instructed to do so.
 
-        If a file is read-only or unavailable, ask the user to add it or make it editable.
+        If a file is read-only, this is a signal that the user thinks there is a solution that does not
+        involve editing it; DO NOT attempt to make changes. If it is truly necessary, ask the user to make it editable
+        and explain why.
 
         If you do not know how to use a dependency or API correctly, you MUST stop and ask the user for help.
 
