@@ -2051,4 +2051,35 @@ public class JavaAnalyzerTest {
                     analyzer.getSkeleton(listCu).get());
         }
     }
+
+    @Test
+    public void testBooleanAndNullFieldInitializersArePreserved() throws IOException {
+        String code =
+                """
+                public class BooleanNullInitializers {
+                    public static final boolean FLAG_TRUE = true;
+                    public static final boolean FLAG_FALSE = false;
+                    public static final Object NULL_VAL = null;
+                }
+                """;
+        try (var testProject =
+                InlineTestProjectCreator.code(code, "BooleanNullInitializers.java").build()) {
+            JavaAnalyzer analyzer = new JavaAnalyzer(testProject);
+
+            var trueCu = analyzer.getDefinitions("BooleanNullInitializers.FLAG_TRUE").iterator().next();
+            assertCodeEquals(
+                    "public static final boolean FLAG_TRUE = true;",
+                    analyzer.getSkeleton(trueCu).get());
+
+            var falseCu = analyzer.getDefinitions("BooleanNullInitializers.FLAG_FALSE").iterator().next();
+            assertCodeEquals(
+                    "public static final boolean FLAG_FALSE = false;",
+                    analyzer.getSkeleton(falseCu).get());
+
+            var nullCu = analyzer.getDefinitions("BooleanNullInitializers.NULL_VAL").iterator().next();
+            assertCodeEquals(
+                    "public static final Object NULL_VAL = null;",
+                    analyzer.getSkeleton(nullCu).get());
+        }
+    }
 }

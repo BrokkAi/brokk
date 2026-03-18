@@ -296,7 +296,10 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
                     TSNode valueNode = declarator.getChildByFieldName("value");
                     if (valueNode != null && !valueNode.isNull()) {
                         String valueType = valueNode.getType();
-                        if (valueType != null && valueType.endsWith("_literal")) {
+                        if (valueType != null && (valueType.endsWith("_literal")
+                                || TRUE.equals(valueType)
+                                || FALSE.equals(valueType)
+                                || NULL.equals(valueType))) {
                             suffix = " = "
                                     + sourceContent.substringFrom(valueNode).strip() + ";";
                         }
