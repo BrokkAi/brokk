@@ -5,6 +5,7 @@ import ai.brokk.analyzer.NodeJsDependencyHelper;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.executor.http.SimpleHttpServer;
 import ai.brokk.executor.jobs.ErrorPayload;
+import ai.brokk.git.GitRepoRemote;
 import ai.brokk.project.AbstractProject;
 import ai.brokk.util.DependencyUpdater;
 import ai.brokk.util.DependencyUpdater.DependencyMetadata;
@@ -414,9 +415,13 @@ public final class DependenciesRouter implements SimpleHttpServer.CheckedHttpHan
                 // Write metadata and update dependency on disk
                 if (isGit) {
                     var repoUrl = request.repoUrl().strip();
-                    var ref = request.ref() != null && !request.ref().isBlank()
-                            ? request.ref().strip()
-                            : "main";
+                    String ref;
+                    if (request.ref() != null && !request.ref().isBlank()) {
+                        ref = request.ref().strip();
+                    } else {
+                        var remoteInfo = GitRepoRemote.listRemoteRefs(repoUrl);
+                        ref = remoteInfo.defaultBranch() != null ? remoteInfo.defaultBranch() : "main";
+                    }
 
                     DependencyUpdater.writeGitDependencyMetadata(targetPath, repoUrl, ref, null);
                     var metadata =

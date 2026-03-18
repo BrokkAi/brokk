@@ -13,6 +13,17 @@ ContextModalScreen, TaskListModalScreen, SessionCostsModalScreen, DependenciesMo
     background: $surface;
 }
 
+#dependencies-status {
+    height: auto;
+    color: $accent;
+    text-style: bold;
+}
+
+#dependencies-spinner {
+    height: 1;
+    color: $accent;
+}
+
 AddDependencyModalScreen {
     align: center middle;
 }

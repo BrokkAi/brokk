@@ -3317,14 +3317,22 @@ class BrokkApp(App):
 
         self.push_screen(AddDependencyModalScreen(), on_result)
 
+    def _get_dependencies_panel(self) -> Optional[DependenciesPanel]:
+        if isinstance(self.screen, DependenciesModalScreen):
+            return self.screen.query_one(DependenciesPanel)
+        return None
+
     async def _do_import_dependency(self, params: Dict[str, Any]) -> None:
         chat = self._maybe_chat()
         name = params.get("name", "")
         mode = params.get("mode", "local")
+        panel = self._get_dependencies_panel()
 
         try:
             if chat:
                 chat.add_system_message(f"Importing dependency '{name}'...")
+            if panel:
+                panel.show_loading(f"Importing '{name}'...")
 
             if mode == "local":
                 await self.executor.import_dependency(
@@ -3347,6 +3355,12 @@ class BrokkApp(App):
         except Exception as e:
             if chat:
                 chat.add_system_message(f"Failed to import dependency: {e}", level="ERROR")
+            if panel:
+                panel.show_error(f"Import failed: {e}")
+            return
+        finally:
+            if panel:
+                panel.hide_loading()
 
     def on_dependencies_panel_action_requested(
         self, message: DependenciesPanel.ActionRequested
@@ -3399,6 +3413,9 @@ class BrokkApp(App):
         except Exception as e:
             if chat:
                 chat.add_system_message(f"Dependency action failed: {e}", level="ERROR")
+            panel = self._get_dependencies_panel()
+            if panel:
+                panel.show_error(f"{message.action} failed: {e}")
 
     def action_toggle_context(self) -> None:
         if isinstance(self.screen, ContextModalScreen):

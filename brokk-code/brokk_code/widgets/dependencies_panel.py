@@ -5,7 +5,7 @@ from textual.binding import Binding
 from textual.containers import Vertical, VerticalScroll
 from textual.message import Message
 from textual.widget import Widget
-from textual.widgets import ListItem, ListView, Static
+from textual.widgets import ListItem, ListView, LoadingIndicator, Static
 
 
 class DependenciesPanel(Widget):
@@ -38,6 +38,8 @@ class DependenciesPanel(Widget):
         with Vertical(id="dependencies-container"):
             yield Static("Dependencies", id="dependencies-title")
             yield Static(self._get_shortcuts_text(), id="dependencies-help-line")
+            yield Static("", id="dependencies-status", classes="hidden")
+            yield LoadingIndicator(id="dependencies-spinner", classes="hidden")
             with VerticalScroll(id="dependencies-list-scroll"):
                 yield ListView(id="dependencies-list")
 
@@ -116,6 +118,21 @@ class DependenciesPanel(Widget):
     def on_focus(self) -> None:
         """Delegate focus to the inner ListView so arrow keys work."""
         self.query_one("#dependencies-list", ListView).focus()
+
+    def show_loading(self, message: str = "Importing...") -> None:
+        self.query_one("#dependencies-status", Static).update(message)
+        self.query_one("#dependencies-status").remove_class("hidden")
+        self.query_one("#dependencies-spinner").remove_class("hidden")
+
+    def hide_loading(self) -> None:
+        self.query_one("#dependencies-status").add_class("hidden")
+        self.query_one("#dependencies-spinner").add_class("hidden")
+
+    def show_error(self, message: str) -> None:
+        status = self.query_one("#dependencies-status", Static)
+        status.update(f"[bold red]{message}[/]")
+        status.remove_class("hidden")
+        self.query_one("#dependencies-spinner").add_class("hidden")
 
     def action_add_dependency(self) -> None:
         self.post_message(self.ActionRequested("add"))
