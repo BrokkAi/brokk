@@ -200,6 +200,24 @@ func TestParseTreeSitterSymbolsIncludeLeadingPythonComments(t *testing.T) {
 	}
 }
 
+func TestParseTreeSitterSymbolsPythonInitUsesPackageName(t *testing.T) {
+	if !treeSitterEnabled() {
+		t.Skip("tree-sitter requires cgo support on this machine")
+	}
+
+	symbols, ok := parseTreeSitterSymbols("pkg/__init__.py", ""+
+		"class UserService:\n"+
+		"    pass\n")
+	if !ok {
+		t.Fatal("parseTreeSitterSymbols() = false, want true")
+	}
+
+	classes := filterByKind(symbols, "class")
+	if len(classes) != 1 || classes[0].FQName != "pkg.UserService" {
+		t.Fatalf("classes = %#v, want pkg.UserService", classes)
+	}
+}
+
 func TestParseTreeSitterSymbolsJavaScriptExportedArrowFunction(t *testing.T) {
 	if !treeSitterEnabled() {
 		t.Skip("tree-sitter requires cgo support on this machine")
@@ -217,6 +235,25 @@ func TestParseTreeSitterSymbolsJavaScriptExportedArrowFunction(t *testing.T) {
 	methods := filterByKind(symbols, "function")
 	if len(methods) != 1 || methods[0].FQName != "web.user-service.loadUser" {
 		t.Fatalf("methods = %#v, want web.user-service.loadUser", methods)
+	}
+}
+
+func TestParseTreeSitterFileCapturesJavaScriptImports(t *testing.T) {
+	if !treeSitterEnabled() {
+		t.Skip("tree-sitter requires cgo support on this machine")
+	}
+
+	analysis, ok := parseTreeSitterFile("web/user-service.js", ""+
+		"import { http } from './http';\n"+
+		"import { cache } from './cache';\n\n"+
+		"export const loadUser = (id) => {\n"+
+		"  return http.get(cache.key(id));\n"+
+		"};\n")
+	if !ok {
+		t.Fatal("parseTreeSitterFile() = false, want true")
+	}
+	if len(analysis.imports) != 2 {
+		t.Fatalf("len(analysis.imports) = %d, want 2", len(analysis.imports))
 	}
 }
 
@@ -454,6 +491,19 @@ func TestAnalyzerTracksTreeSitterTestAndSupertypeMetadata(t *testing.T) {
 	rendered := service.RenderDefinitionGroup(group)
 	if !strings.Contains(rendered, "import org.junit.jupiter.api.Test;") {
 		t.Fatalf("rendered = %q, want tree-sitter imports in wrapper", rendered)
+	}
+}
+
+func TestResolvePythonInitPackageClass(t *testing.T) {
+	workspace := t.TempDir()
+	writeAnalyzerFile(t, workspace, "pkg/__init__.py", ""+
+		"class UserService:\n"+
+		"    pass\n")
+
+	service := New(workspace)
+	classes := service.ResolveClasses([]string{"pkg.UserService"})
+	if len(classes) != 1 || classes[0].FQName != "pkg.UserService" {
+		t.Fatalf("classes = %#v, want pkg.UserService", classes)
 	}
 }
 

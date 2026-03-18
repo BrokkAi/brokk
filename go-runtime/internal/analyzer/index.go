@@ -1040,7 +1040,7 @@ func parseGoSymbols(relativePath string, content string) []Symbol {
 }
 
 func parsePythonSymbols(relativePath string, content string) []Symbol {
-	moduleName := moduleNameFromPath(relativePath)
+	moduleName := pythonModuleNameFromPath(relativePath)
 	lines := strings.Split(content, "\n")
 	results := make([]Symbol, 0, 16)
 	stack := make([]pythonScopedDecl, 0, 8)
@@ -2256,6 +2256,14 @@ func moduleNameFromPath(relativePath string) string {
 		}
 	}
 	return strings.Join(filtered, ".")
+}
+
+func pythonModuleNameFromPath(relativePath string) string {
+	moduleName := moduleNameFromPath(relativePath)
+	if moduleName == "__init__" {
+		return moduleName
+	}
+	return strings.TrimSuffix(moduleName, ".__init__")
 }
 
 func jsLanguageForPath(relativePath string) string {

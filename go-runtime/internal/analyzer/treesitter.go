@@ -136,7 +136,7 @@ func parseTreeSitterFile(relativePath string, content string) (treeSitterFileAna
 				if text != "" {
 					packageName = text
 				}
-			case "import.declaration":
+			case "import.declaration", "import_declaration":
 				if text != "" {
 					if _, ok := seenImports[text]; !ok {
 						seenImports[text] = struct{}{}
@@ -222,7 +222,7 @@ func treeSitterSpecForPath(relativePath string) (treeSitterSpec, bool) {
 			language:     treeSitterPythonLanguage,
 			query:        treeSitterPythonQuery,
 			languageName: "python",
-			packageName:  moduleNameFromPath,
+			packageName:  pythonModuleNameFromPath,
 		}, true
 	case ".js", ".mjs", ".cjs", ".jsx":
 		return treeSitterSpec{
