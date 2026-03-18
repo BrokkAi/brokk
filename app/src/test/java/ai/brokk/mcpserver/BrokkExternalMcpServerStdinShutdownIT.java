@@ -1,4 +1,4 @@
-package ai.brokk.executor;
+package ai.brokk.mcpserver;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -7,7 +7,6 @@ import java.io.File;
 import java.io.InputStreamReader;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -17,19 +16,19 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 /**
- * Integration test to ensure HeadlessExecutorMain will exit when its stdin is closed.
+ * Integration test to ensure BrokkExternalMcpServer exits when its stdin is closed.
  *
- * This mirrors the ACP parent-death scenario where the parent process's stdin is closed,
- * and the headless executor monitors System.in for EOF and initiates a controlled shutdown.
+ * When the parent process (e.g. Claude Code) dies, the pipe to the MCP server's stdin
+ * is closed. The server must detect this EOF and exit rather than becoming an orphan.
  *
- * The test launches a separate JVM running HeadlessExecutorMain with stdin piped,
- * waits for the "Executor listening on http://" banner, closes the child's stdin,
- * and asserts that the child JVM exits within a bounded timeout.
+ * The test launches a separate JVM running BrokkExternalMcpServer, waits for the
+ * "Brokk MCP Server started" banner, closes the child's stdin, and asserts that
+ * the child JVM exits within a bounded timeout.
  */
-public final class HeadlessExecutorStdinShutdownIT {
+public final class BrokkExternalMcpServerStdinShutdownIT {
 
     private Process process = null;
-    private ExecutorService executor = Executors.newFixedThreadPool(2);
+    private ExecutorService executor = Executors.newSingleThreadExecutor();
 
     @AfterEach
     void tearDown() throws Exception {
@@ -44,16 +43,13 @@ public final class HeadlessExecutorStdinShutdownIT {
     }
 
     @Test
-    void executorShouldExitWhenStdinClosed() throws Exception {
+    void mcpServerShouldExitWhenStdinClosed() throws Exception {
         String classpath = System.getProperty("java.class.path");
 
-        Path workspaceDir = Files.createTempDirectory("headless-exec-it-");
+        Path workspaceDir = Files.createTempDirectory("mcp-server-stdin-it-");
         // Write JVM args to an argfile to avoid Windows command line length limit (CreateProcess error=206)
         Path argFile = Files.createTempFile("java-cp-argfile-", ".txt");
         try {
-            String execId = UUID.randomUUID().toString();
-            String authToken = "test-token";
-
             Files.writeString(
                     argFile,
                     "-Djava.awt.headless=true\n" + "-Dapple.awt.UIElement=true\n"
@@ -62,57 +58,46 @@ public final class HeadlessExecutorStdinShutdownIT {
                             + classpath.replace("\\", "\\\\") + "\"\n");
 
             ProcessBuilder pb = new ProcessBuilder(
-                    "java",
-                    "@" + argFile.toAbsolutePath(),
-                    "ai.brokk.executor.HeadlessExecutorMain",
-                    "--exec-id",
-                    execId,
-                    "--listen-addr",
-                    "127.0.0.1:0",
-                    "--auth-token",
-                    authToken,
-                    "--workspace-dir",
-                    workspaceDir.toString(),
-                    "--exit-on-stdin-eof");
+                    "java", "@" + argFile.toAbsolutePath(), "ai.brokk.mcpserver.BrokkExternalMcpServer");
 
-            pb.redirectErrorStream(true);
+            pb.directory(workspaceDir.toFile());
+            pb.redirectErrorStream(true); // merge stderr (logs) into stdout for reading
             process = pb.start();
 
             BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
 
-            Callable<String> waitForListening = () -> {
+            Callable<String> waitForBanner = () -> {
                 String line;
                 while ((line = reader.readLine()) != null) {
-                    if (line.contains("Executor listening on http://")) {
+                    if (line.contains("Brokk MCP Server starting")) {
                         return line;
                     }
                 }
                 return null;
             };
 
-            Future<String> listenFuture = executor.submit(waitForListening);
+            Future<String> bannerFuture = executor.submit(waitForBanner);
             String bannerLine;
             try {
-                bannerLine = listenFuture.get(60, TimeUnit.SECONDS);
+                bannerLine = bannerFuture.get(60, TimeUnit.SECONDS);
             } catch (Exception e) {
                 if (process.isAlive()) {
                     process.destroyForcibly();
                     process.waitFor();
                 }
-                fail("Timed out waiting for executor listening banner: " + e.getMessage());
+                fail("Timed out waiting for MCP server starting banner: " + e.getMessage());
                 return;
             }
 
-            assertNotNull(bannerLine, "Executor process exited before printing listening banner");
+            assertNotNull(bannerLine, "MCP server process exited before printing starting banner");
 
-            // Close the child's stdin to simulate parent death / EOF.
+            // Close stdin to simulate parent death.
             try {
                 process.getOutputStream().close();
             } catch (Exception e) {
-                // best-effort; continue to waiting below
+                // best-effort
             }
 
-            // Wait for the process to exit within a reasonable timeout.
             boolean exited = process.waitFor(60, TimeUnit.SECONDS);
             if (!exited) {
                 process.destroy();
@@ -122,10 +107,8 @@ public final class HeadlessExecutorStdinShutdownIT {
                 }
             }
 
-            assertTrue(exited, "Process did not exit after stdin was closed");
-
-            int exitCode = process.exitValue();
-            assertEquals(0, exitCode, "Executor process exited with unexpected code after stdin closure");
+            assertTrue(exited, "MCP server process did not exit after stdin was closed");
+            assertEquals(0, process.exitValue(), "MCP server exited with unexpected code after stdin closure");
 
         } finally {
             argFile.toFile().delete();

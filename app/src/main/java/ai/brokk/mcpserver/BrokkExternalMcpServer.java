@@ -56,7 +56,9 @@ import io.modelcontextprotocol.server.McpSyncServer;
 import io.modelcontextprotocol.server.McpSyncServerExchange;
 import io.modelcontextprotocol.server.transport.StdioServerTransportProvider;
 import io.modelcontextprotocol.spec.McpSchema;
+import java.io.FilterInputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -123,6 +125,7 @@ public class BrokkExternalMcpServer {
         System.setProperty("java.awt.headless", "true");
 
         Path projectPath = Path.of(".").toAbsolutePath().normalize();
+        logger.info("Brokk MCP Server starting");
 
         try (var project = new MainProject(projectPath);
                 var cm = new ContextManager(project)) {
@@ -149,7 +152,32 @@ public class BrokkExternalMcpServer {
             McpJsonMapper mapper = McpJsonDefaults.getMapper();
             AtomicReference<McpSyncServer> serverRef = new AtomicReference<>();
 
-            McpSyncServer mcpServer = McpServer.sync(new StdioServerTransportProvider(mapper, System.in, System.out))
+            // Wrap System.in to detect EOF (parent process death) and exit cleanly.
+            // StdioServerTransportProvider reads from this stream for MCP messages;
+            // when the parent closes the pipe, read() returns -1 and we call System.exit(0).
+            InputStream stdinWrapper = new FilterInputStream(System.in) {
+                @Override
+                public int read() throws IOException {
+                    int b = super.read();
+                    if (b == -1) {
+                        logger.info("stdin EOF detected; parent process gone, exiting");
+                        System.exit(0);
+                    }
+                    return b;
+                }
+
+                @Override
+                public int read(byte[] buf, int off, int len) throws IOException {
+                    int n = super.read(buf, off, len);
+                    if (n == -1) {
+                        logger.info("stdin EOF detected; parent process gone, exiting");
+                        System.exit(0);
+                    }
+                    return n;
+                }
+            };
+
+            McpSyncServer mcpServer = McpServer.sync(new StdioServerTransportProvider(mapper, stdinWrapper, System.out))
                     .serverInfo("Brokk MCP Server", BuildInfo.version)
                     .jsonMapper(mapper)
                     .requestTimeout(Duration.ofHours(1))
