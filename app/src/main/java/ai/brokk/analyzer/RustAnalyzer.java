@@ -523,30 +523,34 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
     }
 
     private String resolveRustPathToFqn(String rustPath, String currentPackage) {
-        if (rustPath.startsWith("crate::")) {
-            return rustPath.substring(7).replace("::", ".");
+        String trimmedPath = rustPath.trim();
+
+        if (trimmedPath.startsWith("crate::")) {
+            return trimmedPath.substring("crate::".length()).replace("::", ".");
         }
 
-        if (rustPath.startsWith("self::")) {
-            String path = rustPath.substring(6).replace("::", ".");
+        if (trimmedPath.startsWith("self::")) {
+            String path = trimmedPath.substring("self::".length()).replace("::", ".");
             return currentPackage.isEmpty() ? path : currentPackage + "." + path;
         }
 
-        if (rustPath.startsWith("super::")) {
-            String remaining = rustPath;
+        if (trimmedPath.startsWith("super::")) {
+            String remaining = trimmedPath;
             String pkg = currentPackage;
             while (remaining.startsWith("super::")) {
-                remaining = remaining.substring(7);
+                remaining = remaining.substring("super::".length());
                 int lastDot = pkg.lastIndexOf('.');
                 pkg = (lastDot == -1) ? "" : pkg.substring(0, lastDot);
             }
             String path = remaining.replace("::", ".");
-            if (path.startsWith(".")) path = path.substring(1);
+            if (path.startsWith(".")) {
+                path = path.substring(1);
+            }
             return pkg.isEmpty() ? path : (path.isEmpty() ? pkg : pkg + "." + path);
         }
 
         // External crates or absolute paths not starting with crate::
-        return rustPath.replace("::", ".");
+        return trimmedPath.replace("::", ".");
     }
 
     @Override
