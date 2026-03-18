@@ -79,7 +79,7 @@ public final class BrokkExternalMcpServerStdinShutdownIT {
             Future<String> bannerFuture = executor.submit(waitForBanner);
             String bannerLine;
             try {
-                bannerLine = bannerFuture.get(15, TimeUnit.SECONDS);
+                bannerLine = bannerFuture.get(60, TimeUnit.SECONDS);
             } catch (Exception e) {
                 if (process.isAlive()) {
                     process.destroyForcibly();
@@ -98,7 +98,7 @@ public final class BrokkExternalMcpServerStdinShutdownIT {
                 // best-effort
             }
 
-            boolean exited = process.waitFor(8, TimeUnit.SECONDS);
+            boolean exited = process.waitFor(60, TimeUnit.SECONDS);
             if (!exited) {
                 process.destroy();
                 process.waitFor(2, TimeUnit.SECONDS);

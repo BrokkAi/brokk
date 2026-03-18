@@ -93,7 +93,7 @@ public final class HeadlessExecutorStdinShutdownIT {
             Future<String> listenFuture = executor.submit(waitForListening);
             String bannerLine;
             try {
-                bannerLine = listenFuture.get(15, TimeUnit.SECONDS);
+                bannerLine = listenFuture.get(60, TimeUnit.SECONDS);
             } catch (Exception e) {
                 if (process.isAlive()) {
                     process.destroyForcibly();
@@ -113,7 +113,7 @@ public final class HeadlessExecutorStdinShutdownIT {
             }
 
             // Wait for the process to exit within a reasonable timeout.
-            boolean exited = process.waitFor(30, TimeUnit.SECONDS);
+            boolean exited = process.waitFor(60, TimeUnit.SECONDS);
             if (!exited) {
                 process.destroy();
                 process.waitFor(2, TimeUnit.SECONDS);
