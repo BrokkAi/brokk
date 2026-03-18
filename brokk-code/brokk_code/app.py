@@ -18,7 +18,7 @@ from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.css.query import NoMatches
 from textual.screen import ModalScreen
-from textual.widgets import Button, Input, ListItem, ListView, Static, TextArea
+from textual.widgets import Button, Input, ListItem, ListView, LoadingIndicator, Static, TextArea
 
 from brokk_code.event_utils import is_failure_state, safe_data
 from brokk_code.executor import ExecutorError, ExecutorManager
@@ -141,6 +141,7 @@ class AddDependencyModalScreen(ModalScreen[Optional[Dict[str, Any]]]):
     def __init__(self) -> None:
         super().__init__()
         self._mode: str = "local"
+        self._selected_ref: Optional[str] = None
 
     @staticmethod
     def _derive_name_from_path(path: str) -> str:
@@ -168,9 +169,14 @@ class AddDependencyModalScreen(ModalScreen[Optional[Dict[str, Any]]]):
             # Git input (hidden by default)
             with Vertical(id="add-dependency-git-section", classes="hidden"):
                 yield Static("Repository URL:", id="add-dependency-repo-label")
-                yield Input(placeholder="https://github.com/owner/repo", id="add-dependency-repo")
-                yield Static("Branch/Tag/Ref (optional):", id="add-dependency-ref-label")
-                yield Input(placeholder="main", id="add-dependency-ref")
+                with Horizontal(id="add-dependency-repo-row"):
+                    yield Input(
+                        placeholder="https://github.com/owner/repo", id="add-dependency-repo"
+                    )
+                    yield Button("Fetch", id="add-dependency-fetch", variant="primary")
+                yield LoadingIndicator(id="add-dependency-fetch-spinner", classes="hidden")
+                yield Static("Branch/Tag:", id="add-dependency-branch-label", classes="hidden")
+                yield ListView(id="add-dependency-branch-list", classes="hidden")
 
             yield Static("", id="add-dependency-error")
 
@@ -188,10 +194,23 @@ class AddDependencyModalScreen(ModalScreen[Optional[Dict[str, Any]]]):
             self._set_mode("local")
         elif button_id == "add-dependency-mode-git":
             self._set_mode("git")
+        elif button_id == "add-dependency-fetch":
+            self._fetch_branches()
         elif button_id == "add-dependency-submit":
             self._do_submit()
         elif button_id == "add-dependency-cancel":
             self.dismiss(None)
+
+    def on_list_view_selected(self, event: ListView.Selected) -> None:
+        if event.list_view.id == "add-dependency-branch-list":
+            item = event.item
+            label = item.query_one(Static).renderable
+            self._selected_ref = str(label)
+
+    def on_list_view_highlighted(self, event: ListView.Highlighted) -> None:
+        if event.list_view.id == "add-dependency-branch-list" and event.item:
+            label = event.item.query_one(Static).renderable
+            self._selected_ref = str(label)
 
     def _set_mode(self, mode: str) -> None:
         self._mode = mode
@@ -210,6 +229,57 @@ class AddDependencyModalScreen(ModalScreen[Optional[Dict[str, Any]]]):
             git_btn.variant = "primary"
             local_section.add_class("hidden")
             git_section.remove_class("hidden")
+
+    def _fetch_branches(self) -> None:
+        repo_url = self.query_one("#add-dependency-repo", Input).value.strip()
+        if not repo_url:
+            self.query_one("#add-dependency-error", Static).update(
+                "[bold red]Enter a repository URL first[/]"
+            )
+            return
+        self.query_one("#add-dependency-error", Static).update("")
+        self.query_one("#add-dependency-fetch-spinner").remove_class("hidden")
+        self.query_one("#add-dependency-fetch", Button).disabled = True
+        self.app.run_worker(self._do_fetch_branches(repo_url))
+
+    async def _do_fetch_branches(self, repo_url: str) -> None:
+        try:
+            data = await self.app.executor.list_remote_refs(repo_url)
+            branches = data.get("branches", [])
+            tags = data.get("tags", [])
+            default_branch = data.get("defaultBranch")
+
+            branch_list = self.query_one("#add-dependency-branch-list", ListView)
+            branch_list.clear()
+
+            # Add branches, marking the default
+            for branch in branches:
+                suffix = " (default)" if branch == default_branch else ""
+                branch_list.append(ListItem(Static(f"{branch}{suffix}", markup=False)))
+
+            # Add tags with prefix
+            for tag in tags:
+                branch_list.append(ListItem(Static(f"{tag}", markup=False)))
+
+            self.query_one("#add-dependency-branch-label").remove_class("hidden")
+            branch_list.remove_class("hidden")
+
+            # Pre-select default branch
+            if default_branch and default_branch in branches:
+                branch_list.index = branches.index(default_branch)
+                self._selected_ref = default_branch
+            elif branches:
+                branch_list.index = 0
+                self._selected_ref = branches[0]
+
+            branch_list.focus()
+        except Exception as e:
+            self.query_one("#add-dependency-error", Static).update(
+                f"[bold red]Failed to fetch branches: {e}[/]"
+            )
+        finally:
+            self.query_one("#add-dependency-fetch-spinner").add_class("hidden")
+            self.query_one("#add-dependency-fetch", Button).disabled = False
 
     def _do_submit(self) -> None:
         error_label = self.query_one("#add-dependency-error", Static)
@@ -234,7 +304,7 @@ class AddDependencyModalScreen(ModalScreen[Optional[Dict[str, Any]]]):
             if not name:
                 error_label.update("[bold red]Could not derive name from URL[/]")
                 return
-            ref = self.query_one("#add-dependency-ref", Input).value.strip() or None
+            ref = self._selected_ref
             self.dismiss({"name": name, "mode": "git", "repo_url": repo_url, "ref": ref})
 
 

@@ -53,6 +53,29 @@ AddDependencyModalScreen {
     height: auto;
 }
 
+#add-dependency-repo-row {
+    height: auto;
+}
+
+#add-dependency-repo-row Input {
+    width: 1fr;
+}
+
+#add-dependency-repo-row Button {
+    width: auto;
+    min-width: 10;
+}
+
+#add-dependency-fetch-spinner {
+    height: 1;
+    color: $accent;
+}
+
+#add-dependency-branch-list {
+    height: auto;
+    max-height: 10;
+}
+
 #add-dependency-error {
     color: $error;
     height: auto;

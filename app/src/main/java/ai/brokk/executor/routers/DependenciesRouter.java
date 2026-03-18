@@ -66,6 +66,15 @@ public final class DependenciesRouter implements SimpleHttpServer.CheckedHttpHan
             return;
         }
 
+        if (normalizedPath.equals("/v1/dependencies/remote-refs")) {
+            if (method.equals("POST")) {
+                handlePostRemoteRefs(exchange);
+            } else {
+                RouterUtil.sendMethodNotAllowed(exchange);
+            }
+            return;
+        }
+
         // Check for /v1/dependencies/{name}/update pattern
         if (normalizedPath.startsWith("/v1/dependencies/") && normalizedPath.endsWith("/update")) {
             if (method.equals("POST")) {
@@ -420,7 +429,20 @@ public final class DependenciesRouter implements SimpleHttpServer.CheckedHttpHan
                         ref = request.ref().strip();
                     } else {
                         var remoteInfo = GitRepoRemote.listRemoteRefs(repoUrl);
-                        ref = remoteInfo.defaultBranch() != null ? remoteInfo.defaultBranch() : "main";
+                        if (remoteInfo.defaultBranch() != null) {
+                            ref = remoteInfo.defaultBranch();
+                        } else {
+                            var branches = remoteInfo.branches();
+                            if (branches.contains("main")) {
+                                ref = "main";
+                            } else if (branches.contains("master")) {
+                                ref = "master";
+                            } else if (!branches.isEmpty()) {
+                                ref = branches.getFirst();
+                            } else {
+                                ref = "main";
+                            }
+                        }
                     }
 
                     DependencyUpdater.writeGitDependencyMetadata(targetPath, repoUrl, ref, null);
@@ -463,6 +485,31 @@ public final class DependenciesRouter implements SimpleHttpServer.CheckedHttpHan
         }
     }
 
+    // ── POST /v1/dependencies/remote-refs ───────────────
+
+    private void handlePostRemoteRefs(HttpExchange exchange) throws IOException {
+        var request = RouterUtil.parseJsonOr400(exchange, RemoteRefsRequest.class, "/v1/dependencies/remote-refs");
+        if (request == null) return;
+
+        if (request.repoUrl() == null || request.repoUrl().isBlank()) {
+            RouterUtil.sendValidationError(exchange, "repoUrl is required");
+            return;
+        }
+
+        try {
+            var remoteInfo = GitRepoRemote.listRemoteRefs(request.repoUrl().strip());
+            var result = new HashMap<String, Object>();
+            result.put("branches", remoteInfo.branches());
+            result.put("tags", remoteInfo.tags());
+            result.put("defaultBranch", remoteInfo.defaultBranch());
+            SimpleHttpServer.sendJsonResponse(exchange, result);
+        } catch (Exception e) {
+            logger.error("Error listing remote refs for {}", request.repoUrl(), e);
+            SimpleHttpServer.sendJsonResponse(
+                    exchange, 500, ErrorPayload.internalError("Failed to list remote refs", e));
+        }
+    }
+
     // ── Request DTOs ──────────────────────────────────────
 
     private record UpdateLiveDepsRequest(@Nullable List<String> liveDependencyNames) {}
@@ -474,4 +521,6 @@ public final class DependenciesRouter implements SimpleHttpServer.CheckedHttpHan
             @Nullable String repoUrl,
             @Nullable String ref,
             @Nullable Boolean markLive) {}
+
+    private record RemoteRefsRequest(@Nullable String repoUrl) {}
 }

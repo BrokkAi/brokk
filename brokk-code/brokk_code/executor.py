@@ -1403,6 +1403,22 @@ class ExecutorManager:
             await self._handle_http_error(e, endpoint)
             raise
 
+    async def list_remote_refs(self, repo_url: str) -> Dict[str, Any]:
+        """Lists branches and tags from a remote Git repository."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+        try:
+            resp = await self._http_client.post(
+                "/v1/dependencies/remote-refs",
+                json={"repoUrl": repo_url},
+                timeout=30.0,
+            )
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            await self._handle_http_error(e, "/v1/dependencies/remote-refs")
+            raise
+
     async def import_dependency(
         self,
         name: str,
