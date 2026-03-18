@@ -1958,16 +1958,20 @@ public class CppAnalyzerTest {
             TreeSitterAnalyzer inlineAnalyzer = AnalyzerCreator.createTreeSitterAnalyzer(project);
 
             // x = 1 (literal) should be preserved
-            CodeUnit xCu = inlineAnalyzer.getDefinitions("ComplexFields.x").iterator().next();
+            CodeUnit xCu =
+                    inlineAnalyzer.getDefinitions("ComplexFields.x").iterator().next();
             assertCodeEquals("int x = 1;", inlineAnalyzer.getSkeleton(xCu).orElse(""));
 
             // y = f(1, 2) (complex) should be truncated
-            CodeUnit yCu = inlineAnalyzer.getDefinitions("ComplexFields.y").iterator().next();
+            CodeUnit yCu =
+                    inlineAnalyzer.getDefinitions("ComplexFields.y").iterator().next();
             assertCodeEquals("int y;", inlineAnalyzer.getSkeleton(yCu).orElse(""));
 
             // z = Builder (complex) should be truncated
-            CodeUnit zCu = inlineAnalyzer.getDefinitions("ComplexFields.z").iterator().next();
-            assertCodeEquals("static inline auto z;", inlineAnalyzer.getSkeleton(zCu).orElse(""));
+            CodeUnit zCu =
+                    inlineAnalyzer.getDefinitions("ComplexFields.z").iterator().next();
+            assertCodeEquals(
+                    "static inline auto z;", inlineAnalyzer.getSkeleton(zCu).orElse(""));
         }
     }
 
