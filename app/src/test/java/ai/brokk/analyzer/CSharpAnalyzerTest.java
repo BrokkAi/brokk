@@ -463,63 +463,30 @@ public final class CSharpAnalyzerTest {
                     public int calculated = 1 + 1;
                 }
                 """;
-        /*
-        TS Tree
 
-        compilation_unit [0, 0] - [6, 0]
-  class_declaration [0, 0] - [5, 17]
-    modifier [0, 0] - [0, 6]
-    name: identifier [0, 13] - [0, 26]
-    body: declaration_list [0, 27] - [5, 17]
-      field_declaration [1, 20] - [1, 51]
-        modifier [1, 20] - [1, 26]
-        variable_declaration [1, 27] - [1, 50]
-          type: predefined_type [1, 27] - [1, 33]
-          variable_declarator [1, 34] - [1, 50]
-            name: identifier [1, 34] - [1, 35]
-            object_creation_expression [1, 38] - [1, 50]
-              type: predefined_type [1, 42] - [1, 48]
-              arguments: argument_list [1, 48] - [1, 50]
-      field_declaration [2, 20] - [2, 44]
-        modifier [2, 20] - [2, 26]
-        variable_declaration [2, 27] - [2, 43]
-          type: predefined_type [2, 27] - [2, 30]
-          variable_declarator [2, 31] - [2, 43]
-            name: identifier [2, 31] - [2, 38]
-            integer_literal [2, 41] - [2, 43]
-      field_declaration [3, 20] - [3, 46]
-        modifier [3, 20] - [3, 26]
-        variable_declaration [3, 27] - [3, 45]
-          type: predefined_type [3, 27] - [3, 33]
-          variable_declarator [3, 34] - [3, 45]
-            name: identifier [3, 34] - [3, 35]
-            string_literal [3, 38] - [3, 45]
-              string_literal_content [3, 39] - [3, 44]
-      field_declaration [4, 20] - [4, 50]
-        modifier [4, 20] - [4, 26]
-        variable_declaration [4, 27] - [4, 49]
-          type: predefined_type [4, 27] - [4, 30]
-          variable_declarator [4, 31] - [4, 49]
-            name: identifier [4, 31] - [4, 41]
-            binary_expression [4, 44] - [4, 49]
-              left: integer_literal [4, 44] - [4, 45]
-              right: integer_literal [4, 48] - [4, 49]
-
-         */
-        try (var testProject = InlineTestProjectCreator.code(code, "ComplexFields.cs").build()) {
+        try (var testProject =
+                InlineTestProjectCreator.code(code, "ComplexFields.cs").build()) {
             CSharpAnalyzer analyzer = new CSharpAnalyzer(testProject);
 
             var oDefs = analyzer.getDefinitions("ComplexFields.o");
-            assertCodeEquals("public object o;", analyzer.getSkeleton(oDefs.iterator().next()).get());
+            assertCodeEquals(
+                    "public object o;",
+                    analyzer.getSkeleton(oDefs.iterator().next()).get());
 
             var literalDefs = analyzer.getDefinitions("ComplexFields.literal");
-            assertCodeEquals("public int literal = 42;", analyzer.getSkeleton(literalDefs.iterator().next()).get());
+            assertCodeEquals(
+                    "public int literal = 42;",
+                    analyzer.getSkeleton(literalDefs.iterator().next()).get());
 
             var sDefs = analyzer.getDefinitions("ComplexFields.s");
-            assertCodeEquals("public string s = \"hello\";", analyzer.getSkeleton(sDefs.iterator().next()).get());
+            assertCodeEquals(
+                    "public string s = \"hello\";",
+                    analyzer.getSkeleton(sDefs.iterator().next()).get());
 
             var calcDefs = analyzer.getDefinitions("ComplexFields.calculated");
-            assertCodeEquals("public int calculated;", analyzer.getSkeleton(calcDefs.iterator().next()).get());
+            assertCodeEquals(
+                    "public int calculated;",
+                    analyzer.getSkeleton(calcDefs.iterator().next()).get());
         }
     }
 }

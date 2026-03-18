@@ -128,7 +128,8 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
                     }
                     default -> {
                         log.warn(
-                                "Unhandled capture name in CSharpAnalyzer.createCodeUnit: '{}' for simple name '{}', package '{}', classChain '{}' in file {}. Returning null.",
+                                "Unhandled capture name in CSharpAnalyzer.createCodeUnit: '{}' for simple name '{}', "
+                                        + "package '{}', classChain '{}' in file {}. Returning null.",
                                 captureName,
                                 simpleName,
                                 packageName,
@@ -356,7 +357,8 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
                 if (expression != null && !expression.isNull()) {
                     TSNode literalNode = findLiteralNode(expression);
                     if (literalNode != null) {
-                        initializerStr = " = " + sourceContent.substringFrom(literalNode).strip();
+                        initializerStr =
+                                " = " + sourceContent.substringFrom(literalNode).strip();
                     }
                 }
 
