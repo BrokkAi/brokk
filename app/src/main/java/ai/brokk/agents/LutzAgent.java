@@ -698,23 +698,13 @@ public class LutzAgent {
         return scanConfig.scanModel() == null ? cm.getService().getScanModel() : scanConfig.scanModel();
     }
 
-    private boolean toolTriggersScan(ToolExecutionRequest req, ToolRegistry tr) {
+    private boolean toolTriggersScan(ToolExecutionRequest req) {
         String toolName = req.name();
         if (toolName.startsWith("search") || toolName.startsWith("find")) {
             return true;
         }
 
-        if ("callSearchAgent".equals(toolName)) {
-            var invocation = tr.validateTool(req);
-            var parameters = invocation.parameters();
-            assert parameters.size() >= 2 : "callSearchAgent should include query and mode parameters";
-            String mode = (String) parameters.get(1);
-
-            // don't scan if callSearchAgent mode is ANSWER
-            return !"ANSWER".equalsIgnoreCase(mode);
-        }
-
-        return false;
+        return "callSearchAgent".equals(toolName);
     }
 
     private StreamingChatModel delegatedSearchModel() {
@@ -852,7 +842,7 @@ public class LutzAgent {
                 ai = ToolRegistry.removeDuplicateToolRequests(result.aiMessage());
 
                 if (agent.shouldAutomaticallyScan()
-                        && ai.toolExecutionRequests().stream().anyMatch(req -> agent.toolTriggersScan(req, tr))) {
+                        && ai.toolExecutionRequests().stream().anyMatch(req -> agent.toolTriggersScan(req))) {
                     return TurnOutcome.AutoScan.INSTANCE;
                 }
 
