@@ -15,7 +15,8 @@ class TypeScriptAliasTest {
 
     @Test
     void testIsTypeAlias() throws IOException {
-        String code = """
+        String code =
+                """
                 export type MyResult<T> = Result<T, Error>;
                 class MyStruct {}
                 function my_func() {}

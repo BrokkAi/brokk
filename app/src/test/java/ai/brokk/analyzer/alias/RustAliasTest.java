@@ -15,7 +15,8 @@ class RustAliasTest {
 
     @Test
     void testIsTypeAlias() throws IOException {
-        String code = """
+        String code =
+                """
                 type MyResult<T> = Result<T, Error>;
                 struct MyStruct;
                 fn my_func() {}

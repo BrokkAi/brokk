@@ -13,6 +13,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.regex.Pattern;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -461,6 +462,20 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
     }
 
     @Override
+    protected String extractPackageFromWildcard(String rawSnippet) {
+        if (rawSnippet.startsWith("use ")) {
+            rawSnippet = rawSnippet.substring(4);
+        }
+        if (rawSnippet.endsWith(";")) {
+            rawSnippet = rawSnippet.substring(0, rawSnippet.length() - 1);
+        }
+        if (rawSnippet.endsWith("::*")) {
+            return rawSnippet.substring(0, rawSnippet.length() - 3);
+        }
+        return "";
+    }
+
+    @Override
     protected Set<CodeUnit> resolveImports(ProjectFile file, List<String> importStatements) {
         String currentPackage = withTreeOf(
                 file,
@@ -471,7 +486,13 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
 
         for (ImportInfo info : importInfoOf(file)) {
             if (info.isWildcard()) {
-                continue; // Wildcard resolution not yet supported for Rust
+                String wildcardPackage = extractPackageFromWildcard(info.rawSnippet());
+                if (!wildcardPackage.isEmpty()) {
+                    String packageFqn = resolveRustPathToFqn(wildcardPackage, currentPackage);
+                    // Search for all definitions that belong to this package
+                    resolved.addAll(searchDefinitions("^" + Pattern.quote(packageFqn) + "\\.[^.]+$", false));
+                }
+                continue;
             }
 
             String identifier = info.identifier();
