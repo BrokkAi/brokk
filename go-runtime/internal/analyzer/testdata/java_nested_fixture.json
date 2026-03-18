@@ -1,0 +1,35 @@
+{
+  "name": "java nested fixture",
+  "relativePath": "src/main/java/com/example/service/UserService.java",
+  "content": "package com.example.service;\n\npublic class UserService {\n    public static class NestedWorker {\n    }\n\n    public String findUserById(String id) {\n        return id;\n    }\n}\n",
+  "classes": [
+    "com.example.service.UserService",
+    "com.example.service.UserService.NestedWorker"
+  ],
+  "methods": [
+    "com.example.service.UserService.findUserById"
+  ],
+  "fields": [],
+  "imports": [],
+  "containsTests": false,
+  "rawSupertypes": [],
+  "resolveClassesInput": [
+    "UserService",
+    "NestedWorker"
+  ],
+  "resolveClasses": [
+    "com.example.service.UserService",
+    "com.example.service.UserService.NestedWorker"
+  ],
+  "resolveMethodsInput": [
+    "findUserById"
+  ],
+  "resolveMethods": [
+    "com.example.service.UserService.findUserById"
+  ],
+  "skeletonFQName": "com.example.service.UserService",
+  "skeletonContains": [
+    "public class UserService",
+    "public static class NestedWorker"
+  ]
+}

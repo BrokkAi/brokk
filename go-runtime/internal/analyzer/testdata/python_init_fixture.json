@@ -1,0 +1,24 @@
+{
+  "name": "python init fixture",
+  "relativePath": "pkg/__init__.py",
+  "content": "class UserService:\n    pass\n",
+  "classes": [
+    "pkg.UserService"
+  ],
+  "methods": [],
+  "fields": [],
+  "imports": [],
+  "containsTests": false,
+  "rawSupertypes": [],
+  "resolveClassesInput": [
+    "pkg.UserService"
+  ],
+  "resolveClasses": [
+    "pkg.UserService"
+  ],
+  "completeQuery": "UserSer",
+  "completeLimit": 10,
+  "complete": [
+    "pkg.UserService"
+  ]
+}

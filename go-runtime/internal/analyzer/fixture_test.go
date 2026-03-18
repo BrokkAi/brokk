@@ -10,15 +10,25 @@ import (
 )
 
 type analyzerFixture struct {
-	Name          string   `json:"name"`
-	RelativePath  string   `json:"relativePath"`
-	Content       string   `json:"content"`
-	Classes       []string `json:"classes"`
-	Methods       []string `json:"methods"`
-	Fields        []string `json:"fields"`
-	Imports       []string `json:"imports"`
-	ContainsTests bool     `json:"containsTests"`
-	RawSupertypes []string `json:"rawSupertypes"`
+	Name                string            `json:"name"`
+	RelativePath        string            `json:"relativePath"`
+	Content             string            `json:"content"`
+	AdditionalFiles     map[string]string `json:"additionalFiles"`
+	Classes             []string          `json:"classes"`
+	Methods             []string          `json:"methods"`
+	Fields              []string          `json:"fields"`
+	Imports             []string          `json:"imports"`
+	ContainsTests       bool              `json:"containsTests"`
+	RawSupertypes       []string          `json:"rawSupertypes"`
+	ResolveClassesInput []string          `json:"resolveClassesInput"`
+	ResolveClasses      []string          `json:"resolveClasses"`
+	ResolveMethodsInput []string          `json:"resolveMethodsInput"`
+	ResolveMethods      []string          `json:"resolveMethods"`
+	CompleteQuery       string            `json:"completeQuery"`
+	CompleteLimit       int               `json:"completeLimit"`
+	Complete            []string          `json:"complete"`
+	SkeletonFQName      string            `json:"skeletonFQName"`
+	SkeletonContains    []string          `json:"skeletonContains"`
 }
 
 func TestAnalyzerFixtures(t *testing.T) {
@@ -82,6 +92,52 @@ func runAnalyzerFixture(t *testing.T, fixturePath string) {
 			t.Fatalf("raw supertypes = %#v, want %#v", got, sortedStrings(fixture.RawSupertypes))
 		}
 	}
+
+	workspace := t.TempDir()
+	writeAnalyzerFile(t, workspace, fixture.RelativePath, fixture.Content)
+	for relativePath, content := range fixture.AdditionalFiles {
+		writeAnalyzerFile(t, workspace, relativePath, content)
+	}
+
+	service := New(workspace)
+	if len(fixture.ResolveClassesInput) > 0 {
+		if got := sortedFQNames(service.ResolveClasses(fixture.ResolveClassesInput)); !slices.Equal(got, sortedStrings(fixture.ResolveClasses)) {
+			t.Fatalf("ResolveClasses() = %#v, want %#v", got, sortedStrings(fixture.ResolveClasses))
+		}
+	}
+	if len(fixture.ResolveMethodsInput) > 0 {
+		if got := sortedFQNames(service.ResolveMethods(fixture.ResolveMethodsInput)); !slices.Equal(got, sortedStrings(fixture.ResolveMethods)) {
+			t.Fatalf("ResolveMethods() = %#v, want %#v", got, sortedStrings(fixture.ResolveMethods))
+		}
+	}
+	if fixture.CompleteQuery != "" {
+		limit := fixture.CompleteLimit
+		if limit <= 0 {
+			limit = 10
+		}
+		if got := sortedCompletionDetails(service.CompleteSymbols(fixture.CompleteQuery, limit)); !slices.Equal(got, sortedStrings(fixture.Complete)) {
+			t.Fatalf("CompleteSymbols() = %#v, want %#v", got, sortedStrings(fixture.Complete))
+		}
+	}
+	if fixture.SkeletonFQName != "" {
+		header, ok := service.SkeletonHeader(fixture.SkeletonFQName)
+		if !ok {
+			t.Fatalf("SkeletonHeader(%q) = false, want true", fixture.SkeletonFQName)
+		}
+		for _, expected := range fixture.SkeletonContains {
+			if !strings.Contains(header, expected) {
+				t.Fatalf("SkeletonHeader(%q) = %q, want to contain %q", fixture.SkeletonFQName, header, expected)
+			}
+		}
+	}
+	if service.ContainsTests(fixture.RelativePath) != fixture.ContainsTests {
+		t.Fatalf("ContainsTests(%q) = %v, want %v", fixture.RelativePath, service.ContainsTests(fixture.RelativePath), fixture.ContainsTests)
+	}
+	if len(fixture.RawSupertypes) > 0 && len(fixture.Classes) > 0 {
+		if got := sortedStrings(service.RawSupertypes(fixture.Classes[0])); !slices.Equal(got, sortedStrings(fixture.RawSupertypes)) {
+			t.Fatalf("RawSupertypes(%q) = %#v, want %#v", fixture.Classes[0], got, sortedStrings(fixture.RawSupertypes))
+		}
+	}
 }
 
 func sortedFQNames(symbols []Symbol) []string {
@@ -96,4 +152,12 @@ func sortedStrings(values []string) []string {
 	cloned := append([]string(nil), values...)
 	slices.Sort(cloned)
 	return cloned
+}
+
+func sortedCompletionDetails(completions []Completion) []string {
+	values := make([]string, 0, len(completions))
+	for _, completion := range completions {
+		values = append(values, completion.Detail)
+	}
+	return sortedStrings(values)
 }
