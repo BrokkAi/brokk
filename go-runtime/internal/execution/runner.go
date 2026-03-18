@@ -188,6 +188,17 @@ func (r *Runner) run(ctx context.Context, jobID string, spec jobs.JobSpec) error
 
 	r.appendText(jobID, output)
 	r.appendNotification(jobID, "INFO", "Job completed: "+jobID)
+	if sessionID := r.sessions.CurrentSessionID(); strings.TrimSpace(sessionID) != "" {
+		action := mode + " job"
+		if strings.TrimSpace(spec.TaskInput) != "" {
+			action = spec.TaskInput
+		}
+		diffJobID := ""
+		if diff, _ := r.store.ReadArtifact(jobID, "diff.txt"); len(diff) > 0 {
+			diffJobID = jobID
+		}
+		_, _, _ = r.contexts.RecordSnapshot(sessionID, action, mode, true, diffJobID)
+	}
 	status.State = "COMPLETED"
 	status.EndTime = time.Now().UnixMilli()
 	status.ProgressPercent = 100
@@ -496,16 +507,6 @@ func (r *Runner) executeReview(ctx context.Context, jobID string, spec jobs.JobS
 		return "", err
 	}
 	rawResponse := generated.RawResponse
-	parsedResponse := review.ParseResponse(rawResponse)
-	if parsedResponse == nil {
-		return "", errors.New("PR review response was not valid JSON. Expected JSON object with 'summaryMarkdown' field")
-	}
-	summary := parsedResponse.SummaryMarkdown
-	comments := parsedResponse.Comments
-	reviewJSON, err := json.MarshalIndent(parsedResponse, "", "  ")
-	if err != nil {
-		return "", err
-	}
 
 	if err := r.store.WriteArtifact(jobID, "review-prompt.txt", []byte(promptText)); err != nil {
 		return "", err
@@ -523,16 +524,41 @@ func (r *Runner) executeReview(ctx context.Context, jobID string, spec jobs.JobS
 	if err := r.store.WriteArtifact(jobID, "review-response.json", []byte(rawResponse+"\n")); err != nil {
 		return "", err
 	}
-	if err := r.store.WriteArtifact(jobID, "review.md", []byte(summary+"\n")); err != nil {
+	generationJSON, err := json.MarshalIndent(generated, "", "  ")
+	if err != nil {
 		return "", err
 	}
-	if err := r.store.WriteArtifact(jobID, "review.json", append(reviewJSON, '\n')); err != nil {
+	if err := r.store.WriteArtifact(jobID, "review-generation.json", append(generationJSON, '\n')); err != nil {
 		return "", err
 	}
 	if err := r.store.WriteArtifact(jobID, "diff.txt", []byte(diffText)); err != nil {
 		return "", err
 	}
 	if err := r.store.WriteArtifact(jobID, "annotated-diff.txt", []byte(annotatedDiff)); err != nil {
+		return "", err
+	}
+
+	parsedResponse := review.ParseResponse(rawResponse)
+	if parsedResponse == nil {
+		if strings.TrimSpace(rawResponse) == "" {
+			return "", errors.New("LLM returned empty response for PR review")
+		}
+		responsePreview := strings.TrimSpace(rawResponse)
+		if len(responsePreview) > 500 {
+			responsePreview = responsePreview[:500] + "..."
+		}
+		return "", errors.New("PR review response was not valid JSON. Expected JSON object with 'summaryMarkdown' field. Response preview: " + responsePreview)
+	}
+	summary := parsedResponse.SummaryMarkdown
+	comments := parsedResponse.Comments
+	reviewJSON, err := json.MarshalIndent(parsedResponse, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	if err := r.store.WriteArtifact(jobID, "review.md", []byte(summary+"\n")); err != nil {
+		return "", err
+	}
+	if err := r.store.WriteArtifact(jobID, "review.json", append(reviewJSON, '\n')); err != nil {
 		return "", err
 	}
 
@@ -548,6 +574,10 @@ func (r *Runner) executeReview(ctx context.Context, jobID string, spec jobs.JobS
 	r.appendNotification(jobID, "INFO", fmt.Sprintf("PR review prepared with %d inline comment(s)", len(comments)))
 	r.appendNotification(jobID, "INFO", diffSource)
 	r.appendNotification(jobID, "INFO", "Review generation provider: "+generated.Provider)
+	r.appendNotification(jobID, "INFO", "Review generation stop reason: "+generated.StopReason)
+	if generated.UsedFallback && generated.FallbackReason != "" {
+		r.appendNotification(jobID, "WARN", "Review generation used fallback: "+generated.FallbackReason)
+	}
 	r.appendNotification(jobID, "INFO", postingSummary)
 	r.appendStateHint(jobID, "reviewReady", true, fmt.Sprintf("%s/%s#%s", owner, repo, prNumber))
 
@@ -559,8 +589,9 @@ func (r *Runner) executeReview(ctx context.Context, jobID string, spec jobs.JobS
 		fmt.Sprintf("Inline comments prepared: %d", len(comments)),
 		fmt.Sprintf("Diff source: %s", diffSource),
 		fmt.Sprintf("Review provider: %s", generated.Provider),
+		fmt.Sprintf("Review stop reason: %s", generated.StopReason),
 		postingSummary,
-		"Artifacts: review-prompt.txt, review-context.md, review-context.json, review-response.json, review.md, review.json, diff.txt, annotated-diff.txt",
+		"Artifacts: review-prompt.txt, review-context.md, review-context.json, review-response.json, review-generation.json, review.md, review.json, diff.txt, annotated-diff.txt",
 		"",
 		summary,
 	}
@@ -642,7 +673,7 @@ func (r *Runner) executeSearch(ctx context.Context, spec jobs.JobSpec) (string, 
 	normalized := strings.ToLower(query)
 	if !strings.Contains(query, "/") && !strings.Contains(query, "\\") && r.analyzer != nil {
 		for _, symbol := range r.analyzer.SearchSymbols(query, 6) {
-			line := strings.TrimSpace(symbol.Snippet)
+			line := searchPreviewForSymbol(r.analyzer, symbol)
 			if len(line) > 160 {
 				line = line[:160]
 			}
@@ -741,6 +772,15 @@ func (r *Runner) executeSearch(ctx context.Context, spec jobs.JobSpec) (string, 
 		}
 	}
 	return strings.Join(lines, "\n"), nil
+}
+
+func searchPreviewForSymbol(analyzerService *analyzer.Service, symbol analyzer.Symbol) string {
+	if analyzerService != nil && symbol.Kind == "class" {
+		if header, ok := analyzerService.SkeletonHeader(symbol.FQName); ok {
+			return strings.TrimSpace(header)
+		}
+	}
+	return strings.TrimSpace(symbol.Snippet)
 }
 
 func hasMatch(matches []searchMatch, kind string, path string, line string) bool {
@@ -1162,17 +1202,32 @@ func (r *Runner) buildReviewContext(state contextstate.State, candidates []revie
 	}
 
 	touchedPaths := touchedReviewPaths(annotatedDiff)
+	touchedDirs := parentDirs(touchedPaths)
 	for _, path := range touchedPaths {
 		addItem(review.ContextItem{
 			Path:    path,
 			Kind:    "diff-file",
 			Name:    path,
-			Snippet: "File changed in this pull request diff.",
+			Snippet: reviewFileSnippet(filepath.Join(r.workspace, filepath.FromSlash(path))),
 		})
 	}
 
+	if r.analyzer != nil {
+		for _, symbol := range r.analyzer.SymbolsForPaths(touchedPaths, 6) {
+			if len(items) >= 12 {
+				break
+			}
+			addItem(review.ContextItem{
+				Path:    symbol.RelativePath,
+				Kind:    "touched-" + symbol.Kind,
+				Name:    symbol.FQName,
+				Snippet: symbol.Snippet,
+			})
+		}
+	}
+
 	for _, fragment := range state.Fragments {
-		if len(items) >= 10 {
+		if len(items) >= 12 {
 			break
 		}
 		kind := strings.ToLower(strings.TrimSpace(fragment.Type))
@@ -1189,19 +1244,22 @@ func (r *Runner) buildReviewContext(state contextstate.State, candidates []revie
 
 	if r.analyzer != nil {
 		for _, identifier := range extractReviewIdentifiers(annotatedDiff) {
-			if len(items) >= 10 {
+			if len(items) >= 12 {
 				break
 			}
 			for _, symbol := range r.analyzer.SearchSymbols(identifier, 4) {
-				if len(items) >= 10 {
+				if len(items) >= 12 {
 					break
 				}
-				if len(touchedPaths) > 0 && !containsString(touchedPaths, symbol.RelativePath) {
+				if containsString(touchedPaths, symbol.RelativePath) {
+					continue
+				}
+				if len(touchedDirs) > 0 && !hasParentDir(touchedDirs, symbol.RelativePath) {
 					continue
 				}
 				addItem(review.ContextItem{
 					Path:    symbol.RelativePath,
-					Kind:    symbol.Kind,
+					Kind:    "related-" + symbol.Kind,
 					Name:    symbol.FQName,
 					Snippet: symbol.Snippet,
 				})
@@ -1210,14 +1268,20 @@ func (r *Runner) buildReviewContext(state contextstate.State, candidates []revie
 	}
 
 	for _, candidate := range candidates {
-		if len(items) >= 10 {
+		if len(items) >= 12 {
 			break
+		}
+		if containsString(touchedPaths, candidate.relativePath) {
+			continue
+		}
+		if len(touchedDirs) > 0 && !hasParentDir(touchedDirs, candidate.relativePath) {
+			continue
 		}
 		addItem(review.ContextItem{
 			Path:    candidate.relativePath,
-			Kind:    "candidate",
+			Kind:    "related-file",
 			Name:    candidate.relativePath,
-			Snippet: "Candidate file selected for review coverage.",
+			Snippet: reviewFileSnippet(candidate.absolutePath),
 		})
 	}
 
@@ -1225,12 +1289,13 @@ func (r *Runner) buildReviewContext(state contextstate.State, candidates []revie
 		"## Brokk Review Context",
 		"",
 		fmt.Sprintf("Collected %d context item(s) to support the diff review.", len(items)),
+		fmt.Sprintf("Touched files: %d. Related directories considered: %d.", len(touchedPaths), len(touchedDirs)),
 	}
 	if len(items) == 0 {
 		lines = append(lines, "No additional repository context was resolved for this review pass.")
 	} else {
 		for i, item := range items {
-			if i >= 10 {
+			if i >= 12 {
 				break
 			}
 			line := fmt.Sprintf("- [%s] %s", item.Kind, item.Name)
@@ -1341,6 +1406,33 @@ func touchedReviewPaths(annotatedDiff string) []string {
 	return paths
 }
 
+func parentDirs(paths []string) []string {
+	seen := map[string]struct{}{}
+	results := make([]string, 0, len(paths))
+	for _, path := range paths {
+		dir := filepath.ToSlash(filepath.Dir(path))
+		if dir == "." || dir == "" {
+			continue
+		}
+		if _, ok := seen[dir]; ok {
+			continue
+		}
+		seen[dir] = struct{}{}
+		results = append(results, dir)
+	}
+	return results
+}
+
+func hasParentDir(parentDirs []string, path string) bool {
+	dir := filepath.ToSlash(filepath.Dir(path))
+	for _, parent := range parentDirs {
+		if dir == parent || strings.HasPrefix(dir+"/", parent+"/") {
+			return true
+		}
+	}
+	return false
+}
+
 func extractReviewIdentifiers(annotatedDiff string) []string {
 	seen := map[string]struct{}{}
 	identifiers := make([]string, 0, 8)
@@ -1385,6 +1477,29 @@ func singleLinePreview(text string, limit int) string {
 		return trimmed
 	}
 	return trimmed[:limit]
+}
+
+func reviewFileSnippet(path string) string {
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return "File changed in this pull request diff."
+	}
+	lines := strings.Split(string(content), "\n")
+	snippet := make([]string, 0, 6)
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		snippet = append(snippet, trimmed)
+		if len(snippet) >= 6 {
+			break
+		}
+	}
+	if len(snippet) == 0 {
+		return "File changed in this pull request diff."
+	}
+	return strings.Join(snippet, " ")
 }
 
 func isReviewablePath(path string) bool {

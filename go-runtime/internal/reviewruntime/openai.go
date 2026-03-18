@@ -78,6 +78,8 @@ func (g *OpenAIGenerator) Generate(ctx context.Context, req Request) (Result, er
 			return Result{
 				Provider:    provider,
 				RawResponse: rawResponse,
+				StopReason:  "SUCCESS",
+				RepairCount: repairs,
 			}, nil
 		}
 		if attempt == 3 {

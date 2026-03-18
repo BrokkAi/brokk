@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 )
 
 type Fragment struct {
@@ -50,6 +51,26 @@ type ConversationMsg struct {
 }
 
 type State struct {
+	Fragments    []Fragment          `json:"fragments"`
+	TaskList     TaskListData        `json:"taskList"`
+	Conversation []ConversationEntry `json:"conversation"`
+	NextSequence int64               `json:"nextSequence"`
+	History      []HistoryEntry      `json:"history"`
+	HistoryIndex int                 `json:"historyIndex"`
+}
+
+type HistoryEntry struct {
+	ContextID   string       `json:"contextId"`
+	Action      string       `json:"action"`
+	TaskType    string       `json:"taskType,omitempty"`
+	IsAIResult  bool         `json:"isAiResult"`
+	Timestamp   int64        `json:"timestamp"`
+	DiffJobID   string       `json:"diffJobId,omitempty"`
+	ResetFromID string       `json:"resetFromId,omitempty"`
+	Snapshot    HistoryState `json:"snapshot"`
+}
+
+type HistoryState struct {
 	Fragments    []Fragment          `json:"fragments"`
 	TaskList     TaskListData        `json:"taskList"`
 	Conversation []ConversationEntry `json:"conversation"`
@@ -173,6 +194,149 @@ func (m *Manager) DropAll(sessionID string) (State, error) {
 	})
 }
 
+func (m *Manager) SetState(sessionID string, next State) (State, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	next = normalizeState(next)
+	if err := m.persist(sessionID, next); err != nil {
+		return State{}, err
+	}
+	m.cache[sessionID] = next
+	return copyState(next), nil
+}
+
+func (m *Manager) RecordSnapshot(sessionID string, action string, taskType string, isAIResult bool, diffJobID string) (HistoryEntry, State, error) {
+	return m.recordSnapshot(sessionID, action, taskType, isAIResult, diffJobID, "")
+}
+
+func (m *Manager) recordSnapshot(
+	sessionID string,
+	action string,
+	taskType string,
+	isAIResult bool,
+	diffJobID string,
+	resetFromID string,
+) (HistoryEntry, State, error) {
+	var entry HistoryEntry
+	state, err := m.Update(sessionID, func(state *State) error {
+		contextID, err := newID()
+		if err != nil {
+			return err
+		}
+		if state.HistoryIndex >= 0 && state.HistoryIndex < len(state.History)-1 {
+			state.History = append([]HistoryEntry(nil), state.History[:state.HistoryIndex+1]...)
+		}
+		entry = HistoryEntry{
+			ContextID:   contextID,
+			Action:      action,
+			TaskType:    taskType,
+			IsAIResult:  isAIResult,
+			Timestamp:   time.Now().UnixMilli(),
+			DiffJobID:   diffJobID,
+			ResetFromID: resetFromID,
+			Snapshot:    snapshotOf(*state),
+		}
+		state.History = append(state.History, entry)
+		state.HistoryIndex = len(state.History) - 1
+		return nil
+	})
+	return entry, state, err
+}
+
+func (m *Manager) History(sessionID string) ([]HistoryEntry, int, error) {
+	state, err := m.Get(sessionID)
+	if err != nil {
+		return nil, 0, err
+	}
+	return append([]HistoryEntry(nil), state.History...), state.HistoryIndex, nil
+}
+
+func (m *Manager) UndoTo(sessionID string, contextID string) (State, error) {
+	return m.Update(sessionID, func(state *State) error {
+		index := -1
+		for i, entry := range state.History {
+			if entry.ContextID == contextID {
+				index = i
+				break
+			}
+		}
+		if index == -1 {
+			return fmt.Errorf("context not found: %s", contextID)
+		}
+		restoreSnapshot(state, state.History[index].Snapshot)
+		state.HistoryIndex = index
+		return nil
+	})
+}
+
+func (m *Manager) UndoStep(sessionID string) (State, error) {
+	return m.Update(sessionID, func(state *State) error {
+		if state.HistoryIndex <= 0 || len(state.History) == 0 {
+			return fmt.Errorf("no undo state available")
+		}
+		state.HistoryIndex--
+		restoreSnapshot(state, state.History[state.HistoryIndex].Snapshot)
+		return nil
+	})
+}
+
+func (m *Manager) Redo(sessionID string) (State, error) {
+	return m.Update(sessionID, func(state *State) error {
+		if len(state.History) == 0 || state.HistoryIndex >= len(state.History)-1 {
+			return fmt.Errorf("no redo state available")
+		}
+		state.HistoryIndex++
+		restoreSnapshot(state, state.History[state.HistoryIndex].Snapshot)
+		return nil
+	})
+}
+
+func (m *Manager) CopyFromHistory(sessionID string, contextID string, includeHistory bool, action string) (HistoryEntry, State, error) {
+	var created HistoryEntry
+	state, err := m.Update(sessionID, func(state *State) error {
+		index := -1
+		for i, entry := range state.History {
+			if entry.ContextID == contextID {
+				index = i
+				break
+			}
+		}
+		if index == -1 {
+			return fmt.Errorf("context not found: %s", contextID)
+		}
+		snapshot := state.History[index].Snapshot
+		currentConversation := append([]ConversationEntry(nil), state.Conversation...)
+		currentNextSequence := state.NextSequence
+		restoreSnapshot(state, snapshot)
+		if !includeHistory {
+			state.Conversation = currentConversation
+			state.NextSequence = currentNextSequence
+		}
+		contextID, err := newID()
+		if err != nil {
+			return err
+		}
+		if state.HistoryIndex >= 0 && state.HistoryIndex < len(state.History)-1 {
+			state.History = append([]HistoryEntry(nil), state.History[:state.HistoryIndex+1]...)
+		}
+		created = HistoryEntry{
+			ContextID:   contextID,
+			Action:      action,
+			TaskType:    state.History[index].TaskType,
+			IsAIResult:  false,
+			Timestamp:   time.Now().UnixMilli(),
+			DiffJobID:   state.History[index].DiffJobID,
+			ResetFromID: state.History[index].ContextID,
+			Snapshot:    snapshotOf(*state),
+		}
+		state.History = append(state.History, created)
+		state.HistoryIndex = len(state.History) - 1
+		return nil
+	})
+	return created, state, err
+}
+
 func (m *Manager) load(sessionID string) (State, error) {
 	path := m.statePath(sessionID)
 	bytes, err := os.ReadFile(path)
@@ -183,6 +347,8 @@ func (m *Manager) load(sessionID string) (State, error) {
 				TaskList:     emptyTaskList(),
 				Conversation: []ConversationEntry{},
 				NextSequence: 0,
+				History:      []HistoryEntry{},
+				HistoryIndex: -1,
 			}, nil
 		}
 		return State{}, err
@@ -192,16 +358,7 @@ func (m *Manager) load(sessionID string) (State, error) {
 	if err := json.Unmarshal(bytes, &state); err != nil {
 		return State{}, err
 	}
-	if state.Fragments == nil {
-		state.Fragments = []Fragment{}
-	}
-	if state.TaskList.Tasks == nil {
-		state.TaskList.Tasks = []TaskItem{}
-	}
-	if state.Conversation == nil {
-		state.Conversation = []ConversationEntry{}
-	}
-	return state, nil
+	return normalizeState(state), nil
 }
 
 func (m *Manager) persist(sessionID string, state State) error {
@@ -227,6 +384,10 @@ func copyState(state State) State {
 	fragments := append([]Fragment(nil), state.Fragments...)
 	tasks := append([]TaskItem(nil), state.TaskList.Tasks...)
 	conversation := append([]ConversationEntry(nil), state.Conversation...)
+	history := make([]HistoryEntry, 0, len(state.History))
+	for _, entry := range state.History {
+		history = append(history, copyHistoryEntry(entry))
+	}
 	return State{
 		Fragments: fragments,
 		TaskList: TaskListData{
@@ -235,7 +396,71 @@ func copyState(state State) State {
 		},
 		Conversation: conversation,
 		NextSequence: state.NextSequence,
+		History:      history,
+		HistoryIndex: state.HistoryIndex,
 	}
+}
+
+func copyHistoryEntry(entry HistoryEntry) HistoryEntry {
+	return HistoryEntry{
+		ContextID:   entry.ContextID,
+		Action:      entry.Action,
+		TaskType:    entry.TaskType,
+		IsAIResult:  entry.IsAIResult,
+		Timestamp:   entry.Timestamp,
+		DiffJobID:   entry.DiffJobID,
+		ResetFromID: entry.ResetFromID,
+		Snapshot:    snapshotOfState(entry.Snapshot),
+	}
+}
+
+func normalizeState(state State) State {
+	if state.Fragments == nil {
+		state.Fragments = []Fragment{}
+	}
+	if state.TaskList.Tasks == nil {
+		state.TaskList.Tasks = []TaskItem{}
+	}
+	if state.Conversation == nil {
+		state.Conversation = []ConversationEntry{}
+	}
+	if state.History == nil {
+		state.History = []HistoryEntry{}
+	}
+	if len(state.History) == 0 {
+		state.HistoryIndex = -1
+	} else if state.HistoryIndex >= len(state.History) {
+		state.HistoryIndex = len(state.History) - 1
+	}
+	return state
+}
+
+func snapshotOf(state State) HistoryState {
+	return HistoryState{
+		Fragments:    append([]Fragment(nil), state.Fragments...),
+		TaskList:     TaskListData{BigPicture: state.TaskList.BigPicture, Tasks: append([]TaskItem(nil), state.TaskList.Tasks...)},
+		Conversation: append([]ConversationEntry(nil), state.Conversation...),
+		NextSequence: state.NextSequence,
+	}
+}
+
+func snapshotOfState(state HistoryState) HistoryState {
+	return HistoryState{
+		Fragments:    append([]Fragment(nil), state.Fragments...),
+		TaskList:     TaskListData{BigPicture: state.TaskList.BigPicture, Tasks: append([]TaskItem(nil), state.TaskList.Tasks...)},
+		Conversation: append([]ConversationEntry(nil), state.Conversation...),
+		NextSequence: state.NextSequence,
+	}
+}
+
+func restoreSnapshot(state *State, snapshot HistoryState) {
+	state.Fragments = append([]Fragment(nil), snapshot.Fragments...)
+	state.TaskList = TaskListData{
+		BigPicture: snapshot.TaskList.BigPicture,
+		Tasks:      append([]TaskItem(nil), snapshot.TaskList.Tasks...),
+	}
+	state.Conversation = append([]ConversationEntry(nil), snapshot.Conversation...)
+	state.NextSequence = snapshot.NextSequence
 }
 
 func atomicWriteBytes(path string, bytes []byte) error {

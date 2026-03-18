@@ -663,6 +663,66 @@ Compare:
 - [ ] Add event-sequence compatibility tests
 - [ ] Add client launch test path for `brokk-code`
 
+## Current Parity Gap
+
+This section is the strict accounting of what is still missing between the Java executor and the current Go port.
+
+### 1. Missing Major Modes
+
+- [ ] Port `ISSUE_DIAGNOSE`
+- [ ] Port `ISSUE_WRITER`
+- [ ] Port `ISSUE`
+
+These are the largest remaining feature gaps. Until they exist in Go, the runtime is not feature-complete relative to Java.
+
+### 2. Missing Drop-In Verification
+
+- [ ] Add black-box Java-vs-Go request/response compatibility tests
+- [ ] Add `.brokk` storage compatibility checks for jobs and artifacts
+- [ ] Add session import/export compatibility checks
+- [ ] Add event-sequence compatibility checks
+- [ ] Validate `brokk-code` launching and talking to the Go runtime end to end
+
+These are the largest remaining confidence gaps. Without them, "drop-in replacement" is still an informed claim rather than a proven one.
+
+### 3. Analyzer Still Shallower Than Java
+
+- [x] Replace the original lightweight symbol matcher with a cached declaration index and Java-style resolution order
+- [x] Tighten completions, class attachment, method attachment, and SEARCH behavior around exact definition, search, autocomplete, and member fallback
+- [x] Port imports-wrapped source payloads for attached class and method context, plus class skeleton-header generation
+- [x] Expand the Go analyzer beyond Java and Go so Python, JS/TS, C#, Rust, PHP, Scala, and SQL symbols also participate in indexing, completion, attachment, and search
+- [ ] Improve symbol and repository context quality to better match Java analyzer output
+- [ ] Expand language and source-model fidelity where Java currently has deeper support
+- [ ] Add Java-vs-Go analyzer fixtures for completions, nested classes, overloaded methods, and source selection
+
+The current Go analyzer is now a real cached declaration subsystem rather than the original placeholder matcher, but it is still smaller than the Java analyzer stack.
+
+### 4. REVIEW Still Short Of Full Java Parity
+
+- [ ] Match more of Java's review-context selection and pre-scan behavior
+- [ ] Match more of Java's review retry and stop-details behavior
+- [ ] Tighten GitHub review posting edge cases against Java behavior
+- [ ] Add side-by-side Java-vs-Go review fixtures and assertions
+
+`REVIEW` is one of the most advanced Go slices now, but it is still not a byte-for-byte or behavior-for-behavior match with Java.
+
+### 5. Activity And History Gaps
+
+- [x] Port richer activity actions beyond recent jobs and diff lookup
+- [x] Port undo/redo or equivalent historical actions where Java exposes them
+- [ ] Tighten activity payload shapes and history semantics against Java behavior with Java-vs-Go fixtures
+
+The current Go activity surface now includes history snapshots and action endpoints, but it still needs side-by-side verification to prove exact parity.
+
+### 6. Contract Hardening Gaps
+
+- [ ] Freeze route-by-route schema expectations with compatibility tests
+- [ ] Freeze persisted JSON field expectations with compatibility tests
+- [ ] Freeze session zip behavior with compatibility tests
+- [ ] Confirm undocumented client assumptions used by `brokk-code`
+
+The Go runtime now covers a lot of API surface, but some of the contract is still implicit rather than locked down.
+
 ## Open Questions
 
 - How much of the current Java context/session format is already stable enough to treat as fixed contract?
@@ -803,6 +863,27 @@ Compare:
   - repaired responses are surfaced through the provider label (for example `openai-compatible (repaired 1x)`) so event streams and artifacts retain some provenance
   - if repair still fails, the existing fallback generator chain remains responsible for degrading to heuristic review generation
   - unit tests now cover malformed-response repair and repaired-provider labeling
+- REVIEW context-selection slice improved:
+  - the review pre-scan now prioritizes touched-file snippets and touched-file symbols instead of mostly flat generic context items
+  - related symbols and related files are now restricted to directories near the touched diff paths, which is closer to the Java review pre-scan intent
+  - `review-context.json` now captures richer item kinds such as `touched-function`, `related-function`, and `related-file`
+  - end-to-end review tests now verify that touched-file and touched-symbol context appears in the persisted review context artifacts
+- REVIEW diagnostics slice improved:
+  - review generation now persists `review-generation.json` with provider, stop reason, repair count, and fallback metadata
+  - runner output and event notifications now include a dedicated review-generation stop reason in addition to the provider label
+  - malformed or empty review responses now produce more Java-like errors with explicit empty-response handling and response-preview details for invalid JSON cases
+  - end-to-end review tests now verify the persisted generation diagnostics artifact and the emitted stop-reason event
+- Activity/history subsystem expanded:
+  - session-scoped context state now persists an explicit activity snapshot history with a current undo/redo pointer
+  - `GET /v1/activity` now serves session history entries instead of only recent jobs and reports real `hasUndo` / `hasRedo` values
+  - `POST /v1/activity/undo`, `POST /v1/activity/undo-step`, `POST /v1/activity/redo`, `POST /v1/activity/copy-context`, `POST /v1/activity/copy-context-history`, and `POST /v1/activity/new-session` are now implemented against persisted snapshots
+  - successful jobs and major context/session mutations now record activity snapshots so those actions have real state to operate on
+  - activity tests now cover diff lookup, undo/redo, and creating a new session from a historical context snapshot
+- Activity/history contract tightened further:
+  - activity history entries now carry reset-edge metadata so copy-from-history actions can be identified as structural resets instead of ordinary AI/task output
+  - copy-with-history now rewrites the active history stack to the historical point before pushing the new reset state, which is closer to Java's `resetContextToIncludingHistoryAsync(...)`
+  - `GET /v1/activity` now applies Java-shaped boundary/grouping rules instead of returning a single flat history bucket
+  - `GET /v1/activity/diff` now returns structured JSON diff entries with titles and added/deleted line counts instead of raw plain-text diff output
 
 ## How To Update This Plan
 

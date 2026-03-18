@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,6 +17,7 @@ import (
 	"time"
 
 	"github.com/brokk/brokk/go-runtime/internal/config"
+	"github.com/brokk/brokk/go-runtime/internal/contextstate"
 	"github.com/brokk/brokk/go-runtime/internal/httpserver"
 )
 
@@ -476,7 +478,7 @@ func TestPostContextClassesAddsMatchingClass(t *testing.T) {
 		t.Fatalf("os.MkdirAll() error = %v", err)
 	}
 	targetFile := filepath.Join(targetDir, "UserService.java")
-	content := "package com.example.service;\n\npublic class UserService {\n    public String findUserById(String id) {\n        return id;\n    }\n}\n"
+	content := "package com.example.service;\n\nimport java.util.List;\n\npublic class UserService {\n    private String cachedId;\n\n    public String findUserById(String id) {\n        return id;\n    }\n}\n"
 	if err := os.WriteFile(targetFile, []byte(content), 0o644); err != nil {
 		t.Fatalf("os.WriteFile() error = %v", err)
 	}
@@ -503,6 +505,26 @@ func TestPostContextClassesAddsMatchingClass(t *testing.T) {
 	if !ok || item["className"] != "com.example.service.UserService" {
 		t.Fatalf("added[0] = %v, want className", added[0])
 	}
+	fragmentID, ok := item["id"].(string)
+	if !ok || fragmentID == "" {
+		t.Fatalf("id = %v, want fragment id", item["id"])
+	}
+
+	fragmentReq := httptest.NewRequest(http.MethodGet, "/v1/context/fragments/"+url.PathEscape(fragmentID), nil)
+	fragmentReq.Header.Set("Authorization", "Bearer test-token")
+	fragmentRec := httptest.NewRecorder()
+	testApp.Handler().ServeHTTP(fragmentRec, fragmentReq)
+	if fragmentRec.Code != http.StatusOK {
+		t.Fatalf("fragment status = %d, want 200", fragmentRec.Code)
+	}
+	var fragmentPayload map[string]any
+	if err := json.Unmarshal(fragmentRec.Body.Bytes(), &fragmentPayload); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	text, _ := fragmentPayload["text"].(string)
+	if !strings.Contains(text, "<imports>") || !strings.Contains(text, "<class file=") {
+		t.Fatalf("fragment text = %q, want imports-wrapped class payload", text)
+	}
 }
 
 func TestPostContextMethodsAddsMatchingMethod(t *testing.T) {
@@ -516,7 +538,7 @@ func TestPostContextMethodsAddsMatchingMethod(t *testing.T) {
 		t.Fatalf("os.MkdirAll() error = %v", err)
 	}
 	targetFile := filepath.Join(targetDir, "UserService.java")
-	content := "package com.example.service;\n\npublic class UserService {\n    public String findUserById(String id) {\n        return id;\n    }\n}\n"
+	content := "package com.example.service;\n\nimport java.util.List;\n\npublic class UserService {\n    public String findUserById(String id) {\n        return id;\n    }\n}\n"
 	if err := os.WriteFile(targetFile, []byte(content), 0o644); err != nil {
 		t.Fatalf("os.WriteFile() error = %v", err)
 	}
@@ -542,6 +564,123 @@ func TestPostContextMethodsAddsMatchingMethod(t *testing.T) {
 	item, ok := added[0].(map[string]any)
 	if !ok || item["methodName"] != "com.example.service.UserService.findUserById" {
 		t.Fatalf("added[0] = %v, want methodName", added[0])
+	}
+	fragmentID, ok := item["id"].(string)
+	if !ok || fragmentID == "" {
+		t.Fatalf("id = %v, want fragment id", item["id"])
+	}
+
+	fragmentReq := httptest.NewRequest(http.MethodGet, "/v1/context/fragments/"+url.PathEscape(fragmentID), nil)
+	fragmentReq.Header.Set("Authorization", "Bearer test-token")
+	fragmentRec := httptest.NewRecorder()
+	testApp.Handler().ServeHTTP(fragmentRec, fragmentReq)
+	if fragmentRec.Code != http.StatusOK {
+		t.Fatalf("fragment status = %d, want 200", fragmentRec.Code)
+	}
+	var fragmentPayload map[string]any
+	if err := json.Unmarshal(fragmentRec.Body.Bytes(), &fragmentPayload); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	text, _ := fragmentPayload["text"].(string)
+	if !strings.Contains(text, "<methods class=") || !strings.Contains(text, "<imports>") {
+		t.Fatalf("fragment text = %q, want imports-wrapped methods payload", text)
+	}
+}
+
+func TestPostContextMethodsRequiresExactDefinitionAndGroupsOverloads(t *testing.T) {
+	t.Parallel()
+
+	testApp := newTestApp(t)
+	createSessionViaAPI(t, testApp, "Methods")
+
+	targetDir := filepath.Join(testApp.cfg.WorkspaceDir, "src", "main", "java", "com", "example", "service")
+	if err := os.MkdirAll(targetDir, 0o755); err != nil {
+		t.Fatalf("os.MkdirAll() error = %v", err)
+	}
+	targetFile := filepath.Join(targetDir, "UserService.java")
+	content := "" +
+		"package com.example.service;\n\n" +
+		"import java.util.List;\n\n" +
+		"public class UserService {\n" +
+		"    public String findUserById(String id) {\n" +
+		"        return id;\n" +
+		"    }\n\n" +
+		"    public String findUserById(long id) {\n" +
+		"        return Long.toString(id);\n" +
+		"    }\n" +
+		"}\n"
+	if err := os.WriteFile(targetFile, []byte(content), 0o644); err != nil {
+		t.Fatalf("os.WriteFile() error = %v", err)
+	}
+
+	invalidReq := httptest.NewRequest(http.MethodPost, "/v1/context/methods", strings.NewReader(`{"methodNames":["findUserById"]}`))
+	invalidReq.Header.Set("Authorization", "Bearer test-token")
+	invalidReq.Header.Set("Content-Type", "application/json")
+	invalidRec := httptest.NewRecorder()
+	testApp.Handler().ServeHTTP(invalidRec, invalidReq)
+	if invalidRec.Code != http.StatusBadRequest {
+		t.Fatalf("short-name status = %d, want 400", invalidRec.Code)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/context/methods", strings.NewReader(`{"methodNames":["com.example.service.UserService.findUserById"]}`))
+	req.Header.Set("Authorization", "Bearer test-token")
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	testApp.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	added := payload["added"].([]any)
+	if len(added) != 1 {
+		t.Fatalf("len(added) = %d, want 1", len(added))
+	}
+	fragmentID := added[0].(map[string]any)["id"].(string)
+
+	fragmentReq := httptest.NewRequest(http.MethodGet, "/v1/context/fragments/"+url.PathEscape(fragmentID), nil)
+	fragmentReq.Header.Set("Authorization", "Bearer test-token")
+	fragmentRec := httptest.NewRecorder()
+	testApp.Handler().ServeHTTP(fragmentRec, fragmentReq)
+	if fragmentRec.Code != http.StatusOK {
+		t.Fatalf("fragment status = %d, want 200", fragmentRec.Code)
+	}
+	var fragmentPayload map[string]any
+	if err := json.Unmarshal(fragmentRec.Body.Bytes(), &fragmentPayload); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	text := fragmentPayload["text"].(string)
+	if strings.Count(text, "public String findUserById") != 2 {
+		t.Fatalf("text = %q, want both overloads", text)
+	}
+}
+
+func TestPostContextClassesRequiresExactDefinition(t *testing.T) {
+	t.Parallel()
+
+	testApp := newTestApp(t)
+	createSessionViaAPI(t, testApp, "Classes")
+
+	targetDir := filepath.Join(testApp.cfg.WorkspaceDir, "src", "main", "java", "com", "example", "service")
+	if err := os.MkdirAll(targetDir, 0o755); err != nil {
+		t.Fatalf("os.MkdirAll() error = %v", err)
+	}
+	targetFile := filepath.Join(targetDir, "UserService.java")
+	content := "package com.example.service;\n\npublic class UserService {\n}\n"
+	if err := os.WriteFile(targetFile, []byte(content), 0o644); err != nil {
+		t.Fatalf("os.WriteFile() error = %v", err)
+	}
+
+	invalidReq := httptest.NewRequest(http.MethodPost, "/v1/context/classes", strings.NewReader(`{"classNames":["UserService"]}`))
+	invalidReq.Header.Set("Authorization", "Bearer test-token")
+	invalidReq.Header.Set("Content-Type", "application/json")
+	invalidRec := httptest.NewRecorder()
+	testApp.Handler().ServeHTTP(invalidRec, invalidReq)
+	if invalidRec.Code != http.StatusBadRequest {
+		t.Fatalf("short-name status = %d, want 400", invalidRec.Code)
 	}
 }
 
@@ -684,10 +823,57 @@ func TestGetCompletionsReturnsSymbolMatches(t *testing.T) {
 	}
 }
 
-func TestGetActivityReturnsEnvelope(t *testing.T) {
+func TestGetCompletionsReturnsNestedParentAndNestedClass(t *testing.T) {
 	t.Parallel()
 
 	testApp := newTestApp(t)
+	targetDir := filepath.Join(testApp.cfg.WorkspaceDir, "src", "main", "java", "com", "example", "ui")
+	if err := os.MkdirAll(targetDir, 0o755); err != nil {
+		t.Fatalf("os.MkdirAll() error = %v", err)
+	}
+	targetFile := filepath.Join(targetDir, "Chrome.java")
+	content := "package com.example.ui;\n\npublic class Chrome {\n    public static class AnalyzerStatusStrip {\n    }\n}\n"
+	if err := os.WriteFile(targetFile, []byte(content), 0o644); err != nil {
+		t.Fatalf("os.WriteFile() error = %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/completions?query=Chrome&limit=10", nil)
+	req.Header.Set("Authorization", "Bearer test-token")
+	rec := httptest.NewRecorder()
+	testApp.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	completions, ok := payload["completions"].([]any)
+	if !ok || len(completions) < 2 {
+		t.Fatalf("completions = %v, want at least 2 entries", payload["completions"])
+	}
+	first := completions[0].(map[string]any)
+	if first["detail"] != "com.example.ui.Chrome" {
+		t.Fatalf("first detail = %v, want parent class", first["detail"])
+	}
+	foundNested := false
+	for _, raw := range completions {
+		completion := raw.(map[string]any)
+		if completion["detail"] == "com.example.ui.Chrome.AnalyzerStatusStrip" {
+			foundNested = true
+			break
+		}
+	}
+	if !foundNested {
+		t.Fatalf("nested completion missing from %v", completions)
+	}
+}
+
+func TestGetActivityReturnsEnvelope(t *testing.T) {
+	testApp := newTestApp(t)
+	createSessionViaAPI(t, testApp, "Activity")
 	req := httptest.NewRequest(http.MethodGet, "/v1/activity", nil)
 	req.Header.Set("Authorization", "Bearer test-token")
 	rec := httptest.NewRecorder()
@@ -733,31 +919,255 @@ func TestGetActivityIncludesRecentJobAndDiff(t *testing.T) {
 		t.Fatalf("groups = %v, want non-empty array", payload["groups"])
 	}
 
-	group, ok := groups[0].(map[string]any)
+	lastGroup, ok := groups[len(groups)-1].(map[string]any)
 	if !ok {
-		t.Fatalf("groups[0] = %T, want map[string]any", groups[0])
+		t.Fatalf("groups[last] = %T, want map[string]any", groups[len(groups)-1])
 	}
-	entries, ok := group["entries"].([]any)
+	entries, ok := lastGroup["entries"].([]any)
 	if !ok || len(entries) == 0 {
-		t.Fatalf("entries = %v, want non-empty array", group["entries"])
+		t.Fatalf("entries = %v, want non-empty array", lastGroup["entries"])
 	}
-	entry, ok := entries[0].(map[string]any)
+	entry, ok := entries[len(entries)-1].(map[string]any)
 	if !ok {
-		t.Fatalf("entries[0] = %T, want map[string]any", entries[0])
+		t.Fatalf("entries[last] = %T, want map[string]any", entries[len(entries)-1])
 	}
-	if entry["contextId"] != jobID {
-		t.Fatalf("contextId = %v, want %s", entry["contextId"], jobID)
+	contextID, ok := entry["contextId"].(string)
+	if !ok || contextID == "" {
+		t.Fatalf("contextId = %v, want non-empty string", entry["contextId"])
+	}
+	if entry["taskType"] != "ARCHITECT" {
+		t.Fatalf("taskType = %v, want ARCHITECT", entry["taskType"])
+	}
+	if payload["hasUndo"] != true {
+		t.Fatalf("hasUndo = %v, want true", payload["hasUndo"])
 	}
 
-	diffReq := httptest.NewRequest(http.MethodGet, "/v1/activity/diff?contextId="+jobID, nil)
+	diffReq := httptest.NewRequest(http.MethodGet, "/v1/activity/diff?contextId="+contextID, nil)
 	diffReq.Header.Set("Authorization", "Bearer test-token")
 	diffRec := httptest.NewRecorder()
 	testApp.Handler().ServeHTTP(diffRec, diffReq)
 	if diffRec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", diffRec.Code)
 	}
-	if !strings.Contains(diffRec.Body.String(), "BROKK_ARCHITECT_OUTPUT.md") {
-		t.Fatalf("diff = %q, want architect output file", diffRec.Body.String())
+	var diffPayload map[string]any
+	if err := json.Unmarshal(diffRec.Body.Bytes(), &diffPayload); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	diffs, ok := diffPayload["diffs"].([]any)
+	if !ok || len(diffs) != 1 {
+		t.Fatalf("diffs = %v, want 1 diff entry", diffPayload["diffs"])
+	}
+	diffEntry := diffs[0].(map[string]any)
+	if !strings.Contains(diffEntry["diff"].(string), "BROKK_ARCHITECT_OUTPUT.md") {
+		t.Fatalf("diff = %q, want architect output file", diffEntry["diff"])
+	}
+}
+
+func TestActivityActionsUndoRedoAndNewSession(t *testing.T) {
+	testApp := newTestApp(t)
+	createSessionViaAPI(t, testApp, "Activity")
+
+	addText := func(text string) {
+		req := httptest.NewRequest(http.MethodPost, "/v1/context/text", strings.NewReader(`{"text":"`+text+`"}`))
+		req.Header.Set("Authorization", "Bearer test-token")
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		testApp.Handler().ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200", rec.Code)
+		}
+	}
+
+	addText("first note")
+	addText("second note")
+
+	activityReq := httptest.NewRequest(http.MethodGet, "/v1/activity", nil)
+	activityReq.Header.Set("Authorization", "Bearer test-token")
+	activityRec := httptest.NewRecorder()
+	testApp.Handler().ServeHTTP(activityRec, activityReq)
+	if activityRec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", activityRec.Code)
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(activityRec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	groups := payload["groups"].([]any)
+	group := groups[0].(map[string]any)
+	entries := group["entries"].([]any)
+	latestContextID := entries[len(entries)-1].(map[string]any)["contextId"].(string)
+
+	undoReq := httptest.NewRequest(http.MethodPost, "/v1/activity/undo-step", strings.NewReader(`{}`))
+	undoReq.Header.Set("Authorization", "Bearer test-token")
+	undoReq.Header.Set("Content-Type", "application/json")
+	undoRec := httptest.NewRecorder()
+	testApp.Handler().ServeHTTP(undoRec, undoReq)
+	if undoRec.Code != http.StatusOK {
+		t.Fatalf("undo-step status = %d, want 200", undoRec.Code)
+	}
+
+	contextReq := httptest.NewRequest(http.MethodGet, "/v1/context", nil)
+	contextReq.Header.Set("Authorization", "Bearer test-token")
+	contextRec := httptest.NewRecorder()
+	testApp.Handler().ServeHTTP(contextRec, contextReq)
+	if !strings.Contains(contextRec.Body.String(), "first note") || strings.Contains(contextRec.Body.String(), "second note") {
+		t.Fatalf("context after undo-step = %q, want only first note", contextRec.Body.String())
+	}
+
+	redoReq := httptest.NewRequest(http.MethodPost, "/v1/activity/redo", strings.NewReader(`{}`))
+	redoReq.Header.Set("Authorization", "Bearer test-token")
+	redoReq.Header.Set("Content-Type", "application/json")
+	redoRec := httptest.NewRecorder()
+	testApp.Handler().ServeHTTP(redoRec, redoReq)
+	if redoRec.Code != http.StatusOK {
+		t.Fatalf("redo status = %d, want 200", redoRec.Code)
+	}
+
+	contextRec = httptest.NewRecorder()
+	testApp.Handler().ServeHTTP(contextRec, contextReq)
+	if !strings.Contains(contextRec.Body.String(), "second note") {
+		t.Fatalf("context after redo = %q, want second note restored", contextRec.Body.String())
+	}
+
+	newSessionReq := httptest.NewRequest(http.MethodPost, "/v1/activity/new-session", strings.NewReader(`{"contextId":"`+latestContextID+`","name":"Copied Session"}`))
+	newSessionReq.Header.Set("Authorization", "Bearer test-token")
+	newSessionReq.Header.Set("Content-Type", "application/json")
+	newSessionRec := httptest.NewRecorder()
+	testApp.Handler().ServeHTTP(newSessionRec, newSessionReq)
+	if newSessionRec.Code != http.StatusOK {
+		t.Fatalf("new-session status = %d, want 200", newSessionRec.Code)
+	}
+
+	currentReq := httptest.NewRequest(http.MethodGet, "/v1/sessions/current", nil)
+	currentReq.Header.Set("Authorization", "Bearer test-token")
+	currentRec := httptest.NewRecorder()
+	testApp.Handler().ServeHTTP(currentRec, currentReq)
+	if !strings.Contains(currentRec.Body.String(), "Copied Session") {
+		t.Fatalf("current session = %q, want copied session name", currentRec.Body.String())
+	}
+
+	contextRec = httptest.NewRecorder()
+	testApp.Handler().ServeHTTP(contextRec, contextReq)
+	if !strings.Contains(contextRec.Body.String(), "second note") {
+		t.Fatalf("new session context = %q, want copied latest context", contextRec.Body.String())
+	}
+}
+
+func TestActivityCopyContextSemanticsMatchResetModes(t *testing.T) {
+	testApp := newTestApp(t)
+	sessionID := createSessionViaAPI(t, testApp, "Activity")
+
+	_, err := testApp.contexts.Update(sessionID, func(state *contextstate.State) error {
+		state.Fragments = []contextstate.Fragment{{
+			ID:               "frag-a",
+			Type:             "PASTE_TEXT",
+			ShortDescription: "A",
+			Valid:            true,
+			Editable:         true,
+			Text:             "fragment A",
+			URI:              "brokk://context/fragment/frag-a",
+			MimeType:         "text/plain",
+		}}
+		state.Conversation = []contextstate.ConversationEntry{{
+			Sequence: 1,
+			Messages: []contextstate.ConversationMsg{{Role: "user", Text: "history A"}},
+		}}
+		state.NextSequence = 2
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+	testApp.recordActivitySnapshot(sessionID, "Snapshot A", "", false, "")
+
+	_, err = testApp.contexts.Update(sessionID, func(state *contextstate.State) error {
+		state.Fragments = []contextstate.Fragment{{
+			ID:               "frag-b",
+			Type:             "PASTE_TEXT",
+			ShortDescription: "B",
+			Valid:            true,
+			Editable:         true,
+			Text:             "fragment B",
+			URI:              "brokk://context/fragment/frag-b",
+			MimeType:         "text/plain",
+		}}
+		state.Conversation = []contextstate.ConversationEntry{{
+			Sequence: 2,
+			Messages: []contextstate.ConversationMsg{{Role: "assistant", Text: "history B"}},
+		}}
+		state.NextSequence = 3
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+	testApp.recordActivitySnapshot(sessionID, "Snapshot B", "", false, "")
+
+	history, _, err := testApp.contexts.History(sessionID)
+	if err != nil {
+		t.Fatalf("History() error = %v", err)
+	}
+	if len(history) < 2 {
+		t.Fatalf("len(history) = %d, want at least 2", len(history))
+	}
+	contextAID := ""
+	for _, entry := range history {
+		if entry.Action == "Snapshot A" {
+			contextAID = entry.ContextID
+			break
+		}
+	}
+	if contextAID == "" {
+		t.Fatal("failed to find Snapshot A context")
+	}
+
+	copyReq := httptest.NewRequest(http.MethodPost, "/v1/activity/copy-context", strings.NewReader(`{"contextId":"`+contextAID+`"}`))
+	copyReq.Header.Set("Authorization", "Bearer test-token")
+	copyReq.Header.Set("Content-Type", "application/json")
+	copyRec := httptest.NewRecorder()
+	testApp.Handler().ServeHTTP(copyRec, copyReq)
+	if copyRec.Code != http.StatusOK {
+		t.Fatalf("copy-context status = %d, want 200", copyRec.Code)
+	}
+
+	state, err := testApp.contexts.Get(sessionID)
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	if len(state.Fragments) != 1 || state.Fragments[0].Text != "fragment A" {
+		t.Fatalf("state after copy-context = %+v, want fragment A snapshot", state.Fragments)
+	}
+
+	conversationReq := httptest.NewRequest(http.MethodGet, "/v1/context/conversation", nil)
+	conversationReq.Header.Set("Authorization", "Bearer test-token")
+	conversationRec := httptest.NewRecorder()
+	testApp.Handler().ServeHTTP(conversationRec, conversationReq)
+	if !strings.Contains(conversationRec.Body.String(), "history B") {
+		t.Fatalf("conversation after copy-context = %q, want current history preserved", conversationRec.Body.String())
+	}
+
+	copyHistoryReq := httptest.NewRequest(http.MethodPost, "/v1/activity/copy-context-history", strings.NewReader(`{"contextId":"`+contextAID+`"}`))
+	copyHistoryReq.Header.Set("Authorization", "Bearer test-token")
+	copyHistoryReq.Header.Set("Content-Type", "application/json")
+	copyHistoryRec := httptest.NewRecorder()
+	testApp.Handler().ServeHTTP(copyHistoryRec, copyHistoryReq)
+	if copyHistoryRec.Code != http.StatusOK {
+		t.Fatalf("copy-context-history status = %d, want 200", copyHistoryRec.Code)
+	}
+
+	state, err = testApp.contexts.Get(sessionID)
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	if len(state.Fragments) != 1 || state.Fragments[0].Text != "fragment A" {
+		t.Fatalf("state after copy-context-history = %+v, want fragment A snapshot", state.Fragments)
+	}
+
+	conversationRec = httptest.NewRecorder()
+	testApp.Handler().ServeHTTP(conversationRec, conversationReq)
+	if !strings.Contains(conversationRec.Body.String(), "history A") {
+		t.Fatalf("conversation after copy-context-history = %q, want historical history restored", conversationRec.Body.String())
 	}
 }
 
@@ -1186,7 +1596,10 @@ func TestPrReviewJobCompletesAndWritesReviewArtifacts(t *testing.T) {
 	if !strings.Contains(output, "Review provider: heuristic") {
 		t.Fatalf("output = %q, want review provider", output)
 	}
-	if !strings.Contains(output, "Artifacts: review-prompt.txt, review-context.md, review-context.json, review-response.json, review.md, review.json, diff.txt, annotated-diff.txt") {
+	if !strings.Contains(output, "Review stop reason: SUCCESS") {
+		t.Fatalf("output = %q, want review stop reason", output)
+	}
+	if !strings.Contains(output, "Artifacts: review-prompt.txt, review-context.md, review-context.json, review-response.json, review-generation.json, review.md, review.json, diff.txt, annotated-diff.txt") {
 		t.Fatalf("output = %q, want review artifacts", output)
 	}
 
@@ -1209,6 +1622,24 @@ func TestPrReviewJobCompletesAndWritesReviewArtifacts(t *testing.T) {
 	}
 	if !strings.Contains(string(contextJSON), "\"summaryMarkdown\"") || !strings.Contains(string(contextJSON), "\"items\"") {
 		t.Fatalf("review-context.json = %q, want summaryMarkdown and items", string(contextJSON))
+	}
+	if !strings.Contains(string(contextJSON), "\"kind\": \"diff-file\"") {
+		t.Fatalf("review-context.json = %q, want diff-file context item", string(contextJSON))
+	}
+	if !strings.Contains(string(contextJSON), "\"kind\": \"touched-function\"") {
+		t.Fatalf("review-context.json = %q, want touched-function context item", string(contextJSON))
+	}
+	if !strings.Contains(string(contextJSON), "reviewTarget") {
+		t.Fatalf("review-context.json = %q, want touched symbol context", string(contextJSON))
+	}
+
+	generationArtifact := filepath.Join(testApp.cfg.WorkspaceDir, ".brokk", "jobs", jobID, "artifacts", "review-generation.json")
+	generationJSON, err := os.ReadFile(generationArtifact)
+	if err != nil {
+		t.Fatalf("os.ReadFile() error = %v", err)
+	}
+	if !strings.Contains(string(generationJSON), "\"stopReason\": \"SUCCESS\"") || !strings.Contains(string(generationJSON), "\"provider\": \"heuristic\"") {
+		t.Fatalf("review-generation.json = %q, want provider and stopReason", string(generationJSON))
 	}
 
 	reviewArtifact := filepath.Join(testApp.cfg.WorkspaceDir, ".brokk", "jobs", jobID, "artifacts", "review.json")
@@ -1253,8 +1684,14 @@ func TestPrReviewJobCompletesAndWritesReviewArtifacts(t *testing.T) {
 	if !strings.Contains(eventsRec.Body.String(), "Brokk Context Engine: analyzing repository context for PR review...") {
 		t.Fatalf("events = %q, want review context start notification", eventsRec.Body.String())
 	}
+	if !strings.Contains(eventsRec.Body.String(), "Brokk Context Engine: complete - contextual insights added to Workspace.") {
+		t.Fatalf("events = %q, want review context completion notification", eventsRec.Body.String())
+	}
 	if !strings.Contains(eventsRec.Body.String(), "Review generation provider: heuristic") {
 		t.Fatalf("events = %q, want review provider notification", eventsRec.Body.String())
+	}
+	if !strings.Contains(eventsRec.Body.String(), "Review generation stop reason: SUCCESS") {
+		t.Fatalf("events = %q, want review stop reason notification", eventsRec.Body.String())
 	}
 }
 

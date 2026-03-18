@@ -3,6 +3,7 @@ package app
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io/fs"
 	"mime"
 	"net/http"
@@ -117,6 +118,15 @@ type addContextTextRequest struct {
 type replaceTaskListRequest struct {
 	BigPicture *string                 `json:"bigPicture"`
 	Tasks      []contextstate.TaskItem `json:"tasks"`
+}
+
+type activityContextRequest struct {
+	ContextID string `json:"contextId"`
+}
+
+type activityNewSessionRequest struct {
+	ContextID string  `json:"contextId"`
+	Name      *string `json:"name"`
 }
 
 type addContextFilesRequest struct {
@@ -529,42 +539,21 @@ func (a *App) handleActivityRoot(w http.ResponseWriter, r *http.Request) {
 	if !ensureMethod(w, r, http.MethodGet) {
 		return
 	}
+	sessionID, ok := a.requireCurrentSession(w)
+	if !ok {
+		return
+	}
 
-	summaries, err := a.jobStore.ListJobSummaries(20)
+	history, historyIndex, err := a.contexts.History(sessionID)
 	if err != nil {
 		httpserver.WriteJSON(w, http.StatusInternalServerError, httpserver.InternalError("Failed to retrieve activity", err))
 		return
 	}
 
-	groups := make([]map[string]any, 0, 1)
-	if len(summaries) > 0 {
-		entries := make([]map[string]any, 0, len(summaries))
-		for _, summary := range summaries {
-			action := strings.TrimSpace(summary.TaskInput)
-			if action == "" {
-				action = strings.Title(strings.ToLower(summary.Mode)) + " job"
-			}
-			entries = append(entries, map[string]any{
-				"contextId":  summary.JobID,
-				"action":     action,
-				"taskType":   summary.Mode,
-				"isAiResult": summary.State == "COMPLETED" || summary.State == "FAILED" || summary.State == "CANCELLED",
-				"state":      summary.State,
-			})
-		}
-		groups = append(groups, map[string]any{
-			"key":         "recent-jobs",
-			"showHeader":  true,
-			"isLastGroup": true,
-			"label":       "Recent Jobs",
-			"entries":     entries,
-		})
-	}
-
 	httpserver.WriteJSON(w, http.StatusOK, map[string]any{
-		"groups":  groups,
-		"hasUndo": false,
-		"hasRedo": false,
+		"groups":  buildActivityGroups(history, historyIndex),
+		"hasUndo": historyIndex > 0,
+		"hasRedo": historyIndex >= 0 && historyIndex < len(history)-1,
 	})
 }
 
@@ -573,6 +562,28 @@ func (a *App) handleActivityByPath(w http.ResponseWriter, r *http.Request) {
 	if normalizedPath == "/v1/activity/diff" && r.Method == http.MethodGet {
 		a.handleGetActivityDiff(w, r)
 		return
+	}
+	if r.Method == http.MethodPost {
+		switch normalizedPath {
+		case "/v1/activity/undo":
+			a.handlePostActivityUndo(w, r)
+			return
+		case "/v1/activity/undo-step":
+			a.handlePostActivityUndoStep(w)
+			return
+		case "/v1/activity/redo":
+			a.handlePostActivityRedo(w)
+			return
+		case "/v1/activity/copy-context":
+			a.handlePostActivityCopyContext(w, r, false)
+			return
+		case "/v1/activity/copy-context-history":
+			a.handlePostActivityCopyContext(w, r, true)
+			return
+		case "/v1/activity/new-session":
+			a.handlePostActivityNewSession(w, r)
+			return
+		}
 	}
 	httpserver.WriteJSON(w, http.StatusMethodNotAllowed, httpserver.ErrorPayload{
 		Code:    "METHOD_NOT_ALLOWED",
@@ -670,6 +681,7 @@ func (a *App) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.markSessionLoaded()
+	a.recordActivitySnapshot(info.ID, "Create session", "", false, "")
 
 	httpserver.WriteJSON(w, http.StatusCreated, map[string]any{
 		"sessionId": info.ID,
@@ -739,6 +751,7 @@ func (a *App) handleImportSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.markSessionLoaded()
+	a.recordActivitySnapshot(sessionID, "Import session", "", false, "")
 
 	httpserver.WriteJSON(w, http.StatusCreated, map[string]any{
 		"sessionId": sessionID,
@@ -903,6 +916,7 @@ func (a *App) handlePostContextDrop(w http.ResponseWriter, r *http.Request) {
 	}
 
 	httpserver.WriteJSON(w, http.StatusOK, map[string]any{"dropped": dropped})
+	a.recordActivitySnapshot(sessionID, "Drop context fragments", "", false, "")
 }
 
 func (a *App) handlePostContextPin(w http.ResponseWriter, r *http.Request) {
@@ -945,6 +959,7 @@ func (a *App) handlePostContextPin(w http.ResponseWriter, r *http.Request) {
 		"fragmentId": request.FragmentID,
 		"pinned":     request.Pinned,
 	})
+	a.recordActivitySnapshot(sessionID, "Update fragment pin", "", false, "")
 }
 
 func (a *App) handlePostContextReadonly(w http.ResponseWriter, r *http.Request) {
@@ -995,6 +1010,7 @@ func (a *App) handlePostContextReadonly(w http.ResponseWriter, r *http.Request) 
 		"fragmentId": request.FragmentID,
 		"readonly":   request.Readonly,
 	})
+	a.recordActivitySnapshot(sessionID, "Update fragment readonly", "", false, "")
 }
 
 func (a *App) handlePostClearHistory(w http.ResponseWriter) {
@@ -1008,6 +1024,7 @@ func (a *App) handlePostClearHistory(w http.ResponseWriter) {
 		return
 	}
 	httpserver.WriteJSON(w, http.StatusOK, map[string]any{"status": "cleared"})
+	a.recordActivitySnapshot(sessionID, "Clear history", "", false, "")
 }
 
 func (a *App) handlePostDropAll(w http.ResponseWriter) {
@@ -1021,6 +1038,7 @@ func (a *App) handlePostDropAll(w http.ResponseWriter) {
 		return
 	}
 	httpserver.WriteJSON(w, http.StatusOK, map[string]any{"status": "dropped"})
+	a.recordActivitySnapshot(sessionID, "Drop all context", "", false, "")
 }
 
 func (a *App) handlePostContextText(w http.ResponseWriter, r *http.Request) {
@@ -1052,6 +1070,7 @@ func (a *App) handlePostContextText(w http.ResponseWriter, r *http.Request) {
 		"id":    fragment.ID,
 		"chars": len(request.Text),
 	})
+	a.recordActivitySnapshot(sessionID, "Add text context", "", false, "")
 }
 
 func (a *App) handlePostContextFiles(w http.ResponseWriter, r *http.Request) {
@@ -1153,6 +1172,7 @@ func (a *App) handlePostContextFiles(w http.ResponseWriter, r *http.Request) {
 	}
 
 	httpserver.WriteJSON(w, http.StatusOK, map[string]any{"added": added})
+	a.recordActivitySnapshot(sessionID, "Add file context", "", false, "")
 }
 
 func (a *App) handlePostContextClasses(w http.ResponseWriter, r *http.Request) {
@@ -1171,19 +1191,18 @@ func (a *App) handlePostContextClasses(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	matches := a.analyzer.FindClasses(request.ClassNames)
-	if len(matches) == 0 {
+	added, err := a.addDefinitionFragments(sessionID, request.ClassNames, "CLASS", "class")
+	if err == errNoValidDefinitions {
 		httpserver.WriteJSON(w, http.StatusBadRequest, httpserver.ValidationError("No valid class names provided"))
 		return
 	}
-
-	added, err := a.addAnalyzerFragments(sessionID, matches, "CLASS")
 	if err != nil {
 		httpserver.WriteJSON(w, http.StatusInternalServerError, httpserver.InternalError("Failed to add classes to context", err))
 		return
 	}
 
 	httpserver.WriteJSON(w, http.StatusOK, map[string]any{"added": added})
+	a.recordActivitySnapshot(sessionID, "Add class context", "", false, "")
 }
 
 func (a *App) handlePostContextMethods(w http.ResponseWriter, r *http.Request) {
@@ -1202,19 +1221,18 @@ func (a *App) handlePostContextMethods(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	matches := a.analyzer.FindMethods(request.MethodNames)
-	if len(matches) == 0 {
+	added, err := a.addDefinitionFragments(sessionID, request.MethodNames, "METHOD", "function")
+	if err == errNoValidDefinitions {
 		httpserver.WriteJSON(w, http.StatusBadRequest, httpserver.ValidationError("No valid method names provided"))
 		return
 	}
-
-	added, err := a.addAnalyzerFragments(sessionID, matches, "METHOD")
 	if err != nil {
 		httpserver.WriteJSON(w, http.StatusInternalServerError, httpserver.InternalError("Failed to add methods to context", err))
 		return
 	}
 
 	httpserver.WriteJSON(w, http.StatusOK, map[string]any{"added": added})
+	a.recordActivitySnapshot(sessionID, "Add method context", "", false, "")
 }
 
 func (a *App) handleGetTaskList(w http.ResponseWriter) {
@@ -1264,6 +1282,7 @@ func (a *App) handlePostTaskList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpserver.WriteJSON(w, http.StatusOK, taskList)
+	a.recordActivitySnapshot(sessionID, "Replace task list", "", false, "")
 }
 
 func (a *App) handleGetConversation(w http.ResponseWriter) {
@@ -1546,20 +1565,41 @@ func (a *App) handleGetJobDiff(w http.ResponseWriter, jobID string) {
 	if diff == nil {
 		diff = []byte{}
 	}
-
-	w.Header().Set("Content-Type", "text/plain; charset=UTF-8")
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(diff)
+	diffText := string(diff)
+	httpserver.WriteJSON(w, http.StatusOK, map[string]any{
+		"diffs": buildActivityDiffEntries(diffText),
+	})
 }
 
 func (a *App) handleGetActivityDiff(w http.ResponseWriter, r *http.Request) {
+	sessionID, ok := a.requireCurrentSession(w)
+	if !ok {
+		return
+	}
 	contextID := strings.TrimSpace(r.URL.Query().Get("contextId"))
 	if contextID == "" {
 		httpserver.WriteJSON(w, http.StatusBadRequest, httpserver.ValidationError("contextId is required"))
 		return
 	}
 
-	diff, err := a.jobStore.ReadArtifact(contextID, "diff.txt")
+	history, _, err := a.contexts.History(sessionID)
+	if err != nil {
+		httpserver.WriteJSON(w, http.StatusInternalServerError, httpserver.InternalError("Failed to retrieve activity diff", err))
+		return
+	}
+	jobID := ""
+	for _, entry := range history {
+		if entry.ContextID == contextID {
+			jobID = entry.DiffJobID
+			break
+		}
+	}
+	if jobID == "" {
+		httpserver.WriteJSON(w, http.StatusBadRequest, httpserver.ValidationError("Context not found: "+contextID))
+		return
+	}
+
+	diff, err := a.jobStore.ReadArtifact(jobID, "diff.txt")
 	if err != nil {
 		httpserver.WriteJSON(w, http.StatusInternalServerError, httpserver.InternalError("Failed to retrieve activity diff", err))
 		return
@@ -1567,10 +1607,384 @@ func (a *App) handleGetActivityDiff(w http.ResponseWriter, r *http.Request) {
 	if diff == nil {
 		diff = []byte{}
 	}
+	diffText := string(diff)
+	httpserver.WriteJSON(w, http.StatusOK, map[string]any{
+		"diffs": []map[string]any{
+			{
+				"title":        "Activity Diff",
+				"diff":         diffText,
+				"linesAdded":   countDiffLines(diffText, "+"),
+				"linesDeleted": countDiffLines(diffText, "-"),
+			},
+		},
+	})
+}
 
-	w.Header().Set("Content-Type", "text/plain; charset=UTF-8")
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(diff)
+func (a *App) handlePostActivityUndo(w http.ResponseWriter, r *http.Request) {
+	sessionID, ok := a.requireCurrentSession(w)
+	if !ok {
+		return
+	}
+	var request activityContextRequest
+	if err := httpserver.ParseJSON(r, &request); err != nil {
+		httpserver.WriteJSON(w, http.StatusBadRequest, httpserver.ValidationError("Invalid JSON request body"))
+		return
+	}
+	if strings.TrimSpace(request.ContextID) == "" {
+		httpserver.WriteJSON(w, http.StatusBadRequest, httpserver.ValidationError("contextId is required"))
+		return
+	}
+	if _, err := a.contexts.UndoTo(sessionID, request.ContextID); err != nil {
+		httpserver.WriteJSON(w, http.StatusBadRequest, httpserver.ValidationError(err.Error()))
+		return
+	}
+	httpserver.WriteJSON(w, http.StatusOK, map[string]any{"status": "ok"})
+}
+
+func (a *App) handlePostActivityUndoStep(w http.ResponseWriter) {
+	sessionID, ok := a.requireCurrentSession(w)
+	if !ok {
+		return
+	}
+	if _, err := a.contexts.UndoStep(sessionID); err != nil {
+		httpserver.WriteJSON(w, http.StatusBadRequest, httpserver.ValidationError(err.Error()))
+		return
+	}
+	httpserver.WriteJSON(w, http.StatusOK, map[string]any{"status": "ok"})
+}
+
+func (a *App) handlePostActivityRedo(w http.ResponseWriter) {
+	sessionID, ok := a.requireCurrentSession(w)
+	if !ok {
+		return
+	}
+	if _, err := a.contexts.Redo(sessionID); err != nil {
+		httpserver.WriteJSON(w, http.StatusBadRequest, httpserver.ValidationError(err.Error()))
+		return
+	}
+	httpserver.WriteJSON(w, http.StatusOK, map[string]any{"status": "ok"})
+}
+
+func (a *App) handlePostActivityCopyContext(w http.ResponseWriter, r *http.Request, includeHistory bool) {
+	sessionID, ok := a.requireCurrentSession(w)
+	if !ok {
+		return
+	}
+	var request activityContextRequest
+	if err := httpserver.ParseJSON(r, &request); err != nil {
+		httpserver.WriteJSON(w, http.StatusBadRequest, httpserver.ValidationError("Invalid JSON request body"))
+		return
+	}
+	if strings.TrimSpace(request.ContextID) == "" {
+		httpserver.WriteJSON(w, http.StatusBadRequest, httpserver.ValidationError("contextId is required"))
+		return
+	}
+
+	action := "Copy context"
+	if includeHistory {
+		action = "Copy context with history"
+	}
+	if _, _, err := a.contexts.CopyFromHistory(sessionID, request.ContextID, includeHistory, action); err != nil {
+		httpserver.WriteJSON(w, http.StatusBadRequest, httpserver.ValidationError(err.Error()))
+		return
+	}
+	httpserver.WriteJSON(w, http.StatusOK, map[string]any{"status": "ok"})
+}
+
+func (a *App) handlePostActivityNewSession(w http.ResponseWriter, r *http.Request) {
+	sessionID, ok := a.requireCurrentSession(w)
+	if !ok {
+		return
+	}
+	var request activityNewSessionRequest
+	if err := httpserver.ParseJSON(r, &request); err != nil {
+		httpserver.WriteJSON(w, http.StatusBadRequest, httpserver.ValidationError("Invalid JSON request body"))
+		return
+	}
+	if strings.TrimSpace(request.ContextID) == "" {
+		httpserver.WriteJSON(w, http.StatusBadRequest, httpserver.ValidationError("contextId is required"))
+		return
+	}
+
+	history, _, err := a.contexts.History(sessionID)
+	if err != nil {
+		httpserver.WriteJSON(w, http.StatusInternalServerError, httpserver.InternalError("Failed to create new session", err))
+		return
+	}
+	var snapshot *contextstate.HistoryState
+	var taskType string
+	for _, entry := range history {
+		if entry.ContextID == request.ContextID {
+			copy := entry.Snapshot
+			snapshot = &copy
+			taskType = entry.TaskType
+			break
+		}
+	}
+	if snapshot == nil {
+		httpserver.WriteJSON(w, http.StatusBadRequest, httpserver.ValidationError("Context not found: "+request.ContextID))
+		return
+	}
+
+	name := "Session"
+	if request.Name != nil && strings.TrimSpace(*request.Name) != "" {
+		name = strings.TrimSpace(*request.Name)
+	}
+	info, err := a.sessions.CreateSession(name)
+	if err != nil {
+		httpserver.WriteJSON(w, http.StatusInternalServerError, httpserver.InternalError("Failed to create new session", err))
+		return
+	}
+	newState := contextstate.State{
+		Fragments:    append([]contextstate.Fragment(nil), snapshot.Fragments...),
+		TaskList:     contextstate.TaskListData{BigPicture: snapshot.TaskList.BigPicture, Tasks: append([]contextstate.TaskItem(nil), snapshot.TaskList.Tasks...)},
+		Conversation: append([]contextstate.ConversationEntry(nil), snapshot.Conversation...),
+		NextSequence: snapshot.NextSequence,
+	}
+	if _, err := a.contexts.SetState(info.ID, newState); err != nil {
+		httpserver.WriteJSON(w, http.StatusInternalServerError, httpserver.InternalError("Failed to create new session", err))
+		return
+	}
+	if _, _, err := a.contexts.RecordSnapshot(info.ID, "New session from activity", taskType, false, ""); err != nil {
+		httpserver.WriteJSON(w, http.StatusInternalServerError, httpserver.InternalError("Failed to create new session", err))
+		return
+	}
+	httpserver.WriteJSON(w, http.StatusOK, map[string]any{"status": "ok"})
+}
+
+func (a *App) recordActivitySnapshot(sessionID string, action string, taskType string, isAIResult bool, diffJobID string) {
+	if strings.TrimSpace(sessionID) == "" {
+		return
+	}
+	_, _, _ = a.contexts.RecordSnapshot(sessionID, action, taskType, isAIResult, diffJobID)
+}
+
+type activityBoundary int
+
+const (
+	activityBoundaryNone activityBoundary = iota
+	activityBoundaryCutAfter
+	activityBoundaryStandalone
+)
+
+func buildActivityGroups(history []contextstate.HistoryEntry, historyIndex int) []map[string]any {
+	if len(history) == 0 {
+		return []map[string]any{}
+	}
+
+	type segment struct {
+		start int
+		end   int
+	}
+
+	segments := make([]segment, 0, len(history))
+	start := 0
+	for i := range history {
+		if activityEntryBoundary(history, i) != activityBoundaryNone {
+			segments = append(segments, segment{start: start, end: i + 1})
+			start = i + 1
+		}
+	}
+	if start < len(history) {
+		segments = append(segments, segment{start: start, end: len(history)})
+	}
+
+	groups := make([]map[string]any, 0, len(segments))
+	for _, seg := range segments {
+		for i := seg.start; i < seg.end; {
+			if activityEntryBoundary(history, i) == activityBoundaryStandalone {
+				groups = append(groups, buildActivityGroup(history[i:i+1], false, ""))
+				i++
+				continue
+			}
+
+			j := i + 1
+			for j < seg.end && activityEntryBoundary(history, j) != activityBoundaryStandalone {
+				j++
+			}
+			children := history[i:j]
+			if len(children) >= 2 {
+				groups = append(groups, buildActivityGroup(children, true, activityHeaderLabel(children)))
+			} else {
+				groups = append(groups, buildActivityGroup(children, false, ""))
+			}
+			i = j
+		}
+	}
+
+	if len(groups) > 0 {
+		groups[len(groups)-1]["isLastGroup"] = true
+	}
+	return groups
+}
+
+func buildActivityGroup(children []contextstate.HistoryEntry, showHeader bool, label string) map[string]any {
+	entries := make([]map[string]any, 0, len(children))
+	for _, entry := range children {
+		entryMap := map[string]any{
+			"contextId":  entry.ContextID,
+			"action":     activityEntryDescription(entry),
+			"isAiResult": entry.IsAIResult,
+		}
+		if strings.TrimSpace(entry.TaskType) != "" {
+			entryMap["taskType"] = entry.TaskType
+		}
+		entries = append(entries, entryMap)
+	}
+	return map[string]any{
+		"key":         children[0].ContextID,
+		"showHeader":  showHeader,
+		"isLastGroup": false,
+		"label":       label,
+		"entries":     entries,
+	}
+}
+
+func activityEntryBoundary(history []contextstate.HistoryEntry, index int) activityBoundary {
+	curr := history[index]
+	if index > 0 {
+		prev := history[index-1]
+		if len(prev.Snapshot.Fragments) > 0 && len(curr.Snapshot.Fragments) == 0 {
+			return activityBoundaryStandalone
+		}
+		if len(prev.Snapshot.Conversation) > 0 && len(curr.Snapshot.Conversation) == 0 {
+			return activityBoundaryStandalone
+		}
+	}
+	if curr.ResetFromID != "" {
+		return activityBoundaryStandalone
+	}
+	if curr.IsAIResult {
+		return activityBoundaryCutAfter
+	}
+	return activityBoundaryNone
+}
+
+func activityEntryDescription(entry contextstate.HistoryEntry) string {
+	if entry.ResetFromID != "" {
+		return "Copy From History"
+	}
+	return entry.Action
+}
+
+func activityHeaderLabel(children []contextstate.HistoryEntry) string {
+	if len(children) == 1 {
+		return activityEntryDescription(children[0])
+	}
+	counts := map[string]int{}
+	order := make([]string, 0, len(children))
+	for _, child := range children {
+		word := firstWord(activityEntryDescription(child))
+		if _, ok := counts[word]; !ok {
+			order = append(order, word)
+		}
+		counts[word]++
+	}
+	formatted := make([]string, 0, len(order))
+	for _, word := range order {
+		if counts[word] > 1 {
+			formatted = append(formatted, fmt.Sprintf("%s x%d", word, counts[word]))
+		} else {
+			formatted = append(formatted, word)
+		}
+	}
+	if len(formatted) == 1 {
+		return formatted[0]
+	}
+	if len(formatted) == 2 {
+		return formatted[0] + " + " + formatted[1]
+	}
+	return formatted[0] + " + more"
+}
+
+func firstWord(text string) string {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return ""
+	}
+	if idx := strings.IndexByte(text, ' '); idx >= 0 {
+		return text[:idx]
+	}
+	return text
+}
+
+func countDiffLines(diff string, prefix string) int {
+	count := 0
+	for _, line := range strings.Split(diff, "\n") {
+		if !strings.HasPrefix(line, prefix) {
+			continue
+		}
+		if prefix == "+" && strings.HasPrefix(line, "+++") {
+			continue
+		}
+		if prefix == "-" && strings.HasPrefix(line, "---") {
+			continue
+		}
+		count++
+	}
+	return count
+}
+
+func buildActivityDiffEntries(diffText string) []map[string]any {
+	sections := splitUnifiedDiffSections(diffText)
+	if len(sections) == 0 {
+		return []map[string]any{{
+			"title":        "Activity Diff",
+			"diff":         diffText,
+			"linesAdded":   countDiffLines(diffText, "+"),
+			"linesDeleted": countDiffLines(diffText, "-"),
+		}}
+	}
+
+	result := make([]map[string]any, 0, len(sections))
+	for _, section := range sections {
+		title := diffSectionTitle(section)
+		result = append(result, map[string]any{
+			"title":        title,
+			"diff":         section,
+			"linesAdded":   countDiffLines(section, "+"),
+			"linesDeleted": countDiffLines(section, "-"),
+		})
+	}
+	return result
+}
+
+func splitUnifiedDiffSections(diffText string) []string {
+	lines := strings.Split(diffText, "\n")
+	sections := make([]string, 0)
+	current := make([]string, 0)
+	flush := func() {
+		if len(current) == 0 {
+			return
+		}
+		sections = append(sections, strings.TrimRight(strings.Join(current, "\n"), "\n"))
+		current = []string{}
+	}
+
+	for _, line := range lines {
+		if strings.HasPrefix(line, "diff --git ") && len(current) > 0 {
+			flush()
+		}
+		if strings.TrimSpace(line) == "" && len(current) == 0 {
+			continue
+		}
+		current = append(current, line)
+	}
+	flush()
+
+	if len(sections) == 1 && !strings.HasPrefix(strings.TrimSpace(sections[0]), "diff --git ") {
+		return nil
+	}
+	return sections
+}
+
+func diffSectionTitle(section string) string {
+	for _, line := range strings.Split(section, "\n") {
+		if strings.HasPrefix(line, "+++ b/") {
+			return strings.TrimPrefix(line, "+++ b/")
+		}
+	}
+	return "Activity Diff"
 }
 
 func ensureMethod(w http.ResponseWriter, r *http.Request, expected string) bool {
@@ -1791,12 +2205,12 @@ func (a *App) addAnalyzerFragments(sessionID string, symbols []analyzer.Symbol, 
 			fragment := contextstate.Fragment{
 				ID:               id,
 				Type:             fragmentType,
-				ShortDescription: symbol.FQName,
+				ShortDescription: symbol.ShortName,
 				Pinned:           false,
 				Readonly:         true,
 				Valid:            true,
 				Editable:         false,
-				Text:             symbol.Snippet,
+				Text:             a.analyzer.RenderSymbol(symbol),
 				URI:              "brokk://symbol/" + strings.ToLower(fragmentType) + "/" + id,
 				MimeType:         detectAppMimeType(symbol.RelativePath),
 			}
@@ -1807,6 +2221,59 @@ func (a *App) addAnalyzerFragments(sessionID string, symbols []analyzer.Symbol, 
 				item["className"] = symbol.FQName
 			} else {
 				item["methodName"] = symbol.FQName
+			}
+			added = append(added, item)
+		}
+		return nil
+	})
+	return added, err
+}
+
+var errNoValidDefinitions = errors.New("no valid definitions")
+
+func (a *App) addDefinitionFragments(sessionID string, names []string, fragmentType string, symbolKind string) ([]map[string]string, error) {
+	validGroups := make([]analyzer.DefinitionGroup, 0, len(names))
+	for _, rawName := range names {
+		trimmed := strings.TrimSpace(rawName)
+		if trimmed == "" {
+			continue
+		}
+		group, ok := a.analyzer.DefinitionGroup(trimmed, symbolKind)
+		if !ok {
+			continue
+		}
+		validGroups = append(validGroups, group)
+	}
+	if len(validGroups) == 0 {
+		return nil, errNoValidDefinitions
+	}
+
+	added := make([]map[string]string, 0, len(validGroups))
+	_, err := a.contexts.Update(sessionID, func(state *contextstate.State) error {
+		for _, group := range validGroups {
+			id, err := sessions.NewImportID()
+			if err != nil {
+				return err
+			}
+			fragment := contextstate.Fragment{
+				ID:               id,
+				Type:             fragmentType,
+				ShortDescription: group.ShortName,
+				Pinned:           false,
+				Readonly:         true,
+				Valid:            true,
+				Editable:         false,
+				Text:             a.analyzer.RenderDefinitionGroup(group),
+				URI:              "brokk://symbol/" + strings.ToLower(fragmentType) + "/" + id,
+				MimeType:         detectAppMimeType(group.RelativePath),
+			}
+			state.Fragments = append(state.Fragments, fragment)
+
+			item := map[string]string{"id": id}
+			if fragmentType == "CLASS" {
+				item["className"] = group.FQName
+			} else {
+				item["methodName"] = group.FQName
 			}
 			added = append(added, item)
 		}

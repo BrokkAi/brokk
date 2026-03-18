@@ -33,6 +33,9 @@ func TestHeuristicGeneratorProducesReviewJSON(t *testing.T) {
 	if result.Provider != "heuristic" {
 		t.Fatalf("Provider = %q, want heuristic", result.Provider)
 	}
+	if result.StopReason != "SUCCESS" {
+		t.Fatalf("StopReason = %q, want SUCCESS", result.StopReason)
+	}
 	parsed := review.ParseResponse(result.RawResponse)
 	if parsed == nil {
 		t.Fatal("ParseResponse() = nil, want parsed review response")
@@ -53,8 +56,8 @@ func (g stubGenerator) Generate(context.Context, Request) (Result, error) {
 
 func TestFallbackGeneratorReturnsPrimaryWhenSuccessful(t *testing.T) {
 	generator := NewFallbackGenerator(
-		stubGenerator{result: Result{Provider: "primary", RawResponse: "{}"}},
-		stubGenerator{result: Result{Provider: "fallback", RawResponse: "{}"}},
+		stubGenerator{result: Result{Provider: "primary", RawResponse: "{}", StopReason: "SUCCESS"}},
+		stubGenerator{result: Result{Provider: "fallback", RawResponse: "{}", StopReason: "SUCCESS"}},
 	)
 	result, err := generator.Generate(context.Background(), Request{})
 	if err != nil {
@@ -68,7 +71,7 @@ func TestFallbackGeneratorReturnsPrimaryWhenSuccessful(t *testing.T) {
 func TestFallbackGeneratorReturnsFallbackWhenPrimaryFails(t *testing.T) {
 	generator := NewFallbackGenerator(
 		stubGenerator{err: errors.New("provider unavailable")},
-		stubGenerator{result: Result{Provider: "heuristic", RawResponse: "{}"}},
+		stubGenerator{result: Result{Provider: "heuristic", RawResponse: "{}", StopReason: "SUCCESS"}},
 	)
 	result, err := generator.Generate(context.Background(), Request{})
 	if err != nil {
@@ -76,5 +79,11 @@ func TestFallbackGeneratorReturnsFallbackWhenPrimaryFails(t *testing.T) {
 	}
 	if !strings.Contains(result.Provider, "heuristic") || !strings.Contains(result.Provider, "fallback after provider unavailable") {
 		t.Fatalf("Provider = %q, want fallback provider details", result.Provider)
+	}
+	if !result.UsedFallback {
+		t.Fatal("UsedFallback = false, want true")
+	}
+	if result.FallbackReason != "provider unavailable" {
+		t.Fatalf("FallbackReason = %q, want sanitized provider error", result.FallbackReason)
 	}
 }

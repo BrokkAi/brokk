@@ -59,6 +59,9 @@ func TestOpenAIGeneratorPostsPromptAndParsesStringContent(t *testing.T) {
 	if result.Provider != "openai-compatible" {
 		t.Fatalf("Provider = %q, want openai-compatible", result.Provider)
 	}
+	if result.StopReason != "SUCCESS" || result.RepairCount != 0 {
+		t.Fatalf("result = %+v, want success without repairs", result)
+	}
 	parsed := review.ParseResponse(result.RawResponse)
 	if parsed == nil || !strings.Contains(parsed.SummaryMarkdown, "## Brokk PR Review") {
 		t.Fatalf("RawResponse = %q, want parseable review JSON", result.RawResponse)
@@ -136,6 +139,9 @@ func TestOpenAIGeneratorRepairsMalformedResponse(t *testing.T) {
 	if result.Provider != "openai-compatible (repaired 1x)" {
 		t.Fatalf("Provider = %q, want repaired provider", result.Provider)
 	}
+	if result.StopReason != "SUCCESS" || result.RepairCount != 1 {
+		t.Fatalf("result = %+v, want success after 1 repair", result)
+	}
 }
 
 func TestFallbackGeneratorUsesFallbackOnProviderError(t *testing.T) {
@@ -169,6 +175,9 @@ func TestFallbackGeneratorUsesFallbackOnProviderError(t *testing.T) {
 	}
 	if !strings.Contains(result.Provider, "heuristic") || !strings.Contains(result.Provider, "fallback after provider returned 502") {
 		t.Fatalf("Provider = %q, want fallback details", result.Provider)
+	}
+	if !result.UsedFallback || result.StopReason != "SUCCESS" {
+		t.Fatalf("result = %+v, want successful fallback metadata", result)
 	}
 }
 

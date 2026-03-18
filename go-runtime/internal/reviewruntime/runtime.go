@@ -21,8 +21,12 @@ type Request struct {
 }
 
 type Result struct {
-	Provider    string
-	RawResponse string
+	Provider       string `json:"provider"`
+	RawResponse    string `json:"rawResponse"`
+	StopReason     string `json:"stopReason"`
+	RepairCount    int    `json:"repairCount"`
+	UsedFallback   bool   `json:"usedFallback"`
+	FallbackReason string `json:"fallbackReason,omitempty"`
 }
 
 type Generator interface {
@@ -51,6 +55,7 @@ func (g *HeuristicGenerator) Generate(_ context.Context, req Request) (Result, e
 	return Result{
 		Provider:    "heuristic",
 		RawResponse: rawResponse,
+		StopReason:  "SUCCESS",
 	}, nil
 }
 
@@ -86,6 +91,11 @@ func (g *FallbackGenerator) Generate(ctx context.Context, req Request) (Result, 
 	reason := sanitizeReason(err.Error())
 	if reason != "" {
 		fallbackResult.Provider = fallbackResult.Provider + " (fallback after " + reason + ")"
+	}
+	fallbackResult.UsedFallback = true
+	fallbackResult.FallbackReason = reason
+	if strings.TrimSpace(fallbackResult.StopReason) == "" {
+		fallbackResult.StopReason = "FALLBACK"
 	}
 	return fallbackResult, nil
 }
