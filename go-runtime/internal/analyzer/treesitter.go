@@ -127,6 +127,8 @@ func parseTreeSitterFile(relativePath string, content string) (treeSitterFileAna
 		matchHasTestMarker := false
 		testCandidateName := ""
 		testCandidateParams := ""
+		requireImportText := ""
+		var requireCallNode *tree_sitter.Node
 		hierarchyStart := -1
 		hierarchyEnd := -1
 		for _, capture := range match.Captures {
@@ -157,6 +159,9 @@ func parseTreeSitterFile(relativePath string, content string) (treeSitterFileAna
 				testCandidateName = normalizeTreeSitterName(text)
 			case "test_candidate.params":
 				testCandidateParams = text
+			case "module.require_call":
+				node := capture.Node
+				requireCallNode = &node
 			default:
 				if kind, ok := treeSitterCaptureKind(name); ok {
 					populateTreeSitterDefinition(&definition, kind, capture.Node, content)
@@ -173,6 +178,12 @@ func parseTreeSitterFile(relativePath string, content string) (treeSitterFileAna
 		}
 		if !containsTests {
 			containsTests = matchHasTestMarker || treeSitterContainsTestCandidate(spec.languageName, testCandidateName, testCandidateParams)
+		}
+		if requireCallNode != nil {
+			requireImportText = treeSitterRequireImportText(*requireCallNode, source)
+		}
+		if treeSitterLooksLikeRequireImport(requireImportText) {
+			imports = appendTreeSitterImportSnippet(imports, seenImports, requireImportText)
 		}
 		if hierarchyStart >= 0 && hierarchyEnd > hierarchyStart && definition.name != "" && len(matchSupertypes) > 0 {
 			hierarchyHints = append(hierarchyHints, treeSitterHierarchyHint{
@@ -634,6 +645,38 @@ func dedupeSortedStrings(values []string) []string {
 		results = append(results, trimmed)
 	}
 	return results
+}
+
+func appendTreeSitterImportSnippet(imports []string, seen map[string]struct{}, snippet string) []string {
+	trimmed := strings.TrimSpace(snippet)
+	if trimmed == "" {
+		return imports
+	}
+	if _, ok := seen[trimmed]; ok {
+		return imports
+	}
+	seen[trimmed] = struct{}{}
+	return append(imports, trimmed)
+}
+
+func treeSitterRequireImportText(node tree_sitter.Node, source []byte) string {
+	nodeToCapture := node
+	parent := node.Parent()
+	if parent != nil && parent.Kind() == "variable_declarator" {
+		declaration := parent.Parent()
+		if declaration != nil {
+			switch declaration.Kind() {
+			case "lexical_declaration", "variable_declaration":
+				nodeToCapture = *declaration
+			}
+		}
+	}
+	return strings.TrimSpace(nodeToCapture.Utf8Text(source))
+}
+
+func treeSitterLooksLikeRequireImport(text string) bool {
+	trimmed := strings.TrimSpace(text)
+	return strings.Contains(trimmed, "require(") || strings.Contains(trimmed, "require (")
 }
 
 func findEnclosingTreeSitterClass(classes []treeSitterDefinition, current int, offset int) int {

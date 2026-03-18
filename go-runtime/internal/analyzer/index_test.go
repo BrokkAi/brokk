@@ -280,6 +280,7 @@ func TestParseTreeSitterFileCapturesJavaScriptImports(t *testing.T) {
 
 	analysis, ok := parseTreeSitterFile("web/user-service.js", ""+
 		"import { http } from './http';\n"+
+		"const legacyCache = require('./legacy-cache');\n"+
 		"import { cache } from './cache';\n\n"+
 		"export const loadUser = (id) => {\n"+
 		"  return http.get(cache.key(id));\n"+
@@ -287,8 +288,11 @@ func TestParseTreeSitterFileCapturesJavaScriptImports(t *testing.T) {
 	if !ok {
 		t.Fatal("parseTreeSitterFile() = false, want true")
 	}
-	if len(analysis.imports) != 2 {
-		t.Fatalf("len(analysis.imports) = %d, want 2", len(analysis.imports))
+	if len(analysis.imports) != 3 {
+		t.Fatalf("len(analysis.imports) = %d, want 3", len(analysis.imports))
+	}
+	if analysis.imports[1] != "const legacyCache = require('./legacy-cache');" {
+		t.Fatalf("analysis.imports[1] = %q, want wrapped CommonJS import", analysis.imports[1])
 	}
 }
 
