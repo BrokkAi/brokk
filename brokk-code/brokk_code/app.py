@@ -114,10 +114,6 @@ class DependenciesModalScreen(ModalScreen[None]):
         Binding("escape", "close_dependencies", "Close", show=False),
     ]
 
-    def __init__(self, on_close: Callable[[], None]) -> None:
-        super().__init__()
-        self._on_close = on_close
-
     def compose(self) -> ComposeResult:
         with Vertical(id="dependencies-modal-container"):
             yield DependenciesPanel(id="dependencies-panel")
@@ -127,7 +123,6 @@ class DependenciesModalScreen(ModalScreen[None]):
         self.app.run_worker(self.app._refresh_dependencies_panel())
 
     def action_close_dependencies(self) -> None:
-        self._on_close()
         self.dismiss(None)
 
 
@@ -142,6 +137,7 @@ class AddDependencyModalScreen(ModalScreen[Optional[Dict[str, Any]]]):
         super().__init__()
         self._mode: str = "local"
         self._selected_ref: Optional[str] = None
+        self._branch_refs: List[str] = []
 
     @staticmethod
     def _derive_name_from_path(path: str) -> str:
@@ -203,14 +199,15 @@ class AddDependencyModalScreen(ModalScreen[Optional[Dict[str, Any]]]):
 
     def on_list_view_selected(self, event: ListView.Selected) -> None:
         if event.list_view.id == "add-dependency-branch-list":
-            item = event.item
-            label = item.query_one(Static).renderable
-            self._selected_ref = str(label)
+            index = event.list_view.index
+            if index is not None and 0 <= index < len(self._branch_refs):
+                self._selected_ref = self._branch_refs[index]
 
     def on_list_view_highlighted(self, event: ListView.Highlighted) -> None:
         if event.list_view.id == "add-dependency-branch-list" and event.item:
-            label = event.item.query_one(Static).renderable
-            self._selected_ref = str(label)
+            index = event.list_view.index
+            if index is not None and 0 <= index < len(self._branch_refs):
+                self._selected_ref = self._branch_refs[index]
 
     def _set_mode(self, mode: str) -> None:
         self._mode = mode
@@ -251,15 +248,18 @@ class AddDependencyModalScreen(ModalScreen[Optional[Dict[str, Any]]]):
 
             branch_list = self.query_one("#add-dependency-branch-list", ListView)
             branch_list.clear()
+            self._branch_refs = []
 
             # Add branches, marking the default
             for branch in branches:
                 suffix = " (default)" if branch == default_branch else ""
                 branch_list.append(ListItem(Static(f"{branch}{suffix}", markup=False)))
+                self._branch_refs.append(branch)
 
             # Add tags with prefix
             for tag in tags:
                 branch_list.append(ListItem(Static(f"{tag}", markup=False)))
+                self._branch_refs.append(tag)
 
             self.query_one("#add-dependency-branch-label").remove_class("hidden")
             branch_list.remove_class("hidden")
@@ -3360,10 +3360,7 @@ class BrokkApp(App):
             self.screen.dismiss(None)
             return
 
-        def on_close() -> None:
-            pass
-
-        self.push_screen(DependenciesModalScreen(on_close=on_close))
+        self.push_screen(DependenciesModalScreen())
 
     async def _refresh_dependencies_panel(self) -> None:
         """Fetches latest dependencies and updates the panel."""

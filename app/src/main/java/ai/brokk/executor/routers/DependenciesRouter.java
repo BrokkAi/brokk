@@ -451,7 +451,7 @@ public final class DependenciesRouter implements SimpleHttpServer.CheckedHttpHan
                             } else if (!branches.isEmpty()) {
                                 ref = branches.getFirst();
                             } else {
-                                ref = "main";
+                                throw new IllegalArgumentException("Repository has no branches or tags");
                             }
                         }
                     }

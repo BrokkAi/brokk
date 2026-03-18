@@ -273,6 +273,176 @@ class DependenciesRouterTest {
         assertEquals(ErrorPayload.Code.VALIDATION_ERROR, payload.code());
     }
 
+    // ── POST /v1/dependencies/import ────────────────────
+
+    @Test
+    void importLocal_createsDepAndMarksLive() throws Exception {
+        // Create a source directory with some files
+        var sourceDir = projectRoot.resolve("external-source");
+        Files.createDirectories(sourceDir);
+        Files.writeString(sourceDir.resolve("Hello.java"), "class Hello {}");
+
+        var exchange = TestHttpExchange.jsonRequest(
+                "POST",
+                "/v1/dependencies/import",
+                Map.of("name", "my-dep", "type", "local", "sourcePath", sourceDir.toString(), "markLive", true));
+        router.handle(exchange);
+
+        assertEquals(200, exchange.responseCode());
+        var body = getResponse(exchange);
+        assertEquals("imported", body.get("status"));
+        assertEquals("my-dep", body.get("name"));
+
+        // Verify the dependency directory was created
+        var depDir = depsDir().resolve("my-dep");
+        assertTrue(Files.exists(depDir));
+
+        // Verify it's live via GET
+        var getExchange = TestHttpExchange.request("GET", "/v1/dependencies");
+        router.handle(getExchange);
+        var deps = (List<Map<String, Object>>) getResponse(getExchange).get("dependencies");
+        var imported = deps.stream()
+                .filter(d -> "my-dep".equals(d.get("name")))
+                .findFirst()
+                .orElseThrow();
+        assertTrue((Boolean) imported.get("isLive"));
+    }
+
+    @Test
+    void importLocal_markLiveFalse_notLive() throws Exception {
+        var sourceDir = projectRoot.resolve("source2");
+        Files.createDirectories(sourceDir);
+        Files.writeString(sourceDir.resolve("Data.java"), "class Data {}");
+
+        var body = new HashMap<String, Object>();
+        body.put("name", "unlive-dep");
+        body.put("type", "local");
+        body.put("sourcePath", sourceDir.toString());
+        body.put("markLive", false);
+
+        var exchange = TestHttpExchange.jsonRequest("POST", "/v1/dependencies/import", body);
+        router.handle(exchange);
+
+        assertEquals(200, exchange.responseCode());
+
+        // Verify it's NOT live
+        var getExchange = TestHttpExchange.request("GET", "/v1/dependencies");
+        router.handle(getExchange);
+        var deps = (List<Map<String, Object>>) getResponse(getExchange).get("dependencies");
+        var imported = deps.stream()
+                .filter(d -> "unlive-dep".equals(d.get("name")))
+                .findFirst()
+                .orElseThrow();
+        assertFalse((Boolean) imported.get("isLive"));
+    }
+
+    @Test
+    void importMissingName_returns400() throws Exception {
+        var body = new HashMap<String, Object>();
+        body.put("type", "local");
+        body.put("sourcePath", "/some/path");
+
+        var exchange = TestHttpExchange.jsonRequest("POST", "/v1/dependencies/import", body);
+        router.handle(exchange);
+
+        assertEquals(400, exchange.responseCode());
+        var payload = getError(exchange);
+        assertEquals(ErrorPayload.Code.VALIDATION_ERROR, payload.code());
+        assertTrue(payload.message().contains("name"));
+    }
+
+    @Test
+    void importReservedName_returns400() throws Exception {
+        var exchange = TestHttpExchange.jsonRequest(
+                "POST",
+                "/v1/dependencies/import",
+                Map.of(
+                        "name", "import",
+                        "type", "local",
+                        "sourcePath", "/some/path"));
+        router.handle(exchange);
+
+        assertEquals(400, exchange.responseCode());
+        var payload = getError(exchange);
+        assertEquals(ErrorPayload.Code.VALIDATION_ERROR, payload.code());
+        assertTrue(payload.message().contains("reserved"));
+    }
+
+    @Test
+    void importDuplicate_returns409() throws Exception {
+        var sourceDir = projectRoot.resolve("dup-source");
+        Files.createDirectories(sourceDir);
+        Files.writeString(sourceDir.resolve("Dup.java"), "class Dup {}");
+
+        // First import succeeds
+        var exchange1 = TestHttpExchange.jsonRequest(
+                "POST",
+                "/v1/dependencies/import",
+                Map.of(
+                        "name", "dup-dep",
+                        "type", "local",
+                        "sourcePath", sourceDir.toString()));
+        router.handle(exchange1);
+        assertEquals(200, exchange1.responseCode());
+
+        // Second import with same name returns 409
+        var exchange2 = TestHttpExchange.jsonRequest(
+                "POST",
+                "/v1/dependencies/import",
+                Map.of(
+                        "name", "dup-dep",
+                        "type", "local",
+                        "sourcePath", sourceDir.toString()));
+        router.handle(exchange2);
+        assertEquals(409, exchange2.responseCode());
+    }
+
+    @Test
+    void importPathTraversal_returns400() throws Exception {
+        var exchange = TestHttpExchange.jsonRequest(
+                "POST",
+                "/v1/dependencies/import",
+                Map.of(
+                        "name", "../escape",
+                        "type", "local",
+                        "sourcePath", "/some/path"));
+        router.handle(exchange);
+
+        assertEquals(400, exchange.responseCode());
+        var payload = getError(exchange);
+        assertEquals(ErrorPayload.Code.VALIDATION_ERROR, payload.code());
+    }
+
+    @Test
+    void importGitMissingRepoUrl_returns400() throws Exception {
+        var body = new HashMap<String, Object>();
+        body.put("name", "git-dep");
+        body.put("type", "git");
+
+        var exchange = TestHttpExchange.jsonRequest("POST", "/v1/dependencies/import", body);
+        router.handle(exchange);
+
+        assertEquals(400, exchange.responseCode());
+        var payload = getError(exchange);
+        assertEquals(ErrorPayload.Code.VALIDATION_ERROR, payload.code());
+        assertTrue(payload.message().contains("repoUrl"));
+    }
+
+    @Test
+    void importLocalMissingSourcePath_returns400() throws Exception {
+        var body = new HashMap<String, Object>();
+        body.put("name", "local-dep");
+        body.put("type", "local");
+
+        var exchange = TestHttpExchange.jsonRequest("POST", "/v1/dependencies/import", body);
+        router.handle(exchange);
+
+        assertEquals(400, exchange.responseCode());
+        var payload = getError(exchange);
+        assertEquals(ErrorPayload.Code.VALIDATION_ERROR, payload.code());
+        assertTrue(payload.message().contains("sourcePath"));
+    }
+
     // ── Routing ──────────────────────────────────────────
 
     @Test
