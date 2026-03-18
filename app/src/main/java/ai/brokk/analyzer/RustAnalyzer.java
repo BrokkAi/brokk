@@ -7,6 +7,7 @@ import ai.brokk.project.IProject;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -549,7 +550,7 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
 
             if (!isWildcard) {
                 // Check for alias "path as alias"
-                int asIdx = fullPath.toLowerCase().lastIndexOf(" as ");
+                int asIdx = fullPath.toLowerCase(Locale.ROOT).lastIndexOf(" as ");
                 if (asIdx != -1) {
                     resolvedPath = fullPath.substring(0, asIdx).trim();
                     alias = fullPath.substring(asIdx + 4).trim();
