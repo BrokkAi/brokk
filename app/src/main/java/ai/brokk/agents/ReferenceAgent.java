@@ -173,7 +173,7 @@ public class ReferenceAgent {
                     .toList();
         }
 
-        var model = cm.getService().getModel(ModelProperties.ModelType.SUMMARIZE);
+        var model = cm.getService().getModel(ModelProperties.ModelType.REFERENCES);
         Llm llm = cm.getLlm(new Llm.Options(model, "Classify referenced symbols/files", TaskResult.Type.SCAN));
 
         var schema = JsonSchema.builder()
@@ -216,6 +216,7 @@ public class ReferenceAgent {
         return """
                 The following filenames and identifiers were parsed from (partial) matches in the user's instructions.
                 Return only the references that are relevant to the user's instructions, as informed by the conversation history.
+                Think carefully before answering.
 
                 <conversation_history>
                 %s

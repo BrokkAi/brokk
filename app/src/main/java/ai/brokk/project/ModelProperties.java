@@ -54,6 +54,7 @@ public final class ModelProperties {
     private static final ModelConfig flash2Lite = new ModelConfig(FLASH_2_0_LITE);
     private static final ModelConfig flash2 = new ModelConfig(FLASH_2_0);
     private static final ModelConfig flash3 = new ModelConfig(FLASH_3, ReasoningLevel.DISABLE);
+    private static final ModelConfig flash3Low = new ModelConfig(FLASH_3, ReasoningLevel.LOW);
     private static final ModelConfig g31p = new ModelConfig(GEMINI_3_1_PRO, ReasoningLevel.DISABLE);
     private static final ModelConfig flash31liteHigh = new ModelConfig(GEMINI_3_1_FLASH_LITE, ReasoningLevel.HIGH);
     private static final ModelConfig flash31liteLow = new ModelConfig(GEMINI_3_1_FLASH_LITE, ReasoningLevel.LOW);
@@ -103,6 +104,7 @@ public final class ModelProperties {
         QUICK_EDIT("quickEditConfig", flash3, gcf1),
         QUICKEST("quickestConfig", flash2Lite),
         COMMIT_MESSAGE("commitMessageConfig", flash3, gcf1),
+        REFERENCES("referencesConfig", flash3Low, gcf1),
         SCAN("scanConfig", flash3, gcf1),
         SEARCH("searchConfig", flash3, gcf1),
         BUILD_PROCESSOR("buildProcessorConfig", flash31liteHigh, gpt5Nano);
@@ -145,6 +147,7 @@ public final class ModelProperties {
                             ModelType.QUICK_EDIT, haiku4_5,
                             ModelType.QUICKEST, haiku3,
                             ModelType.COMMIT_MESSAGE, haiku3,
+                            ModelType.REFERENCES, haiku4_5,
                             ModelType.SCAN, haiku4_5,
                             ModelType.SEARCH, haiku4_5,
                             ModelType.BUILD_PROCESSOR, haiku4_5));
@@ -156,6 +159,7 @@ public final class ModelProperties {
                             ModelType.QUICK_EDIT, flash3,
                             ModelType.QUICKEST, flash2Lite,
                             ModelType.COMMIT_MESSAGE, flash3,
+                            ModelType.REFERENCES, flash3Low,
                             ModelType.SCAN, flash3,
                             ModelType.SEARCH, flash3,
                             ModelType.BUILD_PROCESSOR, flash31liteHigh));
@@ -167,6 +171,7 @@ public final class ModelProperties {
                             ModelType.QUICK_EDIT, gpt5Mini,
                             ModelType.QUICKEST, gpt5Nano,
                             ModelType.COMMIT_MESSAGE, gpt5Mini,
+                            ModelType.REFERENCES, gpt5_3Codex,
                             ModelType.SCAN, gpt5_3Codex,
                             ModelType.SEARCH, gpt5_3Codex,
                             ModelType.BUILD_PROCESSOR, gpt5Mini));
@@ -178,6 +183,7 @@ public final class ModelProperties {
                             ModelType.QUICK_EDIT, gpt5_1CodexMiniOauth,
                             ModelType.QUICKEST, gpt5_1CodexMiniOauth,
                             ModelType.COMMIT_MESSAGE, gpt5_1CodexMiniOauth,
+                            ModelType.REFERENCES, gpt5_3CodexOauth,
                             ModelType.SCAN, gpt5_3CodexOauth,
                             ModelType.SEARCH, gpt5_3CodexOauth,
                             ModelType.BUILD_PROCESSOR, gpt5_1CodexMiniOauth));
