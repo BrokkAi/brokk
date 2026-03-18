@@ -238,19 +238,8 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
 
     @Override
     public boolean isTypeAlias(CodeUnit cu) {
-        return cu.isClass()
-                && withTreeOf(
-                        cu.source(),
-                        tree -> {
-                            var ranges = rangesOf(cu);
-                            if (ranges.isEmpty()) return false;
-                            var node = tree.getRootNode()
-                                    .getDescendantForByteRange(
-                                            ranges.getFirst().startByte(),
-                                            ranges.getFirst().endByte());
-                            return node != null && TYPE_ITEM.equals(node.getType());
-                        },
-                        false);
+        return withCodeUnitProperties(
+                props -> props.getOrDefault(cu, CodeUnitProperties.empty()).isTypeAlias());
     }
 
     @Override
