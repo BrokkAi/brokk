@@ -299,7 +299,10 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
             }
         }
 
-        if (valueNode != null && !valueNode.isNull() && PROPERTY_INITIALIZER.equals(valueNode.getType()) && valueNode.getNamedChildCount() > 0) {
+        if (valueNode != null
+                && !valueNode.isNull()
+                && PROPERTY_INITIALIZER.equals(valueNode.getType())
+                && valueNode.getNamedChildCount() > 0) {
             valueNode = valueNode.getNamedChild(0);
         }
 
