@@ -34,6 +34,36 @@ public class ContextAgentTest {
     Path tempDir;
 
     @Test
+    void recommendContext_returnsToolOutputWithProvidedFilesAndClasses() throws InterruptedException {
+        Path root = tempDir.toAbsolutePath();
+        var analyzer = new TestAnalyzer(List.of(), Map.of());
+        var cm = new TestContextManager(root, new TestConsoleIO(), analyzer);
+
+        StreamingChatModel model = cm.getService().quickestModel();
+        var agent = new ContextAgent(cm, model, "test");
+
+        var output = agent.recommendContext(List.of("src/main/java/pkg/Foo.java"), List.of("pkg.Foo", "pkg.Bar"));
+
+        assertEquals(List.of("src/main/java/pkg/Foo.java"), output.filesToAdd());
+        assertEquals(List.of("pkg.Foo", "pkg.Bar"), output.classesToSummarize());
+    }
+
+    @Test
+    void recommendFiles_returnsToolOutputWithFilesOnly() throws InterruptedException {
+        Path root = tempDir.toAbsolutePath();
+        var analyzer = new TestAnalyzer(List.of(), Map.of());
+        var cm = new TestContextManager(root, new TestConsoleIO(), analyzer);
+
+        StreamingChatModel model = cm.getService().quickestModel();
+        var agent = new ContextAgent(cm, model, "test");
+
+        var output = agent.recommendFiles(List.of("src/main/java/pkg/Foo.java"));
+
+        assertEquals(List.of("src/main/java/pkg/Foo.java"), output.filesToAdd());
+        assertTrue(output.classesToSummarize().isEmpty());
+    }
+
+    @Test
     void testRecommendationsBecomeFileSkeletonSummaryFragments() throws InterruptedException {
         Path root = tempDir.toAbsolutePath();
         var analyzer = new TestAnalyzer(List.of(), Map.of());
@@ -44,7 +74,7 @@ public class ContextAgentTest {
 
         var testFile = cm.toFile("src/test/java/pkg/FooTest.java");
         List<ContextFragment> fragments = agent.createResult(
-                new ContextAgent.LlmRecommendation(Set.of(), Set.of(testFile), Set.of(), null), Set.of());
+                new ContextAgent.LlmRecommendation(Set.of(), Set.of(), null), List.of(testFile), Set.of());
 
         var summaryFragments = fragments.stream()
                 .filter(f -> f instanceof ContextFragments.SummaryFragment)
@@ -70,7 +100,7 @@ public class ContextAgentTest {
 
         var samePath = cm.toFile("src/shared/Dupe.java");
         List<ContextFragment> fragments = agent.createResult(
-                new ContextAgent.LlmRecommendation(Set.of(samePath), Set.of(samePath), Set.of(), null), Set.of());
+                new ContextAgent.LlmRecommendation(Set.of(samePath), Set.of(), null), List.of(samePath), Set.of());
 
         var summaryFileSkeletonCount = fragments.stream()
                 .filter(f -> f instanceof ContextFragments.SummaryFragment sf
@@ -100,7 +130,8 @@ public class ContextAgentTest {
 
         var existing = cm.toFile("src/already/InWorkspace.java");
         List<ContextFragment> fragments = agent.createResult(
-                new ContextAgent.LlmRecommendation(Set.of(existing), Set.of(existing), Set.of(), null),
+                new ContextAgent.LlmRecommendation(Set.of(existing), Set.of(), null),
+                List.of(existing),
                 Set.of(existing));
 
         assertTrue(fragments.isEmpty());
@@ -441,7 +472,7 @@ public class ContextAgentTest {
 
         // Use the actual getRecommendations logic.
         // We simulate the LLM recommending all 5 tests and the prod file
-        var testRec = new ContextAgent.LlmRecommendation(List.of(prodFile), testFiles, List.of());
+        List<ProjectFile> inferredTests = List.copyOf(testFiles);
 
         // We need a context that has the prod file so distance can be calculated.
         Context contextWithProd = new Context(cm).addFragments(new ContextFragments.ProjectPathFragment(prodFile, cm));
@@ -451,13 +482,12 @@ public class ContextAgentTest {
             @Override
             public RecommendationResult getRecommendations(Context context, boolean turbo) throws InterruptedException {
                 // Manually trigger the merge and cap logic using the provided testRec
-                var mergedFiles = new HashSet<>(testRec.recommendedFiles());
-                var candidateTests = new HashSet<>(testRec.recommendedTests());
-                var mergedClasses = new HashSet<>(testRec.recommendedClasses());
+                var mergedFiles = new HashSet<>(List.of(prodFile));
+                var mergedClasses = new HashSet<CodeUnit>();
 
-                Set<ProjectFile> cappedTests = capRecommendedTests(context, candidateTests);
-                var unifiedRec = new LlmRecommendation(mergedFiles, cappedTests, mergedClasses, null);
-                var fragments = createResult(unifiedRec, Set.of());
+                Set<ProjectFile> cappedTests = capRecommendedTests(context, new HashSet<>(inferredTests));
+                var unifiedRec = new LlmRecommendation(mergedFiles, mergedClasses, null);
+                var fragments = createResult(unifiedRec, cappedTests.stream().toList(), Set.of());
                 return new RecommendationResult(true, fragments, null);
             }
         };
