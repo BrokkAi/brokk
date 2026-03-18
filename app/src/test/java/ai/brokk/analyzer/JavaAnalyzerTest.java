@@ -2,7 +2,6 @@ package ai.brokk.analyzer;
 
 import static ai.brokk.testutil.AnalyzerCreator.createTreeSitterAnalyzer;
 import static ai.brokk.testutil.AssertionHelperUtil.*;
-import static ai.brokk.testutil.AssertionHelperUtil.assertCodeEquals;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.AnalyzerUtil;
@@ -2062,21 +2061,27 @@ public class JavaAnalyzerTest {
                     public static final Object NULL_VAL = null;
                 }
                 """;
-        try (var testProject =
-                InlineTestProjectCreator.code(code, "BooleanNullInitializers.java").build()) {
+        try (var testProject = InlineTestProjectCreator.code(code, "BooleanNullInitializers.java")
+                .build()) {
             JavaAnalyzer analyzer = new JavaAnalyzer(testProject);
 
-            var trueCu = analyzer.getDefinitions("BooleanNullInitializers.FLAG_TRUE").iterator().next();
+            var trueCu = analyzer.getDefinitions("BooleanNullInitializers.FLAG_TRUE")
+                    .iterator()
+                    .next();
             assertCodeEquals(
                     "public static final boolean FLAG_TRUE = true;",
                     analyzer.getSkeleton(trueCu).get());
 
-            var falseCu = analyzer.getDefinitions("BooleanNullInitializers.FLAG_FALSE").iterator().next();
+            var falseCu = analyzer.getDefinitions("BooleanNullInitializers.FLAG_FALSE")
+                    .iterator()
+                    .next();
             assertCodeEquals(
                     "public static final boolean FLAG_FALSE = false;",
                     analyzer.getSkeleton(falseCu).get());
 
-            var nullCu = analyzer.getDefinitions("BooleanNullInitializers.NULL_VAL").iterator().next();
+            var nullCu = analyzer.getDefinitions("BooleanNullInitializers.NULL_VAL")
+                    .iterator()
+                    .next();
             assertCodeEquals(
                     "public static final Object NULL_VAL = null;",
                     analyzer.getSkeleton(nullCu).get());
