@@ -1,0 +1,23 @@
+{
+  "name": "java test fixture",
+  "relativePath": "src/test/java/com/example/service/UserServiceTest.java",
+  "content": "package com.example.service;\n\nimport java.util.List;\nimport org.junit.jupiter.api.Test;\n\npublic class UserServiceTest extends BaseService implements Runnable {\n    private String cachedId;\n\n    @Test\n    public void runsTest() {\n    }\n}\n",
+  "classes": [
+    "com.example.service.UserServiceTest"
+  ],
+  "methods": [
+    "com.example.service.UserServiceTest.runsTest"
+  ],
+  "fields": [
+    "com.example.service.UserServiceTest.cachedId"
+  ],
+  "imports": [
+    "import java.util.List;",
+    "import org.junit.jupiter.api.Test;"
+  ],
+  "containsTests": true,
+  "RawSupertypes": [
+    "BaseService",
+    "Runnable"
+  ]
+}

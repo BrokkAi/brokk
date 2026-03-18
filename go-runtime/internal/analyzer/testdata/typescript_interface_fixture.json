@@ -1,0 +1,18 @@
+{
+  "name": "typescript interface fixture",
+  "relativePath": "web/factory.ts",
+  "content": "export interface UserFactory {\n  new (id: string): UserFactory;\n  (id: string): UserFactory;\n  [index: string]: UserFactory;\n}\n",
+  "classes": [
+    "web.factory.UserFactory"
+  ],
+  "methods": [
+    "web.factory.UserFactory.[call]",
+    "web.factory.UserFactory.new"
+  ],
+  "fields": [
+    "web.factory.UserFactory.[index]"
+  ],
+  "imports": [],
+  "containsTests": false,
+  "RawSupertypes": []
+}

@@ -1,0 +1,19 @@
+{
+  "name": "javascript imports fixture",
+  "relativePath": "web/user-service.js",
+  "content": "import { http } from './http';\nconst legacyCache = require('./legacy-cache');\nimport { cache } from './cache';\n\nexport const loadUser = (id) => {\n  return http.get(cache.key(id));\n};\n",
+  "classes": [],
+  "methods": [
+    "web.user-service.loadUser"
+  ],
+  "fields": [
+    "web.user-service.legacyCache"
+  ],
+  "imports": [
+    "const legacyCache = require('./legacy-cache');",
+    "import { cache } from './cache';",
+    "import { http } from './http';"
+  ],
+  "containsTests": false,
+  "RawSupertypes": []
+}
