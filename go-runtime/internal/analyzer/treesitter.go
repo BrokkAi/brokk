@@ -364,7 +364,7 @@ func treeSitterSpecForPath(relativePath string) (treeSitterSpec, bool) {
 	}
 }
 
-func populateTreeSitterDefinition(definition *treeSitterDefinition, kind string, node *tree_sitter.Node, content string) {
+func populateTreeSitterDefinition(definition *treeSitterDefinition, kind string, node tree_sitter.Node, content string) {
 	definition.kind = kind
 	definition.start = int(node.StartByte())
 	definition.end = int(node.EndByte())
