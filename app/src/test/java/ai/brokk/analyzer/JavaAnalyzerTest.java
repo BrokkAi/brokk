@@ -2024,20 +2024,31 @@ public class JavaAnalyzerTest {
             JavaAnalyzer analyzer = new JavaAnalyzer(testProject);
 
             // String literal should be preserved
-            var literalCu = analyzer.getDefinitions("Initializers.LITERAL").iterator().next();
-            assertCodeEquals("public static final String LITERAL = \"hello\";", analyzer.getSkeleton(literalCu).get());
+            var literalCu =
+                    analyzer.getDefinitions("Initializers.LITERAL").iterator().next();
+            assertCodeEquals(
+                    "public static final String LITERAL = \"hello\";",
+                    analyzer.getSkeleton(literalCu).get());
 
             // Number literal should be preserved
-            var numberCu = analyzer.getDefinitions("Initializers.NUMBER").iterator().next();
-            assertCodeEquals("public static final int NUMBER = 42;", analyzer.getSkeleton(numberCu).get());
+            var numberCu =
+                    analyzer.getDefinitions("Initializers.NUMBER").iterator().next();
+            assertCodeEquals(
+                    "public static final int NUMBER = 42;",
+                    analyzer.getSkeleton(numberCu).get());
 
             // Complex initializer (new Object()) should be omitted
-            var complexCu = analyzer.getDefinitions("Initializers.COMPLEX").iterator().next();
-            assertCodeEquals("public static final Object COMPLEX;", analyzer.getSkeleton(complexCu).get());
+            var complexCu =
+                    analyzer.getDefinitions("Initializers.COMPLEX").iterator().next();
+            assertCodeEquals(
+                    "public static final Object COMPLEX;",
+                    analyzer.getSkeleton(complexCu).get());
 
             // Complex initializer (List.of) should be omitted
             var listCu = analyzer.getDefinitions("Initializers.LIST").iterator().next();
-            assertCodeEquals("private final List<String> LIST;", analyzer.getSkeleton(listCu).get());
+            assertCodeEquals(
+                    "private final List<String> LIST;",
+                    analyzer.getSkeleton(listCu).get());
         }
     }
 }

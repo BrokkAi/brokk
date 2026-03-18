@@ -297,7 +297,8 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
                     if (valueNode != null && !valueNode.isNull()) {
                         String valueType = valueNode.getType();
                         if (valueType != null && valueType.endsWith("_literal")) {
-                            suffix = " = " + sourceContent.substringFrom(valueNode).strip() + ";";
+                            suffix = " = "
+                                    + sourceContent.substringFrom(valueNode).strip() + ";";
                         }
                     }
 
