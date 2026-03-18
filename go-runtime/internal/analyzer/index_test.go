@@ -238,6 +238,41 @@ func TestParseTreeSitterSymbolsJavaScriptExportedArrowFunction(t *testing.T) {
 	}
 }
 
+func TestParseTreeSitterSymbolsNormalizesQuotedAndComputedTypeScriptNames(t *testing.T) {
+	if !treeSitterEnabled() {
+		t.Skip("tree-sitter requires cgo support on this machine")
+	}
+
+	tsSymbols, ok := parseTreeSitterSymbols("web/user-service.ts", ""+
+		"export class UserService {\n"+
+		"  'load-user'(): void {}\n"+
+		"  #loadUser(): void {}\n"+
+		"  [Symbol.iterator](): Iterator<string> { throw new Error(); }\n"+
+		"}\n")
+	if !ok {
+		t.Fatal("parseTreeSitterSymbols(ts) = false, want true")
+	}
+
+	tsMethods := filterByKind(tsSymbols, "function")
+	foundQuoted := false
+	foundPrivate := false
+	foundComputed := false
+	for _, method := range tsMethods {
+		if method.FQName == "web.user-service.UserService.load-user" {
+			foundQuoted = true
+		}
+		if method.FQName == "web.user-service.UserService.loadUser" {
+			foundPrivate = true
+		}
+		if method.FQName == "web.user-service.UserService.Symbol.iterator" {
+			foundComputed = true
+		}
+	}
+	if !foundQuoted || !foundPrivate || !foundComputed {
+		t.Fatalf("tsMethods = %#v, want normalized quoted, private, and computed method names", tsMethods)
+	}
+}
+
 func TestParseTreeSitterFileCapturesJavaScriptImports(t *testing.T) {
 	if !treeSitterEnabled() {
 		t.Skip("tree-sitter requires cgo support on this machine")

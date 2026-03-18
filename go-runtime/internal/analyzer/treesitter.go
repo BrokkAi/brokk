@@ -458,7 +458,19 @@ func buildTreeSitterSymbols(relativePath string, language string, packageName st
 }
 
 func normalizeTreeSitterName(name string) string {
-	return strings.TrimPrefix(strings.TrimSpace(name), "#")
+	trimmed := strings.TrimSpace(name)
+	trimmed = strings.TrimPrefix(trimmed, "#")
+	if len(trimmed) >= 2 {
+		switch {
+		case (strings.HasPrefix(trimmed, "\"") && strings.HasSuffix(trimmed, "\"")) ||
+			(strings.HasPrefix(trimmed, "'") && strings.HasSuffix(trimmed, "'")) ||
+			(strings.HasPrefix(trimmed, "`") && strings.HasSuffix(trimmed, "`")):
+			trimmed = trimmed[1 : len(trimmed)-1]
+		case strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]"):
+			trimmed = strings.TrimSpace(trimmed[1 : len(trimmed)-1])
+		}
+	}
+	return trimmed
 }
 
 func normalizeTreeSitterTypeName(name string) string {
