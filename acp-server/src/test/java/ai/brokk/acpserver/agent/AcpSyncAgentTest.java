@@ -20,7 +20,7 @@ class AcpSyncAgentTest {
         var builder = AcpAgent.sync(transport)
                 .newSessionHandler(req -> new NewSessionResponse("s1", null, null))
                 .promptHandler((req, ctx) -> PromptResponse.endTurn());
-        
+
         assertThrows(IllegalStateException.class, builder::build);
     }
 
@@ -30,7 +30,7 @@ class AcpSyncAgentTest {
         var builder = AcpAgent.sync(transport)
                 .initializeHandler(req -> InitializeResponse.ok())
                 .promptHandler((req, ctx) -> PromptResponse.endTurn());
-        
+
         assertThrows(IllegalStateException.class, builder::build);
     }
 
@@ -40,15 +40,15 @@ class AcpSyncAgentTest {
         var builder = AcpAgent.sync(transport)
                 .initializeHandler(req -> InitializeResponse.ok())
                 .newSessionHandler(req -> new NewSessionResponse("s1", null, null));
-        
+
         assertThrows(IllegalStateException.class, builder::build);
     }
 
     @Test
     void dispatchesInitializeRequest() throws Exception {
         var transport = new MockAcpTransport();
-        var initCalled = new boolean[]{false};
-        
+        var initCalled = new boolean[] {false};
+
         AcpAgent.sync(transport)
                 .initializeHandler(req -> {
                     initCalled[0] = true;
@@ -57,11 +57,12 @@ class AcpSyncAgentTest {
                 })
                 .newSessionHandler(req -> new NewSessionResponse("s1", null, null))
                 .promptHandler((req, ctx) -> PromptResponse.endTurn())
-                .build();
+                .build()
+                .run();
 
         JsonNode params = mapper.readTree("{\"protocolVersion\":1}");
         Object result = transport.simulateRequest("initialize", params, 1);
-        
+
         assertTrue(initCalled[0]);
         assertInstanceOf(InitializeResponse.class, result);
     }
@@ -69,8 +70,8 @@ class AcpSyncAgentTest {
     @Test
     void dispatchesNewSessionRequest() throws Exception {
         var transport = new MockAcpTransport();
-        var sessionCalled = new boolean[]{false};
-        
+        var sessionCalled = new boolean[] {false};
+
         AcpAgent.sync(transport)
                 .initializeHandler(req -> InitializeResponse.ok())
                 .newSessionHandler(req -> {
@@ -79,11 +80,12 @@ class AcpSyncAgentTest {
                     return new NewSessionResponse("session-123", null, null);
                 })
                 .promptHandler((req, ctx) -> PromptResponse.endTurn())
-                .build();
+                .build()
+                .run();
 
         JsonNode params = mapper.readTree("{\"workingDirectory\":\"/workspace\",\"context\":[]}");
         Object result = transport.simulateRequest("session/new", params, 2);
-        
+
         assertTrue(sessionCalled[0]);
         assertInstanceOf(NewSessionResponse.class, result);
         assertEquals("session-123", ((NewSessionResponse) result).sessionId());
@@ -92,8 +94,8 @@ class AcpSyncAgentTest {
     @Test
     void dispatchesPromptRequest() throws Exception {
         var transport = new MockAcpTransport();
-        var promptCalled = new boolean[]{false};
-        
+        var promptCalled = new boolean[] {false};
+
         AcpAgent.sync(transport)
                 .initializeHandler(req -> InitializeResponse.ok())
                 .newSessionHandler(req -> new NewSessionResponse("s1", null, null))
@@ -103,11 +105,13 @@ class AcpSyncAgentTest {
                     ctx.sendMessage("Hello!");
                     return PromptResponse.endTurn();
                 })
-                .build();
+                .build()
+                .run();
 
-        JsonNode params = mapper.readTree("{\"sessionId\":\"session-abc\",\"messages\":[{\"type\":\"text\",\"text\":\"Hi\"}]}");
+        JsonNode params =
+                mapper.readTree("{\"sessionId\":\"session-abc\",\"messages\":[{\"type\":\"text\",\"text\":\"Hi\"}]}");
         Object result = transport.simulateRequest("session/prompt", params, 3);
-        
+
         assertTrue(promptCalled[0]);
         assertInstanceOf(PromptResponse.class, result);
         assertEquals(1, transport.getSentNotifications().size());
@@ -116,15 +120,15 @@ class AcpSyncAgentTest {
     @Test
     void throwsOnUnknownMethod() throws Exception {
         var transport = new MockAcpTransport();
-        
+
         AcpAgent.sync(transport)
                 .initializeHandler(req -> InitializeResponse.ok())
                 .newSessionHandler(req -> new NewSessionResponse("s1", null, null))
                 .promptHandler((req, ctx) -> PromptResponse.endTurn())
-                .build();
+                .build()
+                .run();
 
-        var ex = assertThrows(AcpProtocolException.class, 
-                () -> transport.simulateRequest("unknown/method", null, 4));
+        var ex = assertThrows(AcpProtocolException.class, () -> transport.simulateRequest("unknown/method", null, 4));
         assertEquals(AcpProtocolException.METHOD_NOT_FOUND, ex.code());
     }
 
@@ -132,9 +136,9 @@ class AcpSyncAgentTest {
     void syncPromptContextSendsThought() throws Exception {
         var transport = new MockAcpTransport();
         var ctx = new SyncPromptContext("test-session", transport);
-        
+
         ctx.sendThought("Thinking...");
-        
+
         assertEquals(1, transport.getSentNotifications().size());
         var notification = transport.getSentNotifications().get(0);
         assertEquals("session/update", notification.method());

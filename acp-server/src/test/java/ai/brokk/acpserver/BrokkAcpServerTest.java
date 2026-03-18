@@ -2,10 +2,12 @@ package ai.brokk.acpserver;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import ai.brokk.IConsoleIO;
+import ai.brokk.LlmOutputMeta;
 import ai.brokk.acpserver.agent.SyncPromptContext;
 import ai.brokk.acpserver.spec.AcpSchema.*;
 import ai.brokk.acpserver.transport.AcpTransport;
-import com.fasterxml.jackson.databind.JsonNode;
+import dev.langchain4j.data.message.ChatMessageType;
 import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -16,9 +18,9 @@ class BrokkAcpServerTest {
     void acpProgressConsoleSendsMessageChunks() {
         var transport = new MockAcpTransport();
         var ctx = new SyncPromptContext("test-session", transport);
-        
+
         ctx.sendMessage("Hello, world!");
-        
+
         assertEquals(1, transport.getSentNotifications().size());
         var notification = transport.getSentNotifications().get(0);
         assertEquals("session/update", notification.method());
@@ -28,9 +30,9 @@ class BrokkAcpServerTest {
     void acpProgressConsoleSendsThoughts() {
         var transport = new MockAcpTransport();
         var ctx = new SyncPromptContext("test-session", transport);
-        
+
         ctx.sendThought("Processing request...");
-        
+
         assertEquals(1, transport.getSentNotifications().size());
         var notification = transport.getSentNotifications().get(0);
         assertEquals("session/update", notification.method());
@@ -40,14 +42,14 @@ class BrokkAcpServerTest {
     void syncPromptContextReturnsSessionId() {
         var transport = new MockAcpTransport();
         var ctx = new SyncPromptContext("my-session-id", transport);
-        
+
         assertEquals("my-session-id", ctx.sessionId());
     }
 
     @Test
     void initializeResponseOkHasCorrectDefaults() {
         var response = InitializeResponse.ok();
-        
+
         assertEquals(1, response.protocolVersion());
         assertEquals(AgentCapabilities.DEFAULT, response.capabilities());
         assertNull(response.agentInfo());
@@ -56,7 +58,7 @@ class BrokkAcpServerTest {
     @Test
     void promptResponseEndTurnHasCorrectStopReason() {
         var response = PromptResponse.endTurn();
-        
+
         assertEquals(StopReason.END_TURN, response.stopReason());
         assertNull(response._meta());
     }
@@ -64,9 +66,66 @@ class BrokkAcpServerTest {
     @Test
     void newSessionResponseCanBeCreated() {
         var response = new NewSessionResponse("session-123", null, null);
-        
+
         assertEquals("session-123", response.sessionId());
         assertNull(response.error());
+    }
+
+    @Test
+    void acpProgressConsoleStreamsLlmOutput() {
+        var transport = new MockAcpTransport();
+        var ctx = new SyncPromptContext("test-session", transport);
+        var delegate = new NoOpConsole();
+        var console = new AcpProgressConsole(ctx, delegate);
+
+        console.llmOutput("Hello ", ChatMessageType.AI, LlmOutputMeta.newMessage());
+        console.llmOutput("world!", ChatMessageType.AI, LlmOutputMeta.DEFAULT);
+
+        assertEquals(2, transport.getSentNotifications().size());
+        assertEquals("session/update", transport.getSentNotifications().get(0).method());
+        assertEquals("session/update", transport.getSentNotifications().get(1).method());
+    }
+
+    @Test
+    void acpProgressConsoleStreamsBackgroundOutput() {
+        var transport = new MockAcpTransport();
+        var ctx = new SyncPromptContext("test-session", transport);
+        var delegate = new NoOpConsole();
+        var console = new AcpProgressConsole(ctx, delegate);
+
+        console.backgroundOutput("Loading files...");
+
+        assertEquals(1, transport.getSentNotifications().size());
+        var notification = transport.getSentNotifications().get(0);
+        assertEquals("session/update", notification.method());
+    }
+
+    @Test
+    void acpProgressConsoleStreamsNotifications() {
+        var transport = new MockAcpTransport();
+        var ctx = new SyncPromptContext("test-session", transport);
+        var delegate = new NoOpConsole();
+        var console = new AcpProgressConsole(ctx, delegate);
+
+        console.showNotification(IConsoleIO.NotificationRole.INFO, "Build succeeded");
+
+        assertEquals(1, transport.getSentNotifications().size());
+    }
+
+    @Test
+    void acpProgressConsoleMaintainsTranscript() {
+        var transport = new MockAcpTransport();
+        var ctx = new SyncPromptContext("test-session", transport);
+        var delegate = new NoOpConsole();
+        var console = new AcpProgressConsole(ctx, delegate);
+
+        console.llmOutput("Hello ", ChatMessageType.AI, LlmOutputMeta.newMessage());
+        console.llmOutput("world!", ChatMessageType.AI, LlmOutputMeta.DEFAULT);
+
+        var messages = console.getLlmRawMessages();
+        assertEquals(1, messages.size());
+        assertInstanceOf(dev.langchain4j.data.message.AiMessage.class, messages.get(0));
+        assertEquals("Hello world!", ((dev.langchain4j.data.message.AiMessage) messages.get(0)).text());
     }
 
     // Mock transport for testing
@@ -103,5 +162,18 @@ class BrokkAcpServerTest {
         }
 
         record SentNotification(String method, Object params) {}
+    }
+
+    // No-op console for testing
+    private static class NoOpConsole implements IConsoleIO {
+        @Override
+        public void toolError(String msg, String title) {
+            // No-op
+        }
+
+        @Override
+        public void llmOutput(String token, ChatMessageType type, LlmOutputMeta meta) {
+            // No-op
+        }
     }
 }

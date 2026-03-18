@@ -22,10 +22,10 @@ import ai.brokk.acpserver.transport.StdioAcpAgentTransport;
 import ai.brokk.agents.CodeAgent;
 import ai.brokk.project.MainProject;
 import ai.brokk.project.ModelProperties;
-import ai.brokk.tools.SearchTools;
-import ai.brokk.tools.ToolRegistry;
 import java.nio.file.Path;
+import java.util.EnumSet;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -44,7 +44,6 @@ public class BrokkAcpServer {
     private static final Logger logger = LogManager.getLogger(BrokkAcpServer.class);
 
     private final ContextManager cm;
-    private final Map<String, UUID> sessionToBrokkSession = new HashMap<>();
 
     public BrokkAcpServer(ContextManager cm) {
         this.cm = cm;
@@ -109,11 +108,8 @@ public class BrokkAcpServer {
         String sessionId = UUID.randomUUID().toString();
         logger.debug("Creating new ACP session {} for working directory {}", sessionId, req.workingDirectory());
 
-        // Map the ACP session to a Brokk session
-        sessionToBrokkSession.put(sessionId, cm.getCurrentSessionId());
-
         // Clear workspace for fresh session
-        cm.dropWithHistorySemantics(java.util.List.of());
+        cm.dropWithHistorySemantics(List.of());
 
         return new NewSessionResponse(sessionId, null, null);
     }
@@ -139,16 +135,12 @@ public class BrokkAcpServer {
         cm.setIo(progressIo);
 
         try {
-            // Clear workspace before processing
-            cm.dropWithHistorySemantics(java.util.List.of());
-
             // Execute using CodeAgent (similar to MCP's callCodeAgent)
             var model = requireNonNull(
                     cm.getService().getModel(cm.getProject().getModelConfig(ModelProperties.ModelType.CODE)));
             var ca = new CodeAgent(cm, model);
 
-            TaskResult result =
-                    ca.execute(instructions, java.util.EnumSet.noneOf(CodeAgent.Option.class), java.util.List.of());
+            TaskResult result = ca.execute(instructions, EnumSet.noneOf(CodeAgent.Option.class), List.of());
 
             var stopDetails = result.stopDetails();
             var reason = stopDetails.reason();
@@ -183,13 +175,5 @@ public class BrokkAcpServer {
         } finally {
             cm.setIo(originalIo);
         }
-    }
-
-    /**
-     * Returns the tool registry for this server, similar to MCP server.
-     */
-    public ToolRegistry getToolRegistry() {
-        SearchTools searchTools = new SearchTools(cm);
-        return ToolRegistry.fromBase(ToolRegistry.empty()).register(searchTools).build();
     }
 }

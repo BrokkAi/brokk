@@ -59,7 +59,8 @@ class AcpAgentTest {
                 .promptHandler((req, ctx) -> PromptResponse.endTurn())
                 .build();
 
-        JsonNode params = mapper.readTree("{\"protocolVersion\":1,\"capabilities\":{\"readTextFile\":true,\"writeTextFile\":false}}");
+        JsonNode params = mapper.readTree(
+                "{\"protocolVersion\":1,\"capabilities\":{\"readTextFile\":true,\"writeTextFile\":false}}");
         transport.simulateRequest("initialize", params, 1, agent);
 
         assertNotNull(receivedRequest.get());
@@ -84,7 +85,8 @@ class AcpAgentTest {
                 .promptHandler((req, ctx) -> PromptResponse.endTurn())
                 .build();
 
-        JsonNode params = mapper.readTree("{\"workingDirectory\":\"/test/path\",\"context\":[{\"type\":\"text\",\"text\":\"Hello\"}]}");
+        JsonNode params = mapper.readTree(
+                "{\"workingDirectory\":\"/test/path\",\"context\":[{\"type\":\"text\",\"text\":\"Hello\"}]}");
         transport.simulateRequest("session/new", params, 2, agent);
 
         assertNotNull(receivedRequest.get());
@@ -114,7 +116,8 @@ class AcpAgentTest {
                 })
                 .build();
 
-        JsonNode params = mapper.readTree("{\"sessionId\":\"session-abc\",\"messages\":[{\"type\":\"text\",\"text\":\"Hello agent\"}]}");
+        JsonNode params = mapper.readTree(
+                "{\"sessionId\":\"session-abc\",\"messages\":[{\"type\":\"text\",\"text\":\"Hello agent\"}]}");
         transport.simulateRequest("session/prompt", params, 3, agent);
 
         assertNotNull(receivedRequest.get());
@@ -144,7 +147,7 @@ class AcpAgentTest {
                 .build();
 
         JsonNode params = mapper.createObjectNode();
-        
+
         assertThrows(AcpProtocolException.class, () -> {
             transport.simulateRequest("unknown/method", params, 4, agent);
         });
@@ -158,7 +161,7 @@ class AcpAgentTest {
         ctx.sendThought("Reasoning step 1");
 
         assertEquals(2, transport.notifications.size());
-        
+
         // Both should be session/update notifications
         assertEquals("session/update", transport.notifications.get(0).method());
         assertEquals("session/update", transport.notifications.get(1).method());
@@ -178,7 +181,7 @@ class AcpAgentTest {
         }
 
         void simulateRequest(String method, JsonNode params, Object id, AcpSyncAgent agent) throws Exception {
-            // Access the handler through reflection-free approach: 
+            // Access the handler through reflection-free approach:
             // We need to invoke the handler that was registered during start()
             if (handler == null) {
                 // Start the agent in a way that registers the handler but doesn't block
@@ -213,7 +216,9 @@ class AcpAgentTest {
         }
 
         record ResponseRecord(Object id, Object result) {}
+
         record NotificationRecord(String method, Object params) {}
+
         record ErrorResult(int code, String message) {}
     }
 }

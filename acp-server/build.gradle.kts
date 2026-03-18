@@ -32,10 +32,11 @@ dependencies {
     implementation(libs.jspecify)
     compileOnly(libs.checker.qual)
     compileOnly("org.jetbrains:annotations:24.1.0")
+    testCompileOnly("org.jetbrains:annotations:24.1.0")
 
     // Testing
-    testImplementation(libs.junit.jupiter)
-    testRuntimeOnly(libs.junit.platform.launcher)
+    testImplementation(libs.bundles.junit)
+    testRuntimeOnly(libs.bundles.junit.runtime)
 }
 
 tasks.test {

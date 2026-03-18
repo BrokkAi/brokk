@@ -9,7 +9,6 @@ import ai.brokk.acpserver.spec.AcpSchema.PromptResponse;
 import ai.brokk.acpserver.transport.AcpTransport;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import java.util.concurrent.CountDownLatch;
 import java.util.function.BiFunction;
 import java.util.function.Function;
 import org.jspecify.annotations.NullMarked;
@@ -29,7 +28,6 @@ public class AcpSyncAgent {
     private final Function<InitializeRequest, InitializeResponse> initializeHandler;
     private final Function<NewSessionRequest, NewSessionResponse> newSessionHandler;
     private final BiFunction<PromptRequest, SyncPromptContext, PromptResponse> promptHandler;
-    private final CountDownLatch shutdownLatch = new CountDownLatch(1);
 
     AcpSyncAgent(
             AcpTransport transport,
@@ -47,18 +45,12 @@ public class AcpSyncAgent {
      */
     public void run() {
         transport.start(this::handleMessage);
-        try {
-            shutdownLatch.await();
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
     }
 
     /**
-     * Signals the agent to stop blocking in {@link #run()}.
+     * Signals the agent to stop.
      */
     public void shutdown() {
-        shutdownLatch.countDown();
         transport.close();
     }
 
