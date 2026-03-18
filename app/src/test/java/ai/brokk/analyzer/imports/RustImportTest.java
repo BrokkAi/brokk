@@ -161,4 +161,29 @@ class RustImportTest {
         boolean found = resolved.stream().anyMatch(cu -> cu.isClass() && "TargetStruct".equals(cu.shortName()));
         assertTrue(found, "Should have resolved to TargetStruct from nested directory");
     }
+
+    @Test
+    void testResolveImports_SuperAtRoot() throws IOException {
+        // In Rust, 'super' at the crate root is usually an error or refers to nothing in standard bin/lib,
+        // but our resolver should at least not crash or produce empty/invalid strings.
+        IProject project = InlineTestProjectCreator.code("pub struct ExternalStruct;", "src/lib.rs")
+                .addFileContents(
+                        """
+                        use super::ExternalStruct;
+                        fn main() {}
+                        """,
+                        "src/main.rs")
+                .build();
+
+        RustAnalyzer analyzer = new RustAnalyzer(project);
+        ProjectFile mainFile = new ProjectFile(project.getRoot(), "src/main.rs");
+
+        var resolved = analyzer.as(ImportAnalysisProvider.class)
+                .map(p -> p.importedCodeUnitsOf(mainFile))
+                .orElseThrow();
+
+        // 'super::ExternalStruct' at root (package "") should resolve to 'ExternalStruct' FQN
+        boolean found = resolved.stream().anyMatch(cu -> "ExternalStruct".equals(cu.shortName()));
+        assertTrue(found, "Should resolve super::ExternalStruct at root to ExternalStruct");
+    }
 }

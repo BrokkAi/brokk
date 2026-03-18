@@ -537,15 +537,31 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
         if (trimmedPath.startsWith("super::")) {
             String remaining = trimmedPath;
             String pkg = currentPackage;
+            boolean hitRoot = pkg.isEmpty();
+
             while (remaining.startsWith("super::")) {
                 remaining = remaining.substring("super::".length());
-                int lastDot = pkg.lastIndexOf('.');
-                pkg = (lastDot == -1) ? "" : pkg.substring(0, lastDot);
+                if (!hitRoot) {
+                    int lastDot = pkg.lastIndexOf('.');
+                    if (lastDot == -1) {
+                        pkg = "";
+                        hitRoot = true;
+                    } else {
+                        pkg = pkg.substring(0, lastDot);
+                    }
+                }
             }
+
             String path = remaining.replace("::", ".");
             if (path.startsWith(".")) {
                 path = path.substring(1);
             }
+
+            if (hitRoot && currentPackage.isEmpty()) {
+                // If we started at root and tried to go super, just return the remaining path
+                return path;
+            }
+
             return pkg.isEmpty() ? path : (path.isEmpty() ? pkg : pkg + "." + path);
         }
 
