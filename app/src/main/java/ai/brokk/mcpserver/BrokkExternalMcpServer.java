@@ -13,7 +13,12 @@ import ai.brokk.agents.CodeAgent;
 import ai.brokk.agents.ConflictInspector;
 import ai.brokk.agents.ContextAgent;
 import ai.brokk.agents.MergeAgent;
+import ai.brokk.analyzer.CodeUnit;
+import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.analyzer.usages.FuzzyResult;
+import ai.brokk.analyzer.usages.UsageFinder;
+import ai.brokk.analyzer.usages.UsageHit;
 import ai.brokk.cli.MemoryConsole;
 import ai.brokk.context.ContextDelta;
 import ai.brokk.context.ContextFragment;
@@ -28,6 +33,7 @@ import ai.brokk.tools.WorkspaceTools;
 import ai.brokk.util.BuildTools;
 import ai.brokk.util.BuildVerifier;
 import ai.brokk.util.Environment;
+import ai.brokk.util.Lines;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.langchain4j.agent.tool.P;
@@ -55,14 +61,20 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
@@ -236,8 +248,13 @@ public class BrokkExternalMcpServer {
                                                             .build();
 
                                                     var result = registry.executeTool(lc4jRequest);
+                                                    String resultText =
+                                                            result.status() == ToolExecutionResult.Status.SUCCESS
+                                                                    ? maybeApplyMcpFormatting(
+                                                                            spec.name(), args, result.resultText(), cm)
+                                                                    : result.resultText();
                                                     return McpSchema.CallToolResult.builder()
-                                                            .addTextContent(result.resultText())
+                                                            .addTextContent(resultText)
                                                             .isError(result.status()
                                                                     != ToolExecutionResult.Status.SUCCESS)
                                                             .build();
@@ -287,6 +304,307 @@ public class BrokkExternalMcpServer {
         } catch (JsonProcessingException e) {
             return "{}";
         }
+    }
+
+    private static String maybeApplyMcpFormatting(
+            String toolName, Map<?, ?> args, String rawResultText, ContextManager cm) {
+        if ("getFileContents".equals(toolName)) {
+            return formatGetFileContentsForMcp(args, rawResultText, cm);
+        }
+        if ("getClassSources".equals(toolName)) {
+            return formatGetCodeSourcesForMcp(args, rawResultText, cm, "classNames", true);
+        }
+        if ("getMethodSources".equals(toolName)) {
+            return formatGetCodeSourcesForMcp(args, rawResultText, cm, "methodNames", false);
+        }
+        if ("scanUsages".equals(toolName)) {
+            return formatScanUsagesForMcp(args, rawResultText, cm);
+        }
+        return rawResultText;
+    }
+
+    private static String formatGetFileContentsForMcp(Map<?, ?> args, String rawResultText, ContextManager cm) {
+        Object filenamesObj = args.get("filenames");
+        if (!(filenamesObj instanceof List<?> filenamesList) || filenamesList.isEmpty()) {
+            return rawResultText;
+        }
+
+        List<String> filenames = filenamesList.stream()
+                .filter(String.class::isInstance)
+                .map(String.class::cast)
+                .distinct()
+                .toList();
+        if (filenames.isEmpty()) {
+            return rawResultText;
+        }
+
+        StringBuilder result = new StringBuilder();
+        int successCount = 0;
+        for (String filename : filenames) {
+            try {
+                var file = cm.toFile(filename);
+                if (!file.exists()) {
+                    continue;
+                }
+                var contentOpt = file.read();
+                if (contentOpt.isEmpty()) {
+                    continue;
+                }
+                if (!result.isEmpty()) {
+                    result.append("\n\n");
+                }
+                result.append("```")
+                        .append(filename)
+                        .append("\n")
+                        .append(withLineNumbers(contentOpt.get()))
+                        .append("\n```");
+                successCount++;
+            } catch (Exception e) {
+                logger.warn("Failed to render line-numbered file content for {}", filename, e);
+            }
+        }
+
+        if (successCount != filenames.size()) {
+            return rawResultText;
+        }
+
+        return result.toString();
+    }
+
+    private static String formatGetCodeSourcesForMcp(
+            Map<?, ?> args, String rawResultText, ContextManager cm, String argName, boolean classMode) {
+        Object namesObj = args.get(argName);
+        if (!(namesObj instanceof List<?> namesList) || namesList.isEmpty()) {
+            return rawResultText;
+        }
+
+        List<String> names = namesList.stream()
+                .filter(String.class::isInstance)
+                .map(String.class::cast)
+                .distinct()
+                .filter(s -> !s.isBlank())
+                .toList();
+        if (names.isEmpty()) {
+            return rawResultText;
+        }
+
+        var analyzer = cm.getAnalyzerUninterrupted();
+        List<String> blocks = new ArrayList<>();
+        Set<String> added = new HashSet<>();
+
+        int processedCount = 0;
+        int maxCount = 10;
+
+        for (String name : names) {
+            if (classMode && processedCount >= maxCount) {
+                break;
+            }
+
+            var definitionOpt = analyzer.getDefinitions(name).stream()
+                    .filter(cu -> classMode ? cu.isClass() : cu.isFunction())
+                    .findFirst();
+            if (definitionOpt.isEmpty()) {
+                continue;
+            }
+
+            var cu = definitionOpt.get();
+            if (!added.add(cu.fqName())) {
+                continue;
+            }
+            if (classMode) {
+                processedCount++;
+            }
+
+            var file = cu.source();
+            var contentOpt = file.read();
+            if (contentOpt.isEmpty()) {
+                continue;
+            }
+            String content = contentOpt.get();
+
+            List<IAnalyzer.Range> ranges = analyzer.rangesOf(cu).stream()
+                    .sorted(Comparator.comparingInt(IAnalyzer.Range::startByte))
+                    .toList();
+            if (ranges.isEmpty()) {
+                continue;
+            }
+
+            for (var range : ranges) {
+                var lines = Lines.range(content, range.startLine() + 1, range.endLine() + 1);
+                if (lines.lineCount() == 0) {
+                    continue;
+                }
+                blocks.add("```%s\n%s```".formatted(file, lines.text()));
+            }
+        }
+
+        if (blocks.isEmpty()) {
+            return rawResultText;
+        }
+
+        return String.join("\n\n", blocks);
+    }
+
+    private static String formatScanUsagesForMcp(Map<?, ?> args, String rawResultText, ContextManager cm) {
+        Object symbolsObj = args.get("symbols");
+        if (!(symbolsObj instanceof List<?> symbolsList) || symbolsList.isEmpty()) {
+            return rawResultText;
+        }
+
+        boolean includeTests = args.get("includeTests") instanceof Boolean b && b;
+
+        List<String> symbols = symbolsList.stream()
+                .filter(String.class::isInstance)
+                .map(String.class::cast)
+                .distinct()
+                .filter(s -> !s.isBlank())
+                .toList();
+        if (symbols.isEmpty()) {
+            return rawResultText;
+        }
+
+        var analyzer = cm.getAnalyzerUninterrupted();
+        Predicate<ProjectFile> fileFilter = includeTests ? null : file -> !ContextManager.isTestFile(file, analyzer);
+
+        List<String> outputs = new ArrayList<>();
+        for (String symbol : symbols) {
+            final FuzzyResult usageResult;
+            try {
+                usageResult = UsageFinder.create(cm, fileFilter).findUsages(symbol);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return rawResultText;
+            }
+            var either = usageResult.toEither();
+            if (either.hasErrorMessage()) {
+                outputs.add(either.getErrorMessage());
+                continue;
+            }
+
+            Optional<CodeUnit> definingOwner = analyzer.getDefinitions(symbol).stream()
+                    .findFirst()
+                    .map(def -> analyzer.parentOf(def).orElse(def));
+
+            List<UsageHit> externalHits = either.getUsages().stream()
+                    .filter(hit -> isExternalUsage(analyzer, definingOwner, hit))
+                    .sorted(Comparator.comparing((UsageHit h) -> h.file().toString())
+                            .thenComparingInt(UsageHit::line)
+                            .thenComparingInt(UsageHit::startOffset))
+                    .toList();
+            if (externalHits.isEmpty()) {
+                outputs.add("No usages found for: " + symbol);
+                continue;
+            }
+
+            List<UsageHit> hitsLimited = externalHits.stream().limit(50).toList();
+            StringBuilder out = new StringBuilder();
+            out.append("# Usages of ").append(symbol).append("\n\n");
+            out.append("Call sites (")
+                    .append(externalHits.size())
+                    .append(externalHits.size() > 50 ? ", showing first 50" : "")
+                    .append("):\n");
+            hitsLimited.forEach(hit -> out.append("- `")
+                    .append(hit.enclosing().fqName())
+                    .append("` (")
+                    .append(hit.file())
+                    .append(":")
+                    .append(hit.line())
+                    .append(")\n"));
+
+            List<CodeUnit> distinctEnclosing =
+                    hitsLimited.stream().map(UsageHit::enclosing).distinct().toList();
+            List<CodeUnit> shortestExamples = distinctEnclosing.stream()
+                    .filter(cu -> cu.isFunction() || cu.isClass())
+                    .sorted(Comparator.comparingInt(cu ->
+                            analyzer.getSource(cu, true).map(String::length).orElse(Integer.MAX_VALUE)))
+                    .limit(3)
+                    .toList();
+
+            out.append("\nExamples:\n\n");
+            List<String> exampleBlocks = sourceBlocksForCodeUnits(analyzer, shortestExamples);
+            if (exampleBlocks.isEmpty()) {
+                out.append("(source unavailable)\n");
+            } else {
+                out.append(String.join("\n\n", exampleBlocks)).append("\n");
+            }
+            outputs.add(out.toString().stripTrailing());
+        }
+
+        if (outputs.isEmpty()) {
+            return rawResultText;
+        }
+        return String.join("\n\n", outputs);
+    }
+
+    private static List<String> sourceBlocksForCodeUnits(IAnalyzer analyzer, List<CodeUnit> units) {
+        List<String> blocks = new ArrayList<>();
+        for (CodeUnit cu : units) {
+            var file = cu.source();
+            var contentOpt = file.read();
+            if (contentOpt.isEmpty()) {
+                continue;
+            }
+
+            String content = contentOpt.get();
+            List<IAnalyzer.Range> ranges = analyzer.rangesOf(cu).stream()
+                    .sorted(Comparator.comparingInt(IAnalyzer.Range::startByte))
+                    .toList();
+            if (ranges.isEmpty()) {
+                continue;
+            }
+
+            for (var range : ranges) {
+                var lines = Lines.range(content, range.startLine() + 1, range.endLine() + 1);
+                if (lines.lineCount() == 0) {
+                    continue;
+                }
+                blocks.add("```%s\n%s```".formatted(file, lines.text()));
+            }
+        }
+        return blocks;
+    }
+
+    private static boolean isExternalUsage(IAnalyzer analyzer, Optional<CodeUnit> definingOwner, UsageHit hit) {
+        if (definingOwner.isEmpty()) {
+            return true;
+        }
+        CodeUnit hitOwner = analyzer.parentOf(hit.enclosing()).orElse(hit.enclosing());
+        return !hitOwner.equals(definingOwner.get());
+    }
+
+    static String withLineNumbers(String content) {
+        var lines = splitLogicalLines(content);
+        if (lines.isEmpty()) {
+            return "";
+        }
+
+        int width = Integer.toString(lines.size()).length();
+        return IntStream.range(0, lines.size())
+                .mapToObj(i -> String.format("%" + width + "d: %s", i + 1, lines.get(i)))
+                .collect(Collectors.joining("\n"));
+    }
+
+    private static List<String> splitLogicalLines(String content) {
+        if (content.isEmpty()) {
+            return List.of();
+        }
+        List<String> lines = new ArrayList<>();
+
+        int start = 0;
+        for (int i = 0; i < content.length(); i++) {
+            char ch = content.charAt(i);
+            if (ch == '\n' || ch == '\r') {
+                lines.add(content.substring(start, i));
+                if (ch == '\r' && i + 1 < content.length() && content.charAt(i + 1) == '\n') {
+                    i++;
+                }
+                start = i + 1;
+            }
+        }
+        if (start < content.length()) {
+            lines.add(content.substring(start));
+        }
+        return lines;
     }
 
     public static McpSchema.JsonSchema toMcpSchema(JsonObjectSchema lc4j) {
