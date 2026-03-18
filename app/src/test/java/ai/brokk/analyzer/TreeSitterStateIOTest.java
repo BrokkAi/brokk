@@ -858,12 +858,30 @@ public class TreeSitterStateIOTest {
     @Test
     void typescriptStrictSchemaGating(@TempDir Path tempDir) throws Exception {
         Path v110 = tempDir.resolve("typescript" + Language.ANALYZER_STATE_SUFFIX);
-        writeDtoWithSchemaVersion(v110, "1.1.0", 110L);
+        writeDtoWithSchemaVersion(v110, "1.1.0", 110L, "TYPESCRIPT");
         assertTrue(TreeSitterStateIO.load(v110).isEmpty(), "TypeScript should REJECT legacy schemaVersion 1.1.0");
 
-        Path v200 = tempDir.resolve("typescript" + Language.ANALYZER_STATE_SUFFIX);
-        writeDtoWithSchemaVersion(v200, "2.0.0", 200L);
-        assertTrue(TreeSitterStateIO.load(v200).isPresent(), "TypeScript should accept current schemaVersion 2.0.0");
+        Path v210 = tempDir.resolve("typescript" + Language.ANALYZER_STATE_SUFFIX);
+        writeDtoWithSchemaVersion(v210, "2.1.0", 210L, "TYPESCRIPT");
+        assertTrue(TreeSitterStateIO.load(v210).isEmpty(), "TypeScript should REJECT legacy schemaVersion 2.1.0");
+
+        Path v220 = tempDir.resolve("typescript" + Language.ANALYZER_STATE_SUFFIX);
+        writeDtoWithSchemaVersion(v220, "2.2.0", 220L, "TYPESCRIPT");
+        assertTrue(TreeSitterStateIO.load(v220).isPresent(), "TypeScript should accept current schemaVersion 2.2.0");
+    }
+
+    @Test
+    void rustSchemaMigrationTo220ForcesRebuild(@TempDir Path tempDir) throws Exception {
+        Path rust210 = tempDir.resolve("rust-rebuild" + Language.ANALYZER_STATE_SUFFIX);
+        writeDtoWithSchemaVersion(rust210, "2.1.0", 210L, "RUST");
+
+        var loaded = TreeSitterStateIO.load(rust210);
+        assertTrue(
+                loaded.isEmpty(), "Rust should REJECT schema 2.1.0 because it is below RUST_REBUILD_THRESHOLD (2.2.0)");
+
+        Path rust220 = tempDir.resolve("rust_new" + Language.ANALYZER_STATE_SUFFIX);
+        writeDtoWithSchemaVersion(rust220, "2.2.0", 220L, "RUST");
+        assertTrue(TreeSitterStateIO.load(rust220).isPresent(), "Rust should accept schema 2.2.0");
     }
 
     @Test
