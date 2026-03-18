@@ -768,6 +768,35 @@ public class GoAnalyzerTest {
     }
 
     @Test
+    void testComplexFieldInitializerIsOmitted() {
+        String code =
+                """
+                package main
+
+                var simpleInt int = 42
+                var simpleString string = "hello"
+                var complexObj = NewComplexObject("some", "args")
+                var inlineStruct = struct{A int}{A: 1}
+                """;
+
+        try (var testProject = InlineTestProjectCreator.code(code, "fields.go").build()) {
+            var inlineAnalyzer = (GoAnalyzer) AnalyzerCreator.createTreeSitterAnalyzer(testProject);
+            ProjectFile file = new ProjectFile(testProject.getRoot(), "fields.go");
+            var skeletons = inlineAnalyzer.getSkeletons(file);
+
+            CodeUnit simpleInt = CodeUnit.field(file, "main", "_module_.simpleInt");
+            CodeUnit simpleString = CodeUnit.field(file, "main", "_module_.simpleString");
+            CodeUnit complexObj = CodeUnit.field(file, "main", "_module_.complexObj");
+            CodeUnit inlineStruct = CodeUnit.field(file, "main", "_module_.inlineStruct");
+
+            assertEquals("simpleInt int = 42", skeletons.get(simpleInt).trim());
+            assertEquals("simpleString string = \"hello\"", skeletons.get(simpleString).trim());
+            assertEquals("complexObj", skeletons.get(complexObj).trim());
+            assertEquals("inlineStruct", skeletons.get(inlineStruct).trim());
+        }
+    }
+
+    @Test
     public void getUsesClassComprehensivePatternsTest() throws InterruptedException {
         var finder = newFinder(testProject, analyzer);
         var symbol = "main.BaseStruct";

@@ -11,10 +11,12 @@ import ai.brokk.testutil.TestProject;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -731,6 +733,33 @@ public final class JavascriptAnalyzerTest {
             assertEquals("export const b = 2", skeletons.get(cuB).trim());
             assertEquals("let x = 'one'", skeletons.get(cuX).trim());
             assertEquals("let y = 'two'", skeletons.get(cuY).trim());
+        }
+    }
+
+    @Test
+    public void testComplexFieldInitializerIsOmitted() {
+        String code =
+                """
+                export const simpleInt = 42;
+                let simpleString = "hello";
+                var complexObj = new ComplexObject("args");
+                const inlineObj = { a: 1, b: 2 };
+                """;
+
+        try (var testProject = InlineTestProjectCreator.code(code, "fields.js").build()) {
+            var analyzer = new JavascriptAnalyzer(testProject);
+            ProjectFile file = analyzer.getAnalyzedFiles().stream().filter(f -> f.getFileName().equals("fields.js")).findAny().get();
+            var skeletons = analyzer.getSkeletons(file);
+
+            CodeUnit simpleInt = analyzer.getDefinitions( "fields.js.simpleInt").stream().findFirst().get();
+            CodeUnit simpleString = analyzer.getDefinitions("fields.js.simpleString").stream().findFirst().get();
+            CodeUnit complexObj = analyzer.getDefinitions("fields.js.complexObj").stream().findFirst().get();
+            CodeUnit inlineObj = analyzer.getDefinitions("fields.js.inlineObj").stream().findFirst().get();
+
+            assertEquals("export const simpleInt = 42", skeletons.get(simpleInt).trim());
+            assertEquals("let simpleString = \"hello\"", skeletons.get(simpleString).trim());
+            assertEquals("var complexObj", skeletons.get(complexObj).trim());
+            assertEquals("const inlineObj", skeletons.get(inlineObj).trim());
         }
     }
 
