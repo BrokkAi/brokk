@@ -55,11 +55,6 @@ import javax.swing.text.BadLocationException;
 import javax.swing.text.JTextComponent;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.fife.ui.autocomplete.AutoCompletion;
-import org.fife.ui.autocomplete.AutoCompletionEvent;
-import org.fife.ui.autocomplete.Completion;
-import org.fife.ui.autocomplete.DefaultCompletionProvider;
-import org.fife.ui.autocomplete.ShorthandCompletion;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.fife.ui.rsyntaxtextarea.TokenTypes;
@@ -78,11 +73,8 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
     private static final int PREVIEW_AUTOCOMPLETE_CONTEXT_CHARS = 4000;
     private static final int PREVIEW_AUTOCOMPLETE_MAX_TOKENS = 128;
     private static final int PREVIEW_AUTOCOMPLETE_MIN_PREFIX_CHARS = 2;
-    private static final int PREVIEW_AUTOCOMPLETE_POPUP_MIN_WIDTH = 160;
-    private static final int PREVIEW_AUTOCOMPLETE_POPUP_MAX_WIDTH = 520;
-    private static final int PREVIEW_AUTOCOMPLETE_POPUP_MAX_HEIGHT = 220;
-    private static final int PREVIEW_AUTOCOMPLETE_POPUP_MARGIN = 24;
-    private static final int PREVIEW_AUTOCOMPLETE_POPUP_PADDING = 12;
+    private static final Color PREVIEW_AUTOCOMPLETE_GHOST_COLOR =
+            new Color(255, 255, 255, 96); // light, semi-transparent overlay
     private final PreviewTextArea textArea;
     private final GenericSearchBar searchBar;
     private final RTextScrollPane scrollPane;
@@ -437,8 +429,6 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
     }
 
     private final class PreviewAutocompleteController {
-        private final PreviewAutocompleteProvider provider = new PreviewAutocompleteProvider();
-        private final AutoCompletion autoCompletion = new AutoCompletion(provider);
         private final javax.swing.Timer debounceTimer;
         private final AtomicInteger requestGeneration = new AtomicInteger();
 
@@ -446,46 +436,11 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
         private CompletableFuture<Optional<AbstractService.PreviewAutocompleteResult>> pendingRequest;
 
         @Nullable
-        private Action originalEnterAction;
-
-        @Nullable
-        private Action acceptAction;
-
-        private int popupWrapWidth = PREVIEW_AUTOCOMPLETE_POPUP_MIN_WIDTH;
+        private CachedSuggestion activeSuggestion;
 
         private PreviewAutocompleteController() {
-            autoCompletion.setAutoActivationEnabled(false);
-            autoCompletion.setAutoCompleteSingleChoices(false);
-            autoCompletion.setShowDescWindow(false);
-            autoCompletion.setListCellRenderer(new PreviewAutocompleteRenderer());
-
-            // Capture the default Enter action before installing AutoCompletion
-            KeyStroke enter = KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0);
-            Object defaultEnterKey =
-                    textArea.getInputMap(JComponent.WHEN_FOCUSED).get(enter);
-            if (defaultEnterKey != null) {
-                originalEnterAction = textArea.getActionMap().get(defaultEnterKey);
-            }
-
-            autoCompletion.install(textArea);
-
-            autoCompletion.addAutoCompletionListener(e -> {
-                if (e.getEventType() == AutoCompletionEvent.Type.POPUP_SHOWN) {
-                    var inputMap = textArea.getInputMap(JComponent.WHEN_FOCUSED);
-                    var actionMap = textArea.getActionMap();
-                    Object actionKey = inputMap.get(enter);
-                    if (actionKey != null) {
-                        Action currentAction = actionMap.get(actionKey);
-                        if (currentAction != null && !(currentAction instanceof RejectAndNewlineAction)) {
-                            acceptAction = currentAction;
-                            actionMap.put(actionKey, new RejectAndNewlineAction());
-                        }
-                    }
-                }
-            });
-
-            bindTabAcceptance();
-            installPopupDismissListeners();
+            bindAcceptanceKeys();
+            installDismissListeners();
 
             debounceTimer = new javax.swing.Timer(PREVIEW_AUTOCOMPLETE_DEBOUNCE_MS, e -> requestSuggestion());
             debounceTimer.setRepeats(false);
@@ -512,77 +467,77 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
             textArea.addCaretListener(caretListener);
         }
 
-        private void installPopupDismissListeners() {
-            scrollPane.getViewport().addChangeListener(e -> hideSuggestionPopup());
+        private void installDismissListeners() {
+            scrollPane.getViewport().addChangeListener(e -> clearSuggestion());
             textArea.addFocusListener(new FocusAdapter() {
                 @Override
                 public void focusLost(FocusEvent e) {
-                    hideSuggestionPopup();
+                    clearSuggestion();
                 }
             });
             textArea.addComponentListener(new ComponentAdapter() {
                 @Override
                 public void componentHidden(ComponentEvent e) {
-                    hideSuggestionPopup();
+                    clearSuggestion();
                 }
 
                 @Override
                 public void componentMoved(ComponentEvent e) {
-                    hideSuggestionPopup();
+                    clearSuggestion();
                 }
 
                 @Override
                 public void componentResized(ComponentEvent e) {
-                    hideSuggestionPopup();
+                    clearSuggestion();
                 }
             });
             scrollPane.addComponentListener(new ComponentAdapter() {
                 @Override
                 public void componentResized(ComponentEvent e) {
-                    hideSuggestionPopup();
+                    clearSuggestion();
                 }
             });
         }
 
-        private void hideSuggestionPopup() {
-            autoCompletion.hideChildWindows();
-        }
-
-        private class RejectAndNewlineAction extends AbstractAction {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                autoCompletion.hideChildWindows();
-                if (originalEnterAction != null) {
-                    originalEnterAction.actionPerformed(e);
-                } else {
-                    textArea.replaceSelection("\n");
-                }
-            }
-        }
-
-        private void bindTabAcceptance() {
+        private void bindAcceptanceKeys() {
+            // Tab: accept ghost text if present, else default Tab behavior
             KeyStroke tab = KeyStroke.getKeyStroke(KeyEvent.VK_TAB, 0);
             var inputMap = textArea.getInputMap(JComponent.WHEN_FOCUSED);
             var previousKey = inputMap.get(tab);
-            Action previousAction =
-                    previousKey == null ? null : textArea.getActionMap().get(previousKey);
+            Action previousTabAction = previousKey == null ? null : textArea.getActionMap().get(previousKey);
 
             inputMap.put(tab, "previewAutocompleteAcceptOrTab");
             textArea.getActionMap().put("previewAutocompleteAcceptOrTab", new AbstractAction() {
                 @Override
                 public void actionPerformed(ActionEvent e) {
-                    if (autoCompletion.isPopupVisible()) {
-                        if (acceptAction != null) {
-                            acceptAction.actionPerformed(new ActionEvent(
-                                    textArea, ActionEvent.ACTION_PERFORMED, "previewAutocompleteAccept"));
-                        }
+                    if (activeSuggestion != null && activeSuggestion.matches(textArea)) {
+                        applyGhostSuggestion();
                         return;
                     }
 
-                    if (previousAction != null) {
-                        previousAction.actionPerformed(e);
+                    if (previousTabAction != null) {
+                        previousTabAction.actionPerformed(e);
                     } else {
                         textArea.replaceSelection("\t");
+                    }
+                }
+            });
+
+            // Esc: clear ghost suggestion, otherwise fall back
+            KeyStroke esc = KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0);
+            var escPrevKey = inputMap.get(esc);
+            Action previousEscAction =
+                    escPrevKey == null ? null : textArea.getActionMap().get(escPrevKey);
+            inputMap.put(esc, "previewAutocompleteDismiss");
+            textArea.getActionMap().put("previewAutocompleteDismiss", new AbstractAction() {
+                @Override
+                public void actionPerformed(ActionEvent e) {
+                    if (activeSuggestion != null) {
+                        clearSuggestion();
+                        return;
+                    }
+                    if (previousEscAction != null) {
+                        previousEscAction.actionPerformed(e);
                     }
                 }
             });
@@ -590,8 +545,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
 
         private void scheduleRefresh() {
             requestGeneration.incrementAndGet();
-            hideSuggestionPopup();
-            provider.clearSuggestion();
+            clearSuggestion();
             if (pendingRequest != null) {
                 pendingRequest.cancel(true);
                 pendingRequest = null;
@@ -662,118 +616,38 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
             }
 
             logger.debug("Applying FIM suggestion from model {}: {}", suggestion.modelName(), suggestion.displayText());
-            provider.setSuggestion(suggestion);
-            sizePopupForSuggestion(suggestion);
-            hideSuggestionPopup();
-            autoCompletion.doCompletion();
-        }
-
-        private void sizePopupForSuggestion(CachedSuggestion suggestion) {
-            var fontMetrics = textArea.getFontMetrics(textArea.getFont());
-            int viewportWidth = Math.max(
-                    PREVIEW_AUTOCOMPLETE_POPUP_MIN_WIDTH,
-                    scrollPane.getViewport().getExtentSize().width);
-            int maxPopupWidth = Math.max(
-                    PREVIEW_AUTOCOMPLETE_POPUP_MIN_WIDTH,
-                    Math.min(PREVIEW_AUTOCOMPLETE_POPUP_MAX_WIDTH, viewportWidth - PREVIEW_AUTOCOMPLETE_POPUP_MARGIN));
-            int idealWidth = suggestion.longestLinePixelWidth(fontMetrics) + PREVIEW_AUTOCOMPLETE_POPUP_PADDING;
-            popupWrapWidth = Math.max(PREVIEW_AUTOCOMPLETE_POPUP_MIN_WIDTH, Math.min(maxPopupWidth, idealWidth));
-
-            var measuringArea = createPopupTextArea();
-            measuringArea.setText(suggestion.popupText());
-            measuringArea.setSize(new Dimension(popupWrapWidth, Short.MAX_VALUE));
-            var preferredSize = measuringArea.getPreferredSize();
-
-            int viewportHeight = Math.max(
-                    fontMetrics.getHeight() * 2, scrollPane.getViewport().getExtentSize().height);
-            int maxPopupHeight = Math.max(
-                    fontMetrics.getHeight() + PREVIEW_AUTOCOMPLETE_POPUP_PADDING,
-                    Math.min(PREVIEW_AUTOCOMPLETE_POPUP_MAX_HEIGHT, viewportHeight / 2));
-
-            autoCompletion.setChoicesWindowSize(
-                    popupWrapWidth + PREVIEW_AUTOCOMPLETE_POPUP_PADDING,
-                    Math.min(maxPopupHeight, preferredSize.height + PREVIEW_AUTOCOMPLETE_POPUP_PADDING));
-        }
-
-        private JTextArea createPopupTextArea() {
-            var area = new JTextArea();
-            area.setEditable(false);
-            area.setLineWrap(true);
-            area.setWrapStyleWord(false);
-            area.setTabSize(4);
-            area.setFont(textArea.getFont());
-            area.setBorder(BorderFactory.createEmptyBorder(4, 6, 4, 6));
-            return area;
-        }
-
-        private final class PreviewAutocompleteRenderer extends JTextArea implements ListCellRenderer<Object> {
-            private PreviewAutocompleteRenderer() {
-                setEditable(false);
-                setLineWrap(true);
-                setWrapStyleWord(false);
-                setTabSize(4);
-                setOpaque(true);
-                setBorder(BorderFactory.createEmptyBorder(4, 6, 4, 6));
-            }
-
-            @Override
-            public Component getListCellRendererComponent(
-                    JList<?> list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
-                setFont(textArea.getFont());
-                setText(
-                        value instanceof PreviewAutocompleteCompletion completion
-                                ? completion.suggestion().popupText()
-                                : Objects.toString(value, ""));
-                setForeground(isSelected ? list.getSelectionForeground() : list.getForeground());
-                setBackground(isSelected ? list.getSelectionBackground() : list.getBackground());
-                setSize(new Dimension(popupWrapWidth, Short.MAX_VALUE));
-                return this;
-            }
-        }
-    }
-
-    private static final class PreviewAutocompleteProvider extends DefaultCompletionProvider {
-        @Nullable
-        private CachedSuggestion suggestion;
-
-        @Override
-        public String getAlreadyEnteredText(JTextComponent comp) {
-            return "";
-        }
-
-        @Override
-        public List<Completion> getCompletions(JTextComponent comp) {
-            if (suggestion == null || !suggestion.matches(comp)) {
-                return List.of();
-            }
-
-            return List.of(new PreviewAutocompleteCompletion(this, suggestion));
+            activeSuggestion = suggestion;
+            textArea.repaint();
         }
 
         private void clearSuggestion() {
-            suggestion = null;
-            clear();
+            if (activeSuggestion != null) {
+                activeSuggestion = null;
+                textArea.repaint();
+            }
         }
 
-        private void setSuggestion(CachedSuggestion suggestion) {
-            this.suggestion = suggestion;
-        }
-    }
-
-    private static final class PreviewAutocompleteCompletion extends ShorthandCompletion {
-        private final CachedSuggestion suggestion;
-
-        private PreviewAutocompleteCompletion(PreviewAutocompleteProvider provider, CachedSuggestion suggestion) {
-            super(
-                    provider,
-                    suggestion.displayText(),
-                    suggestion.completion(),
-                    "Preview autocomplete via " + suggestion.modelName());
-            this.suggestion = suggestion;
+        private void applyGhostSuggestion() {
+            CachedSuggestion suggestion = activeSuggestion;
+            if (suggestion == null || !suggestion.matches(textArea)) {
+                return;
+            }
+            try {
+                int caretPos = textArea.getCaretPosition();
+                textArea.getDocument().insertString(caretPos, suggestion.completion(), null);
+            } catch (BadLocationException e) {
+                logger.debug("Failed to apply ghost suggestion", e);
+            } finally {
+                clearSuggestion();
+            }
         }
 
-        private CachedSuggestion suggestion() {
-            return suggestion;
+        @Nullable
+        private CachedSuggestion getActiveSuggestion() {
+            if (activeSuggestion != null && !activeSuggestion.matches(textArea)) {
+                activeSuggestion = null;
+            }
+            return activeSuggestion;
         }
     }
 
@@ -809,9 +683,6 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
             return completion.replace("\r\n", "\n").replace('\r', '\n').replace("\t", "    ");
         }
 
-        private int longestLinePixelWidth(FontMetrics fontMetrics) {
-            return popupText().lines().mapToInt(fontMetrics::stringWidth).max().orElse(0);
-        }
     }
 
     /** Custom RSyntaxTextArea implementation for preview panels with custom popup menu */
@@ -849,6 +720,103 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
                 guiTheme.applyThemePreservingFont(this);
             } else {
                 guiTheme.applyCurrentThemeToComponent(this);
+            }
+        }
+
+        @Override
+        protected void paintComponent(Graphics g) {
+            if (!isEditable() || previewAutocompleteController == null) {
+                super.paintComponent(g);
+                return;
+            }
+
+            var suggestion = previewAutocompleteController.getActiveSuggestion();
+            if (suggestion == null) {
+                super.paintComponent(g);
+                return;
+            }
+
+            try {
+                int caretPos = getCaretPosition();
+                var rect = modelToView2D(caretPos);
+                if (rect == null) {
+                    super.paintComponent(g);
+                    return;
+                }
+
+                int caretLine = getLineOfOffset(caretPos);
+                int lineStartOffset = getLineStartOffset(caretLine);
+                var lineStartRect = modelToView2D(lineStartOffset);
+                if (lineStartRect == null) {
+                    super.paintComponent(g);
+                    return;
+                }
+
+                String[] lines = suggestion.popupText().split("\n", -1);
+                int ghostExtraLines = Math.max(0, lines.length - 1);
+
+                Graphics2D gPass1 = (Graphics2D) g.create();
+                Graphics2D gPass2 = (Graphics2D) g.create();
+                Graphics2D gGhost = (Graphics2D) g.create();
+                try {
+                    gPass1.setFont(getFont());
+                    gPass2.setFont(getFont());
+                    gGhost.setFont(getFont());
+
+                    FontMetrics fm = gGhost.getFontMetrics();
+                    int lineHeight = fm.getHeight();
+
+                    int caretLineTopY = (int) lineStartRect.getY();
+                    int nextLineTopY = caretLineTopY + lineHeight;
+
+                    float xCaret = (float) rect.getX();
+                    float xLineStart = (float) lineStartRect.getX();
+
+                    if (ghostExtraLines > 0) {
+                        // Paint original editor content above the insertion point.
+                        gPass1.setClip(0, 0, getWidth(), nextLineTopY);
+                        super.paintComponent(gPass1);
+
+                        // Paint original editor content below the insertion point shifted down.
+                        int shiftPx = ghostExtraLines * lineHeight;
+                        gPass2.translate(0, shiftPx);
+
+                        int clipY = Math.max(0, nextLineTopY - shiftPx);
+                        int clipH = Math.max(0, getHeight() - clipY);
+                        gPass2.setClip(0, clipY, getWidth(), clipH);
+                        super.paintComponent(gPass2);
+                    } else {
+                        super.paintComponent(gPass1);
+                    }
+
+                    // Mask the entire ghost area so shifted editor content doesn't show through.
+                    // For the first ghost line, preserve text that exists before the caret.
+                    gGhost.setColor(getBackground());
+                    for (int i = 0; i < lines.length; i++) {
+                        int lineTopY = caretLineTopY + (i * lineHeight);
+                        if (i == 0) {
+                            gGhost.fillRect((int) xCaret, lineTopY, getWidth() - (int) xCaret, lineHeight);
+                        } else {
+                            gGhost.fillRect(0, lineTopY, getWidth(), lineHeight);
+                        }
+                    }
+
+                    // Draw ghost text lines (first line continues after caret, subsequent lines align to line start).
+                    gGhost.setColor(PREVIEW_AUTOCOMPLETE_GHOST_COLOR);
+                    int baseY = caretLineTopY + fm.getAscent();
+                    for (int i = 0; i < lines.length; i++) {
+                        float drawX = i == 0 ? xCaret : xLineStart;
+                        int drawY = baseY + (i * lineHeight);
+                        gGhost.drawString(lines[i], drawX, drawY);
+                    }
+                } finally {
+                    gPass1.dispose();
+                    gPass2.dispose();
+                    gGhost.dispose();
+                }
+            } catch (BadLocationException e) {
+                // If we can't resolve caret position, skip ghost rendering.
+                super.paintComponent(g);
             }
         }
 
