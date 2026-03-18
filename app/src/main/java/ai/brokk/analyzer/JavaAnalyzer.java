@@ -285,12 +285,23 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
                 String modifiers = getPrefixText(fieldNode, typeNode, sourceContent, Set.of("modifiers"));
                 String typeStr = sourceContent.substringFrom(typeNode).strip();
 
-                Optional<TSNode> declarator =
+                Optional<TSNode> declaratorOpt =
                         findDeclarator(fieldNode, simpleName, sourceContent, VARIABLE_DECLARATOR, "name");
-                if (declarator.isPresent()) {
-                    String declaratorStr =
-                            sourceContent.substringFrom(declarator.get()).strip();
-                    String full = (modifiers + typeStr + " " + declaratorStr + ";").strip();
+                if (declaratorOpt.isPresent()) {
+                    TSNode declarator = declaratorOpt.get();
+                    TSNode nameNode = declarator.getChildByFieldName("name");
+                    String nameStr = sourceContent.substringFrom(nameNode).strip();
+
+                    String suffix = ";";
+                    TSNode valueNode = declarator.getChildByFieldName("value");
+                    if (valueNode != null && !valueNode.isNull()) {
+                        String valueType = valueNode.getType();
+                        if (valueType != null && valueType.endsWith("_literal")) {
+                            suffix = " = " + sourceContent.substringFrom(valueNode).strip() + ";";
+                        }
+                    }
+
+                    String full = (modifiers + typeStr + " " + nameStr + suffix).strip();
                     return baseIndent + full;
                 }
             }
