@@ -1984,6 +1984,31 @@ public class JavaAnalyzerTest {
     }
 
     @Test
+    public void testComplexFieldInitializerIsOmitted() throws IOException {
+        String code =
+                """
+                public class BuilderField {
+                    private static final MyClient CLIENT = MyClient.builder()
+                        .withEndpoint("https://api.example.com")
+                        .withTimeout(Duration.ofSeconds(5))
+                        .build();
+                }
+                """;
+        try (var testProject =
+                InlineTestProjectCreator.code(code, "BuilderField.java").build()) {
+            JavaAnalyzer analyzer = new JavaAnalyzer(testProject);
+
+            var defs = analyzer.getDefinitions("BuilderField.CLIENT");
+            assertEquals(1, defs.size());
+            var cu = defs.iterator().next();
+            var skeleton = analyzer.getSkeleton(cu);
+            assertTrue(skeleton.isPresent());
+            // The builder chain should be omitted, leaving only the declaration and semicolon
+            assertCodeEquals("private static final MyClient CLIENT;", skeleton.get());
+        }
+    }
+
+    @Test
     public void testNonLiteralFieldInitializersAreOmitted() throws IOException {
         String code =
                 """
