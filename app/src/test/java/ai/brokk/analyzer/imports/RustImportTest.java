@@ -139,4 +139,27 @@ class RustImportTest {
         boolean found = resolved.stream().anyMatch(cu -> cu.isClass() && "TargetStruct".equals(cu.shortName()));
         assertTrue(found, "Aliased import should resolve to the original target CodeUnit");
     }
+
+    @Test
+    void testResolveImports_NestedNamespace() throws IOException {
+        IProject project = InlineTestProjectCreator.code("pub struct TargetStruct;", "src/shared/models.rs")
+                .addFileContents(
+                        """
+                        use crate::shared::models::TargetStruct;
+                        fn use_type() { let _t = TargetStruct; }
+                        """,
+                        "src/nested/app/user.rs")
+                .build();
+
+        RustAnalyzer analyzer = new RustAnalyzer(project);
+        ProjectFile mainFile = new ProjectFile(project.getRoot(), "src/nested/app/user.rs");
+
+        var resolved = analyzer.as(ImportAnalysisProvider.class)
+                .map(p -> p.importedCodeUnitsOf(mainFile))
+                .orElseThrow();
+
+        boolean found = resolved.stream()
+                .anyMatch(cu -> cu.isClass() && "TargetStruct".equals(cu.shortName()));
+        assertTrue(found, "Should have resolved to TargetStruct from nested directory");
+    }
 }
