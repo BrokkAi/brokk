@@ -32,9 +32,7 @@ class BrokkExternalMcpServerLineNumbersTest {
                 """
                 1: first
                 2: second
-                """
-                        .stripTrailing(),
-                result);
+                """.stripTrailing(), result);
     }
 
     @Test

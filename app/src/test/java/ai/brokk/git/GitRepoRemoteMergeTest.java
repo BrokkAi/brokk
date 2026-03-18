@@ -28,6 +28,10 @@ public class GitRepoRemoteMergeTest {
     private Git remoteGit;
     private final String n = System.lineSeparator();
 
+    private static String normalizeNewlines(String text) {
+        return text.replace("\r\n", "\n").replace("\r", "\n");
+    }
+
     @BeforeEach
     void setUp() throws Exception {
         // Initialize remote repository
@@ -88,7 +92,7 @@ public class GitRepoRemoteMergeTest {
 
         // Verify the feature file exists
         assertTrue(Files.exists(featureFile));
-        assertEquals(String.format("feature content%s", n), Files.readString(featureFile, StandardCharsets.UTF_8));
+        assertEquals("feature content\n", normalizeNewlines(Files.readString(featureFile, StandardCharsets.UTF_8)));
     }
 
     @Test
@@ -135,8 +139,7 @@ public class GitRepoRemoteMergeTest {
         assertTrue(Files.exists(featureFile));
         assertTrue(Files.exists(masterFile));
         assertEquals(
-                String.format("feature content%supdated%s", n, n),
-                Files.readString(featureFile, StandardCharsets.UTF_8));
+                "feature content\nupdated\n", normalizeNewlines(Files.readString(featureFile, StandardCharsets.UTF_8)));
     }
 
     @Test
@@ -171,8 +174,8 @@ public class GitRepoRemoteMergeTest {
         // Verify both files exist
         assertTrue(Files.exists(featureFile));
         assertTrue(Files.exists(masterFile));
-        assertEquals(String.format("feature content%s", n), Files.readString(featureFile, StandardCharsets.UTF_8));
-        assertEquals(String.format("master content%s", n), Files.readString(masterFile, StandardCharsets.UTF_8));
+        assertEquals("feature content\n", normalizeNewlines(Files.readString(featureFile, StandardCharsets.UTF_8)));
+        assertEquals("master content\n", normalizeNewlines(Files.readString(masterFile, StandardCharsets.UTF_8)));
     }
 
     @Test

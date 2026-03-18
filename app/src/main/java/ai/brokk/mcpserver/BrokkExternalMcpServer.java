@@ -30,10 +30,10 @@ import ai.brokk.tools.SearchTools;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
 import ai.brokk.tools.WorkspaceTools;
-import ai.brokk.util.Lines;
 import ai.brokk.util.BuildTools;
 import ai.brokk.util.BuildVerifier;
 import ai.brokk.util.Environment;
+import ai.brokk.util.Lines;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.langchain4j.agent.tool.P;
@@ -61,8 +61,10 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -72,6 +74,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
@@ -384,7 +387,7 @@ public class BrokkExternalMcpServer {
 
         var analyzer = cm.getAnalyzerUninterrupted();
         List<String> blocks = new ArrayList<>();
-        Set<String> added = new java.util.HashSet<>();
+        Set<String> added = new HashSet<>();
 
         int processedCount = 0;
         boolean truncated = false;
@@ -419,7 +422,7 @@ public class BrokkExternalMcpServer {
             String content = contentOpt.get();
 
             List<IAnalyzer.Range> ranges = analyzer.rangesOf(cu).stream()
-                    .sorted(java.util.Comparator.comparingInt(IAnalyzer.Range::startByte))
+                    .sorted(Comparator.comparingInt(IAnalyzer.Range::startByte))
                     .toList();
             if (ranges.isEmpty()) {
                 continue;
@@ -488,7 +491,7 @@ public class BrokkExternalMcpServer {
 
             List<UsageHit> externalHits = either.getUsages().stream()
                     .filter(hit -> isExternalUsage(analyzer, definingOwner, hit))
-                    .sorted(java.util.Comparator.comparing((UsageHit h) -> h.file().toString())
+                    .sorted(Comparator.comparing((UsageHit h) -> h.file().toString())
                             .thenComparingInt(UsageHit::line)
                             .thenComparingInt(UsageHit::startOffset))
                     .toList();
@@ -516,10 +519,8 @@ public class BrokkExternalMcpServer {
                     hitsLimited.stream().map(UsageHit::enclosing).distinct().toList();
             List<CodeUnit> shortestExamples = distinctEnclosing.stream()
                     .filter(cu -> cu.isFunction() || cu.isClass())
-                    .sorted(java.util.Comparator.comparingInt(cu -> analyzer
-                            .getSource(cu, true)
-                            .map(String::length)
-                            .orElse(Integer.MAX_VALUE)))
+                    .sorted(Comparator.comparingInt(cu ->
+                            analyzer.getSource(cu, true).map(String::length).orElse(Integer.MAX_VALUE)))
                     .limit(3)
                     .toList();
 
@@ -550,7 +551,7 @@ public class BrokkExternalMcpServer {
 
             String content = contentOpt.get();
             List<IAnalyzer.Range> ranges = analyzer.rangesOf(cu).stream()
-                    .sorted(java.util.Comparator.comparingInt(IAnalyzer.Range::startByte))
+                    .sorted(Comparator.comparingInt(IAnalyzer.Range::startByte))
                     .toList();
             if (ranges.isEmpty()) {
                 continue;
@@ -582,7 +583,7 @@ public class BrokkExternalMcpServer {
         }
 
         int width = Integer.toString(lines.size()).length();
-        return java.util.stream.IntStream.range(0, lines.size())
+        return IntStream.range(0, lines.size())
                 .mapToObj(i -> String.format("%" + width + "d: %s", i + 1, lines.get(i)))
                 .collect(Collectors.joining("\n"));
     }

@@ -80,7 +80,9 @@ class BrokkExternalMcpServerMcpFormattingIntegrationTest {
     private static String invokeTool(ContextManager cm, String toolName, Map<String, Object> args)
             throws InterruptedException {
         SearchTools searchTools = new SearchTools(cm);
-        ToolRegistry registry = ToolRegistry.fromBase(ToolRegistry.empty()).register(searchTools).build();
+        ToolRegistry registry = ToolRegistry.fromBase(ToolRegistry.empty())
+                .register(searchTools)
+                .build();
         List<McpServerFeatures.SyncToolSpecification> specs =
                 BrokkExternalMcpServer.toolSpecificationsFrom(cm, registry, List.of(toolName));
         McpServerFeatures.SyncToolSpecification spec = specs.getFirst();

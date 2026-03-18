@@ -14,6 +14,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 
 public class NativeProjectWatchServiceTest {
@@ -608,7 +609,13 @@ public class NativeProjectWatchServiceTest {
 
         // Create symlink to real root
         Path parentDir = Files.createTempDirectory("parent");
-        Path symlinkedRoot = Files.createSymbolicLink(parentDir.resolve("symlink"), realRoot);
+        Path symlinkedRoot;
+        try {
+            symlinkedRoot = Files.createSymbolicLink(parentDir.resolve("symlink"), realRoot);
+        } catch (IOException e) {
+            Assumptions.assumeTrue(false, "Skipping symlink test: " + e.getMessage());
+            return;
+        }
 
         try {
             // Resolve should follow symlink and return real path

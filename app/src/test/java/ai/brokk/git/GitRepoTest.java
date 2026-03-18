@@ -1011,7 +1011,7 @@ public class GitRepoTest {
 
     @Test
     void testToProjectFileSkipsUnmappablePaths() {
-        String invalidGitPath = "bad-\uD800.txt";
+        String invalidGitPath = "bad-\0.txt";
 
         var projectFile = repo.toProjectFile(invalidGitPath);
 
