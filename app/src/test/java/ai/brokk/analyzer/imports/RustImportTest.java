@@ -158,8 +158,7 @@ class RustImportTest {
                 .map(p -> p.importedCodeUnitsOf(mainFile))
                 .orElseThrow();
 
-        boolean found = resolved.stream()
-                .anyMatch(cu -> cu.isClass() && "TargetStruct".equals(cu.shortName()));
+        boolean found = resolved.stream().anyMatch(cu -> cu.isClass() && "TargetStruct".equals(cu.shortName()));
         assertTrue(found, "Should have resolved to TargetStruct from nested directory");
     }
 }
