@@ -9,7 +9,6 @@ pluginManagement {
 rootProject.name = "brokk"
 
 include("app")
-include("acp-server")
 include("errorprone-checks")
 
 dependencyResolutionManagement {

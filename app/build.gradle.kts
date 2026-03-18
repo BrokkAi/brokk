@@ -751,6 +751,14 @@ tasks.register<JavaExec>("runHeadlessExecutor") {
     systemProperty("brokk.devmode", "false")
 }
 
+tasks.register<JavaExec>("runAcpServer") {
+    group = "application"
+    description = "Runs the Brokk ACP Server"
+    mainClass.set("ai.brokk.acpserver.BrokkAcpServer")
+    classpath = sourceSets.main.get().runtimeClasspath
+    systemProperty("java.awt.headless", "true")
+}
+
 tasks.register<JavaExec>("runHeadlessCli") {
     group = "application"
     description = "Runs the HeadlessExecCli"
