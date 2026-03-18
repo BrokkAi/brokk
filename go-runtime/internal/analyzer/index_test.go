@@ -508,6 +508,62 @@ func TestCompleteSymbolsPrefersClassThenShallowerPackage(t *testing.T) {
 	}
 }
 
+func TestCompleteSymbolsPrefersExactOverPrefixAndSubstring(t *testing.T) {
+	t.Parallel()
+
+	workspace := t.TempDir()
+	writeAnalyzerFile(t, workspace, "src/main/java/com/example/User.java", ""+
+		"package com.example;\n\n"+
+		"public class User {\n"+
+		"}\n")
+	writeAnalyzerFile(t, workspace, "src/main/java/com/example/UserService.java", ""+
+		"package com.example;\n\n"+
+		"public class UserService {\n"+
+		"}\n")
+	writeAnalyzerFile(t, workspace, "src/main/java/com/example/GetUser.java", ""+
+		"package com.example;\n\n"+
+		"public class GetUser {\n"+
+		"}\n")
+
+	service := New(workspace)
+	completions := service.CompleteSymbols("User", 10)
+	if len(completions) < 3 {
+		t.Fatalf("len(completions) = %d, want at least 3", len(completions))
+	}
+	if completions[0].Detail != "com.example.User" {
+		t.Fatalf("completions[0] = %#v, want exact match first", completions[0])
+	}
+	if completions[1].Detail != "com.example.UserService" {
+		t.Fatalf("completions[1] = %#v, want prefix match second", completions[1])
+	}
+	if completions[2].Detail != "com.example.GetUser" {
+		t.Fatalf("completions[2] = %#v, want substring match after prefix", completions[2])
+	}
+}
+
+func TestCompleteSymbolsPrefersCamelHumpWordStarts(t *testing.T) {
+	t.Parallel()
+
+	workspace := t.TempDir()
+	writeAnalyzerFile(t, workspace, "src/main/java/com/example/UserService.java", ""+
+		"package com.example;\n\n"+
+		"public class UserService {\n"+
+		"}\n")
+	writeAnalyzerFile(t, workspace, "src/main/java/com/example/UsableState.java", ""+
+		"package com.example;\n\n"+
+		"public class UsableState {\n"+
+		"}\n")
+
+	service := New(workspace)
+	completions := service.CompleteSymbols("US", 10)
+	if len(completions) < 2 {
+		t.Fatalf("len(completions) = %d, want at least 2", len(completions))
+	}
+	if completions[0].Detail != "com.example.UserService" {
+		t.Fatalf("completions[0] = %#v, want camel-hump UserService first", completions[0])
+	}
+}
+
 func writeAnalyzerFile(t *testing.T, workspace string, relativePath string, content string) {
 	t.Helper()
 	absolutePath := filepath.Join(workspace, filepath.FromSlash(relativePath))

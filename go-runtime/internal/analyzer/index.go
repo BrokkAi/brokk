@@ -3,6 +3,7 @@ package analyzer
 import (
 	"fmt"
 	"io/fs"
+	"math"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -1774,30 +1775,31 @@ func findEnclosingBlock(blocks []blockInfo, offset int) *blockInfo {
 
 func scoreCompletionCandidates(query string, candidates []Symbol) []scoredSymbol {
 	hierarchicalQuery := isHierarchicalQuery(query)
+	matcher := newFuzzyMatcher(query)
 	scored := make([]scoredSymbol, 0, len(candidates))
 	for _, candidate := range candidates {
 		identifier := candidate.Identifier
 		if hierarchicalQuery {
 			identifier = candidate.FQName
 		}
-		identifierScore := fuzzyScore(query, identifier)
-		shortNameScore := 1 << 30
+		identifierScore := matcher.score(identifier)
+		shortNameScore := math.MaxInt
 		if !hierarchicalQuery && candidate.Kind == "class" {
-			shortNameScore = fuzzyScore(query, candidate.ShortName)
+			shortNameScore = matcher.score(candidate.ShortName)
 		}
 		baseScore := identifierScore
 		if shortNameScore < baseScore {
 			baseScore = shortNameScore
 		}
-		if baseScore >= 1<<30 {
+		if baseScore == math.MaxInt {
 			continue
 		}
 
 		typeBonus := 0
 		if candidate.Kind == "class" {
-			typeBonus = -5
+			typeBonus = -classTypeBonus
 		}
-		depthPenalty := strings.Count(candidate.FQName, ".")
+		depthPenalty := strings.Count(candidate.FQName, ".") * packageDepthPenalty
 		finalScore := baseScore + typeBonus + depthPenalty
 		scored = append(scored, scoredSymbol{symbol: candidate, score: finalScore})
 	}
@@ -2000,33 +2002,7 @@ func collectGoImports(content string) []string {
 }
 
 func fuzzyScore(query string, candidate string) int {
-	query = strings.ToLower(strings.TrimSpace(query))
-	candidate = strings.ToLower(candidate)
-	if query == "" || candidate == "" {
-		return 1 << 30
-	}
-	if candidate == query {
-		return 0
-	}
-	if strings.HasPrefix(candidate, query) {
-		return 5 + len(candidate) - len(query)
-	}
-	if strings.Contains(candidate, query) {
-		return 15 + strings.Index(candidate, query)
-	}
-
-	pos := -1
-	score := 30
-	for i := 0; i < len(query); i++ {
-		next := strings.Index(candidate[pos+1:], string(query[i]))
-		if next < 0 {
-			return 1 << 30
-		}
-		score += next
-		pos += next + 1
-	}
-	score += len(candidate) - len(query)
-	return score
+	return newFuzzyMatcher(query).score(candidate)
 }
 
 func matchScore(query string, symbol Symbol) (int, bool) {
