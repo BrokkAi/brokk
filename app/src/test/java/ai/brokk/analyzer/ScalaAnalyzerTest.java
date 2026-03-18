@@ -490,4 +490,27 @@ public class ScalaAnalyzerTest {
             assertCodeEquals("val b = \"test\"", analyzer.getSkeleton(bUnit).get());
         }
     }
+
+    @Test
+    @Disabled("Pending TS tree inspection")
+    public void testComplexFieldInitializerIsOmitted() throws IOException {
+        String code =
+                """
+                package ai.brokk
+
+                class ComplexField {
+                  val obj = new Object()
+                }
+                """;
+        try (var testProject = InlineTestProjectCreator.code(code, "ai/brokk/ComplexField.scala").build()) {
+            var analyzer = createTreeSitterAnalyzer(testProject);
+            var file = new ProjectFile(testProject.getRoot(), "ai/brokk/ComplexField.scala");
+
+            var cu = new CodeUnit(file, CodeUnitType.FIELD, "ai.brokk", "ComplexField.obj");
+            var skeleton = analyzer.getSkeleton(cu);
+            assertTrue(skeleton.isPresent());
+            // The object creation should be omitted, leaving only the declaration
+            assertCodeEquals("val obj", skeleton.get());
+        }
+    }
 }
