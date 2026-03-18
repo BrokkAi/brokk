@@ -21,6 +21,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -253,6 +254,14 @@ public final class DependenciesRouter implements SimpleHttpServer.CheckedHttpHan
 
         try {
             var project = contextManager.getProject();
+            var masterRoot = project.getMasterRootPathForConfig();
+            var dependenciesDir =
+                    masterRoot.resolve(AbstractProject.BROKK_DIR).resolve(AbstractProject.DEPENDENCIES_DIR);
+            if (!dependenciesDir.resolve(depName).normalize().startsWith(dependenciesDir.normalize())) {
+                RouterUtil.sendValidationError(exchange, "Invalid dependency name: " + depName);
+                return;
+            }
+
             var allDeps = project.getAllOnDiskDependencies();
 
             // Find the dependency by name
@@ -375,7 +384,7 @@ public final class DependenciesRouter implements SimpleHttpServer.CheckedHttpHan
             RouterUtil.sendValidationError(exchange, "'import' is a reserved name and cannot be used");
             return;
         }
-        var type = request.type() != null ? request.type().strip().toLowerCase() : "local";
+        var type = request.type() != null ? request.type().strip().toLowerCase(Locale.ROOT) : "local";
         var isGit = "git".equals(type);
 
         // Validate source: either sourcePath (for local) or repoUrl (for git)
@@ -414,16 +423,18 @@ public final class DependenciesRouter implements SimpleHttpServer.CheckedHttpHan
                 return;
             }
 
-            // Create the target directory
-            Files.createDirectories(targetPath);
-
             try {
+                // Create the target directory
+                Files.createDirectories(targetPath);
+
                 // Create ProjectFile consistent with getAllOnDiskDependencies()
                 var depRoot = new ProjectFile(masterRoot, masterRoot.relativize(targetPath));
 
                 // Write metadata and update dependency on disk
                 if (isGit) {
-                    var repoUrl = request.repoUrl().strip();
+                    var repoUrlRaw = request.repoUrl();
+                    if (repoUrlRaw == null) throw new IllegalStateException("repoUrl validated above");
+                    var repoUrl = repoUrlRaw.strip();
                     String ref;
                     if (request.ref() != null && !request.ref().isBlank()) {
                         ref = request.ref().strip();
@@ -450,7 +461,9 @@ public final class DependenciesRouter implements SimpleHttpServer.CheckedHttpHan
                             DependencyUpdater.readDependencyMetadata(targetPath).orElseThrow();
                     DependencyUpdater.updateGitDependencyOnDisk(project, depRoot, metadata);
                 } else {
-                    var sourcePath = Path.of(request.sourcePath().strip());
+                    var sourcePathRaw = request.sourcePath();
+                    if (sourcePathRaw == null) throw new IllegalStateException("sourcePath validated above");
+                    var sourcePath = Path.of(sourcePathRaw.strip());
 
                     DependencyUpdater.writeLocalPathDependencyMetadata(targetPath, sourcePath);
                     var metadata =

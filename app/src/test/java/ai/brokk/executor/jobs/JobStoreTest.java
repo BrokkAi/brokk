@@ -173,8 +173,11 @@ class JobStoreTest {
 
         // Simulate a partial write by appending a truncated JSON line
         var eventsFile = store.getJobDir(jobId).resolve("events.jsonl");
-        Files.writeString(eventsFile, "{\"seq\":3,\"timestamp\":123,\"type\":\"TRUNC\n",
-                          StandardCharsets.UTF_8, StandardOpenOption.APPEND);
+        Files.writeString(
+                eventsFile,
+                "{\"seq\":3,\"timestamp\":123,\"type\":\"TRUNC\n",
+                StandardCharsets.UTF_8,
+                StandardOpenOption.APPEND);
 
         // readEvents should return only the 2 valid events, skipping the truncated line
         var events = store.readEvents(jobId, -1, 0);
@@ -195,8 +198,11 @@ class JobStoreTest {
 
         // Append a truncated line at the end
         var eventsFile = store.getJobDir(jobId).resolve("events.jsonl");
-        Files.writeString(eventsFile, "{\"seq\":3,\"timestamp\":123,\"type\":\"TRUNC\n",
-                          StandardCharsets.UTF_8, StandardOpenOption.APPEND);
+        Files.writeString(
+                eventsFile,
+                "{\"seq\":3,\"timestamp\":123,\"type\":\"TRUNC\n",
+                StandardCharsets.UTF_8,
+                StandardOpenOption.APPEND);
 
         // New store should recover sequence counter from last valid event (seq=2)
         var store2 = new JobStore(tempDir);
