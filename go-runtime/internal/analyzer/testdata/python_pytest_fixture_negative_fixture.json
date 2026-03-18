@@ -1,0 +1,14 @@
+{
+  "name": "python pytest fixture negative",
+  "relativePath": "Example.py",
+  "content": "import pytest\n\n@pytest.fixture\ndef some_data():\n    return 42\n",
+  "classes": [],
+  "methods": [
+    "Example.some_data"
+  ],
+  "fields": [],
+  "imports": [
+    "import pytest"
+  ],
+  "containsTests": false
+}

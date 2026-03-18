@@ -684,8 +684,8 @@ func treeSitterContainsTestMarker(language string, marker string) bool {
 			return false
 		}
 	case "python":
-		lower := strings.ToLower(trimmed)
-		return strings.HasPrefix(lower, "test") || strings.Contains(lower, "pytest") || strings.Contains(lower, "unittest")
+		lower := strings.ToLower(strings.TrimPrefix(trimmed, "@"))
+		return strings.HasPrefix(lower, "test_") || strings.HasPrefix(lower, "pytest.mark")
 	default:
 		return false
 	}

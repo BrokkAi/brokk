@@ -1,0 +1,14 @@
+{
+  "name": "python pytest mark",
+  "relativePath": "Example.py",
+  "content": "import pytest\n\n@pytest.mark.slow\ndef some_helper():\n    return 123\n",
+  "classes": [],
+  "methods": [
+    "Example.some_helper"
+  ],
+  "fields": [],
+  "imports": [
+    "import pytest"
+  ],
+  "containsTests": true
+}

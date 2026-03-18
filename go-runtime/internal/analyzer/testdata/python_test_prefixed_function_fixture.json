@@ -1,0 +1,18 @@
+{
+  "name": "python test prefixed function",
+  "relativePath": "Example.py",
+  "content": "def test_addition():\n    assert 1 + 1 == 2\n",
+  "classes": [],
+  "methods": [
+    "Example.test_addition"
+  ],
+  "fields": [],
+  "imports": [],
+  "containsTests": true,
+  "resolveMethodsInput": [
+    "test_addition"
+  ],
+  "resolveMethods": [
+    "Example.test_addition"
+  ]
+}

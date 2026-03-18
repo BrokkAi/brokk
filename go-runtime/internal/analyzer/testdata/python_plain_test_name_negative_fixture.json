@@ -1,0 +1,12 @@
+{
+  "name": "python plain test name negative",
+  "relativePath": "Example.py",
+  "content": "def test():\n    pass\n",
+  "classes": [],
+  "methods": [
+    "Example.test"
+  ],
+  "fields": [],
+  "imports": [],
+  "containsTests": false
+}
