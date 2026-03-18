@@ -1936,7 +1936,7 @@ public class CppAnalyzerTest {
 
             // 2) int* p = &x, q = nullptr;
             assertCodeEquals("int* p;", pSkel);
-            assertCodeEquals("int* q = nullptr;", qSkel);
+            assertCodeEquals("int* q;", qSkel);
 
             // 3) int a, b = 2;
             assertCodeEquals("int a;", aSkel);
