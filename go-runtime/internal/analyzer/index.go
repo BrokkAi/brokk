@@ -20,19 +20,20 @@ type Service struct {
 }
 
 type Symbol struct {
-	Kind         string
-	Language     string
-	FQName       string
-	ShortName    string
-	Identifier   string
-	PackageName  string
-	ParentFQName string
-	RelativePath string
-	Signature    string
-	Snippet      string
-	StartLine    int
-	EndLine      int
-	TopLevel     bool
+	Kind          string
+	Language      string
+	FQName        string
+	ShortName     string
+	Identifier    string
+	PackageName   string
+	ParentFQName  string
+	RelativePath  string
+	Signature     string
+	Snippet       string
+	StartLine     int
+	EndLine       int
+	TopLevel      bool
+	RawSupertypes []string
 }
 
 type Completion struct {
@@ -57,6 +58,8 @@ type indexSnapshot struct {
 	symbols        []Symbol
 	byFQName       map[string][]int
 	membersByClass map[string][]int
+	importsByPath  map[string][]string
+	testsByPath    map[string]bool
 }
 
 type DefinitionGroup struct {
@@ -410,6 +413,34 @@ func (s *Service) SearchSymbols(query string, limit int) []Symbol {
 	return results
 }
 
+func (s *Service) ContainsTests(relativePath string) bool {
+	index, err := s.getIndex()
+	if err != nil {
+		return false
+	}
+	return index.testsByPath[filepath.ToSlash(strings.TrimSpace(relativePath))]
+}
+
+func (s *Service) RawSupertypes(fqName string) []string {
+	definitions := filterByKind(s.Definitions(fqName), "class")
+	if len(definitions) == 0 {
+		return []string{}
+	}
+
+	results := make([]string, 0, len(definitions))
+	seen := map[string]struct{}{}
+	for _, definition := range definitions {
+		for _, supertype := range definition.RawSupertypes {
+			if _, ok := seen[supertype]; ok {
+				continue
+			}
+			seen[supertype] = struct{}{}
+			results = append(results, supertype)
+		}
+	}
+	return results
+}
+
 func (s *Service) SymbolsForPaths(paths []string, limit int) []Symbol {
 	if limit <= 0 || len(paths) == 0 {
 		return []Symbol{}
@@ -516,14 +547,22 @@ func (s *Service) collectStamps() ([]fileStamp, error) {
 
 func (s *Service) buildIndex(stamps []fileStamp) (*indexSnapshot, error) {
 	symbols := make([]Symbol, 0, len(stamps)*4)
+	importsByPath := map[string][]string{}
+	testsByPath := map[string]bool{}
 	for _, stamp := range stamps {
 		absolutePath := filepath.Join(s.workspace, filepath.FromSlash(stamp.relativePath))
 		content, err := os.ReadFile(absolutePath)
 		if err != nil {
 			continue
 		}
-		if extracted, ok := parseTreeSitterSymbols(stamp.relativePath, string(content)); ok {
-			symbols = append(symbols, extracted...)
+		if analysis, ok := parseTreeSitterFile(stamp.relativePath, string(content)); ok {
+			symbols = append(symbols, analysis.symbols...)
+			if len(analysis.imports) > 0 {
+				importsByPath[stamp.relativePath] = append([]string(nil), analysis.imports...)
+			}
+			if analysis.containsTests {
+				testsByPath[stamp.relativePath] = true
+			}
 			continue
 		}
 
@@ -563,6 +602,8 @@ func (s *Service) buildIndex(stamps []fileStamp) (*indexSnapshot, error) {
 		symbols:        symbols,
 		byFQName:       byFQName,
 		membersByClass: membersByClass,
+		importsByPath:  importsByPath,
+		testsByPath:    testsByPath,
 	}, nil
 }
 
@@ -1954,6 +1995,12 @@ func formatPythonSkeleton(classSymbol Symbol, members []Symbol) string {
 }
 
 func (s *Service) collectImports(symbol Symbol) []string {
+	if index, err := s.getIndex(); err == nil {
+		if imports := index.importsByPath[symbol.RelativePath]; len(imports) > 0 {
+			return append([]string(nil), imports...)
+		}
+	}
+
 	absolutePath := filepath.Join(s.workspace, filepath.FromSlash(symbol.RelativePath))
 	content, err := os.ReadFile(absolutePath)
 	if err != nil {

@@ -28,12 +28,26 @@ type treeSitterDefinition struct {
 	kind         string
 	name         string
 	receiverType string
+	supertypes   []string
 	start        int
 	end          int
 	startLine    int
 	endLine      int
 	signature    string
 	snippet      string
+}
+
+type treeSitterFileAnalysis struct {
+	symbols       []Symbol
+	imports       []string
+	containsTests bool
+}
+
+type treeSitterHierarchyHint struct {
+	name       string
+	start      int
+	end        int
+	supertypes []string
 }
 
 //go:embed queries/*.scm
@@ -62,27 +76,35 @@ func mustReadTreeSitterQuery(path string) string {
 }
 
 func parseTreeSitterSymbols(relativePath string, content string) ([]Symbol, bool) {
-	spec, ok := treeSitterSpecForPath(relativePath)
+	analysis, ok := parseTreeSitterFile(relativePath, content)
 	if !ok {
 		return nil, false
+	}
+	return analysis.symbols, true
+}
+
+func parseTreeSitterFile(relativePath string, content string) (treeSitterFileAnalysis, bool) {
+	spec, ok := treeSitterSpecForPath(relativePath)
+	if !ok {
+		return treeSitterFileAnalysis{}, false
 	}
 
 	parser := tree_sitter.NewParser()
 	defer parser.Close()
 	if err := parser.SetLanguage(spec.language); err != nil {
-		return nil, false
+		return treeSitterFileAnalysis{}, false
 	}
 
 	source := []byte(content)
 	tree := parser.Parse(source, nil)
 	if tree == nil {
-		return nil, false
+		return treeSitterFileAnalysis{}, false
 	}
 	defer tree.Close()
 
 	query, queryErr := tree_sitter.NewQuery(spec.language, spec.query)
 	if queryErr != nil {
-		return nil, false
+		return treeSitterFileAnalysis{}, false
 	}
 	defer query.Close()
 
@@ -91,10 +113,20 @@ func parseTreeSitterSymbols(relativePath string, content string) ([]Symbol, bool
 
 	packageName := spec.packageName(relativePath)
 	definitions := make([]treeSitterDefinition, 0, 16)
+	hierarchyHints := make([]treeSitterHierarchyHint, 0, 8)
+	imports := make([]string, 0, 8)
+	seenImports := map[string]struct{}{}
+	containsTests := false
 	captureNames := query.CaptureNames()
 	matches := cursor.Matches(query, tree.RootNode(), source)
 	for match := matches.Next(); match != nil; match = matches.Next() {
 		definition := treeSitterDefinition{}
+		matchSupertypes := make([]string, 0, 4)
+		matchHasTestMarker := false
+		testCandidateName := ""
+		testCandidateParams := ""
+		hierarchyStart := -1
+		hierarchyEnd := -1
 		for _, capture := range match.Captures {
 			name := captureNames[capture.Index]
 			text := strings.TrimSpace(capture.Node.Utf8Text(source))
@@ -103,6 +135,26 @@ func parseTreeSitterSymbols(relativePath string, content string) ([]Symbol, bool
 				if text != "" {
 					packageName = text
 				}
+			case "import.declaration":
+				if text != "" {
+					if _, ok := seenImports[text]; !ok {
+						seenImports[text] = struct{}{}
+						imports = append(imports, text)
+					}
+				}
+			case "type.super":
+				if text != "" {
+					matchSupertypes = append(matchSupertypes, normalizeTreeSitterTypeName(text))
+				}
+			case "type.decl":
+				hierarchyStart = int(capture.Node.StartByte())
+				hierarchyEnd = int(capture.Node.EndByte())
+			case "test_marker":
+				matchHasTestMarker = treeSitterContainsTestMarker(spec.languageName, text)
+			case "test_candidate.name":
+				testCandidateName = normalizeTreeSitterName(text)
+			case "test_candidate.params":
+				testCandidateParams = text
 			default:
 				if kind, ok := treeSitterCaptureKind(name); ok {
 					populateTreeSitterDefinition(&definition, kind, capture.Node, content)
@@ -117,14 +169,31 @@ func parseTreeSitterSymbols(relativePath string, content string) ([]Symbol, bool
 				}
 			}
 		}
+		if !containsTests {
+			containsTests = matchHasTestMarker || treeSitterContainsTestCandidate(spec.languageName, testCandidateName, testCandidateParams)
+		}
+		if hierarchyStart >= 0 && hierarchyEnd > hierarchyStart && definition.name != "" && len(matchSupertypes) > 0 {
+			hierarchyHints = append(hierarchyHints, treeSitterHierarchyHint{
+				name:       definition.name,
+				start:      hierarchyStart,
+				end:        hierarchyEnd,
+				supertypes: dedupeSortedStrings(matchSupertypes),
+			})
+		}
 		if definition.kind == "" || definition.name == "" {
 			continue
 		}
+		definition.supertypes = dedupeSortedStrings(matchSupertypes)
 		definitions = append(definitions, definition)
 	}
 	definitions = collapseWrappedTreeSitterDefinitions(definitions)
+	definitions = applyTreeSitterHierarchyHints(definitions, hierarchyHints)
 
-	return buildTreeSitterSymbols(relativePath, spec.languageName, packageName, definitions), true
+	return treeSitterFileAnalysis{
+		symbols:       buildTreeSitterSymbols(relativePath, spec.languageName, packageName, definitions),
+		imports:       imports,
+		containsTests: containsTests,
+	}, true
 }
 
 func treeSitterEnabled() bool {
@@ -245,6 +314,32 @@ func collapseWrappedTreeSitterDefinitions(definitions []treeSitterDefinition) []
 	return results
 }
 
+func applyTreeSitterHierarchyHints(definitions []treeSitterDefinition, hints []treeSitterHierarchyHint) []treeSitterDefinition {
+	if len(definitions) == 0 || len(hints) == 0 {
+		return definitions
+	}
+
+	for i := range definitions {
+		if definitions[i].kind != "class" {
+			continue
+		}
+		if len(definitions[i].supertypes) > 0 {
+			continue
+		}
+		for _, hint := range hints {
+			if definitions[i].name != hint.name {
+				continue
+			}
+			if definitions[i].start != hint.start || definitions[i].end != hint.end {
+				continue
+			}
+			definitions[i].supertypes = append([]string(nil), hint.supertypes...)
+			break
+		}
+	}
+	return definitions
+}
+
 func buildTreeSitterSymbols(relativePath string, language string, packageName string, definitions []treeSitterDefinition) []Symbol {
 	if len(definitions) == 0 {
 		return []Symbol{}
@@ -281,19 +376,20 @@ func buildTreeSitterSymbols(relativePath string, language string, packageName st
 			parentFQName = classSymbols[parentIndex].FQName
 		}
 		classSymbols[i] = Symbol{
-			Kind:         "class",
-			Language:     language,
-			FQName:       joinName(packageName, shortName),
-			ShortName:    shortName,
-			Identifier:   shortName,
-			PackageName:  packageName,
-			ParentFQName: parentFQName,
-			RelativePath: relativePath,
-			Signature:    definition.signature,
-			Snippet:      definition.snippet,
-			StartLine:    definition.startLine,
-			EndLine:      definition.endLine,
-			TopLevel:     parentIndex < 0,
+			Kind:          "class",
+			Language:      language,
+			FQName:        joinName(packageName, shortName),
+			ShortName:     shortName,
+			Identifier:    shortName,
+			PackageName:   packageName,
+			ParentFQName:  parentFQName,
+			RelativePath:  relativePath,
+			Signature:     definition.signature,
+			Snippet:       definition.snippet,
+			StartLine:     definition.startLine,
+			EndLine:       definition.endLine,
+			TopLevel:      parentIndex < 0,
+			RawSupertypes: append([]string(nil), definition.supertypes...),
 		}
 	}
 
@@ -362,6 +458,61 @@ func normalizeTreeSitterTypeName(name string) string {
 	trimmed := strings.TrimSpace(name)
 	trimmed = strings.TrimPrefix(trimmed, "*")
 	return strings.TrimSpace(trimmed)
+}
+
+func treeSitterContainsTestMarker(language string, marker string) bool {
+	trimmed := strings.TrimSpace(marker)
+	if trimmed == "" {
+		return false
+	}
+
+	switch language {
+	case "java":
+		name := strings.TrimPrefix(trimmed, "@")
+		switch name {
+		case "Test", "ParameterizedTest", "RepeatedTest", "TestFactory", "TestTemplate", "Theory":
+			return true
+		default:
+			return false
+		}
+	case "python":
+		lower := strings.ToLower(trimmed)
+		return strings.HasPrefix(lower, "test") || strings.Contains(lower, "pytest") || strings.Contains(lower, "unittest")
+	default:
+		return false
+	}
+}
+
+func treeSitterContainsTestCandidate(language string, candidateName string, candidateParams string) bool {
+	if language != "go" {
+		return false
+	}
+	if !strings.HasPrefix(candidateName, "Test") {
+		return false
+	}
+	params := strings.ReplaceAll(strings.TrimSpace(candidateParams), " ", "")
+	return strings.Contains(params, "*testing.T") || strings.Contains(params, "testing.T")
+}
+
+func dedupeSortedStrings(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+
+	seen := map[string]struct{}{}
+	results := make([]string, 0, len(values))
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			continue
+		}
+		if _, ok := seen[trimmed]; ok {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		results = append(results, trimmed)
+	}
+	return results
 }
 
 func findEnclosingTreeSitterClass(classes []treeSitterDefinition, current int, offset int) int {

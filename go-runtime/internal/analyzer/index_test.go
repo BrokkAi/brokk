@@ -189,6 +189,58 @@ func TestParseTreeSitterSymbolsTypeScriptExportedInterfaceAndAlias(t *testing.T)
 	}
 }
 
+func TestParseTreeSitterFileCapturesJavaImportsSupertypesAndTests(t *testing.T) {
+	if !treeSitterEnabled() {
+		t.Skip("tree-sitter requires cgo support on this machine")
+	}
+
+	analysis, ok := parseTreeSitterFile("src/test/java/com/example/service/UserServiceTest.java", ""+
+		"package com.example.service;\n\n"+
+		"import java.util.List;\n"+
+		"import org.junit.jupiter.api.Test;\n\n"+
+		"public class UserServiceTest extends BaseService implements Runnable {\n"+
+		"    @Test\n"+
+		"    public void runsTest() {\n"+
+		"    }\n"+
+		"}\n")
+	if !ok {
+		t.Fatal("parseTreeSitterFile() = false, want true")
+	}
+	if !analysis.containsTests {
+		t.Fatal("analysis.containsTests = false, want true")
+	}
+	if len(analysis.imports) != 2 {
+		t.Fatalf("len(analysis.imports) = %d, want 2", len(analysis.imports))
+	}
+
+	classes := filterByKind(analysis.symbols, "class")
+	if len(classes) != 1 {
+		t.Fatalf("class count = %d, want 1", len(classes))
+	}
+	want := []string{"BaseService", "Runnable"}
+	if strings.Join(classes[0].RawSupertypes, ",") != strings.Join(want, ",") {
+		t.Fatalf("classes[0].RawSupertypes = %#v, want %#v", classes[0].RawSupertypes, want)
+	}
+}
+
+func TestParseTreeSitterFileCapturesGoTests(t *testing.T) {
+	if !treeSitterEnabled() {
+		t.Skip("tree-sitter requires cgo support on this machine")
+	}
+
+	analysis, ok := parseTreeSitterFile("internal/service/user_service_test.go", ""+
+		"package service\n\n"+
+		"import \"testing\"\n\n"+
+		"func TestUserService(t *testing.T) {\n"+
+		"}\n")
+	if !ok {
+		t.Fatal("parseTreeSitterFile() = false, want true")
+	}
+	if !analysis.containsTests {
+		t.Fatal("analysis.containsTests = false, want true")
+	}
+}
+
 func TestResolveMethodsMatchesShortNameThroughFallbacks(t *testing.T) {
 	t.Parallel()
 
@@ -271,6 +323,39 @@ func TestRenderSymbolAddsImportsAndWrappedPayload(t *testing.T) {
 	rendered := service.RenderSymbol(methods[0])
 	if !strings.Contains(rendered, "<imports>") || !strings.Contains(rendered, "<methods class=\"com.example.service.UserService\"") {
 		t.Fatalf("rendered = %q, want imports and methods wrapper", rendered)
+	}
+}
+
+func TestAnalyzerTracksTreeSitterTestAndSupertypeMetadata(t *testing.T) {
+	workspace := t.TempDir()
+	writeAnalyzerFile(t, workspace, "src/test/java/com/example/service/UserServiceTest.java", ""+
+		"package com.example.service;\n\n"+
+		"import java.util.List;\n"+
+		"import org.junit.jupiter.api.Test;\n\n"+
+		"public class UserServiceTest extends BaseService implements Runnable {\n"+
+		"    @Test\n"+
+		"    public void runsTest() {\n"+
+		"    }\n"+
+		"}\n")
+
+	service := New(workspace)
+	if !service.ContainsTests("src/test/java/com/example/service/UserServiceTest.java") {
+		t.Fatal("ContainsTests() = false, want true")
+	}
+
+	supertypes := service.RawSupertypes("com.example.service.UserServiceTest")
+	want := []string{"BaseService", "Runnable"}
+	if strings.Join(supertypes, ",") != strings.Join(want, ",") {
+		t.Fatalf("RawSupertypes() = %#v, want %#v", supertypes, want)
+	}
+
+	group, ok := service.DefinitionGroup("com.example.service.UserServiceTest.runsTest", "function")
+	if !ok {
+		t.Fatal("DefinitionGroup() = false, want true")
+	}
+	rendered := service.RenderDefinitionGroup(group)
+	if !strings.Contains(rendered, "import org.junit.jupiter.api.Test;") {
+		t.Fatalf("rendered = %q, want tree-sitter imports in wrapper", rendered)
 	}
 }
 
