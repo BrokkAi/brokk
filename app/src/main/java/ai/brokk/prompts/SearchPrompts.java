@@ -335,11 +335,9 @@ public class SearchPrompts {
 
                 Working efficiently:
                   - Before calling callSearchAgent, identify the exact missing fact and the concrete anchors you already have.
-                  - Pick the lightest tool that matches what you already know:
-                     * If you already know the exact file/class/method to add, use the add*ToWorkspace tools directly.
-                     * If you have concrete anchors but not exact locations, use direct lookup tools
-                       (searchSymbols, scanUsages, findFilenames, searchFileContents).
-                  - If one round of direct lookup still does not identify concrete items to add, switch to callSearchAgent instead of chaining more blind lookups.
+                  - If you already know the exact file/class/method to add, use the add*ToWorkspace tools directly.
+                  - Direct lookup tools are best for one-hop anchored lookup when you already have a concrete symbol, filename, or literal string.
+                  - Use callSearchAgent when the next question is broader than a single lookup: choosing among multiple plausible files, correlating code with tests/resources/templates, or figuring out what else belongs in the Workspace.
                   - Prefer specific searches: "find the test owning fixture X" over "find all code related to issue X".
                   - Split unrelated unknowns into separate targeted searches instead of one omnibus search.
                   - Think before calling tools. Before making tool calls, briefly list the distinct pieces of context you need.
@@ -429,8 +427,8 @@ public class SearchPrompts {
 
                 Workspace context guidance:
                   - If you know where to find what you're looking for, just add it, you don't need to keep searching "just in case".
-                  - If you have concrete identifiers, filenames, or literal strings but need exact locations, use the direct lookup tools first.
-                  - If you don't know where to find a piece of information, use callSearchAgent to identify specific files/classes/methods instead of guessing.
+                  - If you have a concrete symbol, filename, or literal string and only need exact locations, direct lookup tools are a good fit.
+                  - If you still need to decide which files, tests, or subsystem matter, use callSearchAgent to identify specific files/classes/methods instead of guessing.
                   - The add*ToWorkspace tools do not work with directories or globs or wildcards as parameters;
                     if you don't know which specific items to add to the Workspace, invoke callSearchAgent.
                 When to prefer the different content types:

@@ -63,13 +63,10 @@ public class ParallelSearch {
                     Use `callSearchAgent` when:
                     - the relevant symbols or files are unclear,
                     - there are multiple plausible places to look,
+                    - you need to connect findings across code, tests, templates, resources, or build/config files before deciding what to add to the Workspace,
                     - or you want to explore several search branches in parallel before deciding what to add to the Workspace.
 
-                    Prefer direct search tools for limited, anchored lookup when you already have concrete clues:
-                    - `searchSymbols` for class/method/type names,
-                    - `scanUsages` when you already know the exact symbol and need callers/usages,
-                    - `findFilenames` for tests/resources/config by name,
-                    - `searchFileContents` for exact strings, annotations, config keys, error text, or other literals.
+                    Direct search tools can be better for one-hop anchored lookup when you already have a concrete symbol, filename, or literal string.
 
                     Query guidance:
                     - Make the query self-contained.
