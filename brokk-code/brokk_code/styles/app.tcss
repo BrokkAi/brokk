@@ -13,6 +13,45 @@ ContextModalScreen, TaskListModalScreen, SessionCostsModalScreen, DependenciesMo
     background: $surface;
 }
 
+AddDependencyModalScreen {
+    align: center middle;
+}
+
+#add-dependency-modal-container {
+    width: 80;
+    height: auto;
+    max-height: 80%;
+    background: $surface;
+    border: thick $primary;
+    padding: 1 2;
+}
+
+#add-dependency-title {
+    text-style: bold;
+    width: 100%;
+    margin-bottom: 1;
+}
+
+#add-dependency-mode-select {
+    height: auto;
+    margin-bottom: 1;
+}
+
+#add-dependency-local-section,
+#add-dependency-git-section {
+    height: auto;
+}
+
+#add-dependency-error {
+    color: $error;
+    height: auto;
+}
+
+#add-dependency-actions {
+    height: auto;
+    margin-top: 1;
+}
+
 BrokkApiKeyModalScreen, TaskTitleModalScreen, ModelReasoningSelectModal {
     align: center middle;
 }

@@ -361,6 +361,10 @@ public final class DependenciesRouter implements SimpleHttpServer.CheckedHttpHan
         }
 
         var name = request.name().strip();
+        if ("import".equals(name)) {
+            RouterUtil.sendValidationError(exchange, "'import' is a reserved name and cannot be used");
+            return;
+        }
         var type = request.type() != null ? request.type().strip().toLowerCase() : "local";
         var isGit = "git".equals(type);
 
@@ -403,27 +407,33 @@ public final class DependenciesRouter implements SimpleHttpServer.CheckedHttpHan
             // Create the target directory
             Files.createDirectories(targetPath);
 
-            // Create ProjectFile for the new dependency root
-            var depRoot = new ProjectFile(targetPath, Path.of(""));
+            try {
+                // Create ProjectFile consistent with getAllOnDiskDependencies()
+                var depRoot = new ProjectFile(masterRoot, masterRoot.relativize(targetPath));
 
-            // Write metadata and update dependency on disk
-            if (isGit) {
-                var repoUrl = request.repoUrl().strip();
-                var ref = request.ref() != null && !request.ref().isBlank()
-                        ? request.ref().strip()
-                        : "main";
+                // Write metadata and update dependency on disk
+                if (isGit) {
+                    var repoUrl = request.repoUrl().strip();
+                    var ref = request.ref() != null && !request.ref().isBlank()
+                            ? request.ref().strip()
+                            : "main";
 
-                DependencyUpdater.writeGitDependencyMetadata(targetPath, repoUrl, ref, null);
-                var metadata =
-                        DependencyUpdater.readDependencyMetadata(targetPath).orElseThrow();
-                DependencyUpdater.updateGitDependencyOnDisk(project, depRoot, metadata);
-            } else {
-                var sourcePath = Path.of(request.sourcePath().strip());
+                    DependencyUpdater.writeGitDependencyMetadata(targetPath, repoUrl, ref, null);
+                    var metadata =
+                            DependencyUpdater.readDependencyMetadata(targetPath).orElseThrow();
+                    DependencyUpdater.updateGitDependencyOnDisk(project, depRoot, metadata);
+                } else {
+                    var sourcePath = Path.of(request.sourcePath().strip());
 
-                DependencyUpdater.writeLocalPathDependencyMetadata(targetPath, sourcePath);
-                var metadata =
-                        DependencyUpdater.readDependencyMetadata(targetPath).orElseThrow();
-                DependencyUpdater.updateLocalPathDependencyOnDisk(project, depRoot, metadata);
+                    DependencyUpdater.writeLocalPathDependencyMetadata(targetPath, sourcePath);
+                    var metadata =
+                            DependencyUpdater.readDependencyMetadata(targetPath).orElseThrow();
+                    DependencyUpdater.updateLocalPathDependencyOnDisk(project, depRoot, metadata);
+                }
+            } catch (Exception importEx) {
+                // Clean up the partially created directory on failure
+                FileUtil.deleteRecursively(targetPath);
+                throw importEx;
             }
 
             // Mark as live if requested (default: true when field is absent)

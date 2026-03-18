@@ -142,12 +142,18 @@ class AddDependencyModalScreen(ModalScreen[Optional[Dict[str, Any]]]):
         super().__init__()
         self._mode: str = "local"
 
+    @staticmethod
+    def _derive_name_from_path(path: str) -> str:
+        return path.strip().rstrip("/").rsplit("/", 1)[-1]
+
+    @staticmethod
+    def _derive_name_from_url(url: str) -> str:
+        derived = url.strip().rstrip("/").rsplit("/", 1)[-1]
+        return derived[:-4] if derived.endswith(".git") else derived
+
     def compose(self) -> ComposeResult:
         with Vertical(id="add-dependency-modal-container"):
             yield Static("Add Dependency", id="add-dependency-title")
-
-            yield Static("Name:", id="add-dependency-name-label")
-            yield Input(placeholder="Dependency name (directory name)", id="add-dependency-name")
 
             yield Static("Source:", id="add-dependency-source-label")
             with Horizontal(id="add-dependency-mode-select"):
@@ -173,7 +179,7 @@ class AddDependencyModalScreen(ModalScreen[Optional[Dict[str, Any]]]):
                 yield Button("Cancel", id="add-dependency-cancel")
 
     def on_mount(self) -> None:
-        self.query_one("#add-dependency-name", Input).focus()
+        self.query_one("#add-dependency-path", Input).focus()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         button_id = event.button.id or ""
@@ -209,37 +215,27 @@ class AddDependencyModalScreen(ModalScreen[Optional[Dict[str, Any]]]):
         error_label = self.query_one("#add-dependency-error", Static)
         error_label.update("")
 
-        name = self.query_one("#add-dependency-name", Input).value.strip()
-        if not name:
-            error_label.update("[bold red]Name is required[/]")
-            return
-
         if self._mode == "local":
             source_path = self.query_one("#add-dependency-path", Input).value.strip()
             if not source_path:
                 error_label.update("[bold red]Local path is required[/]")
                 return
-            self.dismiss(
-                {
-                    "name": name,
-                    "mode": "local",
-                    "source_path": source_path,
-                }
-            )
+            name = self._derive_name_from_path(source_path)
+            if not name:
+                error_label.update("[bold red]Could not derive name from path[/]")
+                return
+            self.dismiss({"name": name, "mode": "local", "source_path": source_path})
         else:
             repo_url = self.query_one("#add-dependency-repo", Input).value.strip()
             if not repo_url:
                 error_label.update("[bold red]Repository URL is required[/]")
                 return
+            name = self._derive_name_from_url(repo_url)
+            if not name:
+                error_label.update("[bold red]Could not derive name from URL[/]")
+                return
             ref = self.query_one("#add-dependency-ref", Input).value.strip() or None
-            self.dismiss(
-                {
-                    "name": name,
-                    "mode": "git",
-                    "repo_url": repo_url,
-                    "ref": ref,
-                }
-            )
+            self.dismiss({"name": name, "mode": "git", "repo_url": repo_url, "ref": ref})
 
 
 class TaskListModalScreen(ModalScreen[None]):
