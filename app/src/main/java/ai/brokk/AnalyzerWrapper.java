@@ -383,6 +383,30 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
             Optional<StateMismatch> mismatch = stateMismatch(analyzer);
             if (mismatch.isPresent()) {
                 StateMismatch delta = mismatch.get();
+
+                // If languages are missing from the loaded analyzer, we must instantiate them
+                // so that the subsequent update() call can process the missing files.
+                Set<Language> projectLangs = project.getAnalyzerLanguages().stream()
+                        .filter(l -> l != Languages.NONE)
+                        .collect(Collectors.toSet());
+                Set<Language> analyzerLangs = analyzer.languages();
+
+                if (!analyzerLangs.containsAll(projectLangs)) {
+                    Map<Language, IAnalyzer> nextDelegates = new HashMap<>();
+                    for (Language lang : projectLangs) {
+                        Optional<IAnalyzer> existing = analyzer.subAnalyzer(lang);
+                        if (existing.isPresent()) {
+                            nextDelegates.put(lang, existing.get());
+                        } else {
+                            logger.info("Instantiating missing analyzer delegate for {} during recovery", lang.name());
+                            nextDelegates.put(lang, lang.createAnalyzer(project, progressListener));
+                        }
+                    }
+                    analyzer = nextDelegates.size() == 1
+                            ? nextDelegates.values().iterator().next()
+                            : new MultiAnalyzer(nextDelegates);
+                }
+
                 logger.warn(
                         "Loaded analyzer state appears corrupt (file mismatch). Attempting targeted repair of {} files.",
                         delta.missing().size() + delta.unexpected().size());
