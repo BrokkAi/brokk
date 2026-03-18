@@ -112,6 +112,14 @@
      (assignment left: (pattern_list (identifier) @field.name))
      (assignment right: (assignment left: (identifier) @field.name))] @field.definition))
 
+; Class-level variable assignments (fields)
+(class_definition
+  body: (block
+    (expression_statement
+      [(assignment left: (identifier) @field.name)
+       (assignment left: (pattern_list (identifier) @field.name))
+       (assignment right: (assignment left: (identifier) @field.name))] @field.definition)))
+
 ; Variable assignments inside module-level control flow (conditionals, exception handling, context managers, loops)
 ; Covers simple, tuple unpacking, and multi-target assignments in one consolidated pattern
 (module

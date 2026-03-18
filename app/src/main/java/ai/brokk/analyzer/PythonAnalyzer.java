@@ -366,6 +366,65 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
     }
 
     @Override
+    protected String formatFieldSignature(
+            TSNode fieldNode,
+            SourceContent sourceContent,
+            String exportPrefix,
+            String signatureText,
+            String simpleName,
+            String baseIndent,
+            ProjectFile file) {
+        if (fieldNode.isNull()) {
+            return super.formatFieldSignature(
+                    fieldNode, sourceContent, exportPrefix, signatureText, simpleName, baseIndent, file);
+        }
+
+        // Python field nodes from definitions.scm are typically 'expression_statement' wrapping 'assignment', or
+        // 'typed_parameter'
+        TSNode assignmentNode = fieldNode;
+        if ("expression_statement".equals(fieldNode.getType()) && fieldNode.getNamedChildCount() > 0) {
+            assignmentNode = fieldNode.getNamedChild(0);
+        }
+
+        TSNode valueNode = assignmentNode.getChildByFieldName("value");
+        if (valueNode == null || valueNode.isNull()) {
+            // Assignments will have a "left"/"right" property
+            valueNode = assignmentNode.getChildByFieldName("right");
+        }
+        if (valueNode == null || valueNode.isNull() || isLiteralType(valueNode.getType())) {
+            return baseIndent + signatureText;
+        }
+
+        // For non-literals, truncate to just the assignment target (name)
+        TSNode nameNode = assignmentNode.getChildByFieldName("name");
+        if (nameNode == null || nameNode.isNull()) {
+            nameNode = assignmentNode.getChildByFieldName("left");
+        }
+        if (nameNode != null && !nameNode.isNull()) {
+            return baseIndent + sourceContent.substringFrom(nameNode).strip();
+        }
+
+        // Fallback for complex patterns: strip the value part from the signature string if possible
+        int eqIndex = signatureText.indexOf('=');
+        if (eqIndex > 0) {
+            return baseIndent + signatureText.substring(0, eqIndex).strip();
+        }
+
+        return baseIndent + signatureText;
+    }
+
+    private boolean isLiteralType(String type) {
+        return type.endsWith("_literal")
+                || type.equals("string")
+                || type.equals("integer")
+                || type.equals("float")
+                || type.equals("true")
+                || type.equals("false")
+                || type.equals("boolean")
+                || type.equals("none");
+    }
+
+    @Override
     protected String renderClassHeader(
             TSNode classNode,
             SourceContent sourceContent,
