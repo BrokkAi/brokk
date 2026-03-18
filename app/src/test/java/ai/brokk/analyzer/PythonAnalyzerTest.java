@@ -1594,6 +1594,33 @@ public final class PythonAnalyzerTest {
     }
 
     @Test
+    public void testDecoratedClassSkeleton() {
+        String content =
+                """
+                @dataclass(frozen=True)
+                @decorator2
+                class MyClass:
+                    LITERAL = 1
+                    COMPLEX = some_function_call()
+                """;
+        try (var testProject =
+                InlineTestProjectCreator.code(content, "decorated.py").build()) {
+            PythonAnalyzer inlineAnalyzer = new PythonAnalyzer(testProject);
+
+            CodeUnit compCu = inlineAnalyzer
+                    .getDefinitions("decorated.MyClass")
+                    .iterator()
+                    .next();
+            String skeleton = inlineAnalyzer.getSkeleton(compCu).orElse("");
+            assertTrue(skeleton.contains("@dataclass(frozen=True)"), "Skeleton should contain decorator");
+            assertTrue(skeleton.contains("@decorator2"), "Skeleton should contain decorator2");
+            assertTrue(skeleton.contains("class MyClass:"), "Skeleton should contain class signature");
+            assertTrue(skeleton.contains("LITERAL = 1"), "Skeleton should contain literal field");
+            assertFalse(skeleton.contains("COMPLEX"), "Skeleton should omit complex field");
+        }
+    }
+
+    @Test
     public void testComplexFieldInitializerIsOmitted() throws Exception {
         String content =
                 """
@@ -1611,10 +1638,10 @@ public final class PythonAnalyzerTest {
                     inlineAnalyzer.getDefinitions("fields.LITERAL").iterator().next();
             assertCodeEquals("LITERAL = 1", inlineAnalyzer.getSkeleton(litCu).orElse(""));
 
-            // Top level COMPLEX should be truncated
+            // Top level COMPLEX should be omitted completely
             CodeUnit compCu =
                     inlineAnalyzer.getDefinitions("fields.COMPLEX").iterator().next();
-            assertCodeEquals("COMPLEX", inlineAnalyzer.getSkeleton(compCu).orElse(""));
+            assertCodeEquals("", inlineAnalyzer.getSkeleton(compCu).orElse(""));
 
             // CLASS_LITERAL should be preserved
             CodeUnit cLitCu = inlineAnalyzer
@@ -1625,13 +1652,12 @@ public final class PythonAnalyzerTest {
                     "CLASS_LITERAL = \"hello\"",
                     inlineAnalyzer.getSkeleton(cLitCu).orElse(""));
 
-            // CLASS_COMPLEX should be truncated
+            // CLASS_COMPLEX should be omitted completely
             CodeUnit cCompCu = inlineAnalyzer
                     .getDefinitions("fields.MyClass.CLASS_COMPLEX")
                     .iterator()
                     .next();
-            assertCodeEquals(
-                    "CLASS_COMPLEX", inlineAnalyzer.getSkeleton(cCompCu).orElse(""));
+            assertCodeEquals("", inlineAnalyzer.getSkeleton(cCompCu).orElse(""));
         }
     }
 

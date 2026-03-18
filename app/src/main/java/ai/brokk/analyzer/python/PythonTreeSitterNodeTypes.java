@@ -28,6 +28,18 @@ public final class PythonTreeSitterNodeTypes {
 
     // Statements
     public static final String PASS_STATEMENT = "pass_statement";
+    public static final String EXPRESSION_STATEMENT = "expression_statement";
+    public static final String BLOCK = "block";
+    public static final String MODULE = "module";
+
+    // Literals and Keywords
+    public static final String STRING = "string";
+    public static final String INTEGER = "integer";
+    public static final String FLOAT = "float";
+    public static final String TRUE = "true";
+    public static final String FALSE = "false";
+    public static final String BOOLEAN = "boolean";
+    public static final String NONE = "none";
 
     // Other common Python node types
     public static final String DECORATED_DEFINITION = "decorated_definition";
