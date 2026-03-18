@@ -52,6 +52,11 @@ type treeSitterHierarchyHint struct {
 	supertypes []string
 }
 
+type treeSitterDroppedRange struct {
+	start int
+	end   int
+}
+
 //go:embed queries/*.scm
 var treeSitterQueryFiles embed.FS
 
@@ -203,6 +208,7 @@ func parseTreeSitterFile(relativePath string, content string) (treeSitterFileAna
 		definitions = append(definitions, definition)
 	}
 	definitions = collapseWrappedTreeSitterDefinitions(definitions)
+	definitions = pruneTreeSitterDeclarationMerges(spec.languageName, definitions)
 	definitions = applyTreeSitterHierarchyHints(definitions, hierarchyHints)
 
 	return treeSitterFileAnalysis{
@@ -332,6 +338,76 @@ func collapseWrappedTreeSitterDefinitions(definitions []treeSitterDefinition) []
 		}
 	}
 	return results
+}
+
+func pruneTreeSitterDeclarationMerges(language string, definitions []treeSitterDefinition) []treeSitterDefinition {
+	if language != "typescript" || len(definitions) == 0 {
+		return definitions
+	}
+
+	functionNames := map[string]struct{}{}
+	for i, definition := range definitions {
+		if definition.kind != "function" {
+			continue
+		}
+		if hasEnclosingTreeSitterDefinition(definitions, i) {
+			continue
+		}
+		functionNames[definition.name] = struct{}{}
+	}
+
+	dropped := make([]treeSitterDroppedRange, 0, 4)
+	results := make([]treeSitterDefinition, 0, len(definitions))
+	for i, definition := range definitions {
+		if treeSitterIsTypescriptNamespaceDefinition(definition) && !hasEnclosingTreeSitterDefinition(definitions, i) {
+			if _, ok := functionNames[definition.name]; ok {
+				dropped = append(dropped, treeSitterDroppedRange{start: definition.start, end: definition.end})
+				continue
+			}
+		}
+		if treeSitterDefinitionWithinDroppedRange(definition, dropped) {
+			continue
+		}
+		results = append(results, definition)
+	}
+	return results
+}
+
+func treeSitterIsTypescriptNamespaceDefinition(definition treeSitterDefinition) bool {
+	if definition.kind != "class" {
+		return false
+	}
+	signature := strings.TrimSpace(definition.signature)
+	snippet := strings.TrimSpace(definition.snippet)
+	return strings.Contains(signature, "namespace "+definition.name) ||
+		strings.Contains(signature, "module "+definition.name) ||
+		strings.Contains(snippet, "namespace "+definition.name) ||
+		strings.Contains(snippet, "module "+definition.name)
+}
+
+func hasEnclosingTreeSitterDefinition(definitions []treeSitterDefinition, index int) bool {
+	definition := definitions[index]
+	for i, candidate := range definitions {
+		if i == index {
+			continue
+		}
+		if candidate.start > definition.start || candidate.end < definition.end {
+			continue
+		}
+		if candidate.start < definition.start || candidate.end > definition.end {
+			return true
+		}
+	}
+	return false
+}
+
+func treeSitterDefinitionWithinDroppedRange(definition treeSitterDefinition, dropped []treeSitterDroppedRange) bool {
+	for _, candidate := range dropped {
+		if candidate.start <= definition.start && candidate.end >= definition.end {
+			return true
+		}
+	}
+	return false
 }
 
 func applyTreeSitterHierarchyHints(definitions []treeSitterDefinition, hints []treeSitterHierarchyHint) []treeSitterDefinition {

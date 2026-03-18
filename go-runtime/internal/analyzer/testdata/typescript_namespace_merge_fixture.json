@@ -1,0 +1,29 @@
+{
+  "name": "typescript namespace merge",
+  "relativePath": "test.ts",
+  "content": "export function myFunction(x: number): number {\n  return x * 2;\n}\n\nexport namespace myFunction {\n  export const version = 1;\n  export function helper() {\n    return \"helper\";\n  }\n}\n",
+  "classes": [],
+  "methods": [
+    "test.myFunction"
+  ],
+  "fields": [],
+  "imports": [],
+  "containsTests": false,
+  "resolveMethodsInput": [
+    "myFunction"
+  ],
+  "resolveMethods": [
+    "test.myFunction"
+  ],
+  "completeQuery": "myFunction",
+  "completeLimit": 1,
+  "completeOrdered": [
+    "test.myFunction"
+  ],
+  "definitionGroupFQName": "test.myFunction",
+  "definitionGroupKind": "function",
+  "definitionGroupContains": [
+    "myFunction(x: number)"
+  ],
+  "definitionGroupSymbolCount": 1
+}
