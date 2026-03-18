@@ -65,6 +65,12 @@ public class ParallelSearch {
                     - there are multiple plausible places to look,
                     - or you want to explore several search branches in parallel before deciding what to add to the Workspace.
 
+                    Prefer direct search tools for anchored lookup when you already have concrete clues:
+                    - `searchSymbols` for class/method/type names,
+                    - `scanUsages` when you already know the exact symbol and need callers/usages,
+                    - `findFilenames` for tests/resources/config by name,
+                    - `searchFileContents` for exact strings, annotations, config keys, error text, or other literals.
+
                     Query guidance:
                     - Make the query self-contained.
                     - State the goal, what to find, and any likely locations, clues, or constraints.
@@ -72,7 +78,7 @@ public class ParallelSearch {
                     Use `mode="WORKSPACE"` to have Search Agent add relevant context to the Workspace.
                     Use `mode="ANSWER"` to get findings back without modifying the Workspace.
 
-                    Prefer direct `add*ToWorkspace` tools instead when you already know exactly what you need.""")
+                    Prefer direct `add*ToWorkspace` tools instead when you already know exactly what you need to add.""")
     public String callSearchAgent(
             @P(
                             "A complete, explicit search request for SearchAgent in English (not just keywords). Do not rely on prior Architect conversation history; include the goal, constraints, relevant code locations, and what information you need.")

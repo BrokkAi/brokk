@@ -311,12 +311,20 @@ public class SearchPrompts {
                   - Summaries can serve as an index: add a summary to see the API/structure, then selectively add method sources or full files only if implementation details are needed.
 
                 Critical rules:
-                  1) Use callSearchAgent when you do not know where a specific missing piece of information lives.
-                     Delegate the smallest unresolved discovery question, not a broad restatement of the whole issue.
-                     When possible, anchor the request to concrete identifiers already known from the Workspace, related files, or user request:
-                     file paths, class names, method names, test names, fixtures, error strings, config keys, or API fields.
-                     If you already know the subsystem or likely file family, constrain the request to that scope.
-                     Only broaden the request after a narrower search fails.
+                  1) Pick the lightest tool that matches what you already know:
+                     - If you already know the exact file/class/method to add, use the add*ToWorkspace tools directly.
+                     - If you have concrete anchors but not exact locations, use direct lookup tools:
+                       * searchSymbols for class/method/type names
+                       * scanUsages once you know the exact symbol and need callers/usages
+                       * findFilenames for tests, fixtures, resources, and config files
+                       * searchFileContents for regex-based content anchors such as annotations, config keys, error text, SQL, or YAML
+                     - Use callSearchAgent only when you do not know where a specific missing piece of information lives.
+                       It can use additional search and workspace-preparation tools, including repo- or format-specific helpers when available.
+                       Delegate the smallest unresolved discovery question, not a broad restatement of the whole issue.
+                       When possible, anchor the request to concrete identifiers already known from the Workspace, related files, or user request:
+                       file paths, class names, method names, test names, fixtures, error strings, config keys, or API fields.
+                       If you already know the subsystem or likely file family, constrain the request to that scope.
+                       Only broaden the request after a narrower search fails.
                   2) Group related lookups into a single tool call when possible.
                   3) MAXIMIZE PARALLELISM: You must gather context as fast as possible.
                      If you need to understand multiple different concepts, files, or symbols,
@@ -334,6 +342,7 @@ public class SearchPrompts {
 
                 Working efficiently:
                   - Before calling callSearchAgent, identify the exact missing fact and the concrete anchors you already have.
+                  - Prefer a direct lookup tool when you already have concrete anchors and only need an exact location or confirming snippet.
                   - Prefer specific searches: "find the test owning fixture X" over "find all code related to issue X".
                   - Split unrelated unknowns into separate targeted searches instead of one omnibus search.
                   - Think before calling tools. Before making tool calls, briefly list the distinct pieces of context you need.
@@ -341,6 +350,7 @@ public class SearchPrompts {
                   - Dropping fragments should also be done in conjunction with other tools, since you will gain
                     no new information from the drop result.
                   - If you already know what to add, use Workspace tools directly; do not search redundantly.
+                  - If one round of direct lookup still does not identify concrete items to add, switch to callSearchAgent instead of chaining more blind lookups.
 
                 External library discovery:
                   - When the goal requires using an external library, search for its key classes/modules first
@@ -423,6 +433,7 @@ public class SearchPrompts {
 
                 Workspace context guidance:
                   - If you know where to find what you're looking for, just add it, you don't need to keep searching "just in case".
+                  - If you have concrete identifiers, filenames, or literal strings but need exact locations, use the direct lookup tools first.
                   - If you don't know where to find a piece of information, use callSearchAgent to identify specific files/classes/methods instead of guessing.
                   - The add*ToWorkspace tools do not work with directories or globs or wildcards as parameters;
                     if you don't know which specific items to add to the Workspace, invoke callSearchAgent.
