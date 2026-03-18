@@ -393,12 +393,10 @@ public class BrokkExternalMcpServer {
         Set<String> added = new HashSet<>();
 
         int processedCount = 0;
-        boolean truncated = false;
         int maxCount = 10;
 
         for (String name : names) {
             if (classMode && processedCount >= maxCount) {
-                truncated = true;
                 break;
             }
 
@@ -444,12 +442,7 @@ public class BrokkExternalMcpServer {
             return rawResultText;
         }
 
-        String output = String.join("\n\n", blocks);
-        if (classMode && truncated) {
-            output = "### WARNING: Result limit reached (max 10 classes). Showing first 10 class sources. "
-                    + "Retrying the same tool call will return the same results.\n\n" + output;
-        }
-        return output;
+        return String.join("\n\n", blocks);
     }
 
     private static String formatScanUsagesForMcp(Map<?, ?> args, String rawResultText, ContextManager cm) {
