@@ -11,6 +11,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.function.BiFunction;
 import java.util.function.Function;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Synchronous ACP agent implementation.
@@ -52,17 +53,29 @@ public class AcpSyncAgent {
         transport.close();
     }
 
-    private Object handleMessage(String method, JsonNode params, Object id) {
+    private Object handleMessage(String method, @Nullable JsonNode params, @Nullable Object id) {
         return switch (method) {
             case "initialize" -> {
+                if (params == null) {
+                    throw new AcpProtocolException(
+                            AcpProtocolException.INVALID_PARAMS, "Missing params for initialize");
+                }
                 var req = parseAs(params, InitializeRequest.class);
                 yield initializeHandler.apply(req);
             }
             case "session/new" -> {
+                if (params == null) {
+                    throw new AcpProtocolException(
+                            AcpProtocolException.INVALID_PARAMS, "Missing params for session/new");
+                }
                 var req = parseAs(params, NewSessionRequest.class);
                 yield newSessionHandler.apply(req);
             }
             case "session/prompt" -> {
+                if (params == null) {
+                    throw new AcpProtocolException(
+                            AcpProtocolException.INVALID_PARAMS, "Missing params for session/prompt");
+                }
                 var req = parseAs(params, PromptRequest.class);
                 var ctx = new SyncPromptContext(req.sessionId(), transport);
                 yield promptHandler.apply(req, ctx);

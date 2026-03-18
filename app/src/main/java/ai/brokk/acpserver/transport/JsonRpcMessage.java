@@ -19,7 +19,8 @@ public final class JsonRpcMessage {
      * When {@code id} is null, this represents a notification (no response expected).
      */
     @JsonInclude(JsonInclude.Include.NON_NULL)
-    public record Request(String jsonrpc, String method, @Nullable JsonNode params, @Nullable Object id) {
+    public record Request(
+            @Nullable String jsonrpc, @Nullable String method, @Nullable JsonNode params, @Nullable Object id) {
         public boolean isNotification() {
             return id == null;
         }
@@ -29,16 +30,16 @@ public final class JsonRpcMessage {
      * JSON-RPC 2.0 response message.
      */
     @JsonInclude(JsonInclude.Include.NON_NULL)
-    public record Response(String jsonrpc, @Nullable Object result, @Nullable Error error, Object id) {
-        public static Response success(Object id, Object result) {
+    public record Response(String jsonrpc, @Nullable Object result, @Nullable RpcError error, @Nullable Object id) {
+        public static Response success(@Nullable Object id, Object result) {
             return new Response(JSONRPC_VERSION, result, null, id);
         }
 
-        public static Response error(Object id, int code, String message) {
-            return new Response(JSONRPC_VERSION, null, new Error(code, message, null), id);
+        public static Response error(@Nullable Object id, int code, String message) {
+            return new Response(JSONRPC_VERSION, null, new RpcError(code, message, null), id);
         }
 
-        public static Response error(Object id, Error error) {
+        public static Response error(@Nullable Object id, RpcError error) {
             return new Response(JSONRPC_VERSION, null, error, id);
         }
     }
@@ -57,7 +58,7 @@ public final class JsonRpcMessage {
      * JSON-RPC 2.0 error object.
      */
     @JsonInclude(JsonInclude.Include.NON_NULL)
-    public record Error(int code, String message, @Nullable Object data) {
+    public record RpcError(int code, String message, @Nullable Object data) {
         // Standard JSON-RPC error codes
         public static final int PARSE_ERROR = -32700;
         public static final int INVALID_REQUEST = -32600;

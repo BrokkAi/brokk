@@ -1,6 +1,7 @@
 package ai.brokk.acpserver.transport;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Transport interface for ACP (Agent Client Protocol) communication.
@@ -23,19 +24,19 @@ public interface AcpTransport {
     /**
      * Sends a JSON-RPC response for a request.
      *
-     * @param id the request ID to respond to
+     * @param id the request ID to respond to (may be null for notifications, though responses shouldn't be sent)
      * @param result the result object (will be serialized to JSON)
      */
-    void sendResponse(Object id, Object result);
+    void sendResponse(@Nullable Object id, Object result);
 
     /**
      * Sends a JSON-RPC error response.
      *
-     * @param id the request ID to respond to
+     * @param id the request ID to respond to (may be null for notifications)
      * @param code the error code
      * @param message the error message
      */
-    void sendErrorResponse(Object id, int code, String message);
+    void sendErrorResponse(@Nullable Object id, int code, String message);
 
     /**
      * Sends a JSON-RPC notification (no response expected).
@@ -64,6 +65,6 @@ public interface AcpTransport {
          * @return the result object, or null if this is a notification
          * @throws Exception if handling fails
          */
-        Object handle(String method, JsonNode params, Object id) throws Exception;
+        Object handle(String method, @Nullable JsonNode params, @Nullable Object id) throws Exception;
     }
 }

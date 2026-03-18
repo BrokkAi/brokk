@@ -123,7 +123,7 @@ class StdioAcpAgentTransportTest {
         assertEquals(42, response.get("id").asInt());
         assertNotNull(response.get("error"));
         assertEquals(
-                JsonRpcMessage.Error.INTERNAL_ERROR,
+                JsonRpcMessage.RpcError.INTERNAL_ERROR,
                 response.get("error").get("code").asInt());
     }
 
@@ -145,7 +145,7 @@ class StdioAcpAgentTransportTest {
         JsonNode response = mapper.readTree(responseJson);
 
         assertEquals(
-                JsonRpcMessage.Error.PARSE_ERROR,
+                JsonRpcMessage.RpcError.PARSE_ERROR,
                 response.get("error").get("code").asInt());
     }
 

@@ -14,6 +14,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Stdio-based transport for ACP agent communication.
@@ -96,7 +97,7 @@ public class StdioAcpAgentTransport implements AcpTransport {
         if (request.jsonrpc() == null || !request.jsonrpc().equals(JsonRpcMessage.JSONRPC_VERSION)) {
             logger.warn("Invalid JSON-RPC version: {}", request.jsonrpc());
             if (request.id() != null) {
-                sendErrorResponse(request.id(), JsonRpcMessage.Error.INVALID_REQUEST, "Invalid JSON-RPC version");
+                sendErrorResponse(request.id(), JsonRpcMessage.RpcError.INVALID_REQUEST, "Invalid JSON-RPC version");
             }
             return;
         }
@@ -104,7 +105,7 @@ public class StdioAcpAgentTransport implements AcpTransport {
         if (request.method() == null || request.method().isBlank()) {
             logger.warn("Missing method in JSON-RPC request");
             if (request.id() != null) {
-                sendErrorResponse(request.id(), JsonRpcMessage.Error.INVALID_REQUEST, "Missing method");
+                sendErrorResponse(request.id(), JsonRpcMessage.RpcError.INVALID_REQUEST, "Missing method");
             }
             return;
         }
@@ -125,23 +126,27 @@ public class StdioAcpAgentTransport implements AcpTransport {
             sendResponse(request.id(), result);
         } catch (Exception e) {
             logger.error("Error handling request {}: {}", request.method(), e.getMessage(), e);
-            sendErrorResponse(request.id(), JsonRpcMessage.Error.INTERNAL_ERROR, e.getMessage());
+            String errorMsg = e.getMessage();
+            sendErrorResponse(
+                    request.id(),
+                    JsonRpcMessage.RpcError.INTERNAL_ERROR,
+                    errorMsg != null ? errorMsg : e.getClass().getName());
         }
     }
 
     private void sendParseError() {
-        var response = JsonRpcMessage.Response.error("null", JsonRpcMessage.Error.PARSE_ERROR, "Parse error");
+        var response = JsonRpcMessage.Response.error("null", JsonRpcMessage.RpcError.PARSE_ERROR, "Parse error");
         writeMessage(response);
     }
 
     @Override
-    public void sendResponse(Object id, Object result) {
+    public void sendResponse(@Nullable Object id, Object result) {
         var response = JsonRpcMessage.Response.success(id, result);
         writeMessage(response);
     }
 
     @Override
-    public void sendErrorResponse(Object id, int code, String message) {
+    public void sendErrorResponse(@Nullable Object id, int code, String message) {
         var response = JsonRpcMessage.Response.error(id, code, message);
         writeMessage(response);
     }

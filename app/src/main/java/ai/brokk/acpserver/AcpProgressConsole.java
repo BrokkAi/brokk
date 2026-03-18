@@ -20,7 +20,6 @@ import org.jetbrains.annotations.Nullable;
 public class AcpProgressConsole extends MemoryConsole {
 
     private final SyncPromptContext ctx;
-    private final IConsoleIO delegate;
 
     /**
      * Creates an ACP progress console.
@@ -30,7 +29,6 @@ public class AcpProgressConsole extends MemoryConsole {
      */
     public AcpProgressConsole(SyncPromptContext ctx, IConsoleIO delegate) {
         this.ctx = ctx;
-        this.delegate = delegate;
         setEchoTo(delegate);
     }
 
