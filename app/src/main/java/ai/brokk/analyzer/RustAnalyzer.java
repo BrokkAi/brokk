@@ -477,6 +477,70 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
     }
 
     @Override
+    protected Set<CodeUnit> resolveImports(ProjectFile file, List<String> importStatements) {
+        String currentPackage = determinePackageName(file, null, null, null);
+        Set<CodeUnit> resolved = new java.util.HashSet<>();
+
+        for (ImportInfo info : importInfoOf(file)) {
+            if (info.isWildcard()) {
+                continue; // Wildcard resolution not yet supported for Rust
+            }
+
+            String identifier = info.identifier();
+            if (identifier == null) {
+                continue;
+            }
+
+            // Extract the path from the raw snippet "use path::to::Symbol [as Alias];"
+            String rawPath = info.rawSnippet();
+            if (rawPath.startsWith("use ")) {
+                rawPath = rawPath.substring(4);
+            }
+            if (rawPath.endsWith(";")) {
+                rawPath = rawPath.substring(0, rawPath.length() - 1);
+            }
+
+            // Strip alias if present to get the target path
+            int asIdx = rawPath.toLowerCase(Locale.ROOT).lastIndexOf(" as ");
+            if (asIdx != -1) {
+                rawPath = rawPath.substring(0, asIdx).trim();
+            }
+
+            String fqn = resolveRustPathToFqn(rawPath, currentPackage);
+            resolved.addAll(getDefinitions(fqn));
+        }
+
+        return java.util.Collections.unmodifiableSet(resolved);
+    }
+
+    private String resolveRustPathToFqn(String rustPath, String currentPackage) {
+        if (rustPath.startsWith("crate::")) {
+            return rustPath.substring(7).replace("::", ".");
+        }
+
+        if (rustPath.startsWith("self::")) {
+            String path = rustPath.substring(6).replace("::", ".");
+            return currentPackage.isEmpty() ? path : currentPackage + "." + path;
+        }
+
+        if (rustPath.startsWith("super::")) {
+            String remaining = rustPath;
+            String pkg = currentPackage;
+            while (remaining.startsWith("super::")) {
+                remaining = remaining.substring(7);
+                int lastDot = pkg.lastIndexOf('.');
+                pkg = (lastDot == -1) ? "" : pkg.substring(0, lastDot);
+            }
+            String path = remaining.replace("::", ".");
+            if (path.startsWith(".")) path = path.substring(1);
+            return pkg.isEmpty() ? path : (path.isEmpty() ? pkg : pkg + "." + path);
+        }
+
+        // External crates or absolute paths not starting with crate::
+        return rustPath.replace("::", ".");
+    }
+
+    @Override
     protected void extractImports(
             Map<String, TSNode> capturedNodesForMatch, SourceContent sourceContent, List<ImportInfo> localImportInfos) {
         TSNode importNode = capturedNodesForMatch.get(RS_SYNTAX_PROFILE.importNodeType());

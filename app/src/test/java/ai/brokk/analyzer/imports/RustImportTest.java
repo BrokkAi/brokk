@@ -97,7 +97,6 @@ class RustImportTest {
     }
 
     @Test
-    @Disabled("Semantic import resolution for Rust is pending")
     void testResolveImports_Semantic() throws IOException {
         IProject project = InlineTestProjectCreator.code("pub struct MyStruct;", "src/my_module.rs")
                 .addFileContents(
@@ -120,7 +119,6 @@ class RustImportTest {
     }
 
     @Test
-    @Disabled("Semantic aliased import resolution for Rust is pending")
     void testResolveImports_Aliased() throws IOException {
         IProject project = InlineTestProjectCreator.code("pub struct TargetStruct;", "src/lib.rs")
                 .addFileContents(
