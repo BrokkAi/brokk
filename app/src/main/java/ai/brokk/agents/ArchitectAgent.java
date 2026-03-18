@@ -299,7 +299,8 @@ public class ArchitectAgent {
 
         // Update architect context with the CodeAgent's fragments, preserving the Architect history
         var codeContext = result.context();
-        context = codeContext.withHistory(historyFuture.join())
+        context = codeContext
+                .withHistory(historyFuture.join())
                 .addHistoryEntry(codeContext.getTaskHistory().getLast());
 
         var changedFragments =

@@ -31,7 +31,7 @@ public class ContextAgentTest {
     Path tempDir;
 
     @Test
-    void recommendContext_returnsToolOutputWithProvidedFilesClassesAndTests() throws InterruptedException {
+    void recommendContext_returnsToolOutputWithProvidedFilesAndClasses() throws InterruptedException {
         Path root = tempDir.toAbsolutePath();
         var analyzer = new TestAnalyzer(List.of(), Map.of());
         var cm = new TestContextManager(root, new TestConsoleIO(), analyzer);
@@ -39,14 +39,10 @@ public class ContextAgentTest {
         StreamingChatModel model = cm.getService().quickestModel();
         var agent = new ContextAgent(cm, model, "test");
 
-        var output = agent.recommendContext(
-                List.of("src/main/java/pkg/Foo.java"),
-                List.of("pkg.Foo", "pkg.Bar"),
-                List.of("src/test/java/pkg/FooTest.java"));
+        var output = agent.recommendContext(List.of("src/main/java/pkg/Foo.java"), List.of("pkg.Foo", "pkg.Bar"));
 
         assertEquals(List.of("src/main/java/pkg/Foo.java"), output.filesToAdd());
         assertEquals(List.of("pkg.Foo", "pkg.Bar"), output.classesToSummarize());
-        assertEquals(List.of("src/test/java/pkg/FooTest.java"), output.testsToAdd());
     }
 
     @Test
@@ -62,7 +58,6 @@ public class ContextAgentTest {
 
         assertEquals(List.of("src/main/java/pkg/Foo.java"), output.filesToAdd());
         assertTrue(output.classesToSummarize().isEmpty());
-        assertTrue(output.testsToAdd().isEmpty());
     }
 
     @Test
