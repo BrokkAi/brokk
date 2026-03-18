@@ -1,5 +1,6 @@
 package ai.brokk.mcpserver;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.ContextManager;
@@ -47,6 +48,21 @@ class BrokkExternalMcpServerMcpFormattingIntegrationTest {
             assertTrue(output.matches("(?s).*```.*Foo\\.java\\R.*"), output);
             assertTrue(output.contains("10:     int baz() {"), output);
             assertTrue(output.contains("11:         return new Foo().inc(1);"), output);
+        }
+    }
+
+    @Test
+    void mcpGetFileContents_mixedSuccess_preservesRawToolOutput() throws Exception {
+        try (var cm = contextManagerWithSampleJava()) {
+            String output = invokeTool(
+                    cm,
+                    "getFileContents",
+                    Map.of(
+                            "filenames",
+                            List.of("src/main/java/com/example/Foo.java", "src/main/java/com/example/Missing.java")));
+            assertTrue(output.matches("(?s).*```.*Foo\\.java\\R.*"), output);
+            assertTrue(output.contains("class Foo {"), output);
+            assertFalse(output.contains("1: package com.example;"), output);
         }
     }
 

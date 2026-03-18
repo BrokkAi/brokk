@@ -248,8 +248,11 @@ public class BrokkExternalMcpServer {
                                                             .build();
 
                                                     var result = registry.executeTool(lc4jRequest);
-                                                    String resultText = maybeApplyMcpFormatting(
-                                                            spec.name(), args, result.resultText(), cm);
+                                                    String resultText =
+                                                            result.status() == ToolExecutionResult.Status.SUCCESS
+                                                                    ? maybeApplyMcpFormatting(
+                                                                            spec.name(), args, result.resultText(), cm)
+                                                                    : result.resultText();
                                                     return McpSchema.CallToolResult.builder()
                                                             .addTextContent(resultText)
                                                             .isError(result.status()
@@ -336,7 +339,7 @@ public class BrokkExternalMcpServer {
         }
 
         StringBuilder result = new StringBuilder();
-        boolean anySuccess = false;
+        int successCount = 0;
         for (String filename : filenames) {
             try {
                 var file = cm.toFile(filename);
@@ -355,13 +358,13 @@ public class BrokkExternalMcpServer {
                         .append("\n")
                         .append(withLineNumbers(contentOpt.get()))
                         .append("\n```");
-                anySuccess = true;
+                successCount++;
             } catch (Exception e) {
                 logger.warn("Failed to render line-numbered file content for {}", filename, e);
             }
         }
 
-        if (!anySuccess) {
+        if (successCount != filenames.size()) {
             return rawResultText;
         }
 
