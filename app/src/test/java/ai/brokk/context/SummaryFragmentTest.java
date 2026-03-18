@@ -399,7 +399,7 @@ public class SummaryFragmentTest {
     }
 
     @Test
-    public void pythonFileSkeleton() throws IOException {
+    public void pythonFileSkeleton() {
         String pythonCode =
                 """
                 from __future__ import annotations
