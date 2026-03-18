@@ -453,6 +453,28 @@ public final class CSharpAnalyzerTest {
     }
 
     @Test
+    void testComplexFieldInitializerIsOmitted() throws IOException {
+        String code =
+                """
+                public class ComplexField {
+                    public object obj = new object();
+                }
+                """;
+        try (var testProject =
+                InlineTestProjectCreator.code(code, "ComplexField.cs").build()) {
+            CSharpAnalyzer analyzer = new CSharpAnalyzer(testProject);
+
+            var defs = analyzer.getDefinitions("ComplexField.obj");
+            assertEquals(1, defs.size());
+            var cu = defs.iterator().next();
+            var skeleton = analyzer.getSkeleton(cu);
+            assertTrue(skeleton.isPresent());
+            // The object creation should be omitted, leaving only the declaration and semicolon
+            assertCodeEquals("public object obj;", skeleton.get());
+        }
+    }
+
+    @Test
     void testComplexFieldInitializersAreOmitted() {
         String code =
                 """
