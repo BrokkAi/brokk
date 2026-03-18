@@ -10,25 +10,32 @@ import (
 )
 
 type analyzerFixture struct {
-	Name                string            `json:"name"`
-	RelativePath        string            `json:"relativePath"`
-	Content             string            `json:"content"`
-	AdditionalFiles     map[string]string `json:"additionalFiles"`
-	Classes             []string          `json:"classes"`
-	Methods             []string          `json:"methods"`
-	Fields              []string          `json:"fields"`
-	Imports             []string          `json:"imports"`
-	ContainsTests       bool              `json:"containsTests"`
-	RawSupertypes       []string          `json:"rawSupertypes"`
-	ResolveClassesInput []string          `json:"resolveClassesInput"`
-	ResolveClasses      []string          `json:"resolveClasses"`
-	ResolveMethodsInput []string          `json:"resolveMethodsInput"`
-	ResolveMethods      []string          `json:"resolveMethods"`
-	CompleteQuery       string            `json:"completeQuery"`
-	CompleteLimit       int               `json:"completeLimit"`
-	Complete            []string          `json:"complete"`
-	SkeletonFQName      string            `json:"skeletonFQName"`
-	SkeletonContains    []string          `json:"skeletonContains"`
+	Name                       string            `json:"name"`
+	RelativePath               string            `json:"relativePath"`
+	Content                    string            `json:"content"`
+	AdditionalFiles            map[string]string `json:"additionalFiles"`
+	Classes                    []string          `json:"classes"`
+	Methods                    []string          `json:"methods"`
+	Fields                     []string          `json:"fields"`
+	Imports                    []string          `json:"imports"`
+	ContainsTests              bool              `json:"containsTests"`
+	RawSupertypes              []string          `json:"rawSupertypes"`
+	ResolveClassesInput        []string          `json:"resolveClassesInput"`
+	ResolveClasses             []string          `json:"resolveClasses"`
+	ResolveMethodsInput        []string          `json:"resolveMethodsInput"`
+	ResolveMethods             []string          `json:"resolveMethods"`
+	CompleteQuery              string            `json:"completeQuery"`
+	CompleteLimit              int               `json:"completeLimit"`
+	Complete                   []string          `json:"complete"`
+	SkeletonFQName             string            `json:"skeletonFQName"`
+	SkeletonContains           []string          `json:"skeletonContains"`
+	RenderSymbolFQName         string            `json:"renderSymbolFQName"`
+	RenderSymbolKind           string            `json:"renderSymbolKind"`
+	RenderSymbolContains       []string          `json:"renderSymbolContains"`
+	DefinitionGroupFQName      string            `json:"definitionGroupFQName"`
+	DefinitionGroupKind        string            `json:"definitionGroupKind"`
+	DefinitionGroupContains    []string          `json:"definitionGroupContains"`
+	DefinitionGroupSymbolCount int               `json:"definitionGroupSymbolCount"`
 }
 
 func TestAnalyzerFixtures(t *testing.T) {
@@ -127,6 +134,33 @@ func runAnalyzerFixture(t *testing.T, fixturePath string) {
 		for _, expected := range fixture.SkeletonContains {
 			if !strings.Contains(header, expected) {
 				t.Fatalf("SkeletonHeader(%q) = %q, want to contain %q", fixture.SkeletonFQName, header, expected)
+			}
+		}
+	}
+	if fixture.RenderSymbolFQName != "" && fixture.RenderSymbolKind != "" {
+		symbols := filterByKind(service.Definitions(fixture.RenderSymbolFQName), fixture.RenderSymbolKind)
+		if len(symbols) == 0 {
+			t.Fatalf("Definitions(%q) had no %q symbol to render", fixture.RenderSymbolFQName, fixture.RenderSymbolKind)
+		}
+		rendered := service.RenderSymbol(symbols[0])
+		for _, expected := range fixture.RenderSymbolContains {
+			if !strings.Contains(rendered, expected) {
+				t.Fatalf("RenderSymbol(%q) = %q, want to contain %q", fixture.RenderSymbolFQName, rendered, expected)
+			}
+		}
+	}
+	if fixture.DefinitionGroupFQName != "" && fixture.DefinitionGroupKind != "" {
+		group, ok := service.DefinitionGroup(fixture.DefinitionGroupFQName, fixture.DefinitionGroupKind)
+		if !ok {
+			t.Fatalf("DefinitionGroup(%q, %q) = false, want true", fixture.DefinitionGroupFQName, fixture.DefinitionGroupKind)
+		}
+		if fixture.DefinitionGroupSymbolCount > 0 && len(group.Symbols) != fixture.DefinitionGroupSymbolCount {
+			t.Fatalf("len(DefinitionGroup(%q).Symbols) = %d, want %d", fixture.DefinitionGroupFQName, len(group.Symbols), fixture.DefinitionGroupSymbolCount)
+		}
+		rendered := service.RenderDefinitionGroup(group)
+		for _, expected := range fixture.DefinitionGroupContains {
+			if !strings.Contains(rendered, expected) {
+				t.Fatalf("RenderDefinitionGroup(%q) = %q, want to contain %q", fixture.DefinitionGroupFQName, rendered, expected)
 			}
 		}
 	}

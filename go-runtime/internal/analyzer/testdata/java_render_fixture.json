@@ -1,0 +1,40 @@
+{
+  "name": "java render fixture",
+  "relativePath": "src/main/java/com/example/service/UserService.java",
+  "content": "package com.example.service;\n\nimport java.util.List;\n\npublic class UserService {\n    public String findUserById(String id) {\n        return id;\n    }\n\n    public String findUserById(long id) {\n        return Long.toString(id);\n    }\n}\n",
+  "classes": [
+    "com.example.service.UserService"
+  ],
+  "methods": [
+    "com.example.service.UserService.findUserById",
+    "com.example.service.UserService.findUserById"
+  ],
+  "fields": [],
+  "imports": [
+    "import java.util.List;"
+  ],
+  "containsTests": false,
+  "rawSupertypes": [],
+  "resolveMethodsInput": [
+    "findUserById"
+  ],
+  "resolveMethods": [
+    "com.example.service.UserService.findUserById",
+    "com.example.service.UserService.findUserById"
+  ],
+  "renderSymbolFQName": "com.example.service.UserService.findUserById",
+  "renderSymbolKind": "function",
+  "renderSymbolContains": [
+    "<imports>",
+    "<methods class=\"com.example.service.UserService\"",
+    "public String findUserById(String id)"
+  ],
+  "definitionGroupFQName": "com.example.service.UserService.findUserById",
+  "definitionGroupKind": "function",
+  "definitionGroupSymbolCount": 2,
+  "definitionGroupContains": [
+    "<methods class=\"com.example.service.UserService\"",
+    "public String findUserById(String id)",
+    "public String findUserById(long id)"
+  ]
+}
