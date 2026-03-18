@@ -397,18 +397,15 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
         // 1. Direct hit
         if (isLiteralType(type)) return node;
 
-        // 2. Look through named children (handles wrapper nodes like 'literal' or 'parenthesized_expression')
-        for (int i = 0; i < node.getChildCount(); i++) {
-            TSNode child = node.getChild(i);
-            if (child == null || child.isNull() || !child.isNamed()) continue;
+        // 2. Only descend into specific wrapper nodes to avoid finding literals inside complex expressions
+        if (PARENTHESIZED_EXPRESSION.equals(type) || LITERAL.equals(type)) {
+            for (int i = 0; i < node.getChildCount(); i++) {
+                TSNode child = node.getChild(i);
+                if (child == null || child.isNull() || !child.isNamed()) continue;
 
-            if (isLiteralType(child.getType())) {
-                return child;
+                TSNode found = findLiteralNode(child);
+                if (found != null) return found;
             }
-
-            // Recurse for nested wrappers (e.g. ((1)))
-            TSNode found = findLiteralNode(child);
-            if (found != null) return found;
         }
 
         return null;

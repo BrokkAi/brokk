@@ -511,4 +511,29 @@ public final class CSharpAnalyzerTest {
                     analyzer.getSkeleton(calcDefs.iterator().next()).get());
         }
     }
+
+    @Test
+    void testExpressionFieldInitializerIsTruncated() throws IOException {
+        String code =
+                """
+                public class ExprField {
+                    public int x = 1 + 1;
+                    public string s = "a" + "b";
+                }
+                """;
+        try (var testProject =
+                InlineTestProjectCreator.code(code, "ExprField.cs").build()) {
+            CSharpAnalyzer analyzer = new CSharpAnalyzer(testProject);
+
+            var xDefs = analyzer.getDefinitions("ExprField.x");
+            assertCodeEquals(
+                    "public int x;",
+                    analyzer.getSkeleton(xDefs.iterator().next()).get());
+
+            var sDefs = analyzer.getDefinitions("ExprField.s");
+            assertCodeEquals(
+                    "public string s;",
+                    analyzer.getSkeleton(sDefs.iterator().next()).get());
+        }
+    }
 }

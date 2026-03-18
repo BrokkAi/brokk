@@ -54,6 +54,8 @@ public final class CSharpTreeSitterNodeTypes {
     public static final String TEST_MARKER = "test_marker";
 
     public static final String EQUALS_VALUE_CLAUSE = "equals_value_clause";
+    public static final String PARENTHESIZED_EXPRESSION = "parenthesized_expression";
+    public static final String LITERAL = "literal";
 
     private CSharpTreeSitterNodeTypes() {}
 }
