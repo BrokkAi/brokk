@@ -360,7 +360,7 @@ def test_session_costs_modal_dimensions_regression():
     assert "height: 100%" in modal_body, "#session-costs-container should use full height"
 
     # Verify centering rule exists
-    centering_match = re.search(r"SessionCostsModalScreen\s*\{([^}]*)\}", css_content)
+    centering_match = re.search(r"[^{]*SessionCostsModalScreen[^{]*\{([^}]*)\}", css_content)
     assert centering_match, "Could not find SessionCostsModalScreen rule in app.tcss"
     assert "align: center middle;" in centering_match.group(1)
 

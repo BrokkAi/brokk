@@ -169,7 +169,7 @@ class AddDependencyModalScreen(ModalScreen[Optional[Dict[str, Any]]]):
                     yield Input(
                         placeholder="https://github.com/owner/repo", id="add-dependency-repo"
                     )
-                    yield Button("Fetch", id="add-dependency-fetch", variant="primary")
+                    yield Button("Fetch Branches", id="add-dependency-fetch", variant="primary")
                 yield LoadingIndicator(id="add-dependency-fetch-spinner", classes="hidden")
                 yield Static("Branch/Tag:", id="add-dependency-branch-label", classes="hidden")
                 yield ListView(id="add-dependency-branch-list", classes="hidden")

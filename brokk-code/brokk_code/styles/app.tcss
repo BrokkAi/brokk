@@ -647,9 +647,11 @@ SlashCommandSuggestions ListItem, ModeSuggestions ListItem, ReasoningSuggestions
 }
 
 #dependencies-title {
-    text-style: bold;
+    padding: 1 2;
+    background: $primary-darken-1;
     color: $text;
-    margin-bottom: 1;
+    text-style: bold;
+    width: 100%;
 }
 
 #dependencies-help-line {
