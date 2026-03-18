@@ -393,11 +393,11 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
 
                 if (!analyzerLangs.containsAll(projectLangs)) {
                     Map<Language, IAnalyzer> nextDelegates = new HashMap<>();
+                    for (Language lang : analyzerLangs) {
+                        analyzer.subAnalyzer(lang).ifPresent(sub -> nextDelegates.put(lang, sub));
+                    }
                     for (Language lang : projectLangs) {
-                        Optional<IAnalyzer> existing = analyzer.subAnalyzer(lang);
-                        if (existing.isPresent()) {
-                            nextDelegates.put(lang, existing.get());
-                        } else {
+                        if (!nextDelegates.containsKey(lang)) {
                             logger.info("Instantiating missing analyzer delegate for {} during recovery", lang.name());
                             nextDelegates.put(lang, lang.createAnalyzer(project, progressListener));
                         }
@@ -412,6 +412,22 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
                         delta.missing().size() + delta.unexpected().size());
 
                 analyzer = analyzer.update(delta.all());
+
+                // Prune any delegates for languages no longer in the project after the repair is complete
+                if (!analyzer.languages().equals(projectLangs)) {
+                    Map<Language, IAnalyzer> finalDelegates = new HashMap<>();
+                    for (Language lang : projectLangs) {
+                        analyzer.subAnalyzer(lang).ifPresent(sub -> finalDelegates.put(lang, sub));
+                    }
+                    if (finalDelegates.isEmpty()) {
+                        analyzer = new DisabledAnalyzer(project);
+                    } else if (finalDelegates.size() == 1) {
+                        analyzer = finalDelegates.values().iterator().next();
+                    } else {
+                        analyzer = new MultiAnalyzer(finalDelegates);
+                    }
+                }
+
                 if (stateMismatch(analyzer).isPresent()) {
                     throw new IllegalStateException("Analyzer state remains corrupt after targeted repair attempt.");
                 }
