@@ -529,19 +529,37 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
 
         String initializerText = "";
         if (initializerNode != null && !initializerNode.isNull()) {
-            String initRaw = sourceContent.substringFrom(initializerNode).strip();
-            if (!initRaw.isEmpty()) {
-                // Tree-sitter's C++ "default_value" field commonly excludes the '=' token.
-                // Do not splice by commas; just restore the correct initializer delimiter.
-                if (initRaw.startsWith("=") || initRaw.startsWith("{") || initRaw.startsWith("(")) {
-                    initializerText = " " + initRaw;
-                } else {
-                    initializerText = " = " + initRaw;
+            // Only preserve literals
+            TSNode valueNode = initializerNode;
+            // Handle if default_value is a wrapper
+            if (initializerNode.getNamedChildCount() == 1) {
+                valueNode = initializerNode.getNamedChild(0);
+            }
+
+            if (isLiteralType(valueNode.getType())) {
+                String initRaw = sourceContent.substringFrom(initializerNode).strip();
+                if (!initRaw.isEmpty()) {
+                    if (initRaw.startsWith("=") || initRaw.startsWith("{") || initRaw.startsWith("(")) {
+                        initializerText = " " + initRaw;
+                    } else {
+                        initializerText = " = " + initRaw;
+                    }
                 }
             }
         }
 
         return baseIndent + prefixText + adjustedTypeText + " " + declaratorText + initializerText + ";";
+    }
+
+    private boolean isLiteralType(String type) {
+        return type.endsWith("_literal")
+                || type.equals("number_literal")
+                || type.equals("string_literal")
+                || type.equals("char_literal")
+                || type.equals("boolean_literal")
+                || type.equals("null_literal")
+                || type.equals("nullptr_literal")
+                || type.equals("nullptr");
     }
 
     @Override
