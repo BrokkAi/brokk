@@ -188,6 +188,48 @@ public final class DependenciesRouter implements SimpleHttpServer.CheckedHttpHan
         return map;
     }
 
+    // ── Shared helpers ───────────────────────────────────
+
+    private record ResolvedDep(String name, Path path) {}
+
+    private @Nullable ResolvedDep decodeAndResolveDep(HttpExchange exchange, String encodedName, Path dependenciesDir)
+            throws IOException {
+        if (encodedName.isBlank()) {
+            RouterUtil.sendValidationError(exchange, "dependency name is required");
+            return null;
+        }
+
+        String depName;
+        try {
+            depName = URLDecoder.decode(encodedName, StandardCharsets.UTF_8);
+        } catch (IllegalArgumentException e) {
+            RouterUtil.sendValidationError(exchange, "dependency name is not valid URL encoding");
+            return null;
+        }
+
+        var depPath = dependenciesDir.resolve(depName);
+        if (!depPath.normalize().startsWith(dependenciesDir.normalize())) {
+            RouterUtil.sendValidationError(exchange, "Invalid dependency name: " + depName);
+            return null;
+        }
+
+        return new ResolvedDep(depName, depPath);
+    }
+
+    private void modifyLiveSet(Path depPath, boolean add) {
+        var project = contextManager.getProject();
+        var currentLiveDirs = project.getLiveDependencies().stream()
+                .map(dep -> dep.root().absPath())
+                .collect(Collectors.toSet());
+        var newLiveDirs = new HashSet<>(currentLiveDirs);
+        if (add) {
+            newLiveDirs.add(depPath);
+        } else {
+            newLiveDirs.remove(depPath);
+        }
+        project.updateLiveDependencies(newLiveDirs, null).join();
+    }
+
     // ── PUT /v1/dependencies ──────────────────────────────
 
     private void handlePutDependencies(HttpExchange exchange) throws IOException {
@@ -234,33 +276,17 @@ public final class DependenciesRouter implements SimpleHttpServer.CheckedHttpHan
     // ── POST /v1/dependencies/{name}/update ───────────────
 
     private void handlePostDependencyUpdate(HttpExchange exchange, String normalizedPath) throws IOException {
-        // Extract dependency name from path: /v1/dependencies/{name}/update
-        var prefix = "/v1/dependencies/";
-        var suffix = "/update";
-        var encodedName = normalizedPath.substring(prefix.length(), normalizedPath.length() - suffix.length());
-
-        if (encodedName.isBlank()) {
-            RouterUtil.sendValidationError(exchange, "dependency name is required");
-            return;
-        }
-
-        String depName;
-        try {
-            depName = URLDecoder.decode(encodedName, StandardCharsets.UTF_8);
-        } catch (IllegalArgumentException e) {
-            RouterUtil.sendValidationError(exchange, "dependency name is not valid URL encoding");
-            return;
-        }
-
+        var encodedName =
+                normalizedPath.substring("/v1/dependencies/".length(), normalizedPath.length() - "/update".length());
         try {
             var project = contextManager.getProject();
-            var masterRoot = project.getMasterRootPathForConfig();
-            var dependenciesDir =
-                    masterRoot.resolve(AbstractProject.BROKK_DIR).resolve(AbstractProject.DEPENDENCIES_DIR);
-            if (!dependenciesDir.resolve(depName).normalize().startsWith(dependenciesDir.normalize())) {
-                RouterUtil.sendValidationError(exchange, "Invalid dependency name: " + depName);
-                return;
-            }
+            var dependenciesDir = project.getMasterRootPathForConfig()
+                    .resolve(AbstractProject.BROKK_DIR)
+                    .resolve(AbstractProject.DEPENDENCIES_DIR);
+
+            var resolved = decodeAndResolveDep(exchange, encodedName, dependenciesDir);
+            if (resolved == null) return;
+            var depName = resolved.name();
 
             var allDeps = project.getAllOnDiskDependencies();
 
@@ -300,7 +326,7 @@ public final class DependenciesRouter implements SimpleHttpServer.CheckedHttpHan
             SimpleHttpServer.sendJsonResponse(
                     exchange, Map.of("status", "updated", "changedFiles", changedFiles.size()));
         } catch (Exception e) {
-            logger.error("Error handling POST /v1/dependencies/{}/update", depName, e);
+            logger.error("Error handling POST /v1/dependencies/{}/update", encodedName, e);
             SimpleHttpServer.sendJsonResponse(
                     exchange, 500, ErrorPayload.internalError("Failed to update dependency", e));
         }
@@ -309,34 +335,19 @@ public final class DependenciesRouter implements SimpleHttpServer.CheckedHttpHan
     // ── DELETE /v1/dependencies/{name} ────────────────────
 
     private void handleDeleteDependency(HttpExchange exchange, String normalizedPath) throws IOException {
-        // Extract dependency name from path: /v1/dependencies/{name}
-        var prefix = "/v1/dependencies/";
-        var encodedName = normalizedPath.substring(prefix.length());
-
-        if (encodedName.isBlank()) {
-            RouterUtil.sendValidationError(exchange, "dependency name is required");
-            return;
-        }
-
-        String depName;
-        try {
-            depName = URLDecoder.decode(encodedName, StandardCharsets.UTF_8);
-        } catch (IllegalArgumentException e) {
-            RouterUtil.sendValidationError(exchange, "dependency name is not valid URL encoding");
-            return;
-        }
+        var encodedName = normalizedPath.substring("/v1/dependencies/".length());
 
         try {
-            var project = contextManager.getProject();
-            var masterRoot = project.getMasterRootPathForConfig();
-            var dependenciesDir =
-                    masterRoot.resolve(AbstractProject.BROKK_DIR).resolve(AbstractProject.DEPENDENCIES_DIR);
-            var depPath = dependenciesDir.resolve(depName);
+            var dependenciesDir = contextManager
+                    .getProject()
+                    .getMasterRootPathForConfig()
+                    .resolve(AbstractProject.BROKK_DIR)
+                    .resolve(AbstractProject.DEPENDENCIES_DIR);
 
-            if (!depPath.normalize().startsWith(dependenciesDir.normalize())) {
-                RouterUtil.sendValidationError(exchange, "Invalid dependency name: " + depName);
-                return;
-            }
+            var resolved = decodeAndResolveDep(exchange, encodedName, dependenciesDir);
+            if (resolved == null) return;
+            var depName = resolved.name();
+            var depPath = resolved.path();
 
             if (!Files.exists(depPath) || !Files.isDirectory(depPath)) {
                 SimpleHttpServer.sendJsonResponse(
@@ -346,22 +357,12 @@ public final class DependenciesRouter implements SimpleHttpServer.CheckedHttpHan
                 return;
             }
 
-            // Remove from live set first
-            var currentLiveDirs = project.getLiveDependencies().stream()
-                    .map(dep -> dep.root().absPath())
-                    .collect(Collectors.toSet());
-
-            var newLiveDirs = new HashSet<>(currentLiveDirs);
-            newLiveDirs.remove(depPath);
-
-            project.updateLiveDependencies(newLiveDirs, null).join();
-
-            // Delete the directory
+            modifyLiveSet(depPath, false);
             FileUtil.deleteRecursively(depPath);
 
             SimpleHttpServer.sendJsonResponse(exchange, Map.of("status", "deleted", "name", depName));
         } catch (Exception e) {
-            logger.error("Error handling DELETE /v1/dependencies/{}", depName, e);
+            logger.error("Error handling DELETE /v1/dependencies/{}", encodedName, e);
             SimpleHttpServer.sendJsonResponse(
                     exchange, 500, ErrorPayload.internalError("Failed to delete dependency", e));
         }
@@ -479,14 +480,7 @@ public final class DependenciesRouter implements SimpleHttpServer.CheckedHttpHan
             // Mark as live if requested (default: true when field is absent)
             var markLive = request.markLive() == null || request.markLive();
             if (markLive) {
-                var currentLiveDirs = project.getLiveDependencies().stream()
-                        .map(dep -> dep.root().absPath())
-                        .collect(Collectors.toSet());
-
-                var newLiveDirs = new HashSet<>(currentLiveDirs);
-                newLiveDirs.add(targetPath);
-
-                project.updateLiveDependencies(newLiveDirs, null).join();
+                modifyLiveSet(targetPath, true);
             }
 
             SimpleHttpServer.sendJsonResponse(
