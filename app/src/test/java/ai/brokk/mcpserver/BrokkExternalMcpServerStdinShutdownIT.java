@@ -13,7 +13,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -45,29 +44,21 @@ public final class BrokkExternalMcpServerStdinShutdownIT {
 
     @Test
     void mcpServerShouldExitWhenStdinClosed() throws Exception {
-        Path candidate1 = Path.of("build", "libs", "brokk.jar");
-        Path candidate2 = Path.of("app", "build", "libs", "brokk.jar");
-        Path jarPath = null;
-        if (Files.exists(candidate1)) {
-            jarPath = candidate1.toAbsolutePath();
-        } else if (Files.exists(candidate2)) {
-            jarPath = candidate2.toAbsolutePath();
-        }
-
-        Assumptions.assumeTrue(
-                jarPath != null && Files.exists(jarPath),
-                "brokk.jar not found; skipping integration test (expected at " + candidate1 + " or " + candidate2
-                        + ")");
+        String classpath = System.getProperty("java.class.path");
 
         Path workspaceDir = Files.createTempDirectory("mcp-server-stdin-it-");
+        // Write JVM args to an argfile to avoid Windows command line length limit (CreateProcess error=206)
+        Path argFile = Files.createTempFile("java-cp-argfile-", ".txt");
         try {
+            Files.writeString(
+                    argFile,
+                    "-Djava.awt.headless=true\n" + "-Dapple.awt.UIElement=true\n"
+                            + "-cp\n"
+                            + "\""
+                            + classpath.replace("\\", "\\\\") + "\"\n");
+
             ProcessBuilder pb = new ProcessBuilder(
-                    "java",
-                    "-Djava.awt.headless=true",
-                    "-Dapple.awt.UIElement=true",
-                    "-cp",
-                    jarPath.toString(),
-                    "ai.brokk.mcpserver.BrokkExternalMcpServer");
+                    "java", "@" + argFile.toAbsolutePath(), "ai.brokk.mcpserver.BrokkExternalMcpServer");
 
             pb.directory(workspaceDir.toFile());
             pb.redirectErrorStream(true); // merge stderr (logs) into stdout for reading
@@ -120,6 +111,7 @@ public final class BrokkExternalMcpServerStdinShutdownIT {
             assertEquals(0, process.exitValue(), "MCP server exited with unexpected code after stdin closure");
 
         } finally {
+            argFile.toFile().delete();
             try {
                 Files.walk(workspaceDir)
                         .map(Path::toFile)
