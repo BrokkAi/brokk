@@ -1,0 +1,30 @@
+{
+  "name": "completion order fixture",
+  "relativePath": "src/main/java/com/example/UserService.java",
+  "content": "package com.example;\n\npublic class UserService {\n    public String userService() {\n        return \"ok\";\n    }\n}\n",
+  "additionalFiles": {
+    "src/main/java/com/example/deep/UserService.java": "package com.example.deep;\n\npublic class UserService {\n}\n"
+  },
+  "classes": [
+    "com.example.UserService"
+  ],
+  "methods": [
+    "com.example.UserService.userService"
+  ],
+  "fields": [],
+  "imports": [],
+  "containsTests": false,
+  "rawSupertypes": [],
+  "completeQuery": "UserService",
+  "completeLimit": 10,
+  "complete": [
+    "com.example.UserService",
+    "com.example.deep.UserService",
+    "com.example.UserService.userService"
+  ],
+  "completeOrdered": [
+    "com.example.UserService",
+    "com.example.deep.UserService",
+    "com.example.UserService.userService"
+  ]
+}

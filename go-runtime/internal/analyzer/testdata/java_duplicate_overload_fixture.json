@@ -1,0 +1,30 @@
+{
+  "name": "java duplicate overload fixture",
+  "relativePath": "src/main/java/com/example/C.java",
+  "content": "package com.example;\n\nclass C {\n  void m(int x) { int a = 1; }\n  void m(String s) { int b = 2; }\n  void m(int x) { int c = 3; }\n}\n",
+  "classes": [
+    "com.example.C"
+  ],
+  "methods": [
+    "com.example.C.m",
+    "com.example.C.m"
+  ],
+  "fields": [],
+  "imports": [],
+  "containsTests": false,
+  "rawSupertypes": [],
+  "resolveMethodsInput": [
+    "m"
+  ],
+  "resolveMethods": [
+    "com.example.C.m",
+    "com.example.C.m"
+  ],
+  "definitionGroupFQName": "com.example.C.m",
+  "definitionGroupKind": "function",
+  "definitionGroupSymbolCount": 2,
+  "definitionGroupContains": [
+    "void m(int x)",
+    "void m(String s)"
+  ]
+}

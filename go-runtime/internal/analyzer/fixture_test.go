@@ -27,6 +27,7 @@ type analyzerFixture struct {
 	CompleteQuery              string            `json:"completeQuery"`
 	CompleteLimit              int               `json:"completeLimit"`
 	Complete                   []string          `json:"complete"`
+	CompleteOrdered            []string          `json:"completeOrdered"`
 	SkeletonFQName             string            `json:"skeletonFQName"`
 	SkeletonContains           []string          `json:"skeletonContains"`
 	RenderSymbolFQName         string            `json:"renderSymbolFQName"`
@@ -122,8 +123,16 @@ func runAnalyzerFixture(t *testing.T, fixturePath string) {
 		if limit <= 0 {
 			limit = 10
 		}
-		if got := sortedCompletionDetails(service.CompleteSymbols(fixture.CompleteQuery, limit)); !slices.Equal(got, sortedStrings(fixture.Complete)) {
-			t.Fatalf("CompleteSymbols() = %#v, want %#v", got, sortedStrings(fixture.Complete))
+		completions := service.CompleteSymbols(fixture.CompleteQuery, limit)
+		if len(fixture.Complete) > 0 {
+			if got := sortedCompletionDetails(completions); !slices.Equal(got, sortedStrings(fixture.Complete)) {
+				t.Fatalf("CompleteSymbols() = %#v, want %#v", got, sortedStrings(fixture.Complete))
+			}
+		}
+		if len(fixture.CompleteOrdered) > 0 {
+			if got := completionDetails(completions); !slices.Equal(got, fixture.CompleteOrdered) {
+				t.Fatalf("CompleteSymbols() ordered = %#v, want %#v", got, fixture.CompleteOrdered)
+			}
 		}
 	}
 	if fixture.SkeletonFQName != "" {
@@ -189,9 +198,13 @@ func sortedStrings(values []string) []string {
 }
 
 func sortedCompletionDetails(completions []Completion) []string {
+	return sortedStrings(completionDetails(completions))
+}
+
+func completionDetails(completions []Completion) []string {
 	values := make([]string, 0, len(completions))
 	for _, completion := range completions {
 		values = append(values, completion.Detail)
 	}
-	return sortedStrings(values)
+	return values
 }
