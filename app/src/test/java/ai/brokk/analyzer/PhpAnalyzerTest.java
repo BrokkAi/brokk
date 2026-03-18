@@ -265,6 +265,51 @@ public class PhpAnalyzerTest {
     }
 
     @Test
+    public void testComplexFieldInitializerIsOmitted() throws IOException {
+        String content =
+                """
+                <?php
+                class ComplexFields {
+                    public const LITERAL = 1;
+                    public const COMPLEX = SOME_FUNC();
+                    public $x = 1;
+                    public $y = new Object();
+                }
+                """;
+        try (var project = ai.brokk.testutil.InlineTestProjectCreator.code(content, "fields.php")
+                .build()) {
+            PhpAnalyzer inlineAnalyzer = new PhpAnalyzer(project);
+
+            // LITERAL should be preserved
+            CodeUnit litCu = inlineAnalyzer
+                    .getDefinitions("ComplexFields.LITERAL")
+                    .iterator()
+                    .next();
+            assertCodeEquals(
+                    "public const LITERAL = 1;",
+                    inlineAnalyzer.getSkeleton(litCu).orElse(""));
+
+            // COMPLEX should be truncated
+            CodeUnit compCu = inlineAnalyzer
+                    .getDefinitions("ComplexFields.COMPLEX")
+                    .iterator()
+                    .next();
+            assertCodeEquals(
+                    "public const COMPLEX;", inlineAnalyzer.getSkeleton(compCu).orElse(""));
+
+            // x = 1 should be preserved
+            CodeUnit xCu =
+                    inlineAnalyzer.getDefinitions("ComplexFields.x").iterator().next();
+            assertCodeEquals("public $x = 1;", inlineAnalyzer.getSkeleton(xCu).orElse(""));
+
+            // y = new Object() should be truncated
+            CodeUnit yCu =
+                    inlineAnalyzer.getDefinitions("ComplexFields.y").iterator().next();
+            assertCodeEquals("public $y;", inlineAnalyzer.getSkeleton(yCu).orElse(""));
+        }
+    }
+
+    @Test
     public void getUsesClassComprehensivePatternsTest() throws InterruptedException {
         var finder = newFinder(testProject, analyzer);
         var symbol = "BaseClass";
