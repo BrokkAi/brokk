@@ -330,6 +330,42 @@ func TestParseTreeSitterSymbolsTypeScriptExportedInterfaceAndAlias(t *testing.T)
 	}
 }
 
+func TestParseTreeSitterSymbolsTypeScriptDefaultNamedSignatures(t *testing.T) {
+	if !treeSitterEnabled() {
+		t.Skip("tree-sitter requires cgo support on this machine")
+	}
+
+	symbols, ok := parseTreeSitterSymbols("web/factory.ts", ""+
+		"export interface UserFactory {\n"+
+		"  new (id: string): UserFactory;\n"+
+		"  (id: string): UserFactory;\n"+
+		"  [index: string]: UserFactory;\n"+
+		"}\n")
+	if !ok {
+		t.Fatal("parseTreeSitterSymbols() = false, want true")
+	}
+
+	methods := filterByKind(symbols, "function")
+	foundCtor := false
+	foundCall := false
+	for _, method := range methods {
+		if method.FQName == "web.factory.UserFactory.new" {
+			foundCtor = true
+		}
+		if method.FQName == "web.factory.UserFactory.[call]" {
+			foundCall = true
+		}
+	}
+	if !foundCtor || !foundCall {
+		t.Fatalf("methods = %#v, want default named constructor and call signatures", methods)
+	}
+
+	fields := filterByKind(symbols, "field")
+	if len(fields) != 1 || fields[0].FQName != "web.factory.UserFactory.[index]" {
+		t.Fatalf("fields = %#v, want default named index signature", fields)
+	}
+}
+
 func TestParseTreeSitterFileCapturesJavaImportsSupertypesAndTests(t *testing.T) {
 	if !treeSitterEnabled() {
 		t.Skip("tree-sitter requires cgo support on this machine")

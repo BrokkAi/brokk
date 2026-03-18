@@ -27,6 +27,7 @@ type treeSitterSpec struct {
 type treeSitterDefinition struct {
 	kind         string
 	name         string
+	nodeType     string
 	receiverType string
 	supertypes   []string
 	hasBody      bool
@@ -181,6 +182,9 @@ func parseTreeSitterFile(relativePath string, content string) (treeSitterFileAna
 				supertypes: dedupeSortedStrings(matchSupertypes),
 			})
 		}
+		if definition.name == "" {
+			definition.name = treeSitterDefaultDefinitionName(spec.languageName, definition.kind, definition.nodeType)
+		}
 		if definition.kind == "" || definition.name == "" {
 			continue
 		}
@@ -253,6 +257,7 @@ func treeSitterSpecForPath(relativePath string) (treeSitterSpec, bool) {
 func populateTreeSitterDefinition(definition *treeSitterDefinition, kind string, node tree_sitter.Node, content string) {
 	originalStart := int(node.StartByte())
 	definition.kind = kind
+	definition.nodeType = node.Kind()
 	definition.start = expandTreeSitterCommentStart(content, originalStart, kind)
 	definition.end = int(node.EndByte())
 	definition.startLine = lineNumberAt(content, definition.start)
@@ -490,6 +495,23 @@ func treeSitterDefinitionHasBody(kind string, snippet string) bool {
 		return strings.Contains(trimmed, "{") || strings.Contains(trimmed, ":\n") || strings.Contains(trimmed, ":\r\n")
 	default:
 		return false
+	}
+}
+
+func treeSitterDefaultDefinitionName(language string, kind string, nodeType string) string {
+	if language != "typescript" {
+		return ""
+	}
+
+	switch {
+	case kind == "function" && nodeType == "construct_signature":
+		return "new"
+	case kind == "function" && nodeType == "call_signature":
+		return "[call]"
+	case kind == "field" && nodeType == "index_signature":
+		return "[index]"
+	default:
+		return ""
 	}
 }
 
