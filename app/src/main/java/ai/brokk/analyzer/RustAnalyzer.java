@@ -471,11 +471,8 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
     protected Set<CodeUnit> resolveImports(ProjectFile file, List<String> importStatements) {
         String currentPackage = withTreeOf(
                 file,
-                tree -> determinePackageName(
-                        file,
-                        tree.getRootNode(),
-                        tree.getRootNode(),
-                        SourceContent.of(file.read().orElse(""))),
+                tree -> withSource(
+                        file, sc -> determinePackageName(file, tree.getRootNode(), tree.getRootNode(), sc), ""),
                 "");
         Set<CodeUnit> resolved = new HashSet<>();
 
