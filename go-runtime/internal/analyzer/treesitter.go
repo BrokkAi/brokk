@@ -492,6 +492,7 @@ func buildTreeSitterSymbols(relativePath string, language string, packageName st
 
 	results := make([]Symbol, 0, len(definitions))
 	results = append(results, classSymbols...)
+	results = append(results, buildImplicitTreeSitterConstructors(language, packageName, relativePath, classes, classSymbols, functions)...)
 
 	for _, definition := range functions {
 		if hasEnclosingTreeSitterFunction(functions, definition) {
@@ -547,6 +548,61 @@ func buildTreeSitterSymbols(relativePath string, language string, packageName st
 	}
 
 	return dedupeSymbols(results)
+}
+
+func buildImplicitTreeSitterConstructors(language string, packageName string, relativePath string, classes []treeSitterDefinition, classSymbols []Symbol, functions []treeSitterDefinition) []Symbol {
+	if language != "java" || len(classes) == 0 {
+		return nil
+	}
+
+	results := make([]Symbol, 0, len(classes))
+	for i, classDefinition := range classes {
+		if !treeSitterJavaNeedsImplicitConstructor(classDefinition) {
+			continue
+		}
+		if treeSitterJavaHasExplicitConstructor(classes, classSymbols, functions, i) {
+			continue
+		}
+
+		classSymbol := classSymbols[i]
+		results = append(results, Symbol{
+			Kind:         "function",
+			Language:     language,
+			FQName:       classSymbol.FQName + "." + classDefinition.name,
+			ShortName:    classDefinition.name,
+			Identifier:   classDefinition.name,
+			PackageName:  packageName,
+			ParentFQName: classSymbol.FQName,
+			RelativePath: relativePath,
+			StartLine:    classDefinition.startLine,
+			EndLine:      classDefinition.endLine,
+			TopLevel:     false,
+			HasBody:      false,
+		})
+	}
+	return results
+}
+
+func treeSitterJavaNeedsImplicitConstructor(definition treeSitterDefinition) bool {
+	return definition.nodeType == "class_declaration"
+}
+
+func treeSitterJavaHasExplicitConstructor(classes []treeSitterDefinition, classSymbols []Symbol, functions []treeSitterDefinition, classIndex int) bool {
+	classDefinition := classes[classIndex]
+	classSymbol := classSymbols[classIndex]
+	for _, function := range functions {
+		if function.nodeType != "constructor_declaration" {
+			continue
+		}
+		if function.name != classDefinition.name {
+			continue
+		}
+		if resolveTreeSitterParentClass(classes, classSymbols, function) != classSymbol.FQName {
+			continue
+		}
+		return true
+	}
+	return false
 }
 
 func normalizeTreeSitterName(name string) string {
@@ -782,7 +838,7 @@ func resolveTreeSitterParentClass(classes []treeSitterDefinition, classSymbols [
 
 	best := -1
 	for i := range classes {
-		if definition.start <= classes[i].start || definition.start > classes[i].end {
+		if definition.start < classes[i].start || definition.end > classes[i].end {
 			continue
 		}
 		if best < 0 || classes[i].start > classes[best].start {

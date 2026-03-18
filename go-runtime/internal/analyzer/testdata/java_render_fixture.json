@@ -6,6 +6,7 @@
     "com.example.service.UserService"
   ],
   "methods": [
+    "com.example.service.UserService.UserService",
     "com.example.service.UserService.findUserById",
     "com.example.service.UserService.findUserById"
   ],

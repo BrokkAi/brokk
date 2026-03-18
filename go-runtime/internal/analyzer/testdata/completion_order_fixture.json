@@ -9,6 +9,7 @@
     "com.example.UserService"
   ],
   "methods": [
+    "com.example.UserService.UserService",
     "com.example.UserService.userService"
   ],
   "fields": [],
@@ -20,11 +21,15 @@
   "complete": [
     "com.example.UserService",
     "com.example.deep.UserService",
+    "com.example.UserService.UserService",
+    "com.example.deep.UserService.UserService",
     "com.example.UserService.userService"
   ],
   "completeOrdered": [
     "com.example.UserService",
     "com.example.deep.UserService",
-    "com.example.UserService.userService"
+    "com.example.UserService.UserService",
+    "com.example.UserService.userService",
+    "com.example.deep.UserService.UserService"
   ]
 }

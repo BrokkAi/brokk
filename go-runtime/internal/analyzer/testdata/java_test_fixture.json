@@ -6,6 +6,7 @@
     "com.example.service.UserServiceTest"
   ],
   "methods": [
+    "com.example.service.UserServiceTest.UserServiceTest",
     "com.example.service.UserServiceTest.runsTest"
   ],
   "fields": [

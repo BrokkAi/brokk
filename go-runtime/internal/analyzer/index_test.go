@@ -58,11 +58,27 @@ func TestParseTreeSitterSymbolsJava(t *testing.T) {
 	}
 
 	methods := filterByKind(symbols, "function")
-	if len(methods) != 1 || methods[0].FQName != "com.example.service.UserService.findUserById" {
-		t.Fatalf("methods = %#v, want java fqName", methods)
+	if len(methods) != 2 {
+		t.Fatalf("len(methods) = %d, want 2", len(methods))
 	}
-	if !methods[0].HasBody {
-		t.Fatalf("methods[0].HasBody = false, want true")
+	foundConstructor := false
+	foundMethod := false
+	for _, method := range methods {
+		switch method.FQName {
+		case "com.example.service.UserService.UserService":
+			foundConstructor = true
+			if method.HasBody {
+				t.Fatalf("constructor HasBody = true, want false")
+			}
+		case "com.example.service.UserService.findUserById":
+			foundMethod = true
+			if !method.HasBody {
+				t.Fatalf("findUserById HasBody = false, want true")
+			}
+		}
+	}
+	if !foundConstructor || !foundMethod {
+		t.Fatalf("methods = %#v, want constructor and method fqNames", methods)
 	}
 
 	fields := filterByKind(symbols, "field")
@@ -97,11 +113,24 @@ func TestParseTreeSitterSymbolsIncludeLeadingComments(t *testing.T) {
 	}
 
 	methods := filterByKind(symbols, "function")
-	if len(methods) != 1 || !strings.Contains(methods[0].Snippet, "// Finds a user by id.") {
-		t.Fatalf("methods = %#v, want leading method comment in snippet", methods)
+	if len(methods) != 2 {
+		t.Fatalf("len(methods) = %d, want 2", len(methods))
 	}
-	if !strings.HasPrefix(strings.TrimSpace(methods[0].Signature), "public String findUserById") {
-		t.Fatalf("methods[0].Signature = %q, want declaration signature without comment prefix", methods[0].Signature)
+	foundMethodComment := false
+	for _, method := range methods {
+		if method.FQName != "com.example.service.UserService.findUserById" {
+			continue
+		}
+		foundMethodComment = true
+		if !strings.Contains(method.Snippet, "// Finds a user by id.") {
+			t.Fatalf("method snippet = %#v, want leading method comment in snippet", method)
+		}
+		if !strings.HasPrefix(strings.TrimSpace(method.Signature), "public String findUserById") {
+			t.Fatalf("method.Signature = %q, want declaration signature without comment prefix", method.Signature)
+		}
+	}
+	if !foundMethodComment {
+		t.Fatalf("methods = %#v, want findUserById method", methods)
 	}
 }
 
@@ -900,8 +929,17 @@ func TestCompleteSymbolsPrefersClassThenShallowerPackage(t *testing.T) {
 	if completions[1].Type != "class" || completions[1].Detail != "com.example.deep.UserService" {
 		t.Fatalf("completions[1] = %#v, want deeper class second", completions[1])
 	}
-	if completions[2].Type != "function" || completions[2].Detail != "com.example.UserService.userService" {
-		t.Fatalf("completions[2] = %#v, want function after class candidates", completions[2])
+	if completions[2].Type != "function" || completions[2].Detail != "com.example.UserService.UserService" {
+		t.Fatalf("completions[2] = %#v, want constructor after class candidates", completions[2])
+	}
+	if len(completions) < 5 {
+		t.Fatalf("len(completions) = %d, want at least 5", len(completions))
+	}
+	if completions[3].Type != "function" || completions[3].Detail != "com.example.UserService.userService" {
+		t.Fatalf("completions[3] = %#v, want method after shallower constructor", completions[3])
+	}
+	if completions[4].Type != "function" || completions[4].Detail != "com.example.deep.UserService.UserService" {
+		t.Fatalf("completions[4] = %#v, want deeper constructor after shallower method", completions[4])
 	}
 }
 

@@ -6,6 +6,7 @@
     "com.example.C"
   ],
   "methods": [
+    "com.example.C.C",
     "com.example.C.m",
     "com.example.C.m"
   ],

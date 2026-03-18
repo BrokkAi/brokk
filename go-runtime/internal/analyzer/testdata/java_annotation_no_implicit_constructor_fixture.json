@@ -1,0 +1,16 @@
+{
+  "name": "java annotation no implicit constructor",
+  "relativePath": "A.java",
+  "content": "public @interface A {}\n",
+  "classes": [
+    "A"
+  ],
+  "methods": [],
+  "fields": [],
+  "imports": [],
+  "containsTests": false,
+  "resolveMethodsInput": [
+    "A.A"
+  ],
+  "resolveMethods": []
+}

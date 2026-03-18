@@ -638,12 +638,6 @@ func (s *Service) resolveMethods(index *indexSnapshot, input string) []Symbol {
 
 	matches := filterByKind(s.definitions(index, input), "function")
 	if len(matches) == 0 {
-		matches = filterByKind(s.searchDefinitions(index, input, true), "function")
-	}
-	if len(matches) == 0 {
-		matches = filterByKind(s.autocompleteDefinitions(index, input), "function")
-	}
-	if len(matches) == 0 {
 		suffix := "." + input
 		dollarSuffix := "$" + input
 		matches = collectMatching(index.symbols, func(symbol Symbol) bool {
@@ -670,6 +664,12 @@ func (s *Service) resolveMethods(index *indexSnapshot, input string) []Symbol {
 				}
 			}
 		}
+	}
+	if len(matches) == 0 {
+		matches = filterByKind(s.autocompleteDefinitions(index, input), "function")
+	}
+	if len(matches) == 0 {
+		matches = filterByKind(s.searchDefinitions(index, input, true), "function")
 	}
 	return dedupeSymbols(matches)
 }

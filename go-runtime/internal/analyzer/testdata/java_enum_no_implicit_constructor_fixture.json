@@ -1,0 +1,19 @@
+{
+  "name": "java enum no implicit constructor",
+  "relativePath": "E.java",
+  "content": "public enum E { A, B }\n",
+  "classes": [
+    "E"
+  ],
+  "methods": [],
+  "fields": [
+    "E.A",
+    "E.B"
+  ],
+  "imports": [],
+  "containsTests": false,
+  "resolveMethodsInput": [
+    "E.E"
+  ],
+  "resolveMethods": []
+}

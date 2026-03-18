@@ -1,0 +1,16 @@
+{
+  "name": "java interface no implicit constructor",
+  "relativePath": "I.java",
+  "content": "public interface I {}\n",
+  "classes": [
+    "I"
+  ],
+  "methods": [],
+  "fields": [],
+  "imports": [],
+  "containsTests": false,
+  "resolveMethodsInput": [
+    "I.I"
+  ],
+  "resolveMethods": []
+}

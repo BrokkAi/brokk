@@ -1,0 +1,26 @@
+{
+  "name": "java explicit constructor",
+  "relativePath": "Bar.java",
+  "content": "public class Bar { public Bar(int x) {} }\n",
+  "classes": [
+    "Bar"
+  ],
+  "methods": [
+    "Bar.Bar"
+  ],
+  "fields": [],
+  "imports": [],
+  "containsTests": false,
+  "resolveMethodsInput": [
+    "Bar.Bar"
+  ],
+  "resolveMethods": [
+    "Bar.Bar"
+  ],
+  "definitionGroupFQName": "Bar.Bar",
+  "definitionGroupKind": "function",
+  "definitionGroupSymbolCount": 1,
+  "definitionGroupContains": [
+    "Bar(int x)"
+  ]
+}

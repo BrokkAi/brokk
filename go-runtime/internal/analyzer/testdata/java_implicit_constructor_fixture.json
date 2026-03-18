@@ -1,0 +1,20 @@
+{
+  "name": "java implicit constructor",
+  "relativePath": "Foo.java",
+  "content": "public class Foo {}\n",
+  "classes": [
+    "Foo"
+  ],
+  "methods": [
+    "Foo.Foo"
+  ],
+  "fields": [],
+  "imports": [],
+  "containsTests": false,
+  "resolveMethodsInput": [
+    "Foo.Foo"
+  ],
+  "resolveMethods": [
+    "Foo.Foo"
+  ]
+}
