@@ -106,7 +106,8 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
                 }
                 yield CodeUnit.fn(file, packageName, finalShortName);
             }
-            case CaptureNames.FIELD_DEFINITION, CaptureNames.VALUE_DEFINITION -> { // For class fields or top-level variables
+            case CaptureNames.FIELD_DEFINITION,
+                    CaptureNames.VALUE_DEFINITION -> { // For class fields or top-level variables
                 String finalShortName;
                 if (classChain.isEmpty()) {
                     // For top-level variables, use the filename as a container to ensure a "." is present
@@ -477,7 +478,9 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
                 if (idx != -1) {
                     String beforeValue = fullSignature.substring(0, idx).stripTrailing();
                     if (beforeValue.endsWith("=")) {
-                        beforeValue = beforeValue.substring(0, beforeValue.length() - 1).stripTrailing();
+                        beforeValue = beforeValue
+                                .substring(0, beforeValue.length() - 1)
+                                .stripTrailing();
                     }
                     fullSignature = beforeValue;
                 }

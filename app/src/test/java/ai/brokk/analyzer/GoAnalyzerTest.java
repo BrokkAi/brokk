@@ -781,16 +781,29 @@ public class GoAnalyzerTest {
 
         try (var testProject = InlineTestProjectCreator.code(code, "fields.go").build()) {
             var inlineAnalyzer = (GoAnalyzer) AnalyzerCreator.createTreeSitterAnalyzer(testProject);
-            ProjectFile file = new ProjectFile(testProject.getRoot(), "fields.go");
+            ProjectFile file = inlineAnalyzer.getAnalyzedFiles().stream()
+                    .filter(f -> f.getFileName().equals("fields.go"))
+                    .findAny()
+                    .orElseThrow();
             var skeletons = inlineAnalyzer.getSkeletons(file);
 
-            CodeUnit simpleInt = CodeUnit.field(file, "main", "_module_.simpleInt");
-            CodeUnit simpleString = CodeUnit.field(file, "main", "_module_.simpleString");
-            CodeUnit complexObj = CodeUnit.field(file, "main", "_module_.complexObj");
-            CodeUnit inlineStruct = CodeUnit.field(file, "main", "_module_.inlineStruct");
+            CodeUnit simpleInt = inlineAnalyzer.getDefinitions("main._module_.simpleInt").stream()
+                    .findFirst()
+                    .orElseThrow();
+            CodeUnit simpleString = inlineAnalyzer.getDefinitions("main._module_.simpleString").stream()
+                    .findFirst()
+                    .orElseThrow();
+            CodeUnit complexObj = inlineAnalyzer.getDefinitions("main._module_.complexObj").stream()
+                    .findFirst()
+                    .orElseThrow();
+            CodeUnit inlineStruct = inlineAnalyzer.getDefinitions("main._module_.inlineStruct").stream()
+                    .findFirst()
+                    .orElseThrow();
 
             assertEquals("simpleInt int = 42", skeletons.get(simpleInt).trim());
-            assertEquals("simpleString string = \"hello\"", skeletons.get(simpleString).trim());
+            assertEquals(
+                    "simpleString string = \"hello\"",
+                    skeletons.get(simpleString).trim());
             assertEquals("complexObj", skeletons.get(complexObj).trim());
             assertEquals("inlineStruct", skeletons.get(inlineStruct).trim());
         }

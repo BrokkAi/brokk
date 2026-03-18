@@ -436,10 +436,14 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
                 boolean isLiteral = false;
                 if (valueNode.getNamedChildCount() > 0) {
                     String valType = valueNode.getNamedChild(0).getType();
-                    if (valType.equals("int_literal") || valType.equals("float_literal") ||
-                        valType.equals("imaginary_literal") || valType.equals("rune_literal") ||
-                        valType.equals("interpreted_string_literal") || valType.equals("raw_string_literal") ||
-                        valType.equals("true") || valType.equals("false")) {
+                    if (valType.equals("int_literal")
+                            || valType.equals("float_literal")
+                            || valType.equals("imaginary_literal")
+                            || valType.equals("rune_literal")
+                            || valType.equals("interpreted_string_literal")
+                            || valType.equals("raw_string_literal")
+                            || valType.equals("true")
+                            || valType.equals("false")) {
                         isLiteral = true;
                     }
                 }
@@ -449,7 +453,9 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
                     if (idx != -1) {
                         String beforeValue = fullSignature.substring(0, idx).stripTrailing();
                         if (beforeValue.endsWith("=")) {
-                            beforeValue = beforeValue.substring(0, beforeValue.length() - 1).stripTrailing();
+                            beforeValue = beforeValue
+                                    .substring(0, beforeValue.length() - 1)
+                                    .stripTrailing();
                         }
                         fullSignature = beforeValue;
                     }

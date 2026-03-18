@@ -3303,7 +3303,7 @@ public class TypescriptAnalyzerTest {
     }
 
     @Test
-    void testComplexFieldInitializerIsOmitted()  {
+    void testComplexFieldInitializerIsOmitted() {
         String code =
                 """
                 export const simpleInt: number = 42;
@@ -3314,17 +3314,33 @@ public class TypescriptAnalyzerTest {
 
         try (var testProject = InlineTestProjectCreator.code(code, "fields.ts").build()) {
             var tsAnalyzer = new TypescriptAnalyzer(testProject);
-            ProjectFile file = new ProjectFile(testProject.getRoot(), "fields.ts");
+            ProjectFile file = tsAnalyzer.getAnalyzedFiles().stream()
+                    .filter(f -> f.getFileName().equals("fields.ts"))
+                    .findAny()
+                    .orElseThrow();
             var skeletons = tsAnalyzer.getSkeletons(file);
 
-            CodeUnit simpleInt = CodeUnit.field(file, "", "fields.ts.simpleInt");
-            CodeUnit simpleString = CodeUnit.field(file, "", "fields.ts.simpleString");
-            CodeUnit complexObj = CodeUnit.field(file, "", "fields.ts.complexObj");
-            CodeUnit inlineObj = CodeUnit.field(file, "", "fields.ts.inlineObj");
+            CodeUnit simpleInt = tsAnalyzer.getDefinitions("fields.ts.simpleInt").stream()
+                    .findFirst()
+                    .orElseThrow();
+            CodeUnit simpleString = tsAnalyzer.getDefinitions("fields.ts.simpleString").stream()
+                    .findFirst()
+                    .orElseThrow();
+            CodeUnit complexObj = tsAnalyzer.getDefinitions("fields.ts.complexObj").stream()
+                    .findFirst()
+                    .orElseThrow();
+            CodeUnit inlineObj = tsAnalyzer.getDefinitions("fields.ts.inlineObj").stream()
+                    .findFirst()
+                    .orElseThrow();
 
-            assertEquals("export const simpleInt: number = 42", skeletons.get(simpleInt).trim());
-            assertEquals("let simpleString: string = \"hello\"", skeletons.get(simpleString).trim());
-            assertEquals("var complexObj: ComplexType", skeletons.get(complexObj).trim());
+            assertEquals(
+                    "export const simpleInt: number = 42",
+                    skeletons.get(simpleInt).trim());
+            assertEquals(
+                    "let simpleString: string = \"hello\"",
+                    skeletons.get(simpleString).trim());
+            assertEquals(
+                    "var complexObj: ComplexType", skeletons.get(complexObj).trim());
             assertEquals("const inlineObj", skeletons.get(inlineObj).trim());
         }
     }

@@ -492,7 +492,9 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
                 if (idx != -1) {
                     String beforeValue = fullSignature.substring(0, idx).stripTrailing();
                     if (beforeValue.endsWith("=")) {
-                        beforeValue = beforeValue.substring(0, beforeValue.length() - 1).stripTrailing();
+                        beforeValue = beforeValue
+                                .substring(0, beforeValue.length() - 1)
+                                .stripTrailing();
                     }
                     fullSignature = beforeValue;
                 }
