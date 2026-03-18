@@ -102,9 +102,7 @@ class RustImportTest {
     @Test
     @Disabled("Semantic import resolution for Rust is pending")
     void testResolveImports_Semantic() throws IOException {
-        IProject project = InlineTestProjectCreator.code(
-                        "pub struct MyStruct;",
-                        "src/my_module.rs")
+        IProject project = InlineTestProjectCreator.code("pub struct MyStruct;", "src/my_module.rs")
                 .addFileContents(
                         """
                 use crate::my_module::MyStruct;
@@ -120,17 +118,14 @@ class RustImportTest {
                 .map(p -> p.importedCodeUnitsOf(mainFile))
                 .orElseThrow();
 
-        boolean found = resolved.stream()
-                .anyMatch(cu -> cu.isClass() && "MyStruct".equals(cu.shortName()));
+        boolean found = resolved.stream().anyMatch(cu -> cu.isClass() && "MyStruct".equals(cu.shortName()));
         assertTrue(found, "Should have resolved to MyStruct in my_module");
     }
 
     @Test
     @Disabled("Semantic aliased import resolution for Rust is pending")
     void testResolveImports_Aliased() throws IOException {
-        IProject project = InlineTestProjectCreator.code(
-                        "pub struct TargetStruct;",
-                        "src/lib.rs")
+        IProject project = InlineTestProjectCreator.code("pub struct TargetStruct;", "src/lib.rs")
                 .addFileContents(
                         """
                 use crate::TargetStruct as AliasStruct;
@@ -147,8 +142,7 @@ class RustImportTest {
                 .orElseThrow();
 
         // The resolved CodeUnit should be the original definition (TargetStruct)
-        boolean found = resolved.stream()
-                .anyMatch(cu -> cu.isClass() && "TargetStruct".equals(cu.shortName()));
+        boolean found = resolved.stream().anyMatch(cu -> cu.isClass() && "TargetStruct".equals(cu.shortName()));
         assertTrue(found, "Aliased import should resolve to the original target CodeUnit");
     }
 }
