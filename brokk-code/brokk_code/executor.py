@@ -221,6 +221,257 @@ def ensure_jbang_ready() -> str:
         return jbang_path
 
 
+_ACP_SERVER_MAIN_CLASS = "ai.brokk.acpserver.BrokkAcpServer"
+
+
+class AcpStdioExecutor:
+    """Executor that communicates with BrokkAcpServer via stdio JSON-RPC."""
+
+    def __init__(
+        self,
+        workspace_dir: Optional[Path] = None,
+        jar_path: Optional[Path] = None,
+        executor_version: Optional[str] = None,
+        executor_snapshot: bool = True,
+        vendor: Optional[str] = None,
+    ):
+        self.workspace_dir = resolve_workspace_dir(workspace_dir or Path.cwd())
+        self.jar_override = jar_path
+        self.executor_version = executor_version
+        self.use_snapshot = executor_snapshot
+        self.vendor = vendor
+        self._process: Optional[asyncio.subprocess.Process] = None
+        self._request_id: int = 0
+        self._response_futures: Dict[int, asyncio.Future[Any]] = {}
+        self._notification_queue: asyncio.Queue[Dict[str, Any]] = asyncio.Queue()
+        self._reader_task: Optional[asyncio.Task[None]] = None
+        self.session_id: Optional[str] = None
+
+    def _find_dev_jar(self) -> Optional[Path]:
+        """Searches for a local development acp-server JAR in the project structure."""
+
+        def _find_in_workspace(base: Path) -> Optional[Path]:
+            libs_dir = base / "acp-server" / "build" / "libs"
+            if not libs_dir.exists():
+                return None
+
+            named_jar = list(libs_dir.glob("brokk-acp-server-*.jar"))
+            if not named_jar:
+                return None
+
+            return max(named_jar, key=lambda jar: jar.stat().st_mtime)
+
+        curr = self.workspace_dir
+        while curr != curr.parent:
+            if (curr / "gradlew").exists():
+                potential_jar = _find_in_workspace(curr)
+                if potential_jar:
+                    return potential_jar
+            curr = curr.parent
+        return None
+
+    def _get_direct_java_command(self, jar_path: Path) -> List[str]:
+        """Returns the command for Direct-Java mode (explicit JAR override)."""
+        cmd = [
+            "java",
+            "-Djava.awt.headless=true",
+            "-Dapple.awt.UIElement=true",
+            "-cp",
+            str(jar_path),
+            _ACP_SERVER_MAIN_CLASS,
+        ]
+        return cmd
+
+    async def _get_jbang_command(self) -> List[str]:
+        """Returns the command for launching via jbang."""
+        jbang_bin = await asyncio.to_thread(ensure_jbang_ready)
+
+        version = self.executor_version or BUNDLED_EXECUTOR_VERSION
+        jar_url = f"{_EXECUTOR_JAR_BASE_URL}/{version}/brokk-acp-server-{version}.jar"
+        cmd = [
+            jbang_bin,
+            "--java",
+            "21",
+            "-R",
+            "-Djava.awt.headless=true -Dapple.awt.UIElement=true",
+            "--main",
+            _ACP_SERVER_MAIN_CLASS,
+            jar_url,
+        ]
+        return cmd
+
+    async def _build_acp_command(self) -> List[str]:
+        """Builds command to spawn BrokkAcpServer."""
+        if self.jar_override:
+            return self._get_direct_java_command(self.jar_override)
+
+        dev_jar = self._find_dev_jar()
+        if dev_jar:
+            logger.info("Running ACP server with local JAR: %s", dev_jar)
+            return self._get_direct_java_command(dev_jar)
+
+        return await self._get_jbang_command()
+
+    async def start(self) -> None:
+        """Starts the Java BrokkAcpServer subprocess."""
+        cmd = await self._build_acp_command()
+        logger.info("Starting ACP server: %s", " ".join(cmd))
+
+        try:
+            self._process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=str(self.workspace_dir),
+            )
+        except FileNotFoundError:
+            binary = cmd[0]
+            if "jbang" in binary.lower():
+                raise ExecutorError(
+                    f"jbang executable not found at '{binary}'. "
+                    "Please ensure jbang is installed or provide a local JAR with --jar."
+                )
+            else:
+                raise ExecutorError(
+                    f"Java executable not found ('{binary}'). "
+                    "Please ensure JDK 21+ is installed and 'java' is in your PATH."
+                )
+
+        self._reader_task = asyncio.create_task(self._read_stdout())
+        logger.info("ACP server subprocess started")
+
+    async def _read_stdout(self) -> None:
+        """Background task reading JSON-RPC messages from stdout."""
+        assert self._process is not None
+        assert self._process.stdout is not None
+
+        while True:
+            try:
+                line = await self._process.stdout.readline()
+            except Exception:
+                break
+            if not line:
+                break
+            try:
+                msg = json.loads(line.decode())
+                if "id" in msg and msg["id"] is not None:
+                    future = self._response_futures.pop(msg["id"], None)
+                    if future and not future.done():
+                        if "error" in msg and msg["error"]:
+                            error_msg = msg["error"].get("message", "Unknown error")
+                            future.set_exception(ExecutorError(error_msg))
+                        else:
+                            future.set_result(msg.get("result"))
+                elif "method" in msg:
+                    await self._notification_queue.put(msg)
+            except json.JSONDecodeError:
+                logger.warning("Failed to parse JSON-RPC message: %s", line)
+
+        for future in self._response_futures.values():
+            if not future.done():
+                future.set_exception(ExecutorError("ACP server connection closed"))
+        self._response_futures.clear()
+
+    async def _send_request(self, method: str, params: Dict[str, Any]) -> Any:
+        """Sends a JSON-RPC request and waits for response."""
+        assert self._process is not None
+        assert self._process.stdin is not None
+
+        self._request_id += 1
+        request_id = self._request_id
+        request = {
+            "jsonrpc": "2.0",
+            "method": method,
+            "params": params,
+            "id": request_id,
+        }
+        loop = asyncio.get_event_loop()
+        future: asyncio.Future[Any] = loop.create_future()
+        self._response_futures[request_id] = future
+
+        line = json.dumps(request) + "\n"
+        self._process.stdin.write(line.encode())
+        await self._process.stdin.drain()
+
+        return await future
+
+    async def initialize(self) -> Dict[str, Any]:
+        """Sends initialize request."""
+        result = await self._send_request("initialize", {"protocolVersion": 1})
+        return result if isinstance(result, dict) else {}
+
+    async def new_session(self, working_directory: str) -> str:
+        """Creates a new ACP session, returns session ID."""
+        result = await self._send_request(
+            "session/new",
+            {
+                "workingDirectory": working_directory,
+                "context": [],
+            },
+        )
+        session_id = result.get("sessionId", "") if isinstance(result, dict) else ""
+        self.session_id = session_id
+        return session_id
+
+    async def prompt(
+        self, session_id: str, messages: List[Dict[str, Any]]
+    ) -> AsyncIterator[Dict[str, Any]]:
+        """Sends a prompt and yields streaming updates."""
+        prompt_task = asyncio.create_task(
+            self._send_request(
+                "session/prompt",
+                {
+                    "sessionId": session_id,
+                    "messages": messages,
+                },
+            )
+        )
+
+        while not prompt_task.done():
+            try:
+                notification = await asyncio.wait_for(
+                    self._notification_queue.get(),
+                    timeout=0.1,
+                )
+                if notification.get("method") == "session/update":
+                    yield notification.get("params", {})
+            except asyncio.TimeoutError:
+                continue
+
+        while not self._notification_queue.empty():
+            notification = self._notification_queue.get_nowait()
+            if notification.get("method") == "session/update":
+                yield notification.get("params", {})
+
+        await prompt_task
+
+    async def stop(self) -> None:
+        """Stops the subprocess."""
+        if self._reader_task:
+            self._reader_task.cancel()
+            try:
+                await self._reader_task
+            except asyncio.CancelledError:
+                pass
+            self._reader_task = None
+
+        if self._process:
+            self._process.terminate()
+            try:
+                await asyncio.wait_for(self._process.wait(), timeout=5.0)
+            except asyncio.TimeoutError:
+                self._process.kill()
+                await self._process.wait()
+            self._process = None
+
+        logger.info("ACP server stopped")
+
+    def check_alive(self) -> bool:
+        """Checks if the subprocess is still running."""
+        return self._process is not None and self._process.returncode is None
+
+
 class ExecutorManager:
     def __init__(
         self,

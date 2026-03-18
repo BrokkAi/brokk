@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import os
 import sys
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -10,7 +11,7 @@ from urllib.parse import unquote, urlparse
 
 from brokk_code import __version__
 from brokk_code.event_utils import safe_data
-from brokk_code.executor import ExecutorError, ExecutorManager
+from brokk_code.executor import AcpStdioExecutor, ExecutorError, ExecutorManager
 from brokk_code.settings import Settings
 from brokk_code.widgets.token_bar import get_token_bar_markdown
 from brokk_code.workspace import resolve_workspace_dir
@@ -884,6 +885,73 @@ class BrokkAcpBridge:
         await self.executor.cancel_job(job_id)
 
 
+class AcpStdioBridge:
+    """Bridge that forwards ACP requests to Java ACP server via stdio JSON-RPC."""
+
+    def __init__(self, executor: AcpStdioExecutor):
+        self.executor = executor
+        self._session_id: Optional[str] = None
+        self._started = False
+
+    async def ensure_ready(self, cwd: Optional[str] = None) -> None:
+        if self._started:
+            return
+        await self.executor.start()
+        await self.executor.initialize()
+        working_dir = cwd or str(self.executor.workspace_dir)
+        self._session_id = await self.executor.new_session(working_dir)
+        self._started = True
+
+    async def start_and_create_session(self, name: str, cwd: Optional[str] = None) -> str:
+        """Starts the executor on-demand and creates the session."""
+        await self.ensure_ready(cwd)
+        return self._session_id or ""
+
+    async def prompt(
+        self,
+        prompt: Any,
+        session_id: str,
+        mode: str,
+        planner_model: str,
+        code_model: Optional[str],
+        reasoning_level: Optional[str],
+        reasoning_level_code: Optional[str],
+        send_update: Callable[[str, Any], Awaitable[Any]],
+        update_agent_message_text: Callable[[str], Any],
+        cwd: str = "",
+    ) -> None:
+        await self.ensure_ready(cwd)
+
+        prompt_text = extract_prompt_text(prompt)
+        if not prompt_text:
+            raise ExecutorError("Prompt must contain at least one non-empty text block.")
+
+        messages = [{"type": "text", "text": prompt_text}]
+
+        async for update in self.executor.prompt(self._session_id or "", messages):
+            update_data = update.get("update", {})
+            update_type = update_data.get("type")
+
+            if update_type == "agent_message_chunk":
+                content = update_data.get("content", {})
+                if content.get("type") == "text":
+                    text = content.get("text", "")
+                    if text:
+                        await send_update(session_id, update_agent_message_text(text))
+            elif update_type == "agent_thought":
+                thought = update_data.get("thought", "")
+                if thought:
+                    try:
+                        from acp import update_agent_thought_text
+
+                        await send_update(session_id, update_agent_thought_text(thought))
+                    except ImportError:
+                        pass
+
+    async def cancel(self, *args: Any, **kwargs: Any) -> None:
+        pass
+
+
 async def run_acp_server(
     workspace_dir: Path,
     jar_path: Optional[Path],
@@ -891,6 +959,135 @@ async def run_acp_server(
     executor_snapshot: bool,
     vendor: Optional[str] = None,
 ) -> None:
+    use_acp_server = os.environ.get("BROKK_USE_ACP_SERVER", "").lower() in ("1", "true", "yes")
+
+    if use_acp_server:
+        logger.info("Using ACP stdio server mode (BROKK_USE_ACP_SERVER=true)")
+        stdio_executor = AcpStdioExecutor(
+            workspace_dir=workspace_dir,
+            jar_path=jar_path,
+            executor_version=executor_version,
+            executor_snapshot=executor_snapshot,
+            vendor=vendor,
+        )
+        bridge: AcpStdioBridge | BrokkAcpBridge = AcpStdioBridge(stdio_executor)
+
+        try:
+            from acp import (
+                Agent,
+                InitializeResponse,
+                LoadSessionResponse,
+                NewSessionResponse,
+                PromptResponse,
+                SetSessionModelResponse,
+                SetSessionModeResponse,
+                run_agent,
+                update_agent_message_text,
+                update_agent_thought_text,
+                update_user_message_text,
+            )
+            from acp.agent import connection as acp_agent_connection
+            from acp.agent import router as acp_agent_router
+            from acp.helpers import update_available_commands
+            from acp.meta import AGENT_METHODS
+            from acp.schema import (
+                AgentCapabilities,
+                AvailableCommand,
+                Implementation,
+                ListSessionsResponse,
+                ModelInfo,
+                PromptCapabilities,
+                ResumeSessionResponse,
+                SessionCapabilities,
+                SessionConfigOption,
+                SessionConfigSelectOption,
+                SessionInfo,
+                SessionListCapabilities,
+                SessionMode,
+                SessionModelState,
+                SessionModeState,
+                SessionResumeCapabilities,
+                SetSessionConfigOptionRequest,
+                SetSessionConfigOptionResponse,
+            )
+            from acp.utils import normalize_result
+        except ImportError as e:
+            raise RuntimeError(
+                "ACP mode requires the official ACP Python SDK. "
+                "Install it with: pip install agent-client-protocol"
+            ) from e
+
+        logging.basicConfig(stream=sys.stderr, level=logging.INFO)
+        logger.info("Starting ACP server with stdio bridge")
+
+        class AcpStdioAgent(Agent):
+            def __init__(self) -> None:
+                self.client: Optional[Any] = None
+                self._mode_by_session: dict[str, str] = {}
+
+            def on_connect(self, client: Any) -> None:
+                self.client = client
+
+            async def initialize(
+                self,
+                protocol_version: int,
+                client_capabilities: Any = None,
+                client_info: Any = None,
+                **kwargs: Any,
+            ) -> InitializeResponse:
+                return InitializeResponse(
+                    protocol_version=protocol_version,
+                    agent_info=Implementation(name="brokk", version=__version__),
+                    agent_capabilities=AgentCapabilities(
+                        prompt_capabilities=PromptCapabilities(embedded_context=True),
+                    ),
+                )
+
+            async def new_session(
+                self,
+                cwd: str,
+                mcp_servers: Optional[list[Any]] = None,
+                **kwargs: Any,
+            ) -> NewSessionResponse:
+                session_id = await bridge.start_and_create_session(name="ACP Session", cwd=cwd)
+                self._mode_by_session[session_id] = "CODE"
+                return NewSessionResponse(
+                    session_id=session_id,
+                    modes=SessionModeState(
+                        available_modes=[SessionMode(id="CODE", name="CODE")],
+                        current_mode_id="CODE",
+                    ),
+                )
+
+            async def prompt(self, prompt: Any, session_id: str, **kwargs: Any) -> Any:
+                if not self.client:
+                    raise ExecutorError("ACP client connection not established.")
+
+                mode = self._mode_by_session.get(session_id, "CODE")
+
+                await bridge.prompt(
+                    prompt=prompt,
+                    session_id=session_id,
+                    cwd=str(workspace_dir),
+                    mode=mode,
+                    planner_model="",
+                    code_model=None,
+                    reasoning_level=None,
+                    reasoning_level_code=None,
+                    send_update=self.client.session_update,
+                    update_agent_message_text=update_agent_message_text,
+                )
+                return PromptResponse(stop_reason="end_turn")
+
+            async def cancel(self, *args: Any, **kwargs: Any) -> None:
+                await bridge.cancel(*args, **kwargs)
+
+        try:
+            await run_agent(AcpStdioAgent(), use_unstable_protocol=True)
+        finally:
+            await stdio_executor.stop()
+        return
+
     try:
         from acp import (
             Agent,
