@@ -299,8 +299,7 @@ public class ArchitectAgent {
 
         // Update architect context with the CodeAgent's fragments, preserving the Architect history
         var codeContext = result.context();
-        context = codeContext
-                .withTaskHistory(historyFuture.join())
+        context = codeContext.withHistory(historyFuture.join())
                 .addHistoryEntry(codeContext.getTaskHistory().getLast());
 
         var changedFragments =
@@ -857,7 +856,7 @@ public class ArchitectAgent {
                     buildPrompt(workspaceTokenSize, maxInputTokensForPrompt, workspaceContentMessages, harnessNote);
 
             WorkspaceTools wst = new WorkspaceTools(this.context);
-            ParallelSearch parallelSearch = new ParallelSearch(context, goal, delegatedSearchModel());
+            ParallelSearch parallelSearch = new ParallelSearch(context.forSearchAgent(), goal, delegatedSearchModel());
 
             var depTools = DependencyTools.isSupported(cm.getProject())
                     ? Optional.of(new DependencyTools(cm))

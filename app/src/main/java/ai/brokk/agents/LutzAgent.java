@@ -780,7 +780,7 @@ public class LutzAgent {
             this.lastTurnContext = stateAtTurnStart.lastTurnContext();
             this.sessionMessages = new ArrayList<>(stateAtTurnStart.sessionMessages());
 
-            this.parallelSearch = new ParallelSearch(context, agent.goal, agent.delegatedSearchModel());
+            this.parallelSearch = new ParallelSearch(context.forSearchAgent(), agent.goal, agent.delegatedSearchModel());
             this.tr = agent.createToolRegistry(new WorkspaceTools(context), this, parallelSearch);
         }
 

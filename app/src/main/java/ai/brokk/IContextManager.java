@@ -424,7 +424,7 @@ public interface IContextManager {
         var mergedTaskHistory = currentContext.getTaskHistory().stream()
                 .map(entry -> bySequence.getOrDefault(entry.sequence(), entry))
                 .toList();
-        return currentContext.withTaskHistory(mergedTaskHistory);
+        return currentContext.withHistory(mergedTaskHistory);
     }
 
     @Blocking

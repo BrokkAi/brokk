@@ -526,13 +526,7 @@ public class Context {
     }
 
     public Context clearHistory() {
-        return new Context(
-                newContextId(),
-                contextManager,
-                fragments,
-                List.of(),
-                this.markedReadonlyFragments,
-                this.pinnedFragments);
+        return withHistory(List.of());
     }
 
     /**
@@ -639,10 +633,6 @@ public class Context {
                 newHistory,
                 this.markedReadonlyFragments,
                 this.pinnedFragments);
-    }
-
-    public Context withTaskHistory(List<TaskEntry> taskHistory) {
-        return withHistory(taskHistory);
     }
 
     /**
@@ -1043,5 +1033,19 @@ public class Context {
             }
         }
         return next;
+    }
+
+    public Context forSearchAgent() {
+        return this.clearHistory()
+                .withoutSpecial(SpecialTextType.TASK_LIST)
+                .withoutSpecial(SpecialTextType.CODE_AGENT_CHANGES);
+    }
+
+    public Context withoutSpecial(SpecialTextType type) {
+        var existing = getSpecial(type);
+        if (existing.isEmpty()) {
+            return this;
+        }
+        return removeFragmentsByIds(List.of(existing.get().id()));
     }
 }
