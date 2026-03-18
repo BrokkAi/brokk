@@ -6,6 +6,8 @@ import ai.brokk.analyzer.cache.AnalyzerCache;
 import ai.brokk.project.IProject;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -478,8 +480,15 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
 
     @Override
     protected Set<CodeUnit> resolveImports(ProjectFile file, List<String> importStatements) {
-        String currentPackage = determinePackageName(file, null, null, null);
-        Set<CodeUnit> resolved = new java.util.HashSet<>();
+        String currentPackage = withTreeOf(
+                file,
+                tree -> determinePackageName(
+                        file,
+                        tree.getRootNode(),
+                        tree.getRootNode(),
+                        SourceContent.of(file.read().orElse(""))),
+                "");
+        Set<CodeUnit> resolved = new HashSet<>();
 
         for (ImportInfo info : importInfoOf(file)) {
             if (info.isWildcard()) {
@@ -510,7 +519,7 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
             resolved.addAll(getDefinitions(fqn));
         }
 
-        return java.util.Collections.unmodifiableSet(resolved);
+        return Collections.unmodifiableSet(resolved);
     }
 
     private String resolveRustPathToFqn(String rustPath, String currentPackage) {
