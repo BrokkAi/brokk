@@ -328,7 +328,7 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
                 for (int i = 0; i < declarator.getChildCount(); i++) {
                     TSNode child = declarator.getChild(i);
                     if (child == null || !child.isNamed()) continue;
-                    if ("equals_value_clause".equals(child.getType())) {
+                    if (EQUALS_VALUE_CLAUSE.equals(child.getType())) {
                         valueClause = child;
                         break;
                     }
@@ -379,15 +379,15 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
     private boolean isLiteralType(@Nullable String type) {
         if (type == null) return false;
         return type.endsWith("_literal")
-                || type.equals("boolean_literal")
-                || type.equals("integer_literal")
-                || type.equals("real_literal")
-                || type.equals("character_literal")
-                || type.equals("string_literal")
-                || type.equals("null_literal")
-                || type.equals("true")
-                || type.equals("false")
-                || type.equals("null");
+                || BOOLEAN_LITERAL.equals(type)
+                || INTEGER_LITERAL.equals(type)
+                || REAL_LITERAL.equals(type)
+                || CHARACTER_LITERAL.equals(type)
+                || STRING_LITERAL.equals(type)
+                || NULL_LITERAL.equals(type)
+                || TRUE_KEYWORD.equals(type)
+                || FALSE_KEYWORD.equals(type)
+                || NULL_KEYWORD.equals(type);
     }
 
     private @Nullable TSNode findLiteralNode(TSNode node) {

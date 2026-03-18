@@ -506,7 +506,8 @@ public class ScalaAnalyzerTest {
         /*
         (compilation_unit (package_clause name: (package_identifier (identifier) (identifier))) (class_definition name: (identifier) body: (template_body (val_definition pattern: (identifier) value: (instance_expression (type_identifier) arguments: (arguments))) (var_definition pattern: (identifier) type: (type_identifier) value: (integer_literal)) (val_definition pattern: (identifier) value: (string)))))
          */
-        try (var testProject = InlineTestProjectCreator.code(code, "ai/brokk/ComplexField.scala").build()) {
+        try (var testProject = InlineTestProjectCreator.code(code, "ai/brokk/ComplexField.scala")
+                .build()) {
             var analyzer = createTreeSitterAnalyzer(testProject);
             var file = new ProjectFile(testProject.getRoot(), "ai/brokk/ComplexField.scala");
 

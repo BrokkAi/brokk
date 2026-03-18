@@ -228,8 +228,6 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer implements JvmBasedAnalyze
                     fieldNode, sourceContent, exportPrefix, signatureText, simpleName, baseIndent, file);
         }
 
-        String trimmedSignature = signatureText.strip();
-
         // Decide whether this is a single-name or multi-name definition based on the AST shape,
         // not by scanning raw text for commas. This avoids brittle handling and works for:
         //   var x, y: Int = 1
@@ -262,8 +260,14 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer implements JvmBasedAnalyze
 
     private boolean isLiteral(TSNode node) {
         String type = node.getType();
-        return type.endsWith("_literal") || "string".equals(type) || "boolean".equals(type) || "character".equals(type)
-                || "symbol".equals(type) || "null".equals(type);
+        return type.endsWith("_literal")
+                || STRING.equals(type)
+                || INTERPOLATED_STRING.equals(type)
+                || INTERPOLATED_VERBATIM_STRING.equals(type)
+                || BOOLEAN.equals(type)
+                || CHARACTER.equals(type)
+                || SYMBOL.equals(type)
+                || NULL.equals(type);
     }
 
     private static final Set<String> TEST_ANNOTATIONS = Set.of("Test", "ParameterizedTest", "RepeatedTest");
