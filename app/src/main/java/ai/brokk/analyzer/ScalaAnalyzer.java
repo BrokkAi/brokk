@@ -235,23 +235,6 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer implements JvmBasedAnalyze
         //   var x, y: Int = 1
         // where the grammar provides:
         //   (var_definition pattern: (identifiers (identifier) (identifier)) type: ... value: ...)
-        TSNode patternNode = fieldNode.getChildByFieldName("pattern");
-        if (patternNode != null && !patternNode.isNull()) {
-            // Single-name pattern: preserve the raw slice exactly as written (important for multi-line literals and
-            // error recovery).
-            if ("identifier".equals(patternNode.getType())) {
-                String patternText = sourceContent.substringFrom(patternNode).strip();
-                if (!patternText.isEmpty() && patternText.equals(simpleName)) {
-                    String prefix = exportPrefix.stripTrailing();
-                    if (!prefix.isEmpty() && trimmedSignature.startsWith(prefix)) {
-                        return baseIndent + trimmedSignature;
-                    }
-                    return baseIndent + (prefix.isEmpty() ? trimmedSignature : (prefix + " " + trimmedSignature));
-                }
-            }
-        }
-
-        // Multi-name pattern (or unknown pattern shape): reconstruct a per-declarator signature from AST fields.
         String keyword = VAL_DEFINITION.equals(nodeType) ? "val" : "var";
 
         StringBuilder sb = new StringBuilder();
@@ -269,10 +252,18 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer implements JvmBasedAnalyze
 
         TSNode valueNode = fieldNode.getChildByFieldName("value");
         if (valueNode != null && !valueNode.isNull()) {
-            sb.append(" = ").append(sourceContent.substringFrom(valueNode));
+            if (isLiteral(valueNode)) {
+                sb.append(" = ").append(sourceContent.substringFrom(valueNode));
+            }
         }
 
         return sb.toString();
+    }
+
+    private boolean isLiteral(TSNode node) {
+        String type = node.getType();
+        return type.endsWith("_literal") || "string".equals(type) || "boolean".equals(type) || "character".equals(type)
+                || "symbol".equals(type) || "null".equals(type);
     }
 
     private static final Set<String> TEST_ANNOTATIONS = Set.of("Test", "ParameterizedTest", "RepeatedTest");

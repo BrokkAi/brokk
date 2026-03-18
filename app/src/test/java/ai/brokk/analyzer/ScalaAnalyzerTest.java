@@ -178,7 +178,7 @@ public class ScalaAnalyzerTest {
     }
 
     @Test
-    @Disabled("TSA only supports nested functions in the context of JavaTSA lambdas")
+    @Disabled("Nested methods are not yet correctly indexed in Scala")
     public void testSimpleNestedMethodsWithinClasses() throws IOException {
         try (var testProject = InlineTestProjectCreator.code(
                         """
@@ -492,7 +492,7 @@ public class ScalaAnalyzerTest {
     }
 
     @Test
-    public void testComplexFieldInitializerIsOmitted()  {
+    public void testComplexFieldInitializerIsOmitted() throws IOException {
         String code =
                 """
                 package ai.brokk
