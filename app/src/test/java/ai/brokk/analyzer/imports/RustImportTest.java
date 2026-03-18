@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
+import ai.brokk.analyzer.ImportAnalysisProvider;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.RustAnalyzer;
 import ai.brokk.analyzer.TypeAliasProvider;
@@ -96,5 +97,58 @@ class RustImportTest {
                 .orElse(false);
 
         assertTrue(isAlias, "CodeUnit should be identified as a type alias");
+    }
+
+    @Test
+    @Disabled("Semantic import resolution for Rust is pending")
+    void testResolveImports_Semantic() throws IOException {
+        IProject project = InlineTestProjectCreator.code(
+                        "pub struct MyStruct;",
+                        "src/my_module.rs")
+                .addFileContents(
+                        """
+                use crate::my_module::MyStruct;
+                fn main() { let _s = MyStruct; }
+                """,
+                        "src/main.rs")
+                .build();
+
+        RustAnalyzer analyzer = new RustAnalyzer(project);
+        ProjectFile mainFile = new ProjectFile(project.getRoot(), "src/main.rs");
+
+        var resolved = analyzer.as(ImportAnalysisProvider.class)
+                .map(p -> p.importedCodeUnitsOf(mainFile))
+                .orElseThrow();
+
+        boolean found = resolved.stream()
+                .anyMatch(cu -> cu.isClass() && "MyStruct".equals(cu.shortName()));
+        assertTrue(found, "Should have resolved to MyStruct in my_module");
+    }
+
+    @Test
+    @Disabled("Semantic aliased import resolution for Rust is pending")
+    void testResolveImports_Aliased() throws IOException {
+        IProject project = InlineTestProjectCreator.code(
+                        "pub struct TargetStruct;",
+                        "src/lib.rs")
+                .addFileContents(
+                        """
+                use crate::TargetStruct as AliasStruct;
+                fn main() { let _s = AliasStruct; }
+                """,
+                        "src/main.rs")
+                .build();
+
+        RustAnalyzer analyzer = new RustAnalyzer(project);
+        ProjectFile mainFile = new ProjectFile(project.getRoot(), "src/main.rs");
+
+        var resolved = analyzer.as(ImportAnalysisProvider.class)
+                .map(p -> p.importedCodeUnitsOf(mainFile))
+                .orElseThrow();
+
+        // The resolved CodeUnit should be the original definition (TargetStruct)
+        boolean found = resolved.stream()
+                .anyMatch(cu -> cu.isClass() && "TargetStruct".equals(cu.shortName()));
+        assertTrue(found, "Aliased import should resolve to the original target CodeUnit");
     }
 }
