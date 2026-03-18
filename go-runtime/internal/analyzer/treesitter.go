@@ -251,16 +251,18 @@ func treeSitterSpecForPath(relativePath string) (treeSitterSpec, bool) {
 }
 
 func populateTreeSitterDefinition(definition *treeSitterDefinition, kind string, node tree_sitter.Node, content string) {
+	originalStart := int(node.StartByte())
 	definition.kind = kind
-	definition.start = int(node.StartByte())
+	definition.start = expandTreeSitterCommentStart(content, originalStart, kind)
 	definition.end = int(node.EndByte())
-	definition.startLine = int(node.StartPosition().Row) + 1
+	definition.startLine = lineNumberAt(content, definition.start)
 	definition.endLine = int(node.EndPosition().Row) + 1
-	definition.snippet = strings.TrimSpace(node.Utf8Text([]byte(content)))
-	definition.signature = extractSignature(content, definition.start)
-	definition.hasBody = treeSitterDefinitionHasBody(kind, definition.snippet)
+	rawSnippet := strings.TrimSpace(node.Utf8Text([]byte(content)))
+	definition.snippet = strings.TrimSpace(content[definition.start:definition.end])
+	definition.signature = extractSignature(content, originalStart)
+	definition.hasBody = treeSitterDefinitionHasBody(kind, rawSnippet)
 	if definition.kind == "field" && definition.signature == "" {
-		definition.signature = definition.snippet
+		definition.signature = rawSnippet
 	}
 }
 
@@ -474,6 +476,72 @@ func treeSitterDefinitionHasBody(kind string, snippet string) bool {
 	switch kind {
 	case "function", "class":
 		return strings.Contains(trimmed, "{") || strings.Contains(trimmed, ":\n") || strings.Contains(trimmed, ":\r\n")
+	default:
+		return false
+	}
+}
+
+func expandTreeSitterCommentStart(content string, start int, kind string) int {
+	if start <= 0 || start > len(content) {
+		return start
+	}
+	if kind != "class" && kind != "function" && kind != "field" {
+		return start
+	}
+
+	lineStart := treeSitterLineStart(content, start)
+	expanded := lineStart
+	for expanded > 0 {
+		prevEnd := expanded - 1
+		if content[prevEnd] == '\n' {
+			prevEnd--
+		}
+		if prevEnd < 0 {
+			break
+		}
+
+		prevStart := treeSitterLineStart(content, prevEnd+1)
+		trimmed := strings.TrimSpace(content[prevStart : prevEnd+1])
+		if trimmed == "" {
+			break
+		}
+		if !isTreeSitterCommentLine(trimmed) {
+			break
+		}
+		expanded = prevStart
+	}
+	return expanded
+}
+
+func treeSitterLineStart(content string, offset int) int {
+	if offset <= 0 {
+		return 0
+	}
+	if offset > len(content) {
+		offset = len(content)
+	}
+	for i := offset - 1; i >= 0; i-- {
+		if content[i] == '\n' {
+			return i + 1
+		}
+	}
+	return 0
+}
+
+func isTreeSitterCommentLine(trimmed string) bool {
+	switch {
+	case strings.HasPrefix(trimmed, "//"):
+		return true
+	case strings.HasPrefix(trimmed, "/*"):
+		return true
+	case strings.HasPrefix(trimmed, "*"):
+		return true
+	case strings.HasPrefix(trimmed, "*/"):
+		return true
+	case strings.HasPrefix(trimmed, "#"):
+		return true
+	case strings.HasPrefix(trimmed, "--"):
+		return true
 	default:
 		return false
 	}

@@ -53,6 +53,9 @@ func TestParseTreeSitterSymbolsJava(t *testing.T) {
 	if len(filterByKind(symbols, "class")) != 1 {
 		t.Fatalf("class count = %d, want 1", len(filterByKind(symbols, "class")))
 	}
+	if !filterByKind(symbols, "class")[0].HasBody {
+		t.Fatalf("class HasBody = false, want true")
+	}
 
 	methods := filterByKind(symbols, "function")
 	if len(methods) != 1 || methods[0].FQName != "com.example.service.UserService.findUserById" {
@@ -65,6 +68,40 @@ func TestParseTreeSitterSymbolsJava(t *testing.T) {
 	fields := filterByKind(symbols, "field")
 	if len(fields) != 1 || fields[0].FQName != "com.example.service.UserService.cachedId" {
 		t.Fatalf("fields = %#v, want java field fqName", fields)
+	}
+}
+
+func TestParseTreeSitterSymbolsIncludeLeadingComments(t *testing.T) {
+	if !treeSitterEnabled() {
+		t.Skip("tree-sitter requires cgo support on this machine")
+	}
+
+	symbols, ok := parseTreeSitterSymbols("src/main/java/com/example/service/UserService.java", ""+
+		"package com.example.service;\n\n"+
+		"/**\n"+
+		" * Service docs.\n"+
+		" */\n"+
+		"public class UserService {\n"+
+		"    // Finds a user by id.\n"+
+		"    public String findUserById(String id) {\n"+
+		"        return id;\n"+
+		"    }\n"+
+		"}\n")
+	if !ok {
+		t.Fatal("parseTreeSitterSymbols() = false, want true")
+	}
+
+	classes := filterByKind(symbols, "class")
+	if len(classes) != 1 || !strings.Contains(classes[0].Snippet, "Service docs.") {
+		t.Fatalf("classes = %#v, want leading class comment in snippet", classes)
+	}
+
+	methods := filterByKind(symbols, "function")
+	if len(methods) != 1 || !strings.Contains(methods[0].Snippet, "// Finds a user by id.") {
+		t.Fatalf("methods = %#v, want leading method comment in snippet", methods)
+	}
+	if !strings.HasPrefix(strings.TrimSpace(methods[0].Signature), "public String findUserById") {
+		t.Fatalf("methods[0].Signature = %q, want declaration signature without comment prefix", methods[0].Signature)
 	}
 }
 
@@ -131,6 +168,35 @@ func TestParseTreeSitterSymbolsPythonDecoratedDefinitions(t *testing.T) {
 	}
 	if !strings.Contains(methods[0].Snippet, "@cached") {
 		t.Fatalf("method snippet = %q, want decorator text", methods[0].Snippet)
+	}
+}
+
+func TestParseTreeSitterSymbolsIncludeLeadingPythonComments(t *testing.T) {
+	if !treeSitterEnabled() {
+		t.Skip("tree-sitter requires cgo support on this machine")
+	}
+
+	symbols, ok := parseTreeSitterSymbols("pkg/service.py", ""+
+		"# Service docs.\n"+
+		"class UserService:\n"+
+		"    # Finds a user by id.\n"+
+		"    def find_user(self, user_id):\n"+
+		"        return user_id\n")
+	if !ok {
+		t.Fatal("parseTreeSitterSymbols() = false, want true")
+	}
+
+	classes := filterByKind(symbols, "class")
+	if len(classes) != 1 || !strings.Contains(classes[0].Snippet, "# Service docs.") {
+		t.Fatalf("classes = %#v, want leading python class comment in snippet", classes)
+	}
+
+	methods := filterByKind(symbols, "function")
+	if len(methods) != 1 || !strings.Contains(methods[0].Snippet, "# Finds a user by id.") {
+		t.Fatalf("methods = %#v, want leading python method comment in snippet", methods)
+	}
+	if !strings.HasPrefix(strings.TrimSpace(methods[0].Signature), "def find_user") {
+		t.Fatalf("methods[0].Signature = %q, want method signature without comment prefix", methods[0].Signature)
 	}
 }
 
