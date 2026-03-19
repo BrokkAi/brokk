@@ -438,12 +438,18 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
                     if (childNameList == null || childNameList.isNull()) {
                         childNameList = child;
                     }
-                    String namesText = sourceContent.substringFrom(childNameList);
-                    // simple contains check works if identifier doesn't overlap with another (e.g. "a" and "aa").
-                    // For safety, checking if it splits correctly is better, but contains is OK here.
-                    if (namesText.contains(identifier)) {
-                        specNode = child;
-                        fieldNodeType = specNode.getType();
+                    for (int j = 0; j < childNameList.getNamedChildCount(); j++) {
+                        TSNode nameNode = childNameList.getNamedChild(j);
+                        if (nameNode != null
+                                && "identifier".equals(nameNode.getType())
+                                && identifier.equals(
+                                        sourceContent.substringFrom(nameNode).trim())) {
+                            specNode = child;
+                            fieldNodeType = specNode.getType();
+                            break;
+                        }
+                    }
+                    if (specNode != fieldNode) {
                         break;
                     }
                 }
