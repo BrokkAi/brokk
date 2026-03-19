@@ -3,6 +3,7 @@ package analyzer
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -595,6 +596,138 @@ func TestAnalyzerTracksTreeSitterTestAndSupertypeMetadata(t *testing.T) {
 	rendered := service.RenderDefinitionGroup(group)
 	if !strings.Contains(rendered, "import org.junit.jupiter.api.Test;") {
 		t.Fatalf("rendered = %q, want tree-sitter imports in wrapper", rendered)
+	}
+}
+
+func TestJavaImportInfoStructure(t *testing.T) {
+	t.Parallel()
+
+	workspace := t.TempDir()
+	writeAnalyzerFile(t, workspace, "Foo.java", ""+
+		"import java.util.List;\n"+
+		"import java.util.Map;\n"+
+		"import static java.lang.Math.PI;\n"+
+		"import com.example.*;\n"+
+		"import static org.junit.Assert.*;\n\n"+
+		"public class Foo {}\n")
+
+	service := New(workspace)
+	importInfos := service.ImportInfo("Foo.java")
+	if len(importInfos) != 5 {
+		t.Fatalf("len(importInfos) = %d, want 5", len(importInfos))
+	}
+
+	if importInfos[0].Identifier != "List" || importInfos[0].IsWildcard {
+		t.Fatalf("importInfos[0] = %#v, want explicit List import", importInfos[0])
+	}
+	if importInfos[2].Identifier != "PI" || importInfos[2].IsWildcard {
+		t.Fatalf("importInfos[2] = %#v, want explicit static PI import", importInfos[2])
+	}
+	if !importInfos[3].IsWildcard || importInfos[3].Identifier != "" {
+		t.Fatalf("importInfos[3] = %#v, want wildcard package import", importInfos[3])
+	}
+	if !importInfos[4].IsWildcard || importInfos[4].Identifier != "" {
+		t.Fatalf("importInfos[4] = %#v, want static wildcard import", importInfos[4])
+	}
+}
+
+func TestJavaImportedCodeUnitsAndReferencingFiles(t *testing.T) {
+	t.Parallel()
+
+	workspace := t.TempDir()
+	writeAnalyzerFile(t, workspace, "src/main/java/example/Baz.java", ""+
+		"package example;\n"+
+		"public class Baz {}\n")
+	writeAnalyzerFile(t, workspace, "src/main/java/sample/ClassA.java", ""+
+		"package sample;\n"+
+		"public class ClassA {}\n")
+	writeAnalyzerFile(t, workspace, "src/main/java/sample/ClassB.java", ""+
+		"package sample;\n"+
+		"public class ClassB {}\n")
+	writeAnalyzerFile(t, workspace, "src/main/java/app/Consumer.java", ""+
+		"package app;\n"+
+		"import example.Baz;\n"+
+		"import sample.*;\n"+
+		"import static java.lang.System.out;\n"+
+		"public class Consumer {}\n")
+	writeAnalyzerFile(t, workspace, "src/main/java/app/Other.java", ""+
+		"package app;\n"+
+		"import example.Baz;\n"+
+		"public class Other {}\n")
+
+	service := New(workspace)
+	imported := service.ImportedCodeUnits("src/main/java/app/Consumer.java")
+	got := sortedFQNames(imported)
+	want := []string{"example.Baz", "sample.ClassA", "sample.ClassB"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("ImportedCodeUnits() = %#v, want %#v", got, want)
+	}
+
+	referencing := service.ReferencingFiles("src/main/java/example/Baz.java")
+	wantRefs := []string{"src/main/java/app/Consumer.java", "src/main/java/app/Other.java"}
+	if !slices.Equal(referencing, wantRefs) {
+		t.Fatalf("ReferencingFiles() = %#v, want %#v", referencing, wantRefs)
+	}
+}
+
+func TestJavaRelevantImportsForMethod(t *testing.T) {
+	t.Parallel()
+
+	workspace := t.TempDir()
+	writeAnalyzerFile(t, workspace, "src/main/java/pkg/Foo.java", ""+
+		"package pkg;\n"+
+		"public class Foo {}\n")
+	writeAnalyzerFile(t, workspace, "src/main/java/pkg/Bar.java", ""+
+		"package pkg;\n"+
+		"public class Bar {}\n")
+	writeAnalyzerFile(t, workspace, "src/main/java/consumer/Consumer.java", ""+
+		"package consumer;\n"+
+		"import pkg.Foo;\n"+
+		"import pkg.Bar;\n\n"+
+		"public class Consumer {\n"+
+		"    public void methodUsingOnlyFoo(Foo a) {\n"+
+		"    }\n"+
+		"}\n")
+
+	service := New(workspace)
+	methods := service.ResolveMethods([]string{"methodUsingOnlyFoo"})
+	if len(methods) != 1 {
+		t.Fatalf("len(methods) = %d, want 1", len(methods))
+	}
+
+	relevant := service.RelevantImports(methods[0])
+	want := []string{"import pkg.Foo;"}
+	if !slices.Equal(relevant, want) {
+		t.Fatalf("RelevantImports() = %#v, want %#v", relevant, want)
+	}
+}
+
+func TestJavaRelevantImportsIncludesWildcardFallback(t *testing.T) {
+	t.Parallel()
+
+	workspace := t.TempDir()
+	writeAnalyzerFile(t, workspace, "src/main/java/pkg/Foo.java", ""+
+		"package pkg;\n"+
+		"public class Foo {}\n")
+	writeAnalyzerFile(t, workspace, "src/main/java/consumer/Consumer.java", ""+
+		"package consumer;\n"+
+		"import pkg.Foo;\n"+
+		"import other.*;\n\n"+
+		"public class Consumer {\n"+
+		"    public void bar(Foo a, UnknownType b) {\n"+
+		"    }\n"+
+		"}\n")
+
+	service := New(workspace)
+	methods := service.ResolveMethods([]string{"bar"})
+	if len(methods) != 1 {
+		t.Fatalf("len(methods) = %d, want 1", len(methods))
+	}
+
+	relevant := service.RelevantImports(methods[0])
+	want := []string{"import other.*;", "import pkg.Foo;"}
+	if !slices.Equal(relevant, want) {
+		t.Fatalf("RelevantImports() = %#v, want %#v", relevant, want)
 	}
 }
 

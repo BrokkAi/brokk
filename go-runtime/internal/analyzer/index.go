@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -41,6 +42,13 @@ type Completion struct {
 	Type   string
 	Name   string
 	Detail string
+}
+
+type ImportInfo struct {
+	RawSnippet string
+	IsWildcard bool
+	Identifier string
+	Alias      string
 }
 
 type scoredSymbol struct {
@@ -440,6 +448,161 @@ func (s *Service) RawSupertypes(fqName string) []string {
 		}
 	}
 	return results
+}
+
+func (s *Service) ImportInfo(relativePath string) []ImportInfo {
+	index, err := s.getIndex()
+	if err != nil {
+		return []ImportInfo{}
+	}
+
+	relativePath = filepath.ToSlash(strings.TrimSpace(relativePath))
+	imports := index.importsByPath[relativePath]
+	if len(imports) == 0 {
+		return []ImportInfo{}
+	}
+
+	switch strings.ToLower(filepath.Ext(relativePath)) {
+	case ".java":
+		return parseJavaImportInfos(imports)
+	default:
+		results := make([]ImportInfo, 0, len(imports))
+		for _, raw := range imports {
+			results = append(results, ImportInfo{RawSnippet: raw})
+		}
+		return results
+	}
+}
+
+func (s *Service) ImportedCodeUnits(relativePath string) []Symbol {
+	index, err := s.getIndex()
+	if err != nil {
+		return []Symbol{}
+	}
+
+	relativePath = filepath.ToSlash(strings.TrimSpace(relativePath))
+	switch strings.ToLower(filepath.Ext(relativePath)) {
+	case ".java":
+		return s.importedJavaCodeUnits(index, relativePath)
+	default:
+		return []Symbol{}
+	}
+}
+
+func (s *Service) ReferencingFiles(relativePath string) []string {
+	index, err := s.getIndex()
+	if err != nil {
+		return []string{}
+	}
+
+	targetPath := filepath.ToSlash(strings.TrimSpace(relativePath))
+	results := make([]string, 0, 8)
+	seen := map[string]struct{}{}
+	for sourcePath := range index.importsByPath {
+		for _, symbol := range s.ImportedCodeUnits(sourcePath) {
+			if symbol.RelativePath != targetPath {
+				continue
+			}
+			if _, ok := seen[sourcePath]; ok {
+				continue
+			}
+			seen[sourcePath] = struct{}{}
+			results = append(results, sourcePath)
+			break
+		}
+	}
+	slices.Sort(results)
+	return results
+}
+
+func (s *Service) RelevantImports(symbol Symbol) []string {
+	if symbol.Language != "java" {
+		return []string{}
+	}
+
+	index, err := s.getIndex()
+	if err != nil {
+		return []string{}
+	}
+
+	importInfos := s.ImportInfo(symbol.RelativePath)
+	if len(importInfos) == 0 {
+		return []string{}
+	}
+
+	typeIdentifiers := extractJavaTypeIdentifiers(symbol.Snippet)
+	if len(typeIdentifiers) == 0 {
+		return []string{}
+	}
+
+	matched := map[string]struct{}{}
+	resolvedExplicit := map[string]struct{}{}
+	wildcards := make([]ImportInfo, 0, len(importInfos))
+	for _, info := range importInfos {
+		if info.IsWildcard {
+			wildcards = append(wildcards, info)
+			continue
+		}
+		if info.Identifier != "" && containsString(typeIdentifiers, info.Identifier) {
+			matched[info.RawSnippet] = struct{}{}
+			resolvedExplicit[info.Identifier] = struct{}{}
+		}
+	}
+
+	unresolved := make([]string, 0, len(typeIdentifiers))
+	for _, identifier := range typeIdentifiers {
+		if _, ok := resolvedExplicit[identifier]; ok {
+			continue
+		}
+		unresolved = append(unresolved, identifier)
+	}
+	if len(unresolved) == 0 {
+		return sortedMapKeys(matched)
+	}
+
+	importPackages := make([]string, 0, len(wildcards))
+	for _, wildcard := range wildcards {
+		pkg := extractPackageFromWildcardImport(wildcard.RawSnippet)
+		if pkg != "" {
+			importPackages = append(importPackages, pkg)
+		}
+	}
+
+	resolvedViaWildcard := map[string]struct{}{}
+	for _, identifier := range unresolved {
+		if strings.Contains(identifier, ".") && !javaQualifiedIdentifierNeedsImport(identifier, importPackages) {
+			resolvedViaWildcard[identifier] = struct{}{}
+			continue
+		}
+		for _, wildcard := range wildcards {
+			pkg := extractPackageFromWildcardImport(wildcard.RawSnippet)
+			if pkg == "" {
+				continue
+			}
+			if len(filterByKind(s.definitions(index, pkg+"."+identifier), "class")) > 0 {
+				matched[wildcard.RawSnippet] = struct{}{}
+				resolvedViaWildcard[identifier] = struct{}{}
+			}
+		}
+	}
+
+	stillUnresolvedSimple := false
+	for _, identifier := range unresolved {
+		if _, ok := resolvedViaWildcard[identifier]; ok {
+			continue
+		}
+		if !strings.Contains(identifier, ".") {
+			stillUnresolvedSimple = true
+			break
+		}
+	}
+	if stillUnresolvedSimple {
+		for _, wildcard := range wildcards {
+			matched[wildcard.RawSnippet] = struct{}{}
+		}
+	}
+
+	return sortedMapKeys(matched)
 }
 
 func (s *Service) SymbolsForPaths(paths []string, limit int) []Symbol {
@@ -2027,6 +2190,142 @@ func (s *Service) collectImports(symbol Symbol) []string {
 	default:
 		return nil
 	}
+}
+
+func (s *Service) importedJavaCodeUnits(index *indexSnapshot, relativePath string) []Symbol {
+	importInfos := parseJavaImportInfos(index.importsByPath[relativePath])
+	if len(importInfos) == 0 {
+		return []Symbol{}
+	}
+
+	explicitImports := make([]Symbol, 0, len(importInfos))
+	wildcardPackages := make([]string, 0, len(importInfos))
+	for _, info := range importInfos {
+		if strings.HasPrefix(strings.TrimSpace(info.RawSnippet), "import static ") {
+			continue
+		}
+
+		if info.IsWildcard {
+			pkg := extractPackageFromWildcardImport(info.RawSnippet)
+			if pkg != "" {
+				wildcardPackages = append(wildcardPackages, pkg)
+			}
+			continue
+		}
+
+		fqName := normalizeJavaImportTarget(info.RawSnippet)
+		if fqName == "" {
+			continue
+		}
+		definitions := filterByKind(s.definitions(index, fqName), "class")
+		if len(definitions) > 0 {
+			explicitImports = append(explicitImports, definitions[0])
+		}
+	}
+
+	resolved := append([]Symbol(nil), explicitImports...)
+	resolvedNames := map[string]struct{}{}
+	for _, symbol := range explicitImports {
+		resolvedNames[symbol.Identifier] = struct{}{}
+	}
+
+	for _, pkg := range wildcardPackages {
+		for _, symbol := range index.symbols {
+			if symbol.Kind != "class" || symbol.PackageName != pkg || !symbol.TopLevel {
+				continue
+			}
+			if _, ok := resolvedNames[symbol.Identifier]; ok {
+				continue
+			}
+			resolvedNames[symbol.Identifier] = struct{}{}
+			resolved = append(resolved, symbol)
+		}
+	}
+
+	return dedupeSymbols(resolved)
+}
+
+func parseJavaImportInfos(imports []string) []ImportInfo {
+	results := make([]ImportInfo, 0, len(imports))
+	for _, raw := range imports {
+		isWildcard := strings.Contains(raw, ".*")
+		identifier := ""
+		if !isWildcard {
+			normalized := normalizeJavaImportTarget(raw)
+			lastDot := strings.LastIndex(normalized, ".")
+			switch {
+			case lastDot >= 0 && lastDot < len(normalized)-1:
+				identifier = normalized[lastDot+1:]
+			case normalized != "":
+				identifier = normalized
+			}
+		}
+		results = append(results, ImportInfo{
+			RawSnippet: raw,
+			IsWildcard: isWildcard,
+			Identifier: identifier,
+		})
+	}
+	return results
+}
+
+func normalizeJavaImportTarget(raw string) string {
+	normalized := strings.TrimSpace(raw)
+	normalized = strings.TrimSuffix(normalized, ";")
+	normalized = strings.TrimSpace(strings.TrimPrefix(normalized, "import "))
+	normalized = strings.TrimSpace(strings.TrimPrefix(normalized, "static "))
+	return normalized
+}
+
+func extractPackageFromWildcardImport(raw string) string {
+	normalized := normalizeJavaImportTarget(raw)
+	return strings.TrimSuffix(normalized, ".*")
+}
+
+var javaTypeIdentifierPattern = regexp.MustCompile(`\b(?:[A-Z][A-Za-z0-9_]*)(?:\.[A-Z][A-Za-z0-9_]*)*\b`)
+
+func extractJavaTypeIdentifiers(source string) []string {
+	matches := javaTypeIdentifierPattern.FindAllString(source, -1)
+	if len(matches) == 0 {
+		return []string{}
+	}
+	seen := map[string]struct{}{}
+	results := make([]string, 0, len(matches))
+	for _, match := range matches {
+		if _, ok := seen[match]; ok {
+			continue
+		}
+		seen[match] = struct{}{}
+		results = append(results, match)
+	}
+	return results
+}
+
+func javaQualifiedIdentifierNeedsImport(identifier string, importPackages []string) bool {
+	for _, pkg := range importPackages {
+		if strings.HasPrefix(identifier, pkg+".") {
+			return true
+		}
+	}
+	return false
+}
+
+func sortedMapKeys(values map[string]struct{}) []string {
+	results := make([]string, 0, len(values))
+	for value := range values {
+		results = append(results, value)
+	}
+	slices.Sort(results)
+	return results
+}
+
+func containsString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
 }
 
 func collectGoImports(content string) []string {
