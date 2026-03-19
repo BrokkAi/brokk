@@ -1,11 +1,11 @@
 import os
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 from typing import Optional
 
 from brokk_code.executor import BUNDLED_EXECUTOR_VERSION, ExecutorError, ensure_jbang_ready
-from brokk_code.workspace import resolve_workspace_dir
 
 _EXECUTOR_JAR_BASE_URL = "https://github.com/BrokkAi/brokk-releases/releases/download"
 _MCP_SERVER_MAIN_CLASS = "ai.brokk.mcpserver.BrokkExternalMcpServer"
@@ -24,6 +24,33 @@ def resolve_brokk_command() -> str:
             return str(candidate.resolve())
 
     return "brokk"
+
+
+def git_toplevel_for(path: Path) -> Optional[Path]:
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+            timeout=5.0,
+            cwd=str(path),
+        )
+    except Exception:
+        return None
+
+    if result.returncode != 0:
+        return None
+
+    stdout = result.stdout.strip()
+    if not stdout:
+        return None
+    return Path(stdout).resolve()
+
+
+def resolve_mcp_workspace_dir(path: Path) -> Path:
+    resolved = path.resolve()
+    current = resolved if resolved.is_dir() else resolved.parent
+    return git_toplevel_for(current) or current
 
 
 def find_dev_jar(workspace_dir: Path) -> Optional[Path]:
@@ -100,7 +127,7 @@ def run_mcp_server(
     jar_path: Optional[Path],
     executor_version: str | None,
 ) -> None:
-    resolved_workspace_dir = resolve_workspace_dir(workspace_dir)
+    resolved_workspace_dir = resolve_mcp_workspace_dir(workspace_dir)
 
     try:
         command = resolve_mcp_command(

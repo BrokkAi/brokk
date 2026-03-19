@@ -6,6 +6,27 @@ import pytest
 from brokk_code import mcp_launcher
 
 
+def test_resolve_mcp_workspace_dir_uses_git_toplevel(monkeypatch, tmp_path) -> None:
+    repo_root = tmp_path / "repo"
+    nested_dir = repo_root / "src" / "feature"
+    nested_dir.mkdir(parents=True)
+    monkeypatch.setattr(mcp_launcher, "git_toplevel_for", lambda _path: repo_root.resolve())
+
+    resolved = mcp_launcher.resolve_mcp_workspace_dir(nested_dir)
+
+    assert resolved == repo_root.resolve()
+
+
+def test_resolve_mcp_workspace_dir_keeps_non_git_dir(monkeypatch, tmp_path) -> None:
+    non_project_dir = tmp_path / "scratch"
+    non_project_dir.mkdir()
+    monkeypatch.setattr(mcp_launcher, "git_toplevel_for", lambda _path: None)
+
+    resolved = mcp_launcher.resolve_mcp_workspace_dir(non_project_dir)
+
+    assert resolved == non_project_dir.resolve()
+
+
 def test_run_mcp_server_execs_direct_java_with_explicit_jar(monkeypatch, tmp_path) -> None:
     captured: dict[str, object] = {}
     dummy_jar = tmp_path / "brokk.jar"
@@ -22,6 +43,7 @@ def test_run_mcp_server_execs_direct_java_with_explicit_jar(monkeypatch, tmp_pat
 
     monkeypatch.setattr(os, "chdir", fake_chdir)
     monkeypatch.setattr(os, "execvpe", fake_execvpe)
+    monkeypatch.setattr(mcp_launcher, "git_toplevel_for", lambda _path: None)
 
     with pytest.raises(RuntimeError, match="stop"):
         mcp_launcher.run_mcp_server(
@@ -61,6 +83,7 @@ def test_run_mcp_server_prefers_local_dev_jar(monkeypatch, tmp_path) -> None:
 
     monkeypatch.setattr(os, "chdir", fake_chdir)
     monkeypatch.setattr(os, "execvpe", fake_execvpe)
+    monkeypatch.setattr(mcp_launcher, "git_toplevel_for", lambda _path: repo_root.resolve())
 
     with pytest.raises(RuntimeError, match="stop"):
         mcp_launcher.run_mcp_server(
@@ -90,6 +113,7 @@ def test_run_mcp_server_falls_back_to_versioned_jbang(monkeypatch, tmp_path) -> 
     monkeypatch.setattr(os, "chdir", fake_chdir)
     monkeypatch.setattr(os, "execvpe", fake_execvpe)
     monkeypatch.setattr(mcp_launcher, "find_dev_jar", lambda _workspace_dir: None)
+    monkeypatch.setattr(mcp_launcher, "git_toplevel_for", lambda _path: None)
     monkeypatch.setattr(mcp_launcher, "ensure_jbang_ready", lambda: "/usr/local/bin/jbang")
 
     with pytest.raises(RuntimeError, match="stop"):
@@ -111,6 +135,7 @@ def test_run_mcp_server_falls_back_to_versioned_jbang(monkeypatch, tmp_path) -> 
 def test_run_mcp_server_reports_missing_runtime(monkeypatch, tmp_path, capsys) -> None:
     monkeypatch.setattr(mcp_launcher, "find_dev_jar", lambda _workspace_dir: None)
     monkeypatch.setattr(mcp_launcher, "ensure_jbang_ready", lambda: "missing-runtime")
+    monkeypatch.setattr(mcp_launcher, "git_toplevel_for", lambda _path: None)
     monkeypatch.setattr(os, "chdir", lambda _path: None)
     monkeypatch.setattr(os, "execvpe", lambda *_args: (_ for _ in ()).throw(FileNotFoundError()))
 
