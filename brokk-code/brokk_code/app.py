@@ -2258,8 +2258,13 @@ class BrokkApp(App):
             elif check_text:
                 if self._current_switch_target_session_id:
                     # Queue non-slash prompts for execution after switch completes
+                    append_prompt(
+                        self.executor.workspace_dir,
+                        check_text,
+                        max_history=self.settings.prompt_history_size,
+                    )
                     if chat:
-                        chat.add_history_entry(raw_text)
+                        chat.add_history_entry(check_text)
                         chat.add_user_message(raw_text)
                     self._pending_switch_prompt = (self._current_switch_target_session_id, raw_text)
                     if chat:
@@ -2277,11 +2282,13 @@ class BrokkApp(App):
         # Record ALL non-empty input in history (both prompts and slash commands)
         if check_text:
             append_prompt(
-                self.executor.workspace_dir, raw_text, max_history=self.settings.prompt_history_size
+                self.executor.workspace_dir,
+                check_text,
+                max_history=self.settings.prompt_history_size,
             )
             chat = self._maybe_chat()
             if chat:
-                chat.add_history_entry(raw_text)
+                chat.add_history_entry(check_text)
 
             if check_text.startswith("/"):
                 self._handle_command(check_text)

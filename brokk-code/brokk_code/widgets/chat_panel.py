@@ -961,11 +961,12 @@ class ChatPanel(Vertical):
 
     def _navigate_history(self, delta: int) -> None:
         """
-        Logic for cycling through history:
+        Cycles through prompt history with Up/Down:
         - Up (delta -1): Moves towards older entries (towards index 0).
         - Down (delta 1): Moves towards newer entries and eventually the draft.
-        - Commands (/) are included in the history.
+        - Both regular prompts and slash commands (/) are included in the history.
         - Restores draft_buffer when moving past the newest entry.
+        - Autocomplete is suppressed during navigation to avoid popups on / entries.
         """
         if not self._history:
             return
