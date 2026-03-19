@@ -2394,24 +2394,12 @@ func parseJavaImportInfos(imports []string) []ImportInfo {
 func parseJSImportInfos(imports []string) []ImportInfo {
 	results := make([]ImportInfo, 0, len(imports))
 	for _, raw := range imports {
-		identifiers := extractIdentifiersFromJSImport(raw)
-		isWildcard := strings.Contains(raw, "import * as ")
-		identifier := ""
-		alias := ""
-		if len(identifiers) == 1 {
-			identifier = identifiers[0]
-		}
-		if isWildcard && len(identifiers) > 0 {
-			alias = identifiers[0]
-		}
-		if strings.Contains(raw, " as ") && len(identifiers) > 0 {
-			alias = identifiers[len(identifiers)-1]
-		}
+		metadata := parseJSImportMetadata(raw)
 		results = append(results, ImportInfo{
 			RawSnippet: strings.TrimSpace(raw),
-			IsWildcard: isWildcard,
-			Identifier: identifier,
-			Alias:      alias,
+			IsWildcard: metadata.isWildcard,
+			Identifier: firstString(metadata.identifiers),
+			Alias:      firstString(metadata.aliases),
 		})
 	}
 	return results
@@ -2461,25 +2449,66 @@ func javaQualifiedIdentifierNeedsImport(identifier string, importPackages []stri
 var jsLikeKnownExtensions = []string{".js", ".jsx", ".ts", ".tsx"}
 
 func extractIdentifiersFromJSImport(importStatement string) []string {
+	metadata := parseJSImportMetadata(importStatement)
+	results := make([]string, 0, len(metadata.identifiers)+len(metadata.aliases))
+	seen := map[string]struct{}{}
+	for _, value := range metadata.identifiers {
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		results = append(results, value)
+	}
+	for _, value := range metadata.aliases {
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		results = append(results, value)
+	}
+	return results
+}
+
+type jsImportMetadata struct {
+	identifiers []string
+	aliases     []string
+	isWildcard  bool
+}
+
+func parseJSImportMetadata(importStatement string) jsImportMetadata {
 	raw := strings.TrimSpace(importStatement)
 	if raw == "" {
-		return nil
+		return jsImportMetadata{}
 	}
 
-	results := make([]string, 0, 4)
-	seen := map[string]struct{}{}
+	identifiers := make([]string, 0, 4)
+	aliases := make([]string, 0, 2)
+	seenIdentifiers := map[string]struct{}{}
+	seenAliases := map[string]struct{}{}
 	addIdentifier := func(value string) {
 		trimmed := strings.TrimSpace(value)
 		if trimmed == "" {
 			return
 		}
-		if _, ok := seen[trimmed]; ok {
+		if _, ok := seenIdentifiers[trimmed]; ok {
 			return
 		}
-		seen[trimmed] = struct{}{}
-		results = append(results, trimmed)
+		seenIdentifiers[trimmed] = struct{}{}
+		identifiers = append(identifiers, trimmed)
+	}
+	addAlias := func(value string) {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			return
+		}
+		if _, ok := seenAliases[trimmed]; ok {
+			return
+		}
+		seenAliases[trimmed] = struct{}{}
+		aliases = append(aliases, trimmed)
 	}
 
+	isWildcard := false
 	if strings.HasPrefix(raw, "import ") {
 		fromIndex := strings.Index(raw, " from ")
 		switch {
@@ -2491,19 +2520,24 @@ func extractIdentifiersFromJSImport(importStatement string) []string {
 				case part == "":
 				case strings.HasPrefix(part, "{") && strings.HasSuffix(part, "}"):
 					for _, entry := range strings.Split(strings.Trim(part, "{}"), ",") {
-						pieces := strings.Split(strings.TrimSpace(entry), " as ")
-						for _, piece := range pieces {
-							addIdentifier(piece)
+						normalized := strings.TrimSpace(entry)
+						pieces := strings.Split(normalized, " as ")
+						if len(pieces) > 0 {
+							addIdentifier(pieces[0])
+						}
+						if len(pieces) > 1 {
+							addAlias(pieces[1])
 						}
 					}
 				case strings.HasPrefix(part, "* as "):
-					addIdentifier(strings.TrimSpace(strings.TrimPrefix(part, "* as ")))
+					isWildcard = true
+					addAlias(strings.TrimSpace(strings.TrimPrefix(part, "* as ")))
 				default:
 					addIdentifier(part)
 				}
 			}
 		case strings.HasPrefix(raw, "import "):
-			return nil
+			return jsImportMetadata{}
 		}
 	}
 
@@ -2517,8 +2551,11 @@ func extractIdentifiersFromJSImport(importStatement string) []string {
 			if strings.HasPrefix(lhs, "{") && strings.HasSuffix(lhs, "}") {
 				for _, entry := range strings.Split(strings.Trim(lhs, "{}"), ",") {
 					pieces := strings.Split(strings.TrimSpace(entry), ":")
-					for _, piece := range pieces {
-						addIdentifier(piece)
+					if len(pieces) > 0 {
+						addIdentifier(pieces[0])
+					}
+					if len(pieces) > 1 {
+						addAlias(pieces[1])
 					}
 				}
 			} else {
@@ -2527,7 +2564,11 @@ func extractIdentifiersFromJSImport(importStatement string) []string {
 		}
 	}
 
-	return results
+	return jsImportMetadata{
+		identifiers: identifiers,
+		aliases:     aliases,
+		isWildcard:  isWildcard,
+	}
 }
 
 func splitJSImportClause(clause string) []string {
@@ -2551,6 +2592,13 @@ func splitJSImportClause(clause string) []string {
 	}
 	parts = append(parts, clause[start:])
 	return parts
+}
+
+func firstString(values []string) string {
+	if len(values) == 0 {
+		return ""
+	}
+	return values[0]
 }
 
 func extractJSImportModulePath(importStatement string) string {

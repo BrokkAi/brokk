@@ -876,6 +876,15 @@ func TestJSImportInfoAndImportedCodeUnits(t *testing.T) {
 	if len(importInfos) != 3 {
 		t.Fatalf("len(importInfos) = %d, want 3", len(importInfos))
 	}
+	if importInfos[0].Identifier != "libFunc" || importInfos[0].Alias != "" || importInfos[0].IsWildcard {
+		t.Fatalf("importInfos[0] = %#v, want named import info", importInfos[0])
+	}
+	if importInfos[1].Identifier != "shared" || importInfos[1].Alias != "" || importInfos[1].IsWildcard {
+		t.Fatalf("importInfos[1] = %#v, want CommonJS destructure info", importInfos[1])
+	}
+	if importInfos[2].Identifier != "" || importInfos[2].Alias != "" || importInfos[2].IsWildcard {
+		t.Fatalf("importInfos[2] = %#v, want side-effect import info", importInfos[2])
+	}
 
 	imported := sortedFQNames(service.ImportedCodeUnits("src/app.js"))
 	wantImported := []string{"POLYFILL_VERSION", "lib.libFunc", "lib.shared"}
@@ -886,6 +895,35 @@ func TestJSImportInfoAndImportedCodeUnits(t *testing.T) {
 	referencing := service.ReferencingFiles("polyfill.js")
 	if !slices.Equal(referencing, []string{"src/app.js"}) {
 		t.Fatalf("ReferencingFiles() = %#v, want src/app.js", referencing)
+	}
+}
+
+func TestJSImportInfoTracksAliases(t *testing.T) {
+	t.Parallel()
+
+	workspace := t.TempDir()
+	writeAnalyzerFile(t, workspace, "src/example.ts", ""+
+		"import Foo, { Bar as Baz } from './lib';\n"+
+		"import * as Telemetry from './telemetry';\n"+
+		"const { shared: cache } = require('./cache');\n")
+	writeAnalyzerFile(t, workspace, "src/lib.ts", "export default class Foo {}\nexport class Bar {}\n")
+	writeAnalyzerFile(t, workspace, "src/telemetry.ts", "export function trace(): void {}\n")
+	writeAnalyzerFile(t, workspace, "src/cache.ts", "export function shared(): string { return 'x'; }\n")
+
+	service := New(workspace)
+	importInfos := service.ImportInfo("src/example.ts")
+	if len(importInfos) != 3 {
+		t.Fatalf("len(importInfos) = %d, want 3", len(importInfos))
+	}
+
+	if importInfos[0].Identifier != "Foo" || importInfos[0].Alias != "Baz" || importInfos[0].IsWildcard {
+		t.Fatalf("importInfos[0] = %#v, want default-plus-alias metadata", importInfos[0])
+	}
+	if importInfos[1].Identifier != "" || importInfos[1].Alias != "Telemetry" || !importInfos[1].IsWildcard {
+		t.Fatalf("importInfos[1] = %#v, want namespace import metadata", importInfos[1])
+	}
+	if importInfos[2].Identifier != "shared" || importInfos[2].Alias != "cache" || importInfos[2].IsWildcard {
+		t.Fatalf("importInfos[2] = %#v, want CommonJS alias metadata", importInfos[2])
 	}
 }
 
