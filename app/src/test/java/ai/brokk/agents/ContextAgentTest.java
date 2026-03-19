@@ -4,7 +4,6 @@ import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
-import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.Llm;
@@ -62,7 +61,7 @@ public class ContextAgentTest {
                 Llm filesLlm,
                 boolean showBatch1Reasoning) {
             pruneCalled = true;
-            return new LlmRecommendation(pruneResult, Set.of(), Set.of(), null);
+            return new LlmRecommendation(pruneResult, Set.of(), Set.of());
         }
 
         @Override
@@ -123,8 +122,8 @@ public class ContextAgentTest {
         var agent = new ContextAgent(cm, model, "test");
 
         var testFile = cm.toFile("src/test/java/pkg/FooTest.java");
-        List<ContextFragment> fragments = agent.createResult(
-                new ContextAgent.LlmRecommendation(Set.of(), Set.of(testFile), Set.of(), null), Set.of());
+        List<ContextFragment> fragments =
+                agent.createResult(new ContextAgent.LlmRecommendation(Set.of(), Set.of(testFile), Set.of()), Set.of());
 
         var summaryFragments = fragments.stream()
                 .filter(f -> f instanceof ContextFragments.SummaryFragment)
@@ -150,7 +149,7 @@ public class ContextAgentTest {
 
         var samePath = cm.toFile("src/shared/Dupe.java");
         List<ContextFragment> fragments = agent.createResult(
-                new ContextAgent.LlmRecommendation(Set.of(samePath), Set.of(samePath), Set.of(), null), Set.of());
+                new ContextAgent.LlmRecommendation(Set.of(samePath), Set.of(samePath), Set.of()), Set.of());
 
         var summaryFileSkeletonCount = fragments.stream()
                 .filter(f -> f instanceof ContextFragments.SummaryFragment sf
@@ -180,8 +179,7 @@ public class ContextAgentTest {
 
         var existing = cm.toFile("src/already/InWorkspace.java");
         List<ContextFragment> fragments = agent.createResult(
-                new ContextAgent.LlmRecommendation(Set.of(existing), Set.of(existing), Set.of(), null),
-                Set.of(existing));
+                new ContextAgent.LlmRecommendation(Set.of(existing), Set.of(existing), Set.of()), Set.of(existing));
 
         assertTrue(fragments.isEmpty());
     }
@@ -256,7 +254,6 @@ public class ContextAgentTest {
         assertTrue(selected.analyzedFiles().contains(analyzedA));
         assertTrue(selected.analyzedFiles().contains(analyzedB));
         assertTrue(selected.unAnalyzedFiles().isEmpty());
-        assertNull(selected.selectionUsage());
     }
 
     @Test
