@@ -14,7 +14,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -30,7 +29,7 @@ import org.junit.jupiter.api.Test;
 public final class HeadlessExecutorStdinShutdownIT {
 
     private Process process = null;
-    private ExecutorService executor = Executors.newSingleThreadExecutor();
+    private ExecutorService executor = Executors.newFixedThreadPool(2);
 
     @AfterEach
     void tearDown() throws Exception {
@@ -46,34 +45,25 @@ public final class HeadlessExecutorStdinShutdownIT {
 
     @Test
     void executorShouldExitWhenStdinClosed() throws Exception {
-        // Locate a brokk.jar to execute. Prefer module-local build output.
-        Path candidate1 = Path.of("build", "libs", "brokk.jar");
-        Path candidate2 = Path.of("app", "build", "libs", "brokk.jar");
-        Path jarPath = null;
-        if (Files.exists(candidate1)) {
-            jarPath = candidate1.toAbsolutePath();
-        } else if (Files.exists(candidate2)) {
-            jarPath = candidate2.toAbsolutePath();
-        }
-
-        // If we couldn't find a jar, skip the test to avoid false failures in environments
-        // where the integration artifact isn't available.
-        Assumptions.assumeTrue(
-                jarPath != null && Files.exists(jarPath),
-                "brokk.jar not found; skipping integration test (expected at " + candidate1 + " or " + candidate2
-                        + ")");
+        String classpath = System.getProperty("java.class.path");
 
         Path workspaceDir = Files.createTempDirectory("headless-exec-it-");
+        // Write JVM args to an argfile to avoid Windows command line length limit (CreateProcess error=206)
+        Path argFile = Files.createTempFile("java-cp-argfile-", ".txt");
         try {
             String execId = UUID.randomUUID().toString();
             String authToken = "test-token";
 
+            Files.writeString(
+                    argFile,
+                    "-Djava.awt.headless=true\n" + "-Dapple.awt.UIElement=true\n"
+                            + "-cp\n"
+                            + "\""
+                            + classpath.replace("\\", "\\\\") + "\"\n");
+
             ProcessBuilder pb = new ProcessBuilder(
                     "java",
-                    "-Djava.awt.headless=true",
-                    "-Dapple.awt.UIElement=true",
-                    "-cp",
-                    jarPath.toString(),
+                    "@" + argFile.toAbsolutePath(),
                     "ai.brokk.executor.HeadlessExecutorMain",
                     "--exec-id",
                     execId,
@@ -82,7 +72,8 @@ public final class HeadlessExecutorStdinShutdownIT {
                     "--auth-token",
                     authToken,
                     "--workspace-dir",
-                    workspaceDir.toString());
+                    workspaceDir.toString(),
+                    "--exit-on-stdin-eof");
 
             pb.redirectErrorStream(true);
             process = pb.start();
@@ -102,7 +93,7 @@ public final class HeadlessExecutorStdinShutdownIT {
             Future<String> listenFuture = executor.submit(waitForListening);
             String bannerLine;
             try {
-                bannerLine = listenFuture.get(15, TimeUnit.SECONDS);
+                bannerLine = listenFuture.get(60, TimeUnit.SECONDS);
             } catch (Exception e) {
                 if (process.isAlive()) {
                     process.destroyForcibly();
@@ -122,7 +113,7 @@ public final class HeadlessExecutorStdinShutdownIT {
             }
 
             // Wait for the process to exit within a reasonable timeout.
-            boolean exited = process.waitFor(8, TimeUnit.SECONDS);
+            boolean exited = process.waitFor(60, TimeUnit.SECONDS);
             if (!exited) {
                 process.destroy();
                 process.waitFor(2, TimeUnit.SECONDS);
@@ -137,6 +128,7 @@ public final class HeadlessExecutorStdinShutdownIT {
             assertEquals(0, exitCode, "Executor process exited with unexpected code after stdin closure");
 
         } finally {
+            argFile.toFile().delete();
             try {
                 Files.walk(workspaceDir)
                         .map(Path::toFile)

@@ -33,6 +33,7 @@ class McpServerCommandTest {
                     "skimFiles",
                     "getFileSummaries",
                     "getClassSkeletons",
+                    "searchFileContents",
                     "getClassSources",
                     "getMethodSources",
                     "getSymbolLocations")));

@@ -399,7 +399,7 @@ public class SummaryFragmentTest {
     }
 
     @Test
-    public void pythonFileSkeleton() throws IOException {
+    public void pythonFileSkeleton() {
         String pythonCode =
                 """
                 from __future__ import annotations
@@ -598,6 +598,12 @@ def grid_to_pixels(grid_units: int, dpi: int) -> int: ...
 
 def pixels_to_grid_ceil(pixels: int, dpi: int) -> int: ...
 
+@dataclass(frozen=True)
+class GridRect:
+  x: int
+  y: int
+  w: int
+  h: int
   def __post_init__(self) -> None: ...
   @property
   def area(self) -> int: ...
@@ -612,6 +618,12 @@ def pixels_to_grid_ceil(pixels: int, dpi: int) -> int: ...
   def contained_in(self, bounds: "GridRect") -> bool: ...
   def contains_point(self, x: int, y: int) -> bool: ...
 
+@dataclass(frozen=True)
+class Rect:
+  x: float
+  y: float
+  w: float
+  h: float
   def __post_init__(self) -> None: ...
   @property
   def area(self) -> float: ...

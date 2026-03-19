@@ -22,6 +22,7 @@ public final class RustTreeSitterNodeTypes {
     public static final String FUNCTION_SIGNATURE_ITEM = "function_signature_item";
 
     // Field-like declarations
+    public static final String TYPE_ITEM = "type_item";
     public static final String CONST_ITEM = "const_item";
     public static final String STATIC_ITEM = "static_item";
     public static final String ENUM_VARIANT = "enum_variant";

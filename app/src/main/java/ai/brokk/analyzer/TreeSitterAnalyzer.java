@@ -256,6 +256,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             SequencedSet<String> signatures,
             SequencedSet<Range> ranges,
             boolean hasBody,
+            boolean isTypeAlias,
             List<CodeUnit> childrenList,
             List<String> signaturesList,
             List<Range> rangesList) {
@@ -264,12 +265,14 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 SequencedSet<CodeUnit> children,
                 SequencedSet<String> signatures,
                 SequencedSet<Range> ranges,
-                boolean hasBody) {
+                boolean hasBody,
+                boolean isTypeAlias) {
             this(
                     children,
                     signatures,
                     ranges,
                     hasBody,
+                    isTypeAlias,
                     List.copyOf(children),
                     List.copyOf(signatures),
                     List.copyOf(ranges));
@@ -280,6 +283,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                     Collections.unmodifiableSequencedSet(new LinkedHashSet<>()),
                     Collections.unmodifiableSequencedSet(new LinkedHashSet<>()),
                     Collections.unmodifiableSequencedSet(new LinkedHashSet<>()),
+                    false,
                     false);
         }
     }
@@ -1459,8 +1463,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
     @Override
     public boolean isTypeAlias(CodeUnit cu) {
-        // Default: languages that don't support or expose type aliases return false.
-        return false;
+        return withCodeUnitProperties(
+                props -> props.getOrDefault(cu, CodeUnitProperties.empty()).isTypeAlias());
     }
 
     /**
@@ -2296,6 +2300,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                         SkeletonType refined = refineSkeletonType(primaryCaptureName, node, getLanguageSyntaxProfile());
                         ResolvedNodes resolved = resolveSignatureNodes(node, simpleName, refined, sourceContent);
                         acc.setHasBody(cu, computeHasBody(resolved.contentNode(), primaryCaptureName, sourceContent));
+                        if (CaptureNames.TYPEALIAS_DEFINITION.equals(primaryCaptureName)) {
+                            acc.setIsTypeAlias(cu, true);
+                        }
 
                         if (existingCUforKeyLookup != null
                                 && !existingCUforKeyLookup.equals(cu)
@@ -3546,7 +3553,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             targetCodeUnitState.compute(mergeKey, (k, existing) -> {
                 if (existing == null) {
                     return new CodeUnitProperties(
-                            newState.children(), newState.signatures(), newState.ranges(), newState.hasBody());
+                            newState.children(),
+                            newState.signatures(),
+                            newState.ranges(),
+                            newState.hasBody(),
+                            newState.isTypeAlias());
                 }
                 SequencedSet<CodeUnit> mergedKids = new LinkedHashSet<>(existing.children());
                 mergedKids.addAll(newState.children());
@@ -3557,14 +3568,15 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 SequencedSet<Range> mergedRanges = new LinkedHashSet<>(existing.ranges());
                 mergedRanges.addAll(newState.ranges());
 
-                // Merge semantics: hasBody is combined using logical OR so that any occurrence of a body
-                // in any analyzed file marks the CodeUnit as having a body in the merged snapshot.
+                // Merge semantics: flags are combined using logical OR.
                 boolean mergedHasBody = existing.hasBody() || newState.hasBody();
+                boolean mergedIsTypeAlias = existing.isTypeAlias() || newState.isTypeAlias();
                 return new CodeUnitProperties(
                         Collections.unmodifiableSequencedSet(mergedKids),
                         Collections.unmodifiableSequencedSet(mergedSigs),
                         Collections.unmodifiableSequencedSet(mergedRanges),
-                        mergedHasBody);
+                        mergedHasBody,
+                        mergedIsTypeAlias);
             });
 
             if (cu.isModule()) {
@@ -3645,7 +3657,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                             Collections.unmodifiableSequencedSet(filtered),
                             props.signatures(),
                             props.ranges(),
-                            props.hasBody());
+                            props.hasBody(),
+                            props.isTypeAlias());
         });
 
         // Filter symbol index

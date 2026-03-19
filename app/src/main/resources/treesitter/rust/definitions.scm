@@ -125,6 +125,12 @@
           )
   )
 
+;; Type aliases
+(type_item
+  (visibility_modifier)? @keyword.modifier
+  name: (type_identifier) @typealias.name
+) @typealias.definition
+
 ;; Test markers - capture attribute_item nodes directly for validation in Java
 (attribute_item
   (attribute

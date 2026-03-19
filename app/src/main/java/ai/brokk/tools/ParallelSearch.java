@@ -17,6 +17,7 @@ import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.data.message.ToolExecutionResultMessage;
+import dev.langchain4j.model.chat.StreamingChatModel;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -33,13 +34,26 @@ import org.apache.logging.log4j.Logger;
  */
 public class ParallelSearch {
     private static final Logger logger = LogManager.getLogger(ParallelSearch.class);
+    private static final String SEARCHAGENT_USES_PLANNER_ENV_VAR = "BRK_SEARCHAGENT_USES_PLANNER";
 
     private final IContextManager cm;
+    private final Context ctx;
     private final String goal;
+    private final StreamingChatModel delegatedSearchModel;
 
-    public ParallelSearch(IContextManager cm, String goal) {
-        this.cm = cm;
+    public ParallelSearch(Context ctx, String goal, StreamingChatModel model) {
+        this.ctx = ctx;
+        this.cm = ctx.getContextManager();
         this.goal = goal;
+        this.delegatedSearchModel = model;
+    }
+
+    public static boolean usePlannerModelForSearchAgent() {
+        return "true".equalsIgnoreCase(System.getenv(SEARCHAGENT_USES_PLANNER_ENV_VAR));
+    }
+
+    StreamingChatModel delegatedSearchModel() {
+        return delegatedSearchModel;
     }
 
     @Tool(
@@ -49,7 +63,10 @@ public class ParallelSearch {
                     Use `callSearchAgent` when:
                     - the relevant symbols or files are unclear,
                     - there are multiple plausible places to look,
+                    - you need to connect findings across code, tests, templates, resources, or build/config files before deciding what to add to the Workspace,
                     - or you want to explore several search branches in parallel before deciding what to add to the Workspace.
+
+                    Direct search tools can be better for one-hop anchored lookup when you already have a concrete symbol, filename, or literal string.
 
                     Query guidance:
                     - Make the query self-contained.
@@ -58,7 +75,7 @@ public class ParallelSearch {
                     Use `mode="WORKSPACE"` to have Search Agent add relevant context to the Workspace.
                     Use `mode="ANSWER"` to get findings back without modifying the Workspace.
 
-                    Prefer direct `add*ToWorkspace` tools instead when you already know exactly what you need.""")
+                    Prefer direct `add*ToWorkspace` tools instead when you already know exactly what you need to add.""")
     public String callSearchAgent(
             @P(
                             "A complete, explicit search request for SearchAgent in English (not just keywords). Do not rely on prior Architect conversation history; include the goal, constraints, relevant code locations, and what information you need.")
@@ -96,7 +113,7 @@ public class ParallelSearch {
                     taskIo = echoClaimed ? io : mutedIo;
                 }
 
-                return executeSearchRequest(req, new Context(cm), tr, taskIo);
+                return executeSearchRequest(req, ctx, tr, taskIo);
             });
             tasks.add(new SearchTask(req, future));
         }
@@ -170,8 +187,7 @@ public class ParallelSearch {
     }
 
     private SearchTaskResult executeSearchRequest(
-            ToolExecutionRequest request, Context searchStartContext, ToolRegistry tr, IConsoleIO io)
-            throws InterruptedException {
+            ToolExecutionRequest request, Context searchStartContext, ToolRegistry tr, IConsoleIO io) {
         io.beforeToolCall(request);
 
         ToolExecutionResult toolResult;
@@ -188,7 +204,7 @@ public class ParallelSearch {
             logger.debug("callSearchAgent invoked with query: {}, mode: {}", query, mode);
             io.llmOutput("**Search Agent** engaged:\n" + query, ChatMessageType.CUSTOM, LlmOutputMeta.newMessage());
 
-            var searchAgent = new SearchAgent(searchStartContext, query, objective, io);
+            var searchAgent = new SearchAgent(searchStartContext, query, delegatedSearchModel, objective, io);
             taskResult = searchAgent.execute();
 
             if (taskResult.stopDetails().reason() == StopReason.LLM_ERROR) {

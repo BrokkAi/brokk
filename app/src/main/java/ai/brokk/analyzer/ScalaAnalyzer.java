@@ -230,35 +230,31 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer implements JvmBasedAnalyze
 
         String trimmedSignature = signatureText.strip();
 
-        // Decide whether this is a single-name or multi-name definition based on the AST shape,
-        // not by scanning raw text for commas. This avoids brittle handling and works for:
-        //   var x, y: Int = 1
-        // where the grammar provides:
-        //   (var_definition pattern: (identifiers (identifier) (identifier)) type: ... value: ...)
+        // Single-name fast path: preserve the raw slice (modifiers, annotations) but truncate non-literals.
         TSNode patternNode = fieldNode.getChildByFieldName("pattern");
-        if (patternNode != null && !patternNode.isNull()) {
-            // Single-name pattern: preserve the raw slice exactly as written (important for multi-line literals and
-            // error recovery).
-            if ("identifier".equals(patternNode.getType())) {
-                String patternText = sourceContent.substringFrom(patternNode).strip();
-                if (!patternText.isEmpty() && patternText.equals(simpleName)) {
-                    String prefix = exportPrefix.stripTrailing();
-                    if (!prefix.isEmpty() && trimmedSignature.startsWith(prefix)) {
-                        return baseIndent + trimmedSignature;
+        if (patternNode != null && !patternNode.isNull() && "identifier".equals(patternNode.getType())) {
+            String patternText = sourceContent.substringFrom(patternNode).strip();
+            if (patternText.equals(simpleName)) {
+                TSNode valueNode = fieldNode.getChildByFieldName("value");
+                String result = (exportPrefix.isEmpty() ? trimmedSignature : (exportPrefix + trimmedSignature));
+
+                if (valueNode != null && !valueNode.isNull() && !isLiteral(valueNode)) {
+                    // Truncate non-literal initializer
+                    int eqIndex = result.indexOf('=');
+                    if (eqIndex > 0) {
+                        result = result.substring(0, eqIndex).strip();
                     }
-                    return baseIndent + (prefix.isEmpty() ? trimmedSignature : (prefix + " " + trimmedSignature));
                 }
+                return baseIndent + result;
             }
         }
 
-        // Multi-name pattern (or unknown pattern shape): reconstruct a per-declarator signature from AST fields.
+        // Multi-name pattern or fallback: reconstruct from AST fields.
         String keyword = VAL_DEFINITION.equals(nodeType) ? "val" : "var";
-
         StringBuilder sb = new StringBuilder();
         sb.append(baseIndent);
-        String prefix = exportPrefix.stripTrailing();
-        if (!prefix.isEmpty()) {
-            sb.append(prefix).append(" ");
+        if (!exportPrefix.isEmpty()) {
+            sb.append(exportPrefix);
         }
         sb.append(keyword).append(" ").append(simpleName);
 
@@ -268,11 +264,23 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer implements JvmBasedAnalyze
         }
 
         TSNode valueNode = fieldNode.getChildByFieldName("value");
-        if (valueNode != null && !valueNode.isNull()) {
+        if (valueNode != null && !valueNode.isNull() && isLiteral(valueNode)) {
             sb.append(" = ").append(sourceContent.substringFrom(valueNode));
         }
 
         return sb.toString();
+    }
+
+    private boolean isLiteral(TSNode node) {
+        String type = node.getType();
+        return type.endsWith("_literal")
+                || STRING.equals(type)
+                || INTERPOLATED_STRING.equals(type)
+                || INTERPOLATED_VERBATIM_STRING.equals(type)
+                || BOOLEAN.equals(type)
+                || CHARACTER.equals(type)
+                || SYMBOL.equals(type)
+                || NULL.equals(type);
     }
 
     private static final Set<String> TEST_ANNOTATIONS = Set.of("Test", "ParameterizedTest", "RepeatedTest");

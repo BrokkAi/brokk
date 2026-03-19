@@ -53,6 +53,7 @@
           (call_expression)
           (jsx_element)
           (jsx_self_closing_element)
+          (new_expression)
         ]
       ) @field.definition
     )
@@ -79,6 +80,7 @@
           (call_expression)
           (jsx_element)
           (jsx_self_closing_element)
+          (new_expression)
         ]
       ) @field.definition
     )
@@ -113,6 +115,7 @@
             (call_expression)
             (jsx_element)
             (jsx_self_closing_element)
+            (new_expression)
           ]
         ) @field.definition
       )
@@ -139,7 +142,8 @@
             (call_expression)
             (jsx_element)
             (jsx_self_closing_element)
-          ]
+            (new_expression)
+         ]
         ) @field.definition
       )
     ]

@@ -211,6 +211,9 @@ public final class ActivityTableRenderers {
                 case SEARCH -> {
                     return Icons.SEARCH;
                 }
+                case LUTZ -> {
+                    return Icons.LUTZ;
+                }
                 case SCAN -> {
                     return Icons.CONTEXT;
                 }

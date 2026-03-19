@@ -142,6 +142,104 @@ async def test_job_progress_in_chat_panel():
 
 
 @pytest.mark.asyncio
+async def test_session_loading_state():
+    """
+    Verify that session loading state shows the label, spinner, and makes input read-only.
+    """
+    from textual.app import App, ComposeResult
+
+    from brokk_code.widgets.chat_panel import ChatInput
+
+    class TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield ChatPanel(id="chat")
+
+    app = TestApp()
+    async with app.run_test():
+        chat = app.query_one(ChatPanel)
+        loading_label = chat.query_one("#session-loading-label", Static)
+        help_spinner = chat.query_one("#help-spinner")
+        chat_input = chat.query_one("#chat-input", ChatInput)
+
+        # Initially hidden
+        assert loading_label.has_class("hidden")
+        assert help_spinner.has_class("hidden")
+        assert chat_input.read_only is False
+
+        # Start session loading with default message
+        chat.set_session_loading(True)
+        assert not loading_label.has_class("hidden")
+        assert _static_rendered_text(loading_label) == "Loading session..."
+        assert not help_spinner.has_class("hidden")
+        assert chat_input.read_only is True
+
+        # Stop session loading
+        chat.set_session_loading(False)
+        assert loading_label.has_class("hidden")
+        assert help_spinner.has_class("hidden")
+        assert chat_input.read_only is False
+
+        # Start session loading with custom message
+        chat.set_session_loading(True, message="Switching to session 'test'...")
+        assert not loading_label.has_class("hidden")
+        assert _static_rendered_text(loading_label) == "Switching to session 'test'..."
+        assert chat_input.read_only is True
+
+        # Stop session loading
+        chat.set_session_loading(False)
+        assert loading_label.has_class("hidden")
+        assert chat_input.read_only is False
+
+
+@pytest.mark.asyncio
+async def test_session_loading_and_job_running_coordination():
+    """
+    Verify that session loading and job running coordinate properly with the spinner.
+    """
+    from textual.app import App, ComposeResult
+
+    class TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield ChatPanel(id="chat")
+
+    app = TestApp()
+    async with app.run_test():
+        chat = app.query_one(ChatPanel)
+        loading_label = chat.query_one("#session-loading-label", Static)
+        help_spinner = chat.query_one("#help-spinner")
+
+        # Initially both hidden
+        assert loading_label.has_class("hidden")
+        assert help_spinner.has_class("hidden")
+
+        # Start session loading
+        chat.set_session_loading(True)
+        assert not help_spinner.has_class("hidden")
+
+        # Stop session loading - spinner should hide
+        chat.set_session_loading(False)
+        assert help_spinner.has_class("hidden")
+
+        # Start job running
+        chat.set_job_running(True)
+        assert not help_spinner.has_class("hidden")
+
+        # Start session loading while job is running
+        chat.set_session_loading(True)
+        assert not help_spinner.has_class("hidden")
+        assert not loading_label.has_class("hidden")
+
+        # Stop session loading while job is still running - spinner should stay visible
+        chat.set_session_loading(False)
+        assert not help_spinner.has_class("hidden")
+        assert loading_label.has_class("hidden")
+
+        # Stop job running - now spinner should hide
+        chat.set_job_running(False)
+        assert help_spinner.has_class("hidden")
+
+
+@pytest.mark.asyncio
 async def test_token_bar_visibility_control():
     """Verify that the token bar visibility can be controlled explicitly."""
     from textual.app import App, ComposeResult
@@ -1156,6 +1254,60 @@ async def test_session_costs_modal_excludes_legacy_carryover_from_model_aggregat
 
 
 @pytest.mark.asyncio
+async def test_session_costs_modal_scrolls_on_navigation():
+    """Verify that navigating the cost list scrolls the highlighted row into view."""
+    from unittest.mock import MagicMock as _MagicMock
+
+    from textual.app import App, ComposeResult
+    from textual.widgets import ListItem, ListView
+
+    from brokk_code.app import SessionCostsModalScreen
+
+    class TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield Static("host")
+
+    # Create enough events to ensure many rows
+    events = [
+        {
+            "timestampMillis": 1737627240000 + (i * 1000),
+            "operationLabel": f"Task {i}",
+            "modelName": "gpt-4",
+            "costUsd": 0.01,
+        }
+        for i in range(50)
+    ]
+    cost_data = {"events": events, "totalCost": 0.50}
+
+    app = TestApp()
+    async with app.run_test(size=(120, 20)) as pilot:
+        screen = SessionCostsModalScreen(cost_data)
+        await app.push_screen(screen)
+        await pilot.pause()
+
+        list_view = screen.query_one(ListView)
+        scroll_wrap = screen.query_one("#session-costs-list-wrap")
+
+        # Monkeypatch/wrap scroll_to_widget to capture invocations
+        mock_scroll = _MagicMock(side_effect=scroll_wrap.scroll_to_widget)
+        scroll_wrap.scroll_to_widget = mock_scroll
+
+        # Set index near the end
+        list_view.index = 49
+
+        # Pause loop until call is captured or timeout
+        for _ in range(20):
+            await pilot.pause()
+            if mock_scroll.called:
+                break
+
+        assert mock_scroll.called, "scroll_to_widget was not called upon navigation"
+        # Assert the captured widget is a ListItem
+        args, _ = mock_scroll.call_args
+        assert isinstance(args[0], ListItem), f"Expected ListItem, got {type(args[0])}"
+
+
+@pytest.mark.asyncio
 async def test_chat_log_get_selection():
     """Verify that ChatLog.get_selection() extracts text from log content using real Selection."""
     from textual.app import App, ComposeResult
@@ -1457,6 +1609,43 @@ async def test_chat_log_render_line_horizontal_scroll_selection():
 
         # --- Clean up ---
         del log.screen.selections[log]
+
+
+@pytest.mark.asyncio
+async def test_session_costs_modal_scroll_exception_handling():
+    """Verify narrowed exception handling in session costs scroll path."""
+    from unittest.mock import MagicMock, patch
+
+    from textual.app import App, ComposeResult
+    from textual.css.query import NoMatches
+
+    from brokk_code.app import SessionCostsModalScreen
+
+    class TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield Static("host")
+
+    cost_data = {"events": [{"operationLabel": "Test"}], "totalCost": 0.01}
+    app = TestApp()
+
+    async with app.run_test() as pilot:
+        screen = SessionCostsModalScreen(cost_data)
+        await app.push_screen(screen)
+        await pilot.pause()
+
+        # 1. Test NoMatches is swallowed
+        with patch.object(screen, "query_one", side_effect=NoMatches("msg")):
+            # Should not raise
+            screen.on_list_view_highlighted(MagicMock(item=MagicMock()))
+
+        # 2. Test unexpected Exception is logged at debug
+        with patch("brokk_code.app.logger.debug") as mock_debug:
+            with patch.object(screen, "query_one", side_effect=RuntimeError("boom")):
+                screen.on_list_view_highlighted(MagicMock(item=MagicMock()))
+                mock_debug.assert_called_once()
+                args, kwargs = mock_debug.call_args
+                assert "Failed to scroll" in args[0]
+                assert kwargs.get("exc_info") is True
 
 
 def _force_autoscroll_off(panel, log):

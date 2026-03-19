@@ -383,11 +383,51 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
             Optional<StateMismatch> mismatch = stateMismatch(analyzer);
             if (mismatch.isPresent()) {
                 StateMismatch delta = mismatch.get();
+
+                // If languages are missing from the loaded analyzer, we must instantiate them
+                // so that the subsequent update() call can process the missing files.
+                Set<Language> projectLangs = project.getAnalyzerLanguages().stream()
+                        .filter(l -> l != Languages.NONE)
+                        .collect(Collectors.toSet());
+                Set<Language> analyzerLangs = analyzer.languages();
+
+                if (!analyzerLangs.containsAll(projectLangs)) {
+                    Map<Language, IAnalyzer> nextDelegates = new HashMap<>();
+                    for (Language lang : analyzerLangs) {
+                        analyzer.subAnalyzer(lang).ifPresent(sub -> nextDelegates.put(lang, sub));
+                    }
+                    for (Language lang : projectLangs) {
+                        if (!nextDelegates.containsKey(lang)) {
+                            logger.info("Instantiating missing analyzer delegate for {} during recovery", lang.name());
+                            nextDelegates.put(lang, lang.createAnalyzer(project, progressListener));
+                        }
+                    }
+                    analyzer = nextDelegates.size() == 1
+                            ? nextDelegates.values().iterator().next()
+                            : new MultiAnalyzer(nextDelegates);
+                }
+
                 logger.warn(
                         "Loaded analyzer state appears corrupt (file mismatch). Attempting targeted repair of {} files.",
                         delta.missing().size() + delta.unexpected().size());
 
                 analyzer = analyzer.update(delta.all());
+
+                // Prune any delegates for languages no longer in the project after the repair is complete
+                if (!analyzer.languages().equals(projectLangs)) {
+                    Map<Language, IAnalyzer> finalDelegates = new HashMap<>();
+                    for (Language lang : projectLangs) {
+                        analyzer.subAnalyzer(lang).ifPresent(sub -> finalDelegates.put(lang, sub));
+                    }
+                    if (finalDelegates.isEmpty()) {
+                        analyzer = new DisabledAnalyzer(project);
+                    } else if (finalDelegates.size() == 1) {
+                        analyzer = finalDelegates.values().iterator().next();
+                    } else {
+                        analyzer = new MultiAnalyzer(finalDelegates);
+                    }
+                }
+
                 if (stateMismatch(analyzer).isPresent()) {
                     throw new IllegalStateException("Analyzer state remains corrupt after targeted repair attempt.");
                 }

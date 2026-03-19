@@ -1,3 +1,6 @@
+import groovy.json.JsonOutput
+import groovy.json.JsonSlurper
+
 // Get the version from the latest git tag and current version with caching
 fun getVersionFromGit(): String {
     val versionCacheFile = File(rootDir, "build/version.txt")
@@ -115,6 +118,101 @@ tasks.register("printVersion") {
     group = "help"
     doLast {
         println(version)
+    }
+}
+
+tasks.register("deployMcpShadowJar") {
+    description = "Builds :app:shadowJar and copies it to a stable MCP jar path."
+    group = "distribution"
+
+    dependsOn(":app:shadowJar")
+
+    doLast {
+        val shadowJarFile = rootDir.resolve("app/build/libs/brokk-${project.version}.jar")
+        if (!shadowJarFile.exists()) {
+            throw GradleException("Expected shadow jar not found: ${shadowJarFile.absolutePath}")
+        }
+
+        val targetPath = (findProperty("mcpJarTarget") as String?)?.let(::File)
+            ?: File(System.getProperty("user.home"), ".brokk/mcp/brokk-mcp.jar")
+        targetPath.parentFile.mkdirs()
+        shadowJarFile.copyTo(targetPath, overwrite = true)
+        println("Deployed MCP jar to ${targetPath.absolutePath}")
+    }
+}
+
+tasks.register("configureMcpStableJar") {
+    description = "Updates Codex and Claude MCP configs to use the stable local MCP jar path."
+    group = "distribution"
+
+    doLast {
+        val home = File(System.getProperty("user.home"))
+        val targetPath = (findProperty("mcpJarTarget") as String?)?.let(::File)
+            ?: File(home, ".brokk/mcp/brokk-mcp.jar")
+        if (!targetPath.exists()) {
+            throw GradleException(
+                "Stable MCP jar not found at ${targetPath.absolutePath}. Run deployMcpShadowJar first."
+            )
+        }
+
+        val codexPath = File(home, ".codex/config.toml")
+        if (!codexPath.exists()) {
+            throw GradleException("Codex config not found at ${codexPath.absolutePath}")
+        }
+        val codexBlock = """
+[mcp_servers.brokk]
+command = "java"
+args = ["--enable-native-access=ALL-UNNAMED", "-Djava.awt.headless=true", "-Dapple.awt.UIElement=true", "-cp", "${targetPath.absolutePath.replace("\\", "/")}", "ai.brokk.mcpserver.BrokkExternalMcpServer"]
+type = "stdio"
+startup_timeout_sec = 60.0
+tool_timeout_sec = 300.0
+"""
+            .trimIndent()
+        val codexOriginal = codexPath.readText()
+        val codexWithoutBrokk = codexOriginal.replace(
+            Regex("""(?ms)^\[mcp_servers\.brokk]\R.*?(?=^\[|\z)"""),
+            ""
+        )
+        val codexUpdated = codexWithoutBrokk.trimEnd() + System.lineSeparator() + System.lineSeparator() +
+            codexBlock + System.lineSeparator()
+        codexPath.writeText(codexUpdated)
+
+        val claudePath = File(home, ".claude.json")
+        if (!claudePath.exists()) {
+            throw GradleException("Claude config not found at ${claudePath.absolutePath}")
+        }
+        @Suppress("UNCHECKED_CAST")
+        val root = (JsonSlurper().parseText(claudePath.readText()) as? MutableMap<String, Any?>)
+            ?: throw GradleException("Expected JSON object in ${claudePath.absolutePath}")
+        @Suppress("UNCHECKED_CAST")
+        val mcpServers = (root["mcpServers"] as? MutableMap<String, Any?>) ?: mutableMapOf<String, Any?>().also {
+            root["mcpServers"] = it
+        }
+        @Suppress("UNCHECKED_CAST")
+        val existingBrokk = (mcpServers["brokk"] as? MutableMap<String, Any?>) ?: mutableMapOf()
+        val envMap = mutableMapOf<String, Any?>("MCP_TIMEOUT" to "60000", "MCP_TOOL_TIMEOUT" to "300000")
+        @Suppress("UNCHECKED_CAST")
+        (existingBrokk["env"] as? Map<String, Any?>)?.forEach { (k, v) -> envMap[k] = v }
+
+        val brokkConfig = mutableMapOf<String, Any?>(
+            "command" to "java",
+            "args" to listOf(
+                "--enable-native-access=ALL-UNNAMED",
+                "-Djava.awt.headless=true",
+                "-Dapple.awt.UIElement=true",
+                "-cp",
+                targetPath.absolutePath,
+                "ai.brokk.mcpserver.BrokkExternalMcpServer"
+            ),
+            "type" to "stdio",
+            "env" to envMap
+        )
+        mcpServers["brokk"] = brokkConfig
+        claudePath.writeText(JsonOutput.prettyPrint(JsonOutput.toJson(root)) + System.lineSeparator())
+
+        println("Updated Codex MCP config at ${codexPath.absolutePath}")
+        println("Updated Claude MCP config at ${claudePath.absolutePath}")
+        println("Configured stable MCP jar at ${targetPath.absolutePath}")
     }
 }
 

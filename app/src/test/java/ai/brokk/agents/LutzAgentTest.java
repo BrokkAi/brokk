@@ -74,7 +74,7 @@ class LutzAgentTest {
     }
 
     @Test
-    void calculateAllowedToolNames_delegatesSearchToCallSearchAgent() throws InterruptedException {
+    void calculateAllowedToolNames_includesDelegatedAndDirectLookupSearchTools() throws InterruptedException {
         TestConsoleIO io = new TestConsoleIO();
         TestContextManager cm = new TestContextManager(tempDir, io);
 
@@ -82,7 +82,8 @@ class LutzAgentTest {
         List<String> allowed = agent.calculateAllowedToolNames(cm.liveContext());
 
         assertTrue(allowed.contains("callSearchAgent"), "LutzAgent should offer callSearchAgent for delegated search");
-        assertFalse(allowed.contains("searchSymbols"), "LutzAgent should not offer raw searchSymbols tool");
+        assertTrue(
+                allowed.contains("searchSymbols"), "LutzAgent should offer direct anchored lookup via searchSymbols");
     }
 
     @Test
@@ -196,7 +197,7 @@ class LutzAgentTest {
                 base, "goal", new OfflineStreamingModel(), null, new NoOpConsoleIO(), LutzAgent.ScanConfig.disabled());
 
         Context tempPinnedContext = base.withPinned(tempPinned, true)
-                .addHistoryEntry(List.of(), TaskResult.Type.SEARCH, new OfflineStreamingModel(), "goal");
+                .addHistoryEntry(List.of(), TaskResult.Type.LUTZ, new OfflineStreamingModel(), "goal");
 
         Context normalized = agent.resetPinsToOriginal(tempPinnedContext);
 

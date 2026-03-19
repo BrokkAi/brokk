@@ -386,11 +386,11 @@ public final class PythonAnalyzerTest {
                 .collect(Collectors.toList());
         assertEquals(0, localVarFields.size(), "Function-local variables should not be captured as fields");
 
-        // Negative tests: ensure nested definitions are NOT captured as top-level
         var classVarFields = declarations.stream()
                 .filter(cu -> cu.isField() && cu.identifier().equals("CLASS_VAR"))
                 .toList();
-        assertEquals(0, classVarFields.size(), "Class-level variables should not be captured as module-level fields");
+        assertEquals(1, classVarFields.size(), "Class-level variables should be captured as class-level fields");
+        assertTrue(classVarFields.get(0).fqName().contains(".CLASS_VAR"), "Should have class boundary in FQN");
 
         var methodVarFields = declarations.stream()
                 .filter(cu -> cu.isField() && cu.identifier().equals("METHOD_VAR"))
@@ -1174,10 +1174,10 @@ public final class PythonAnalyzerTest {
                 fields.stream().anyMatch(cu -> cu.identifier().equals("COND_TUPLE_B")),
                 "Conditional tuple COND_TUPLE_B should be captured");
 
-        // Negative tests: class and function local assignments should NOT be captured
-        assertFalse(
+        // Negative tests: function local assignments should NOT be captured
+        assertTrue(
                 fields.stream().anyMatch(cu -> cu.identifier().equals("class_attr")),
-                "Class attribute class_attr should NOT be captured as module-level field");
+                "Class attribute class_attr should be captured as class-level field");
         assertFalse(
                 fields.stream().anyMatch(cu -> cu.identifier().equals("instance_attr")),
                 "Instance attribute instance_attr should NOT be captured as module-level field");
@@ -1590,6 +1590,74 @@ public final class PythonAnalyzerTest {
 
             // Multiple files sorted
             assertEquals(List.of("pkg.test_a", "test_root"), testAnalyzer.getTestModules(List.of(fileA, fileRoot)));
+        }
+    }
+
+    @Test
+    public void testDecoratedClassSkeleton() {
+        String content =
+                """
+                @dataclass(frozen=True)
+                @decorator2
+                class MyClass:
+                    LITERAL = 1
+                    COMPLEX = some_function_call()
+                """;
+        try (var testProject =
+                InlineTestProjectCreator.code(content, "decorated.py").build()) {
+            PythonAnalyzer inlineAnalyzer = new PythonAnalyzer(testProject);
+
+            CodeUnit compCu = inlineAnalyzer
+                    .getDefinitions("decorated.MyClass")
+                    .iterator()
+                    .next();
+            String skeleton = inlineAnalyzer.getSkeleton(compCu).orElse("");
+            assertTrue(skeleton.contains("@dataclass(frozen=True)"), "Skeleton should contain decorator");
+            assertTrue(skeleton.contains("@decorator2"), "Skeleton should contain decorator2");
+            assertTrue(skeleton.contains("class MyClass:"), "Skeleton should contain class signature");
+            assertTrue(skeleton.contains("LITERAL = 1"), "Skeleton should contain literal field");
+            assertFalse(skeleton.contains("COMPLEX"), "Skeleton should omit complex field");
+        }
+    }
+
+    @Test
+    public void testComplexFieldInitializerIsOmitted() throws Exception {
+        String content =
+                """
+                LITERAL = 1
+                COMPLEX = some_function_call()
+                class MyClass:
+                    CLASS_LITERAL = "hello"
+                    CLASS_COMPLEX = [x for x in range(10)]
+                """;
+        try (var project = InlineTestProjectCreator.code(content, "fields.py").build()) {
+            PythonAnalyzer inlineAnalyzer = new PythonAnalyzer(project);
+
+            // Top level LITERAL should be preserved
+            CodeUnit litCu =
+                    inlineAnalyzer.getDefinitions("fields.LITERAL").iterator().next();
+            assertCodeEquals("LITERAL = 1", inlineAnalyzer.getSkeleton(litCu).orElse(""));
+
+            // Top level COMPLEX should be omitted completely
+            CodeUnit compCu =
+                    inlineAnalyzer.getDefinitions("fields.COMPLEX").iterator().next();
+            assertCodeEquals("", inlineAnalyzer.getSkeleton(compCu).orElse(""));
+
+            // CLASS_LITERAL should be preserved
+            CodeUnit cLitCu = inlineAnalyzer
+                    .getDefinitions("fields.MyClass.CLASS_LITERAL")
+                    .iterator()
+                    .next();
+            assertCodeEquals(
+                    "CLASS_LITERAL = \"hello\"",
+                    inlineAnalyzer.getSkeleton(cLitCu).orElse(""));
+
+            // CLASS_COMPLEX should be omitted completely
+            CodeUnit cCompCu = inlineAnalyzer
+                    .getDefinitions("fields.MyClass.CLASS_COMPLEX")
+                    .iterator()
+                    .next();
+            assertCodeEquals("", inlineAnalyzer.getSkeleton(cCompCu).orElse(""));
         }
     }
 

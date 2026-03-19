@@ -466,3 +466,239 @@ async def test_show_sessions_new_flow(tmp_path):
             break
     assert found_new
     await asyncio.sleep(0.1)
+
+
+@pytest.mark.asyncio
+async def test_create_session_from_menu_sets_protection_flag(tmp_path):
+    """Verify _create_session_from_menu sets session_switch_in_progress during execution."""
+    from brokk_code.widgets.chat_panel import ChatPanel
+
+    app = BrokkApp(workspace_dir=tmp_path)
+    app.executor = MagicMock()
+    app.executor.workspace_dir = tmp_path
+    app._executor_ready = True
+
+    chat = MagicMock(spec=ChatPanel)
+    chat._message_history = []
+    log_mock = MagicMock()
+    log_mock.query.return_value.remove.return_value = None
+    chat.query_one.side_effect = lambda q: log_mock if q == "#chat-log" else MagicMock()
+    app._maybe_chat = MagicMock(return_value=chat)
+
+    # Track when session_switch_in_progress is True during create_session
+    flag_during_create = []
+
+    async def mock_create_session():
+        flag_during_create.append(app.session_switch_in_progress)
+        return "new-session-id"
+
+    app.executor.create_session = AsyncMock(side_effect=mock_create_session)
+    app._refresh_context_panel = AsyncMock()
+
+    assert app.session_switch_in_progress is False
+    await app._create_session_from_menu()
+
+    # Verify flag was True during create_session call
+    assert len(flag_during_create) == 1
+    assert flag_during_create[0] is True
+
+    # Verify flag is cleared after completion
+    assert app.session_switch_in_progress is False
+
+    # Verify set_session_loading was called with appropriate messages
+    chat.set_session_loading.assert_any_call(True, "Creating new session...")
+    chat.set_session_loading.assert_any_call(False)
+
+
+@pytest.mark.asyncio
+async def test_create_session_from_menu_clears_flag_on_exception(tmp_path):
+    """Verify _create_session_from_menu clears protection flag even if exception occurs."""
+    from brokk_code.widgets.chat_panel import ChatPanel
+
+    app = BrokkApp(workspace_dir=tmp_path)
+    app.executor = MagicMock()
+    app.executor.workspace_dir = tmp_path
+    app._executor_ready = True
+
+    chat = MagicMock(spec=ChatPanel)
+    chat._message_history = []
+    app._maybe_chat = MagicMock(return_value=chat)
+
+    # Make create_session raise an exception
+    app.executor.create_session = AsyncMock(side_effect=Exception("Create failed!"))
+
+    assert app.session_switch_in_progress is False
+    await app._create_session_from_menu()
+
+    # Verify flag is cleared even after exception
+    assert app.session_switch_in_progress is False
+
+    # Verify set_session_loading(False) was called in finally block
+    chat.set_session_loading.assert_any_call(False)
+
+    # Verify error was reported
+    any_error = any(
+        "Failed to create session" in str(call.args[0])
+        for call in chat.add_system_message.call_args_list
+        if call.kwargs.get("level") == "ERROR"
+    )
+    assert any_error is True
+
+
+@pytest.mark.asyncio
+async def test_slash_command_rejected_during_session_switch(tmp_path):
+    """Verify that slash commands submitted during session_switch_in_progress are rejected."""
+    from brokk_code.widgets.chat_panel import ChatPanel
+
+    app = BrokkApp(workspace_dir=tmp_path)
+    app.executor = MagicMock()
+    app.executor.workspace_dir = tmp_path
+    app._executor_ready = True
+
+    chat = MagicMock(spec=ChatPanel)
+    chat._message_history = []
+    app._maybe_chat = MagicMock(return_value=chat)
+
+    # Simulate a switch in progress
+    switch_event = asyncio.Event()
+
+    async def slow_switch(*args, **kwargs):
+        await switch_event.wait()
+        return {}
+
+    app.executor.switch_session = AsyncMock(side_effect=slow_switch)
+    app.executor.get_conversation = AsyncMock(return_value={"entries": []})
+
+    # Start a switch
+    switch_task = asyncio.create_task(app._switch_to_session("s1"))
+    await asyncio.sleep(0.01)
+    assert app.session_switch_in_progress is True
+
+    # Try to submit a slash command during the switch
+    msg = MagicMock()
+    msg.text = "/info"
+    app.on_chat_panel_submitted(msg)
+
+    # Verify the command was rejected with a warning message
+    any_warning = any(
+        "Session operation in progress" in str(call.args[0])
+        for call in chat.add_system_message.call_args_list
+        if call.kwargs.get("level") == "WARNING"
+    )
+    assert any_warning is True
+
+    # Verify _handle_command was NOT called (we can check by ensuring no /info output)
+    # Since _handle_command calls _render_info which would call add_system_message_markup
+    chat.add_system_message_markup.assert_not_called()
+
+    # Complete the switch
+    switch_event.set()
+    await switch_task
+    assert app.session_switch_in_progress is False
+
+
+@pytest.mark.asyncio
+async def test_prompt_rejected_during_create_session(tmp_path):
+    """Verify non-slash prompts are rejected during _create_session_from_menu
+    (session_switch_in_progress=True but _current_switch_target_session_id=None)."""
+    from brokk_code.widgets.chat_panel import ChatPanel
+
+    app = BrokkApp(workspace_dir=tmp_path)
+    app.executor = MagicMock()
+    app.executor.workspace_dir = tmp_path
+    app._executor_ready = True
+
+    chat = MagicMock(spec=ChatPanel)
+    chat._message_history = []
+    log_mock = MagicMock()
+    log_mock.query.return_value.remove.return_value = None
+    chat.query_one.side_effect = lambda q: log_mock if q == "#chat-log" else MagicMock()
+    app._maybe_chat = MagicMock(return_value=chat)
+
+    # Simulate create-session in progress (no target session ID)
+    create_event = asyncio.Event()
+
+    async def slow_create():
+        await create_event.wait()
+        return "new-session-id"
+
+    app.executor.create_session = AsyncMock(side_effect=slow_create)
+    app._refresh_context_panel = AsyncMock()
+
+    # Start create session
+    create_task = asyncio.create_task(app._create_session_from_menu())
+    await asyncio.sleep(0.01)
+    assert app.session_switch_in_progress is True
+    assert app._current_switch_target_session_id is None
+
+    # Submit a non-slash prompt during create
+    msg = MagicMock()
+    msg.text = "Hello during create"
+    app.on_chat_panel_submitted(msg)
+
+    # Prompt should NOT be queued (no target session to queue against)
+    assert app._pending_switch_prompt is None
+
+    # Should have received a warning
+    any_warning = any(
+        "Session operation in progress" in str(call.args[0])
+        for call in chat.add_system_message.call_args_list
+        if call.kwargs.get("level") == "WARNING"
+    )
+    assert any_warning is True
+
+    # No job submission should have happened
+    app.executor.submit_job.assert_not_called()
+
+    # Complete the create
+    create_event.set()
+    await create_task
+    assert app.session_switch_in_progress is False
+
+
+@pytest.mark.asyncio
+async def test_create_session_blocked_during_switch(tmp_path):
+    """Verify _create_session_from_menu is blocked if a session switch is in progress."""
+    from brokk_code.widgets.chat_panel import ChatPanel
+
+    app = BrokkApp(workspace_dir=tmp_path)
+    app.executor = MagicMock()
+    app.executor.workspace_dir = tmp_path
+    app._executor_ready = True
+
+    chat = MagicMock(spec=ChatPanel)
+    app._maybe_chat = MagicMock(return_value=chat)
+
+    # Simulate a switch already in progress
+    switch_event = asyncio.Event()
+
+    async def slow_switch(*args, **kwargs):
+        await switch_event.wait()
+        return {}
+
+    app.executor.switch_session = AsyncMock(side_effect=slow_switch)
+    app.executor.get_conversation = AsyncMock(return_value={"entries": []})
+    app.executor.create_session = AsyncMock(return_value="new-session-id")
+
+    # Start a switch
+    switch_task = asyncio.create_task(app._switch_to_session("s1"))
+    await asyncio.sleep(0.01)
+    assert app.session_switch_in_progress is True
+
+    # Try to create a new session while switch is in progress
+    await app._create_session_from_menu()
+
+    # Verify create was blocked with warning
+    any_warning = any(
+        "already in progress" in str(call.args[0])
+        for call in chat.add_system_message.call_args_list
+        if call.kwargs.get("level") == "WARNING"
+    )
+    assert any_warning is True
+
+    # create_session should not have been called
+    app.executor.create_session.assert_not_called()
+
+    # Complete the switch
+    switch_event.set()
+    await switch_task

@@ -167,7 +167,7 @@ public class TypescriptAnalyzerTest {
 
         assertTrue(skeletons.containsKey(config));
         assertEquals(
-                normalize.apply("const config = {"),
+                normalize.apply("const config"),
                 normalize.apply(
                         skeletons.get(config).lines().findFirst().orElse(""))); // obj literal, just check header
 
@@ -3299,6 +3299,49 @@ public class TypescriptAnalyzerTest {
             assertTrue(
                     multiplySignatures.stream().anyMatch(s -> s.contains("string") && s.contains("number")),
                     "Should have (string, number) signature for multiply");
+        }
+    }
+
+    @Test
+    void testComplexFieldInitializerIsOmitted() {
+        String code =
+                """
+                export const simpleInt: number = 42;
+                let simpleString: string = "hello";
+                var complexObj: ComplexType = new ComplexObject("args");
+                const inlineObj = { a: 1, b: 2 };
+                """;
+
+        try (var testProject = InlineTestProjectCreator.code(code, "fields.ts").build()) {
+            var tsAnalyzer = new TypescriptAnalyzer(testProject);
+            ProjectFile file = tsAnalyzer.getAnalyzedFiles().stream()
+                    .filter(f -> f.getFileName().equals("fields.ts"))
+                    .findAny()
+                    .orElseThrow();
+            var skeletons = tsAnalyzer.getSkeletons(file);
+
+            CodeUnit simpleInt = tsAnalyzer.getDefinitions("fields.ts.simpleInt").stream()
+                    .findFirst()
+                    .orElseThrow();
+            CodeUnit simpleString = tsAnalyzer.getDefinitions("fields.ts.simpleString").stream()
+                    .findFirst()
+                    .orElseThrow();
+            CodeUnit complexObj = tsAnalyzer.getDefinitions("fields.ts.complexObj").stream()
+                    .findFirst()
+                    .orElseThrow();
+            CodeUnit inlineObj = tsAnalyzer.getDefinitions("fields.ts.inlineObj").stream()
+                    .findFirst()
+                    .orElseThrow();
+
+            assertEquals(
+                    "export const simpleInt: number = 42",
+                    skeletons.get(simpleInt).trim());
+            assertEquals(
+                    "let simpleString: string = \"hello\"",
+                    skeletons.get(simpleString).trim());
+            assertEquals(
+                    "var complexObj: ComplexType", skeletons.get(complexObj).trim());
+            assertEquals("const inlineObj", skeletons.get(inlineObj).trim());
         }
     }
 

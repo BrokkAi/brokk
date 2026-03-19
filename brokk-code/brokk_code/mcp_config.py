@@ -13,7 +13,9 @@ _SERVER_NAME = "brokk"
 _BROKK_MARKER = "# Brokk"
 _BROKK_MARKER_RE = re.compile(f"^{_BROKK_MARKER}$", re.MULTILINE)
 _BROKK_INSTRUCTIONS = f"""{_BROKK_MARKER}
-Always use the Brokk MCP server tools for syntax-aware code search and callCodeAgent.
+- Prefer Brokk MCP tools for syntax-aware search and edits.
+- Prefer callCodeAgent for code changes.
+- Avoid shell text search when Brokk syntax-aware tools can answer.
 """
 _BROKK_MCP_PERMISSION_ALLOW: list[str] = [
     "Bash(./gradlew:*)",

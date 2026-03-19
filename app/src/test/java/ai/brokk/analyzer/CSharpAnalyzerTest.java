@@ -451,4 +451,89 @@ public final class CSharpAnalyzerTest {
             assertCodeEquals("public int y = 2;", ySkeleton.get());
         }
     }
+
+    @Test
+    void testComplexFieldInitializerIsOmitted() throws IOException {
+        String code =
+                """
+                public class ComplexField {
+                    public object obj = new object();
+                }
+                """;
+        try (var testProject =
+                InlineTestProjectCreator.code(code, "ComplexField.cs").build()) {
+            CSharpAnalyzer analyzer = new CSharpAnalyzer(testProject);
+
+            var defs = analyzer.getDefinitions("ComplexField.obj");
+            assertEquals(1, defs.size());
+            var cu = defs.iterator().next();
+            var skeleton = analyzer.getSkeleton(cu);
+            assertTrue(skeleton.isPresent());
+            // The object creation should be omitted, leaving only the declaration and semicolon
+            assertCodeEquals("public object obj;", skeleton.get());
+        }
+    }
+
+    @Test
+    void testComplexFieldInitializersAreOmitted() {
+        String code =
+                """
+                public class ComplexFields {
+                    public object o = new object();
+                    public int literal = 42;
+                    public string s = "hello";
+                    public int calculated = 1 + 1;
+                }
+                """;
+
+        try (var testProject =
+                InlineTestProjectCreator.code(code, "ComplexFields.cs").build()) {
+            CSharpAnalyzer analyzer = new CSharpAnalyzer(testProject);
+
+            var oDefs = analyzer.getDefinitions("ComplexFields.o");
+            assertCodeEquals(
+                    "public object o;",
+                    analyzer.getSkeleton(oDefs.iterator().next()).get());
+
+            var literalDefs = analyzer.getDefinitions("ComplexFields.literal");
+            assertCodeEquals(
+                    "public int literal = 42;",
+                    analyzer.getSkeleton(literalDefs.iterator().next()).get());
+
+            var sDefs = analyzer.getDefinitions("ComplexFields.s");
+            assertCodeEquals(
+                    "public string s = \"hello\";",
+                    analyzer.getSkeleton(sDefs.iterator().next()).get());
+
+            var calcDefs = analyzer.getDefinitions("ComplexFields.calculated");
+            assertCodeEquals(
+                    "public int calculated;",
+                    analyzer.getSkeleton(calcDefs.iterator().next()).get());
+        }
+    }
+
+    @Test
+    void testExpressionFieldInitializerIsTruncated() throws IOException {
+        String code =
+                """
+                public class ExprField {
+                    public int x = 1 + 1;
+                    public string s = "a" + "b";
+                }
+                """;
+        try (var testProject =
+                InlineTestProjectCreator.code(code, "ExprField.cs").build()) {
+            CSharpAnalyzer analyzer = new CSharpAnalyzer(testProject);
+
+            var xDefs = analyzer.getDefinitions("ExprField.x");
+            assertCodeEquals(
+                    "public int x;",
+                    analyzer.getSkeleton(xDefs.iterator().next()).get());
+
+            var sDefs = analyzer.getDefinitions("ExprField.s");
+            assertCodeEquals(
+                    "public string s;",
+                    analyzer.getSkeleton(sDefs.iterator().next()).get());
+        }
+    }
 }

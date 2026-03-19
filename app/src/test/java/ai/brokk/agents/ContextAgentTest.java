@@ -31,6 +31,36 @@ public class ContextAgentTest {
     Path tempDir;
 
     @Test
+    void recommendContext_returnsToolOutputWithProvidedFilesAndClasses() throws InterruptedException {
+        Path root = tempDir.toAbsolutePath();
+        var analyzer = new TestAnalyzer(List.of(), Map.of());
+        var cm = new TestContextManager(root, new TestConsoleIO(), analyzer);
+
+        StreamingChatModel model = cm.getService().quickestModel();
+        var agent = new ContextAgent(cm, model, "test");
+
+        var output = agent.recommendContext(List.of("src/main/java/pkg/Foo.java"), List.of("pkg.Foo", "pkg.Bar"));
+
+        assertEquals(List.of("src/main/java/pkg/Foo.java"), output.filesToAdd());
+        assertEquals(List.of("pkg.Foo", "pkg.Bar"), output.classesToSummarize());
+    }
+
+    @Test
+    void recommendFiles_returnsToolOutputWithFilesOnly() throws InterruptedException {
+        Path root = tempDir.toAbsolutePath();
+        var analyzer = new TestAnalyzer(List.of(), Map.of());
+        var cm = new TestContextManager(root, new TestConsoleIO(), analyzer);
+
+        StreamingChatModel model = cm.getService().quickestModel();
+        var agent = new ContextAgent(cm, model, "test");
+
+        var output = agent.recommendFiles(List.of("src/main/java/pkg/Foo.java"));
+
+        assertEquals(List.of("src/main/java/pkg/Foo.java"), output.filesToAdd());
+        assertTrue(output.classesToSummarize().isEmpty());
+    }
+
+    @Test
     void testRecommendationsBecomeFileSkeletonSummaryFragments() throws InterruptedException {
         Path root = tempDir.toAbsolutePath();
         var analyzer = new TestAnalyzer(List.of(), Map.of());
@@ -101,6 +131,78 @@ public class ContextAgentTest {
                 Set.of(existing));
 
         assertTrue(fragments.isEmpty());
+    }
+
+    @Test
+    void groupCandidates_emptyInitialContext_splitsOutTests() throws Exception {
+        Path root = tempDir.toAbsolutePath();
+        var analyzer = new TestAnalyzer();
+        var cm = new TestContextManager(root, new TestConsoleIO(), analyzer);
+        StreamingChatModel model = cm.getService().quickestModel();
+        var agent = new ContextAgent(cm, model, "test");
+
+        var prodAnalyzed = cm.toFile("src/main/java/pkg/Foo.java");
+        prodAnalyzed.create();
+        var prodClass = CodeUnit.cls(prodAnalyzed, "pkg", "Foo");
+        analyzer.addDeclaration(prodClass);
+
+        var prodUnanalyzed = cm.toFile("src/main/resources/config.yml");
+        prodUnanalyzed.create();
+
+        var testAnalyzed = cm.toFile("src/test/java/pkg/FooTest.java");
+        testAnalyzed.create();
+        analyzer.setContainsTests(testAnalyzed, true);
+        var testClass = CodeUnit.cls(testAnalyzed, "pkg", "FooTest");
+        analyzer.addDeclaration(testClass);
+
+        var testUnanalyzed = cm.toFile("src/test/resources/data.txt");
+        testUnanalyzed.create();
+        analyzer.setContainsTests(testUnanalyzed, true);
+
+        var grouped = agent.groupCandidates(
+                List.of(prodAnalyzed, prodUnanalyzed, testAnalyzed, testUnanalyzed), Set.of(), false);
+
+        assertTrue(grouped.separateTestInferenceEnabled());
+        assertEquals(List.of(prodAnalyzed), grouped.analyzedFiles());
+        assertEquals(List.of(prodUnanalyzed), grouped.unanalyzedFiles());
+        assertEquals(List.of(testAnalyzed, testUnanalyzed), grouped.testCandidates());
+    }
+
+    @Test
+    void groupCandidates_nonEmptyInitialContext_keepsTestsInMainPasses() throws Exception {
+        Path root = tempDir.toAbsolutePath();
+        var analyzer = new TestAnalyzer();
+        var cm = new TestContextManager(root, new TestConsoleIO(), analyzer);
+        StreamingChatModel model = cm.getService().quickestModel();
+        var agent = new ContextAgent(cm, model, "test");
+
+        var prodAnalyzed = cm.toFile("src/main/java/pkg/Foo.java");
+        prodAnalyzed.create();
+        var prodClass = CodeUnit.cls(prodAnalyzed, "pkg", "Foo");
+        analyzer.addDeclaration(prodClass);
+
+        var prodUnanalyzed = cm.toFile("src/main/resources/config.yml");
+        prodUnanalyzed.create();
+
+        var testAnalyzed = cm.toFile("src/test/java/pkg/FooTest.java");
+        testAnalyzed.create();
+        analyzer.setContainsTests(testAnalyzed, true);
+        var testClass = CodeUnit.cls(testAnalyzed, "pkg", "FooTest");
+        analyzer.addDeclaration(testClass);
+
+        var testUnanalyzed = cm.toFile("src/test/resources/data.txt");
+        testUnanalyzed.create();
+        analyzer.setContainsTests(testUnanalyzed, true);
+
+        var existing = cm.toFile("src/main/java/pkg/Existing.java");
+
+        var grouped = agent.groupCandidates(
+                List.of(prodAnalyzed, prodUnanalyzed, testAnalyzed, testUnanalyzed), Set.of(existing), false);
+
+        assertFalse(grouped.separateTestInferenceEnabled());
+        assertEquals(List.of(prodAnalyzed, testAnalyzed), grouped.analyzedFiles());
+        assertEquals(List.of(prodUnanalyzed, testUnanalyzed), grouped.unanalyzedFiles());
+        assertTrue(grouped.testCandidates().isEmpty());
     }
 
     @Test
@@ -303,7 +405,7 @@ public class ContextAgentTest {
     }
 
     @Test
-    void testGetRecommendations_splitsTestsFromPrimaryCandidatesAndProducesTestSummaries() throws Exception {
+    void testGetRecommendations_neverAddsTestsAsFullProjectPaths() throws Exception {
         Path root = tempDir.toAbsolutePath();
         var analyzer = new TestAnalyzer();
         var cm = new TestContextManager(root, new TestConsoleIO(), analyzer);

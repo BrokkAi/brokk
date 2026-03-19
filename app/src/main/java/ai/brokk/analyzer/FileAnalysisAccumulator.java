@@ -24,6 +24,7 @@ public class FileAnalysisAccumulator {
     private final Map<CodeUnit, Set<String>> signatures = new LinkedHashMap<>();
     private final Map<CodeUnit, Set<Range>> sourceRanges = new LinkedHashMap<>();
     private final Map<CodeUnit, Boolean> hasBody = new HashMap<>();
+    private final Map<CodeUnit, Boolean> isTypeAlias = new HashMap<>();
     private final Map<String, Set<CodeUnit>> codeUnitsBySymbol = new HashMap<>();
     private final Map<String, CodeUnit> cuByFqName = new HashMap<>();
     private final Map<CodeUnit, Set<String>> lookupKeys = new HashMap<>();
@@ -79,6 +80,15 @@ public class FileAnalysisAccumulator {
     }
 
     /**
+     * Sets whether the CodeUnit is a type alias.
+     * @return this accumulator for chaining.
+     */
+    public FileAnalysisAccumulator setIsTypeAlias(CodeUnit cu, boolean typeAlias) {
+        isTypeAlias.put(cu, typeAlias);
+        return this;
+    }
+
+    /**
      * Indexes a CodeUnit by a symbol. Mutations should only be performed via these APIs.
      * @return this accumulator for chaining.
      */
@@ -111,6 +121,7 @@ public class FileAnalysisAccumulator {
         signatures.remove(cu);
         sourceRanges.remove(cu);
         hasBody.remove(cu);
+        isTypeAlias.remove(cu);
         removeFromSymbolIndex(cu);
 
         Set<String> keys = lookupKeys.remove(cu);
@@ -240,6 +251,7 @@ public class FileAnalysisAccumulator {
         children.values().forEach(unionKeys::addAll);
         unionKeys.addAll(signatures.keySet());
         unionKeys.addAll(sourceRanges.keySet());
+        unionKeys.addAll(isTypeAlias.keySet());
         for (var cu : unionKeys) {
             var kids = children.getOrDefault(cu, Collections.emptySet());
             var sigs = signatures.getOrDefault(cu, Collections.emptySet());
@@ -250,7 +262,8 @@ public class FileAnalysisAccumulator {
                             Collections.unmodifiableSequencedSet(new LinkedHashSet<>(kids)),
                             Collections.unmodifiableSequencedSet(new LinkedHashSet<>(sigs)),
                             Collections.unmodifiableSequencedSet(new LinkedHashSet<>(rngs)),
-                            hasBody.getOrDefault(cu, false)));
+                            hasBody.getOrDefault(cu, false),
+                            isTypeAlias.getOrDefault(cu, false)));
         }
         return localStates;
     }

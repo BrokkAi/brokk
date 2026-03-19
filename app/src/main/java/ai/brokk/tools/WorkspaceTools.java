@@ -625,7 +625,7 @@ public class WorkspaceTools {
             - Size target: ~2 hours for an experienced contributor across < 10 files.
             - Tests: prefer adding or updating automated tests (unit/integration) to prove the behavior;
               if automation is not a good fit, you may omit tests rather than prescribe manual steps.
-              DO NOT CREATE ANY STANDALONE “TESTING / RUN TESTS / STABILIZATION / VERIFICATION” TASKS.
+              DO NOT CREATE ANY STANDALONE "TESTING / RUN TESTS / STABILIZATION / VERIFICATION" TASKS.
               Any testing must be included in the Acceptance (and/or instructions) of the task that introduces the behavior.
               Tasks structured this way fulfil any explicit directives to run tests.
             - Independence: runnable/reviewable on its own; at most one explicit dependency on a previous task.
@@ -636,6 +636,7 @@ public class WorkspaceTools {
             - TOO LARGE if it spans multiple subsystems, sweeping refactors, or ambiguous outcomes - split by subsystem or by 'behavior change' vs 'refactor'.
             - TOO SMALL if it lacks a distinct, reviewable outcome (or test) - merge into its nearest parent goal.
             - JUST RIGHT if the diff + test could be reviewed and landed as a single commit without coordination.
+              Logically related changes in a single subsystem, including tests, should be kept in the same task.
 
             Aim for 8 tasks or fewer. Do not include "external" tasks like PRDs or manual testing.
             `tasks` is a List<TaskListEntry> - if you have N tasks, output N list elements.

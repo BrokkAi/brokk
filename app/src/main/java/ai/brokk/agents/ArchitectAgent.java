@@ -18,6 +18,7 @@ import ai.brokk.context.ContextDelta;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.SpecialTextType;
 import ai.brokk.exception.GlobalExceptionHandler;
+import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.prompts.ArchitectPrompts;
 import ai.brokk.prompts.WorkspacePrompts;
 import ai.brokk.tools.DependencyTools;
@@ -62,7 +63,6 @@ import org.jetbrains.annotations.Nullable;
 public class ArchitectAgent {
     private static final Logger logger = LogManager.getLogger(ArchitectAgent.class);
     private static final int MAX_TURNS = 10;
-
     /**
      * Listener for ArchitectAgent events.
      */
@@ -221,6 +221,12 @@ public class ArchitectAgent {
         this.deferBuildForInitialCodeAgentCall = deferBuildForInitialCodeAgentCall;
     }
 
+    private StreamingChatModel delegatedSearchModel() {
+        return ParallelSearch.usePlannerModelForSearchAgent()
+                ? planningModel
+                : cm.getService().getModel(ModelType.SEARCH);
+    }
+
     public void setListener(@Nullable ArchitectListener listener) {
         this.listener = listener;
     }
@@ -294,7 +300,7 @@ public class ArchitectAgent {
         // Update architect context with the CodeAgent's fragments, preserving the Architect history
         var codeContext = result.context();
         context = codeContext
-                .withTaskHistory(historyFuture.join())
+                .withHistory(historyFuture.join())
                 .addHistoryEntry(codeContext.getTaskHistory().getLast());
 
         var changedFragments =
@@ -540,7 +546,7 @@ public class ArchitectAgent {
     }
 
     /**
-     * Execute Architect with a ContextAgent pass first. Both the Context scan and the Architect
+     * Execute Architect with a ReferenceAgent pass first. The Architect
      * results are appended to the provided scope.
      */
     public TaskResult executeWithScan() throws InterruptedException {
@@ -851,7 +857,7 @@ public class ArchitectAgent {
                     buildPrompt(workspaceTokenSize, maxInputTokensForPrompt, workspaceContentMessages, harnessNote);
 
             WorkspaceTools wst = new WorkspaceTools(this.context);
-            ParallelSearch parallelSearch = new ParallelSearch(cm, goal);
+            ParallelSearch parallelSearch = new ParallelSearch(context.forSearchAgent(), goal, delegatedSearchModel());
 
             var depTools = DependencyTools.isSupported(cm.getProject())
                     ? Optional.of(new DependencyTools(cm))

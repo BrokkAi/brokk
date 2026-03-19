@@ -34,7 +34,8 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
                     CaptureNames.CLASS_DEFINITION, SkeletonType.CLASS_LIKE,
                     CaptureNames.FUNCTION_DEFINITION, SkeletonType.FUNCTION_LIKE,
                     CaptureNames.ARROW_FUNCTION_DEFINITION, SkeletonType.FUNCTION_LIKE,
-                    CaptureNames.FIELD_DEFINITION, SkeletonType.FIELD_LIKE),
+                    CaptureNames.FIELD_DEFINITION, SkeletonType.FIELD_LIKE,
+                    CaptureNames.VALUE_DEFINITION, SkeletonType.FIELD_LIKE),
             "async", // asyncKeywordNodeType
             Set.of() // modifierNodeTypes
             );
@@ -106,7 +107,8 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
                 }
                 yield CodeUnit.fn(file, packageName, finalShortName);
             }
-            case CaptureNames.FIELD_DEFINITION -> { // For class fields or top-level variables
+            case CaptureNames.FIELD_DEFINITION,
+                    CaptureNames.VALUE_DEFINITION -> { // For class fields or top-level variables
                 String finalShortName;
                 if (classChain.isEmpty()) {
                     // For top-level variables, use the filename as a container to ensure a "." is present
@@ -446,6 +448,17 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
     // that logic would need to to be integrated into analyzeFileDeclarations or a new helper.
     // For now, assume main query captures are sufficient for JS CUs.
 
+    private boolean isLiteralType(String type) {
+        return type.endsWith("literal")
+                || type.equals("number")
+                || type.equals("string")
+                || type.equals("template_string")
+                || type.equals("true")
+                || type.equals("false")
+                || type.equals("null")
+                || type.equals("undefined");
+    }
+
     @Override
     protected String formatFieldSignature(
             TSNode fieldNode,
@@ -456,15 +469,25 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
             String baseIndent,
             ProjectFile file) {
         // JavaScript field signatures shouldn't have semicolons.
-        // If fieldNode is a variable_declarator, we want to render just that declarator
-        // prefixed by the export/declaration keyword found in exportPrefix.
-        if (VARIABLE_DECLARATOR.equals(fieldNode.getType())) {
-            return baseIndent
-                    + (exportPrefix.stripTrailing() + " "
-                                    + sourceContent.substringFrom(fieldNode).strip())
-                            .strip();
-        }
         var fullSignature = (exportPrefix.stripTrailing() + " " + signatureText.strip()).strip();
+
+        if (VARIABLE_DECLARATOR.equals(fieldNode.getType())) {
+            TSNode valueNode = fieldNode.getChildByFieldName("value");
+            if (valueNode != null && !valueNode.isNull() && !isLiteralType(valueNode.getType())) {
+                String valueText = sourceContent.substringFrom(valueNode).strip();
+                int idx = fullSignature.lastIndexOf(valueText);
+                if (idx != -1) {
+                    String beforeValue = fullSignature.substring(0, idx).stripTrailing();
+                    if (beforeValue.endsWith("=")) {
+                        beforeValue = beforeValue
+                                .substring(0, beforeValue.length() - 1)
+                                .stripTrailing();
+                    }
+                    fullSignature = beforeValue;
+                }
+            }
+        }
+
         return baseIndent + fullSignature;
     }
 

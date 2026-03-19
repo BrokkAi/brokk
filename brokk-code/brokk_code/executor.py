@@ -18,7 +18,7 @@ from brokk_code.workspace import resolve_workspace_dir
 
 logger = logging.getLogger(__name__)
 
-BUNDLED_EXECUTOR_VERSION = "0.23.1.beta5"
+BUNDLED_EXECUTOR_VERSION = "0.23.1.beta6"
 _EXECUTOR_JAR_BASE_URL = "https://github.com/BrokkAi/brokk-releases/releases/download"
 _EXECUTOR_MAIN_CLASS = "ai.brokk.executor.HeadlessExecutorMain"
 _READY_SENTINEL = "Executor listening on http://"
@@ -892,6 +892,44 @@ class ExecutorManager:
             await self._handle_http_error(e, "/v1/models")
             raise  # Should not be reached
 
+    async def get_model_config(self) -> Dict[str, Any]:
+        """Returns the persisted CODE and ARCHITECT model configs from the executor."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+
+        try:
+            resp = await self._http_client.get("/v1/model-config")
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            await self._handle_http_error(e, "/v1/model-config")
+            raise  # Should not be reached
+
+    async def set_model_config(
+        self,
+        role: str,
+        model: str,
+        reasoning: Optional[str] = None,
+        tier: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Updates a persisted CODE or ARCHITECT model config in the executor."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+
+        payload: Dict[str, Any] = {"role": role, "model": model}
+        if reasoning:
+            payload["reasoning"] = reasoning
+        if tier:
+            payload["tier"] = tier
+
+        try:
+            resp = await self._http_client.post("/v1/model-config", json=payload)
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            await self._handle_http_error(e, "/v1/model-config")
+            raise  # Should not be reached
+
     async def get_completions(self, query: str, limit: int = 20) -> Dict[str, Any]:
         """Returns file/symbol completions for a query string."""
         if not self._http_client:
@@ -1264,6 +1302,49 @@ class ExecutorManager:
             return resp.json()
         except httpx.HTTPError as e:
             await self._handle_http_error(e, "/v1/repo/pr/create")
+            raise  # Should not be reached
+
+    async def submit_review_job(
+        self,
+        planner_model: str,
+        severity_threshold: str | None = None,
+    ) -> str:
+        """Submits a guided review job to the executor.
+
+        Reviews all branch changes vs the merge-base with the default branch,
+        including uncommitted working tree changes.
+
+        Args:
+            planner_model: The LLM model to use for the review.
+            severity_threshold: Minimum severity for review notes
+                (CRITICAL, HIGH, MEDIUM, LOW). Defaults to LOW (show everything).
+
+        Returns:
+            The jobId of the created review job.
+
+        Raises:
+            ExecutorError: If the executor is not started or the request fails.
+        """
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+
+        payload: dict = {"plannerModel": planner_model}
+        if severity_threshold:
+            payload["severityThreshold"] = severity_threshold
+
+        headers = {"Idempotency-Key": str(uuid.uuid4())}
+        effective_session_id = self.session_id
+        if effective_session_id:
+            headers["X-Session-Id"] = effective_session_id
+
+        try:
+            resp = await self._http_client.post(
+                "/v1/review/submit", json=payload, headers=headers, timeout=60.0
+            )
+            resp.raise_for_status()
+            return resp.json()["jobId"]
+        except httpx.HTTPError as e:
+            await self._handle_http_error(e, "/v1/review/submit")
             raise  # Should not be reached
 
     async def cancel_job(self, job_id: str):

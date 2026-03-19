@@ -1931,16 +1931,47 @@ public class CppAnalyzerTest {
             String bSkel = analyzer.getSkeleton(bCu).orElse("");
 
             // 1) int x = f(1, 2), y = g();
-            assertCodeEquals("int x = f(1, 2);", xSkel);
-            assertCodeEquals("int y = g();", ySkel);
+            assertCodeEquals("int x;", xSkel);
+            assertCodeEquals("int y;", ySkel);
 
             // 2) int* p = &x, q = nullptr;
-            assertCodeEquals("int* p = &x;", pSkel);
-            assertCodeEquals("int* q = nullptr;", qSkel);
+            assertCodeEquals("int* p;", pSkel);
+            assertCodeEquals("int* q;", qSkel);
 
             // 3) int a, b = 2;
             assertCodeEquals("int a;", aSkel);
             assertCodeEquals("int b = 2;", bSkel);
+        }
+    }
+
+    @Test
+    public void testComplexFieldInitializerIsOmitted() throws IOException {
+        String content =
+                """
+                struct ComplexFields {
+                    int x = 1;
+                    int y = f(1, 2);
+                    static inline auto z = SomeBuilder().build();
+                };
+                """;
+        try (var project = InlineTestProjectCreator.code(content, "fields.hpp").build()) {
+            TreeSitterAnalyzer inlineAnalyzer = AnalyzerCreator.createTreeSitterAnalyzer(project);
+
+            // x = 1 (literal) should be preserved
+            CodeUnit xCu =
+                    inlineAnalyzer.getDefinitions("ComplexFields.x").iterator().next();
+            assertCodeEquals("int x = 1;", inlineAnalyzer.getSkeleton(xCu).orElse(""));
+
+            // y = f(1, 2) (complex) should be truncated
+            CodeUnit yCu =
+                    inlineAnalyzer.getDefinitions("ComplexFields.y").iterator().next();
+            assertCodeEquals("int y;", inlineAnalyzer.getSkeleton(yCu).orElse(""));
+
+            // z = Builder (complex) should be truncated
+            CodeUnit zCu =
+                    inlineAnalyzer.getDefinitions("ComplexFields.z").iterator().next();
+            assertCodeEquals(
+                    "static inline auto z;", inlineAnalyzer.getSkeleton(zCu).orElse(""));
         }
     }
 

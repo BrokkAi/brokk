@@ -22,6 +22,15 @@ public class ScalaTreeSitterNodeTypes {
     // Import declaration
     public static final String IMPORT_DECLARATION = "import.declaration";
 
+    // Literals
+    public static final String STRING = "string";
+    public static final String INTERPOLATED_STRING = "interpolated_string";
+    public static final String INTERPOLATED_VERBATIM_STRING = "interpolated_verbatim_string";
+    public static final String BOOLEAN = "boolean";
+    public static final String CHARACTER = "character";
+    public static final String SYMBOL = "symbol";
+    public static final String NULL = "null";
+
     // Test detection constants
     public static final String CALL_EXPRESSION = "call_expression";
     public static final String INFIX_EXPRESSION = "infix_expression";

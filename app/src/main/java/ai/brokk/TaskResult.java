@@ -139,6 +139,7 @@ public record TaskResult(Context context, StopDetails stopDetails) {
         CODE,
         ASK,
         SEARCH,
+        LUTZ,
         SCAN, // ContextAgent
         MERGE,
         BLITZFORGE,

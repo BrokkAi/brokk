@@ -461,6 +461,17 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
         return "";
     }
 
+    private boolean isLiteralType(String type) {
+        return type.endsWith("literal")
+                || type.equals("number")
+                || type.equals("string")
+                || type.equals("template_string")
+                || type.equals("true")
+                || type.equals("false")
+                || type.equals("null")
+                || type.equals("undefined");
+    }
+
     @Override
     protected String formatFieldSignature(
             TSNode fieldNode,
@@ -472,16 +483,24 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
             ProjectFile file) {
         String nodeType = fieldNode.getType();
 
-        // If fieldNode is a variable_declarator, we want to render just that declarator
-        // prefixed by the export/declaration keyword found in exportPrefix.
-        if (VARIABLE_DECLARATOR.equals(nodeType)) {
-            return baseIndent
-                    + (exportPrefix.stripTrailing() + " "
-                                    + sourceContent.substringFrom(fieldNode).strip())
-                            .strip();
-        }
-
         var fullSignature = (exportPrefix.stripTrailing() + " " + signatureText.strip()).strip();
+
+        if (VARIABLE_DECLARATOR.equals(nodeType) || PUBLIC_FIELD_DEFINITION.equals(nodeType)) {
+            TSNode valueNode = fieldNode.getChildByFieldName("value");
+            if (valueNode != null && !valueNode.isNull() && !isLiteralType(valueNode.getType())) {
+                String valueText = sourceContent.substringFrom(valueNode).strip();
+                int idx = fullSignature.lastIndexOf(valueText);
+                if (idx != -1) {
+                    String beforeValue = fullSignature.substring(0, idx).stripTrailing();
+                    if (beforeValue.endsWith("=")) {
+                        beforeValue = beforeValue
+                                .substring(0, beforeValue.length() - 1)
+                                .stripTrailing();
+                    }
+                    fullSignature = beforeValue;
+                }
+            }
+        }
 
         // TypeScript field signatures in skeletons look better without trailing semicolons.
         fullSignature = TRAILING_SEMICOLON.matcher(fullSignature).replaceAll("");
@@ -957,25 +976,6 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
         }
 
         return cleaned;
-    }
-
-    @Override
-    @SuppressWarnings("RedundantNullCheck")
-    public boolean isTypeAlias(CodeUnit cu) {
-        // Check if this field-type CodeUnit represents a type alias
-        // We can identify this by checking if there are signatures that contain "type " and " = "
-        var sigList = signaturesOf(cu);
-
-        for (var sig : sigList) {
-            var hasType = sig.contains("type ") || sig.contains("export type ");
-            var hasEquals = sig.contains(" = ");
-
-            if (hasType && hasEquals) {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     @Override

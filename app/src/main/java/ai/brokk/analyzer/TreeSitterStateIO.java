@@ -50,7 +50,7 @@ public final class TreeSitterStateIO {
     private static final Logger log = LoggerFactory.getLogger(TreeSitterStateIO.class);
 
     // Current analyzer snapshot schema version. Bump MAJOR for incompatible changes.
-    static final SemVer CURRENT_SCHEMA = SemVer.parse("2.0.0");
+    static final SemVer CURRENT_SCHEMA = SemVer.parse("2.2.0");
 
     // Dedicated Smile ObjectMapper
     private static final ObjectMapper SMILE_MAPPER =
@@ -276,7 +276,8 @@ public final class TreeSitterStateIO {
             @Nullable List<CodeUnitDto> children,
             @Nullable List<String> signatures,
             @Nullable List<IAnalyzer.Range> ranges,
-            boolean hasBody) {}
+            boolean hasBody,
+            boolean isTypeAlias) {}
 
     /**
      * DTO entry for CodeUnit -> CodeUnitProperties maps.
@@ -494,7 +495,8 @@ public final class TreeSitterStateIO {
                     childrenDtos,
                     new ArrayList<>(props.signatures()),
                     new ArrayList<>(props.ranges()),
-                    props.hasBody());
+                    props.hasBody(),
+                    props.isTypeAlias());
 
             cuEntries.add(new CodeUnitEntryDto(toDto(e.getKey()), propsDto));
         }
@@ -569,7 +571,8 @@ public final class TreeSitterStateIO {
                     Collections.unmodifiableSequencedSet(new LinkedHashSet<>(children)),
                     Collections.unmodifiableSequencedSet(new LinkedHashSet<>(signatures)),
                     Collections.unmodifiableSequencedSet(new LinkedHashSet<>(ranges)),
-                    v.hasBody());
+                    v.hasBody(),
+                    v.isTypeAlias());
 
             cuState.put(fromDto(entry.key()), props);
         }

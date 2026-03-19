@@ -30,6 +30,7 @@ import ai.brokk.prompts.SearchPrompts.Terminal;
 import ai.brokk.tools.DependencyTools;
 import ai.brokk.tools.ExplanationRenderer;
 import ai.brokk.tools.ParallelSearch;
+import ai.brokk.tools.SearchTools;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
 import ai.brokk.tools.WorkspaceTools;
@@ -109,7 +110,6 @@ public class LutzAgent {
     }
 
     private static final int MAX_TOTAL_TURNS = 20;
-
     private final IContextManager cm;
     private final StreamingChatModel model;
     private final ContextManager.TaskScope scope;
@@ -118,6 +118,7 @@ public class LutzAgent {
     private final IConsoleIO io;
     private final String goal;
     private final List<McpPrompts.McpTool> mcpTools;
+    private final SearchTools searchTools;
     private final List<String> staticTools;
     private final List<String> terminalTools;
     private final Set<String> terminalToolNames;
@@ -209,7 +210,7 @@ public class LutzAgent {
         this.io = io;
         this.scanConfig = scanConfig;
 
-        var llmOptions = new Llm.Options(model, goal, TaskResult.Type.SEARCH).withEcho();
+        var llmOptions = new Llm.Options(model, goal, TaskResult.Type.LUTZ).withEcho();
         this.llm = cm.getLlm(llmOptions);
         this.llm.setOutput(this.io);
 
@@ -221,6 +222,7 @@ public class LutzAgent {
                 : SearchMetrics.noOp();
 
         this.mcpTools = initMcpTools(cm.getProject());
+        this.searchTools = new SearchTools(cm);
         this.currentState = SearchState.initial(initialContext);
         this.checkpointState = currentState;
         this.originalPinnedFragments = initialContext.getPinnedFragments().collect(Collectors.toSet());
@@ -249,6 +251,13 @@ public class LutzAgent {
         var tools = new ArrayList<String>();
 
         tools.add("callSearchAgent");
+
+        // Direct anchored-lookup tools. These cover cheap one-hop discovery when the agent already has
+        // concrete symbols, filenames, or string anchors and only needs exact locations.
+        tools.add("searchSymbols");
+        tools.add("scanUsages");
+        tools.add("findFilenames");
+        tools.add("searchFileContents");
 
         // Workspace analyzer tools
         tools.add("addClassesToWorkspace");
@@ -346,10 +355,6 @@ public class LutzAgent {
         }
 
         currentState = currentState.withContext(preparedContext);
-
-        if (shouldAutomaticallyScan() && currentState.context().isFileContentEmpty()) {
-            performAutoScan();
-        }
     }
 
     private TaskResult executeInternal() throws InterruptedException {
@@ -470,10 +475,8 @@ public class LutzAgent {
         IContextManager cm = initialContext.getContextManager();
 
         // async referenceagent
-        CompletableFuture<Set<ContextFragment>> referencesFuture = goal.isBlank()
-                ? CompletableFuture.completedFuture(Set.of())
-                : LoggingFuture.supplyCallableAsync(
-                        () -> new ReferenceAgent(cm).resolveReferencedFragments(goal, initialContext));
+        CompletableFuture<Set<ContextFragment>> referencesFuture = LoggingFuture.supplyCallableAsync(
+                () -> new ReferenceAgent(cm).resolveReferencedFragments(goal, initialContext));
 
         // async janitoragent
         CompletableFuture<Context> pruneFuture;
@@ -511,6 +514,7 @@ public class LutzAgent {
     private ToolRegistry createToolRegistry(WorkspaceTools wst, Object toolProvider, ParallelSearch parallelSearch) {
         var builder = cm.getToolRegistry()
                 .builder()
+                .register(searchTools)
                 .register(wst)
                 .register(toolProvider)
                 .register(parallelSearch);
@@ -621,6 +625,7 @@ public class LutzAgent {
                     "getSymbolLocations",
                     "scanUsages",
                     "findFilesContaining",
+                    "searchFileContents",
                     "findFilenames",
                     "searchGitCommitMessages" -> 20;
             case "getClassSkeletons", "getClassSources", "getMethodSources" -> 30;
@@ -691,7 +696,7 @@ public class LutzAgent {
         filesAdded.removeAll(filesBeforeScan);
         metrics.recordContextScan(filesAdded.size(), false, toRelativePaths(filesAdded), md);
         context = context.addHistoryEntry(
-                io.getLlmRawMessages(), TaskResult.Type.SCAN, scanModel, "Locate relevant context");
+                io.getLlmRawMessages(), List.of(), TaskResult.Type.SCAN, scanModel, "Locate relevant context");
 
         if (scanConfig.appendToScope) {
             this.scope.append(context);
@@ -705,8 +710,15 @@ public class LutzAgent {
         return scanConfig.scanModel() == null ? cm.getService().getScanModel() : scanConfig.scanModel();
     }
 
-    private boolean toolTriggersScan(String toolName) {
+    private boolean toolTriggersScan(ToolExecutionRequest req) {
+        String toolName = req.name();
         return toolName.startsWith("search") || toolName.startsWith("find") || "callSearchAgent".equals(toolName);
+    }
+
+    private StreamingChatModel delegatedSearchModel() {
+        return ParallelSearch.usePlannerModelForSearchAgent()
+                ? model
+                : cm.getService().getModel(ModelType.SEARCH);
     }
 
     /**
@@ -715,13 +727,8 @@ public class LutzAgent {
      */
     @Blocking
     public TaskResult callCodeAgent(String instructions) throws InterruptedException {
-        ArchitectAgent architect = new ArchitectAgent(
-                cm,
-                cm.getService().getModel(ModelType.ARCHITECT),
-                cm.getCodeModel(),
-                instructions,
-                scope,
-                currentState.context());
+        ArchitectAgent architect =
+                new ArchitectAgent(cm, model, cm.getCodeModel(), instructions, scope, currentState.context());
 
         return architect.execute();
     }
@@ -773,7 +780,8 @@ public class LutzAgent {
             this.lastTurnContext = stateAtTurnStart.lastTurnContext();
             this.sessionMessages = new ArrayList<>(stateAtTurnStart.sessionMessages());
 
-            this.parallelSearch = new ParallelSearch(agent.cm, agent.goal);
+            this.parallelSearch =
+                    new ParallelSearch(context.forSearchAgent(), agent.goal, agent.delegatedSearchModel());
             this.tr = agent.createToolRegistry(new WorkspaceTools(context), this, parallelSearch);
         }
 
@@ -843,7 +851,7 @@ public class LutzAgent {
                 ai = ToolRegistry.removeDuplicateToolRequests(result.aiMessage());
 
                 if (agent.shouldAutomaticallyScan()
-                        && ai.toolExecutionRequests().stream().anyMatch(req -> agent.toolTriggersScan(req.name()))) {
+                        && ai.toolExecutionRequests().stream().anyMatch(req -> agent.toolTriggersScan(req))) {
                     return TurnOutcome.AutoScan.INSTANCE;
                 }
 
@@ -1296,7 +1304,7 @@ public class LutzAgent {
 
             var architect = new ArchitectAgent(
                     agent.cm,
-                    agent.cm.getService().getModel(ModelType.ARCHITECT),
+                    agent.model,
                     agent.cm.getCodeModel(),
                     instructions,
                     agent.scope,
@@ -1365,7 +1373,7 @@ public class LutzAgent {
     }
 
     private Context appendUiMessagesToHistory(Context context) {
-        return context.addHistoryEntry(cm.getIo().getLlmRawMessages(), TaskResult.Type.SEARCH, model, goal);
+        return context.addHistoryEntry(cm.getIo().getLlmRawMessages(), TaskResult.Type.LUTZ, model, goal);
     }
 
     private void recordFinalWorkspaceState(Context context) {
@@ -1777,7 +1785,7 @@ public class LutzAgent {
     }
 
     private TaskResult.TaskMeta taskMeta() {
-        return new TaskResult.TaskMeta(TaskResult.Type.SEARCH, Service.ModelConfig.from(model, cm.getService()));
+        return new TaskResult.TaskMeta(TaskResult.Type.LUTZ, Service.ModelConfig.from(model, cm.getService()));
     }
 
     void reportComplete(TaskResult.StopReason reason, String message) {

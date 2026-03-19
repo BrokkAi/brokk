@@ -9,6 +9,8 @@ import ai.brokk.testutil.NoOpConsoleIO;
 import ai.brokk.testutil.TestContextManager;
 import ai.brokk.tools.ToolOutput;
 import ai.brokk.tools.ToolRegistry;
+import ai.brokk.util.Json;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import java.nio.file.Path;
 import org.junit.jupiter.api.BeforeEach;
@@ -29,18 +31,18 @@ class SearchAgentTerminalActionsTest {
     }
 
     @Test
-    void answer_returnsPlaintextTerminalOutputWithFurtherInvestigation() throws InterruptedException {
-        var result = executeTool(
-                "answer",
-                """
-                {"explanation":"The explanation","furtherInvestigation":"The investigation"}
+    void answer_returnsJsonTerminalOutput() throws InterruptedException {
+        var result = executeTool("answer", """
+                {"explanation":"The explanation"}
                 """);
 
         assertEquals("TerminalStopOutput", result.result().getClass().getSimpleName());
-        assertTrue(result.resultText().contains("# Answer"));
-        assertTrue(result.resultText().contains("The explanation"));
-        assertTrue(result.resultText().contains("### Further Investigation"));
-        assertTrue(result.resultText().contains("The investigation"));
+        assertJsonEquals(
+                """
+                {
+                  "explanation" : "The explanation"
+                }""",
+                result.resultText());
     }
 
     @Test
@@ -50,34 +52,40 @@ class SearchAgentTerminalActionsTest {
                 """);
 
         assertEquals("TerminalStopOutput", result.result().getClass().getSimpleName());
-        assertEquals("The reason", result.resultText());
+        assertJsonEquals(
+                """
+                {
+                  "explanation" : "The reason"
+                }""",
+                result.resultText());
     }
 
     @Test
-    void workspaceComplete_returnsPlaintextTerminalOutputWithFurtherInvestigation() throws InterruptedException {
+    void workspaceComplete_returnsJsonTerminalOutput() throws InterruptedException {
         var result = executeTool(
-                "workspaceComplete",
-                """
-                {"fragmentIdsOrDescriptions":[],"furtherInvestigation":"The investigation"}
+                "workspaceComplete", """
+                {"fragmentIdsOrDescriptions":[]}
                 """);
 
         assertEquals("TerminalStopOutput", result.result().getClass().getSimpleName());
-        assertTrue(result.resultText().contains("Selected Fragments:"));
-        assertTrue(result.resultText().contains("### Further Investigation"));
-        assertTrue(result.resultText().contains("The investigation"));
+        assertJsonEquals(
+                """
+                {
+                  "fragment_ids" : [ ]
+                }""", result.resultText());
     }
 
     @Test
-    void workspaceComplete_retryGuidanceMentionsFurtherInvestigation() throws InterruptedException {
+    void workspaceComplete_retryGuidanceOmitsFurtherInvestigation() throws InterruptedException {
         var result = executeTool(
                 "workspaceComplete",
                 """
-                {"fragmentIdsOrDescriptions":["missing-fragment"],"furtherInvestigation":""}
+                {"fragmentIdsOrDescriptions":["missing-fragment"]}
                 """);
 
         assertTrue(result.result() instanceof ToolOutput.TextOutput);
-        assertTrue(result.resultText().contains("furtherInvestigation"));
-        assertTrue(result.resultText().contains("empty string"));
+        assertTrue(result.resultText().contains("only corrected selections"));
+        assertTrue(!result.resultText().contains("furtherInvestigation"));
     }
 
     private ai.brokk.tools.ToolExecutionResult executeTool(String name, String arguments) throws InterruptedException {
@@ -86,5 +94,13 @@ class SearchAgentTerminalActionsTest {
                 .arguments(arguments.strip())
                 .build();
         return registry.executeTool(request);
+    }
+
+    private static void assertJsonEquals(String expected, String actual) {
+        try {
+            assertEquals(Json.getMapper().readTree(expected), Json.getMapper().readTree(actual));
+        } catch (JsonProcessingException e) {
+            throw new AssertionError("Failed to parse JSON during assertion", e);
+        }
     }
 }

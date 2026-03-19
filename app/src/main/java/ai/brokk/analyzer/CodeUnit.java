@@ -56,6 +56,15 @@ public class CodeUnit implements Comparable<CodeUnit> {
     }
 
     public CodeUnit(
+            @JsonProperty("source") ProjectFile source,
+            @JsonProperty("kind") CodeUnitType kind,
+            @JsonProperty("packageName") String packageName,
+            @JsonProperty("shortName") String shortName,
+            @JsonProperty("signature") @Nullable String signature) {
+        this(source, kind, packageName, shortName, signature, false);
+    }
+
+    public CodeUnit(
             ProjectFile source,
             CodeUnitType kind,
             String packageName,

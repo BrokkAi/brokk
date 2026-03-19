@@ -29,7 +29,34 @@ public final class PhpTreeSitterNodeTypes {
 
     // Field-like declarations
     public static final String PROPERTY_DECLARATION = "property_declaration";
+    public static final String PROPERTY_ELEMENT = "property_element";
+    public static final String PROPERTY_INITIALIZER = "property_initializer";
     public static final String CONST_DECLARATION = "const_declaration";
+    public static final String CONST_ELEMENT = "const_element";
+
+    // Modifiers and attributes
+    public static final String ATTRIBUTE_LIST = "attribute_list";
+    public static final String VISIBILITY_MODIFIER = "visibility_modifier";
+    public static final String STATIC_MODIFIER = "static_modifier";
+    public static final String ABSTRACT_MODIFIER = "abstract_modifier";
+    public static final String FINAL_MODIFIER = "final_modifier";
+    public static final String READONLY_MODIFIER = "readonly_modifier";
+    public static final String REFERENCE_MODIFIER = "reference_modifier";
+
+    // Keywords and tags
+    public static final String PHP_TAG = "php_tag";
+    public static final String FUNCTION_KEYWORD = "function";
+
+    // Literals
+    public static final String INTEGER = "integer";
+    public static final String FLOAT = "float";
+    public static final String STRING = "string";
+    public static final String ENCAPSED_STRING = "encapsed_string";
+    public static final String STRING_VALUE = "string_value";
+    public static final String BOOLEAN = "boolean";
+    public static final String BOOLEAN_LITERAL = "boolean_literal";
+    public static final String NULL = "null";
+    public static final String NULL_LITERAL = "null_literal";
 
     // Import declarations
     public static final String IMPORT_DECLARATION = "namespace_use_declaration";
