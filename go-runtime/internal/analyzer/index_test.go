@@ -1350,6 +1350,27 @@ func TestSkeletonHeaderMergesTypeScriptInterfaceMembers(t *testing.T) {
 	}
 }
 
+func TestSkeletonHeaderInfersJavaScriptJSXRenderType(t *testing.T) {
+	t.Parallel()
+
+	workspace := t.TempDir()
+	writeAnalyzerFile(t, workspace, "Hello.jsx", ""+
+		"export class JsxClass {\n"+
+		"  render() {\n"+
+		"    return <div className=\"class-jsx\">Hello</div>;\n"+
+		"  }\n"+
+		"}\n")
+
+	service := New(workspace)
+	header, ok := service.SkeletonHeader("JsxClass")
+	if !ok {
+		t.Fatal("SkeletonHeader() = false, want true")
+	}
+	if !strings.Contains(header, "function render(): JSX.Element ...") {
+		t.Fatalf("header = %q, want JSX.Element render signature", header)
+	}
+}
+
 func TestResolvePythonClassAndMethod(t *testing.T) {
 	t.Parallel()
 

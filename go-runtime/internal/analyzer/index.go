@@ -2223,16 +2223,9 @@ func formatBraceLanguageSkeleton(classSymbol Symbol, members []Symbol) string {
 		case "field":
 			lines = append(lines, "    "+strings.TrimSpace(strings.TrimSuffix(member.Signature, "{")))
 		case "function":
-			signature := strings.TrimSpace(member.Signature)
-			if signature == "" {
-				signature = strings.TrimSpace(firstLine(member.Snippet))
-			}
+			signature := formatSkeletonFunctionSignature(member)
 			if signature == "" {
 				continue
-			}
-			if member.HasBody {
-				signature = strings.TrimSpace(strings.TrimSuffix(signature, "{"))
-				signature += " { ... }"
 			}
 			lines = append(lines, "    "+signature)
 		case "class":
@@ -2244,6 +2237,103 @@ func formatBraceLanguageSkeleton(classSymbol Symbol, members []Symbol) string {
 	}
 	lines = append(lines, "}")
 	return strings.Join(lines, "\n")
+}
+
+func formatSkeletonFunctionSignature(member Symbol) string {
+	signature := strings.TrimSpace(member.Signature)
+	if signature == "" {
+		signature = strings.TrimSpace(firstLine(member.Snippet))
+	}
+	if signature == "" {
+		return ""
+	}
+
+	signature = strings.TrimSpace(strings.TrimSuffix(signature, "{"))
+	switch member.Language {
+	case "javascript":
+		signature = normalizeJavaScriptSkeletonSignature(signature, member)
+		if member.HasBody {
+			return signature + " ..."
+		}
+		return signature
+	default:
+		if member.HasBody {
+			return signature + " { ... }"
+		}
+		return signature
+	}
+}
+
+func normalizeJavaScriptSkeletonSignature(signature string, member Symbol) string {
+	normalized := strings.TrimSpace(signature)
+	if normalized == "" {
+		return normalized
+	}
+
+	switch {
+	case strings.HasPrefix(normalized, "get "), strings.HasPrefix(normalized, "set "):
+	case strings.Contains(normalized, "=>"):
+	case strings.HasPrefix(normalized, "async "):
+		normalized = "async function " + strings.TrimSpace(strings.TrimPrefix(normalized, "async "))
+	case strings.HasPrefix(normalized, "function "), strings.HasPrefix(normalized, "static "):
+	default:
+		normalized = "function " + normalized
+	}
+
+	if shouldInferJavaScriptJSXElement(member, normalized) {
+		normalized = addJavaScriptJSXReturnType(normalized)
+	}
+	return normalized
+}
+
+func shouldInferJavaScriptJSXElement(member Symbol, signature string) bool {
+	if member.Language != "javascript" {
+		return false
+	}
+	if strings.Contains(signature, "JSX.Element") {
+		return false
+	}
+	if !javaScriptReturnsJSX(member.Snippet) {
+		return false
+	}
+	if member.ShortName == "render" {
+		return true
+	}
+	if member.ShortName == "" || member.ShortName[0] < 'A' || member.ShortName[0] > 'Z' {
+		return false
+	}
+	return strings.HasPrefix(strings.TrimSpace(signature), "export ")
+}
+
+func javaScriptReturnsJSX(snippet string) bool {
+	trimmed := strings.TrimSpace(snippet)
+	if trimmed == "" {
+		return false
+	}
+	lowered := strings.ToLower(trimmed)
+	return strings.Contains(lowered, "return <") ||
+		strings.Contains(lowered, "return ( <") ||
+		strings.Contains(lowered, "return(<") ||
+		strings.Contains(lowered, "=> <") ||
+		strings.Contains(lowered, "=><")
+}
+
+func addJavaScriptJSXReturnType(signature string) string {
+	if idx := strings.Index(signature, "=>"); idx >= 0 {
+		prefix := strings.TrimSpace(signature[:idx])
+		suffix := strings.TrimSpace(signature[idx:])
+		if strings.Contains(prefix, ":") {
+			return signature
+		}
+		return prefix + ": JSX.Element " + suffix
+	}
+	if strings.Contains(signature, "):") {
+		return signature
+	}
+	if idx := strings.LastIndex(signature, ")"); idx >= 0 {
+		return signature[:idx+1] + ": JSX.Element" + signature[idx+1:]
+	}
+	return signature
 }
 
 func formatPythonSkeleton(classSymbol Symbol, members []Symbol) string {
