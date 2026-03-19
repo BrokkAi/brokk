@@ -352,6 +352,166 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     /**
      * Mutable accumulator for per-file analysis state.
      */
+    public static class FileAnalysisAccumulator {
+        private final List<CodeUnit> topLevelCUs = new ArrayList<>();
+        private final Map<String, CodeUnit> cuByFqName = new HashMap<>();
+        private final Map<CodeUnit, List<CodeUnit>> childrenByParent = new HashMap<>();
+        private final Map<CodeUnit, List<String>> signaturesByCu = new HashMap<>();
+        private final Map<CodeUnit, List<Range>> rangesByCu = new HashMap<>();
+        private final Map<CodeUnit, Boolean> hasBodyByCu = new HashMap<>();
+        private final Map<CodeUnit, Boolean> isTypeAliasByCu = new HashMap<>();
+        private final Map<String, List<CodeUnit>> lookupKeys = new HashMap<>();
+
+        public FileAnalysisAccumulator addTopLevel(CodeUnit cu) {
+            topLevelCUs.add(cu);
+            return this;
+        }
+
+        public FileAnalysisAccumulator registerCodeUnit(CodeUnit cu) {
+            cuByFqName.put(cu.fqName(), cu);
+            return this;
+        }
+
+        public @Nullable CodeUnit getByFqName(String fqName) {
+            return cuByFqName.get(fqName);
+        }
+
+        public FileAnalysisAccumulator addChild(CodeUnit parent, CodeUnit child) {
+            childrenByParent.computeIfAbsent(parent, k -> new ArrayList<>()).add(child);
+            return this;
+        }
+
+        public FileAnalysisAccumulator addSignature(CodeUnit cu, String signature) {
+            signaturesByCu.computeIfAbsent(cu, k -> new ArrayList<>()).add(signature);
+            return this;
+        }
+
+        public FileAnalysisAccumulator addRange(CodeUnit cu, Range range) {
+            rangesByCu.computeIfAbsent(cu, k -> new ArrayList<>()).add(range);
+            return this;
+        }
+
+        public FileAnalysisAccumulator setHasBody(CodeUnit cu, boolean hasBody) {
+            hasBodyByCu.put(cu, hasBody);
+            return this;
+        }
+
+        public boolean getHasBody(CodeUnit cu, boolean defaultValue) {
+            return hasBodyByCu.getOrDefault(cu, defaultValue);
+        }
+
+        public void setIsTypeAlias(CodeUnit cu, boolean isTypeAlias) {
+            isTypeAliasByCu.put(cu, isTypeAlias);
+        }
+
+        public List<CodeUnit> topLevelCUs() {
+            return topLevelCUs;
+        }
+
+        public Map<String, CodeUnit> cuByFqName() {
+            return cuByFqName;
+        }
+
+        public List<CodeUnit> getChildren(CodeUnit parent) {
+            return childrenByParent.getOrDefault(parent, List.of());
+        }
+
+        public List<String> getSignatures(CodeUnit cu) {
+            return signaturesByCu.getOrDefault(cu, List.of());
+        }
+
+        public List<Range> getRanges(CodeUnit cu) {
+            return rangesByCu.getOrDefault(cu, List.of());
+        }
+
+        public void addLookupKey(String key, CodeUnit cu) {
+            lookupKeys.computeIfAbsent(key, k -> new ArrayList<>()).add(cu);
+        }
+
+        public FileAnalysisAccumulator addSymbolIndex(String key, CodeUnit cu) {
+            addLookupKey(key, cu);
+            return this;
+        }
+
+        public List<String> getLookupKeys(CodeUnit cu) {
+            List<String> keys = new ArrayList<>();
+            lookupKeys.forEach((k, v) -> {
+                if (v.contains(cu)) keys.add(k);
+            });
+            return keys;
+        }
+
+        public @Nullable CodeUnit findTopLevelDuplicate(CodeUnit cu) {
+            return topLevelCUs.stream().filter(t -> t.equals(cu)).findFirst().orElse(null);
+        }
+
+        public @Nullable CodeUnit findTopLevelCrossKindDuplicate(CodeUnit cu) {
+            return topLevelCUs.stream().filter(t -> t.fqName().equals(cu.fqName())).findFirst().orElse(null);
+        }
+
+        public void replaceTopLevelCodeUnit(CodeUnit oldCu, CodeUnit newCu) {
+            int idx = topLevelCUs.indexOf(oldCu);
+            if (idx != -1) {
+                topLevelCUs.set(idx, newCu);
+                registerCodeUnit(newCu);
+            }
+        }
+
+        public @Nullable CodeUnit findChildDuplicate(CodeUnit parent, CodeUnit cu) {
+            return getChildren(parent).stream().filter(t -> t.equals(cu)).findFirst().orElse(null);
+        }
+
+        public @Nullable CodeUnit findChildCrossKindDuplicate(CodeUnit parent, CodeUnit cu) {
+            return getChildren(parent).stream().filter(t -> t.fqName().equals(cu.fqName())).findFirst().orElse(null);
+        }
+
+        public void replaceChildCodeUnit(CodeUnit parent, CodeUnit oldCu, CodeUnit newCu) {
+            List<CodeUnit> kids = childrenByParent.get(parent);
+            if (kids != null) {
+                int idx = kids.indexOf(oldCu);
+                if (idx != -1) {
+                    kids.set(idx, newCu);
+                    registerCodeUnit(newCu);
+                }
+            }
+        }
+
+        public void detachChildren(CodeUnit cu) {
+            childrenByParent.remove(cu);
+        }
+
+        public void remove(CodeUnit cu) {
+            topLevelCUs.remove(cu);
+            cuByFqName.remove(cu.fqName());
+            // This is a shallow remove; deep cleanup would require traversing childrenByParent
+        }
+
+        public Map<CodeUnit, CodeUnitProperties> toCodeUnitProperties() {
+            Map<CodeUnit, CodeUnitProperties> result = new HashMap<>();
+            cuByFqName.values().forEach(cu -> {
+                result.put(cu, new CodeUnitProperties(
+                        Collections.unmodifiableSequencedSet(new LinkedHashSet<>(getChildren(cu))),
+                        Collections.unmodifiableSequencedSet(new LinkedHashSet<>(getSignatures(cu))),
+                        Collections.unmodifiableSequencedSet(new LinkedHashSet<>(getRanges(cu))),
+                        getHasBody(cu, false),
+                        isTypeAliasByCu.getOrDefault(cu, false)
+                ));
+            });
+            return result;
+        }
+
+        public Map<String, Set<CodeUnit>> codeUnitsBySymbol() {
+            Map<String, Set<CodeUnit>> result = new HashMap<>();
+            cuByFqName.values().forEach(cu -> {
+                result.computeIfAbsent(cu.identifier(), k -> new HashSet<>()).add(cu);
+                if (!cu.shortName().equals(cu.identifier())) {
+                    result.computeIfAbsent(cu.shortName(), k -> new HashSet<>()).add(cu);
+                }
+            });
+            return result;
+        }
+    }
+
     private record FileAnalysisResult(
             List<CodeUnit> topLevelCUs,
             Map<CodeUnit, CodeUnitProperties> codeUnitState,
@@ -2007,7 +2167,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
      * Duplicate handling is controlled by shouldReplaceOnDuplicate().
      * Similar to addTopLevelCodeUnit but for nested elements (methods, class attributes, nested classes).
      */
-    private void addChildCodeUnit(CodeUnit cu, CodeUnit parentCu, FileAnalysisAccumulator acc) {
+    protected void addChildCodeUnit(CodeUnit cu, CodeUnit parentCu, FileAnalysisAccumulator acc) {
         CodeUnit existingDuplicate = acc.findChildDuplicate(parentCu, cu);
 
         if (existingDuplicate == null) {
@@ -4195,6 +4355,58 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     protected void postProcessAnalysis(
             TSNode rootNode, ProjectFile file, SourceContent sourceContent, FileAnalysisAccumulator acc) {
         // No-op by default
+    }
+
+    /**
+     * Parses a raw string snippet into CodeUnits and merges them into the provided accumulator.
+     * The resulting CodeUnits are marked as synthetic.
+     *
+     * @param snippet the source code snippet to parse
+     * @param file the file context for the snippet
+     * @param acc the accumulator to merge results into
+     */
+    protected void analyzeSnippet(String snippet, ProjectFile file, FileAnalysisAccumulator acc) {
+        if (snippet.isBlank()) return;
+
+        byte[] bytes = snippet.getBytes(StandardCharsets.UTF_8);
+        FileAnalysisResult result = analyzeFileContent(file, bytes, null);
+
+        // Map original CodeUnits from snippet to their synthetic versions to preserve relationships
+        Map<CodeUnit, CodeUnit> syntheticMap = new HashMap<>();
+        result.codeUnitState().keySet().forEach(cu -> syntheticMap.put(cu, cu.withSynthetic(true)));
+
+        // Merge results using synthetic versions
+        result.codeUnitState().forEach((cu, props) -> {
+            CodeUnit syntheticCu = syntheticMap.get(cu);
+            acc.registerCodeUnit(syntheticCu);
+
+            if (props.hasBody()) {
+                acc.setHasBody(syntheticCu, true);
+            }
+
+            for (String sig : props.signatures()) {
+                acc.addSignature(syntheticCu, sig);
+            }
+
+            for (Range range : props.ranges()) {
+                acc.addRange(syntheticCu, range);
+            }
+
+            for (CodeUnit child : props.children()) {
+                CodeUnit syntheticChild = syntheticMap.get(child);
+                if (syntheticChild != null) {
+                    acc.addChild(syntheticCu, syntheticChild);
+                }
+            }
+        });
+
+        // Add top-level units from snippet as synthetic
+        for (CodeUnit topLevel : result.topLevelCUs()) {
+            CodeUnit syntheticTop = syntheticMap.get(topLevel);
+            if (syntheticTop != null) {
+                addTopLevelCodeUnit(syntheticTop, acc, file);
+            }
+        }
     }
 
     protected boolean isBlankNameAllowed(String captureName, String simpleName, String nodeType, String file) {

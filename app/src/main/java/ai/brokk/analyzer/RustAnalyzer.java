@@ -718,7 +718,7 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
     @Override
     protected void postProcessAnalysis(
             TSNode rootNode, ProjectFile file, SourceContent sourceContent, FileAnalysisAccumulator acc) {
-        discoverMacros(this, rootNode, file, sourceContent);
+        discoverMacros(this, rootNode, file, sourceContent, acc);
     }
 
     @Override

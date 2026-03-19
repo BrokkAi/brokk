@@ -22,7 +22,11 @@ public interface MacroExpansionProvider extends CapabilityProvider {
      * Discovers macro invocations in the given tree using the analyzer's MACROS query.
      */
     default void discoverMacros(
-            TreeSitterAnalyzer analyzer, TSNode rootNode, ProjectFile file, SourceContent sourceContent) {
+            TreeSitterAnalyzer analyzer,
+            TSNode rootNode,
+            ProjectFile file,
+            SourceContent sourceContent,
+            TreeSitterAnalyzer.FileAnalysisAccumulator acc) {
         Language lang = analyzer.languages().iterator().next();
         MacroPolicy policy = analyzer.getProject().getMacroPolicies().get(lang);
 
@@ -52,7 +56,7 @@ public interface MacroExpansionProvider extends CapabilityProvider {
                                                 if (mm.strategy() == MacroPolicy.MacroStrategy.TEMPLATE
                                                         && mm.options()
                                                                 instanceof MacroPolicy.TemplateConfig tc) {
-                                                    expandTemplate(analyzer, file, node, tc.template());
+                                                    expandTemplate(analyzer, file, node, tc.template(), acc);
                                                     handled = true;
                                                 }
                                                 break;
@@ -76,14 +80,29 @@ public interface MacroExpansionProvider extends CapabilityProvider {
                 false);
     }
 
-    private void expandTemplate(TreeSitterAnalyzer analyzer, ProjectFile file, TSNode node, String template) {
+    private void expandTemplate(
+            TreeSitterAnalyzer analyzer,
+            ProjectFile file,
+            TSNode node,
+            String template,
+            TreeSitterAnalyzer.FileAnalysisAccumulator acc) {
         analyzer.enclosingCodeUnit(file, node.getStartPoint().getRow(), node.getEndPoint().getRow())
                 .ifPresent(cu -> {
                     String expanded = MacroTemplateExpander.expand(template, Map.of("code_unit", cu));
                     log.debug("Expanded macro template for {}: {}", cu.fqName(), expanded);
-                    // Implementation note: The expanded code would typically be injected into the analysis
-                    // accumulator, but since the accumulator is not currently passed to discoverMacros
-                    // in the provider interface, we log it for now as per the instruction focus.
+
+                    // Create a temporary accumulator to parse the snippet
+                    TreeSitterAnalyzer.FileAnalysisAccumulator snippetAcc = new TreeSitterAnalyzer.FileAnalysisAccumulator();
+                    analyzer.analyzeSnippet(expanded, file, snippetAcc);
+
+                    // Merge snippet definitions and state into main accumulator
+                    snippetAcc.cuByFqName().values().forEach(acc::registerCodeUnit);
+                    
+                    // Note: analyzeSnippet already marks these as synthetic.
+                    // We attach top-level snippet results as children to the enclosing CodeUnit.
+                    for (CodeUnit syntheticCu : snippetAcc.topLevelCUs()) {
+                        analyzer.addChildCodeUnit(syntheticCu, cu, acc);
+                    }
                 });
     }
 }
