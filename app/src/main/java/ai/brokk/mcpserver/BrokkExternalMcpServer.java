@@ -726,9 +726,10 @@ public class BrokkExternalMcpServer {
 
     @Tool(
             """
-            Agentic semantic/context recommender for relevant files and classes.
-            Returns a summary of recommended context to add when beginning a task.
-            Not the first choice for raw-text repo search across markdown, config, comments, or literals; use searchFileContents for that.
+            Start here when beginning a new task or when you need to understand what code is relevant to a goal.
+            Uses semantic analysis (import graphs, code structure) to recommend the most relevant files and classes -- much more accurate than text search for finding related code.
+            Returns summaries (skeletons) of recommended context.
+            Not for raw-text search (config, comments, literals) -- use searchFileContents for that.
             """)
     public String scan(
             @P("The natural-language goal or prompt to scan for.") String goal,
@@ -853,7 +854,11 @@ public class BrokkExternalMcpServer {
                 .stripTrailing();
     }
 
-    @Tool("Run build verification (compile and test) without making changes.")
+    @Tool(
+            """
+            Run build verification (compile and test) without making changes.
+            Use after callCodeAgent to verify the build is still passing, or to check current build status.
+            """)
     public String runBuild() throws InterruptedException {
         String error = cm.getProject().getBuildRunner().runVerification(cm);
         return error.isEmpty() ? "Build successful" : "Build failed:\n\n" + error;
@@ -914,7 +919,12 @@ public class BrokkExternalMcpServer {
         return "Build configuration verified (build and test) and updated.";
     }
 
-    @Tool("Solve all merge/rebase/cherry-pick conflicts in the repository.")
+    @Tool(
+            """
+            Resolve all merge/rebase/cherry-pick conflicts in the repository using blame-aware analysis.
+            Understands which side made which changes and preserves intent from both sides.
+            Only works when the repository is in a conflict state.
+            """)
     public String merge() throws InterruptedException, IOException, GitAPIException {
         var conflictOpt = ConflictInspector.inspectFromProject(cm.getProject());
         if (conflictOpt.isEmpty()) {
