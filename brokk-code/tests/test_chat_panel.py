@@ -2265,6 +2265,128 @@ async def test_commands_modal_escape_closes():
 
 
 @pytest.mark.asyncio
+async def test_ps_command_opens_commands_modal():
+    """Verify that /ps command opens the CommandsModalScreen with command history."""
+    from brokk_code.app import BrokkApp
+    from brokk_code.modals.commands_modal import CommandsModalScreen
+
+    executor = MagicMock()
+    app = BrokkApp(executor=executor)
+
+    async def _noop() -> None:
+        return None
+
+    app._start_executor = _noop  # type: ignore[method-assign]
+    app._monitor_executor = _noop  # type: ignore[method-assign]
+    app._poll_tasklist = _noop  # type: ignore[method-assign]
+    app._poll_context = _noop  # type: ignore[method-assign]
+
+    async with app.run_test() as pilot:
+        chat = app.query_one(ChatPanel)
+
+        # Add some command results first
+        chat.add_command_result("Build", "mvn compile", True, "BUILD SUCCESS", None)
+        chat.add_command_result("Test", "pytest", False, "1 failed", "AssertionError")
+        await pilot.pause()
+
+        # Trigger /ps command
+        app._handle_command("/ps")
+        await pilot.pause()
+
+        # Verify modal is opened
+        assert isinstance(app.screen, CommandsModalScreen)
+
+        # Verify the modal has the command history
+        assert len(app.screen.command_history) == 2
+        assert app.screen.command_history[0]["stage"] == "Build"
+        assert app.screen.command_history[1]["stage"] == "Test"
+
+        # Close modal
+        await pilot.press("escape")
+        await pilot.pause()
+
+        assert not isinstance(app.screen, CommandsModalScreen)
+
+
+@pytest.mark.asyncio
+async def test_command_result_event_uses_compact_display():
+    """Verify that COMMAND_RESULT events are handled with compact display via add_command_result."""
+    from brokk_code.app import BrokkApp
+    from brokk_code.widgets.chat_panel import ChatLog
+
+    executor = MagicMock()
+    app = BrokkApp(executor=executor)
+
+    async def _noop() -> None:
+        return None
+
+    app._start_executor = _noop  # type: ignore[method-assign]
+    app._monitor_executor = _noop  # type: ignore[method-assign]
+    app._poll_tasklist = _noop  # type: ignore[method-assign]
+    app._poll_context = _noop  # type: ignore[method-assign]
+
+    async with app.run_test() as pilot:
+        chat = app.query_one(ChatPanel)
+        log = chat.query_one("#chat-log", ChatLog)
+
+        # Simulate a COMMAND_RESULT event (success)
+        event = {
+            "type": "COMMAND_RESULT",
+            "data": {
+                "stage": "Build",
+                "command": "mvn compile",
+                "success": True,
+                "output": "BUILD SUCCESS",
+            },
+        }
+        app._handle_event(event)
+        await pilot.pause()
+
+        # Verify it was stored in command history (not just message history)
+        history = chat.get_command_history()
+        assert len(history) == 1
+        assert history[0]["stage"] == "Build"
+        assert history[0]["success"] is True
+
+        # Verify compact summary was rendered (COMMAND_SUMMARY kind, not TOOL_RESULT)
+        assert any(m["kind"] == "COMMAND_SUMMARY" for m in chat._message_history)
+        assert not any(m["kind"] == "TOOL_RESULT" for m in chat._message_history)
+
+        # Simulate a failed COMMAND_RESULT event
+        event_fail = {
+            "type": "COMMAND_RESULT",
+            "data": {
+                "stage": "Lint",
+                "command": "ruff check",
+                "success": False,
+                "output": "Found errors",
+                "exception": "exit code 1",
+            },
+        }
+        app._handle_event(event_fail)
+        await pilot.pause()
+
+        # Verify both are in history
+        history = chat.get_command_history()
+        assert len(history) == 2
+        assert history[1]["stage"] == "Lint"
+        assert history[1]["success"] is False
+        assert history[1]["exception"] == "exit code 1"
+
+
+@pytest.mark.asyncio
+async def test_ps_slash_command_in_catalog():
+    """Verify /ps command appears in the slash command catalog."""
+    from brokk_code.app import BrokkApp
+
+    commands = BrokkApp.get_slash_commands()
+    ps_commands = [c for c in commands if c["command"] == "/ps"]
+
+    assert len(ps_commands) == 1
+    assert ps_commands[0]["description"] == "Show command history"
+
+
+@pytest.mark.asyncio
 async def test_chat_panel_reflow_on_resize():
     """Verify that chat output reflows when the panel is resized."""
     from textual.app import App, ComposeResult

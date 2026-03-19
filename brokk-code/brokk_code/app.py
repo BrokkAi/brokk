@@ -31,6 +31,7 @@ from brokk_code.settings import (
     write_brokk_api_key,
 )
 from brokk_code.welcome import build_welcome_message, get_braille_icon
+from brokk_code.modals.commands_modal import CommandsModalScreen
 from brokk_code.widgets.chat_panel import ChatInput, ChatPanel
 from brokk_code.widgets.context_panel import ContextPanel
 from brokk_code.widgets.dependencies_panel import DependenciesPanel
@@ -2970,16 +2971,7 @@ class BrokkApp(App):
                 output = data.get("output", "").strip()
                 exception = data.get("exception")
 
-                status = "[bold green]Success[/]" if success else "[bold red]Failed[/]"
-                header = f"**{stage}**: `{command}` ({status})"
-
-                parts = [header]
-                if output:
-                    parts.append(f"```\n{output}\n```")
-                if exception:
-                    parts.append(f"**Error**: {exception}")
-
-                chat.add_tool_result("\n\n".join(parts))
+                chat.add_command_result(stage, command, success, output, exception)
         elif event_type == "STATE_HINT":
             hint_name = data.get("name")
             if hint_name in ("contextHistoryUpdated", "workspaceUpdated"):
@@ -3110,6 +3102,7 @@ class BrokkApp(App):
                 "description": "Submit a PR review job (supports --severity LEVEL)",
             },
             {"command": "/review", "description": "Generate guided review of changes"},
+            {"command": "/ps", "description": "Show command history"},
             {"command": "/info", "description": "Show current configuration and status"},
             {"command": "/quit", "description": "Exit the application"},
             {"command": "/exit", "description": "Exit the application"},
@@ -3255,6 +3248,9 @@ class BrokkApp(App):
                 self.run_worker(self._create_pull_request(base_branch))
         elif base == "/review":
             self._handle_local_review_command(parts)
+        elif base == "/ps":
+            if chat:
+                self.push_screen(CommandsModalScreen(chat.get_command_history()))
         elif base in ("/quit", "/exit"):
             self.action_quit()
         else:
