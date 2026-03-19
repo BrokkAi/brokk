@@ -30,6 +30,7 @@ type treeSitterDefinition struct {
 	nodeType     string
 	receiverType string
 	supertypes   []string
+	insideObject bool
 	hasBody      bool
 	start        int
 	end          int
@@ -283,6 +284,7 @@ func populateTreeSitterDefinition(definition *treeSitterDefinition, kind string,
 	definition.snippet = strings.TrimSpace(content[definition.start:definition.end])
 	definition.signature = extractSignature(content, originalStart)
 	definition.hasBody = treeSitterDefinitionHasBody(kind, rawSnippet)
+	definition.insideObject = treeSitterDefinitionInsideObjectLiteral(node)
 	if definition.kind == "field" && definition.signature == "" {
 		definition.signature = rawSnippet
 	}
@@ -499,6 +501,9 @@ func buildTreeSitterSymbols(relativePath string, language string, packageName st
 			continue
 		}
 		parentSymbol := resolveTreeSitterParentClassSymbol(classes, classSymbols, definition)
+		if shouldSkipTreeSitterFunction(language, parentSymbol, definition) {
+			continue
+		}
 		parentFQName := ""
 		if parentSymbol != nil {
 			parentFQName = parentSymbol.FQName
@@ -887,6 +892,16 @@ func enhanceTypeScriptMemberFQName(language string, parentSymbol *Symbol, defini
 	}
 }
 
+func shouldSkipTreeSitterFunction(language string, parentSymbol *Symbol, definition treeSitterDefinition) bool {
+	if language != "typescript" {
+		return false
+	}
+	if definition.nodeType != "method_definition" {
+		return false
+	}
+	return definition.insideObject || parentSymbol == nil
+}
+
 func treeSitterIsTypescriptNamespaceSignature(signature string) bool {
 	trimmed := strings.TrimSpace(signature)
 	return strings.Contains(trimmed, "namespace ") || strings.Contains(trimmed, "module ")
@@ -895,6 +910,20 @@ func treeSitterIsTypescriptNamespaceSignature(signature string) bool {
 func treeSitterHasTypeScriptStaticModifier(signature string) bool {
 	trimmed := strings.TrimSpace(signature)
 	return strings.HasPrefix(trimmed, "static ") || strings.Contains(trimmed, "\nstatic ")
+}
+
+func treeSitterDefinitionInsideObjectLiteral(node tree_sitter.Node) bool {
+	parent := node.Parent()
+	for parent != nil {
+		switch parent.Kind() {
+		case "class_body":
+			return false
+		case "object":
+			return true
+		}
+		parent = parent.Parent()
+	}
+	return false
 }
 
 func hasEnclosingTreeSitterFunction(functions []treeSitterDefinition, definition treeSitterDefinition) bool {

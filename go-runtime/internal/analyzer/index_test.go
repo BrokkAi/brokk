@@ -431,6 +431,31 @@ func TestParseTreeSitterSymbolsTypeScriptAccessorAndStaticSuffixes(t *testing.T)
 	}
 }
 
+func TestParseTreeSitterSymbolsTypeScriptSkipsObjectLiteralMethods(t *testing.T) {
+	if !treeSitterEnabled() {
+		t.Skip("tree-sitter requires cgo support on this machine")
+	}
+
+	symbols, ok := parseTreeSitterSymbols("web/model.ts", ""+
+		"export class ShellIntegration {\n"+
+		"  shellIntegration = {\n"+
+		"    get enabled() { return true; },\n"+
+		"    connect(): void {}\n"+
+		"  };\n"+
+		"\n"+
+		"  reset(): void {}\n"+
+		"}\n")
+	if !ok {
+		t.Fatal("parseTreeSitterSymbols() = false, want true")
+	}
+
+	functions := sortedFQNames(filterByKind(symbols, "function"))
+	want := []string{"web.ShellIntegration.reset"}
+	if !slices.Equal(functions, want) {
+		t.Fatalf("functions = %#v, want only class method and no object-literal methods", functions)
+	}
+}
+
 func TestParseTreeSitterFileCapturesJavaImportsSupertypesAndTests(t *testing.T) {
 	if !treeSitterEnabled() {
 		t.Skip("tree-sitter requires cgo support on this machine")
