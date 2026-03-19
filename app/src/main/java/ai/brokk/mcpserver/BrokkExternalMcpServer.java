@@ -59,6 +59,7 @@ import io.modelcontextprotocol.spec.McpSchema;
 import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -98,13 +99,22 @@ public class BrokkExternalMcpServer {
             "skimFiles",
             "getFileSummaries",
             "getClassSkeletons",
+            "getSymbolLocations",
+            "searchFileContents",
             "getClassSources",
-            "getMethodSources",
-            "getSymbolLocations");
+            "getMethodSources");
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+    private static final String PROJECT_ROOT_OPTION = "--project-root";
+    private static final String PROJECT_ROOT_ENV_VAR = "BROKK_PROJECT_ROOT";
 
     private final ContextManager cm;
     private final @Nullable McpToolCallHistoryWriter mcpToolCallHistoryWriter;
+
+    record RootResolution(Path projectRoot, List<String> remainingArgs) {
+        RootResolution {
+            remainingArgs = List.copyOf(remainingArgs);
+        }
+    }
 
     public BrokkExternalMcpServer(ContextManager cm) {
         this.cm = cm;
@@ -124,8 +134,10 @@ public class BrokkExternalMcpServer {
     public static void main(String[] args) {
         System.setProperty("java.awt.headless", "true");
 
-        Path projectPath = Path.of(".").toAbsolutePath().normalize();
-        logger.info("Brokk MCP Server starting");
+        RootResolution rootResolution = resolveProjectRoot(
+                args, System.getenv(), Path.of(".").toAbsolutePath().normalize());
+        Path projectPath = rootResolution.projectRoot();
+        logger.info("Brokk MCP Server starting for project root {}", projectPath);
 
         try (var project = new MainProject(projectPath);
                 var cm = new ContextManager(project)) {
@@ -134,10 +146,12 @@ public class BrokkExternalMcpServer {
 
             BrokkExternalMcpServer instance = new BrokkExternalMcpServer(cm);
 
-            for (String arg : args) {
+            for (String arg : rootResolution.remainingArgs()) {
                 if ("--help".equals(arg) || "-h".equals(arg)) {
                     System.out.println("Brokk MCP Server v" + BuildInfo.version);
                     System.out.println("Provides Model Context Protocol (MCP) access to Brokk's agentic tools.");
+                    System.out.println(
+                            "Launch from the workspace directory or pass --project-root / BROKK_PROJECT_ROOT.");
                     System.out.println();
                     System.out.println("Available Tools:");
                     instance.toolSpecifications().forEach(spec -> {
@@ -201,6 +215,39 @@ public class BrokkExternalMcpServer {
             logger.error("Failed to start Brokk MCP Server", e);
             System.exit(1);
         }
+    }
+
+    static RootResolution resolveProjectRoot(String[] args, Map<String, String> env, Path cwd) {
+        String cliProjectRoot = "";
+        List<String> remainingArgs = new ArrayList<>();
+
+        for (int i = 0; i < args.length; i++) {
+            String arg = args[i];
+            if (PROJECT_ROOT_OPTION.equals(arg)) {
+                if (i + 1 >= args.length) {
+                    throw new IllegalArgumentException("Missing path after " + PROJECT_ROOT_OPTION);
+                }
+                cliProjectRoot = args[++i];
+                continue;
+            }
+            remainingArgs.add(arg);
+        }
+
+        String envProjectRoot =
+                Optional.ofNullable(env.get(PROJECT_ROOT_ENV_VAR)).orElse("");
+        String configuredRoot = !cliProjectRoot.isBlank() ? cliProjectRoot : envProjectRoot;
+        Path candidate = configuredRoot.isBlank() ? cwd : resolvePath(configuredRoot, cwd);
+
+        if (!Files.exists(candidate) || !Files.isDirectory(candidate)) {
+            throw new IllegalArgumentException("Invalid project root: " + candidate);
+        }
+
+        return new RootResolution(candidate.toAbsolutePath().normalize(), remainingArgs);
+    }
+
+    private static Path resolvePath(String pathText, Path cwd) {
+        Path path = Path.of(pathText);
+        return path.isAbsolute() ? path.normalize() : cwd.resolve(path).normalize();
     }
 
     public static List<McpServerFeatures.SyncToolSpecification> toolSpecificationsFrom(
@@ -709,7 +756,11 @@ public class BrokkExternalMcpServer {
     }
 
     @Tool(
-            "Agentic scan for relevant files and classes. Returns a summary of recommended context. Use this to get an overview when beginning a new task.")
+            """
+            Agentic semantic/context recommender for relevant files and classes.
+            Returns a summary of recommended context to add when beginning a task.
+            Not the first choice for raw-text repo search across markdown, config, comments, or literals; use searchFileContents for that.
+            """)
     public String scan(
             @P("The natural-language goal or prompt to scan for.") String goal,
             @P("Include test files in the results.") boolean includeTests)
