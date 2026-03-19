@@ -286,8 +286,7 @@ public class ContextAgent {
         filesLlmTests.setOutput(io);
 
         var existingFiles = context.allFragments()
-                .filter(f -> f.getType() == ContextFragment.FragmentType.PROJECT_PATH
-                        || f.getType() == ContextFragment.FragmentType.SKELETON)
+                .filter(f -> f.getType().includeInProjectGuide())
                 .flatMap(f -> f.sourceFiles().join().stream())
                 .collect(Collectors.toSet());
         var selectedCandidates = selectCandidates(
