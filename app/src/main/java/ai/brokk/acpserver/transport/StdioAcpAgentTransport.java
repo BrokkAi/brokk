@@ -31,6 +31,7 @@ public class StdioAcpAgentTransport implements AcpTransport {
     private final PrintWriter writer;
     private final AtomicBoolean running = new AtomicBoolean(false);
     private final Object writeLock = new Object();
+    private volatile Thread readerThread;
 
     /**
      * Creates a transport using System.in and System.out.
@@ -63,6 +64,7 @@ public class StdioAcpAgentTransport implements AcpTransport {
             throw new IllegalStateException("Transport already started");
         }
 
+        readerThread = Thread.currentThread();
         logger.info("ACP Stdio transport starting");
 
         try {
@@ -79,6 +81,7 @@ public class StdioAcpAgentTransport implements AcpTransport {
                 logger.error("Error reading from stdin", e);
             }
         } finally {
+            readerThread = null;
             running.set(false);
             logger.info("ACP Stdio transport stopped");
         }
@@ -173,6 +176,10 @@ public class StdioAcpAgentTransport implements AcpTransport {
     @Override
     public void close() {
         running.set(false);
+        Thread t = readerThread;
+        if (t != null) {
+            t.interrupt();
+        }
         synchronized (writeLock) {
             writer.flush();
         }
