@@ -964,7 +964,7 @@ class ChatPanel(Vertical):
         Logic for cycling through history:
         - Up (delta -1): Moves towards older entries (towards index 0).
         - Down (delta 1): Moves towards newer entries and eventually the draft.
-        - Commands (/) are not in the history.
+        - Commands (/) are included in the history.
         - Restores draft_buffer when moving past the newest entry.
         """
         if not self._history:
@@ -986,6 +986,7 @@ class ChatPanel(Vertical):
             new_index = 0
         elif new_index >= len(self._history):
             # Move back to draft
+            chat_input.suppress_autocomplete_once = True
             chat_input.text = self._draft_buffer
             self._history_index = -1
             chat_input.move_cursor(chat_input.document.end)
@@ -993,6 +994,7 @@ class ChatPanel(Vertical):
 
         # Load from history
         self._history_index = new_index
+        chat_input.suppress_autocomplete_once = True
         chat_input.text = self._history[self._history_index]
 
         # Keep cursor at end so subsequent Up/Down gating checks behave correctly.
@@ -1004,9 +1006,9 @@ class ChatPanel(Vertical):
         self._history_index = -1
 
     def add_history_entry(self, text: str) -> None:
-        """Adds a new entry to the history if it isn't a command.
+        """Adds a new entry to the history.
         Duplicates are preserved to maintain chronological sequence."""
-        if text and not text.startswith("/"):
+        if text:
             self._history.append(text)
         self._history_index = -1
 

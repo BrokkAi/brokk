@@ -2283,30 +2283,29 @@ class BrokkApp(App):
             if chat:
                 chat.add_history_entry(raw_text)
 
-        if check_text.startswith("/"):
-            self._handle_command(check_text)
-        elif check_text:
-            chat = self._maybe_chat()
-            if chat:
-                chat.add_user_message(raw_text)
-            if self.job_in_progress and self.current_job_id:
-                self._pending_prompt = raw_text
-                now = time.monotonic()
-                self._pending_updated_at = now
-                self._pending_generation += 1
-                self._pending_min_wait_until = max(
-                    self._pending_min_wait_until, now + self._resubmit_grace_s
-                )
-                # Avoid redundant cancellation messages if already pending
-                if self._pending_generation == 1 and chat:
-                    chat.add_system_message("Interrupting current job to start new request...")
-                self.run_worker(self.executor.cancel_job(self.current_job_id))
-            elif not self._executor_ready:
-                self._startup_pending_prompt = raw_text
-                if chat:
-                    chat.add_system_message("Queuing prompt until Brokk is ready...")
+            if check_text.startswith("/"):
+                self._handle_command(check_text)
             else:
-                self.run_worker(self._run_job(raw_text))
+                if chat:
+                    chat.add_user_message(raw_text)
+                if self.job_in_progress and self.current_job_id:
+                    self._pending_prompt = raw_text
+                    now = time.monotonic()
+                    self._pending_updated_at = now
+                    self._pending_generation += 1
+                    self._pending_min_wait_until = max(
+                        self._pending_min_wait_until, now + self._resubmit_grace_s
+                    )
+                    # Avoid redundant cancellation messages if already pending
+                    if self._pending_generation == 1 and chat:
+                        chat.add_system_message("Interrupting current job to start new request...")
+                    self.run_worker(self.executor.cancel_job(self.current_job_id))
+                elif not self._executor_ready:
+                    self._startup_pending_prompt = raw_text
+                    if chat:
+                        chat.add_system_message("Queuing prompt until Brokk is ready...")
+                else:
+                    self.run_worker(self._run_job(raw_text))
 
     @staticmethod
     def _extract_at_mentions(task_input: str) -> List[str]:
