@@ -53,7 +53,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
             Set.of(FUNCTION_DEFINITION),
             Set.of(ASSIGNMENT, TYPED_PARAMETER),
             Set.of(),
-            Set.of(DECORATOR),
+            Set.of(DECORATOR, DECORATED_DEFINITION),
             IMPORT_DECLARATION,
             "name", // identifierFieldName
             "body", // bodyFieldName
@@ -268,6 +268,21 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
 
     @Override
     protected boolean shouldSkipNode(TSNode node, String captureName, SourceContent sourceContent) {
+        // Skip bare class/function definitions if they are wrapped in a decorated_definition
+        // (We rely on the decorated_definition capture instead to preserve decorators)
+        if (CLASS_DEFINITION.equals(node.getType()) || FUNCTION_DEFINITION.equals(node.getType())) {
+            TSNode current = node.getParent();
+            while (current != null && !current.isNull()) {
+                if (DECORATED_DEFINITION.equals(current.getType())) {
+                    return true;
+                }
+                if (BLOCK.equals(current.getType()) || MODULE.equals(current.getType())) {
+                    break;
+                }
+                current = current.getParent();
+            }
+        }
+
         // Skip property setters to avoid duplicates with property getters
         if (CaptureNames.FUNCTION_DEFINITION.equals(captureName) && DECORATED_DEFINITION.equals(node.getType())) {
             // Check if this is a property setter by looking at decorators
@@ -316,13 +331,16 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
         // Python's decorated_definition: decorators and actual definition are children
         // Process decorators and identify the actual content node
         TSNode nodeForContent = decoratedNode;
-        for (int i = 0; i < decoratedNode.getNamedChildCount(); i++) {
-            TSNode child = decoratedNode.getNamedChild(i);
-            if (profile.decoratorNodeTypes().contains(child.getType())) {
-                outDecoratorLines.add(sourceContent.substringFrom(child).stripLeading());
-            } else if (profile.functionLikeNodeTypes().contains(child.getType())
-                    || profile.classLikeNodeTypes().contains(child.getType())) {
-                nodeForContent = child;
+        if (DECORATED_DEFINITION.equals(decoratedNode.getType())) {
+            for (int i = 0; i < decoratedNode.getChildCount(); i++) {
+                TSNode child = decoratedNode.getChild(i);
+                if (child.isNull()) continue;
+                String type = child.getType();
+                if (DECORATOR.equals(type)) {
+                    outDecoratorLines.add(sourceContent.substringFrom(child).stripLeading());
+                } else if (CLASS_DEFINITION.equals(type) || FUNCTION_DEFINITION.equals(type)) {
+                    nodeForContent = child;
+                }
             }
         }
         return nodeForContent;
@@ -366,6 +384,91 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
     }
 
     @Override
+    protected String formatFieldSignature(
+            TSNode fieldNode,
+            SourceContent sourceContent,
+            String exportPrefix,
+            String signatureText,
+            String simpleName,
+            String baseIndent,
+            ProjectFile file) {
+        if (fieldNode.isNull()) {
+            return super.formatFieldSignature(
+                    fieldNode, sourceContent, exportPrefix, signatureText, simpleName, baseIndent, file);
+        }
+
+        // Python field nodes from definitions.scm are typically 'expression_statement' wrapping 'assignment', or
+        // 'typed_parameter'
+        TSNode assignmentNode = fieldNode;
+        if (EXPRESSION_STATEMENT.equals(fieldNode.getType()) && fieldNode.getNamedChildCount() > 0) {
+            assignmentNode = fieldNode.getNamedChild(0);
+        }
+
+        TSNode valueNode = assignmentNode.getChildByFieldName("value");
+        if (valueNode == null || valueNode.isNull()) {
+            // Assignments will have a "left"/"right" property
+            valueNode = assignmentNode.getChildByFieldName("right");
+        }
+
+        if (valueNode == null || valueNode.isNull()) {
+            // Pure type annotation with no default value (e.g. x: int)
+            return baseIndent + signatureText;
+        }
+
+        if (isLiteralType(valueNode.getType())) {
+            return baseIndent + signatureText;
+        }
+
+        // For non-literals, omit the assignment from the skeleton completely
+        return "";
+    }
+
+    private boolean isLiteralType(String type) {
+        return type.endsWith("_literal")
+                || type.equals(STRING)
+                || type.equals(INTEGER)
+                || type.equals(FLOAT)
+                || type.equals(TRUE)
+                || type.equals(FALSE)
+                || type.equals(BOOLEAN)
+                || type.equals(NONE);
+    }
+
+    @Override
+    protected ResolvedNodes resolveSignatureNodes(
+            TSNode definitionNode, String simpleName, SkeletonType refined, SourceContent sourceContent) {
+        if (DECORATED_DEFINITION.equals(definitionNode.getType())) {
+            for (int i = 0; i < definitionNode.getChildCount(); i++) {
+                TSNode child = definitionNode.getChild(i);
+                if (child.isNull()) continue;
+                String type = child.getType();
+                if (CLASS_DEFINITION.equals(type) || FUNCTION_DEFINITION.equals(type)) {
+                    return new ResolvedNodes(child, child);
+                }
+            }
+        }
+        return super.resolveSignatureNodes(definitionNode, simpleName, refined, sourceContent);
+    }
+
+    @Override
+    protected @Nullable String extractSignature(
+            String captureName, TSNode definitionNode, SourceContent sourceContent) {
+        TSNode targetNode = definitionNode;
+        if (DECORATED_DEFINITION.equals(definitionNode.getType())) {
+            for (int i = 0; i < definitionNode.getChildCount(); i++) {
+                TSNode child = definitionNode.getChild(i);
+                if (child.isNull()) continue;
+                String type = child.getType();
+                if (CLASS_DEFINITION.equals(type) || FUNCTION_DEFINITION.equals(type)) {
+                    targetNode = child;
+                    break;
+                }
+            }
+        }
+        return super.extractSignature(captureName, targetNode, sourceContent);
+    }
+
+    @Override
     protected String renderClassHeader(
             TSNode classNode,
             SourceContent sourceContent,
@@ -374,7 +477,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
             String baseIndent) {
         // The 'baseIndent' parameter is now "" when called from buildSignatureString.
         // Stored signature should be unindented.
-        return signatureText; // Do not prepend baseIndent here
+        return exportPrefix + signatureText; // Do not prepend baseIndent here
     }
 
     @Override

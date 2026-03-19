@@ -2,7 +2,6 @@ package ai.brokk.analyzer;
 
 import static ai.brokk.testutil.AnalyzerCreator.createTreeSitterAnalyzer;
 import static ai.brokk.testutil.AssertionHelperUtil.*;
-import static ai.brokk.testutil.AssertionHelperUtil.assertCodeEquals;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.AnalyzerUtil;
@@ -1980,6 +1979,112 @@ public class JavaAnalyzerTest {
             var ySkeleton = analyzer.getSkeleton(yCu);
             assertTrue(ySkeleton.isPresent());
             assertCodeEquals("public int y = 2;", ySkeleton.get());
+        }
+    }
+
+    @Test
+    public void testComplexFieldInitializerIsOmitted() throws IOException {
+        String code =
+                """
+                public class BuilderField {
+                    private static final MyClient CLIENT = MyClient.builder()
+                        .withEndpoint("https://api.example.com")
+                        .withTimeout(Duration.ofSeconds(5))
+                        .build();
+                }
+                """;
+        try (var testProject =
+                InlineTestProjectCreator.code(code, "BuilderField.java").build()) {
+            JavaAnalyzer analyzer = new JavaAnalyzer(testProject);
+
+            var defs = analyzer.getDefinitions("BuilderField.CLIENT");
+            assertEquals(1, defs.size());
+            var cu = defs.iterator().next();
+            var skeleton = analyzer.getSkeleton(cu);
+            assertTrue(skeleton.isPresent());
+            // The builder chain should be omitted, leaving only the declaration and semicolon
+            assertCodeEquals("private static final MyClient CLIENT;", skeleton.get());
+        }
+    }
+
+    @Test
+    public void testNonLiteralFieldInitializersAreOmitted() throws IOException {
+        String code =
+                """
+                public class Initializers {
+                    public static final String LITERAL = "hello";
+                    public static final int NUMBER = 42;
+                    public static final Object COMPLEX = new Object();
+                    private final List<String> LIST = List.of("a");
+                }
+                """;
+        try (var testProject =
+                InlineTestProjectCreator.code(code, "Initializers.java").build()) {
+            JavaAnalyzer analyzer = new JavaAnalyzer(testProject);
+
+            // String literal should be preserved
+            var literalCu =
+                    analyzer.getDefinitions("Initializers.LITERAL").iterator().next();
+            assertCodeEquals(
+                    "public static final String LITERAL = \"hello\";",
+                    analyzer.getSkeleton(literalCu).get());
+
+            // Number literal should be preserved
+            var numberCu =
+                    analyzer.getDefinitions("Initializers.NUMBER").iterator().next();
+            assertCodeEquals(
+                    "public static final int NUMBER = 42;",
+                    analyzer.getSkeleton(numberCu).get());
+
+            // Complex initializer (new Object()) should be omitted
+            var complexCu =
+                    analyzer.getDefinitions("Initializers.COMPLEX").iterator().next();
+            assertCodeEquals(
+                    "public static final Object COMPLEX;",
+                    analyzer.getSkeleton(complexCu).get());
+
+            // Complex initializer (List.of) should be omitted
+            var listCu = analyzer.getDefinitions("Initializers.LIST").iterator().next();
+            assertCodeEquals(
+                    "private final List<String> LIST;",
+                    analyzer.getSkeleton(listCu).get());
+        }
+    }
+
+    @Test
+    public void testBooleanAndNullFieldInitializersArePreserved() throws IOException {
+        String code =
+                """
+                public class BooleanNullInitializers {
+                    public static final boolean FLAG_TRUE = true;
+                    public static final boolean FLAG_FALSE = false;
+                    public static final Object NULL_VAL = null;
+                }
+                """;
+        try (var testProject = InlineTestProjectCreator.code(code, "BooleanNullInitializers.java")
+                .build()) {
+            JavaAnalyzer analyzer = new JavaAnalyzer(testProject);
+
+            var trueCu = analyzer.getDefinitions("BooleanNullInitializers.FLAG_TRUE")
+                    .iterator()
+                    .next();
+            assertCodeEquals(
+                    "public static final boolean FLAG_TRUE = true;",
+                    analyzer.getSkeleton(trueCu).get());
+
+            var falseCu = analyzer.getDefinitions("BooleanNullInitializers.FLAG_FALSE")
+                    .iterator()
+                    .next();
+            assertCodeEquals(
+                    "public static final boolean FLAG_FALSE = false;",
+                    analyzer.getSkeleton(falseCu).get());
+
+            var nullCu = analyzer.getDefinitions("BooleanNullInitializers.NULL_VAL")
+                    .iterator()
+                    .next();
+            assertCodeEquals(
+                    "public static final Object NULL_VAL = null;",
+                    analyzer.getSkeleton(nullCu).get());
         }
     }
 }

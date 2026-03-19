@@ -20,9 +20,9 @@ public class ScalaSkeletonTest {
                                 class Foo() {
 
                                     val field1: String = "Test"
-                                    val multiLineField: String = "
+                                    val multiLineField: String = \"\"\"
                                       das
-                                      "
+                                      \"\"\"
 
                                     private def foo1(): Int = {
                                         return 1 + 2;
@@ -41,16 +41,13 @@ public class ScalaSkeletonTest {
             AnalyzerUtil.getSkeleton(analyzer, "ai.brokk.Foo")
                     .ifPresentOrElse(
                             source -> assertCodeEquals(
-                                    """
-                                            class Foo() {
-                                              val field1: String = "Test"
-                                              val multiLineField: String = "
-                                                    das
-                                                    "
-                                              private def foo1(): Int = {...}
-                                            }
-                                            """
-                                            .strip(),
+                                    "class Foo() {\n"
+                                            + "  val field1: String = \"Test\"\n"
+                                            + "  val multiLineField: String = \"\"\"\n"
+                                            + "        das\n"
+                                            + "        \"\"\"\n"
+                                            + "  private def foo1(): Int = {...}\n"
+                                            + "}",
                                     source),
                             () -> fail("Could not find source code for 'Foo'!"));
         }
@@ -141,15 +138,13 @@ public class ScalaSkeletonTest {
                     .ifPresentOrElse(
                             // Note in the following, Scala 2 braces are used
                             source -> assertCodeEquals(
-                                    """
-                                            class WhitespaceClass {
-                                              val s = ""\"
-                                                  line 1
-                                                    line 2
-                                                ""\"
-                                              val i = 2
-                                            }
-                                            """,
+                                    "class WhitespaceClass {\n"
+                                            + "  val s = \"\"\"\n"
+                                            + "      line 1\n"
+                                            + "        line 2\n"
+                                            + "    \"\"\"\n"
+                                            + "  val i = 2\n"
+                                            + "}",
                                     source),
                             () -> fail("Could not find source code for 'WhitespaceClass'!"));
         }

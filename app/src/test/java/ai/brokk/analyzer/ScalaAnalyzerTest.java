@@ -178,7 +178,7 @@ public class ScalaAnalyzerTest {
     }
 
     @Test
-    @Disabled("TSA only supports nested functions in the context of JavaTSA lambdas")
+    @Disabled("Nested methods are not yet correctly indexed in Scala")
     public void testSimpleNestedMethodsWithinClasses() throws IOException {
         try (var testProject = InlineTestProjectCreator.code(
                         """
@@ -488,6 +488,62 @@ public class ScalaAnalyzerTest {
             assertCodeEquals("var y: Int = 1", analyzer.getSkeleton(yUnit).get());
             assertCodeEquals("val a = \"test\"", analyzer.getSkeleton(aUnit).get());
             assertCodeEquals("val b = \"test\"", analyzer.getSkeleton(bUnit).get());
+        }
+    }
+
+    @Test
+    public void testComplexFieldInitializerIsOmitted() throws IOException {
+        String code =
+                """
+                package ai.brokk
+
+                class ComplexField {
+                  val obj = new Object()
+                  var x: Int = 1
+                  val a = "test"
+                }
+                """;
+        /*
+        (compilation_unit (package_clause name: (package_identifier (identifier) (identifier))) (class_definition name: (identifier) body: (template_body (val_definition pattern: (identifier) value: (instance_expression (type_identifier) arguments: (arguments))) (var_definition pattern: (identifier) type: (type_identifier) value: (integer_literal)) (val_definition pattern: (identifier) value: (string)))))
+         */
+        try (var testProject = InlineTestProjectCreator.code(code, "ai/brokk/ComplexField.scala")
+                .build()) {
+            var analyzer = createTreeSitterAnalyzer(testProject);
+            var file = new ProjectFile(testProject.getRoot(), "ai/brokk/ComplexField.scala");
+
+            var cu = new CodeUnit(file, CodeUnitType.FIELD, "ai.brokk", "ComplexField.obj");
+            var skeleton = analyzer.getSkeleton(cu);
+            assertTrue(skeleton.isPresent());
+            // The object creation should be omitted, leaving only the declaration
+            assertCodeEquals("val obj", skeleton.get());
+        }
+    }
+
+    @Test
+    public void testPrivateFieldContextIsPreserved() throws IOException {
+        String code =
+                """
+                package ai.brokk
+
+                class PrivateField {
+                  private val secret = "password"
+                  protected var count: Int = 0
+                }
+                """;
+        try (var testProject = InlineTestProjectCreator.code(code, "ai/brokk/PrivateField.scala")
+                .build()) {
+            var analyzer = createTreeSitterAnalyzer(testProject);
+            var file = new ProjectFile(testProject.getRoot(), "ai/brokk/PrivateField.scala");
+
+            var secretCu = new CodeUnit(file, CodeUnitType.FIELD, "ai.brokk", "PrivateField.secret");
+            assertCodeEquals(
+                    "private val secret = \"password\"",
+                    analyzer.getSkeleton(secretCu).get());
+
+            var countCu = new CodeUnit(file, CodeUnitType.FIELD, "ai.brokk", "PrivateField.count");
+            assertCodeEquals(
+                    "protected var count: Int = 0",
+                    analyzer.getSkeleton(countCu).get());
         }
     }
 }

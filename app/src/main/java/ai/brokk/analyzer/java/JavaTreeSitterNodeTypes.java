@@ -63,5 +63,22 @@ public final class JavaTreeSitterNodeTypes {
     public static final String INSTANCEOF_EXPRESSION = "instanceof_expression";
     public static final String PATTERN = "pattern";
 
+    // Literals
+    public static final String DECIMAL_INTEGER_LITERAL = "decimal_integer_literal";
+    public static final String HEX_INTEGER_LITERAL = "hex_integer_literal";
+    public static final String OCTAL_INTEGER_LITERAL = "octal_integer_literal";
+    public static final String BINARY_INTEGER_LITERAL = "binary_integer_literal";
+    public static final String DECIMAL_FLOATING_POINT_LITERAL = "decimal_floating_point_literal";
+    public static final String HEX_FLOATING_POINT_LITERAL = "hex_floating_point_literal";
+    public static final String STRING_LITERAL = "string_literal";
+    public static final String CHARACTER_LITERAL = "character_literal";
+    public static final String BOOLEAN_LITERAL = "boolean_literal";
+    public static final String NULL_LITERAL = "null_literal";
+
+    // Keywords that can be literal values
+    public static final String TRUE = "true";
+    public static final String FALSE = "false";
+    public static final String NULL = "null";
+
     private JavaTreeSitterNodeTypes() {}
 }

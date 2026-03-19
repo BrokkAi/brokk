@@ -12,16 +12,12 @@ import org.treesitter.*;
 public final class PhpAnalyzer extends TreeSitterAnalyzer {
     // PHP_LANGUAGE field removed, createTSLanguage will provide new instances.
 
-    private static final String NODE_TYPE_PHP_TAG = "php_tag";
-    private static final String NODE_TYPE_REFERENCE_MODIFIER = "reference_modifier";
-    private static final String NODE_TYPE_READONLY_MODIFIER = "readonly_modifier";
-
     private static final LanguageSyntaxProfile PHP_SYNTAX_PROFILE = new LanguageSyntaxProfile(
             Set.of(CLASS_DECLARATION, INTERFACE_DECLARATION, TRAIT_DECLARATION), // classLikeNodeTypes
             Set.of(FUNCTION_DEFINITION, METHOD_DECLARATION), // functionLikeNodeTypes
             Set.of(PROPERTY_DECLARATION, CONST_DECLARATION), // fieldLikeNodeTypes (capturing the whole declaration)
             Set.of(), // constructorNodeTypes are just `function.definition` so we need to check name
-            Set.of("attribute_list"), // decoratorNodeTypes (PHP attributes are grouped in attribute_list)
+            Set.of(ATTRIBUTE_LIST), // decoratorNodeTypes (PHP attributes are grouped in attribute_list)
             IMPORT_DECLARATION,
             "name", // identifierFieldName
             "body", // bodyFieldName (applies to functions/methods, class body is declaration_list)
@@ -39,11 +35,11 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
                     ),
             "", // asyncKeywordNodeType (PHP has no async/await keywords for functions)
             Set.of(
-                    "visibility_modifier",
-                    "static_modifier",
-                    "abstract_modifier",
-                    "final_modifier",
-                    NODE_TYPE_READONLY_MODIFIER) // modifierNodeTypes
+                    VISIBILITY_MODIFIER,
+                    STATIC_MODIFIER,
+                    ABSTRACT_MODIFIER,
+                    FINAL_MODIFIER,
+                    READONLY_MODIFIER) // modifierNodeTypes
             );
 
     @Nullable
@@ -180,7 +176,7 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
                 }
             }
             if (current != null
-                    && !NODE_TYPE_PHP_TAG.equals(current.getType())
+                    && !PHP_TAG.equals(current.getType())
                     && !NAMESPACE_DEFINITION.equals(current.getType())
                     && !DECLARE_STATEMENT.equals(current.getType())
                     && i > 5) {
@@ -238,12 +234,156 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
                 sb.append(sourceContent.substringFrom(child)).append("\n");
             } else if (PHP_SYNTAX_PROFILE.modifierNodeTypes().contains(type)) { // This is a keyword modifier
                 sb.append(sourceContent.substringFrom(child)).append(" ");
-            } else if (type.equals("function")) { // Stop when the 'function' keyword token itself is encountered
+            } else if (FUNCTION_KEYWORD.equals(type)) { // Stop when the 'function' keyword token itself is encountered
                 break;
             }
             // Other child types (e.g., comments, other anonymous tokens before 'function') are skipped.
         }
         return sb.toString();
+    }
+
+    @Override
+    protected String formatFieldSignature(
+            TSNode fieldNode,
+            SourceContent sourceContent,
+            String exportPrefix,
+            String signatureText,
+            String simpleName,
+            String baseIndent,
+            ProjectFile file) {
+        if (fieldNode.isNull()) {
+            return super.formatFieldSignature(
+                    fieldNode, sourceContent, exportPrefix, signatureText, simpleName, baseIndent, file);
+        }
+
+        boolean isConstant = CONST_DECLARATION.equals(fieldNode.getType());
+        boolean isProperty = PROPERTY_DECLARATION.equals(fieldNode.getType());
+
+        if (!isConstant && !isProperty) {
+            return super.formatFieldSignature(
+                    fieldNode, sourceContent, exportPrefix, signatureText, simpleName, baseIndent, file);
+        }
+
+        TSNode elementNode = null;
+        if (isProperty) {
+            for (int i = 0; i < fieldNode.getNamedChildCount(); i++) {
+                TSNode child = fieldNode.getNamedChild(i);
+                if (PROPERTY_ELEMENT.equals(child.getType())) {
+                    TSNode nameNode = findNameNodeRecursive(child);
+                    if (nameNode != null) {
+                        String nameText = sourceContent.substringFrom(nameNode).strip();
+                        if (nameText.equals(simpleName) || nameText.equals("$" + simpleName)) {
+                            elementNode = child;
+                            simpleName = nameText; // keep the $ prefix
+                            break;
+                        }
+                    }
+                }
+            }
+        } else {
+            for (int i = 0; i < fieldNode.getNamedChildCount(); i++) {
+                TSNode child = fieldNode.getNamedChild(i);
+                if (CONST_ELEMENT.equals(child.getType())) {
+                    TSNode nameNode = findNameNodeRecursive(child);
+                    if (nameNode != null) {
+                        String nameText = sourceContent.substringFrom(nameNode).strip();
+                        if (nameText.equals(simpleName)) {
+                            elementNode = child;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        if (elementNode == null || elementNode.isNull()) {
+            return super.formatFieldSignature(
+                    fieldNode, sourceContent, exportPrefix, signatureText, simpleName, baseIndent, file);
+        }
+
+        // Look for type information
+        String typeText = "";
+        TSNode typeNode = fieldNode.getChildByFieldName("type");
+        if (typeNode != null && !typeNode.isNull()) {
+            typeText = sourceContent.substringFrom(typeNode).strip() + " ";
+        }
+
+        // Look for initializers
+        TSNode valueNode = null;
+        if (isProperty) {
+            valueNode = elementNode.getChildByFieldName("default_value");
+            if (valueNode == null || valueNode.isNull()) {
+                if (elementNode.getNamedChildCount() > 1) {
+                    valueNode = elementNode.getNamedChild(elementNode.getNamedChildCount() - 1);
+                }
+            }
+        } else {
+            valueNode = elementNode.getChildByFieldName("value");
+            if (valueNode == null || valueNode.isNull()) {
+                if (elementNode.getNamedChildCount() > 1) {
+                    valueNode = elementNode.getNamedChild(elementNode.getNamedChildCount() - 1);
+                }
+            }
+        }
+
+        if (valueNode != null
+                && !valueNode.isNull()
+                && PROPERTY_INITIALIZER.equals(valueNode.getType())
+                && valueNode.getNamedChildCount() > 0) {
+            valueNode = valueNode.getNamedChild(0);
+        }
+
+        String initializerText = "";
+        if (valueNode != null && !valueNode.isNull() && isLiteralType(valueNode.getType())) {
+            initializerText = " = " + sourceContent.substringFrom(valueNode).strip();
+        }
+
+        String modifiers = extractModifiers(fieldNode, sourceContent);
+
+        String constPrefix = isConstant ? "const " : "";
+        String trimmedExport = exportPrefix.stripTrailing();
+
+        String fullModifiers = trimmedExport;
+        if (!fullModifiers.isEmpty() && !modifiers.isEmpty()) {
+            fullModifiers += " ";
+        }
+        fullModifiers += modifiers.stripTrailing();
+
+        if (isConstant && (fullModifiers.endsWith(" const") || fullModifiers.equals("const"))) {
+            constPrefix = "";
+        }
+
+        String fullSignature = fullModifiers;
+        if (!fullSignature.isEmpty()) {
+            fullSignature += " ";
+        }
+        String propertyPrefix = isProperty ? "$" : "";
+        fullSignature += constPrefix + typeText + propertyPrefix + simpleName + initializerText + ";";
+
+        return baseIndent + fullSignature.stripLeading();
+    }
+
+    private @Nullable TSNode findNameNodeRecursive(TSNode node) {
+        if (node.isNull()) return null;
+        if (NAME.equals(node.getType())) return node;
+        for (int i = 0; i < node.getNamedChildCount(); i++) {
+            TSNode found = findNameNodeRecursive(node.getNamedChild(i));
+            if (found != null) return found;
+        }
+        return null;
+    }
+
+    private boolean isLiteralType(String type) {
+        return type.endsWith("_literal")
+                || INTEGER.equals(type)
+                || FLOAT.equals(type)
+                || STRING.equals(type)
+                || ENCAPSED_STRING.equals(type)
+                || STRING_VALUE.equals(type)
+                || BOOLEAN.equals(type)
+                || BOOLEAN_LITERAL.equals(type)
+                || NULL.equals(type)
+                || NULL_LITERAL.equals(type);
     }
 
     @Override
@@ -283,7 +423,7 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
         for (int i = 0; i < funcNode.getChildCount(); i++) {
             TSNode child = funcNode.getChild(i);
             // Check for Java null before calling getType or other methods on child
-            if (child != null && NODE_TYPE_REFERENCE_MODIFIER.equals(child.getType())) {
+            if (child != null && REFERENCE_MODIFIER.equals(child.getType())) {
                 referenceModifierNode = child;
                 break;
             }

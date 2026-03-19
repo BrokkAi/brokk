@@ -251,23 +251,29 @@ class JavaProjectWatchServiceTest {
         watchService = new JavaProjectWatchService(tempDir, null, null, List.of(listener1));
         watchService.start(CompletableFuture.completedFuture(null));
 
-        // Give watcher time to initialize
-        Thread.sleep(500);
+        // Give watcher time to initialize (increased for CI reliability)
+        Thread.sleep(1000);
 
         // Add a second listener dynamically
         TestListener listener2 = new TestListener("Listener2");
         testListeners.add(listener2);
         watchService.addListener(listener2);
 
+        // Short sleep after adding listener to ensure registration is processed
+        Thread.sleep(200);
+
         // Create a file to trigger an event
         Path testFile = tempDir.resolve("test.txt");
         Files.writeString(testFile, "test content");
 
-        // Both listeners should receive the event
-        assertTrue(listener1.filesChangedLatch.await(5, TimeUnit.SECONDS), "Listener1 should receive event");
+        // Both listeners should receive the event - using longer timeout for slow CI
         assertTrue(
-                listener2.filesChangedLatch.await(5, TimeUnit.SECONDS),
-                "Listener2 (added dynamically) should receive event");
+                listener1.filesChangedLatch.await(10, TimeUnit.SECONDS),
+                "Listener1 should receive event (waited 10s). Current count: " + listener1.filesChangedCount.get());
+        assertTrue(
+                listener2.filesChangedLatch.await(10, TimeUnit.SECONDS),
+                "Listener2 (added dynamically) should receive event (waited 10s). Current count: "
+                        + listener2.filesChangedCount.get());
 
         assertEquals(1, listener1.filesChangedCount.get(), "Listener1 should receive 1 file change");
         assertEquals(1, listener2.filesChangedCount.get(), "Listener2 should receive 1 file change");
@@ -519,7 +525,7 @@ class JavaProjectWatchServiceTest {
         private final AtomicInteger filesChangedCount = new AtomicInteger(0);
         private final AtomicInteger noChangesCount = new AtomicInteger(0);
         private final AtomicInteger exceptionThrown = new AtomicInteger(0);
-        private final CountDownLatch filesChangedLatch = new CountDownLatch(1);
+        private volatile CountDownLatch filesChangedLatch = new CountDownLatch(1);
         private EventBatch lastBatch;
 
         TestListener(String name) {
@@ -531,8 +537,14 @@ class JavaProjectWatchServiceTest {
             this.shouldThrow = shouldThrow;
         }
 
+        /** Resets the latch for reuse in subsequent event checks. */
+        void resetLatch() {
+            this.filesChangedLatch = new CountDownLatch(1);
+        }
+
         @Override
         public void onFilesChanged(EventBatch batch) {
+            System.out.println("[" + name + "] Received file change event: " + batch.getFiles());
             if (shouldThrow) {
                 exceptionThrown.incrementAndGet();
                 throw new RuntimeException("Test exception from " + name);

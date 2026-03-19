@@ -376,14 +376,22 @@ public class GoAnalyzerTest {
                         .stripIndent();
 
         try (var project = InlineTestProjectCreator.code(source, "parser.go").build()) {
-            var inlineAnalyzer = (GoAnalyzer) AnalyzerCreator.createTreeSitterAnalyzer(project);
-            var file = new ProjectFile(project.getRoot(), "parser.go");
+            var inlineAnalyzer = new GoAnalyzer(project);
+            var file = project.getAnalyzableFiles(Languages.GO).stream()
+                    .findFirst()
+                    .orElseThrow();
             var declarations = inlineAnalyzer.getDeclarations(file);
             var fqns = declarations.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
 
             assertTrue(
                     fqns.contains("yaml._module_.yaml_PARSE_FLOW_MAPPING_VALUE_STATE"),
                     "Expected FQN for package-level const yaml_PARSE_FLOW_MAPPING_VALUE_STATE. Found: " + fqns);
+
+            CodeUnit cu = inlineAnalyzer
+                    .getDefinitions("yaml._module_.yaml_PARSE_STREAM_START_STATE")
+                    .getFirst();
+            String skeleton = inlineAnalyzer.getSkeleton(cu).orElse("");
+            assertCodeEquals("yaml_PARSE_STREAM_START_STATE yaml_parser_state_t = iota", skeleton);
         }
     }
 
@@ -764,6 +772,74 @@ public class GoAnalyzerTest {
             assertFalse(
                     inlineAnalyzer.getSkeleton(a1).get().contains("Address2"),
                     "Skeleton for Address1 should not contain Address2");
+        }
+    }
+
+    @Test
+    void testComplexFieldInitializerIsOmitted() {
+        String code =
+                """
+                package main
+
+                var simpleInt int = 42
+                var simpleString string = "hello"
+                var complexObj = NewComplexObject("some", "args")
+                var inlineStruct = struct{A int}{A: 1}
+                """;
+
+        try (var testProject = InlineTestProjectCreator.code(code, "fields.go").build()) {
+            var inlineAnalyzer = (GoAnalyzer) AnalyzerCreator.createTreeSitterAnalyzer(testProject);
+            ProjectFile file = inlineAnalyzer.getAnalyzedFiles().stream()
+                    .filter(f -> f.getFileName().equals("fields.go"))
+                    .findAny()
+                    .orElseThrow();
+            var skeletons = inlineAnalyzer.getSkeletons(file);
+
+            CodeUnit simpleInt = inlineAnalyzer.getDefinitions("main._module_.simpleInt").stream()
+                    .findFirst()
+                    .orElseThrow();
+            CodeUnit simpleString = inlineAnalyzer.getDefinitions("main._module_.simpleString").stream()
+                    .findFirst()
+                    .orElseThrow();
+            CodeUnit complexObj = inlineAnalyzer.getDefinitions("main._module_.complexObj").stream()
+                    .findFirst()
+                    .orElseThrow();
+            CodeUnit inlineStruct = inlineAnalyzer.getDefinitions("main._module_.inlineStruct").stream()
+                    .findFirst()
+                    .orElseThrow();
+
+            assertEquals("simpleInt int = 42", skeletons.get(simpleInt).trim());
+            assertEquals(
+                    "simpleString string = \"hello\"",
+                    skeletons.get(simpleString).trim());
+            assertEquals("complexObj", skeletons.get(complexObj).trim());
+            assertEquals("inlineStruct", skeletons.get(inlineStruct).trim());
+        }
+    }
+
+    @Test
+    void testMixedMultiValueInitializerTruncation() {
+        String code = """
+                package main
+                var a, b = 1, complexFunc()
+                """;
+
+        try (var testProject = InlineTestProjectCreator.code(code, "multi.go").build()) {
+            var inlineAnalyzer = (GoAnalyzer) AnalyzerCreator.createTreeSitterAnalyzer(testProject);
+            ProjectFile file =
+                    inlineAnalyzer.getAnalyzedFiles().stream().findFirst().orElseThrow();
+            var skeletons = inlineAnalyzer.getSkeletons(file);
+
+            CodeUnit aUnit = inlineAnalyzer.getDefinitions("main._module_.a").stream()
+                    .findFirst()
+                    .orElseThrow();
+            CodeUnit bUnit = inlineAnalyzer.getDefinitions("main._module_.b").stream()
+                    .findFirst()
+                    .orElseThrow();
+
+            // Multi-value assignments are treated as complex and truncated to just names
+            assertEquals("a", skeletons.get(aUnit).trim());
+            assertEquals("b", skeletons.get(bUnit).trim());
         }
     }
 
