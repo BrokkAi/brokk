@@ -1,5 +1,6 @@
 import asyncio
 import time
+import uuid
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple
 
 if TYPE_CHECKING:
@@ -24,6 +25,8 @@ from brokk_code.widgets.token_bar import TokenBar
 # Arrow glyphs for UI display (ASCII-only source)
 UP_ARROW = chr(0x2191)  # ↑
 DOWN_ARROW = chr(0x2193)  # ↓
+CHECK_MARK = chr(0x2713)  # ✓
+X_MARK = chr(0x2717)  # ✗
 
 
 class DotOrderedListItem(RichMarkdownListItem):
@@ -830,6 +833,10 @@ class ChatPanel(Vertical):
         # Session loading state
         self._session_loading: bool = False
 
+        # Command history for /ps modal
+        self._command_history: List[Dict[str, Any]] = []
+        self._commands_running: int = 0
+
     def compose(self) -> ComposeResult:
         yield ChatLog(highlight=True, markup=True, wrap=True, min_width=0, id="chat-log")
         yield TokenBar(id="chat-token-bar", classes="hidden")
@@ -1341,6 +1348,8 @@ class ChatPanel(Vertical):
                 )
                 return [panel, ""]
             return [self._collapsed_summary_text("Command Output", content), ""]
+        if kind == "COMMAND_SUMMARY":
+            return [self._render_command_summary(kwargs)]
         if kind == "WELCOME":
             icon = kwargs.get("icon", "")
             return [Text(icon, style="#D04040"), DotMarkdown(content), ""]
@@ -1412,6 +1421,86 @@ class ChatPanel(Vertical):
                 self._sync_autoscroll()
 
             self.call_later(_finish_refresh)
+
+    def _render_command_summary(self, entry: Dict[str, Any]) -> Text:
+        """Renders a compact one-line summary for a command result."""
+        success = entry.get("success", False)
+        stage = entry.get("stage", "Command")
+        exception = entry.get("exception")
+
+        if success:
+            icon = CHECK_MARK
+            icon_style = "bold green"
+            text = Text()
+            text.append(f"{icon} ", style=icon_style)
+            text.append(stage, style="green")
+        else:
+            icon = X_MARK
+            icon_style = "bold red"
+            text = Text()
+            text.append(f"{icon} ", style=icon_style)
+            text.append(stage, style="red")
+            # Add brief error info if available
+            if exception:
+                # Extract first line or truncate
+                first_line = exception.split("\n")[0].strip()
+                if len(first_line) > 50:
+                    first_line = first_line[:47] + "..."
+                text.append(f": {first_line}", style="red")
+
+        return text
+
+    def add_command_result(
+        self,
+        stage: str,
+        command: str,
+        success: bool,
+        output: str,
+        exception: Optional[str] = None,
+    ) -> None:
+        """
+        Stores a command result in history and renders a compact one-line summary.
+
+        Args:
+            stage: The build/lint/test stage name
+            command: The command that was executed
+            success: Whether the command succeeded
+            output: The command output (stored but not displayed in summary)
+            exception: Optional exception message if command failed
+        """
+        entry = {
+            "id": str(uuid.uuid4()),
+            "stage": stage,
+            "command": command,
+            "success": success,
+            "output": output,
+            "exception": exception,
+            "timestamp": time.time(),
+            "is_running": False,
+        }
+        self._command_history.append(entry)
+
+        # Store in message history for transcript export and re-rendering
+        self._message_history.append(
+            {
+                "kind": "COMMAND_SUMMARY",
+                "content": "",  # Content is in kwargs for this kind
+                **entry,
+            }
+        )
+        self._render_message_entry("COMMAND_SUMMARY", "", **entry)
+
+    def get_command_history(self) -> List[Dict[str, Any]]:
+        """Returns the command history for the /ps modal."""
+        return list(self._command_history)
+
+    def set_commands_running(self, count: int) -> None:
+        """Updates the count of currently running commands."""
+        self._commands_running = count
+
+    def get_commands_running(self) -> int:
+        """Returns the count of currently running commands."""
+        return self._commands_running
 
     def add_markdown(self, content: str) -> None:
         """Renders a block of Markdown content to the chat log."""
