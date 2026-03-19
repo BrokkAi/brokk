@@ -29,7 +29,7 @@
     "com.example.UserService",
     "com.example.deep.UserService",
     "com.example.UserService.UserService",
-    "com.example.UserService.userService",
-    "com.example.deep.UserService.UserService"
+    "com.example.deep.UserService.UserService",
+    "com.example.UserService.userService"
   ]
 }

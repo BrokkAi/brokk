@@ -1155,11 +1155,11 @@ func TestCompleteSymbolsPrefersClassThenShallowerPackage(t *testing.T) {
 	if len(completions) < 5 {
 		t.Fatalf("len(completions) = %d, want at least 5", len(completions))
 	}
-	if completions[3].Type != "function" || completions[3].Detail != "com.example.UserService.userService" {
-		t.Fatalf("completions[3] = %#v, want method after shallower constructor", completions[3])
+	if completions[3].Type != "function" || completions[3].Detail != "com.example.deep.UserService.UserService" {
+		t.Fatalf("completions[3] = %#v, want deeper constructor after shallower constructor", completions[3])
 	}
-	if completions[4].Type != "function" || completions[4].Detail != "com.example.deep.UserService.UserService" {
-		t.Fatalf("completions[4] = %#v, want deeper constructor after shallower method", completions[4])
+	if completions[4].Type != "function" || completions[4].Detail != "com.example.UserService.userService" {
+		t.Fatalf("completions[4] = %#v, want lowercase method after constructor candidates", completions[4])
 	}
 }
 

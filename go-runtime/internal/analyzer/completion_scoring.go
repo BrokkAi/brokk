@@ -20,12 +20,7 @@ type fuzzyMatcher struct {
 }
 
 type fuzzyMatch struct {
-	start         int
-	end           int
-	contiguous    int
-	wordStarts    int
-	segmentStarts int
-	gaps          int
+	indexes []int
 }
 
 func newFuzzyMatcher(pattern string) fuzzyMatcher {
@@ -40,133 +35,245 @@ func newFuzzyMatcher(pattern string) fuzzyMatcher {
 }
 
 func (m fuzzyMatcher) score(name string) int {
-	if m.pattern == "" || name == "" {
+	if m.pattern == "" {
+		if name == "" {
+			return 0
+		}
+		return math.MaxInt
+	}
+	if name == "" {
 		return math.MaxInt
 	}
 
 	match, ok := m.match(name)
-	if !ok {
-		return math.MaxInt
-	}
-	if m.simpleLowercase && match.end < len(name) && name[match.end] == '$' {
+	if !ok || len(match.indexes) == 0 {
 		return math.MaxInt
 	}
 
-	degree := 0
-	degree += match.wordStarts * 700
-	degree += match.contiguous * 120
-	degree += match.segmentStarts * 40
-	degree -= match.gaps * 30
-	degree -= match.start * 12
-	degree -= len(name) - len(m.pattern)
-
-	if match.start == 0 {
-		degree += startMatchBonus
-	}
-	if match.start == 0 && match.end == len(name) && strings.EqualFold(m.pattern, name) {
-		degree += exactMatchBonus
+	nameRunes := []rune(name)
+	if m.simpleLowercase && endsBeforeSeparator(nameRunes, match.indexes) {
+		return math.MaxInt
 	}
 
-	startProximityBonus := 400 - match.start*40
+	patternRunes := []rune(m.pattern)
+	score := calculateMatchScore(nameRunes, patternRunes, match.indexes)
+
+	startIndex := match.indexes[0]
+	if startIndex == 0 {
+		score += startMatchBonus
+	}
+
+	if isExactCaseInsensitiveMatch(nameRunes, patternRunes, match.indexes) {
+		score += exactMatchBonus
+	}
+
+	startProximityBonus := 400 - startIndex*40
 	if startProximityBonus > 0 {
-		degree += startProximityBonus
+		score += startProximityBonus
 	}
 
-	return -degree
+	return -score
+}
+
+func (m fuzzyMatcher) matches(name string) bool {
+	return m.score(name) != math.MaxInt
 }
 
 func (m fuzzyMatcher) match(name string) (fuzzyMatch, bool) {
+	nameRunes := []rune(name)
 	if !m.hasHumps {
 		if index := strings.Index(strings.ToLower(name), m.lowerPattern); index >= 0 {
-			wordStarts := 0
-			for i := 0; i < len(m.pattern); i++ {
-				if isWordStart(name, index+i) {
-					wordStarts++
-				}
+			indexes := make([]int, 0, len([]rune(m.pattern)))
+			for i := 0; i < len([]rune(m.pattern)); i++ {
+				indexes = append(indexes, index+i)
 			}
-			return fuzzyMatch{
-				start:         index,
-				end:           index + len(m.pattern),
-				contiguous:    len(m.pattern),
-				wordStarts:    wordStarts,
-				segmentStarts: 1,
-				gaps:          0,
-			}, true
+			return fuzzyMatch{indexes: indexes}, true
 		}
 	}
 
-	rawPatternRunes := []rune(m.pattern)
 	patternRunes := []rune(strings.ToLower(m.pattern))
-	nameRunes := []rune(name)
+	rawPatternRunes := []rune(m.pattern)
 	lowerNameRunes := []rune(strings.ToLower(name))
 	if len(patternRunes) > len(lowerNameRunes) {
 		return fuzzyMatch{}, false
 	}
 
-	matchIndexes := make([]int, 0, len(patternRunes))
+	indexes := make([]int, 0, len(patternRunes))
 	from := 0
 	for patternIndex, patternRune := range patternRunes {
 		found := -1
 		fallback := -1
+		wordStart := -1
 		for i := from; i < len(lowerNameRunes); i++ {
-			if lowerNameRunes[i] == patternRune {
-				if shouldPreferWordStart(rawPatternRunes[patternIndex]) {
-					if isWordStartRunes(nameRunes, i) {
-						found = i
-						break
-					}
-					if fallback < 0 {
-						fallback = i
-					}
-					continue
-				}
-				found = i
-				break
+			if lowerNameRunes[i] != patternRune {
+				continue
 			}
+			if isWordStartRunes(nameRunes, i) && wordStart < 0 {
+				wordStart = i
+			}
+			if shouldPreferWordStart(rawPatternRunes[patternIndex]) {
+				if isWordStartRunes(nameRunes, i) {
+					found = i
+					break
+				}
+				if fallback < 0 {
+					fallback = i
+				}
+				continue
+			}
+			if found < 0 {
+				found = i
+			}
+		}
+		if !m.hasHumps && found >= 0 && patternIndex > 0 && wordStart >= 0 && wordStart > found {
+			found = wordStart
 		}
 		if found < 0 {
 			found = fallback
 		}
+		if !m.hasHumps && found < 0 && patternIndex > 0 {
+			found = wordStart
+		}
 		if found < 0 {
 			return fuzzyMatch{}, false
 		}
-		matchIndexes = append(matchIndexes, found)
+		indexes = append(indexes, found)
 		from = found + 1
 	}
 
-	wordStarts := 0
-	contiguous := 1
-	segments := 1
-	gaps := 0
-	bestContiguous := 1
-	for i, idx := range matchIndexes {
-		if isWordStartRunes(nameRunes, idx) {
-			wordStarts++
+	return fuzzyMatch{indexes: indexes}, true
+}
+
+func calculateMatchScore(nameRunes []rune, patternRunes []rune, indexes []int) int {
+	if len(indexes) == 0 {
+		return math.MinInt
+	}
+
+	firstStart := indexes[0]
+	fragments := countFragments(indexes)
+	wordStart := firstStart == 0 || isWordStartRunes(nameRunes, firstStart)
+	startMatch := firstStart == 0
+	finalMatch := indexes[len(indexes)-1] == len(nameRunes)-1
+	skippedHumps := countSkippedHumps(nameRunes, indexes)
+	matchingCaseScore := evaluateMatchingCase(nameRunes, patternRunes, indexes)
+
+	unmatchedTail := len(nameRunes) - indexes[len(indexes)-1] - 1
+	unmatchedPenalty := 0
+	if fragments == 1 {
+		unmatchedPenalty = unmatchedTail * 2
+	}
+
+	score := 0
+	if wordStart {
+		score += 1000
+	}
+	score += matchingCaseScore
+	score -= fragments
+	score -= skippedHumps * 20
+	score -= totalGapLength(indexes)
+	score += 2
+	if startMatch {
+		score++
+	}
+	score -= unmatchedPenalty
+	if finalMatch {
+		score++
+	}
+	return score
+}
+
+func evaluateMatchingCase(nameRunes []rune, patternRunes []rune, indexes []int) int {
+	matchingCaseScore := 0
+	humpStartMatchedUpperCase := false
+	for i, index := range indexes {
+		afterGap := i > 0 && indexes[i] != indexes[i-1]+1
+		isHumpStart := isWordStartRunes(nameRunes, index)
+		nameChar := nameRunes[index]
+		patternChar := patternRunes[i]
+
+		if isHumpStart {
+			humpStartMatchedUpperCase = nameChar == patternChar && isUpperCaseRune(patternChar)
 		}
-		if i == 0 {
+
+		if afterGap && isHumpStart && isLowerCaseRune(patternChar) {
+			matchingCaseScore -= 10
 			continue
 		}
-		delta := idx - matchIndexes[i-1]
-		if delta == 1 {
-			contiguous++
-			if contiguous > bestContiguous {
-				bestContiguous = contiguous
+		if nameChar == patternChar {
+			switch {
+			case isUpperCaseRune(patternChar):
+				matchingCaseScore += 50
+			case index == 0:
+				matchingCaseScore++
+			case isHumpStart:
+				matchingCaseScore++
 			}
 			continue
 		}
-		gaps += delta - 1
-		segments++
-		contiguous = 1
+		if isHumpStart || (isLowerCaseRune(patternChar) && humpStartMatchedUpperCase) {
+			matchingCaseScore--
+		}
 	}
+	return matchingCaseScore
+}
 
-	return fuzzyMatch{
-		start:         matchIndexes[0],
-		end:           matchIndexes[len(matchIndexes)-1] + 1,
-		contiguous:    bestContiguous,
-		wordStarts:    wordStarts,
-		segmentStarts: segments,
-		gaps:          gaps,
-	}, true
+func countFragments(indexes []int) int {
+	if len(indexes) == 0 {
+		return 0
+	}
+	fragments := 1
+	for i := 1; i < len(indexes); i++ {
+		if indexes[i] != indexes[i-1]+1 {
+			fragments++
+		}
+	}
+	return fragments
+}
+
+func countSkippedHumps(nameRunes []rune, indexes []int) int {
+	skipped := 0
+	for i := 1; i < len(indexes); i++ {
+		if indexes[i] == indexes[i-1]+1 {
+			continue
+		}
+		for j := indexes[i-1] + 1; j < indexes[i]; j++ {
+			if isWordStartRunes(nameRunes, j) {
+				skipped++
+			}
+		}
+	}
+	return skipped
+}
+
+func totalGapLength(indexes []int) int {
+	total := 0
+	for i := 1; i < len(indexes); i++ {
+		if indexes[i] > indexes[i-1]+1 {
+			total += indexes[i] - indexes[i-1] - 1
+		}
+	}
+	return total
+}
+
+func isExactCaseInsensitiveMatch(nameRunes []rune, patternRunes []rune, indexes []int) bool {
+	if len(indexes) != len(patternRunes) || len(indexes) == 0 {
+		return false
+	}
+	if indexes[0] != 0 || indexes[len(indexes)-1] != len(nameRunes)-1 {
+		return false
+	}
+	return strings.EqualFold(string(patternRunes), string(nameRunes))
+}
+
+func endsBeforeSeparator(nameRunes []rune, indexes []int) bool {
+	if len(indexes) == 0 {
+		return false
+	}
+	end := indexes[len(indexes)-1] + 1
+	if end+1 >= len(nameRunes) {
+		return false
+	}
+	return isWordSeparatorChar(nameRunes[end]) && (isUpperCaseRune(nameRunes[end+1]) || isDigitRune(nameRunes[end+1]))
 }
 
 func hasHumps(value string) bool {
@@ -174,7 +281,7 @@ func hasHumps(value string) bool {
 		if i == 0 {
 			continue
 		}
-		if ch >= 'A' && ch <= 'Z' {
+		if isUpperCaseRune(ch) {
 			return true
 		}
 	}
@@ -182,7 +289,7 @@ func hasHumps(value string) bool {
 }
 
 func shouldPreferWordStart(ch rune) bool {
-	return ch >= 'A' && ch <= 'Z'
+	return isUpperCaseRune(ch)
 }
 
 func isSimpleLowercasePattern(value string) bool {
@@ -193,7 +300,7 @@ func isSimpleLowercasePattern(value string) bool {
 		if isWordSeparatorChar(ch) || ch == '*' {
 			return false
 		}
-		if ch >= 'A' && ch <= 'Z' {
+		if isUpperCaseRune(ch) {
 			return false
 		}
 	}
@@ -213,10 +320,10 @@ func isWordStartRunes(name []rune, index int) bool {
 	if isWordSeparatorChar(previous) {
 		return true
 	}
-	if previous >= 'a' && previous <= 'z' && current >= 'A' && current <= 'Z' {
+	if isLowerCaseRune(previous) && isUpperCaseRune(current) {
 		return true
 	}
-	if (previous >= '0' && previous <= '9') != (current >= '0' && current <= '9') {
+	if isDigitRune(previous) != isDigitRune(current) {
 		return true
 	}
 	return false
@@ -224,9 +331,21 @@ func isWordStartRunes(name []rune, index int) bool {
 
 func isWordSeparatorChar(ch rune) bool {
 	switch ch {
-	case '_', '-', ':', '+', '.', '$', ' ', '\t', '\n', '\r':
+	case '_', '-', ':', '+', '.', '$', '/', '\\', ' ', '\t', '\n', '\r':
 		return true
 	default:
 		return false
 	}
+}
+
+func isUpperCaseRune(ch rune) bool {
+	return ch >= 'A' && ch <= 'Z'
+}
+
+func isLowerCaseRune(ch rune) bool {
+	return ch >= 'a' && ch <= 'z'
+}
+
+func isDigitRune(ch rune) bool {
+	return ch >= '0' && ch <= '9'
 }
