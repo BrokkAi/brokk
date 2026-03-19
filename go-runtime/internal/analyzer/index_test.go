@@ -731,6 +731,93 @@ func TestJavaRelevantImportsIncludesWildcardFallback(t *testing.T) {
 	}
 }
 
+func TestJavaTypeHierarchyAncestorsAndDescendants(t *testing.T) {
+	t.Parallel()
+
+	workspace := t.TempDir()
+	writeAnalyzerFile(t, workspace, "src/main/java/example/BaseClass.java", ""+
+		"package example;\n"+
+		"public class BaseClass {}\n")
+	writeAnalyzerFile(t, workspace, "src/main/java/example/ServiceInterface.java", ""+
+		"package example;\n"+
+		"public interface ServiceInterface {}\n")
+	writeAnalyzerFile(t, workspace, "src/main/java/example/Middle.java", ""+
+		"package example;\n"+
+		"public class Middle extends BaseClass implements ServiceInterface {}\n")
+	writeAnalyzerFile(t, workspace, "src/main/java/example/Child.java", ""+
+		"package example;\n"+
+		"public class Child extends Middle {}\n")
+
+	service := New(workspace)
+
+	direct := sortedFQNames(service.DirectAncestors("example.Child"))
+	if !slices.Equal(direct, []string{"example.Middle"}) {
+		t.Fatalf("DirectAncestors() = %#v, want example.Middle", direct)
+	}
+
+	ancestors := sortedFQNames(service.Ancestors("example.Child"))
+	wantAncestors := []string{"example.BaseClass", "example.Middle", "example.ServiceInterface"}
+	if !slices.Equal(ancestors, wantAncestors) {
+		t.Fatalf("Ancestors() = %#v, want %#v", ancestors, wantAncestors)
+	}
+
+	descendants := sortedFQNames(service.Descendants("example.BaseClass"))
+	wantDescendants := []string{"example.Child", "example.Middle"}
+	if !slices.Equal(descendants, wantDescendants) {
+		t.Fatalf("Descendants() = %#v, want %#v", descendants, wantDescendants)
+	}
+}
+
+func TestJavaTypeHierarchyHandlesCycles(t *testing.T) {
+	t.Parallel()
+
+	workspace := t.TempDir()
+	writeAnalyzerFile(t, workspace, "src/main/java/example/A.java", ""+
+		"package example;\n"+
+		"public interface A extends B {}\n")
+	writeAnalyzerFile(t, workspace, "src/main/java/example/B.java", ""+
+		"package example;\n"+
+		"public interface B extends A {}\n")
+
+	service := New(workspace)
+	ancestors := sortedFQNames(service.Ancestors("example.A"))
+	if !slices.Equal(ancestors, []string{"example.B"}) {
+		t.Fatalf("Ancestors() = %#v, want only example.B after cycle dedupe", ancestors)
+	}
+}
+
+func TestPythonTypeHierarchyAncestorsAndDescendants(t *testing.T) {
+	t.Parallel()
+
+	workspace := t.TempDir()
+	writeAnalyzerFile(t, workspace, "pkg/animals.py", ""+
+		"class Animal:\n"+
+		"    pass\n\n"+
+		"class Dog(Animal):\n"+
+		"    pass\n\n"+
+		"class Poodle(Dog):\n"+
+		"    pass\n")
+
+	service := New(workspace)
+
+	direct := sortedFQNames(service.DirectAncestors("pkg.animals.Poodle"))
+	if !slices.Equal(direct, []string{"pkg.animals.Dog"}) {
+		t.Fatalf("DirectAncestors() = %#v, want pkg.animals.Dog", direct)
+	}
+
+	ancestors := sortedFQNames(service.Ancestors("pkg.animals.Poodle"))
+	wantAncestors := []string{"pkg.animals.Animal", "pkg.animals.Dog"}
+	if !slices.Equal(ancestors, wantAncestors) {
+		t.Fatalf("Ancestors() = %#v, want %#v", ancestors, wantAncestors)
+	}
+
+	descendants := sortedFQNames(service.Descendants("pkg.animals.Animal"))
+	wantDescendants := []string{"pkg.animals.Dog", "pkg.animals.Poodle"}
+	if !slices.Equal(descendants, wantDescendants) {
+		t.Fatalf("Descendants() = %#v, want %#v", descendants, wantDescendants)
+	}
+}
+
 func TestResolvePythonInitPackageClass(t *testing.T) {
 	workspace := t.TempDir()
 	writeAnalyzerFile(t, workspace, "pkg/__init__.py", ""+

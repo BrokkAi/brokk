@@ -450,6 +450,66 @@ func (s *Service) RawSupertypes(fqName string) []string {
 	return results
 }
 
+func (s *Service) DirectAncestors(fqName string) []Symbol {
+	index, err := s.getIndex()
+	if err != nil {
+		return []Symbol{}
+	}
+
+	definitions := filterByKind(s.definitions(index, fqName), "class")
+	if len(definitions) == 0 {
+		return []Symbol{}
+	}
+
+	return s.directAncestorsForSymbol(index, definitions[0])
+}
+
+func (s *Service) Ancestors(fqName string) []Symbol {
+	index, err := s.getIndex()
+	if err != nil {
+		return []Symbol{}
+	}
+
+	definitions := filterByKind(s.definitions(index, fqName), "class")
+	if len(definitions) == 0 {
+		return []Symbol{}
+	}
+
+	return s.traverseHierarchy(index, definitions[0], func(symbol Symbol) []Symbol {
+		return s.directAncestorsForSymbol(index, symbol)
+	})
+}
+
+func (s *Service) DirectDescendants(fqName string) []Symbol {
+	index, err := s.getIndex()
+	if err != nil {
+		return []Symbol{}
+	}
+
+	definitions := filterByKind(s.definitions(index, fqName), "class")
+	if len(definitions) == 0 {
+		return []Symbol{}
+	}
+
+	return s.directDescendantsForSymbol(index, definitions[0])
+}
+
+func (s *Service) Descendants(fqName string) []Symbol {
+	index, err := s.getIndex()
+	if err != nil {
+		return []Symbol{}
+	}
+
+	definitions := filterByKind(s.definitions(index, fqName), "class")
+	if len(definitions) == 0 {
+		return []Symbol{}
+	}
+
+	return s.traverseHierarchy(index, definitions[0], func(symbol Symbol) []Symbol {
+		return s.directDescendantsForSymbol(index, symbol)
+	})
+}
+
 func (s *Service) ImportInfo(relativePath string) []ImportInfo {
 	index, err := s.getIndex()
 	if err != nil {
@@ -2326,6 +2386,136 @@ func containsString(values []string, target string) bool {
 		}
 	}
 	return false
+}
+
+func (s *Service) directAncestorsForSymbol(index *indexSnapshot, symbol Symbol) []Symbol {
+	if symbol.Kind != "class" {
+		return []Symbol{}
+	}
+
+	results := make([]Symbol, 0, len(symbol.RawSupertypes))
+	seen := map[string]struct{}{}
+	for _, raw := range symbol.RawSupertypes {
+		for _, resolved := range s.resolveHierarchyType(index, symbol, raw) {
+			if _, ok := seen[resolved.FQName]; ok {
+				continue
+			}
+			seen[resolved.FQName] = struct{}{}
+			results = append(results, resolved)
+		}
+	}
+	return results
+}
+
+func (s *Service) directDescendantsForSymbol(index *indexSnapshot, symbol Symbol) []Symbol {
+	if symbol.Kind != "class" {
+		return []Symbol{}
+	}
+
+	results := make([]Symbol, 0, 8)
+	seen := map[string]struct{}{}
+	for _, candidate := range index.symbols {
+		if candidate.Kind != "class" || candidate.FQName == symbol.FQName {
+			continue
+		}
+		for _, ancestor := range s.directAncestorsForSymbol(index, candidate) {
+			if ancestor.FQName != symbol.FQName {
+				continue
+			}
+			if _, ok := seen[candidate.FQName]; ok {
+				break
+			}
+			seen[candidate.FQName] = struct{}{}
+			results = append(results, candidate)
+			break
+		}
+	}
+	sort.SliceStable(results, func(i, j int) bool {
+		return strings.ToLower(results[i].FQName) < strings.ToLower(results[j].FQName)
+	})
+	return results
+}
+
+func (s *Service) traverseHierarchy(index *indexSnapshot, root Symbol, next func(Symbol) []Symbol) []Symbol {
+	direct := next(root)
+	if len(direct) == 0 {
+		return []Symbol{}
+	}
+
+	results := make([]Symbol, 0, len(direct))
+	visited := map[string]struct{}{root.FQName: {}}
+	queue := append([]Symbol(nil), direct...)
+	for _, symbol := range direct {
+		if _, ok := visited[symbol.FQName]; ok {
+			continue
+		}
+		visited[symbol.FQName] = struct{}{}
+		results = append(results, symbol)
+	}
+
+	for len(queue) > 0 {
+		current := queue[0]
+		queue = queue[1:]
+		for _, symbol := range next(current) {
+			if _, ok := visited[symbol.FQName]; ok {
+				continue
+			}
+			visited[symbol.FQName] = struct{}{}
+			results = append(results, symbol)
+			queue = append(queue, symbol)
+		}
+	}
+
+	return results
+}
+
+func (s *Service) resolveHierarchyType(index *indexSnapshot, current Symbol, raw string) []Symbol {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return []Symbol{}
+	}
+
+	candidates := make([]Symbol, 0, 8)
+	addCandidates := func(symbols []Symbol) {
+		for _, symbol := range symbols {
+			if symbol.Kind == "class" {
+				candidates = append(candidates, symbol)
+			}
+		}
+	}
+
+	addCandidates(s.definitions(index, raw))
+
+	if current.PackageName != "" {
+		addCandidates(s.definitions(index, current.PackageName+"."+raw))
+	}
+
+	lastSegment := raw
+	if lastDot := strings.LastIndex(raw, "."); lastDot >= 0 && lastDot < len(raw)-1 {
+		lastSegment = raw[lastDot+1:]
+	}
+
+	for _, imported := range s.ImportedCodeUnits(current.RelativePath) {
+		if imported.Kind != "class" {
+			continue
+		}
+		if imported.Identifier == lastSegment || imported.FQName == raw || strings.HasSuffix(imported.FQName, "."+raw) {
+			candidates = append(candidates, imported)
+		}
+	}
+
+	suffix := "." + raw
+	dollarSuffix := "$" + raw
+	addCandidates(collectMatching(index.symbols, func(symbol Symbol) bool {
+		return symbol.Kind == "class" &&
+			(symbol.ShortName == raw ||
+				symbol.Identifier == lastSegment ||
+				symbol.FQName == raw ||
+				strings.HasSuffix(symbol.FQName, suffix) ||
+				strings.HasSuffix(symbol.FQName, dollarSuffix))
+	}))
+
+	return dedupeSymbols(candidates)
 }
 
 func collectGoImports(content string) []string {
