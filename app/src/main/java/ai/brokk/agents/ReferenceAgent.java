@@ -214,25 +214,46 @@ public class ReferenceAgent {
         references.forEach(valuesArray::add);
 
         return """
-                The following filenames and identifiers were parsed from (partial) matches in the user's instructions.
-                Return only the references that are relevant to the user's instructions, as informed by the conversation history.
-                Think carefully before answering.
+          You are filtering candidate references extracted from the user's request.
 
-                <conversation_history>
-                %s
-                </conversation_history>
+          Your task is to keep the references that are plausibly useful as initial anchors for later
+          workspace selection and code search. This is an upstream triage step, so favor recall over
+          aggressive pruning.
 
-                <current_instructions>
-                %s
-                </current_instructions>
+          Include a candidate when it is supported by concrete evidence in the request or conversation,
+          including:
+          - explicitly named files, classes, methods, symbols, tests, commands, config keys, URLs, or line references
+          - pasted code snippets
+          - exception names, stack traces, error messages, repro steps, or protocol/build/test details
+          - directly related helper/adapter/serializer/parser/buffer/caller/callee symbols implicated by those details
 
-                References:
-                %s
+          Exclude candidates that are incidental, unrelated, or a false-positivepartial-match artifact.
 
-                Output JSON with a single field:
-                - "relevant": array of reference strings that are relevant.
-                Include only relevant references in that array.
-                """
+          Important guidance:
+          - Do not reduce the result to only the single most central abstraction.
+          - Concrete implementation references are often useful even when a higher-level abstraction also appears.
+          - The goal is not to find the minimum perfect set; the goal is to avoid missing anchors that would help the next search step start in the right place.
+          - ... While avoiding junk and noise.
+
+          <conversation_history>
+          %s
+          </conversation_history>
+
+          <current_instructions>
+          %s
+          </current_instructions>
+
+          References:
+          %s
+
+          Output JSON with a single field:
+          - "relevant": array of reference strings chosen from the candidate list.
+
+          Requirements:
+          - Return only strings from the provided candidate list.
+          - Preserve exact spelling.
+          - No commentary.
+          """
                 .formatted(conversationHistory, goal, valuesArray);
     }
 
