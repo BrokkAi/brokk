@@ -712,7 +712,7 @@ public class LutzAgent {
 
     private boolean toolTriggersScan(ToolExecutionRequest req) {
         String toolName = req.name();
-        return "callSearchAgent".equals(toolName);
+        return toolName.startsWith("search") || toolName.startsWith("find") || "callSearchAgent".equals(toolName);
     }
 
     private StreamingChatModel delegatedSearchModel() {
