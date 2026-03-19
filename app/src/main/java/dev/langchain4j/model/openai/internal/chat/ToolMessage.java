@@ -28,14 +28,10 @@ public final class ToolMessage implements Message {
     @JsonProperty
     private final String name;
 
-    @JsonProperty
-    private final CacheControl cacheControl;
-
     public ToolMessage(Builder builder) {
         this.toolCallId = builder.toolCallId;
         this.content = builder.content;
         this.name = builder.name;
-        this.cacheControl = builder.cacheControl;
     }
 
     public Role role() {
@@ -54,10 +50,6 @@ public final class ToolMessage implements Message {
         return name;
     }
 
-    public CacheControl cacheControl() {
-        return cacheControl;
-    }
-
     public static ToolMessage from(String toolCallId, String content) {
         return from(toolCallId, content, null);
     }
@@ -72,8 +64,7 @@ public final class ToolMessage implements Message {
         return Objects.equals(role, another.role)
                 && Objects.equals(toolCallId, another.toolCallId)
                 && Objects.equals(content, another.content)
-                && Objects.equals(name, another.name)
-                && Objects.equals(cacheControl, another.cacheControl);
+                && Objects.equals(name, another.name);
     }
 
     @Override
@@ -83,7 +74,6 @@ public final class ToolMessage implements Message {
         h += (h << 5) + Objects.hashCode(toolCallId);
         h += (h << 5) + Objects.hashCode(content);
         h += (h << 5) + Objects.hashCode(name);
-        h += (h << 5) + Objects.hashCode(cacheControl);
         return h;
     }
 
@@ -94,7 +84,6 @@ public final class ToolMessage implements Message {
                 + ", toolCallId=" + toolCallId
                 + ", content=" + content
                 + ", name=" + name
-                + ", cacheControl=" + cacheControl
                 + "}";
     }
 
@@ -118,7 +107,6 @@ public final class ToolMessage implements Message {
         private String toolCallId;
         private String content;
         private String name;
-        private CacheControl cacheControl;
 
         public Builder toolCallId(String toolCallId) {
             this.toolCallId = toolCallId;
@@ -132,11 +120,6 @@ public final class ToolMessage implements Message {
 
         public Builder name(String name) {
             this.name = name;
-            return this;
-        }
-
-        public Builder cacheControl(CacheControl cacheControl) {
-            this.cacheControl = cacheControl;
             return this;
         }
 

@@ -46,9 +46,6 @@ public final class AssistantMessage implements Message {
     @Deprecated
     private final FunctionCall functionCall;
 
-    @JsonProperty
-    private final CacheControl cacheControl;
-
     public AssistantMessage(Builder builder) {
         this.content = builder.content;
         this.name = builder.name;
@@ -57,7 +54,6 @@ public final class AssistantMessage implements Message {
         this.toolCalls = builder.toolCalls;
         this.refusal = builder.refusal;
         this.functionCall = builder.functionCall;
-        this.cacheControl = builder.cacheControl;
     }
 
     public Role role() {
@@ -93,10 +89,6 @@ public final class AssistantMessage implements Message {
         return functionCall;
     }
 
-    public CacheControl cacheControl() {
-        return cacheControl;
-    }
-
     @Override
     public boolean equals(Object another) {
         if (this == another) return true;
@@ -111,8 +103,7 @@ public final class AssistantMessage implements Message {
                 && Objects.equals(name, another.name)
                 && Objects.equals(toolCalls, another.toolCalls)
                 && Objects.equals(refusal, another.refusal)
-                && Objects.equals(functionCall, another.functionCall)
-                && Objects.equals(cacheControl, another.cacheControl);
+                && Objects.equals(functionCall, another.functionCall);
     }
 
     @Override
@@ -126,7 +117,6 @@ public final class AssistantMessage implements Message {
         h += (h << 5) + Objects.hashCode(toolCalls);
         h += (h << 5) + Objects.hashCode(refusal);
         h += (h << 5) + Objects.hashCode(functionCall);
-        h += (h << 5) + Objects.hashCode(cacheControl);
         return h;
     }
 
@@ -141,7 +131,6 @@ public final class AssistantMessage implements Message {
                 + ", toolCalls=" + toolCalls
                 + ", refusal=" + refusal
                 + ", functionCall=" + functionCall
-                + ", cacheControl=" + cacheControl
                 + "}";
     }
 
@@ -167,8 +156,6 @@ public final class AssistantMessage implements Message {
 
         @Deprecated
         private FunctionCall functionCall;
-
-        private CacheControl cacheControl;
 
         public Builder content(String content) {
             this.content = content;
@@ -211,11 +198,6 @@ public final class AssistantMessage implements Message {
         @Deprecated
         public Builder functionCall(FunctionCall functionCall) {
             this.functionCall = functionCall;
-            return this;
-        }
-
-        public Builder cacheControl(CacheControl cacheControl) {
-            this.cacheControl = cacheControl;
             return this;
         }
 

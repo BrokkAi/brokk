@@ -312,7 +312,18 @@ public final class WorkspacePrompts {
         if (lastContiguousPinnedUserMessageIndex != -1) {
             var msg = messages.get(lastContiguousPinnedUserMessageIndex);
             if (msg instanceof UserMessage um) {
-                messages.set(lastContiguousPinnedUserMessageIndex, UserMessage.withCacheControl(um, "ephemeral"));
+                var contents = um.contents();
+                if (!contents.isEmpty()) {
+                    var newContents = new ArrayList<>(contents);
+                    int lastIndex = newContents.size() - 1;
+                    var lastContent = newContents.get(lastIndex);
+                    if (lastContent instanceof TextContent tc) {
+                        newContents.set(lastIndex, TextContent.withCacheControl(tc, "ephemeral"));
+                    } else if (lastContent instanceof ImageContent ic) {
+                        newContents.set(lastIndex, ImageContent.withCacheControl(ic, "ephemeral"));
+                    }
+                    messages.set(lastContiguousPinnedUserMessageIndex, new UserMessage(um.name(), newContents));
+                }
             }
         }
 

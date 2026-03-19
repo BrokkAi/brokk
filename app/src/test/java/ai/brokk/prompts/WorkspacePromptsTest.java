@@ -13,6 +13,7 @@ import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestContextManager;
 import ai.brokk.testutil.TestProject;
 import ai.brokk.util.Messages;
+import dev.langchain4j.data.message.TextContent;
 import dev.langchain4j.data.message.UserMessage;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -120,7 +121,14 @@ class WorkspacePromptsTest {
 
         var pinnedMsg = messages.get(pinnedIndex);
         assertInstanceOf(UserMessage.class, pinnedMsg);
-        assertEquals("ephemeral", ((UserMessage) pinnedMsg).cacheControl());
+
+        var pinnedContents = ((UserMessage) pinnedMsg).contents();
+        var lastTextContent = pinnedContents.stream()
+                .filter(TextContent.class::isInstance)
+                .map(TextContent.class::cast)
+                .reduce((first, second) -> second) // get last
+                .orElseThrow();
+        assertEquals("ephemeral", lastTextContent.cacheControl());
     }
 
     @Test
@@ -154,14 +162,15 @@ class WorkspacePromptsTest {
 
         var messages = WorkspacePrompts.getMessagesInAddedOrder(ctx, EnumSet.noneOf(SpecialTextType.class));
 
-        // Last pinned UserMessage should have cache control
-        var cacheControlledMsg = messages.stream()
-                .filter(m -> m instanceof UserMessage um && "ephemeral".equals(um.cacheControl()))
+        // Last pinned UserMessage should have cache control on its last TextContent
+        var cacheControlledMsg = (UserMessage) messages.stream()
+                .filter(m -> m instanceof UserMessage um
+                        && um.contents().stream().anyMatch(c -> "ephemeral".equals(c.cacheControl())))
                 .findFirst()
                 .orElseThrow();
 
-        assertInstanceOf(UserMessage.class, cacheControlledMsg);
-        assertEquals("ephemeral", ((UserMessage) cacheControlledMsg).cacheControl());
+        var lastContent = cacheControlledMsg.contents().getLast();
+        assertEquals("ephemeral", lastContent.cacheControl());
     }
 
     @Test

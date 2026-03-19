@@ -22,7 +22,6 @@ public class AiMessage implements ChatMessage {
     private final String text;
     private final String reasoningContent;
     private final String thoughtSignature;
-    private final String cacheControl;
     private final List<ToolExecutionRequest> toolExecutionRequests;
 
     /**
@@ -34,7 +33,6 @@ public class AiMessage implements ChatMessage {
         this.text = ensureNotNull(text, "text");
         this.reasoningContent = null;
         this.thoughtSignature = null;
-        this.cacheControl = null;
         this.toolExecutionRequests = List.of();
     }
 
@@ -47,7 +45,6 @@ public class AiMessage implements ChatMessage {
         this.text = null;
         this.reasoningContent = null;
         this.thoughtSignature = null;
-        this.cacheControl = null;
         this.toolExecutionRequests = ensureNotEmpty(toolExecutionRequests, "toolExecutionRequests");
     }
 
@@ -61,7 +58,6 @@ public class AiMessage implements ChatMessage {
         this.text = text;
         this.reasoningContent = null;
         this.thoughtSignature = null;
-        this.cacheControl = null;
         this.toolExecutionRequests = copy(toolExecutionRequests);
     }
 
@@ -75,7 +71,6 @@ public class AiMessage implements ChatMessage {
         this.text = text;
         this.reasoningContent = reasoningContent;
         this.thoughtSignature = null;
-        this.cacheControl = null;
         this.toolExecutionRequests = List.of();
     }
 
@@ -90,7 +85,6 @@ public class AiMessage implements ChatMessage {
         this.text = text;
         this.reasoningContent = reasoningContent;
         this.thoughtSignature = null;
-        this.cacheControl = null;
         this.toolExecutionRequests = copy(toolExecutionRequests);
     }
 
@@ -105,7 +99,6 @@ public class AiMessage implements ChatMessage {
         this.text = text;
         this.reasoningContent = reasoningContent;
         this.thoughtSignature = thoughtSignature;
-        this.cacheControl = null;
         this.toolExecutionRequests = List.of();
     }
 
@@ -126,23 +119,6 @@ public class AiMessage implements ChatMessage {
         this.text = text;
         this.reasoningContent = reasoningContent;
         this.thoughtSignature = thoughtSignature;
-        this.cacheControl = null;
-        this.toolExecutionRequests = copy(toolExecutionRequests);
-    }
-
-    /**
-     * Private constructor for builder with all fields including cacheControl.
-     */
-    private AiMessage(
-            String text,
-            String reasoningContent,
-            String thoughtSignature,
-            String cacheControl,
-            List<ToolExecutionRequest> toolExecutionRequests) {
-        this.text = text;
-        this.reasoningContent = reasoningContent;
-        this.thoughtSignature = thoughtSignature;
-        this.cacheControl = cacheControl;
         this.toolExecutionRequests = copy(toolExecutionRequests);
     }
 
@@ -171,15 +147,6 @@ public class AiMessage implements ChatMessage {
      */
     public String thoughtSignature() {
         return thoughtSignature;
-    }
-
-    /**
-     * Get the cache control directive of the message.
-     *
-     * @return the cache control directive of the message, or null if not set.
-     */
-    public String cacheControl() {
-        return cacheControl;
     }
 
     /**
@@ -213,13 +180,12 @@ public class AiMessage implements ChatMessage {
         return Objects.equals(this.text, that.text)
                 && Objects.equals(this.reasoningContent, that.reasoningContent)
                 && Objects.equals(this.thoughtSignature, that.thoughtSignature)
-                && Objects.equals(this.cacheControl, that.cacheControl)
                 && Objects.equals(this.toolExecutionRequests, that.toolExecutionRequests);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(text, reasoningContent, thoughtSignature, cacheControl, toolExecutionRequests);
+        return Objects.hash(text, reasoningContent, thoughtSignature, toolExecutionRequests);
     }
 
     @Override
@@ -228,7 +194,6 @@ public class AiMessage implements ChatMessage {
                 + " thoughtSignature = " + quoted(thoughtSignature)
                 + " reasoningContent = " + quoted(reasoningContent)
                 + " text = " + quoted(text)
-                + " cacheControl = " + quoted(cacheControl)
                 + " toolExecutionRequests = " + toolExecutionRequests
                 + " }";
     }
@@ -242,7 +207,6 @@ public class AiMessage implements ChatMessage {
         private String text;
         private String reasoningContent;
         private String thoughtSignature;
-        private String cacheControl;
         private List<ToolExecutionRequest> toolExecutionRequests;
 
         public Builder text(String text) {
@@ -260,19 +224,16 @@ public class AiMessage implements ChatMessage {
             return this;
         }
 
-        public Builder cacheControl(String cacheControl) {
-            this.cacheControl = cacheControl;
-            return this;
-        }
-
         public Builder toolExecutionRequests(List<ToolExecutionRequest> toolExecutionRequests) {
             this.toolExecutionRequests = toolExecutionRequests;
             return this;
         }
 
         public AiMessage build() {
-            List<ToolExecutionRequest> reqs = toolExecutionRequests == null ? List.of() : toolExecutionRequests;
-            return new AiMessage(text, reasoningContent, thoughtSignature, cacheControl, reqs);
+            if (toolExecutionRequests == null) {
+                return new AiMessage(text, reasoningContent, thoughtSignature);
+            }
+            return new AiMessage(text, reasoningContent, thoughtSignature, toolExecutionRequests);
         }
     }
 
@@ -378,17 +339,6 @@ public class AiMessage implements ChatMessage {
                 .thoughtSignature(thoughtSignature)
                 .toolExecutionRequests(toolExecutionRequests)
                 .build();
-    }
-
-    /**
-     * Create a new {@link AiMessage} with the given text and cache control directive.
-     *
-     * @param text the text of the message.
-     * @param cacheControl the cache control directive (e.g., "ephemeral").
-     * @return the new {@link AiMessage}.
-     */
-    public static AiMessage withCacheControl(String text, String cacheControl) {
-        return builder().text(text).cacheControl(cacheControl).build();
     }
 
     /**
