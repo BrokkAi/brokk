@@ -456,6 +456,38 @@ func TestParseTreeSitterSymbolsTypeScriptSkipsObjectLiteralMethods(t *testing.T)
 	}
 }
 
+func TestParseTreeSitterSymbolsTypeScriptNamespaceMergeFieldsAndFunctions(t *testing.T) {
+	if !treeSitterEnabled() {
+		t.Skip("tree-sitter requires cgo support on this machine")
+	}
+
+	symbols, ok := parseTreeSitterSymbols("NamespaceMerging.ts", ""+
+		"class Color {\n"+
+		"  constructor(public rgb: number) {}\n"+
+		"  static blend(a: Color, b: Color): Color { return a; }\n"+
+		"}\n\n"+
+		"namespace Color {\n"+
+		"  export const white = new Color(0xFFFFFF);\n"+
+		"  export function fromHex(s: string): Color { return new Color(0); }\n"+
+		"}\n")
+	if !ok {
+		t.Fatal("parseTreeSitterSymbols() = false, want true")
+	}
+
+	functions := sortedFQNames(filterByKind(symbols, "function"))
+	if !slices.Contains(functions, "Color.fromHex") {
+		t.Fatalf("functions = %#v, want namespace function Color.fromHex", functions)
+	}
+	if !slices.Contains(functions, "Color.blend$static") {
+		t.Fatalf("functions = %#v, want static class method Color.blend$static", functions)
+	}
+
+	fields := sortedFQNames(filterByKind(symbols, "field"))
+	if !slices.Contains(fields, "Color.NamespaceMerging.ts.white") {
+		t.Fatalf("fields = %#v, want namespace field Color.NamespaceMerging.ts.white", fields)
+	}
+}
+
 func TestParseTreeSitterFileCapturesJavaImportsSupertypesAndTests(t *testing.T) {
 	if !treeSitterEnabled() {
 		t.Skip("tree-sitter requires cgo support on this machine")

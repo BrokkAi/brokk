@@ -543,6 +543,7 @@ func buildTreeSitterSymbols(relativePath string, language string, packageName st
 		if parentFQName != "" {
 			fqName = parentFQName + "." + definition.name
 		}
+		shortName, fqName = enhanceTypeScriptNamespaceFieldName(language, relativePath, parentSymbol, definition, shortName, fqName)
 		fqName = enhanceTypeScriptMemberFQName(language, parentSymbol, definition, fqName)
 		results = append(results, Symbol{
 			Kind:         "field",
@@ -890,6 +891,23 @@ func enhanceTypeScriptMemberFQName(language string, parentSymbol *Symbol, defini
 	default:
 		return fqName
 	}
+}
+
+func enhanceTypeScriptNamespaceFieldName(language string, relativePath string, parentSymbol *Symbol, definition treeSitterDefinition, shortName string, fqName string) (string, string) {
+	if language != "typescript" || parentSymbol == nil || definition.kind != "field" {
+		return shortName, fqName
+	}
+	if !treeSitterIsTypescriptNamespaceSignature(parentSymbol.Signature) {
+		return shortName, fqName
+	}
+
+	fileName := filepath.Base(filepath.ToSlash(relativePath))
+	if fileName == "" {
+		return shortName, fqName
+	}
+	shortName = fileName + "." + definition.name
+	fqName = parentSymbol.FQName + "." + shortName
+	return shortName, fqName
 }
 
 func shouldSkipTreeSitterFunction(language string, parentSymbol *Symbol, definition treeSitterDefinition) bool {
