@@ -666,10 +666,24 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
         }
         // Fallback: some callers might pass the location instead of the name in legacy tests
         // or if modelInfoMap is keyed by location and we haven't reached Service.java yet.
-        return modelInfoMap.values().stream()
+        var fallback = modelInfoMap.values().stream()
                 .filter(m -> modelName.equals(m.get("model_location")))
                 .findFirst()
-                .orElse(Map.of());
+                .orElse(null);
+
+        if (fallback != null) {
+            logger.debug("Model info found for '{}' via model_location fallback", modelName);
+            return fallback;
+        }
+
+        logger.warn(
+                "Model info lookup failed for '{}'. Available keys (canonical names): {}. Available locations: {}",
+                modelName,
+                modelInfoMap.keySet(),
+                modelInfoMap.values().stream()
+                        .map(m -> String.valueOf(m.get("model_location")))
+                        .collect(Collectors.toSet()));
+        return Map.of();
     }
 
     public boolean supportsParallelCalls(StreamingChatModel model) {
@@ -690,7 +704,7 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
     public boolean supportsTemperature(String modelName) {
         var info = getModelInfo(modelName);
         if (info.isEmpty()) {
-            logger.warn("Model info not found for name {}, assuming no temperature support.", modelName);
+            // getModelInfo already logged a warning about the missing info
             return false;
         }
 
@@ -699,6 +713,10 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
             return list.stream().map(Object::toString).anyMatch("temperature"::equals);
         }
 
+        logger.warn(
+                "Model info for '{}' missing 'supported_openai_params' or invalid type (found: {}). Defaulting supportsTemperature to false.",
+                modelName,
+                params == null ? "null" : params.getClass().getSimpleName());
         return false;
     }
 
