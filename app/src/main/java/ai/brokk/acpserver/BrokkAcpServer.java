@@ -101,8 +101,9 @@ public class BrokkAcpServer {
     private InitializeResponse handleInitialize(InitializeRequest req) {
         logger.debug("Received initialize request with protocol version {}", req.protocolVersion());
         if (req.protocolVersion() != 1) {
-            throw new AcpProtocolException(AcpProtocolException.INVALID_PARAMS,
-                                           "Unsupported protocol version: " + req.protocolVersion() + ". Only version 1 is supported.");
+            throw new AcpProtocolException(
+                    AcpProtocolException.INVALID_PARAMS,
+                    "Unsupported protocol version: " + req.protocolVersion() + ". Only version 1 is supported.");
         }
         return InitializeResponse.ok();
     }
@@ -116,8 +117,8 @@ public class BrokkAcpServer {
             var requestedDir = Path.of(req.workingDirectory()).toAbsolutePath().normalize();
             var projectRoot = cm.getProject().getRoot().toAbsolutePath().normalize();
             if (!requestedDir.equals(projectRoot)) {
-                logger.warn("Requested workingDirectory {} differs from server project root {}",
-                            requestedDir, projectRoot);
+                logger.warn(
+                        "Requested workingDirectory {} differs from server project root {}", requestedDir, projectRoot);
             }
         }
 

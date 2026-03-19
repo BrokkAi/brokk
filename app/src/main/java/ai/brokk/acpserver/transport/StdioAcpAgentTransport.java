@@ -28,11 +28,11 @@ public class StdioAcpAgentTransport implements AcpTransport {
     private static final Logger logger = LogManager.getLogger(StdioAcpAgentTransport.class);
 
     private final ObjectMapper mapper;
+    private final InputStream input;
     private final BufferedReader reader;
     private final PrintWriter writer;
     private final AtomicBoolean running = new AtomicBoolean(false);
     private final Object writeLock = new Object();
-    private volatile Thread readerThread;
 
     /**
      * Creates a transport using System.in and System.out.
@@ -49,6 +49,7 @@ public class StdioAcpAgentTransport implements AcpTransport {
      */
     public StdioAcpAgentTransport(InputStream input, OutputStream output) {
         this.mapper = createObjectMapper();
+        this.input = input;
         this.reader = new BufferedReader(new InputStreamReader(input, StandardCharsets.UTF_8));
         this.writer = new PrintWriter(output, false, StandardCharsets.UTF_8);
     }
@@ -65,7 +66,6 @@ public class StdioAcpAgentTransport implements AcpTransport {
             throw new IllegalStateException("Transport already started");
         }
 
-        readerThread = Thread.currentThread();
         logger.info("ACP Stdio transport starting");
 
         try {
@@ -82,7 +82,6 @@ public class StdioAcpAgentTransport implements AcpTransport {
                 logger.error("Error reading from stdin", e);
             }
         } finally {
-            readerThread = null;
             running.set(false);
             logger.info("ACP Stdio transport stopped");
         }
@@ -174,7 +173,8 @@ public class StdioAcpAgentTransport implements AcpTransport {
             logger.debug("Sent message: {}", json);
         } catch (JsonProcessingException e) {
             logger.error("Failed to serialize message", e);
-            String fallback = "{\"jsonrpc\":\"2.0\",\"id\":null,\"error\":{\"code\":-32603,\"message\":\"Internal serialization error\"}}";
+            String fallback =
+                    "{\"jsonrpc\":\"2.0\",\"id\":null,\"error\":{\"code\":-32603,\"message\":\"Internal serialization error\"}}";
             synchronized (writeLock) {
                 writer.println(fallback);
                 writer.flush();
@@ -185,9 +185,10 @@ public class StdioAcpAgentTransport implements AcpTransport {
     @Override
     public void close() {
         running.set(false);
-        Thread t = readerThread;
-        if (t != null) {
-            t.interrupt();
+        try {
+            input.close();
+        } catch (IOException e) {
+            logger.debug("Error closing input stream", e);
         }
         synchronized (writeLock) {
             writer.flush();
