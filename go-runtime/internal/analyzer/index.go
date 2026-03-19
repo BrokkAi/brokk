@@ -2137,7 +2137,7 @@ func renderGroupedBody(group DefinitionGroup) string {
 		type methodBucket struct {
 			owner string
 			path  string
-			parts []string
+			parts []Symbol
 		}
 		buckets := make([]methodBucket, 0, 1)
 		bucketIndex := map[string]int{}
@@ -2154,16 +2154,26 @@ func renderGroupedBody(group DefinitionGroup) string {
 				bucketIndex[key] = idx
 				buckets = append(buckets, methodBucket{owner: owner, path: path})
 			}
-			buckets[idx].parts = append(buckets[idx].parts, strings.TrimSpace(symbol.Snippet))
+			buckets[idx].parts = append(buckets[idx].parts, symbol)
 		}
 
 		blocks := make([]string, 0, len(buckets))
 		for _, bucket := range buckets {
+			sort.SliceStable(bucket.parts, func(i, j int) bool {
+				if bucket.parts[i].StartLine != bucket.parts[j].StartLine {
+					return bucket.parts[i].StartLine < bucket.parts[j].StartLine
+				}
+				return bucket.parts[i].EndLine < bucket.parts[j].EndLine
+			})
+			renderedParts := make([]string, 0, len(bucket.parts))
+			for _, part := range bucket.parts {
+				renderedParts = append(renderedParts, strings.TrimSpace(part.Snippet))
+			}
 			blocks = append(blocks, fmt.Sprintf(
 				"<methods class=\"%s\" file=\"%s\">\n%s\n</methods>",
 				bucket.owner,
 				bucket.path,
-				strings.Join(bucket.parts, "\n\n"),
+				strings.Join(renderedParts, "\n"),
 			))
 		}
 		return strings.Join(blocks, "\n\n")

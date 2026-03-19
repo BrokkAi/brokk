@@ -1285,6 +1285,49 @@ func TestRenderDefinitionGroupCombinesJavaMethodOverloads(t *testing.T) {
 	}
 }
 
+func TestRenderDefinitionGroupCombinesTypeScriptOverloadsInSourceOrder(t *testing.T) {
+	t.Parallel()
+
+	workspace := t.TempDir()
+	writeAnalyzerFile(t, workspace, "web/advanced.ts", ""+
+		"// Function Overloads\n"+
+		"export function processInput(input: string): string[];\n"+
+		"export function processInput(input: number): number[];\n"+
+		"export function processInput(input: boolean): boolean[];\n"+
+		"export function processInput(input: any): any[] {\n"+
+		"  if (typeof input === 'string') return [`s-${input}`];\n"+
+		"  if (typeof input === 'number') return [`n-${input}`];\n"+
+		"  if (typeof input === 'boolean') return [`b-${input}`];\n"+
+		"  return [input];\n"+
+		"}\n")
+
+	service := New(workspace)
+	group, ok := service.DefinitionGroup("web.processInput", "function")
+	if !ok {
+		t.Fatal("DefinitionGroup() = false, want true")
+	}
+	if len(group.Symbols) != 4 {
+		t.Fatalf("len(group.Symbols) = %d, want 4", len(group.Symbols))
+	}
+
+	rendered := service.RenderDefinitionGroup(group)
+	want := "<methods class=\"web\" file=\"web/advanced.ts\">\n" +
+		"// Function Overloads\n" +
+		"export function processInput(input: string): string[];\n" +
+		"export function processInput(input: number): number[];\n" +
+		"export function processInput(input: boolean): boolean[];\n" +
+		"export function processInput(input: any): any[] {\n" +
+		"  if (typeof input === 'string') return [`s-${input}`];\n" +
+		"  if (typeof input === 'number') return [`n-${input}`];\n" +
+		"  if (typeof input === 'boolean') return [`b-${input}`];\n" +
+		"  return [input];\n" +
+		"}\n" +
+		"</methods>"
+	if rendered != want {
+		t.Fatalf("rendered = %q, want %q", rendered, want)
+	}
+}
+
 func TestCompleteSymbolsPrefersClassThenShallowerPackage(t *testing.T) {
 	t.Parallel()
 
