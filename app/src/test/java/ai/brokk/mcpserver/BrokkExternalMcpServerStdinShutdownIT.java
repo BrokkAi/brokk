@@ -151,6 +151,10 @@ public final class BrokkExternalMcpServerStdinShutdownIT {
     }
 
     private static String formatOutput(List<String> outputLines) {
-        return outputLines.isEmpty() ? "(no output)" : String.join(System.lineSeparator(), outputLines);
+        List<String> snapshot;
+        synchronized (outputLines) {
+            snapshot = new ArrayList<>(outputLines);
+        }
+        return snapshot.isEmpty() ? "(no output)" : String.join(System.lineSeparator(), snapshot);
     }
 }
