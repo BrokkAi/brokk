@@ -139,9 +139,6 @@ public class BrokkAcpServer {
         cm.setIo(progressIo);
 
         try {
-            // Clear workspace before processing
-            cm.dropWithHistorySemantics(List.of());
-
             // Execute using CodeAgent (similar to MCP's callCodeAgent)
             var model = requireNonNull(
                     cm.getService().getModel(cm.getProject().getModelConfig(ModelProperties.ModelType.CODE)));
