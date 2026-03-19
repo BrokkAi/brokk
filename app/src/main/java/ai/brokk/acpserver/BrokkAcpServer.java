@@ -22,8 +22,6 @@ import ai.brokk.acpserver.transport.StdioAcpAgentTransport;
 import ai.brokk.agents.CodeAgent;
 import ai.brokk.project.MainProject;
 import ai.brokk.project.ModelProperties;
-import ai.brokk.tools.SearchTools;
-import ai.brokk.tools.ToolRegistry;
 import java.nio.file.Path;
 import java.util.EnumSet;
 import java.util.HashMap;
@@ -181,11 +179,4 @@ public class BrokkAcpServer {
         }
     }
 
-    /**
-     * Returns the tool registry for this server, similar to MCP server.
-     */
-    public ToolRegistry getToolRegistry() {
-        SearchTools searchTools = new SearchTools(cm);
-        return ToolRegistry.fromBase(ToolRegistry.empty()).register(searchTools).build();
-    }
 }
