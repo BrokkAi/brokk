@@ -42,6 +42,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import javax.swing.*;
@@ -437,8 +438,8 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
         private final DocumentListener documentListener;
         private final CaretListener caretListener;
 
-        @Nullable
-        private CompletableFuture<Optional<AbstractService.PreviewAutocompleteResult>> pendingRequest;
+        private final AtomicReference<CompletableFuture<Optional<AbstractService.PreviewAutocompleteResult>>>
+                pendingRequest = new AtomicReference<>();
 
         @Nullable
         private CachedSuggestion activeSuggestion;
@@ -552,9 +553,9 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
         private void scheduleRefresh() {
             requestGeneration.incrementAndGet();
             clearSuggestion();
-            if (pendingRequest != null) {
-                pendingRequest.cancel(true);
-                pendingRequest = null;
+            var previous = pendingRequest.getAndSet(null);
+            if (previous != null) {
+                previous.cancel(true);
             }
             debounceTimer.stop();
 
@@ -591,7 +592,12 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
                         return cm.getService().previewAutocomplete(request);
                     },
                     cm.getBackgroundTasks());
-            pendingRequest = future;
+
+            var previous = pendingRequest.getAndSet(future);
+            if (previous != null) {
+                previous.cancel(true);
+            }
+
             future.thenAccept(
                     result -> SwingUtilities.invokeLater(() -> applySuggestion(generation, future, request, result)));
         }
@@ -601,11 +607,11 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
                 CompletableFuture<Optional<AbstractService.PreviewAutocompleteResult>> future,
                 AbstractService.PreviewAutocompleteRequest request,
                 Optional<AbstractService.PreviewAutocompleteResult> result) {
-            if (future.isCancelled() || pendingRequest != future || generation != requestGeneration.get()) {
+            if (future.isCancelled() || pendingRequest.get() != future || generation != requestGeneration.get()) {
                 logger.debug("Ignoring stale or cancelled suggestion result");
                 return;
             }
-            pendingRequest = null;
+            pendingRequest.compareAndSet(future, null);
             if (result.isEmpty()) {
                 logger.debug("FIM suggestion result is empty");
                 return;
@@ -658,8 +664,9 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
 
         public void dispose() {
             debounceTimer.stop();
-            if (pendingRequest != null) {
-                pendingRequest.cancel(true);
+            var previous = pendingRequest.getAndSet(null);
+            if (previous != null) {
+                previous.cancel(true);
             }
             textArea.getDocument().removeDocumentListener(documentListener);
             textArea.removeCaretListener(caretListener);
