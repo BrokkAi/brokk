@@ -907,6 +907,22 @@ class AcpStdioBridge:
         await self.ensure_ready(cwd)
         return self._session_id or ""
 
+    async def get_models(self) -> dict[str, Any]:
+        """Returns available models from the executor."""
+        return await self.executor.get_models()
+
+    async def get_context(self) -> dict[str, Any]:
+        """Returns the current context fragments."""
+        return await self.executor.get_context()
+
+    async def add_context_files(self, relative_paths: list[str]) -> dict[str, Any]:
+        """Adds files to context by workspace-relative paths."""
+        return await self.executor.add_context_files(relative_paths)
+
+    async def drop_context_fragments(self, fragment_ids: list[str]) -> dict[str, Any]:
+        """Drops specific fragments from context by ID."""
+        return await self.executor.drop_context_fragments(fragment_ids)
+
     async def prompt(
         self,
         prompt: Any,
@@ -926,27 +942,131 @@ class AcpStdioBridge:
         if not prompt_text:
             raise ExecutorError("Prompt must contain at least one non-empty text block.")
 
+        command = get_slash_command(prompt_text)
+        if command:
+            await self._handle_command(
+                command,
+                session_id,
+                send_update=send_update,
+                update_agent_message_text=update_agent_message_text,
+            )
+            return
+
+        await self._handle_model_job(
+            prompt=prompt,
+            prompt_text=prompt_text,
+            session_id=session_id,
+            send_update=send_update,
+            update_agent_message_text=update_agent_message_text,
+            cwd=cwd,
+        )
+
+    async def _handle_command(
+        self,
+        command: str,
+        session_id: str,
+        send_update: Callable[[str, Any], Awaitable[Any]],
+        update_agent_message_text: Callable[[str], Any],
+    ) -> None:
+        if command == "/context":
+            ctx = await self.executor.get_context()
+            fragments = ctx.get("fragments", [])
+            used_tokens = int(ctx.get("usedTokens", 0) or 0)
+            max_tokens = ctx.get("maxTokens", 0)
+            fragment_list = fragments if isinstance(fragments, list) else []
+            base_tokens = int(max_tokens or 0)
+            if base_tokens <= 0:
+                base_tokens = sum(int(f.get("tokens", 0) or 0) for f in fragment_list)
+            if base_tokens <= 0:
+                base_tokens = 1
+
+            def _fragment_row(fragment: Any) -> tuple[str, int, float]:
+                if not isinstance(fragment, dict):
+                    return ("Unknown", 0, 0.0)
+                name = str(fragment.get("shortDescription") or fragment.get("id") or "Unknown")
+                tokens = int(fragment.get("tokens", 0) or 0)
+                pct = (tokens / base_tokens) * 100
+                return (name, tokens, pct)
+
+            rows = [_fragment_row(f) for f in fragment_list]
+            rows.sort(key=lambda row: row[2], reverse=True)
+            top_rows = rows[:4]
+            remainder = rows[4:]
+            if remainder:
+                other_tokens = sum(tokens for _name, tokens, _pct in remainder)
+                other_pct = sum(pct for _name, _tokens, pct in remainder)
+                top_rows.append(("(other)", other_tokens, other_pct))
+
+            lines = [
+                "| Fragment | Tokens | % Context |",
+                "|---|---:|---:|",
+            ]
+            lines.extend(f"| {name} | {tokens:,} | {pct:.2f}% |" for name, tokens, pct in top_rows)
+            if not top_rows:
+                lines.append("| (none) | 0 | 0.00% |")
+            token_bar_md = get_token_bar_markdown(
+                used_tokens=used_tokens,
+                max_tokens=int(max_tokens or 0),
+                fragments=fragment_list,
+            )
+            if token_bar_md:
+                lines.append("")
+                lines.append(f"**Total Tokens:** {used_tokens:,} / {int(max_tokens or 0):,}")
+                lines.append("")
+                lines.append(token_bar_md)
+
+            await send_update(session_id, update_agent_message_text("\n".join(lines)))
+
+    async def _handle_model_job(
+        self,
+        prompt: Any,
+        prompt_text: str,
+        session_id: str,
+        send_update: Callable[[str, Any], Awaitable[Any]],
+        update_agent_message_text: Callable[[str], Any],
+        cwd: str = "",
+    ) -> None:
+        # Add any @-mentioned files from ACP embedded/linked resource blocks to context.
+        attached_fragment_ids: list[str] = []
+        file_paths = extract_resource_file_paths(prompt, cwd)
+        if file_paths:
+            try:
+                resp = await self.executor.add_context_files(file_paths)
+                attached_fragment_ids.extend(_extract_fragment_ids(resp))
+            except Exception:
+                logger.exception("Failed attaching ACP resource file paths to context")
+
         messages = [{"type": "text", "text": prompt_text}]
 
-        async for update in self.executor.prompt(self._session_id or "", messages):
-            update_data = update.get("update", {})
-            update_type = update_data.get("type")
+        try:
+            async for update in self.executor.prompt(self._session_id or "", messages):
+                update_data = update.get("update", {})
+                update_type = update_data.get("type")
 
-            if update_type == "agent_message_chunk":
-                content = update_data.get("content", {})
-                if content.get("type") == "text":
-                    text = content.get("text", "")
-                    if text:
-                        await send_update(session_id, update_agent_message_text(text))
-            elif update_type == "agent_thought":
-                thought = update_data.get("thought", "")
-                if thought:
-                    try:
-                        from acp import update_agent_thought_text
+                if update_type == "agent_message_chunk":
+                    content = update_data.get("content", {})
+                    if content.get("type") == "text":
+                        text = content.get("text", "")
+                        if text:
+                            await send_update(session_id, update_agent_message_text(text))
+                elif update_type == "agent_thought":
+                    thought = update_data.get("thought", "")
+                    if thought:
+                        try:
+                            from acp import update_agent_thought_text
 
-                        await send_update(session_id, update_agent_thought_text(thought))
-                    except ImportError:
-                        pass
+                            await send_update(session_id, update_agent_thought_text(thought))
+                        except ImportError:
+                            pass
+        except Exception:
+            if attached_fragment_ids:
+                try:
+                    await self.executor.drop_context_fragments(attached_fragment_ids)
+                except Exception:
+                    logger.exception(
+                        "Failed to rollback context fragments after prompt failure"
+                    )
+            raise
 
     async def cancel(self, *args: Any, **kwargs: Any) -> None:
         pass
