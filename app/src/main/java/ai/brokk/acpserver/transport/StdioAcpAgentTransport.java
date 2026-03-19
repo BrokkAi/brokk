@@ -1,5 +1,6 @@
 package ai.brokk.acpserver.transport;
 
+import ai.brokk.acpserver.agent.AcpProtocolException;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -127,6 +128,9 @@ public class StdioAcpAgentTransport implements AcpTransport {
         try {
             Object result = handler.handle(request.method(), request.params(), request.id());
             sendResponse(request.id(), result);
+        } catch (AcpProtocolException e) {
+            logger.warn("Protocol error handling request {}: {}", request.method(), e.getMessage());
+            sendErrorResponse(request.id(), e.code(), e.getMessage());
         } catch (Exception e) {
             logger.error("Error handling request {}: {}", request.method(), e.getMessage(), e);
             String errorMsg = e.getMessage();
