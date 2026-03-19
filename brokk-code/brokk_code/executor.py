@@ -414,6 +414,31 @@ class AcpStdioExecutor:
         self.session_id = session_id
         return session_id
 
+    async def get_models(self) -> Dict[str, Any]:
+        """Returns available models from the ACP server."""
+        result = await self._send_request("models/list", {})
+        return result if isinstance(result, dict) else {}
+
+    async def get_context(self) -> Dict[str, Any]:
+        """Returns the current context fragments."""
+        result = await self._send_request("context/get", {})
+        return result if isinstance(result, dict) else {}
+
+    async def add_context_files(self, relative_paths: List[str]) -> Dict[str, Any]:
+        """Adds files to context by workspace-relative paths."""
+        result = await self._send_request("context/add-files", {"relativePaths": relative_paths})
+        return result if isinstance(result, dict) else {}
+
+    async def drop_context_fragments(self, fragment_ids: List[str]) -> Dict[str, Any]:
+        """Drops specific fragments from context by ID."""
+        result = await self._send_request("context/drop", {"fragmentIds": fragment_ids})
+        return result if isinstance(result, dict) else {}
+
+    async def list_sessions(self) -> Dict[str, Any]:
+        """Lists known sessions."""
+        result = await self._send_request("sessions/list", {})
+        return result if isinstance(result, dict) else {}
+
     async def prompt(
         self, session_id: str, messages: List[Dict[str, Any]]
     ) -> AsyncIterator[Dict[str, Any]]:

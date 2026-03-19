@@ -456,6 +456,128 @@ def test_known_session_ids_handles_bad_payload() -> None:
     assert _known_session_ids("bad") == set()
 
 
+import pytest
+
+
+class MockAcpStdioExecutor:
+    """Mock AcpStdioExecutor for testing JSON-RPC method calls."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, dict[str, Any]]] = []
+        self.next_result: dict[str, Any] = {}
+
+    async def _send_request(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
+        self.calls.append((method, params))
+        return self.next_result
+
+
+@pytest.mark.asyncio
+async def test_acp_stdio_executor_get_models() -> None:
+    from brokk_code.executor import AcpStdioExecutor
+
+    executor = AcpStdioExecutor()
+    executor._send_request = MockAcpStdioExecutor()._send_request.__get__(executor)  # type: ignore[method-assign]
+
+    mock = MockAcpStdioExecutor()
+    mock.next_result = {"models": {"gpt-4": "openai"}}
+
+    async def mock_send(method: str, params: dict[str, Any]) -> dict[str, Any]:
+        mock.calls.append((method, params))
+        return mock.next_result
+
+    executor._send_request = mock_send  # type: ignore[method-assign]
+
+    result = await executor.get_models()
+
+    assert len(mock.calls) == 1
+    assert mock.calls[0] == ("models/list", {})
+    assert result == {"models": {"gpt-4": "openai"}}
+
+
+@pytest.mark.asyncio
+async def test_acp_stdio_executor_get_context() -> None:
+    from brokk_code.executor import AcpStdioExecutor
+
+    executor = AcpStdioExecutor()
+    mock = MockAcpStdioExecutor()
+    mock.next_result = {"fragments": [{"id": "frag-1", "type": "PROJECT_PATH"}]}
+
+    async def mock_send(method: str, params: dict[str, Any]) -> dict[str, Any]:
+        mock.calls.append((method, params))
+        return mock.next_result
+
+    executor._send_request = mock_send  # type: ignore[method-assign]
+
+    result = await executor.get_context()
+
+    assert len(mock.calls) == 1
+    assert mock.calls[0] == ("context/get", {})
+    assert result == {"fragments": [{"id": "frag-1", "type": "PROJECT_PATH"}]}
+
+
+@pytest.mark.asyncio
+async def test_acp_stdio_executor_add_context_files() -> None:
+    from brokk_code.executor import AcpStdioExecutor
+
+    executor = AcpStdioExecutor()
+    mock = MockAcpStdioExecutor()
+    mock.next_result = {"addedFragmentIds": ["frag-1", "frag-2"]}
+
+    async def mock_send(method: str, params: dict[str, Any]) -> dict[str, Any]:
+        mock.calls.append((method, params))
+        return mock.next_result
+
+    executor._send_request = mock_send  # type: ignore[method-assign]
+
+    result = await executor.add_context_files(["src/main.py", "README.md"])
+
+    assert len(mock.calls) == 1
+    assert mock.calls[0] == ("context/add-files", {"relativePaths": ["src/main.py", "README.md"]})
+    assert result == {"addedFragmentIds": ["frag-1", "frag-2"]}
+
+
+@pytest.mark.asyncio
+async def test_acp_stdio_executor_drop_context_fragments() -> None:
+    from brokk_code.executor import AcpStdioExecutor
+
+    executor = AcpStdioExecutor()
+    mock = MockAcpStdioExecutor()
+    mock.next_result = {"droppedFragmentIds": ["frag-1"]}
+
+    async def mock_send(method: str, params: dict[str, Any]) -> dict[str, Any]:
+        mock.calls.append((method, params))
+        return mock.next_result
+
+    executor._send_request = mock_send  # type: ignore[method-assign]
+
+    result = await executor.drop_context_fragments(["frag-1", "frag-2"])
+
+    assert len(mock.calls) == 1
+    assert mock.calls[0] == ("context/drop", {"fragmentIds": ["frag-1", "frag-2"]})
+    assert result == {"droppedFragmentIds": ["frag-1"]}
+
+
+@pytest.mark.asyncio
+async def test_acp_stdio_executor_list_sessions() -> None:
+    from brokk_code.executor import AcpStdioExecutor
+
+    executor = AcpStdioExecutor()
+    mock = MockAcpStdioExecutor()
+    mock.next_result = {"sessions": [{"id": "uuid-1", "name": "Session 1"}]}
+
+    async def mock_send(method: str, params: dict[str, Any]) -> dict[str, Any]:
+        mock.calls.append((method, params))
+        return mock.next_result
+
+    executor._send_request = mock_send  # type: ignore[method-assign]
+
+    result = await executor.list_sessions()
+
+    assert len(mock.calls) == 1
+    assert mock.calls[0] == ("sessions/list", {})
+    assert result == {"sessions": [{"id": "uuid-1", "name": "Session 1"}]}
+
+
 async def test_ensure_ready_bootstraps_session_before_wait_ready() -> None:
     calls: list[str] = []
 
