@@ -12,10 +12,12 @@ public final class TreeSitterAnalyzerStateMigrator {
     public static final SemVer JAVA_REBUILD_THRESHOLD = SemVer.parse("2.1.0");
 
     /**
-     * Threshold for TypeScript which remains strict but did not receive the synthetic flag change
-     * requiring a 2.1.0 rebuild.
+     * Threshold for TypeScript and Rust to ensure isTypeAlias flag is populated
+     * in existing snapshots (transition from 2.1.0 -> 2.2.0).
      */
-    public static final SemVer TYPESCRIPT_REBUILD_THRESHOLD = SemVer.parse("2.0.0");
+    public static final SemVer TYPESCRIPT_REBUILD_THRESHOLD = SemVer.parse("2.2.0");
+
+    public static final SemVer RUST_REBUILD_THRESHOLD = SemVer.parse("2.2.0");
 
     private TreeSitterAnalyzerStateMigrator() {}
 
@@ -30,10 +32,12 @@ public final class TreeSitterAnalyzerStateMigrator {
             return fromVer == null || fromVer.compareTo(JAVA_REBUILD_THRESHOLD) < 0;
         }
 
-        // TypeScript remains strict and requires a rebuild for legacy (null) or pre-2.0.0 versions,
-        // but it does not need the 2.1.0 synthetic flag migration.
         if (language == Languages.TYPESCRIPT) {
             return fromVer == null || fromVer.compareTo(TYPESCRIPT_REBUILD_THRESHOLD) < 0;
+        }
+
+        if (language == Languages.RUST) {
+            return fromVer == null || fromVer.compareTo(RUST_REBUILD_THRESHOLD) < 0;
         }
 
         return false;

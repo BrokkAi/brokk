@@ -959,25 +959,6 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
     }
 
     @Override
-    @SuppressWarnings("RedundantNullCheck")
-    public boolean isTypeAlias(CodeUnit cu) {
-        // Check if this field-type CodeUnit represents a type alias
-        // We can identify this by checking if there are signatures that contain "type " and " = "
-        var sigList = signaturesOf(cu);
-
-        for (var sig : sigList) {
-            var hasType = sig.contains("type ") || sig.contains("export type ");
-            var hasEquals = sig.contains(" = ");
-
-            if (hasType && hasEquals) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    @Override
     protected Optional<String> extractSimpleName(TSNode decl, SourceContent sourceContent) {
         // Provide default names for special TypeScript constructs that don't have explicit names
         String nodeType = decl.getType();
