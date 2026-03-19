@@ -49,6 +49,7 @@ import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import javax.swing.border.TitledBorder;
 import javax.swing.event.CaretListener;
+import javax.swing.event.ChangeListener;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import javax.swing.event.PopupMenuEvent;
@@ -478,7 +479,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
         private final AtomicInteger requestGeneration = new AtomicInteger();
         private final DocumentListener documentListener;
         private final CaretListener caretListener;
-        private final javax.swing.event.ChangeListener viewportChangeListener;
+        private final ChangeListener viewportChangeListener;
         private final FocusListener focusListener;
         private final ComponentListener textAreaComponentListener;
         private final ComponentListener scrollPaneComponentListener;
@@ -497,7 +498,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
                     clearSuggestion();
                 }
             };
-            this.textAreaComponentListener = new Component@dapter() {
+            this.textAreaComponentListener = new ComponentAdapter() {
                 @Override
                 public void componentHidden(ComponentEvent e) {
                     clearSuggestion();
@@ -1552,7 +1553,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
                 textArea.beginAtomicEdit();
                 try {
                     textArea.getDocument().remove(startPos, strippedSelection.length());
-                    textArea.getDocument().insertString(startPos, snippet.strip@eading(), null);
+                    textArea.getDocument().insertString(startPos, snippet.stripLeading(), null);
                 } finally {
                     textArea.endAtomicEdit();
                 }
