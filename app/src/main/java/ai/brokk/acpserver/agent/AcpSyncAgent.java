@@ -21,8 +21,7 @@ import org.jetbrains.annotations.Nullable;
  */
 public class AcpSyncAgent {
 
-    private static final ObjectMapper MAPPER = new ObjectMapper();
-
+    private final ObjectMapper mapper = new ObjectMapper();
     private final AcpTransport transport;
     private final Function<InitializeRequest, InitializeResponse> initializeHandler;
     private final Function<NewSessionRequest, NewSessionResponse> newSessionHandler;
@@ -86,7 +85,7 @@ public class AcpSyncAgent {
 
     private <T> T parseAs(JsonNode params, Class<T> type) {
         try {
-            return MAPPER.treeToValue(params, type);
+            return mapper.treeToValue(params, type);
         } catch (Exception e) {
             throw new AcpProtocolException(
                     AcpProtocolException.INVALID_PARAMS, "Failed to parse parameters: " + e.getMessage());

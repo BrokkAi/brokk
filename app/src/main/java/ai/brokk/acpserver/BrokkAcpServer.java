@@ -8,6 +8,7 @@ import ai.brokk.IConsoleIO;
 import ai.brokk.MutedConsoleIO;
 import ai.brokk.TaskResult;
 import ai.brokk.acpserver.agent.AcpAgent;
+import ai.brokk.acpserver.agent.AcpProtocolException;
 import ai.brokk.acpserver.agent.AcpSyncAgent;
 import ai.brokk.acpserver.agent.SyncPromptContext;
 import ai.brokk.acpserver.spec.AcpSchema.InitializeRequest;
@@ -42,7 +43,6 @@ public class BrokkAcpServer {
     private static final Logger logger = LogManager.getLogger(BrokkAcpServer.class);
 
     private final ContextManager cm;
-    private final Map<String, UUID> sessionToBrokkSession = new HashMap<>();
 
     public BrokkAcpServer(ContextManager cm) {
         this.cm = cm;
@@ -100,6 +100,10 @@ public class BrokkAcpServer {
 
     private InitializeResponse handleInitialize(InitializeRequest req) {
         logger.debug("Received initialize request with protocol version {}", req.protocolVersion());
+        if (req.protocolVersion() != 1) {
+            throw new AcpProtocolException(AcpProtocolException.INVALID_PARAMS,
+                                           "Unsupported protocol version: " + req.protocolVersion() + ". Only version 1 is supported.");
+        }
         return InitializeResponse.ok();
     }
 
@@ -107,8 +111,15 @@ public class BrokkAcpServer {
         String sessionId = UUID.randomUUID().toString();
         logger.debug("Creating new ACP session {} for working directory {}", sessionId, req.workingDirectory());
 
-        // Map the ACP session to a Brokk session
-        sessionToBrokkSession.put(sessionId, cm.getCurrentSessionId());
+        // Validate working directory matches server's project root
+        if (req.workingDirectory() != null) {
+            var requestedDir = Path.of(req.workingDirectory()).toAbsolutePath().normalize();
+            var projectRoot = cm.getProject().getRoot().toAbsolutePath().normalize();
+            if (!requestedDir.equals(projectRoot)) {
+                logger.warn("Requested workingDirectory {} differs from server project root {}",
+                            requestedDir, projectRoot);
+            }
+        }
 
         // Clear workspace for fresh session
         cm.dropWithHistorySemantics(List.of());
@@ -178,7 +189,11 @@ public class BrokkAcpServer {
             if (progressIo instanceof AcpProgressConsole acpConsole) {
                 acpConsole.shutdown();
             }
-            cm.setIo(originalIo);
+            try {
+                cm.setIo(originalIo);
+            } catch (Exception e) {
+                logger.error("Failed to restore original IO", e);
+            }
         }
     }
 }

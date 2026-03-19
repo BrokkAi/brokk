@@ -174,6 +174,11 @@ public class StdioAcpAgentTransport implements AcpTransport {
             logger.debug("Sent message: {}", json);
         } catch (JsonProcessingException e) {
             logger.error("Failed to serialize message", e);
+            String fallback = "{\"jsonrpc\":\"2.0\",\"id\":null,\"error\":{\"code\":-32603,\"message\":\"Internal serialization error\"}}";
+            synchronized (writeLock) {
+                writer.println(fallback);
+                writer.flush();
+            }
         }
     }
 
