@@ -990,9 +990,9 @@ func enhanceTypeScriptMemberFQName(language string, parentSymbol *Symbol, defini
 		signature = strings.TrimSpace(definition.snippet)
 	}
 	switch {
-	case strings.HasPrefix(signature, "get "):
+	case strings.HasPrefix(signature, "get "), strings.HasPrefix(signature, "abstract get "):
 		return fqName + "$get"
-	case strings.HasPrefix(signature, "set "):
+	case strings.HasPrefix(signature, "set "), strings.HasPrefix(signature, "abstract set "):
 		return fqName + "$set"
 	case treeSitterHasTypeScriptStaticModifier(signature):
 		return fqName + "$static"

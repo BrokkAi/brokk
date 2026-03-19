@@ -596,6 +596,96 @@ func TestParseTreeSitterSymbolsTypeScriptUsesNamespacePackageForClassMethods(t *
 	}
 }
 
+func TestParseTreeSitterSymbolsTypeScriptAbstractGetterAndConcreteField(t *testing.T) {
+	if !treeSitterEnabled() {
+		t.Skip("tree-sitter requires cgo support on this machine")
+	}
+
+	symbols, ok := parseTreeSitterSymbols("test.ts", ""+
+		"abstract class BreadcrumbsConfig {\n"+
+		"  abstract get name(): string;\n"+
+		"}\n\n"+
+		"const concrete = new class implements BreadcrumbsConfig {\n"+
+		"  readonly name = 'value';\n"+
+		"};\n")
+	if !ok {
+		t.Fatal("parseTreeSitterSymbols() = false, want true")
+	}
+
+	nameSymbols := make([]Symbol, 0, 4)
+	for _, symbol := range symbols {
+		if strings.Contains(symbol.FQName, "name") {
+			nameSymbols = append(nameSymbols, symbol)
+		}
+	}
+	if len(nameSymbols) != 2 {
+		t.Fatalf("nameSymbols = %#v, want abstract getter plus concrete field", nameSymbols)
+	}
+
+	getters := filterFQNames(filterByKind(nameSymbols, "function"), "BreadcrumbsConfig.name$get")
+	if len(getters) != 1 {
+		t.Fatalf("getters = %#v, want BreadcrumbsConfig.name$get", getters)
+	}
+
+	fields := filterByKind(nameSymbols, "field")
+	if len(fields) != 1 {
+		t.Fatalf("fields = %#v, want one concrete field", fields)
+	}
+
+	fqNames := sortedFQNames(nameSymbols)
+	seen := map[string]struct{}{}
+	for _, fqName := range fqNames {
+		if _, ok := seen[fqName]; ok {
+			t.Fatalf("fqNames = %#v, want no duplicate fqNames", fqNames)
+		}
+		seen[fqName] = struct{}{}
+	}
+}
+
+func TestParseTreeSitterSymbolsTypeScriptVSCodeBreadcrumbsPatternHasNoDuplicateNameFQNames(t *testing.T) {
+	if !treeSitterEnabled() {
+		t.Skip("tree-sitter requires cgo support on this machine")
+	}
+
+	symbols, ok := parseTreeSitterSymbols("breadcrumbs.ts", ""+
+		"export abstract class BreadcrumbsConfig<T> {\n"+
+		"  abstract get name(): string;\n"+
+		"  abstract get onDidChange(): Event<void>;\n\n"+
+		"  abstract getValue(): T;\n\n"+
+		"  private static _stub<T>(configName: string) {\n"+
+		"    return {\n"+
+		"      bindTo(service: IConfigurationService) {\n"+
+		"        return new class implements BreadcrumbsConfig<T> {\n"+
+		"          readonly name = configName;\n"+
+		"          readonly onDidChange = service.onDidChange;\n\n"+
+		"          getValue(): T {\n"+
+		"            return service.getValue(configName);\n"+
+		"          }\n"+
+		"        };\n"+
+		"      }\n"+
+		"    };\n"+
+		"  }\n"+
+		"}\n")
+	if !ok {
+		t.Fatal("parseTreeSitterSymbols() = false, want true")
+	}
+
+	counts := map[string]int{}
+	for _, symbol := range symbols {
+		counts[symbol.FQName]++
+	}
+	duplicates := make([]string, 0, 4)
+	for fqName, count := range counts {
+		if count > 1 {
+			duplicates = append(duplicates, fqName)
+		}
+	}
+	slices.Sort(duplicates)
+	if len(duplicates) > 0 {
+		t.Fatalf("duplicates = %#v, want none", duplicates)
+	}
+}
+
 func TestParseTreeSitterFileCapturesJavaImportsSupertypesAndTests(t *testing.T) {
 	if !treeSitterEnabled() {
 		t.Skip("tree-sitter requires cgo support on this machine")
