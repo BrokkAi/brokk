@@ -147,11 +147,19 @@ public class Service extends AbstractService {
             }
 
             log.debug("Preview autocomplete response received from model {}: {}", modelName, responseBody);
-            var completion = extractFimCompletionText(objectMapper.readTree(responseBody));
-            if (completion == null || completion.isBlank()) {
+            try {
+                var completion = extractFimCompletionText(objectMapper.readTree(responseBody));
+                if (completion == null || completion.isBlank()) {
+                    return Optional.empty();
+                }
+                return Optional.of(new PreviewAutocompleteResult(completion, modelName));
+            } catch (IOException e) {
+                log.warn(
+                        "Failed to parse or process preview autocomplete response for model {}: {}",
+                        modelName,
+                        e.getMessage());
                 return Optional.empty();
             }
-            return Optional.of(new PreviewAutocompleteResult(completion, modelName));
         }
     }
 
@@ -220,7 +228,13 @@ public class Service extends AbstractService {
             }
             String responseBody = response.body() != null ? response.body().string() : "";
             var objectMapper = new ObjectMapper();
-            JsonNode rootNode = objectMapper.readTree(responseBody);
+            JsonNode rootNode;
+            try {
+                rootNode = objectMapper.readTree(responseBody);
+            } catch (JsonProcessingException e) {
+                log.warn("Failed to parse balance response: {}", e.getMessage());
+                throw new IOException("Invalid JSON in balance response", e);
+            }
 
             float balance;
             if (rootNode.has("available_balance")
