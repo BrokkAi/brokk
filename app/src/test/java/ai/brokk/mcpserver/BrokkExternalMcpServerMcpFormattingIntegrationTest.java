@@ -66,6 +66,44 @@ class BrokkExternalMcpServerMcpFormattingIntegrationTest {
         }
     }
 
+    @Test
+    void mcpSearchFileContents_findsBroadRepoTermsInMarkdown() throws Exception {
+        try (var cm = contextManagerWithLexicalFallbackProject()) {
+            String symbolOutput = invokeTool(
+                    cm,
+                    "searchSymbols",
+                    Map.of(
+                            "patterns",
+                            List.of(".*MCP.*", ".*ToolRegistry.*", ".*skill.*"),
+                            "includeTests",
+                            true,
+                            "limit",
+                            20));
+            assertTrue(symbolOutput.contains("No definitions found"), symbolOutput);
+
+            String output = invokeTool(
+                    cm,
+                    "searchFileContents",
+                    Map.of(
+                            "patterns",
+                            List.of("MCP", "ToolRegistry", "skill"),
+                            "filepath",
+                            "**/*.md",
+                            "caseInsensitive",
+                            true,
+                            "multiline",
+                            false,
+                            "contextLines",
+                            0,
+                            "maxFiles",
+                            10));
+            assertTrue(output.contains("README.md"), output);
+            assertTrue(output.contains("MCP"), output);
+            assertTrue(output.contains("ToolRegistry"), output);
+            assertTrue(output.contains("skill"), output);
+        }
+    }
+
     private static ContextManager contextManagerWithSampleJava() throws Exception {
         Path tempDir = Files.createTempDirectory("mcp-formatting");
         Path source = tempDir.resolve("src/main/java/com/example/Foo.java");
@@ -86,6 +124,22 @@ class BrokkExternalMcpServerMcpFormattingIntegrationTest {
                         return new Foo().inc(1);
                     }
                 }
+                """);
+        var project = new ai.brokk.project.MainProject(tempDir);
+        var cm = new ContextManager(project);
+        cm.createHeadless(true, new MutedConsoleIO(cm.getIo()));
+        return cm;
+    }
+
+    private static ContextManager contextManagerWithLexicalFallbackProject() throws Exception {
+        Path tempDir = Files.createTempDirectory("mcp-lexical");
+        Path readme = tempDir.resolve("README.md");
+        Files.writeString(
+                readme,
+                """
+                MCP wiring notes
+                ToolRegistry is responsible for exposing tools.
+                This skill guide explains the fallback path.
                 """);
         var project = new ai.brokk.project.MainProject(tempDir);
         var cm = new ContextManager(project);
