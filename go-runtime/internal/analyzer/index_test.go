@@ -1288,8 +1288,65 @@ func TestSkeletonHeaderReturnsClassAndFields(t *testing.T) {
 	if !strings.Contains(header, "public static class NestedWorker { ... }") {
 		t.Fatalf("header = %q, want nested class summary", header)
 	}
-	if strings.Contains(header, "findUserById") {
-		t.Fatalf("header = %q, want no method body or method signature", header)
+	if !strings.Contains(header, "public String findUserById(String id)") {
+		t.Fatalf("header = %q, want method signature", header)
+	}
+}
+
+func TestSkeletonHeaderIncludesTypeScriptMethods(t *testing.T) {
+	t.Parallel()
+
+	workspace := t.TempDir()
+	writeAnalyzerFile(t, workspace, "service.ts", ""+
+		"export class FieldAndFunction {\n"+
+		"  private _data: number = 0;\n"+
+		"  get data(): number { return this._data; }\n"+
+		"  set data(value: number) { this._data = value; }\n"+
+		"  reset(): void { this._data = 0; }\n"+
+		"}\n")
+
+	service := New(workspace)
+	header, ok := service.SkeletonHeader("FieldAndFunction")
+	if !ok {
+		t.Fatal("SkeletonHeader() = false, want true")
+	}
+	if !strings.Contains(header, "get data(): number") {
+		t.Fatalf("header = %q, want getter signature", header)
+	}
+	if !strings.Contains(header, "set data(value: number)") {
+		t.Fatalf("header = %q, want setter signature", header)
+	}
+	if !strings.Contains(header, "reset(): void") {
+		t.Fatalf("header = %q, want reset method signature", header)
+	}
+}
+
+func TestSkeletonHeaderMergesTypeScriptInterfaceMembers(t *testing.T) {
+	t.Parallel()
+
+	workspace := t.TempDir()
+	writeAnalyzerFile(t, workspace, "user.ts", ""+
+		"interface User {\n"+
+		"  id: number;\n"+
+		"}\n\n"+
+		"interface User {\n"+
+		"  name: string;\n"+
+		"  updateProfile(name: string): void;\n"+
+		"}\n")
+
+	service := New(workspace)
+	header, ok := service.SkeletonHeader("User")
+	if !ok {
+		t.Fatal("SkeletonHeader() = false, want true")
+	}
+	if !strings.Contains(header, "id: number") {
+		t.Fatalf("header = %q, want first interface field", header)
+	}
+	if !strings.Contains(header, "name: string") {
+		t.Fatalf("header = %q, want merged interface field", header)
+	}
+	if !strings.Contains(header, "updateProfile(name: string): void") {
+		t.Fatalf("header = %q, want merged interface method", header)
 	}
 }
 

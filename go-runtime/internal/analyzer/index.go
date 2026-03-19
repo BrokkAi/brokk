@@ -2222,6 +2222,19 @@ func formatBraceLanguageSkeleton(classSymbol Symbol, members []Symbol) string {
 		switch member.Kind {
 		case "field":
 			lines = append(lines, "    "+strings.TrimSpace(strings.TrimSuffix(member.Signature, "{")))
+		case "function":
+			signature := strings.TrimSpace(member.Signature)
+			if signature == "" {
+				signature = strings.TrimSpace(firstLine(member.Snippet))
+			}
+			if signature == "" {
+				continue
+			}
+			if member.HasBody {
+				signature = strings.TrimSpace(strings.TrimSuffix(signature, "{"))
+				signature += " { ... }"
+			}
+			lines = append(lines, "    "+signature)
 		case "class":
 			nested := strings.TrimSpace(strings.TrimSuffix(member.Signature, "{"))
 			if nested != "" {
