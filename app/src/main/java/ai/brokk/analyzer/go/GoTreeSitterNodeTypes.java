@@ -32,6 +32,8 @@ public final class GoTreeSitterNodeTypes {
 
     public static final String FIELD_DECLARATION = "field_declaration";
     public static final String FIELD_IDENTIFIER = "field_identifier";
+    public static final String VAR_DECLARATION = "var_declaration";
+    public static final String CONST_DECLARATION = "const_declaration";
     public static final String VAR_SPEC = "var_spec";
     public static final String CONST_SPEC = "const_spec";
 

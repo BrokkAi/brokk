@@ -15,6 +15,7 @@ import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Matcher;
@@ -427,7 +428,7 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
             identifier = simpleName.substring(simpleName.lastIndexOf('.') + 1);
         }
 
-        if ("var_declaration".equals(fieldNodeType) || "const_declaration".equals(fieldNodeType)) {
+        if (VAR_DECLARATION.equals(fieldNodeType) || CONST_DECLARATION.equals(fieldNodeType)) {
             // Find the correct spec node containing this identifier
             for (int i = 0; i < fieldNode.getChildCount(); i++) {
                 TSNode child = fieldNode.getChild(i);
@@ -449,7 +450,7 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
                             break;
                         }
                     }
-                    if (specNode != fieldNode) {
+                    if (!Objects.equals(specNode, fieldNode)) {
                         break;
                     }
                 }
