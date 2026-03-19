@@ -8,6 +8,7 @@ import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.CodeUnitType;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.gui.Chrome;
@@ -504,7 +505,8 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
             KeyStroke tab = KeyStroke.getKeyStroke(KeyEvent.VK_TAB, 0);
             var inputMap = textArea.getInputMap(JComponent.WHEN_FOCUSED);
             var previousKey = inputMap.get(tab);
-            Action previousTabAction = previousKey == null ? null : textArea.getActionMap().get(previousKey);
+            Action previousTabAction =
+                    previousKey == null ? null : textArea.getActionMap().get(previousKey);
 
             inputMap.put(tab, "previewAutocompleteAcceptOrTab");
             textArea.getActionMap().put("previewAutocompleteAcceptOrTab", new AbstractAction() {
@@ -571,7 +573,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
             }
 
             int generation = requestGeneration.get();
-            var future = ai.brokk.concurrent.LoggingFuture.supplyCallableAsync(
+            var future = LoggingFuture.supplyCallableAsync(
                     () -> {
                         logger.debug(
                                 "Requesting FIM suggestion for prefix length: {}, suffix length: {}, caret: {}",
@@ -682,7 +684,6 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
         private String popupText() {
             return completion.replace("\r\n", "\n").replace('\r', '\n').replace("\t", "    ");
         }
-
     }
 
     /** Custom RSyntaxTextArea implementation for preview panels with custom popup menu */

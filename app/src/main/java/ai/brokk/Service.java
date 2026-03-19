@@ -142,8 +142,7 @@ public class Service extends AbstractService {
                         modelName,
                         response.code(),
                         responseBody);
-                String warningText = "/* preview autocomplete failed (HTTP "
-                        + response.code() + ") */";
+                String warningText = "/* preview autocomplete failed (HTTP " + response.code() + ") */";
                 return Optional.of(new PreviewAutocompleteResult(warningText, modelName));
             }
 
