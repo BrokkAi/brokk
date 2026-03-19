@@ -256,41 +256,68 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
                     fieldNode, sourceContent, exportPrefix, signatureText, simpleName, baseIndent, file);
         }
 
-        // For PHP properties and constants, the initializer is inside property_element or const_element
-        // but the captured node might be the parent declaration.
-        TSNode elementNode = fieldNode;
-        if (PROPERTY_DECLARATION.equals(fieldNode.getType())) {
+        boolean isConstant = CONST_DECLARATION.equals(fieldNode.getType());
+        boolean isProperty = PROPERTY_DECLARATION.equals(fieldNode.getType());
+
+        if (!isConstant && !isProperty) {
+            return super.formatFieldSignature(
+                    fieldNode, sourceContent, exportPrefix, signatureText, simpleName, baseIndent, file);
+        }
+
+        TSNode elementNode = null;
+        if (isProperty) {
             for (int i = 0; i < fieldNode.getNamedChildCount(); i++) {
                 TSNode child = fieldNode.getNamedChild(i);
                 if (PROPERTY_ELEMENT.equals(child.getType())) {
-                    elementNode = child;
-                    break;
+                    TSNode nameNode = findNameNodeRecursive(child);
+                    if (nameNode != null) {
+                        String nameText = sourceContent.substringFrom(nameNode).strip();
+                        if (nameText.equals(simpleName) || nameText.equals("$" + simpleName)) {
+                            elementNode = child;
+                            simpleName = nameText; // keep the $ prefix
+                            break;
+                        }
+                    }
                 }
             }
-        } else if (CONST_DECLARATION.equals(fieldNode.getType())) {
+        } else {
             for (int i = 0; i < fieldNode.getNamedChildCount(); i++) {
                 TSNode child = fieldNode.getNamedChild(i);
                 if (CONST_ELEMENT.equals(child.getType())) {
-                    elementNode = child;
-                    break;
+                    TSNode nameNode = findNameNodeRecursive(child);
+                    if (nameNode != null) {
+                        String nameText = sourceContent.substringFrom(nameNode).strip();
+                        if (nameText.equals(simpleName)) {
+                            elementNode = child;
+                            break;
+                        }
+                    }
                 }
             }
         }
 
         if (elementNode == null || elementNode.isNull()) {
-            return baseIndent + signatureText;
+            return super.formatFieldSignature(
+                    fieldNode, sourceContent, exportPrefix, signatureText, simpleName, baseIndent, file);
+        }
+
+        // Look for type information
+        String typeText = "";
+        TSNode typeNode = fieldNode.getChildByFieldName("type");
+        if (typeNode != null && !typeNode.isNull()) {
+            typeText = sourceContent.substringFrom(typeNode).strip() + " ";
         }
 
         // Look for initializers
         TSNode valueNode = null;
-        if (PROPERTY_ELEMENT.equals(elementNode.getType())) {
+        if (isProperty) {
             valueNode = elementNode.getChildByFieldName("default_value");
             if (valueNode == null || valueNode.isNull()) {
                 if (elementNode.getNamedChildCount() > 1) {
                     valueNode = elementNode.getNamedChild(elementNode.getNamedChildCount() - 1);
                 }
             }
-        } else if (CONST_ELEMENT.equals(elementNode.getType())) {
+        } else {
             valueNode = elementNode.getChildByFieldName("value");
             if (valueNode == null || valueNode.isNull()) {
                 if (elementNode.getNamedChildCount() > 1) {
@@ -306,26 +333,44 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
             valueNode = valueNode.getNamedChild(0);
         }
 
-        if (valueNode == null || valueNode.isNull() || isLiteralType(valueNode.getType())) {
-            return super.formatFieldSignature(
-                    fieldNode, sourceContent, exportPrefix, signatureText, simpleName, baseIndent, file);
+        String initializerText = "";
+        if (valueNode != null && !valueNode.isNull() && isLiteralType(valueNode.getType())) {
+            initializerText = " = " + sourceContent.substringFrom(valueNode).strip();
         }
 
-        // Truncate non-literals. Reconstruct the signature without the initializer.
-        int eqIndex = signatureText.indexOf('=');
-        if (eqIndex > 0) {
-            return super.formatFieldSignature(
-                    fieldNode,
-                    sourceContent,
-                    exportPrefix,
-                    signatureText.substring(0, eqIndex).strip(),
-                    simpleName,
-                    baseIndent,
-                    file);
+        String modifiers = extractModifiers(fieldNode, sourceContent);
+
+        String constPrefix = isConstant ? "const " : "";
+        String trimmedExport = exportPrefix.stripTrailing();
+
+        String fullModifiers = trimmedExport;
+        if (!fullModifiers.isEmpty() && !modifiers.isEmpty()) {
+            fullModifiers += " ";
+        }
+        fullModifiers += modifiers.stripTrailing();
+
+        if (isConstant && (fullModifiers.endsWith(" const") || fullModifiers.equals("const"))) {
+            constPrefix = "";
         }
 
-        return super.formatFieldSignature(
-                fieldNode, sourceContent, exportPrefix, signatureText, simpleName, baseIndent, file);
+        String fullSignature = fullModifiers;
+        if (!fullSignature.isEmpty()) {
+            fullSignature += " ";
+        }
+        String propertyPrefix = isProperty ? "$" : "";
+        fullSignature += constPrefix + typeText + propertyPrefix + simpleName + initializerText + ";";
+
+        return baseIndent + fullSignature.stripLeading();
+    }
+
+    private @Nullable TSNode findNameNodeRecursive(TSNode node) {
+        if (node.isNull()) return null;
+        if (NAME.equals(node.getType())) return node;
+        for (int i = 0; i < node.getNamedChildCount(); i++) {
+            TSNode found = findNameNodeRecursive(node.getNamedChild(i));
+            if (found != null) return found;
+        }
+        return null;
     }
 
     private boolean isLiteralType(String type) {

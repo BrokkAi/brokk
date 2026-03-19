@@ -274,6 +274,7 @@ public class PhpAnalyzerTest {
                     public const COMPLEX = SOME_FUNC();
                     public $x = 1;
                     public $y = new Object();
+                    public $multiA = 1, $multiB = foo();
                 }
                 """;
         try (var project = ai.brokk.testutil.InlineTestProjectCreator.code(content, "fields.php")
@@ -306,6 +307,22 @@ public class PhpAnalyzerTest {
             CodeUnit yCu =
                     inlineAnalyzer.getDefinitions("ComplexFields.y").iterator().next();
             assertCodeEquals("public $y;", inlineAnalyzer.getSkeleton(yCu).orElse(""));
+
+            // multiA should be preserved
+            CodeUnit multiACu = inlineAnalyzer
+                    .getDefinitions("ComplexFields.multiA")
+                    .iterator()
+                    .next();
+            assertCodeEquals(
+                    "public $multiA = 1;", inlineAnalyzer.getSkeleton(multiACu).orElse(""));
+
+            // multiB should be truncated
+            CodeUnit multiBCu = inlineAnalyzer
+                    .getDefinitions("ComplexFields.multiB")
+                    .iterator()
+                    .next();
+            assertCodeEquals(
+                    "public $multiB;", inlineAnalyzer.getSkeleton(multiBCu).orElse(""));
         }
     }
 
