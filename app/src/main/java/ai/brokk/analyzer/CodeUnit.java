@@ -2,7 +2,6 @@ package ai.brokk.analyzer;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import java.util.List;
 import java.util.Objects;
 import org.jetbrains.annotations.Nullable;
 
@@ -28,9 +27,6 @@ public class CodeUnit implements Comparable<CodeUnit> {
     @JsonProperty("synthetic")
     private final boolean synthetic;
 
-    @JsonProperty("children")
-    private final List<CodeUnit> children;
-
     private final transient String fqName;
 
     @JsonCreator
@@ -40,8 +36,7 @@ public class CodeUnit implements Comparable<CodeUnit> {
             @JsonProperty("packageName") String packageName,
             @JsonProperty("shortName") String shortName,
             @JsonProperty("signature") @Nullable String signature,
-            @JsonProperty("synthetic") boolean synthetic,
-            @JsonProperty("children") @Nullable List<CodeUnit> children) {
+            @JsonProperty("synthetic") boolean synthetic) {
         if (shortName.isEmpty()) {
             throw new IllegalArgumentException("shortName must not be empty");
         }
@@ -51,7 +46,6 @@ public class CodeUnit implements Comparable<CodeUnit> {
         this.shortName = shortName;
         this.signature = signature;
         this.synthetic = synthetic;
-        this.children = children != null ? List.copyOf(children) : List.of();
         this.fqName = packageName.isEmpty() ? shortName : packageName + "." + shortName;
     }
 
@@ -64,30 +58,16 @@ public class CodeUnit implements Comparable<CodeUnit> {
         this(source, kind, packageName, shortName, signature, false);
     }
 
-    public CodeUnit(
-            ProjectFile source,
-            CodeUnitType kind,
-            String packageName,
-            String shortName,
-            @Nullable String signature,
-            boolean synthetic) {
-        this(source, kind, packageName, shortName, signature, synthetic, List.of());
-    }
-
     public CodeUnit(ProjectFile source, CodeUnitType kind, String packageName, String shortName) {
-        this(source, kind, packageName, shortName, null, false, List.of());
+        this(source, kind, packageName, shortName, null, false);
     }
 
     public CodeUnit withoutSignature() {
-        return new CodeUnit(source(), kind(), packageName(), shortName(), null, isSynthetic(), children());
+        return new CodeUnit(source(), kind(), packageName(), shortName(), null, isSynthetic());
     }
 
     public CodeUnit withSynthetic(boolean synthetic) {
-        return new CodeUnit(source(), kind(), packageName(), shortName(), signature(), synthetic, children());
-    }
-
-    public CodeUnit withChildren(List<CodeUnit> children) {
-        return new CodeUnit(source(), kind(), packageName(), shortName(), signature(), isSynthetic(), children);
+        return new CodeUnit(source(), kind(), packageName(), shortName(), signature(), synthetic);
     }
 
     /**
@@ -230,15 +210,6 @@ public class CodeUnit implements Comparable<CodeUnit> {
      */
     public boolean isSynthetic() {
         return synthetic;
-    }
-
-    /**
-     * Returns the child code units (e.g. fields of a class, variants of an enum).
-     *
-     * @return the list of children.
-     */
-    public List<CodeUnit> children() {
-        return children;
     }
 
     /**
