@@ -3,14 +3,14 @@
   "relativePath": "web/factory.ts",
   "content": "export interface UserFactory {\n  new (id: string): UserFactory;\n  (id: string): UserFactory;\n  [index: string]: UserFactory;\n}\n",
   "classes": [
-    "web.factory.UserFactory"
+    "web.UserFactory"
   ],
   "methods": [
-    "web.factory.UserFactory.[call]",
-    "web.factory.UserFactory.new"
+    "web.UserFactory.[call]",
+    "web.UserFactory.new"
   ],
   "fields": [
-    "web.factory.UserFactory.[index]"
+    "web.UserFactory.[index]"
   ],
   "imports": [],
   "containsTests": false,

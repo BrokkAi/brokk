@@ -250,21 +250,21 @@ func treeSitterSpecForPath(relativePath string) (treeSitterSpec, bool) {
 			language:     treeSitterJavaScriptLanguage,
 			query:        treeSitterJavaScriptQuery,
 			languageName: "javascript",
-			packageName:  moduleNameFromPath,
+			packageName:  jsLikePackageNameFromPath,
 		}, true
 	case ".ts":
 		return treeSitterSpec{
 			language:     treeSitterTypeScriptLanguage,
 			query:        treeSitterTypeScriptQuery,
 			languageName: "typescript",
-			packageName:  moduleNameFromPath,
+			packageName:  jsLikePackageNameFromPath,
 		}, true
 	case ".tsx":
 		return treeSitterSpec{
 			language:     treeSitterTSXLanguage,
 			query:        treeSitterTypeScriptQuery,
 			languageName: "typescript",
-			packageName:  moduleNameFromPath,
+			packageName:  jsLikePackageNameFromPath,
 		}, true
 	default:
 		return treeSitterSpec{}, false

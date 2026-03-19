@@ -4,7 +4,7 @@
   "content": "export function myFunction(x: number): number {\n  return x * 2;\n}\n\nexport namespace myFunction {\n  export const version = 1;\n  export function helper() {\n    return \"helper\";\n  }\n}\n",
   "classes": [],
   "methods": [
-    "test.myFunction"
+    "myFunction"
   ],
   "fields": [],
   "imports": [],
@@ -13,14 +13,14 @@
     "myFunction"
   ],
   "resolveMethods": [
-    "test.myFunction"
+    "myFunction"
   ],
   "completeQuery": "myFunction",
   "completeLimit": 1,
   "completeOrdered": [
-    "test.myFunction"
+    "myFunction"
   ],
-  "definitionGroupFQName": "test.myFunction",
+  "definitionGroupFQName": "myFunction",
   "definitionGroupKind": "function",
   "definitionGroupContains": [
     "myFunction(x: number)"

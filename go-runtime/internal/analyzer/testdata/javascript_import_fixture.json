@@ -4,10 +4,10 @@
   "content": "import { http } from './http';\nconst legacyCache = require('./legacy-cache');\nimport { cache } from './cache';\n\nexport const loadUser = (id) => {\n  return http.get(cache.key(id));\n};\n",
   "classes": [],
   "methods": [
-    "web.user-service.loadUser"
+    "web.loadUser"
   ],
   "fields": [
-    "web.user-service.legacyCache"
+    "web.legacyCache"
   ],
   "imports": [
     "const legacyCache = require('./legacy-cache');",

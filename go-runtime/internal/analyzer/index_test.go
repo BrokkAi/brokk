@@ -263,8 +263,8 @@ func TestParseTreeSitterSymbolsJavaScriptExportedArrowFunction(t *testing.T) {
 	}
 
 	methods := filterByKind(symbols, "function")
-	if len(methods) != 1 || methods[0].FQName != "web.user-service.loadUser" {
-		t.Fatalf("methods = %#v, want web.user-service.loadUser", methods)
+	if len(methods) != 1 || methods[0].FQName != "web.loadUser" {
+		t.Fatalf("methods = %#v, want web.loadUser", methods)
 	}
 }
 
@@ -288,13 +288,13 @@ func TestParseTreeSitterSymbolsNormalizesQuotedAndComputedTypeScriptNames(t *tes
 	foundPrivate := false
 	foundComputed := false
 	for _, method := range tsMethods {
-		if method.FQName == "web.user-service.UserService.load-user" {
+		if method.FQName == "web.UserService.load-user" {
 			foundQuoted = true
 		}
-		if method.FQName == "web.user-service.UserService.loadUser" {
+		if method.FQName == "web.UserService.loadUser" {
 			foundPrivate = true
 		}
-		if method.FQName == "web.user-service.UserService.Symbol.iterator" {
+		if method.FQName == "web.UserService.Symbol.iterator" {
 			foundComputed = true
 		}
 	}
@@ -351,11 +351,11 @@ func TestParseTreeSitterSymbolsTypeScriptExportedInterfaceAndAlias(t *testing.T)
 	foundService := false
 	for _, classSymbol := range classes {
 		switch classSymbol.FQName {
-		case "web.user-service.UserRecord":
+		case "web.UserRecord":
 			foundRecord = true
-		case "web.user-service.UserId":
+		case "web.UserId":
 			foundAlias = true
-		case "web.user-service.UserService":
+		case "web.UserService":
 			foundService = true
 		}
 	}
@@ -383,10 +383,10 @@ func TestParseTreeSitterSymbolsTypeScriptDefaultNamedSignatures(t *testing.T) {
 	foundCtor := false
 	foundCall := false
 	for _, method := range methods {
-		if method.FQName == "web.factory.UserFactory.new" {
+		if method.FQName == "web.UserFactory.new" {
 			foundCtor = true
 		}
-		if method.FQName == "web.factory.UserFactory.[call]" {
+		if method.FQName == "web.UserFactory.[call]" {
 			foundCall = true
 		}
 	}
@@ -395,7 +395,7 @@ func TestParseTreeSitterSymbolsTypeScriptDefaultNamedSignatures(t *testing.T) {
 	}
 
 	fields := filterByKind(symbols, "field")
-	if len(fields) != 1 || fields[0].FQName != "web.factory.UserFactory.[index]" {
+	if len(fields) != 1 || fields[0].FQName != "web.UserFactory.[index]" {
 		t.Fatalf("fields = %#v, want default named index signature", fields)
 	}
 }
@@ -731,6 +731,113 @@ func TestJavaRelevantImportsIncludesWildcardFallback(t *testing.T) {
 	}
 }
 
+func TestJSImportInfoAndImportedCodeUnits(t *testing.T) {
+	t.Parallel()
+
+	workspace := t.TempDir()
+	writeAnalyzerFile(t, workspace, "lib/shared.js", ""+
+		"export function shared() { return 1; }\n")
+	writeAnalyzerFile(t, workspace, "lib/index.ts", ""+
+		"export function libFunc(): string { return 'lib'; }\n")
+	writeAnalyzerFile(t, workspace, "src/app.js", ""+
+		"import { libFunc } from '../lib';\n"+
+		"const { shared } = require('../lib/shared');\n"+
+		"import '../polyfill';\n")
+	writeAnalyzerFile(t, workspace, "polyfill.js", ""+
+		"export const POLYFILL_VERSION = '1.0';\n")
+
+	service := New(workspace)
+	importInfos := service.ImportInfo("src/app.js")
+	if len(importInfos) != 3 {
+		t.Fatalf("len(importInfos) = %d, want 3", len(importInfos))
+	}
+
+	imported := sortedFQNames(service.ImportedCodeUnits("src/app.js"))
+	wantImported := []string{"POLYFILL_VERSION", "lib.libFunc", "lib.shared"}
+	if !slices.Equal(imported, wantImported) {
+		t.Fatalf("ImportedCodeUnits() = %#v, want %#v", imported, wantImported)
+	}
+
+	referencing := service.ReferencingFiles("polyfill.js")
+	if !slices.Equal(referencing, []string{"src/app.js"}) {
+		t.Fatalf("ReferencingFiles() = %#v, want src/app.js", referencing)
+	}
+}
+
+func TestTypeScriptImportedCodeUnitsResolveDirectoryIndex(t *testing.T) {
+	t.Parallel()
+
+	workspace := t.TempDir()
+	writeAnalyzerFile(t, workspace, "lib/index.ts", ""+
+		"export function libFunc(): string { return 'lib'; }\n")
+	writeAnalyzerFile(t, workspace, "main.ts", ""+
+		"import { libFunc } from './lib';\n"+
+		"export function run(): string { return libFunc(); }\n")
+
+	service := New(workspace)
+	imported := sortedFQNames(service.ImportedCodeUnits("main.ts"))
+	want := []string{"lib.libFunc"}
+	if !slices.Equal(imported, want) {
+		t.Fatalf("ImportedCodeUnits() = %#v, want %#v", imported, want)
+	}
+}
+
+func TestJSRelevantImportsForMethod(t *testing.T) {
+	t.Parallel()
+
+	workspace := t.TempDir()
+	writeAnalyzerFile(t, workspace, "foo.js", ""+
+		"export class Foo {}\n")
+	writeAnalyzerFile(t, workspace, "bar.js", ""+
+		"export class Bar {}\n")
+	writeAnalyzerFile(t, workspace, "consumer.js", ""+
+		"import { Foo } from './foo';\n"+
+		"import { Bar } from './bar';\n\n"+
+		"export function useFoo(value) {\n"+
+		"  return new Foo(value);\n"+
+		"}\n")
+
+	service := New(workspace)
+	methods := service.ResolveMethods([]string{"useFoo"})
+	if len(methods) != 1 {
+		t.Fatalf("len(methods) = %d, want 1", len(methods))
+	}
+
+	relevant := service.RelevantImports(methods[0])
+	want := []string{"import { Foo } from './foo';"}
+	if !slices.Equal(relevant, want) {
+		t.Fatalf("RelevantImports() = %#v, want %#v", relevant, want)
+	}
+}
+
+func TestTypeScriptRelevantImportsForMethod(t *testing.T) {
+	t.Parallel()
+
+	workspace := t.TempDir()
+	writeAnalyzerFile(t, workspace, "http.ts", ""+
+		"export class HttpClient {}\n")
+	writeAnalyzerFile(t, workspace, "cache.ts", ""+
+		"export class CacheStore {}\n")
+	writeAnalyzerFile(t, workspace, "service.ts", ""+
+		"import { HttpClient } from './http';\n"+
+		"import { CacheStore } from './cache';\n\n"+
+		"export function useClient(client: HttpClient): HttpClient {\n"+
+		"  return client;\n"+
+		"}\n")
+
+	service := New(workspace)
+	methods := service.ResolveMethods([]string{"useClient"})
+	if len(methods) != 1 {
+		t.Fatalf("len(methods) = %d, want 1", len(methods))
+	}
+
+	relevant := service.RelevantImports(methods[0])
+	want := []string{"import { HttpClient } from './http';"}
+	if !slices.Equal(relevant, want) {
+		t.Fatalf("RelevantImports() = %#v, want %#v", relevant, want)
+	}
+}
+
 func TestJavaTypeHierarchyAncestorsAndDescendants(t *testing.T) {
 	t.Parallel()
 
@@ -910,22 +1017,22 @@ func TestResolveTypescriptInterfaceAndMethod(t *testing.T) {
 	if len(classes) != 2 {
 		t.Fatalf("len(classes) = %d, want 2", len(classes))
 	}
-	if classes[0].FQName != "web.user-service.UserRecord" {
+	if classes[0].FQName != "web.UserRecord" {
 		t.Fatalf("classes[0].FQName = %q, want UserRecord", classes[0].FQName)
 	}
-	if classes[1].FQName != "web.user-service.UserService" {
+	if classes[1].FQName != "web.UserService" {
 		t.Fatalf("classes[1].FQName = %q, want UserService", classes[1].FQName)
 	}
 
 	methods := service.ResolveMethods([]string{"findUser"})
-	if len(methods) != 1 || methods[0].FQName != "web.user-service.UserService.findUser" {
-		t.Fatalf("methods = %#v, want web.user-service.UserService.findUser", methods)
+	if len(methods) != 1 || methods[0].FQName != "web.UserService.findUser" {
+		t.Fatalf("methods = %#v, want web.UserService.findUser", methods)
 	}
 
 	completions := service.CompleteSymbols("UserSer", 10)
 	found := false
 	for _, completion := range completions {
-		if completion.Detail == "web.user-service.UserService" {
+		if completion.Detail == "web.UserService" {
 			found = true
 			break
 		}

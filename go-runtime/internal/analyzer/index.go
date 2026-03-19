@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"math"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -147,13 +148,14 @@ var (
 	pythonFuncPattern   = regexp.MustCompile(`^([ \t]*)def\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(([^)]*)\)\s*:`)
 	pythonImportPattern = regexp.MustCompile(`(?m)^\s*(?:from\s+[^\n]+\s+import\s+[^\n]+|import\s+[^\n]+)\s*$`)
 
-	jsClassPattern     = regexp.MustCompile(`(?m)^[ \t]*(?:export\s+default\s+|export\s+)?class\s+([A-Za-z_][A-Za-z0-9_]*)`)
-	jsFunctionPattern  = regexp.MustCompile(`(?m)^[ \t]*(?:export\s+default\s+|export\s+)?function\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(`)
-	jsMethodPattern    = regexp.MustCompile(`(?m)^[ \t]*(?:public\s+|private\s+|protected\s+|static\s+|async\s+|readonly\s+|override\s+)*(?:get\s+|set\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*\([^)]*\)\s*\{`)
-	jsFieldPattern     = regexp.MustCompile(`(?m)^[ \t]*(?:public\s+|private\s+|protected\s+|static\s+|readonly\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*(?::[^=\n]+)?(?:=\s*[^;\n]+)?;`)
-	jsImportPattern    = regexp.MustCompile(`(?m)^\s*import\s+[^\n;]+;?\s*$`)
-	tsInterfacePattern = regexp.MustCompile(`(?m)^[ \t]*(?:export\s+)?interface\s+([A-Za-z_][A-Za-z0-9_]*)`)
-	tsTypeAliasPattern = regexp.MustCompile(`(?m)^[ \t]*(?:export\s+)?type\s+([A-Za-z_][A-Za-z0-9_]*)\s*=`)
+	jsClassPattern      = regexp.MustCompile(`(?m)^[ \t]*(?:export\s+default\s+|export\s+)?class\s+([A-Za-z_][A-Za-z0-9_]*)`)
+	jsFunctionPattern   = regexp.MustCompile(`(?m)^[ \t]*(?:export\s+default\s+|export\s+)?function\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(`)
+	jsMethodPattern     = regexp.MustCompile(`(?m)^[ \t]*(?:public\s+|private\s+|protected\s+|static\s+|async\s+|readonly\s+|override\s+)*(?:get\s+|set\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*\([^)]*\)\s*\{`)
+	jsFieldPattern      = regexp.MustCompile(`(?m)^[ \t]*(?:public\s+|private\s+|protected\s+|static\s+|readonly\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*(?::[^=\n]+)?(?:=\s*[^;\n]+)?;`)
+	jsImportPattern     = regexp.MustCompile(`(?m)^\s*import\s+[^\n;]+;?\s*$`)
+	jsIdentifierPattern = regexp.MustCompile(`\b[$A-Za-z_][$A-Za-z0-9_]*\b`)
+	tsInterfacePattern  = regexp.MustCompile(`(?m)^[ \t]*(?:export\s+)?interface\s+([A-Za-z_][A-Za-z0-9_]*)`)
+	tsTypeAliasPattern  = regexp.MustCompile(`(?m)^[ \t]*(?:export\s+)?type\s+([A-Za-z_][A-Za-z0-9_]*)\s*=`)
 
 	csharpNamespacePattern = regexp.MustCompile(`(?m)^\s*namespace\s+([A-Za-z0-9_.]+)\s*[{;]`)
 	csharpClassPattern     = regexp.MustCompile(`(?m)\b(class|interface|enum|record)\s+([A-Za-z_][A-Za-z0-9_]*)`)
@@ -525,6 +527,8 @@ func (s *Service) ImportInfo(relativePath string) []ImportInfo {
 	switch strings.ToLower(filepath.Ext(relativePath)) {
 	case ".java":
 		return parseJavaImportInfos(imports)
+	case ".js", ".jsx", ".ts", ".tsx":
+		return parseJSImportInfos(imports)
 	default:
 		results := make([]ImportInfo, 0, len(imports))
 		for _, raw := range imports {
@@ -544,6 +548,8 @@ func (s *Service) ImportedCodeUnits(relativePath string) []Symbol {
 	switch strings.ToLower(filepath.Ext(relativePath)) {
 	case ".java":
 		return s.importedJavaCodeUnits(index, relativePath)
+	case ".js", ".jsx", ".ts", ".tsx":
+		return s.importedJSLikeCodeUnits(index, relativePath)
 	default:
 		return []Symbol{}
 	}
@@ -576,10 +582,6 @@ func (s *Service) ReferencingFiles(relativePath string) []string {
 }
 
 func (s *Service) RelevantImports(symbol Symbol) []string {
-	if symbol.Language != "java" {
-		return []string{}
-	}
-
 	index, err := s.getIndex()
 	if err != nil {
 		return []string{}
@@ -587,6 +589,28 @@ func (s *Service) RelevantImports(symbol Symbol) []string {
 
 	importInfos := s.ImportInfo(symbol.RelativePath)
 	if len(importInfos) == 0 {
+		return []string{}
+	}
+
+	switch symbol.Language {
+	case "javascript", "typescript":
+		typeIdentifiers := extractJSLikeTypeIdentifiers(symbol.Snippet)
+		if len(typeIdentifiers) == 0 {
+			return []string{}
+		}
+
+		matched := map[string]struct{}{}
+		for _, info := range importInfos {
+			for _, identifier := range extractIdentifiersFromJSImport(info.RawSnippet) {
+				if containsString(typeIdentifiers, identifier) {
+					matched[info.RawSnippet] = struct{}{}
+					break
+				}
+			}
+		}
+		return sortedMapKeys(matched)
+	case "java":
+	default:
 		return []string{}
 	}
 
@@ -1345,7 +1369,7 @@ func parsePythonSymbols(relativePath string, content string) []Symbol {
 }
 
 func parseJSTSSymbols(relativePath string, content string) []Symbol {
-	moduleName := moduleNameFromPath(relativePath)
+	packageName := jsLikePackageNameFromPath(relativePath)
 	language := jsLanguageForPath(relativePath)
 	results := make([]Symbol, 0, 16)
 	classBlocks := make([]blockInfo, 0, 8)
@@ -1357,10 +1381,10 @@ func parseJSTSSymbols(relativePath string, content string) []Symbol {
 			symbol: Symbol{
 				Kind:         "class",
 				Language:     language,
-				FQName:       joinName(moduleName, name),
+				FQName:       joinName(packageName, name),
 				ShortName:    name,
 				Identifier:   name,
-				PackageName:  moduleName,
+				PackageName:  packageName,
 				RelativePath: relativePath,
 				Signature:    extractSignature(content, start),
 				Snippet:      snippet,
@@ -1382,10 +1406,10 @@ func parseJSTSSymbols(relativePath string, content string) []Symbol {
 		results = append(results, Symbol{
 			Kind:         "function",
 			Language:     language,
-			FQName:       joinName(moduleName, name),
+			FQName:       joinName(packageName, name),
 			ShortName:    name,
 			Identifier:   name,
-			PackageName:  moduleName,
+			PackageName:  packageName,
 			RelativePath: relativePath,
 			Signature:    extractSignature(content, start),
 			Snippet:      snippet,
@@ -1411,7 +1435,7 @@ func parseJSTSSymbols(relativePath string, content string) []Symbol {
 			FQName:       block.symbol.FQName + "." + name,
 			ShortName:    name,
 			Identifier:   name,
-			PackageName:  moduleName,
+			PackageName:  packageName,
 			ParentFQName: block.symbol.FQName,
 			RelativePath: relativePath,
 			Signature:    extractSignature(content, start),
@@ -1439,7 +1463,7 @@ func parseJSTSSymbols(relativePath string, content string) []Symbol {
 			FQName:       block.symbol.FQName + "." + name,
 			ShortName:    name,
 			Identifier:   name,
-			PackageName:  moduleName,
+			PackageName:  packageName,
 			ParentFQName: block.symbol.FQName,
 			RelativePath: relativePath,
 			Signature:    strings.TrimSpace(content[match[0]:match[1]]),
@@ -1457,10 +1481,10 @@ func parseJSTSSymbols(relativePath string, content string) []Symbol {
 			results = append(results, Symbol{
 				Kind:         "class",
 				Language:     language,
-				FQName:       joinName(moduleName, name),
+				FQName:       joinName(packageName, name),
 				ShortName:    name,
 				Identifier:   name,
-				PackageName:  moduleName,
+				PackageName:  packageName,
 				RelativePath: relativePath,
 				Signature:    extractSignature(content, start),
 				Snippet:      snippet,
@@ -1476,10 +1500,10 @@ func parseJSTSSymbols(relativePath string, content string) []Symbol {
 			results = append(results, Symbol{
 				Kind:         "class",
 				Language:     language,
-				FQName:       joinName(moduleName, name),
+				FQName:       joinName(packageName, name),
 				ShortName:    name,
 				Identifier:   name,
-				PackageName:  moduleName,
+				PackageName:  packageName,
 				RelativePath: relativePath,
 				Signature:    signature,
 				Snippet:      signature,
@@ -2305,6 +2329,34 @@ func (s *Service) importedJavaCodeUnits(index *indexSnapshot, relativePath strin
 	return dedupeSymbols(resolved)
 }
 
+func (s *Service) importedJSLikeCodeUnits(index *indexSnapshot, relativePath string) []Symbol {
+	importInfos := parseJSImportInfos(index.importsByPath[relativePath])
+	if len(importInfos) == 0 {
+		return []Symbol{}
+	}
+
+	knownPaths := make(map[string]struct{}, len(index.stamps))
+	for _, stamp := range index.stamps {
+		knownPaths[stamp.relativePath] = struct{}{}
+	}
+
+	resolved := make([]Symbol, 0, len(importInfos)*2)
+	for _, info := range importInfos {
+		modulePath := extractJSImportModulePath(info.RawSnippet)
+		targetPath, ok := resolveJSImportRelativePath(relativePath, modulePath, knownPaths)
+		if !ok {
+			continue
+		}
+		for _, symbol := range index.symbols {
+			if symbol.RelativePath == targetPath {
+				resolved = append(resolved, symbol)
+			}
+		}
+	}
+
+	return dedupeSymbols(resolved)
+}
+
 func parseJavaImportInfos(imports []string) []ImportInfo {
 	results := make([]ImportInfo, 0, len(imports))
 	for _, raw := range imports {
@@ -2324,6 +2376,32 @@ func parseJavaImportInfos(imports []string) []ImportInfo {
 			RawSnippet: raw,
 			IsWildcard: isWildcard,
 			Identifier: identifier,
+		})
+	}
+	return results
+}
+
+func parseJSImportInfos(imports []string) []ImportInfo {
+	results := make([]ImportInfo, 0, len(imports))
+	for _, raw := range imports {
+		identifiers := extractIdentifiersFromJSImport(raw)
+		isWildcard := strings.Contains(raw, "import * as ")
+		identifier := ""
+		alias := ""
+		if len(identifiers) == 1 {
+			identifier = identifiers[0]
+		}
+		if isWildcard && len(identifiers) > 0 {
+			alias = identifiers[0]
+		}
+		if strings.Contains(raw, " as ") && len(identifiers) > 0 {
+			alias = identifiers[len(identifiers)-1]
+		}
+		results = append(results, ImportInfo{
+			RawSnippet: strings.TrimSpace(raw),
+			IsWildcard: isWildcard,
+			Identifier: identifier,
+			Alias:      alias,
 		})
 	}
 	return results
@@ -2368,6 +2446,208 @@ func javaQualifiedIdentifierNeedsImport(identifier string, importPackages []stri
 		}
 	}
 	return false
+}
+
+var jsLikeKnownExtensions = []string{".js", ".jsx", ".ts", ".tsx"}
+
+func extractIdentifiersFromJSImport(importStatement string) []string {
+	raw := strings.TrimSpace(importStatement)
+	if raw == "" {
+		return nil
+	}
+
+	results := make([]string, 0, 4)
+	seen := map[string]struct{}{}
+	addIdentifier := func(value string) {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			return
+		}
+		if _, ok := seen[trimmed]; ok {
+			return
+		}
+		seen[trimmed] = struct{}{}
+		results = append(results, trimmed)
+	}
+
+	if strings.HasPrefix(raw, "import ") {
+		fromIndex := strings.Index(raw, " from ")
+		switch {
+		case fromIndex > 0:
+			clause := strings.TrimSpace(strings.TrimPrefix(raw[:fromIndex], "import"))
+			for _, part := range splitJSImportClause(clause) {
+				part = strings.TrimSpace(part)
+				switch {
+				case part == "":
+				case strings.HasPrefix(part, "{") && strings.HasSuffix(part, "}"):
+					for _, entry := range strings.Split(strings.Trim(part, "{}"), ",") {
+						pieces := strings.Split(strings.TrimSpace(entry), " as ")
+						for _, piece := range pieces {
+							addIdentifier(piece)
+						}
+					}
+				case strings.HasPrefix(part, "* as "):
+					addIdentifier(strings.TrimSpace(strings.TrimPrefix(part, "* as ")))
+				default:
+					addIdentifier(part)
+				}
+			}
+		case strings.HasPrefix(raw, "import "):
+			return nil
+		}
+	}
+
+	if strings.Contains(raw, "require(") {
+		lhs := raw
+		if eqIndex := strings.Index(lhs, "="); eqIndex >= 0 {
+			lhs = strings.TrimSpace(lhs[:eqIndex])
+			for _, prefix := range []string{"const ", "let ", "var "} {
+				lhs = strings.TrimSpace(strings.TrimPrefix(lhs, prefix))
+			}
+			if strings.HasPrefix(lhs, "{") && strings.HasSuffix(lhs, "}") {
+				for _, entry := range strings.Split(strings.Trim(lhs, "{}"), ",") {
+					pieces := strings.Split(strings.TrimSpace(entry), ":")
+					for _, piece := range pieces {
+						addIdentifier(piece)
+					}
+				}
+			} else {
+				addIdentifier(lhs)
+			}
+		}
+	}
+
+	return results
+}
+
+func splitJSImportClause(clause string) []string {
+	parts := make([]string, 0, 4)
+	start := 0
+	depth := 0
+	for i, r := range clause {
+		switch r {
+		case '{':
+			depth++
+		case '}':
+			if depth > 0 {
+				depth--
+			}
+		case ',':
+			if depth == 0 {
+				parts = append(parts, clause[start:i])
+				start = i + 1
+			}
+		}
+	}
+	parts = append(parts, clause[start:])
+	return parts
+}
+
+func extractJSImportModulePath(importStatement string) string {
+	raw := strings.TrimSpace(importStatement)
+	if raw == "" {
+		return ""
+	}
+
+	start := strings.IndexAny(raw, "\"'")
+	if start < 0 {
+		return ""
+	}
+	quote := raw[start]
+	end := strings.IndexRune(raw[start+1:], rune(quote))
+	if end < 0 {
+		return ""
+	}
+	return raw[start+1 : start+1+end]
+}
+
+func resolveJSImportRelativePath(importingFile string, modulePath string, knownPaths map[string]struct{}) (string, bool) {
+	if modulePath == "" || (!strings.HasPrefix(modulePath, "./") && !strings.HasPrefix(modulePath, "../")) {
+		return "", false
+	}
+
+	baseDir := path.Dir(filepath.ToSlash(strings.TrimSpace(importingFile)))
+	if baseDir == "." {
+		baseDir = ""
+	}
+	resolved := path.Clean(path.Join(baseDir, modulePath))
+	if hasJSImportExtension(resolved) {
+		_, ok := knownPaths[resolved]
+		return resolved, ok
+	}
+
+	candidates := make([]string, 0, len(jsLikeKnownExtensions)*2+1)
+	candidates = append(candidates, resolved)
+	for _, ext := range jsLikeKnownExtensions {
+		candidates = append(candidates, resolved+ext)
+	}
+	for _, ext := range jsLikeKnownExtensions {
+		candidates = append(candidates, path.Join(resolved, "index"+ext))
+	}
+	for _, candidate := range candidates {
+		if _, ok := knownPaths[candidate]; ok {
+			return candidate, true
+		}
+	}
+	return "", false
+}
+
+func hasJSImportExtension(value string) bool {
+	ext := strings.ToLower(path.Ext(value))
+	for _, candidate := range jsLikeKnownExtensions {
+		if ext == candidate {
+			return true
+		}
+	}
+	return false
+}
+
+var jsLikeIgnoredIdentifiers = map[string]struct{}{
+	"as":        {},
+	"async":     {},
+	"await":     {},
+	"class":     {},
+	"const":     {},
+	"default":   {},
+	"else":      {},
+	"export":    {},
+	"extends":   {},
+	"false":     {},
+	"from":      {},
+	"function":  {},
+	"if":        {},
+	"import":    {},
+	"let":       {},
+	"new":       {},
+	"null":      {},
+	"return":    {},
+	"static":    {},
+	"this":      {},
+	"true":      {},
+	"type":      {},
+	"typeof":    {},
+	"undefined": {},
+	"var":       {},
+}
+
+func extractJSLikeTypeIdentifiers(source string) []string {
+	matches := jsIdentifierPattern.FindAllString(source, -1)
+	if len(matches) == 0 {
+		return []string{}
+	}
+	results := make([]string, 0, len(matches))
+	seen := map[string]struct{}{}
+	for _, match := range matches {
+		if _, ok := jsLikeIgnoredIdentifiers[match]; ok {
+			continue
+		}
+		if _, ok := seen[match]; ok {
+			continue
+		}
+		seen[match] = struct{}{}
+		results = append(results, match)
+	}
+	return results
 }
 
 func sortedMapKeys(values map[string]struct{}) []string {
@@ -2753,6 +3033,15 @@ func pythonModuleNameFromPath(relativePath string) string {
 		return moduleName
 	}
 	return strings.TrimSuffix(moduleName, ".__init__")
+}
+
+func jsLikePackageNameFromPath(relativePath string) string {
+	normalized := filepath.ToSlash(strings.TrimSpace(relativePath))
+	dir := path.Dir(normalized)
+	if dir == "." || dir == "" {
+		return ""
+	}
+	return strings.ReplaceAll(dir, "/", ".")
 }
 
 func jsLanguageForPath(relativePath string) string {
