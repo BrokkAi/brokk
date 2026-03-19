@@ -137,6 +137,9 @@ public final class BrokkExternalMcpServerStdinShutdownIT {
                     process.exitValue(),
                     "MCP server exited with unexpected code after stdin closure. Output:%n"
                             + formatOutput(outputLines));
+            assertTrue(
+                    outputLines.stream().anyMatch(line -> line.contains("stdin EOF detected; parent process gone")),
+                    "Expected stdin EOF shutdown log line. Output:%n" + formatOutput(outputLines));
 
         } finally {
             argFile.toFile().delete();
