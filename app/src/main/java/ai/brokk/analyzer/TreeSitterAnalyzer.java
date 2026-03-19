@@ -446,7 +446,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         }
 
         public @Nullable CodeUnit findTopLevelCrossKindDuplicate(CodeUnit cu) {
-            return topLevelCUs.stream().filter(t -> t.fqName().equals(cu.fqName())).findFirst().orElse(null);
+            return topLevelCUs.stream()
+                    .filter(t -> t.fqName().equals(cu.fqName()))
+                    .findFirst()
+                    .orElse(null);
         }
 
         public void replaceTopLevelCodeUnit(CodeUnit oldCu, CodeUnit newCu) {
@@ -458,11 +461,17 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         }
 
         public @Nullable CodeUnit findChildDuplicate(CodeUnit parent, CodeUnit cu) {
-            return getChildren(parent).stream().filter(t -> t.equals(cu)).findFirst().orElse(null);
+            return getChildren(parent).stream()
+                    .filter(t -> t.equals(cu))
+                    .findFirst()
+                    .orElse(null);
         }
 
         public @Nullable CodeUnit findChildCrossKindDuplicate(CodeUnit parent, CodeUnit cu) {
-            return getChildren(parent).stream().filter(t -> t.fqName().equals(cu.fqName())).findFirst().orElse(null);
+            return getChildren(parent).stream()
+                    .filter(t -> t.fqName().equals(cu.fqName()))
+                    .findFirst()
+                    .orElse(null);
         }
 
         public void replaceChildCodeUnit(CodeUnit parent, CodeUnit oldCu, CodeUnit newCu) {
@@ -489,13 +498,14 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         public Map<CodeUnit, CodeUnitProperties> toCodeUnitProperties() {
             Map<CodeUnit, CodeUnitProperties> result = new HashMap<>();
             cuByFqName.values().forEach(cu -> {
-                result.put(cu, new CodeUnitProperties(
-                        Collections.unmodifiableSequencedSet(new LinkedHashSet<>(getChildren(cu))),
-                        Collections.unmodifiableSequencedSet(new LinkedHashSet<>(getSignatures(cu))),
-                        Collections.unmodifiableSequencedSet(new LinkedHashSet<>(getRanges(cu))),
-                        getHasBody(cu, false),
-                        isTypeAliasByCu.getOrDefault(cu, false)
-                ));
+                result.put(
+                        cu,
+                        new CodeUnitProperties(
+                                Collections.unmodifiableSequencedSet(new LinkedHashSet<>(getChildren(cu))),
+                                Collections.unmodifiableSequencedSet(new LinkedHashSet<>(getSignatures(cu))),
+                                Collections.unmodifiableSequencedSet(new LinkedHashSet<>(getRanges(cu))),
+                                getHasBody(cu, false),
+                                isTypeAliasByCu.getOrDefault(cu, false)));
             });
             return result;
         }
@@ -4373,11 +4383,18 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
         // Map original CodeUnits from snippet to their synthetic versions to preserve relationships
         Map<CodeUnit, CodeUnit> syntheticMap = new HashMap<>();
-        result.codeUnitState().keySet().forEach(cu -> syntheticMap.put(cu, cu.withSynthetic(true)));
+        for (CodeUnit cu : result.codeUnitState().keySet()) {
+            syntheticMap.put(cu, cu.withSynthetic(true));
+        }
 
         // Merge results using synthetic versions
-        result.codeUnitState().forEach((cu, props) -> {
-            CodeUnit syntheticCu = syntheticMap.get(cu);
+        for (Map.Entry<CodeUnit, CodeUnitProperties> entry :
+                result.codeUnitState().entrySet()) {
+            CodeUnit originalCu = entry.getKey();
+            CodeUnitProperties props = entry.getValue();
+            CodeUnit syntheticCu = syntheticMap.get(originalCu);
+            if (syntheticCu == null) continue;
+
             acc.registerCodeUnit(syntheticCu);
 
             if (props.hasBody()) {
@@ -4398,7 +4415,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                     acc.addChild(syntheticCu, syntheticChild);
                 }
             }
-        });
+        }
 
         // Add top-level units from snippet as synthetic
         for (CodeUnit topLevel : result.topLevelCUs()) {

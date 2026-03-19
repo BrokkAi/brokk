@@ -33,7 +33,8 @@ public class RustMacroTest {
             assertNotNull(analyzer, "Analyzer should not be null");
 
             // Find the Status enum CodeUnit
-            List<CodeUnit> statusDefinitions = analyzer.getDefinitions("Status").stream().toList();
+            List<CodeUnit> statusDefinitions =
+                    analyzer.getDefinitions("Status").stream().toList();
             assertEquals(1, statusDefinitions.size(), "Should find exactly one Status enum definition");
             CodeUnit statusEnum = statusDefinitions.getFirst();
 
