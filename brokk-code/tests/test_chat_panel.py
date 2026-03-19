@@ -2066,7 +2066,9 @@ async def test_render_command_summary_truncates_long_exception():
     async with app.run_test():
         chat = app.query_one("#chat", ChatPanel)
 
-        long_exception = "This is a very long exception message that should be truncated to fit on one line"
+        long_exception = (
+            "This is a very long exception message that should be truncated to fit on one line"
+        )
         entry = {
             "stage": "Build",
             "success": False,

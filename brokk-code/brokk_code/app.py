@@ -1377,6 +1377,17 @@ class BrokkApp(App):
             # Swallow all errors when updating UI that's possibly not mounted in tests.
             return
 
+    def _update_commands_running_display(self, count: int) -> None:
+        """Update the commands running indicator in the status line."""
+        chat = self._maybe_chat()
+        if not chat:
+            return
+        try:
+            status = chat.query_one("#status-line", StatusLine)
+            status.set_commands_running(count)
+        except Exception:
+            pass
+
     def _apply_executor_model_configs(self, configs: dict[str, Any]) -> None:
         """Mirror persisted executor model roles into the TUI's local state."""
         architect = configs.get("architect")
@@ -2131,6 +2142,9 @@ class BrokkApp(App):
                 if chat:
                     chat.set_response_finished()
                     chat.set_job_running(False)
+                    # Reset commands running counter when job ends
+                    chat.set_commands_running(0)
+                    self._update_commands_running_display(0)
                 self.job_in_progress = False
             self.current_job_id = None
 
@@ -2972,6 +2986,19 @@ class BrokkApp(App):
                 exception = data.get("exception")
 
                 chat.add_command_result(stage, command, success, output, exception)
+
+                # Decrement running commands counter
+                current_running = chat.get_commands_running()
+                if current_running > 0:
+                    new_count = current_running - 1
+                    chat.set_commands_running(new_count)
+                    self._update_commands_running_display(new_count)
+        elif event_type == "COMMAND_START":
+            if chat:
+                current_running = chat.get_commands_running()
+                new_count = current_running + 1
+                chat.set_commands_running(new_count)
+                self._update_commands_running_display(new_count)
         elif event_type == "STATE_HINT":
             hint_name = data.get("name")
             if hint_name in ("contextHistoryUpdated", "workspaceUpdated"):

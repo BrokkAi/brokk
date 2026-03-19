@@ -44,6 +44,7 @@ class StatusLine(Horizontal):
         self._fragment_description: Optional[str] = None
         self._fragment_size: Optional[int] = None
         self._metadata: Optional[Static] = None
+        self._commands_running: int = 0
 
     def compose(self) -> ComposeResult:
         yield Static(id="status-metadata")
@@ -124,6 +125,10 @@ class StatusLine(Horizontal):
             # Label-free fragment: {description} ({tokens} tokens)
             text = f"{self._fragment_description} ({size_text} tokens)"
 
+        if self._commands_running > 0:
+            cmd_text = f"{self._commands_running} command{'s' if self._commands_running != 1 else ''} running"
+            text = f"{cmd_text} {self.SEPARATOR} {text}"
+
         self._set_status_metadata(text)
 
     def _set_status_metadata(self, text: str) -> None:
@@ -179,3 +184,11 @@ class StatusLine(Horizontal):
         Note: The elapsed timer was moved to ChatPanel help row; this is a no-op for StatusLine.
         """
         pass
+
+    def set_commands_running(self, count: int) -> None:
+        """
+        Update the count of currently running commands.
+        Displays "N commands running" when count > 0, hidden when count is 0.
+        """
+        self._commands_running = max(0, count)
+        self._render_status_text()
