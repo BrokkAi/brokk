@@ -6,10 +6,18 @@ from pathlib import Path
 from typing import Optional
 
 from brokk_code.executor import BUNDLED_EXECUTOR_VERSION, ExecutorError, ensure_jbang_ready
+from brokk_code.runtime_utils import find_dev_jar
 
 _EXECUTOR_JAR_BASE_URL = "https://github.com/BrokkAi/brokk-releases/releases/download"
 _MCP_SERVER_MAIN_CLASS = "ai.brokk.mcpserver.BrokkExternalMcpServer"
 _MCP_JBANG_PACKAGE = "brokk-headless@brokkai/brokk-releases"
+
+
+def _is_brokk_launcher_path(path: Path) -> bool:
+    launcher_names = {"brokk", "brokk.bat", "brokk.cmd", "brokk.exe", "brokk.ps1"}
+    if path.name.lower() not in launcher_names or not path.is_file():
+        return False
+    return os.access(path, os.X_OK) or path.suffix.lower() in {".bat", ".cmd", ".exe", ".ps1"}
 
 
 def resolve_brokk_command() -> str:
@@ -20,7 +28,7 @@ def resolve_brokk_command() -> str:
     argv0 = Path(sys.argv[0])
     if argv0.name and argv0.name != "-m":
         candidate = argv0 if argv0.is_absolute() else (Path.cwd() / argv0)
-        if candidate.exists():
+        if _is_brokk_launcher_path(candidate):
             return str(candidate.resolve())
 
     return "brokk"
@@ -51,28 +59,6 @@ def resolve_mcp_workspace_dir(path: Path) -> Path:
     resolved = path.resolve()
     current = resolved if resolved.is_dir() else resolved.parent
     return git_toplevel_for(current) or current
-
-
-def find_dev_jar(workspace_dir: Path) -> Optional[Path]:
-    def find_in_workspace(base: Path) -> Optional[Path]:
-        libs_dir = base / "app" / "build" / "libs"
-        if not libs_dir.exists():
-            return None
-
-        named_jars = list(libs_dir.glob("brokk-*.jar"))
-        if not named_jars:
-            return None
-
-        return max(named_jars, key=lambda jar: jar.stat().st_mtime)
-
-    current = workspace_dir
-    while current != current.parent:
-        if (current / "gradlew").exists():
-            potential_jar = find_in_workspace(current)
-            if potential_jar:
-                return potential_jar
-        current = current.parent
-    return None
 
 
 def build_direct_mcp_command(jar_path: Path) -> list[str]:

@@ -163,6 +163,32 @@ def test_configure_mcp_settings_falls_back_to_bare_brokk(tmp_path, monkeypatch):
     assert data["mcpServers"]["brokk"]["command"] == "brokk"
 
 
+def test_configure_mcp_settings_ignores_python_module_argv0(tmp_path, monkeypatch):
+    monkeypatch.setattr("brokk_code.mcp_config.shutil.which", lambda _name: None)
+    module_path = tmp_path / "brokk_code" / "__main__.py"
+    monkeypatch.setattr("brokk_code.mcp_config.sys.argv", [str(module_path)])
+
+    config_path = tmp_path / ".claude.json"
+    configure_claude_code_mcp_settings(force=True, settings_path=config_path)
+
+    data = json.loads(config_path.read_text(encoding="utf-8"))
+    assert data["mcpServers"]["brokk"]["command"] == "brokk"
+
+
+def test_configure_mcp_settings_accepts_executable_brokk_argv0(tmp_path, monkeypatch):
+    monkeypatch.setattr("brokk_code.mcp_config.shutil.which", lambda _name: None)
+    launcher_path = tmp_path / "brokk"
+    launcher_path.write_text("#!/bin/sh\n")
+    launcher_path.chmod(0o755)
+    monkeypatch.setattr("brokk_code.mcp_config.sys.argv", [str(launcher_path)])
+
+    config_path = tmp_path / ".claude.json"
+    configure_claude_code_mcp_settings(force=True, settings_path=config_path)
+
+    data = json.loads(config_path.read_text(encoding="utf-8"))
+    assert data["mcpServers"]["brokk"]["command"] == str(launcher_path.resolve())
+
+
 def test_configure_claude_code_mcp_settings_uses_brokk_server_permission_rule(tmp_path) -> None:
     config_path = tmp_path / ".claude.json"
 

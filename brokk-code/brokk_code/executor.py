@@ -14,6 +14,7 @@ from urllib.parse import quote
 
 import httpx
 
+from brokk_code.runtime_utils import find_dev_jar
 from brokk_code.workspace import resolve_workspace_dir
 
 logger = logging.getLogger(__name__)
@@ -347,27 +348,7 @@ class ExecutorManager:
 
     def _find_dev_jar(self) -> Optional[Path]:
         """Searches for a local development JAR in the project structure."""
-
-        def _find_in_workspace(base: Path) -> Optional[Path]:
-            libs_dir = base / "app" / "build" / "libs"
-            if not libs_dir.exists():
-                return None
-
-            named_jar = list(libs_dir.glob("brokk-*.jar"))
-            if not named_jar:
-                return None
-
-            # Prefer the newest built jar when multiple versions are present.
-            return max(named_jar, key=lambda jar: jar.stat().st_mtime)
-
-        curr = self.workspace_dir
-        while curr != curr.parent:
-            if (curr / "gradlew").exists():
-                potential_jar = _find_in_workspace(curr)
-                if potential_jar:
-                    return potential_jar
-            curr = curr.parent
-        return None
+        return find_dev_jar(self.workspace_dir)
 
     async def start(self):
         """Starts the Java HeadlessExecutorMain subprocess."""

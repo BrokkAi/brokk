@@ -1,4 +1,5 @@
 import json
+import os
 import re
 import shutil
 import sys
@@ -127,6 +128,13 @@ def _atomic_write_toml(path: Path, text: str) -> None:
     temp_path.replace(path)
 
 
+def _is_brokk_launcher_path(path: Path) -> bool:
+    launcher_names = {"brokk", "brokk.bat", "brokk.cmd", "brokk.exe", "brokk.ps1"}
+    if path.name.lower() not in launcher_names or not path.is_file():
+        return False
+    return os.access(path, os.X_OK) or path.suffix.lower() in {".bat", ".cmd", ".exe", ".ps1"}
+
+
 def resolve_brokk_command(brokk_command: str | None = None) -> str:
     """Resolve the effective brokk command path using the fallback chain."""
     if brokk_command:
@@ -139,7 +147,7 @@ def resolve_brokk_command(brokk_command: str | None = None) -> str:
     argv0 = Path(sys.argv[0])
     if argv0.name and argv0.name != "-m":
         candidate = argv0 if argv0.is_absolute() else (Path.cwd() / argv0)
-        if candidate.exists():
+        if _is_brokk_launcher_path(candidate):
             return str(candidate.resolve())
 
     return "brokk"
