@@ -88,7 +88,11 @@ public interface MacroExpansionProvider extends CapabilityProvider {
             TreeSitterAnalyzer.FileAnalysisAccumulator acc) {
         analyzer.enclosingCodeUnit(file, node.getStartPoint().getRow(), node.getEndPoint().getRow())
                 .ifPresent(cu -> {
-                    String expanded = MacroTemplateExpander.expand(template, Map.of("code_unit", cu));
+                    // Use children from the accumulator which contains variants discovered in this pass
+                    Map<String, Object> context = Map.of(
+                            "code_unit", cu,
+                            "children", acc.getChildren(cu));
+                    String expanded = MacroTemplateExpander.expand(template, context);
                     log.debug("Expanded macro template for {}: {}", cu.fqName(), expanded);
 
                     // Create a temporary accumulator to parse the snippet
