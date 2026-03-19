@@ -59,6 +59,7 @@ import io.modelcontextprotocol.spec.McpSchema;
 import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -98,9 +99,10 @@ public class BrokkExternalMcpServer {
             "skimFiles",
             "getFileSummaries",
             "getClassSkeletons",
+            "getSymbolLocations",
+            "searchFileContents",
             "getClassSources",
-            "getMethodSources",
-            "getSymbolLocations");
+            "getMethodSources");
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     private final ContextManager cm;
@@ -124,7 +126,7 @@ public class BrokkExternalMcpServer {
     public static void main(String[] args) {
         System.setProperty("java.awt.headless", "true");
 
-        Path projectPath = Path.of(".").toAbsolutePath().normalize();
+        Path projectPath = resolveProjectRoot(Path.of("."));
         logger.info("Brokk MCP Server starting");
 
         try (var project = new MainProject(projectPath);
@@ -201,6 +203,20 @@ public class BrokkExternalMcpServer {
             logger.error("Failed to start Brokk MCP Server", e);
             System.exit(1);
         }
+    }
+
+    static Path resolveProjectRoot(Path path) {
+        Path resolved = path.toAbsolutePath().normalize();
+        Path current = Files.isDirectory(resolved) ? resolved : requireNonNull(resolved.getParent());
+
+        for (Path candidate = current; candidate != null; candidate = candidate.getParent()) {
+            Path gitPath = candidate.resolve(".git");
+            if (Files.isDirectory(gitPath) || Files.isRegularFile(gitPath)) {
+                return candidate;
+            }
+        }
+
+        return resolved;
     }
 
     public static List<McpServerFeatures.SyncToolSpecification> toolSpecificationsFrom(
@@ -709,7 +725,11 @@ public class BrokkExternalMcpServer {
     }
 
     @Tool(
-            "Agentic scan for relevant files and classes. Returns a summary of recommended context. Use this to get an overview when beginning a new task.")
+            """
+            Agentic semantic/context recommender for relevant files and classes.
+            Returns a summary of recommended context to add when beginning a task.
+            Not the first choice for raw-text repo search across markdown, config, comments, or literals; use searchFileContents for that.
+            """)
     public String scan(
             @P("The natural-language goal or prompt to scan for.") String goal,
             @P("Include test files in the results.") boolean includeTests)
