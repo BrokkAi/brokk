@@ -2,8 +2,88 @@ Screen {
     background: $surface;
 }
 
-ContextModalScreen, TaskListModalScreen, SessionCostsModalScreen {
+ContextModalScreen, TaskListModalScreen, SessionCostsModalScreen, DependenciesModalScreen {
     align: center middle;
+}
+
+#dependencies-modal-container {
+    width: 100%;
+    height: 100%;
+    padding: 1 2;
+    background: $surface;
+}
+
+#dependencies-status {
+    height: auto;
+    color: $accent;
+    text-style: bold;
+}
+
+#dependencies-spinner {
+    height: 1;
+    color: $accent;
+}
+
+AddDependencyModalScreen {
+    align: center middle;
+}
+
+#add-dependency-modal-container {
+    width: 80;
+    height: auto;
+    max-height: 80%;
+    background: $surface;
+    border: thick $primary;
+    padding: 1 2;
+}
+
+#add-dependency-title {
+    text-style: bold;
+    width: 100%;
+    margin-bottom: 1;
+}
+
+#add-dependency-mode-select {
+    height: auto;
+    margin-bottom: 1;
+}
+
+#add-dependency-local-section,
+#add-dependency-git-section {
+    height: auto;
+}
+
+#add-dependency-repo-row {
+    height: auto;
+}
+
+#add-dependency-repo-row Input {
+    width: 1fr;
+}
+
+#add-dependency-repo-row Button {
+    width: auto;
+    min-width: 10;
+}
+
+#add-dependency-fetch-spinner {
+    height: 1;
+    color: $accent;
+}
+
+#add-dependency-branch-list {
+    height: auto;
+    max-height: 10;
+}
+
+#add-dependency-error {
+    color: $error;
+    height: auto;
+}
+
+#add-dependency-actions {
+    height: auto;
+    margin-top: 1;
 }
 
 BrokkApiKeyModalScreen, TaskTitleModalScreen, ModelReasoningSelectModal {
@@ -558,6 +638,40 @@ SlashCommandSuggestions ListItem, ModeSuggestions ListItem, ReasoningSuggestions
     padding: 1 2;
     background: $primary-darken-3;
     border: tall $primary-darken-1;
+}
+
+#dependencies-container {
+    width: 100%;
+    height: 100%;
+    padding: 1 2;
+}
+
+#dependencies-title {
+    padding: 1 2;
+    background: $primary-darken-1;
+    color: $text;
+    text-style: bold;
+    width: 100%;
+}
+
+#dependencies-help-line {
+    width: 100%;
+    height: 1;
+    color: $text-disabled;
+    margin-bottom: 1;
+}
+
+#dependencies-list-scroll {
+    height: 1fr;
+    border: tall $primary-darken-1;
+}
+
+#dependencies-list {
+    background: transparent;
+}
+
+#dependencies-list > ListItem:focus {
+    background: $accent 20%;
 }
 
 PrCreateModalScreen {
