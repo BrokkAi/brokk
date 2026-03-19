@@ -600,6 +600,10 @@ def pixels_to_grid_ceil(pixels: int, dpi: int) -> int: ...
 
 @dataclass(frozen=True)
 class GridRect:
+  x: int
+  y: int
+  w: int
+  h: int
   def __post_init__(self) -> None: ...
   @property
   def area(self) -> int: ...
@@ -616,6 +620,10 @@ class GridRect:
 
 @dataclass(frozen=True)
 class Rect:
+  x: float
+  y: float
+  w: float
+  h: float
   def __post_init__(self) -> None: ...
   @property
   def area(self) -> float: ...

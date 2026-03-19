@@ -412,7 +412,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
 
         if (valueNode == null || valueNode.isNull()) {
             // Pure type annotation with no default value (e.g. x: int)
-            return "";
+            return baseIndent + signatureText;
         }
 
         if (isLiteralType(valueNode.getType())) {
