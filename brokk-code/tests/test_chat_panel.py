@@ -2108,6 +2108,163 @@ async def test_command_history_multiple_entries():
 
 
 @pytest.mark.asyncio
+async def test_commands_modal_displays_history():
+    """Verify CommandsModalScreen displays command history correctly."""
+    from textual.app import App, ComposeResult
+    from textual.widgets import Static
+
+    from brokk_code.modals.commands_modal import CommandsModalScreen
+
+    class TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield Static("host")
+
+    command_history = [
+        {
+            "id": "cmd-1",
+            "stage": "Build",
+            "command": "mvn compile",
+            "success": True,
+            "output": "BUILD SUCCESS",
+            "exception": None,
+            "timestamp": 1737627240.0,
+        },
+        {
+            "id": "cmd-2",
+            "stage": "Lint",
+            "command": "ruff check",
+            "success": False,
+            "output": "Found 3 errors",
+            "exception": "exit code 1",
+            "timestamp": 1737627300.0,
+        },
+    ]
+
+    app = TestApp()
+    async with app.run_test() as pilot:
+        screen = CommandsModalScreen(command_history)
+        app.push_screen(screen)
+        await pilot.pause()
+
+        # Verify title
+        title = screen.query_one("#commands-modal-title", Static)
+        assert "Command History" in _static_rendered_text(title)
+
+        # Verify summary shows correct counts
+        summary = screen.query_one("#commands-summary-text", Static)
+        summary_text = _static_rendered_text(summary)
+        assert "2 commands" in summary_text
+        assert "1 succeeded" in summary_text
+        assert "1 failed" in summary_text
+
+
+@pytest.mark.asyncio
+async def test_commands_modal_empty_state():
+    """Verify CommandsModalScreen handles empty command history."""
+    from textual.app import App, ComposeResult
+    from textual.widgets import Static
+
+    from brokk_code.modals.commands_modal import CommandsModalScreen
+
+    class TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield Static("host")
+
+    app = TestApp()
+    async with app.run_test() as pilot:
+        screen = CommandsModalScreen([])
+        app.push_screen(screen)
+        await pilot.pause()
+
+        # Verify empty state message
+        empty_msg = screen.query_one("#commands-empty", Static)
+        assert "No commands" in _static_rendered_text(empty_msg)
+
+        # Verify summary shows 0 commands
+        summary = screen.query_one("#commands-summary-text", Static)
+        assert "0 commands" in _static_rendered_text(summary)
+
+
+@pytest.mark.asyncio
+async def test_commands_modal_toggle_output():
+    """Verify CommandsModalScreen toggles output panel on enter."""
+    from textual.app import App, ComposeResult
+    from textual.widgets import Static
+
+    from brokk_code.modals.commands_modal import CommandsModalScreen
+
+    class TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield Static("host")
+
+    command_history = [
+        {
+            "id": "cmd-1",
+            "stage": "Build",
+            "command": "mvn compile",
+            "success": True,
+            "output": "BUILD SUCCESS\nCompiled 42 classes",
+            "exception": None,
+            "timestamp": 1737627240.0,
+        },
+    ]
+
+    app = TestApp()
+    async with app.run_test() as pilot:
+        screen = CommandsModalScreen(command_history)
+        app.push_screen(screen)
+        await pilot.pause()
+
+        output_panel = screen.query_one("#commands-output-panel", Static)
+
+        # Initially hidden
+        assert output_panel.has_class("hidden")
+
+        # Press enter to expand
+        await pilot.press("enter")
+        await pilot.pause()
+
+        # Should be visible with output
+        assert not output_panel.has_class("hidden")
+        output_text = _static_rendered_text(output_panel)
+        assert "BUILD SUCCESS" in output_text
+        assert "mvn compile" in output_text
+
+        # Press enter again to collapse
+        await pilot.press("enter")
+        await pilot.pause()
+
+        assert output_panel.has_class("hidden")
+
+
+@pytest.mark.asyncio
+async def test_commands_modal_escape_closes():
+    """Verify CommandsModalScreen closes on escape when output is collapsed."""
+    from textual.app import App, ComposeResult
+    from textual.widgets import Static
+
+    from brokk_code.modals.commands_modal import CommandsModalScreen
+
+    class TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield Static("host")
+
+    app = TestApp()
+    async with app.run_test() as pilot:
+        screen = CommandsModalScreen([])
+        app.push_screen(screen)
+        await pilot.pause()
+
+        assert isinstance(app.screen, CommandsModalScreen)
+
+        await pilot.press("escape")
+        await pilot.pause()
+
+        # Should have dismissed the modal
+        assert not isinstance(app.screen, CommandsModalScreen)
+
+
+@pytest.mark.asyncio
 async def test_chat_panel_reflow_on_resize():
     """Verify that chat output reflows when the panel is resized."""
     from textual.app import App, ComposeResult
