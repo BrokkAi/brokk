@@ -84,7 +84,17 @@ public final class BrokkExternalMcpServerStdinShutdownIT {
                 return null;
             });
 
-            boolean sawBanner = bannerSeen.await(60, TimeUnit.SECONDS);
+            long bannerDeadlineNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(60);
+            boolean sawBanner = false;
+            while (System.nanoTime() < bannerDeadlineNanos) {
+                if (bannerSeen.await(250, TimeUnit.MILLISECONDS)) {
+                    sawBanner = true;
+                    break;
+                }
+                if (!process.isAlive() || outputPump.isDone()) {
+                    break;
+                }
+            }
             if (!sawBanner) {
                 if (process.isAlive()) {
                     process.destroyForcibly();
