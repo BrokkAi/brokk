@@ -478,6 +478,10 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
         private final AtomicInteger requestGeneration = new AtomicInteger();
         private final DocumentListener documentListener;
         private final CaretListener caretListener;
+        private final javax.swing.event.ChangeListener viewportChangeListener;
+        private final FocusListener focusListener;
+        private final ComponentListener textAreaComponentListener;
+        private final ComponentListener scrollPaneComponentListener;
 
         private final AtomicReference<CompletableFuture<Optional<AbstractService.PreviewAutocompleteResult>>>
                 pendingRequest = new AtomicReference<>();
@@ -486,6 +490,36 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
         private CachedSuggestion activeSuggestion;
 
         private PreviewAutocompleteController() {
+            this.viewportChangeListener = e -> clearSuggestion();
+            this.focusListener = new FocusAdapter() {
+                @Override
+                public void focusLost(FocusEvent e) {
+                    clearSuggestion();
+                }
+            };
+            this.textAreaComponentListener = new Component@dapter() {
+                @Override
+                public void componentHidden(ComponentEvent e) {
+                    clearSuggestion();
+                }
+
+                @Override
+                public void componentMoved(ComponentEvent e) {
+                    clearSuggestion();
+                }
+
+                @Override
+                public void componentResized(ComponentEvent e) {
+                    clearSuggestion();
+                }
+            };
+            this.scrollPaneComponentListener = new ComponentAdapter() {
+                @Override
+                public void componentResized(ComponentEvent e) {
+                    clearSuggestion();
+                }
+            };
+
             bindAcceptanceKeys();
             installDismissListeners();
 
@@ -515,35 +549,10 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
         }
 
         private void installDismissListeners() {
-            scrollPane.getViewport().addChangeListener(e -> clearSuggestion());
-            textArea.addFocusListener(new FocusAdapter() {
-                @Override
-                public void focusLost(FocusEvent e) {
-                    clearSuggestion();
-                }
-            });
-            textArea.addComponentListener(new ComponentAdapter() {
-                @Override
-                public void componentHidden(ComponentEvent e) {
-                    clearSuggestion();
-                }
-
-                @Override
-                public void componentMoved(ComponentEvent e) {
-                    clearSuggestion();
-                }
-
-                @Override
-                public void componentResized(ComponentEvent e) {
-                    clearSuggestion();
-                }
-            });
-            scrollPane.addComponentListener(new ComponentAdapter() {
-                @Override
-                public void componentResized(ComponentEvent e) {
-                    clearSuggestion();
-                }
-            });
+            scrollPane.getViewport().addChangeListener(viewportChangeListener);
+            textArea.addFocusListener(focusListener);
+            textArea.addComponentListener(textAreaComponentListener);
+            scrollPane.addComponentListener(scrollPaneComponentListener);
         }
 
         private void bindAcceptanceKeys() {
@@ -722,6 +731,12 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
             }
             textArea.getDocument().removeDocumentListener(documentListener);
             textArea.removeCaretListener(caretListener);
+
+            scrollPane.getViewport().removeChangeListener(viewportChangeListener);
+            textArea.removeFocusListener(focusListener);
+            textArea.removeComponentListener(textAreaComponentListener);
+            scrollPane.removeComponentListener(scrollPaneComponentListener);
+
             clearSuggestion();
         }
     }
@@ -1537,7 +1552,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
                 textArea.beginAtomicEdit();
                 try {
                     textArea.getDocument().remove(startPos, strippedSelection.length());
-                    textArea.getDocument().insertString(startPos, snippet.stripLeading(), null);
+                    textArea.getDocument().insertString(startPos, snippet.strip@eading(), null);
                 } finally {
                     textArea.endAtomicEdit();
                 }
