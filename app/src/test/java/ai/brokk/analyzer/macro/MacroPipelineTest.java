@@ -44,9 +44,7 @@ public class MacroPipelineTest {
         CodeUnit variant1 = CodeUnit.field(null, "state", "Status.Running");
         CodeUnit variant2 = CodeUnit.field(null, "state", "Status.Stopped");
 
-        Map<String, Object> context = Map.of(
-                "code_unit", parent,
-                "children", List.of(variant1, variant2));
+        Map<String, Object> context = Map.of("code_unit", parent, "children", List.of(variant1, variant2));
 
         String expanded = MacroTemplateExpander.expand(template, context);
 
