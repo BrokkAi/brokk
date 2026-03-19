@@ -379,6 +379,9 @@ func treeSitterIsTypescriptNamespaceDefinition(definition treeSitterDefinition) 
 	if definition.kind != "class" {
 		return false
 	}
+	if definition.nodeType == "internal_module" {
+		return true
+	}
 	signature := strings.TrimSpace(definition.signature)
 	snippet := strings.TrimSpace(definition.snippet)
 	return strings.Contains(signature, "namespace "+definition.name) ||
@@ -464,22 +467,41 @@ func buildTreeSitterSymbols(relativePath string, language string, packageName st
 		return classes[i].end > classes[j].end
 	})
 
+	classParents := make([]int, len(classes))
+	for i, definition := range classes {
+		classParents[i] = findEnclosingTreeSitterClass(classes, i, definition.start)
+	}
+
 	classSymbols := make([]Symbol, len(classes))
 	for i, definition := range classes {
-		parentIndex := findEnclosingTreeSitterClass(classes, i, definition.start)
+		parentIndex := classParents[i]
 		shortName := definition.name
 		parentFQName := ""
-		if parentIndex >= 0 {
+		symbolPackage := packageName
+		if language == "typescript" {
+			namespacePath, classParentIndex := resolveTypeScriptNamespaceContext(classes, classParents, parentIndex)
+			switch {
+			case classParentIndex >= 0:
+				shortName = classSymbols[classParentIndex].ShortName + "." + definition.name
+				parentFQName = classSymbols[classParentIndex].FQName
+				symbolPackage = classSymbols[classParentIndex].PackageName
+			case namespacePath != "":
+				symbolPackage = namespacePath
+			case parentIndex >= 0:
+				shortName = classSymbols[parentIndex].ShortName + "." + definition.name
+				parentFQName = classSymbols[parentIndex].FQName
+			}
+		} else if parentIndex >= 0 {
 			shortName = classSymbols[parentIndex].ShortName + "." + definition.name
 			parentFQName = classSymbols[parentIndex].FQName
 		}
 		classSymbols[i] = Symbol{
 			Kind:          "class",
 			Language:      language,
-			FQName:        joinName(packageName, shortName),
+			FQName:        joinName(symbolPackage, shortName),
 			ShortName:     shortName,
 			Identifier:    shortName,
-			PackageName:   packageName,
+			PackageName:   symbolPackage,
 			ParentFQName:  parentFQName,
 			RelativePath:  relativePath,
 			Signature:     definition.signature,
@@ -501,15 +523,29 @@ func buildTreeSitterSymbols(relativePath string, language string, packageName st
 			continue
 		}
 		parentSymbol := resolveTreeSitterParentClassSymbol(classes, classSymbols, definition)
+		symbolPackage := packageName
+		parentFQName := ""
+		if language == "typescript" {
+			namespacePath, classParentIndex := resolveTypeScriptNamespaceContextForDefinition(classes, classParents, definition)
+			switch {
+			case classParentIndex >= 0:
+				parentSymbol = &classSymbols[classParentIndex]
+				parentFQName = parentSymbol.FQName
+				symbolPackage = parentSymbol.PackageName
+			case namespacePath != "":
+				parentSymbol = nil
+				symbolPackage = namespacePath
+			case parentSymbol != nil:
+				parentFQName = parentSymbol.FQName
+			}
+		} else if parentSymbol != nil {
+			parentFQName = parentSymbol.FQName
+		}
 		if shouldSkipTreeSitterFunction(language, parentSymbol, definition) {
 			continue
 		}
-		parentFQName := ""
-		if parentSymbol != nil {
-			parentFQName = parentSymbol.FQName
-		}
 		shortName := definition.name
-		fqName := joinName(packageName, shortName)
+		fqName := joinName(symbolPackage, shortName)
 		if parentFQName != "" {
 			fqName = parentFQName + "." + definition.name
 		}
@@ -520,7 +556,7 @@ func buildTreeSitterSymbols(relativePath string, language string, packageName st
 			FQName:       fqName,
 			ShortName:    shortName,
 			Identifier:   shortName,
-			PackageName:  packageName,
+			PackageName:  symbolPackage,
 			ParentFQName: parentFQName,
 			RelativePath: relativePath,
 			Signature:    definition.signature,
@@ -534,16 +570,31 @@ func buildTreeSitterSymbols(relativePath string, language string, packageName st
 
 	for _, definition := range fields {
 		parentSymbol := resolveTreeSitterParentClassSymbol(classes, classSymbols, definition)
+		symbolPackage := packageName
 		parentFQName := ""
-		if parentSymbol != nil {
+		namespacePath := ""
+		if language == "typescript" {
+			namespacePath, classParentIndex := resolveTypeScriptNamespaceContextForDefinition(classes, classParents, definition)
+			switch {
+			case classParentIndex >= 0:
+				parentSymbol = &classSymbols[classParentIndex]
+				parentFQName = parentSymbol.FQName
+				symbolPackage = parentSymbol.PackageName
+			case namespacePath != "":
+				parentSymbol = nil
+				symbolPackage = namespacePath
+			case parentSymbol != nil:
+				parentFQName = parentSymbol.FQName
+			}
+		} else if parentSymbol != nil {
 			parentFQName = parentSymbol.FQName
 		}
 		shortName := definition.name
-		fqName := joinName(packageName, shortName)
+		fqName := joinName(symbolPackage, shortName)
 		if parentFQName != "" {
 			fqName = parentFQName + "." + definition.name
 		}
-		shortName, fqName = enhanceTypeScriptNamespaceFieldName(language, relativePath, parentSymbol, definition, shortName, fqName)
+		shortName, fqName = enhanceTypeScriptNamespaceFieldName(language, relativePath, packageName, symbolPackage, parentSymbol, namespacePath, definition, shortName, fqName)
 		fqName = enhanceTypeScriptMemberFQName(language, parentSymbol, definition, fqName)
 		results = append(results, Symbol{
 			Kind:         "field",
@@ -551,7 +602,7 @@ func buildTreeSitterSymbols(relativePath string, language string, packageName st
 			FQName:       fqName,
 			ShortName:    shortName,
 			Identifier:   shortName,
-			PackageName:  packageName,
+			PackageName:  symbolPackage,
 			ParentFQName: parentFQName,
 			RelativePath: relativePath,
 			Signature:    definition.signature,
@@ -844,6 +895,19 @@ func findEnclosingTreeSitterClass(classes []treeSitterDefinition, current int, o
 	return best
 }
 
+func findEnclosingTreeSitterClassForDefinition(classes []treeSitterDefinition, definition treeSitterDefinition) int {
+	best := -1
+	for i := range classes {
+		if definition.start < classes[i].start || definition.end > classes[i].end {
+			continue
+		}
+		if best < 0 || classes[i].start > classes[best].start {
+			best = i
+		}
+	}
+	return best
+}
+
 func resolveTreeSitterParentClassSymbol(classes []treeSitterDefinition, classSymbols []Symbol, definition treeSitterDefinition) *Symbol {
 	if definition.receiverType != "" {
 		for i := range classSymbols {
@@ -867,6 +931,50 @@ func resolveTreeSitterParentClassSymbol(classes []treeSitterDefinition, classSym
 		return &classSymbols[best]
 	}
 	return nil
+}
+
+func resolveTypeScriptNamespaceContext(classes []treeSitterDefinition, classParents []int, parentIndex int) (string, int) {
+	if parentIndex < 0 {
+		return "", -1
+	}
+
+	parts := make([]string, 0, 4)
+	current := parentIndex
+	for current >= 0 {
+		definition := classes[current]
+		if !treeSitterIsTypescriptNamespaceDefinition(definition) {
+			return "", current
+		}
+		namespaceParts := splitTypeScriptNamespaceParts(definition.name)
+		for i := len(namespaceParts) - 1; i >= 0; i-- {
+			parts = append([]string{namespaceParts[i]}, parts...)
+		}
+		current = classParents[current]
+	}
+
+	return strings.Join(parts, "."), -1
+}
+
+func resolveTypeScriptNamespaceContextForDefinition(classes []treeSitterDefinition, classParents []int, definition treeSitterDefinition) (string, int) {
+	return resolveTypeScriptNamespaceContext(classes, classParents, findEnclosingTreeSitterClassForDefinition(classes, definition))
+}
+
+func splitTypeScriptNamespaceParts(name string) []string {
+	raw := strings.TrimSpace(name)
+	if raw == "" {
+		return nil
+	}
+
+	parts := strings.Split(raw, ".")
+	results := make([]string, 0, len(parts))
+	for _, part := range parts {
+		trimmed := strings.TrimSpace(part)
+		if trimmed == "" {
+			continue
+		}
+		results = append(results, trimmed)
+	}
+	return results
 }
 
 func enhanceTypeScriptMemberFQName(language string, parentSymbol *Symbol, definition treeSitterDefinition, fqName string) string {
@@ -893,11 +1001,14 @@ func enhanceTypeScriptMemberFQName(language string, parentSymbol *Symbol, defini
 	}
 }
 
-func enhanceTypeScriptNamespaceFieldName(language string, relativePath string, parentSymbol *Symbol, definition treeSitterDefinition, shortName string, fqName string) (string, string) {
-	if language != "typescript" || parentSymbol == nil || definition.kind != "field" {
+func enhanceTypeScriptNamespaceFieldName(language string, relativePath string, basePackage string, symbolPackage string, parentSymbol *Symbol, namespacePath string, definition treeSitterDefinition, shortName string, fqName string) (string, string) {
+	if language != "typescript" || definition.kind != "field" {
 		return shortName, fqName
 	}
-	if !treeSitterIsTypescriptNamespaceSignature(parentSymbol.Signature) {
+	if parentSymbol != nil && !treeSitterIsTypescriptNamespaceSignature(parentSymbol.Signature) {
+		return shortName, fqName
+	}
+	if parentSymbol == nil && namespacePath == "" && (symbolPackage == "" || symbolPackage == basePackage) {
 		return shortName, fqName
 	}
 
@@ -906,7 +1017,11 @@ func enhanceTypeScriptNamespaceFieldName(language string, relativePath string, p
 		return shortName, fqName
 	}
 	shortName = fileName + "." + definition.name
-	fqName = parentSymbol.FQName + "." + shortName
+	if parentSymbol != nil {
+		fqName = parentSymbol.FQName + "." + shortName
+	} else {
+		fqName = joinName(firstNonEmpty(namespacePath, symbolPackage), shortName)
+	}
 	return shortName, fqName
 }
 

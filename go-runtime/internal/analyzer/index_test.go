@@ -421,10 +421,10 @@ func TestParseTreeSitterSymbolsTypeScriptAccessorAndStaticSuffixes(t *testing.T)
 
 	functions := sortedFQNames(filterByKind(symbols, "function"))
 	want := []string{
+		"FieldAndFunction.helper",
 		"web.FieldAndFunction.create$static",
 		"web.FieldAndFunction.data$get",
 		"web.FieldAndFunction.data$set",
-		"web.FieldAndFunction.helper",
 	}
 	if !slices.Equal(functions, want) {
 		t.Fatalf("functions = %#v, want %#v", functions, want)
@@ -522,6 +522,77 @@ func TestParseTreeSitterSymbolsTypeScriptNamespaceMergeDedupesRootClassNames(t *
 	}
 	if !hasPointConfig {
 		t.Fatalf("classes = %#v, want nested namespace interface Point.Config", classes)
+	}
+}
+
+func TestParseTreeSitterSymbolsTypeScriptUsesNamespaceAsPackage(t *testing.T) {
+	if !treeSitterEnabled() {
+		t.Skip("tree-sitter requires cgo support on this machine")
+	}
+
+	symbols, ok := parseTreeSitterSymbols("src/utils/test.ts", ""+
+		"namespace MyApp {\n"+
+		"  export function helper() { }\n"+
+		"}\n")
+	if !ok {
+		t.Fatal("parseTreeSitterSymbols() = false, want true")
+	}
+
+	functions := filterByKind(symbols, "function")
+	if len(functions) != 1 {
+		t.Fatalf("functions = %#v, want 1 namespace function", functions)
+	}
+	if functions[0].PackageName != "MyApp" || functions[0].FQName != "MyApp.helper" || functions[0].ParentFQName != "" {
+		t.Fatalf("functions[0] = %#v, want namespace package semantics", functions[0])
+	}
+}
+
+func TestParseTreeSitterSymbolsTypeScriptUsesNestedNamespaceAsPackage(t *testing.T) {
+	if !treeSitterEnabled() {
+		t.Skip("tree-sitter requires cgo support on this machine")
+	}
+
+	symbols, ok := parseTreeSitterSymbols("src/models/test.ts", ""+
+		"namespace A {\n"+
+		"  export namespace B {\n"+
+		"    export class C { }\n"+
+		"  }\n"+
+		"}\n")
+	if !ok {
+		t.Fatal("parseTreeSitterSymbols() = false, want true")
+	}
+
+	classes := filterByKind(symbols, "class")
+	targets := filterFQNames(classes, "A.B.C")
+	if len(targets) != 1 {
+		t.Fatalf("classes = %#v, want class A.B.C", classes)
+	}
+	if targets[0].PackageName != "A.B" || targets[0].ShortName != "C" || targets[0].ParentFQName != "" {
+		t.Fatalf("targets[0] = %#v, want nested namespace package semantics", targets[0])
+	}
+}
+
+func TestParseTreeSitterSymbolsTypeScriptUsesNamespacePackageForClassMethods(t *testing.T) {
+	if !treeSitterEnabled() {
+		t.Skip("tree-sitter requires cgo support on this machine")
+	}
+
+	symbols, ok := parseTreeSitterSymbols("src/service/test.ts", ""+
+		"namespace Outer.Inner {\n"+
+		"  export class Service {\n"+
+		"    run(): void { }\n"+
+		"  }\n"+
+		"}\n")
+	if !ok {
+		t.Fatal("parseTreeSitterSymbols() = false, want true")
+	}
+
+	methods := filterFQNames(filterByKind(symbols, "function"), "Outer.Inner.Service.run")
+	if len(methods) != 1 {
+		t.Fatalf("methods = %#v, want method Outer.Inner.Service.run", methods)
+	}
+	if methods[0].PackageName != "Outer.Inner" || methods[0].ParentFQName != "Outer.Inner.Service" {
+		t.Fatalf("methods[0] = %#v, want namespace package preserved on class method", methods[0])
 	}
 }
 
@@ -1541,4 +1612,14 @@ func writeAnalyzerFile(t *testing.T, workspace string, relativePath string, cont
 	if err := os.WriteFile(absolutePath, []byte(content), 0o644); err != nil {
 		t.Fatalf("os.WriteFile() error = %v", err)
 	}
+}
+
+func filterFQNames(symbols []Symbol, fqName string) []Symbol {
+	results := make([]Symbol, 0, len(symbols))
+	for _, symbol := range symbols {
+		if symbol.FQName == fqName {
+			results = append(results, symbol)
+		}
+	}
+	return results
 }
