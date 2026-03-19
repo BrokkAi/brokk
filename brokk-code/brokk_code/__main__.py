@@ -597,6 +597,9 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Show full headless executor output (events/tokens) for debugging",
     )
 
+    version_parser = subparsers.add_parser("version", help="Print version information")
+    _add_common_runtime_args(version_parser)
+
     return parser
 
 
@@ -1344,6 +1347,11 @@ def main():
             print(f"Error: {exc}", file=sys.stderr)
             sys.exit(1)
 
+        return
+
+    if args.command == "version":
+        from brokk_code import __version__
+        print(f"brokk {__version__}")
         return
 
     workspace_path = Path(args.workspace).resolve()

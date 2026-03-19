@@ -21,6 +21,18 @@ def _stub_install_warmup(monkeypatch) -> None:
     )
 
 
+def test_main_version_subcommand_prints_version(monkeypatch, capsys) -> None:
+    """Verify `brokk version` prints the package version and exits cleanly."""
+    from brokk_code import __version__
+    monkeypatch.setattr(sys, "argv", ["brokk", "version"])
+
+    from brokk_code.__main__ import main
+    main()
+
+    captured = capsys.readouterr()
+    assert f"brokk {__version__}" in captured.out
+
+
 def test_main_defaults_to_tui(monkeypatch, tmp_path) -> None:
     captured: dict[str, Any] = {"ran": False}
     fake_app_module = ModuleType("brokk_code.app")
