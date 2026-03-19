@@ -12,11 +12,7 @@ from brokk_code.zed_config import ExistingBrokkCodeEntryError
 
 def test_configure_claude_code_mcp_settings_uses_claude_json(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
-    # Mock resolve_jbang_binary to return None so we get fallback "jbang"
-    monkeypatch.setattr(
-        "brokk_code.mcp_config.resolve_jbang_binary",
-        lambda: None,
-    )
+    monkeypatch.setattr("brokk_code.mcp_config.resolve_brokk_command", lambda _cmd=None: "brokk")
 
     returned_path = configure_claude_code_mcp_settings(force=True)
 
@@ -27,7 +23,8 @@ def test_configure_claude_code_mcp_settings_uses_claude_json(tmp_path, monkeypat
     data = json.loads(expected_path.read_text(encoding="utf-8"))
     assert "mcpServers" in data
     assert "brokk" in data["mcpServers"]
-    assert data["mcpServers"]["brokk"]["command"] == "jbang"
+    assert data["mcpServers"]["brokk"]["command"] == "brokk"
+    assert data["mcpServers"]["brokk"]["args"] == ["mcp"]
 
 
 def test_configure_claude_code_mcp_settings_preserves_existing_keys(tmp_path):
@@ -125,47 +122,45 @@ def test_configure_codex_mcp_settings_skips_duplicate_brokk_mark(tmp_path, monke
     assert "Already here" in content
 
 
-def test_configure_claude_code_mcp_settings_uses_absolute_jbang_path(tmp_path, monkeypatch):
-    """Verify the config uses an absolute JBang path for non-login shell compatibility."""
-    # Mock resolve_jbang_binary to return a known absolute path
+def test_configure_claude_code_mcp_settings_uses_absolute_brokk_path(tmp_path, monkeypatch):
+    """Verify the config uses an absolute brokk path for non-login shell compatibility."""
     monkeypatch.setattr(
-        "brokk_code.mcp_config.resolve_jbang_binary",
-        lambda: "/usr/local/bin/jbang",
+        "brokk_code.mcp_config.resolve_brokk_command",
+        lambda _cmd=None: "/usr/local/bin/brokk",
     )
 
     config_path = tmp_path / ".claude.json"
     configure_claude_code_mcp_settings(force=True, settings_path=config_path)
 
     data = json.loads(config_path.read_text(encoding="utf-8"))
-    assert data["mcpServers"]["brokk"]["command"] == "/usr/local/bin/jbang"
+    assert data["mcpServers"]["brokk"]["command"] == "/usr/local/bin/brokk"
 
 
-def test_configure_codex_mcp_settings_uses_absolute_jbang_path(tmp_path, monkeypatch):
-    """Verify the config uses an absolute JBang path for non-login shell compatibility."""
+def test_configure_codex_mcp_settings_uses_absolute_brokk_path(tmp_path, monkeypatch):
+    """Verify the config uses an absolute brokk path for non-login shell compatibility."""
     monkeypatch.setattr(
-        "brokk_code.mcp_config.resolve_jbang_binary",
-        lambda: "/home/user/.jbang/bin/jbang",
+        "brokk_code.mcp_config.resolve_brokk_command",
+        lambda _cmd=None: "/home/user/.local/bin/brokk",
     )
 
     config_path = tmp_path / "config.toml"
     configure_codex_mcp_settings(force=True, settings_path=config_path)
 
     data = tomllib.loads(config_path.read_text(encoding="utf-8"))
-    assert data["mcp_servers"]["brokk"]["command"] == "/home/user/.jbang/bin/jbang"
+    assert data["mcp_servers"]["brokk"]["command"] == "/home/user/.local/bin/brokk"
+    assert data["mcp_servers"]["brokk"]["args"] == ["mcp"]
 
 
-def test_configure_mcp_settings_falls_back_to_bare_jbang(tmp_path, monkeypatch):
-    """If JBang cannot be resolved, fall back to bare 'jbang' command."""
-    monkeypatch.setattr(
-        "brokk_code.mcp_config.resolve_jbang_binary",
-        lambda: None,
-    )
+def test_configure_mcp_settings_falls_back_to_bare_brokk(tmp_path, monkeypatch):
+    """If brokk cannot be resolved, fall back to bare 'brokk' command."""
+    monkeypatch.setattr("brokk_code.mcp_config.shutil.which", lambda _name: None)
+    monkeypatch.setattr("brokk_code.mcp_config.sys.argv", ["brokk"])
 
     config_path = tmp_path / ".claude.json"
     configure_claude_code_mcp_settings(force=True, settings_path=config_path)
 
     data = json.loads(config_path.read_text(encoding="utf-8"))
-    assert data["mcpServers"]["brokk"]["command"] == "jbang"
+    assert data["mcpServers"]["brokk"]["command"] == "brokk"
 
 
 def test_configure_claude_code_mcp_settings_uses_brokk_server_permission_rule(tmp_path) -> None:

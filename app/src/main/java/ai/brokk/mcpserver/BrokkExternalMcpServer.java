@@ -74,6 +74,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
@@ -123,6 +124,25 @@ public class BrokkExternalMcpServer {
         }
     }
 
+    private static void initiateStdinEofShutdown(
+            AtomicReference<McpSyncServer> serverRef, AtomicBoolean shutdownInitiated) {
+        if (!shutdownInitiated.compareAndSet(false, true)) {
+            return;
+        }
+
+        logger.info("stdin EOF detected; parent process gone, shutting down");
+        try {
+            var server = serverRef.get();
+            if (server != null) {
+                server.closeGracefully();
+            }
+        } catch (Exception e) {
+            logger.warn("Error while closing MCP server after stdin EOF", e);
+        } finally {
+            System.exit(0);
+        }
+    }
+
     public static void main(String[] args) {
         System.setProperty("java.awt.headless", "true");
 
@@ -153,17 +173,18 @@ public class BrokkExternalMcpServer {
 
             McpJsonMapper mapper = McpJsonDefaults.getMapper();
             AtomicReference<McpSyncServer> serverRef = new AtomicReference<>();
+            AtomicBoolean shutdownInitiated = new AtomicBoolean(false);
 
             // Wrap System.in to detect EOF (parent process death) and exit cleanly.
-            // StdioServerTransportProvider reads from this stream for MCP messages;
-            // when the parent closes the pipe, read() returns -1 and we call System.exit(0).
+            // StdioServerTransportProvider reads from this stream for MCP messages.
+            // When the parent closes the pipe, read() returns -1 on the transport read path, so
+            // we close the MCP server and then terminate the process from the same path.
             InputStream stdinWrapper = new FilterInputStream(System.in) {
                 @Override
                 public int read() throws IOException {
                     int b = super.read();
                     if (b == -1) {
-                        logger.info("stdin EOF detected; parent process gone, exiting");
-                        System.exit(0);
+                        initiateStdinEofShutdown(serverRef, shutdownInitiated);
                     }
                     return b;
                 }
@@ -172,8 +193,7 @@ public class BrokkExternalMcpServer {
                 public int read(byte[] buf, int off, int len) throws IOException {
                     int n = super.read(buf, off, len);
                     if (n == -1) {
-                        logger.info("stdin EOF detected; parent process gone, exiting");
-                        System.exit(0);
+                        initiateStdinEofShutdown(serverRef, shutdownInitiated);
                     }
                     return n;
                 }
