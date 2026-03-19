@@ -1,6 +1,7 @@
 package ai.brokk;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.project.IProject;
 import ai.brokk.project.ModelProperties.ModelType;
@@ -66,6 +67,18 @@ class ServicePreviewAutocompleteTest {
                 """);
 
         assertEquals(" completion();", Service.extractFimCompletionText(response));
+    }
+
+    @Test
+    void parsePreviewAutocompleteResponse_returnsEmptyOnInvalidJson() {
+        var result = Service.parsePreviewAutocompleteResponse("test-model", "invalid-json");
+        assertTrue(result.isEmpty());
+    }
+
+    @Test
+    void parsePreviewAutocompleteResponse_returnsEmptyOnMissingChoices() {
+        var result = Service.parsePreviewAutocompleteResponse("test-model", "{\"choices\": []}");
+        assertTrue(result.isEmpty());
     }
 
     @Test

@@ -142,24 +142,27 @@ public class Service extends AbstractService {
                         modelName,
                         response.code(),
                         responseBody);
-                String warningText = "/* preview autocomplete failed (HTTP " + response.code() + ") */";
-                return Optional.of(new PreviewAutocompleteResult(warningText, modelName));
-            }
-
-            log.debug("Preview autocomplete response received from model {}: {}", modelName, responseBody);
-            try {
-                var completion = extractFimCompletionText(objectMapper.readTree(responseBody));
-                if (completion == null || completion.isBlank()) {
-                    return Optional.empty();
-                }
-                return Optional.of(new PreviewAutocompleteResult(completion, modelName));
-            } catch (IOException e) {
-                log.warn(
-                        "Failed to parse or process preview autocomplete response for model {}: {}",
-                        modelName,
-                        e.getMessage());
                 return Optional.empty();
             }
+
+            return parsePreviewAutocompleteResponse(modelName, responseBody);
+        }
+    }
+
+    static Optional<PreviewAutocompleteResult> parsePreviewAutocompleteResponse(String modelName, String responseBody) {
+        log.debug("Preview autocomplete response received from model {}: {}", modelName, responseBody);
+        try {
+            var completion = extractFimCompletionText(new ObjectMapper().readTree(responseBody));
+            if (completion == null || completion.isBlank()) {
+                return Optional.empty();
+            }
+            return Optional.of(new PreviewAutocompleteResult(completion, modelName));
+        } catch (IOException e) {
+            log.warn(
+                    "Failed to parse or process preview autocomplete response for model {}: {}",
+                    modelName,
+                    e.getMessage());
+            return Optional.empty();
         }
     }
 

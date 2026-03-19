@@ -261,8 +261,6 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
     public record PreviewAutocompleteRequest(
             String prefix, String suffix, int maxTokens, @Nullable Double temperature) {
         public PreviewAutocompleteRequest {
-            Objects.requireNonNull(prefix, "prefix");
-            Objects.requireNonNull(suffix, "suffix");
             assert maxTokens > 0 : "maxTokens must be positive";
         }
 
@@ -272,12 +270,7 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
     }
 
     /** Represents a single model-backed Preview autocomplete suggestion. */
-    public record PreviewAutocompleteResult(String completion, String modelName) {
-        public PreviewAutocompleteResult {
-            Objects.requireNonNull(completion, "completion");
-            Objects.requireNonNull(modelName, "modelName");
-        }
-    }
+    public record PreviewAutocompleteResult(String completion, String modelName) {}
 
     /**
      * Parses a Brokk API key of the form 'brk+<userId>+<token>'. The userId must be a valid UUID.
@@ -415,7 +408,9 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
      */
     public @Nullable String previewAutocompleteModelName() {
         var configuredCodeModel = project.getModelConfig(ModelType.CODE).name();
-        var preferredModel = modelInfoMap.keySet().stream()
+        var modelNames = List.copyOf(modelInfoMap.keySet());
+
+        var preferredModel = modelNames.stream()
                 .filter(name -> !UNAVAILABLE.equals(name))
                 .filter(name -> previewAutocompleteModelRank(name) < 100)
                 .min(Comparator.comparingInt(AbstractService::previewAutocompleteModelRank)
@@ -428,7 +423,7 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
             return configuredCodeModel;
         }
 
-        return modelInfoMap.keySet().stream()
+        return modelNames.stream()
                 .filter(name -> !UNAVAILABLE.equals(name))
                 .filter(name -> name.toLowerCase(Locale.ROOT).contains("code"))
                 .min(String::compareToIgnoreCase)

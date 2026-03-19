@@ -54,6 +54,7 @@ import javax.swing.event.DocumentListener;
 import javax.swing.event.PopupMenuEvent;
 import javax.swing.event.PopupMenuListener;
 import javax.swing.text.BadLocationException;
+import javax.swing.text.Document;
 import javax.swing.text.JTextComponent;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -404,6 +405,46 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
     }
 
     static @Nullable AbstractService.PreviewAutocompleteRequest buildPreviewAutocompleteRequest(
+            @Nullable Document doc, int caretPosition, @Nullable String selectedText) {
+        if (doc == null || (selectedText != null && !selectedText.isEmpty())) {
+            return null;
+        }
+
+        int docLen = doc.getLength();
+        if (caretPosition <= 0 || caretPosition > docLen) {
+            return null;
+        }
+
+        try {
+            // Special-case "Loading..." suppression for small documents
+            if (docLen < 20 && "Loading...".equals(doc.getText(0, docLen))) {
+                return null;
+            }
+
+            int prefixLen = Math.min(caretPosition, PREVIEW_AUTOCOMPLETE_CONTEXT_CHARS);
+            int prefixStart = caretPosition - prefixLen;
+            String prefix = doc.getText(prefixStart, prefixLen);
+
+            if (prefix.isBlank()) {
+                return null;
+            }
+
+            long nonWhitespacePrefixChars =
+                    prefix.chars().filter(ch -> !Character.isWhitespace(ch)).count();
+            if (nonWhitespacePrefixChars < PREVIEW_AUTOCOMPLETE_MIN_PREFIX_CHARS) {
+                return null;
+            }
+
+            int suffixLen = Math.min(docLen - caretPosition, PREVIEW_AUTOCOMPLETE_CONTEXT_CHARS);
+            String suffix = doc.getText(caretPosition, suffixLen);
+
+            return new AbstractService.PreviewAutocompleteRequest(prefix, suffix, PREVIEW_AUTOCOMPLETE_MAX_TOKENS, 0.1);
+        } catch (BadLocationException e) {
+            return null;
+        }
+    }
+
+    static @Nullable AbstractService.PreviewAutocompleteRequest buildPreviewAutocompleteRequest(
             String text, int caretPosition, @Nullable String selectedText) {
         if (text.isBlank() || "Loading...".equals(text)) {
             return null;
@@ -571,24 +612,25 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
         }
 
         private void requestSuggestion() {
-            var request = buildPreviewAutocompleteRequest(
-                    textArea.getText(), textArea.getCaretPosition(), textArea.getSelectedText());
+            int caretPosition = textArea.getCaretPosition();
+            var request =
+                    buildPreviewAutocompleteRequest(textArea.getDocument(), caretPosition, textArea.getSelectedText());
             if (request == null) {
                 return;
             }
 
             int generation = requestGeneration.get();
+            String prefixTail =
+                    request.prefix().substring(Math.max(0, request.prefix().length() - 50));
+
             var future = LoggingFuture.supplyCallableAsync(
                     () -> {
                         logger.debug(
                                 "Requesting FIM suggestion for prefix length: {}, suffix length: {}, caret: {}",
                                 request.prefix().length(),
                                 request.suffix().length(),
-                                textArea.getCaretPosition());
-                        logger.debug(
-                                "Prefix: '{}'",
-                                request.prefix()
-                                        .substring(Math.max(0, request.prefix().length() - 50)));
+                                caretPosition);
+                        logger.debug("Prefix: '{}'", prefixTail);
                         return cm.getService().previewAutocomplete(request);
                     },
                     cm.getBackgroundTasks());
@@ -621,7 +663,17 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
                 return;
             }
 
-            var suggestion = CachedSuggestion.from(request, textArea.getCaretPosition(), result.get());
+            var normalized = normalizeCompletion(result.get().completion());
+            if (normalized == null) {
+                return;
+            }
+
+            var suggestion = CachedSuggestion.from(
+                    request,
+                    textArea.getCaretPosition(),
+                    new AbstractService.PreviewAutocompleteResult(
+                            normalized, result.get().modelName()));
+
             if (!suggestion.matches(textArea)) {
                 logger.debug("FIM suggestion does not match current editor state");
                 return;
@@ -674,6 +726,15 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
         }
     }
 
+    static @Nullable String normalizeCompletion(String completion) {
+        String normalized = completion.replace("\r\n", "\n").replace('\r', '\n');
+        int firstNewline = normalized.indexOf('\n');
+        if (firstNewline != -1) {
+            normalized = normalized.substring(0, firstNewline);
+        }
+        return normalized.isBlank() ? null : normalized;
+    }
+
     private record CachedSuggestion(
             String prefix, String suffix, int caretPosition, String completion, String modelName) {
         private static CachedSuggestion from(
@@ -685,12 +746,13 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
         }
 
         private boolean matches(JTextComponent component) {
-            if (component.getCaretPosition() != caretPosition) {
+            int currentCaret = component.getCaretPosition();
+            if (currentCaret != caretPosition) {
                 return false;
             }
 
-            var request = buildPreviewAutocompleteRequest(
-                    component.getText(), component.getCaretPosition(), component.getSelectedText());
+            var request =
+                    buildPreviewAutocompleteRequest(component.getDocument(), currentCaret, component.getSelectedText());
             return request != null && prefix.equals(request.prefix()) && suffix.equals(request.suffix());
         }
 
@@ -747,14 +809,14 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
 
         @Override
         protected void paintComponent(Graphics g) {
+            super.paintComponent(g);
+
             if (!isEditable() || previewAutocompleteController == null) {
-                super.paintComponent(g);
                 return;
             }
 
             var suggestion = previewAutocompleteController.getActiveSuggestion();
             if (suggestion == null) {
-                super.paintComponent(g);
                 return;
             }
 
@@ -762,83 +824,24 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
                 int caretPos = getCaretPosition();
                 var rect = modelToView2D(caretPos);
                 if (rect == null) {
-                    super.paintComponent(g);
                     return;
                 }
 
-                int caretLine = getLineOfOffset(caretPos);
-                int lineStartOffset = getLineStartOffset(caretLine);
-                var lineStartRect = modelToView2D(lineStartOffset);
-                if (lineStartRect == null) {
-                    super.paintComponent(g);
-                    return;
-                }
-
-                String[] lines = suggestion.popupText().split("\n", -1);
-                int ghostExtraLines = Math.max(0, lines.length - 1);
-
-                Graphics2D gPass1 = (Graphics2D) g.create();
-                Graphics2D gPass2 = (Graphics2D) g.create();
                 Graphics2D gGhost = (Graphics2D) g.create();
                 try {
-                    gPass1.setFont(getFont());
-                    gPass2.setFont(getFont());
                     gGhost.setFont(getFont());
-
-                    FontMetrics fm = gGhost.getFontMetrics();
-                    int lineHeight = fm.getHeight();
-
-                    int caretLineTopY = (int) lineStartRect.getY();
-                    int nextLineTopY = caretLineTopY + lineHeight;
-
-                    float xCaret = (float) rect.getX();
-                    float xLineStart = (float) lineStartRect.getX();
-
-                    if (ghostExtraLines > 0) {
-                        // Paint original editor content above the insertion point.
-                        gPass1.setClip(0, 0, getWidth(), nextLineTopY);
-                        super.paintComponent(gPass1);
-
-                        // Paint original editor content below the insertion point shifted down.
-                        int shiftPx = ghostExtraLines * lineHeight;
-                        gPass2.translate(0, shiftPx);
-
-                        int clipY = Math.max(0, nextLineTopY - shiftPx);
-                        int clipH = Math.max(0, getHeight() - clipY);
-                        gPass2.setClip(0, clipY, getWidth(), clipH);
-                        super.paintComponent(gPass2);
-                    } else {
-                        super.paintComponent(gPass1);
-                    }
-
-                    // Mask the entire ghost area so shifted editor content doesn't show through.
-                    // For the first ghost line, preserve text that exists before the caret.
-                    gGhost.setColor(getBackground());
-                    for (int i = 0; i < lines.length; i++) {
-                        int lineTopY = caretLineTopY + (i * lineHeight);
-                        if (i == 0) {
-                            gGhost.fillRect((int) xCaret, lineTopY, getWidth() - (int) xCaret, lineHeight);
-                        } else {
-                            gGhost.fillRect(0, lineTopY, getWidth(), lineHeight);
-                        }
-                    }
-
-                    // Draw ghost text lines (first line continues after caret, subsequent lines align to line start).
                     gGhost.setColor(PREVIEW_AUTOCOMPLETE_GHOST_COLOR);
-                    int baseY = caretLineTopY + fm.getAscent();
-                    for (int i = 0; i < lines.length; i++) {
-                        float drawX = i == 0 ? xCaret : xLineStart;
-                        int drawY = baseY + (i * lineHeight);
-                        gGhost.drawString(lines[i], drawX, drawY);
-                    }
+                    FontMetrics fm = gGhost.getFontMetrics();
+
+                    // Draw single-line ghost text immediately following the caret
+                    float x = (float) rect.getX();
+                    float y = (float) rect.getY() + fm.getAscent();
+                    gGhost.drawString(suggestion.popupText(), x, y);
                 } finally {
-                    gPass1.dispose();
-                    gPass2.dispose();
                     gGhost.dispose();
                 }
             } catch (BadLocationException e) {
-                // If we can't resolve caret position, skip ghost rendering.
-                super.paintComponent(g);
+                // Ignore
             }
         }
 
