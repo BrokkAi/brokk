@@ -488,6 +488,43 @@ func TestParseTreeSitterSymbolsTypeScriptNamespaceMergeFieldsAndFunctions(t *tes
 	}
 }
 
+func TestParseTreeSitterSymbolsTypeScriptNamespaceMergeDedupesRootClassNames(t *testing.T) {
+	if !treeSitterEnabled() {
+		t.Skip("tree-sitter requires cgo support on this machine")
+	}
+
+	symbols, ok := parseTreeSitterSymbols("NamespaceMerging.ts", ""+
+		"export class Point {\n"+
+		"  constructor(public x: number, public y: number) {}\n"+
+		"}\n\n"+
+		"export namespace Point {\n"+
+		"  export const origin = new Point(0, 0);\n"+
+		"  export function fromPolar(r: number, theta: number): Point { return new Point(r, theta); }\n"+
+		"  export interface Config { precision?: number; }\n"+
+		"}\n")
+	if !ok {
+		t.Fatal("parseTreeSitterSymbols() = false, want true")
+	}
+
+	classes := filterByKind(symbols, "class")
+	pointCount := 0
+	hasPointConfig := false
+	for _, classSymbol := range classes {
+		if classSymbol.FQName == "Point" {
+			pointCount++
+		}
+		if classSymbol.FQName == "Point.Config" {
+			hasPointConfig = true
+		}
+	}
+	if pointCount != 1 {
+		t.Fatalf("classes = %#v, want exactly one Point class-like root after TS declaration merge", classes)
+	}
+	if !hasPointConfig {
+		t.Fatalf("classes = %#v, want nested namespace interface Point.Config", classes)
+	}
+}
+
 func TestParseTreeSitterFileCapturesJavaImportsSupertypesAndTests(t *testing.T) {
 	if !treeSitterEnabled() {
 		t.Skip("tree-sitter requires cgo support on this machine")

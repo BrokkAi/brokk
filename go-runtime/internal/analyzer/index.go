@@ -2887,7 +2887,7 @@ func dedupeSymbols(symbols []Symbol) []Symbol {
 	results := make([]Symbol, 0, len(symbols))
 	indexByKey := map[string]int{}
 	for _, symbol := range symbols {
-		key := symbol.Kind + ":" + symbol.FQName + ":" + symbol.Signature
+		key := symbolDedupKey(symbol)
 		if idx, ok := indexByKey[key]; ok {
 			results[idx] = mergeDuplicateSymbol(results[idx], symbol)
 			continue
@@ -2898,10 +2898,21 @@ func dedupeSymbols(symbols []Symbol) []Symbol {
 	return results
 }
 
+func symbolDedupKey(symbol Symbol) string {
+	if symbol.Language == "typescript" && symbol.Kind == "class" {
+		return symbol.Kind + ":" + symbol.FQName
+	}
+	return symbol.Kind + ":" + symbol.FQName + ":" + symbol.Signature
+}
+
 func mergeDuplicateSymbol(existing Symbol, candidate Symbol) Symbol {
 	preferred := existing
 	other := candidate
 	if symbolDefinitionRank(candidate) < symbolDefinitionRank(existing) {
+		preferred = candidate
+		other = existing
+	} else if symbolDefinitionRank(candidate) == symbolDefinitionRank(existing) &&
+		symbolPreferredForMerge(candidate, existing) {
 		preferred = candidate
 		other = existing
 	}
@@ -2918,6 +2929,14 @@ func mergeDuplicateSymbol(existing Symbol, candidate Symbol) Symbol {
 	if strings.TrimSpace(preferred.Signature) == "" && strings.TrimSpace(other.Signature) != "" {
 		preferred.Signature = other.Signature
 	}
+	if preferred.Language == "typescript" && preferred.Kind == "class" && preferred.FQName == other.FQName {
+		preferred.Snippet = mergeDistinctText(preferred.Snippet, other.Snippet)
+		if !isTypeScriptNamespaceSymbol(preferred) && isTypeScriptNamespaceSymbol(other) {
+			// Keep the non-namespace signature as primary while preserving merged snippet text above.
+		} else {
+			preferred.Signature = firstNonEmpty(preferred.Signature, other.Signature)
+		}
+	}
 	return preferred
 }
 
@@ -2930,6 +2949,55 @@ func symbolDefinitionRank(symbol Symbol) int {
 	default:
 		return 2
 	}
+}
+
+func symbolPreferredForMerge(candidate Symbol, existing Symbol) bool {
+	if candidate.Language == "typescript" && candidate.Kind == "class" && candidate.FQName == existing.FQName {
+		if !isTypeScriptNamespaceSymbol(candidate) && isTypeScriptNamespaceSymbol(existing) {
+			return true
+		}
+	}
+	return false
+}
+
+func isTypeScriptNamespaceSymbol(symbol Symbol) bool {
+	if symbol.Language != "typescript" || symbol.Kind != "class" {
+		return false
+	}
+	signature := strings.TrimSpace(symbol.Signature)
+	snippet := strings.TrimSpace(symbol.Snippet)
+	return strings.Contains(signature, "namespace ") ||
+		strings.Contains(signature, "module ") ||
+		strings.Contains(snippet, "namespace ") ||
+		strings.Contains(snippet, "module ")
+}
+
+func mergeDistinctText(primary string, secondary string) string {
+	primary = strings.TrimSpace(primary)
+	secondary = strings.TrimSpace(secondary)
+	switch {
+	case primary == "":
+		return secondary
+	case secondary == "":
+		return primary
+	case primary == secondary:
+		return primary
+	case strings.Contains(primary, secondary):
+		return primary
+	case strings.Contains(secondary, primary):
+		return secondary
+	default:
+		return primary + "\n\n" + secondary
+	}
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func isHierarchicalQuery(query string) bool {
