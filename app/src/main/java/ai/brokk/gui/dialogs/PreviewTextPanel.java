@@ -343,6 +343,8 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
         registerSaveKey();
         // Setup custom window close handler
         setupWindowCloseHandler();
+        // Setup cleanup on removal
+        setupHierarchyCleanup();
 
         // Fetch declarations in the background if it's a project file
         if (file != null) {
@@ -432,6 +434,8 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
     private final class PreviewAutocompleteController {
         private final javax.swing.Timer debounceTimer;
         private final AtomicInteger requestGeneration = new AtomicInteger();
+        private final DocumentListener documentListener;
+        private final CaretListener caretListener;
 
         @Nullable
         private CompletableFuture<Optional<AbstractService.PreviewAutocompleteResult>> pendingRequest;
@@ -446,7 +450,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
             debounceTimer = new javax.swing.Timer(PREVIEW_AUTOCOMPLETE_DEBOUNCE_MS, e -> requestSuggestion());
             debounceTimer.setRepeats(false);
 
-            var documentListener = new DocumentListener() {
+            this.documentListener = new DocumentListener() {
                 @Override
                 public void insertUpdate(DocumentEvent e) {
                     scheduleRefresh();
@@ -464,7 +468,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
             };
             textArea.getDocument().addDocumentListener(documentListener);
 
-            CaretListener caretListener = e -> scheduleRefresh();
+            this.caretListener = e -> scheduleRefresh();
             textArea.addCaretListener(caretListener);
         }
 
@@ -650,6 +654,16 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
                 activeSuggestion = null;
             }
             return activeSuggestion;
+        }
+
+        public void dispose() {
+            debounceTimer.stop();
+            if (pendingRequest != null) {
+                pendingRequest.cancel(true);
+            }
+            textArea.getDocument().removeDocumentListener(documentListener);
+            textArea.removeCaretListener(caretListener);
+            clearSuggestion();
         }
     }
 
@@ -1529,6 +1543,19 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
         return new QuickEditResult(snippet, null);
     }
 
+    /** Ensures resources are cleaned up when the panel is removed from the UI hierarchy. */
+    private void setupHierarchyCleanup() {
+        addHierarchyListener(new HierarchyListener() {
+            @Override
+            public void hierarchyChanged(HierarchyEvent e) {
+                if ((e.getChangeFlags() & HierarchyEvent.PARENT_CHANGED) != 0 && getParent() == null) {
+                    dispose();
+                    removeHierarchyListener(this);
+                }
+            }
+        });
+    }
+
     /** Sets up a handler for the window's close button ("X") to ensure `confirmClose` is called. */
     private void setupWindowCloseHandler() {
         var listener = new HierarchyListener() {
@@ -1607,12 +1634,23 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
             };
         }
 
-        // Clean up background tasks if closing
-        if (shouldClose && symbolsFuture != null) {
-            symbolsFuture.cancel(true);
+        if (shouldClose) {
+            dispose();
         }
 
         return shouldClose;
+    }
+
+    /**
+     * Releases resources and removes listeners.
+     */
+    public void dispose() {
+        if (symbolsFuture != null) {
+            symbolsFuture.cancel(true);
+        }
+        if (previewAutocompleteController != null) {
+            previewAutocompleteController.dispose();
+        }
     }
 
     /** Registers the Ctrl+S (or Cmd+S on Mac) keyboard shortcut to trigger the save action. */
