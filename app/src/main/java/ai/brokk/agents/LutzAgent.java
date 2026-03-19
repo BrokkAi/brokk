@@ -210,7 +210,7 @@ public class LutzAgent {
         this.io = io;
         this.scanConfig = scanConfig;
 
-        var llmOptions = new Llm.Options(model, goal, TaskResult.Type.SEARCH).withEcho();
+        var llmOptions = new Llm.Options(model, goal, TaskResult.Type.LUTZ).withEcho();
         this.llm = cm.getLlm(llmOptions);
         this.llm.setOutput(this.io);
 
@@ -1373,7 +1373,7 @@ public class LutzAgent {
     }
 
     private Context appendUiMessagesToHistory(Context context) {
-        return context.addHistoryEntry(cm.getIo().getLlmRawMessages(), TaskResult.Type.SEARCH, model, goal);
+        return context.addHistoryEntry(cm.getIo().getLlmRawMessages(), TaskResult.Type.LUTZ, model, goal);
     }
 
     private void recordFinalWorkspaceState(Context context) {
@@ -1785,7 +1785,7 @@ public class LutzAgent {
     }
 
     private TaskResult.TaskMeta taskMeta() {
-        return new TaskResult.TaskMeta(TaskResult.Type.SEARCH, Service.ModelConfig.from(model, cm.getService()));
+        return new TaskResult.TaskMeta(TaskResult.Type.LUTZ, Service.ModelConfig.from(model, cm.getService()));
     }
 
     void reportComplete(TaskResult.StopReason reason, String message) {

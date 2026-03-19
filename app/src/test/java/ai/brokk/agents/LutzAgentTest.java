@@ -197,7 +197,7 @@ class LutzAgentTest {
                 base, "goal", new OfflineStreamingModel(), null, new NoOpConsoleIO(), LutzAgent.ScanConfig.disabled());
 
         Context tempPinnedContext = base.withPinned(tempPinned, true)
-                .addHistoryEntry(List.of(), TaskResult.Type.SEARCH, new OfflineStreamingModel(), "goal");
+                .addHistoryEntry(List.of(), TaskResult.Type.LUTZ, new OfflineStreamingModel(), "goal");
 
         Context normalized = agent.resetPinsToOriginal(tempPinnedContext);
 
