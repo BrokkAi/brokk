@@ -1,6 +1,9 @@
 package ai.brokk.acpserver;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.IConsoleIO;
 import ai.brokk.LlmOutputMeta;
@@ -10,6 +13,7 @@ import ai.brokk.acpserver.transport.AcpTransport;
 import dev.langchain4j.data.message.ChatMessageType;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 class BrokkAcpServerTest {
@@ -81,8 +85,11 @@ class BrokkAcpServerTest {
         console.llmOutput("Hello ", ChatMessageType.AI, LlmOutputMeta.newMessage());
         console.llmOutput("world!", ChatMessageType.AI, LlmOutputMeta.DEFAULT);
 
-        // Should send two message chunks
-        assertEquals(2, transport.getSentNotifications().size());
+        // Flush the token buffer
+        console.shutdown();
+
+        // Tokens may be batched together, so we expect at least 1 notification
+        assertTrue(transport.getSentNotifications().size() >= 1);
         for (var notification : transport.getSentNotifications()) {
             assertEquals("session/update", notification.method());
         }
@@ -129,6 +136,73 @@ class BrokkAcpServerTest {
 
         assertEquals(1, transport.getSentNotifications().size());
         assertEquals("session/update", transport.getSentNotifications().get(0).method());
+    }
+
+    @Test
+    void modelsListRequestCanBeCreated() {
+        var request = new ModelsListRequest();
+        assertNotNull(request);
+    }
+
+    @Test
+    void modelsListResponseCanBeCreated() {
+        var response = new ModelsListResponse(Map.of("gpt-4", "openai"));
+        assertEquals(1, response.models().size());
+        assertEquals("openai", response.models().get("gpt-4"));
+    }
+
+    @Test
+    void contextGetRequestCanBeCreated() {
+        var request = new ContextGetRequest();
+        assertNotNull(request);
+    }
+
+    @Test
+    void contextGetResponseCanBeCreated() {
+        var fragments = List.of(
+                new ContextFragmentInfo("id1", "PROJECT_PATH", "src/Main.java"));
+        var response = new ContextGetResponse(fragments);
+        assertEquals(1, response.fragments().size());
+        assertEquals("id1", response.fragments().get(0).id());
+    }
+
+    @Test
+    void contextAddFilesRequestCanBeCreated() {
+        var request = new ContextAddFilesRequest(List.of("src/Main.java", "src/Test.java"));
+        assertEquals(2, request.relativePaths().size());
+    }
+
+    @Test
+    void contextAddFilesResponseCanBeCreated() {
+        var response = new ContextAddFilesResponse(List.of("frag-1", "frag-2"));
+        assertEquals(2, response.addedFragmentIds().size());
+    }
+
+    @Test
+    void contextDropRequestCanBeCreated() {
+        var request = new ContextDropRequest(List.of("frag-1", "frag-2"));
+        assertEquals(2, request.fragmentIds().size());
+    }
+
+    @Test
+    void contextDropResponseCanBeCreated() {
+        var response = new ContextDropResponse(List.of("frag-1"));
+        assertEquals(1, response.droppedFragmentIds().size());
+    }
+
+    @Test
+    void sessionsListRequestCanBeCreated() {
+        var request = new SessionsListRequest();
+        assertNotNull(request);
+    }
+
+    @Test
+    void sessionsListResponseCanBeCreated() {
+        var sessions = List.of(
+                new SessionInfoDto("uuid-1", "Session 1", 1000L, 2000L));
+        var response = new SessionsListResponse(sessions);
+        assertEquals(1, response.sessions().size());
+        assertEquals("Session 1", response.sessions().get(0).name());
     }
 
     // Mock transport for testing

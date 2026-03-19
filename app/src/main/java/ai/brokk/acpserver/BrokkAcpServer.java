@@ -11,12 +11,24 @@ import ai.brokk.acpserver.agent.AcpAgent;
 import ai.brokk.acpserver.agent.AcpProtocolException;
 import ai.brokk.acpserver.agent.AcpSyncAgent;
 import ai.brokk.acpserver.agent.SyncPromptContext;
+import ai.brokk.acpserver.spec.AcpSchema.ContextAddFilesRequest;
+import ai.brokk.acpserver.spec.AcpSchema.ContextAddFilesResponse;
+import ai.brokk.acpserver.spec.AcpSchema.ContextDropRequest;
+import ai.brokk.acpserver.spec.AcpSchema.ContextDropResponse;
+import ai.brokk.acpserver.spec.AcpSchema.ContextFragmentInfo;
+import ai.brokk.acpserver.spec.AcpSchema.ContextGetRequest;
+import ai.brokk.acpserver.spec.AcpSchema.ContextGetResponse;
 import ai.brokk.acpserver.spec.AcpSchema.InitializeRequest;
 import ai.brokk.acpserver.spec.AcpSchema.InitializeResponse;
+import ai.brokk.acpserver.spec.AcpSchema.ModelsListRequest;
+import ai.brokk.acpserver.spec.AcpSchema.ModelsListResponse;
 import ai.brokk.acpserver.spec.AcpSchema.NewSessionRequest;
 import ai.brokk.acpserver.spec.AcpSchema.NewSessionResponse;
 import ai.brokk.acpserver.spec.AcpSchema.PromptRequest;
 import ai.brokk.acpserver.spec.AcpSchema.PromptResponse;
+import ai.brokk.acpserver.spec.AcpSchema.SessionInfoDto;
+import ai.brokk.acpserver.spec.AcpSchema.SessionsListRequest;
+import ai.brokk.acpserver.spec.AcpSchema.SessionsListResponse;
 import ai.brokk.acpserver.spec.AcpSchema.StopReason;
 import ai.brokk.acpserver.spec.AcpSchema.TextContent;
 import ai.brokk.acpserver.transport.StdioAcpAgentTransport;
@@ -24,10 +36,12 @@ import ai.brokk.agents.CodeAgent;
 import ai.brokk.project.MainProject;
 import ai.brokk.project.ModelProperties;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
@@ -95,6 +109,11 @@ public class BrokkAcpServer {
                 .initializeHandler(this::handleInitialize)
                 .newSessionHandler(this::handleNewSession)
                 .promptHandler(this::handlePrompt)
+                .modelsListHandler(this::handleModelsList)
+                .contextGetHandler(this::handleContextGet)
+                .contextAddFilesHandler(this::handleContextAddFiles)
+                .contextDropHandler(this::handleContextDrop)
+                .sessionsListHandler(this::handleSessionsList)
                 .build();
     }
 
@@ -194,7 +213,66 @@ public class BrokkAcpServer {
                 cm.setIo(originalIo);
             } catch (Exception e) {
                 logger.error("Failed to restore original IO", e);
-            }
-        }
-    }
-}
+                }
+                }
+                }
+
+                private ModelsListResponse handleModelsList(ModelsListRequest req) {
+                logger.debug("Received models/list request");
+                var models = cm.getService().getAvailableModels();
+                return new ModelsListResponse(models);
+                }
+
+                private ContextGetResponse handleContextGet(ContextGetRequest req) {
+                    logger.debug("Received context/get request");
+                    var context = cm.liveContext();
+                    var fragments = context.getAllFragmentsInDisplayOrder().stream()
+                            .map(f -> new ContextFragmentInfo(
+                                    f.id(),
+                                    f.getType().name(),
+                                    f.shortDescription().join()))
+                            .toList();
+                    return new ContextGetResponse(fragments);
+                }
+
+                private ContextAddFilesResponse handleContextAddFiles(ContextAddFilesRequest req) {
+                    logger.debug("Received context/add-files request with {} paths", req.relativePaths().size());
+                    var files = req.relativePaths().stream()
+                            .map(cm::toFile)
+                            .toList();
+                    cm.addFiles(files);
+
+                    var addedIds = new ArrayList<String>();
+                    var context = cm.liveContext();
+                    for (var fragment : context.getAllFragmentsInDisplayOrder()) {
+                        var sourceFiles = fragment.sourceFiles().join();
+                        for (var file : files) {
+                            if (sourceFiles.contains(file)) {
+                                addedIds.add(fragment.id());
+                                break;
+                            }
+                        }
+                    }
+                    return new ContextAddFilesResponse(addedIds);
+                }
+
+                private ContextDropResponse handleContextDrop(ContextDropRequest req) {
+                logger.debug("Received context/drop request with {} fragment IDs", req.fragmentIds().size());
+                var droppedIds = new ArrayList<>(req.fragmentIds());
+                cm.pushContext(ctx -> ctx.removeFragmentsByIds(req.fragmentIds()));
+                return new ContextDropResponse(droppedIds);
+                }
+
+                private SessionsListResponse handleSessionsList(SessionsListRequest req) {
+                logger.debug("Received sessions/list request");
+                var sessionManager = cm.getProject().getSessionManager();
+                var sessions = sessionManager.listSessions().stream()
+                    .map(s -> new SessionInfoDto(
+                            s.id().toString(),
+                            s.name(),
+                            s.created(),
+                            s.modified()))
+                    .toList();
+                return new SessionsListResponse(sessions);
+                }
+                }

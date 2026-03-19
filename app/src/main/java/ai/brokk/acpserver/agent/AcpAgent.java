@@ -1,11 +1,21 @@
 package ai.brokk.acpserver.agent;
 
+import ai.brokk.acpserver.spec.AcpSchema.ContextAddFilesRequest;
+import ai.brokk.acpserver.spec.AcpSchema.ContextAddFilesResponse;
+import ai.brokk.acpserver.spec.AcpSchema.ContextDropRequest;
+import ai.brokk.acpserver.spec.AcpSchema.ContextDropResponse;
+import ai.brokk.acpserver.spec.AcpSchema.ContextGetRequest;
+import ai.brokk.acpserver.spec.AcpSchema.ContextGetResponse;
 import ai.brokk.acpserver.spec.AcpSchema.InitializeRequest;
 import ai.brokk.acpserver.spec.AcpSchema.InitializeResponse;
+import ai.brokk.acpserver.spec.AcpSchema.ModelsListRequest;
+import ai.brokk.acpserver.spec.AcpSchema.ModelsListResponse;
 import ai.brokk.acpserver.spec.AcpSchema.NewSessionRequest;
 import ai.brokk.acpserver.spec.AcpSchema.NewSessionResponse;
 import ai.brokk.acpserver.spec.AcpSchema.PromptRequest;
 import ai.brokk.acpserver.spec.AcpSchema.PromptResponse;
+import ai.brokk.acpserver.spec.AcpSchema.SessionsListRequest;
+import ai.brokk.acpserver.spec.AcpSchema.SessionsListResponse;
 import ai.brokk.acpserver.transport.AcpTransport;
 import java.util.function.BiFunction;
 import java.util.function.Function;
@@ -50,6 +60,11 @@ public final class AcpAgent {
         private @Nullable Function<InitializeRequest, InitializeResponse> initializeHandler;
         private @Nullable Function<NewSessionRequest, NewSessionResponse> newSessionHandler;
         private @Nullable BiFunction<PromptRequest, SyncPromptContext, PromptResponse> promptHandler;
+        private @Nullable Function<ModelsListRequest, ModelsListResponse> modelsListHandler;
+        private @Nullable Function<ContextGetRequest, ContextGetResponse> contextGetHandler;
+        private @Nullable Function<ContextAddFilesRequest, ContextAddFilesResponse> contextAddFilesHandler;
+        private @Nullable Function<ContextDropRequest, ContextDropResponse> contextDropHandler;
+        private @Nullable Function<SessionsListRequest, SessionsListResponse> sessionsListHandler;
 
         SyncAgentBuilder(AcpTransport transport) {
             this.transport = transport;
@@ -80,6 +95,46 @@ public final class AcpAgent {
         }
 
         /**
+         * Sets the handler for models/list requests.
+         */
+        public SyncAgentBuilder modelsListHandler(Function<ModelsListRequest, ModelsListResponse> handler) {
+            this.modelsListHandler = handler;
+            return this;
+        }
+
+        /**
+         * Sets the handler for context/get requests.
+         */
+        public SyncAgentBuilder contextGetHandler(Function<ContextGetRequest, ContextGetResponse> handler) {
+            this.contextGetHandler = handler;
+            return this;
+        }
+
+        /**
+         * Sets the handler for context/add-files requests.
+         */
+        public SyncAgentBuilder contextAddFilesHandler(Function<ContextAddFilesRequest, ContextAddFilesResponse> handler) {
+            this.contextAddFilesHandler = handler;
+            return this;
+        }
+
+        /**
+         * Sets the handler for context/drop requests.
+         */
+        public SyncAgentBuilder contextDropHandler(Function<ContextDropRequest, ContextDropResponse> handler) {
+            this.contextDropHandler = handler;
+            return this;
+        }
+
+        /**
+         * Sets the handler for sessions/list requests.
+         */
+        public SyncAgentBuilder sessionsListHandler(Function<SessionsListRequest, SessionsListResponse> handler) {
+            this.sessionsListHandler = handler;
+            return this;
+        }
+
+        /**
          * Builds the synchronous agent.
          *
          * @throws IllegalStateException if required handlers are not set
@@ -94,7 +149,31 @@ public final class AcpAgent {
             if (promptHandler == null) {
                 throw new IllegalStateException("promptHandler is required");
             }
-            return new AcpSyncAgent(transport, initializeHandler, newSessionHandler, promptHandler);
+            if (modelsListHandler == null) {
+                throw new IllegalStateException("modelsListHandler is required");
+            }
+            if (contextGetHandler == null) {
+                throw new IllegalStateException("contextGetHandler is required");
+            }
+            if (contextAddFilesHandler == null) {
+                throw new IllegalStateException("contextAddFilesHandler is required");
+            }
+            if (contextDropHandler == null) {
+                throw new IllegalStateException("contextDropHandler is required");
+            }
+            if (sessionsListHandler == null) {
+                throw new IllegalStateException("sessionsListHandler is required");
+            }
+            return new AcpSyncAgent(
+                    transport,
+                    initializeHandler,
+                    newSessionHandler,
+                    promptHandler,
+                    modelsListHandler,
+                    contextGetHandler,
+                    contextAddFilesHandler,
+                    contextDropHandler,
+                    sessionsListHandler);
         }
     }
 }

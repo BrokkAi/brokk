@@ -3,6 +3,7 @@ package ai.brokk.acpserver.spec;
 import com.fasterxml.jackson.annotation.JsonSubTypes;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import java.util.List;
+import java.util.Map;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -23,6 +24,16 @@ public final class AcpSchema {
 
     public record PromptRequest(String sessionId, List<Content> messages) {}
 
+    public record ModelsListRequest() {}
+
+    public record ContextGetRequest() {}
+
+    public record ContextAddFilesRequest(List<String> relativePaths) {}
+
+    public record ContextDropRequest(List<String> fragmentIds) {}
+
+    public record SessionsListRequest() {}
+
     // ========== Responses ==========
 
     public record InitializeResponse(
@@ -39,6 +50,20 @@ public final class AcpSchema {
             return new PromptResponse(StopReason.END_TURN, null);
         }
     }
+
+    public record ModelsListResponse(Map<String, String> models) {}
+
+    public record ContextFragmentInfo(String id, String type, String description) {}
+
+    public record ContextGetResponse(List<ContextFragmentInfo> fragments) {}
+
+    public record ContextAddFilesResponse(List<String> addedFragmentIds) {}
+
+    public record ContextDropResponse(List<String> droppedFragmentIds) {}
+
+    public record SessionInfoDto(String id, String name, long created, long modified) {}
+
+    public record SessionsListResponse(List<SessionInfoDto> sessions) {}
 
     // ========== Content Types ==========
 
