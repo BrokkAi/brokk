@@ -59,12 +59,11 @@ import org.jetbrains.annotations.Nullable;
  * Candidate selection is done by partitioning files into groups:
  * 1. Primary Files (Analyzed): Deep evaluation using symbol summaries/skeletons.
  * 2. Primary Files (Unanalyzed): Deep evaluation using capped/truncated source text.
- * 3. Test Files: Lightweight filename-only pruning to identify relevant tests when starting from an empty workspace.
+ * 3. Test Files: Lightweight filename-only pruning to identify relevant tests.
  *
  * For groups 1 and 2, if the total candidate set exceeds the evaluation budget, an initial
  * filename-pruning pass (budgeted at 100k tokens) is used to narrow the set before deep evaluation.
- * Test files (group 3) are only split out for filename-only pruning when the workspace starts empty;
- * otherwise they stay in the main analyzed/unanalyzed passes.
+ * Test files (group 3) are always processed via filename-only pruning to conserve budget.
  *
  * Finally, if there are files that the Analyzer does not know how to summarize, ContextAgent will do
  * full-content analysis (but since these are so much larger, necessarily we will be able to fit much
@@ -156,12 +155,6 @@ public class ContextAgent {
             classesToSummarize = List.copyOf(classesToSummarize);
         }
     }
-
-    record CandidateGroups(
-            List<ProjectFile> analyzedFiles,
-            List<ProjectFile> unanalyzedFiles,
-            List<ProjectFile> testCandidates,
-            boolean separateTestInferenceEnabled) {}
 
     @Tool(
             "Recommend relevant files, tests, and classes needed to achieve the user's goal. All file paths must exactly match a file path provided in the request; do not invent paths.")
@@ -293,17 +286,35 @@ public class ContextAgent {
             }
         }
 
+        // Partition candidates into non-test (primary) and test files.
+        // We treat tests differently to optimize token budget: primary files get full evaluation,
+        // while tests are filtered by filename and included as skeletons.
+        var partitionedCandidates =
+                candidates.stream().collect(Collectors.partitioningBy(f -> ContextManager.isTestFile(f, analyzer)));
+        List<ProjectFile> primaryCandidates =
+                requireNonNull(partitionedCandidates.get(false), "partitioningBy must contain key false");
+        List<ProjectFile> testCandidates =
+                requireNonNull(partitionedCandidates.get(true), "partitioningBy must contain key true");
+
+        Set<ProjectFile> analyzedFileSet = primaryCandidates.stream()
+                .filter(pf -> !analyzer.getTopLevelDeclarations(pf).isEmpty())
+                .collect(Collectors.toSet());
+        List<ProjectFile> analyzedFiles = primaryCandidates.stream()
+                .filter(analyzedFileSet::contains)
+                .sorted()
+                .toList();
         boolean skipUnanalyzed = "true".equalsIgnoreCase(System.getenv("BRK_SKIP_UNANALYZED"));
-        var groupedCandidates = groupCandidates(candidates, existingFiles, skipUnanalyzed);
-        List<ProjectFile> analyzedFiles = groupedCandidates.analyzedFiles();
-        List<ProjectFile> unAnalyzedFiles = groupedCandidates.unanalyzedFiles();
-        List<ProjectFile> testCandidates = groupedCandidates.testCandidates();
+        List<ProjectFile> unAnalyzedFiles = skipUnanalyzed
+                ? List.of()
+                : primaryCandidates.stream()
+                        .filter(f -> !analyzedFileSet.contains(f))
+                        .sorted()
+                        .toList();
         logger.debug(
-                "Grouped candidates: analyzed={}, unAnalyzed={}, tests={}, separateTestInference={} (skipped unanalyzed={})",
+                "Grouped candidates: analyzed={}, unAnalyzed={}, tests={} (skipped unanalyzed={})",
                 analyzedFiles.size(),
                 unAnalyzedFiles.size(),
                 testCandidates.size(),
-                groupedCandidates.separateTestInferenceEnabled(),
                 skipUnanalyzed);
 
         var filesModel = cm.getService().getModel(ModelType.REFERENCES);
@@ -319,13 +330,9 @@ public class ContextAgent {
                 new Llm.Options(filesModel, "ContextAgent Files (Unanalyzed): " + goal, TaskResult.Type.SCAN));
         filesLlmUnanalyzed.setOutput(io);
 
-        @Nullable Llm filesLlmTests = null;
-        if (groupedCandidates.separateTestInferenceEnabled()) {
-            filesLlmTests =
-                    cm.getLlm(new Llm.Options(filesModel, "ContextAgent Files (Tests): " + goal, TaskResult.Type.SCAN));
-            filesLlmTests.setOutput(io);
-        }
-        final @Nullable Llm testFilesLlm = filesLlmTests;
+        var filesLlmTests =
+                cm.getLlm(new Llm.Options(filesModel, "ContextAgent Files (Tests): " + goal, TaskResult.Type.SCAN));
+        filesLlmTests.setOutput(io);
 
         var analyzedOpts = new Llm.Options(model, "ContextAgent (Analyzed): " + goal, TaskResult.Type.SCAN)
                 .withForceReasoningEcho()
@@ -337,7 +344,7 @@ public class ContextAgent {
                 cm.getLlm(new Llm.Options(model, "ContextAgent (Unanalyzed): " + goal, TaskResult.Type.SCAN));
         llmUnanalyzed.setOutput(io);
 
-        // Process groups in parallel: analyzed, unanalyzed, and optionally tests (filename-only).
+        // Process groups in parallel: Analyzed, Unanalyzed, and Tests (filename-only)
         LlmRecommendation[] results = new LlmRecommendation[3];
         Throwable[] errors = new Throwable[3];
 
@@ -373,18 +380,21 @@ public class ContextAgent {
 
         Thread t3 = Thread.ofVirtual().start(() -> {
             try {
-                if (!groupedCandidates.separateTestInferenceEnabled() || testCandidates.isEmpty()) {
+                if (testCandidates.isEmpty()) {
                     results[2] = LlmRecommendation.EMPTY;
                     return;
                 }
                 logger.debug("Processing {} test candidates via filename-only pass.", testCandidates.size());
                 var testFilenames =
                         testCandidates.stream().map(ProjectFile::toString).toList();
-                var testsLlm = requireNonNull(testFilesLlm);
                 // Test selection is filename-only and lightweight; use a fixed smaller budget (e.g. 50k)
                 // and the quicker summarization model.
                 var testRec = askLlmDeepPruneFilenamesWithChunking(
-                        testFilenames, workspaceRepresentation, min(50_000, pruneBudgetRemaining), testsLlm, false);
+                        testFilenames,
+                        workspaceRepresentation,
+                        min(50_000, pruneBudgetRemaining),
+                        filesLlmTests,
+                        false);
 
                 // Map results to recommendedTests specifically
                 results[2] =
@@ -399,9 +409,6 @@ public class ContextAgent {
         t3.join();
         for (var err : errors) {
             if (err != null) {
-                if (err instanceof InterruptedException ie) {
-                    throw ie;
-                }
                 throw new RuntimeException(err);
             }
         }
@@ -437,41 +444,6 @@ public class ContextAgent {
         var result = createResult(unifiedRec, existingFiles);
 
         return new RecommendationResult(success, result, combinedUsage);
-    }
-
-    CandidateGroups groupCandidates(
-            List<ProjectFile> candidates, Set<ProjectFile> existingFiles, boolean skipUnanalyzed) {
-        boolean separateTestInferenceEnabled = existingFiles.isEmpty();
-        List<ProjectFile> primaryCandidates;
-        List<ProjectFile> testCandidates;
-        if (separateTestInferenceEnabled) {
-            var partitionedCandidates =
-                    candidates.stream().collect(Collectors.partitioningBy(f -> ContextManager.isTestFile(f, analyzer)));
-            primaryCandidates =
-                    requireNonNull(partitionedCandidates.get(false), "partitioningBy must contain key false");
-            testCandidates =
-                    requireNonNull(partitionedCandidates.get(true), "partitioningBy must contain key true").stream()
-                            .sorted()
-                            .toList();
-        } else {
-            primaryCandidates = List.copyOf(candidates);
-            testCandidates = List.of();
-        }
-
-        Set<ProjectFile> analyzedFileSet = primaryCandidates.stream()
-                .filter(pf -> !analyzer.getTopLevelDeclarations(pf).isEmpty())
-                .collect(Collectors.toSet());
-        List<ProjectFile> analyzedFiles = primaryCandidates.stream()
-                .filter(analyzedFileSet::contains)
-                .sorted()
-                .toList();
-        List<ProjectFile> unanalyzedFiles = skipUnanalyzed
-                ? List.of()
-                : primaryCandidates.stream()
-                        .filter(f -> !analyzedFileSet.contains(f))
-                        .sorted()
-                        .toList();
-        return new CandidateGroups(analyzedFiles, unanalyzedFiles, testCandidates, separateTestInferenceEnabled);
     }
 
     private int estimateAnalyzedTokens(Collection<ProjectFile> files) {
@@ -983,12 +955,11 @@ public class ContextAgent {
                 You are given a goal, the current workspace contents (if any), and an <available_files> list.
 
                 Interpreting <available_files>:
+                - For this stage, <available_files> contains primary non-test files only.
                 - Analyzed source files are represented as symbol/class summaries (APIs/skeletons), not full file text.
                 - Unanalyzed files may be represented as:
                   - Full text (for small files), or
                   - Truncated/excerpted text (for large files).
-                - When the existing workspace already contains file context, <available_files> may include test files.
-                  If a relevant selected file is a test, still return its exact path in `filesToAdd`.
 
                 Truncated file entries:
                 - A truncated file is indicated by: <file ... truncated="true" total_lines="..." top_shown="..." bottom_shown="...">.
@@ -1032,7 +1003,6 @@ public class ContextAgent {
                 - It's possible that files that were previously discarded are newly relevant, but when in doubt,
                   do not recommend files that are listed in the <discarded_context> section.
                 - Compare this combined list against the items in the provided section (either summaries OR files content).
-                - If a relevant file in the provided section is a test, include its exact path in `filesToAdd`.
 
                 Selection rubric (important):
                 - Prefer `classesToSummarize` when you need navigational context (APIs, types, call sites) and are not confident the file will be edited.
@@ -1057,7 +1027,6 @@ public class ContextAgent {
                 - It's possible that files that were previously discarded are newly relevant, but when in doubt,
                   do not recommend files that are listed in the <discarded_context> section.
                 - Compare this combined list against the items in the provided section (file content entries only).
-                - If a relevant file in the provided section is a test, include its exact path in `filesToAdd`.
 
                 Selection rubric (important):
                 - Use `filesToAdd` for files you expect to edit or where exact implementation details are required.
