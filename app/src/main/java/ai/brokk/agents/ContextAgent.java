@@ -306,7 +306,7 @@ public class ContextAgent {
                 groupedCandidates.separateTestInferenceEnabled(),
                 skipUnanalyzed);
 
-        var filesModel = cm.getService().getModel(ModelType.SUMMARIZE);
+        var filesModel = cm.getService().getModel(ModelType.REFERENCES);
 
         // Create Llm instances - only analyzed group streams to UI
         var filesOpts = new Llm.Options(filesModel, "ContextAgent Files (Analyzed): " + goal, TaskResult.Type.SCAN)
