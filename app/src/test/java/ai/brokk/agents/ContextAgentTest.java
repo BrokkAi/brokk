@@ -4,8 +4,11 @@ import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import ai.brokk.Llm;
+import ai.brokk.TaskResult;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
@@ -15,8 +18,10 @@ import ai.brokk.project.ModelProperties;
 import ai.brokk.testutil.TestAnalyzer;
 import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestContextManager;
+import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import java.nio.file.Path;
+import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -29,6 +34,54 @@ public class ContextAgentTest {
 
     @TempDir
     Path tempDir;
+
+    private static class RecordingContextAgent extends ContextAgent {
+        private final int estimatedTokens;
+
+        boolean pruneCalled;
+        boolean expandCalled;
+        Set<ProjectFile> pruneResult = Set.of();
+        List<ProjectFile> expandResult = List.of();
+
+        RecordingContextAgent(TestContextManager cm, StreamingChatModel model, int estimatedTokens)
+                throws InterruptedException {
+            super(cm, model, "test");
+            this.estimatedTokens = estimatedTokens;
+        }
+
+        @Override
+        int estimateGroupTokens(GroupType type, Collection<ProjectFile> files) {
+            return estimatedTokens;
+        }
+
+        @Override
+        LlmRecommendation askLlmDeepPruneFilenamesWithChunking(
+                List<String> filenames,
+                Collection<ChatMessage> workspaceRepresentation,
+                int pruningBudgetTokens,
+                Llm filesLlm,
+                boolean showBatch1Reasoning) {
+            pruneCalled = true;
+            return new LlmRecommendation(pruneResult, Set.of(), Set.of(), null);
+        }
+
+        @Override
+        List<ProjectFile> expandCandidates(Set<ProjectFile> seedFiles, List<ProjectFile> eligiblePool) {
+            expandCalled = true;
+            return expandResult;
+        }
+    }
+
+    private ProjectFile createFile(String relPath) throws Exception {
+        ProjectFile file = new ProjectFile(tempDir.toAbsolutePath(), relPath);
+        file.create();
+        file.write("content for " + relPath);
+        return file;
+    }
+
+    private static Llm testLlm(TestContextManager cm, StreamingChatModel model) {
+        return cm.getLlm(model, "test", TaskResult.Type.SCAN);
+    }
 
     @Test
     void recommendContext_returnsToolOutputWithProvidedFilesAndClasses() throws InterruptedException {
@@ -163,6 +216,123 @@ public class ContextAgentTest {
         StreamingChatModel model = cm.getService().quickestModel();
 
         assertDoesNotThrow(() -> new ContextAgent(cm, model, "100% sure: use %s and %d literally"));
+    }
+
+    @Test
+    void selectCandidates_workspaceRelevantOriginSkipsFilenamePruning() throws Exception {
+        Path root = tempDir.toAbsolutePath();
+        var analyzer = new TestAnalyzer();
+        var cm = new TestContextManager(root, new TestConsoleIO(), analyzer);
+        StreamingChatModel model = cm.getService().quickestModel();
+
+        ProjectFile existing = createFile("src/main/java/pkg/Existing.java");
+        ProjectFile analyzedA = createFile("src/main/java/pkg/AnalyzedA.java");
+        ProjectFile analyzedB = createFile("src/main/java/pkg/AnalyzedB.java");
+        CodeUnit existingClass = CodeUnit.cls(existing, "pkg", "Existing");
+        CodeUnit classA = CodeUnit.cls(analyzedA, "pkg", "AnalyzedA");
+        CodeUnit classB = CodeUnit.cls(analyzedB, "pkg", "AnalyzedB");
+        analyzer.addDeclaration(existingClass);
+        analyzer.addDeclaration(classA);
+        analyzer.addDeclaration(classB);
+        analyzer.setSkeleton(existingClass, "class Existing {}");
+        analyzer.setSkeleton(classA, "class AnalyzedA {}");
+        analyzer.setSkeleton(classB, "class AnalyzedB {}");
+
+        var agent = new RecordingContextAgent(cm, model, 10_000) {
+            @Override
+            List<ProjectFile> getWorkspaceRelevantCandidates(Context context, Set<ProjectFile> existingFiles) {
+                return List.of(
+                        analyzedA, analyzedB, analyzedA, analyzedB, analyzedA, analyzedB, analyzedA, analyzedB,
+                        analyzedA, analyzedB);
+            }
+        };
+
+        Context context = new Context(cm).addFragments(new ContextFragments.ProjectPathFragment(existing, cm));
+        var selected = agent.selectCandidates(
+                context, Set.of(existing), List.of(), 100, 100, testLlm(cm, model), testLlm(cm, model));
+
+        assertFalse(agent.pruneCalled);
+        assertFalse(agent.expandCalled);
+        assertTrue(selected.analyzedFiles().contains(analyzedA));
+        assertTrue(selected.analyzedFiles().contains(analyzedB));
+        assertTrue(selected.unAnalyzedFiles().isEmpty());
+        assertNull(selected.selectionUsage());
+    }
+
+    @Test
+    void selectCandidates_fullProjectPrunesAndRegrowsAnalyzedFiles() throws Exception {
+        Path root = tempDir.toAbsolutePath();
+        var analyzer = new TestAnalyzer();
+        var cm = new TestContextManager(root, new TestConsoleIO(), analyzer);
+        StreamingChatModel model = cm.getService().quickestModel();
+
+        ProjectFile analyzedA = createFile("src/main/java/pkg/AnalyzedA.java");
+        ProjectFile analyzedB = createFile("src/main/java/pkg/AnalyzedB.java");
+        ProjectFile analyzedC = createFile("src/main/java/pkg/AnalyzedC.java");
+        CodeUnit classA = CodeUnit.cls(analyzedA, "pkg", "AnalyzedA");
+        CodeUnit classB = CodeUnit.cls(analyzedB, "pkg", "AnalyzedB");
+        CodeUnit classC = CodeUnit.cls(analyzedC, "pkg", "AnalyzedC");
+        analyzer.addDeclaration(classA);
+        analyzer.addDeclaration(classB);
+        analyzer.addDeclaration(classC);
+        analyzer.setSkeleton(classA, "class AnalyzedA {}");
+        analyzer.setSkeleton(classB, "class AnalyzedB {}");
+        analyzer.setSkeleton(classC, "class AnalyzedC {}");
+
+        var agent = new RecordingContextAgent(cm, model, 10_000) {
+            @Override
+            List<ProjectFile> getFullProjectCandidates(Set<ProjectFile> existingFiles) {
+                return List.of(analyzedA, analyzedB, analyzedC);
+            }
+        };
+        agent.pruneResult = Set.of(analyzedA, analyzedB);
+        agent.expandResult = List.of(analyzedA, analyzedB, analyzedC);
+
+        var selected = agent.selectCandidates(
+                new Context(cm), Set.of(), List.of(), 100, 100, testLlm(cm, model), testLlm(cm, model));
+
+        assertTrue(agent.pruneCalled);
+        assertTrue(agent.expandCalled);
+        assertEquals(List.of(analyzedA, analyzedB, analyzedC), selected.analyzedFiles());
+        assertTrue(selected.unAnalyzedFiles().isEmpty());
+    }
+
+    @Test
+    void selectCandidates_lowNeighborFallbackUsesFullProjectCandidates() throws Exception {
+        Path root = tempDir.toAbsolutePath();
+        var analyzer = new TestAnalyzer();
+        var cm = new TestContextManager(root, new TestConsoleIO(), analyzer);
+        StreamingChatModel model = cm.getService().quickestModel();
+
+        ProjectFile existing = createFile("src/main/java/pkg/Existing.java");
+        ProjectFile other = createFile("src/main/java/pkg/Other.java");
+        CodeUnit existingClass = CodeUnit.cls(existing, "pkg", "Existing");
+        CodeUnit otherClass = CodeUnit.cls(other, "pkg", "Other");
+        analyzer.addDeclaration(existingClass);
+        analyzer.addDeclaration(otherClass);
+        analyzer.setSkeleton(existingClass, "class Existing {}");
+        analyzer.setSkeleton(otherClass, "class Other {}");
+
+        var agent = new RecordingContextAgent(cm, model, 10_000) {
+            @Override
+            List<ProjectFile> getWorkspaceRelevantCandidates(Context context, Set<ProjectFile> existingFiles) {
+                return List.of(other);
+            }
+
+            @Override
+            List<ProjectFile> getFullProjectCandidates(Set<ProjectFile> existingFiles) {
+                return List.of(other);
+            }
+        };
+        agent.pruneResult = Set.of(other);
+        agent.expandResult = List.of(other);
+
+        Context context = new Context(cm).addFragments(new ContextFragments.ProjectPathFragment(existing, cm));
+        var selection = agent.selectCandidates(
+                context, Set.of(existing), List.of(), 100, 100, testLlm(cm, model), testLlm(cm, model));
+
+        assertTrue(agent.pruneCalled);
+        assertEquals(List.of(other), selection.analyzedFiles());
     }
 
     @Test

@@ -54,15 +54,16 @@ import org.jetbrains.annotations.Nullable;
  *
  * Candidate identification is done as follows:
  * 1. If there are files in the Workspace, ask GitDistance for the most relevant related files.
- * 2. Otherwise, all Project files are candidates.
+ * 2. If too few workspace-related files are found, or the Workspace is empty, fall back to all Project files.
  *
  * Candidate selection is done by partitioning files into groups:
  * 1. Primary Files (Analyzed): Deep evaluation using symbol summaries/skeletons.
  * 2. Primary Files (Unanalyzed): Deep evaluation using capped/truncated source text.
  * 3. Test Files: Lightweight filename-only pruning to identify relevant tests.
  *
- * For groups 1 and 2, if the total candidate set exceeds the evaluation budget, an initial
- * filename-pruning pass (budgeted at 100k tokens) is used to narrow the set before deep evaluation.
+ * For groups 1 and 2, an initial filename-pruning pass (budgeted at 100k tokens) is only used when the
+ * candidate set came from a full-project scan. Workspace-derived candidate sets go directly to deep
+ * evaluation and, if needed, halving.
  * Test files (group 3) are always processed via filename-only pruning to conserve budget.
  *
  * Finally, if there are files that the Analyzer does not know how to summarize, ContextAgent will do
@@ -81,6 +82,24 @@ public class ContextAgent {
     enum GroupType {
         ANALYZED,
         UNANALYZED
+    }
+
+    record PrunedGroup(List<ProjectFile> files, @Nullable Llm.ResponseMetadata usage) {
+        PrunedGroup {
+            files = List.copyOf(files);
+        }
+    }
+
+    record SelectedCandidates(
+            List<ProjectFile> analyzedFiles,
+            List<ProjectFile> unAnalyzedFiles,
+            List<ProjectFile> testCandidates,
+            @Nullable Llm.ResponseMetadata selectionUsage) {
+        SelectedCandidates {
+            analyzedFiles = List.copyOf(analyzedFiles);
+            unAnalyzedFiles = List.copyOf(unAnalyzedFiles);
+            testCandidates = List.copyOf(testCandidates);
+        }
     }
 
     private final IContextManager cm;
@@ -249,74 +268,6 @@ public class ContextAgent {
             return new RecommendationResult(false, List.of(), null);
         }
 
-        // Candidates are most-relevant files to the Workspace, or entire Project if Workspace is empty
-        var existingFiles = context.allFragments()
-                .filter(f -> f.getType() == ContextFragment.FragmentType.PROJECT_PATH
-                        || f.getType() == ContextFragment.FragmentType.SKELETON)
-                .flatMap(f -> f.sourceFiles().join().stream())
-                .collect(Collectors.toSet());
-        List<ProjectFile> candidates;
-        if (existingFiles.isEmpty()) {
-            candidates = cm.getProject().getAllFiles().stream().sorted().toList();
-            logger.debug("Empty workspace; using all files ({}) for context recommendation.", candidates.size());
-        } else {
-            int maxNeighbors = DESIRED_CANDIDATES;
-            var envMaxNeighbors = System.getenv("BRK_MAX_NEIGHBORS");
-            if (envMaxNeighbors != null) {
-                try {
-                    maxNeighbors = Integer.parseInt(envMaxNeighbors);
-                } catch (NumberFormatException e) {
-                    logger.warn("Invalid BRK_MAX_NEIGHBORS value '{}', using default", envMaxNeighbors);
-                }
-            }
-            candidates = context.getMostRelevantFiles(maxNeighbors).stream()
-                    .filter(f -> !existingFiles.contains(f))
-                    .sorted()
-                    .toList();
-            if (candidates.size() >= 10) {
-                logger.debug(
-                        "Non-empty workspace; using Git-based distance candidates (count: {}).", candidates.size());
-            } else {
-                logger.debug(
-                        "Non-empty workspace but few/no Git-based candidates found; escalating to full project scan");
-                candidates = cm.getProject().getAllFiles().stream()
-                        .filter(f -> !existingFiles.contains(f))
-                        .sorted()
-                        .toList();
-            }
-        }
-
-        // Partition candidates into non-test (primary) and test files.
-        // We treat tests differently to optimize token budget: primary files get full evaluation,
-        // while tests are filtered by filename and included as skeletons.
-        var partitionedCandidates =
-                candidates.stream().collect(Collectors.partitioningBy(f -> ContextManager.isTestFile(f, analyzer)));
-        List<ProjectFile> primaryCandidates =
-                requireNonNull(partitionedCandidates.get(false), "partitioningBy must contain key false");
-        List<ProjectFile> testCandidates =
-                requireNonNull(partitionedCandidates.get(true), "partitioningBy must contain key true");
-
-        Set<ProjectFile> analyzedFileSet = primaryCandidates.stream()
-                .filter(pf -> !analyzer.getTopLevelDeclarations(pf).isEmpty())
-                .collect(Collectors.toSet());
-        List<ProjectFile> analyzedFiles = primaryCandidates.stream()
-                .filter(analyzedFileSet::contains)
-                .sorted()
-                .toList();
-        boolean skipUnanalyzed = "true".equalsIgnoreCase(System.getenv("BRK_SKIP_UNANALYZED"));
-        List<ProjectFile> unAnalyzedFiles = skipUnanalyzed
-                ? List.of()
-                : primaryCandidates.stream()
-                        .filter(f -> !analyzedFileSet.contains(f))
-                        .sorted()
-                        .toList();
-        logger.debug(
-                "Grouped candidates: analyzed={}, unAnalyzed={}, tests={} (skipped unanalyzed={})",
-                analyzedFiles.size(),
-                unAnalyzedFiles.size(),
-                testCandidates.size(),
-                skipUnanalyzed);
-
         var filesModel = cm.getService().getModel(ModelType.REFERENCES);
 
         // Create Llm instances - only analyzed group streams to UI
@@ -334,6 +285,23 @@ public class ContextAgent {
                 cm.getLlm(new Llm.Options(filesModel, "ContextAgent Files (Tests): " + goal, TaskResult.Type.SCAN));
         filesLlmTests.setOutput(io);
 
+        var existingFiles = context.allFragments()
+                .filter(f -> f.getType() == ContextFragment.FragmentType.PROJECT_PATH
+                        || f.getType() == ContextFragment.FragmentType.SKELETON)
+                .flatMap(f -> f.sourceFiles().join().stream())
+                .collect(Collectors.toSet());
+        var selectedCandidates = selectCandidates(
+                context,
+                existingFiles,
+                workspaceRepresentation,
+                evalBudgetRemaining,
+                pruneBudgetRemaining,
+                filesLlmAnalyzed,
+                filesLlmUnanalyzed);
+        List<ProjectFile> analyzedFiles = selectedCandidates.analyzedFiles();
+        List<ProjectFile> unAnalyzedFiles = selectedCandidates.unAnalyzedFiles();
+        List<ProjectFile> testCandidates = selectedCandidates.testCandidates();
+
         var analyzedOpts = new Llm.Options(model, "ContextAgent (Analyzed): " + goal, TaskResult.Type.SCAN)
                 .withForceReasoningEcho()
                 .withEcho();
@@ -350,14 +318,7 @@ public class ContextAgent {
 
         Thread t1 = Thread.ofVirtual().start(() -> {
             try {
-                results[0] = processGroup(
-                        GroupType.ANALYZED,
-                        analyzedFiles,
-                        workspaceRepresentation,
-                        evalBudgetRemaining,
-                        pruneBudgetRemaining,
-                        filesLlmAnalyzed,
-                        llmAnalyzed);
+                results[0] = processGroup(GroupType.ANALYZED, analyzedFiles, workspaceRepresentation, llmAnalyzed);
             } catch (Throwable t) {
                 errors[0] = t;
             }
@@ -365,14 +326,8 @@ public class ContextAgent {
 
         Thread t2 = Thread.ofVirtual().start(() -> {
             try {
-                results[1] = processGroup(
-                        GroupType.UNANALYZED,
-                        unAnalyzedFiles,
-                        workspaceRepresentation,
-                        evalBudgetRemaining,
-                        pruneBudgetRemaining,
-                        filesLlmUnanalyzed,
-                        llmUnanalyzed);
+                results[1] =
+                        processGroup(GroupType.UNANALYZED, unAnalyzedFiles, workspaceRepresentation, llmUnanalyzed);
             } catch (Throwable t) {
                 errors[1] = t;
             }
@@ -438,7 +393,10 @@ public class ContextAgent {
         mergedClasses.addAll(testsRec.recommendedClasses());
 
         var combinedUsage = Llm.ResponseMetadata.sum(
-                Llm.ResponseMetadata.sum(analyzedRec.tokenUsage(), unAnalyzedRec.tokenUsage()), testsRec.tokenUsage());
+                selectedCandidates.selectionUsage(),
+                Llm.ResponseMetadata.sum(
+                        Llm.ResponseMetadata.sum(analyzedRec.tokenUsage(), unAnalyzedRec.tokenUsage()),
+                        testsRec.tokenUsage()));
 
         var unifiedRec = new LlmRecommendation(mergedFiles, mergedTests, mergedClasses, combinedUsage);
         var result = createResult(unifiedRec, existingFiles);
@@ -446,94 +404,193 @@ public class ContextAgent {
         return new RecommendationResult(success, result, combinedUsage);
     }
 
+    SelectedCandidates selectCandidates(
+            Context context,
+            Set<ProjectFile> existingFiles,
+            Collection<ChatMessage> workspaceRepresentation,
+            int evalBudgetRemaining,
+            int pruneBudgetRemaining,
+            Llm filesLlmAnalyzed,
+            Llm filesLlmUnanalyzed)
+            throws InterruptedException {
+        boolean fullProjectScan = existingFiles.isEmpty();
+        List<ProjectFile> candidates;
+        if (fullProjectScan) {
+            candidates = getFullProjectCandidates(existingFiles);
+            logger.debug("Empty workspace; using all files ({}) for context recommendation.", candidates.size());
+        } else {
+            var workspaceCandidates = getWorkspaceRelevantCandidates(context, existingFiles);
+            if (workspaceCandidates.size() >= 10) {
+                candidates = workspaceCandidates;
+                logger.debug(
+                        "Non-empty workspace; using Git-based distance candidates (count: {}).", candidates.size());
+            } else {
+                logger.debug(
+                        "Non-empty workspace but few/no Git-based candidates found; escalating to full project scan");
+                candidates = getFullProjectCandidates(existingFiles);
+                fullProjectScan = true;
+                logger.debug("Using all files ({}) for context recommendation.", candidates.size());
+            }
+        }
+
+        // Partition candidates into non-test (primary) and test files.
+        // We treat tests differently to optimize token budget: primary files get full evaluation,
+        // while tests are filtered by filename and included as skeletons.
+        var partitionedCandidates =
+                candidates.stream().collect(Collectors.partitioningBy(f -> ContextManager.isTestFile(f, analyzer)));
+        List<ProjectFile> primaryCandidates =
+                requireNonNull(partitionedCandidates.get(false), "partitioningBy must contain key false");
+        List<ProjectFile> testCandidates =
+                requireNonNull(partitionedCandidates.get(true), "partitioningBy must contain key true");
+
+        Set<ProjectFile> analyzedFileSet = primaryCandidates.stream()
+                .filter(pf -> !analyzer.getTopLevelDeclarations(pf).isEmpty())
+                .collect(Collectors.toSet());
+        List<ProjectFile> analyzedFiles = primaryCandidates.stream()
+                .filter(analyzedFileSet::contains)
+                .sorted()
+                .toList();
+        boolean skipUnanalyzed = "true".equalsIgnoreCase(System.getenv("BRK_SKIP_UNANALYZED"));
+        List<ProjectFile> unAnalyzedFiles = skipUnanalyzed
+                ? List.of()
+                : primaryCandidates.stream()
+                        .filter(f -> !analyzedFileSet.contains(f))
+                        .sorted()
+                        .toList();
+
+        @Nullable Llm.ResponseMetadata selectionUsage = null;
+        if (fullProjectScan) {
+            var preparedAnalyzed = pruneGroupCandidates(
+                    GroupType.ANALYZED,
+                    analyzedFiles,
+                    workspaceRepresentation,
+                    evalBudgetRemaining,
+                    pruneBudgetRemaining,
+                    filesLlmAnalyzed);
+            var preparedUnAnalyzed = pruneGroupCandidates(
+                    GroupType.UNANALYZED,
+                    unAnalyzedFiles,
+                    workspaceRepresentation,
+                    evalBudgetRemaining,
+                    pruneBudgetRemaining,
+                    filesLlmUnanalyzed);
+            analyzedFiles = preparedAnalyzed.files();
+            unAnalyzedFiles = preparedUnAnalyzed.files();
+            selectionUsage = Llm.ResponseMetadata.sum(preparedAnalyzed.usage(), preparedUnAnalyzed.usage());
+        }
+
+        logger.debug(
+                "Selected candidates: analyzed={}, unAnalyzed={}, tests={} (fullProjectScan={}, skipped unanalyzed={})",
+                analyzedFiles.size(),
+                unAnalyzedFiles.size(),
+                testCandidates.size(),
+                fullProjectScan,
+                skipUnanalyzed);
+        return new SelectedCandidates(analyzedFiles, unAnalyzedFiles, testCandidates, selectionUsage);
+    }
+
+    List<ProjectFile> getWorkspaceRelevantCandidates(Context context, Set<ProjectFile> existingFiles)
+            throws InterruptedException {
+        int maxNeighbors = DESIRED_CANDIDATES;
+        var envMaxNeighbors = System.getenv("BRK_MAX_NEIGHBORS");
+        if (envMaxNeighbors != null) {
+            try {
+                maxNeighbors = Integer.parseInt(envMaxNeighbors);
+            } catch (NumberFormatException e) {
+                logger.warn("Invalid BRK_MAX_NEIGHBORS value '{}', using default", envMaxNeighbors);
+            }
+        }
+
+        return context.getMostRelevantFiles(maxNeighbors).stream()
+                .filter(f -> !existingFiles.contains(f))
+                .sorted()
+                .toList();
+    }
+
+    List<ProjectFile> getFullProjectCandidates(Set<ProjectFile> existingFiles) {
+        return cm.getProject().getAllFiles().stream()
+                .filter(f -> !existingFiles.contains(f))
+                .sorted()
+                .toList();
+    }
+
     private int estimateAnalyzedTokens(Collection<ProjectFile> files) {
         var summariesByFile = getCachedIdentifiers(files);
         return Messages.getApproximateTokens(summariesByFile.values());
     }
 
-    // --- Group processing ---
+    int estimateGroupTokens(GroupType type, Collection<ProjectFile> files) {
+        if (type == GroupType.ANALYZED) {
+            return estimateAnalyzedTokens(files);
+        }
 
-    /**
-     * Processes a group of primary candidates (Analyzed or Unanalyzed) for relevance.
-     * If the group is too large, it performs an initial filename-pruning pass
-     * before the final evaluate-with-halving stage.
-     */
-    private LlmRecommendation processGroup(
+        var contentsMap = readFileContentsCappedForPrompt(files);
+        return Messages.getApproximateTokens(
+                contentsMap.values().stream().map(Lines.HeadTail::promptText).toList());
+    }
+
+    PrunedGroup pruneGroupCandidates(
             GroupType type,
             List<ProjectFile> groupFiles,
             Collection<ChatMessage> workspaceRepresentation,
             int evalBudgetRemaining,
             int pruneBudgetRemaining,
-            Llm filesLlm,
-            Llm llm)
+            Llm filesLlm)
+            throws InterruptedException {
+        if (groupFiles.isEmpty()) {
+            return new PrunedGroup(List.of(), null);
+        }
+
+        int initialTokens = estimateGroupTokens(type, groupFiles);
+        logger.debug("{} group initial token estimate: ~{}", type, initialTokens);
+
+        boolean forcePrune = "true".equalsIgnoreCase(System.getenv("BRK_FORCE_FILENAME_PRUNE"));
+        if (!forcePrune && initialTokens <= evalBudgetRemaining) {
+            return new PrunedGroup(groupFiles, null);
+        }
+
+        logger.debug(
+                "{} group exceeds evaluation budget ({} > {}); pruning filenames first.",
+                type,
+                initialTokens,
+                evalBudgetRemaining);
+        var filenames = groupFiles.stream().map(ProjectFile::toString).toList();
+        var pruneRec = askLlmDeepPruneFilenamesWithChunking(
+                filenames, workspaceRepresentation, pruneBudgetRemaining, filesLlm, type == GroupType.ANALYZED);
+
+        var prunedFiles = pruneRec.recommendedFiles();
+        if (prunedFiles.isEmpty()) {
+            logger.debug("{} group: filename pruning produced an empty set.", type);
+            return new PrunedGroup(List.of(), pruneRec.tokenUsage());
+        }
+
+        List<ProjectFile> preparedFiles = type == GroupType.ANALYZED && prunedFiles.size() < DESIRED_CANDIDATES
+                ? expandCandidates(prunedFiles, groupFiles)
+                : List.copyOf(prunedFiles);
+        int postExpansionTokens = estimateGroupTokens(type, preparedFiles);
+        logger.debug("{} group post-selection token estimate: ~{}", type, postExpansionTokens);
+        return new PrunedGroup(preparedFiles, pruneRec.tokenUsage());
+    }
+
+    // --- Group processing ---
+
+    /**
+     * Processes a pre-selected group of primary candidates (Analyzed or Unanalyzed) for relevance.
+     */
+    LlmRecommendation processGroup(
+            GroupType type, List<ProjectFile> groupFiles, Collection<ChatMessage> workspaceRepresentation, Llm llm)
             throws InterruptedException {
 
         if (groupFiles.isEmpty()) {
             return new LlmRecommendation(Set.of(), Set.of(), Set.of(), null);
         }
 
-        // Build initial payload preview for token estimation
-        int initialTokens;
-        if (type == GroupType.ANALYZED) {
-            initialTokens = estimateAnalyzedTokens(groupFiles);
-        } else {
-            var contentsMap = readFileContentsCappedForPrompt(groupFiles);
-            initialTokens = Messages.getApproximateTokens(contentsMap.values().stream()
-                    .map(Lines.HeadTail::promptText)
-                    .toList());
-        }
-
-        logger.debug("{} group initial token estimate: ~{}", type, initialTokens);
-
-        List<ProjectFile> workingFiles = groupFiles;
-        @Nullable Llm.ResponseMetadata usage = null;
-        // If too large for evaluation, ask for interesting files (files-pruning stage with 100k cap)
-        boolean forcePrune = "true".equalsIgnoreCase(System.getenv("BRK_FORCE_FILENAME_PRUNE"));
-        if (forcePrune || initialTokens > evalBudgetRemaining) {
-            logger.debug(
-                    "{} group exceeds evaluation budget ({} > {}); pruning filenames first.",
-                    type,
-                    initialTokens,
-                    evalBudgetRemaining);
-            var filenames = groupFiles.stream().map(ProjectFile::toString).toList();
-            var pruneRec = askLlmDeepPruneFilenamesWithChunking(
-                    filenames, workspaceRepresentation, pruneBudgetRemaining, filesLlm, type == GroupType.ANALYZED);
-            usage = Llm.ResponseMetadata.sum(usage, pruneRec.tokenUsage());
-
-            var prunedFiles = pruneRec.recommendedFiles();
-            if (prunedFiles.isEmpty()) {
-                logger.debug("{} group: filename pruning produced an empty set.", type);
-                return new LlmRecommendation(Set.of(), Set.of(), Set.of(), usage);
-            }
-
-            // Expand to include most-relevant neighbors
-            if (type == GroupType.ANALYZED && prunedFiles.size() < DESIRED_CANDIDATES) {
-                workingFiles = expandCandidates(prunedFiles, groupFiles);
-            } else {
-                workingFiles = List.copyOf(prunedFiles);
-            }
-
-            int postExpansionTokens;
-            if (type == GroupType.ANALYZED) {
-                postExpansionTokens = estimateAnalyzedTokens(workingFiles);
-            } else {
-                var contentsMap = readFileContentsCappedForPrompt(workingFiles);
-                postExpansionTokens = Messages.getApproximateTokens(contentsMap.values().stream()
-                        .map(Lines.HeadTail::promptText)
-                        .toList());
-            }
-            logger.debug("{} group post-expansion token estimate: ~{}", type, postExpansionTokens);
-        }
-
         // Evaluate-for-relevance stage: call LLM with a context window containing ONLY this group's data.
         // If we still get a context-window error, iteratively cut off the least important half.
-        LlmRecommendation evalRec =
-                evaluateWithHalving(type, workingFiles, workspaceRepresentation, llm, type == GroupType.ANALYZED);
-        usage = Llm.ResponseMetadata.sum(usage, evalRec.tokenUsage());
-        return evalRec.withUsage(usage);
+        return evaluateWithHalving(type, groupFiles, workspaceRepresentation, llm, type == GroupType.ANALYZED);
     }
 
-    private List<ProjectFile> expandCandidates(Set<ProjectFile> seedFiles, List<ProjectFile> eligiblePool)
+    List<ProjectFile> expandCandidates(Set<ProjectFile> seedFiles, List<ProjectFile> eligiblePool)
             throws InterruptedException {
         // Create a temporary context containing the pruned files
         Context tempContext = new Context(cm).addFragments(cm.toPathFragments(seedFiles));
@@ -706,7 +763,7 @@ public class ContextAgent {
      * This is a lightweight pass that only looks at paths, not contents.
      * If the filename list exceeds pruningBudgetTokens, it splits into chunks.
      */
-    private LlmRecommendation askLlmDeepPruneFilenamesWithChunking(
+    LlmRecommendation askLlmDeepPruneFilenamesWithChunking(
             List<String> filenames,
             Collection<ChatMessage> workspaceRepresentation,
             int pruningBudgetTokens,
