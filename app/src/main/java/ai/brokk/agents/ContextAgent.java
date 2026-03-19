@@ -2,7 +2,7 @@ package ai.brokk.agents;
 
 import static java.lang.Math.max;
 import static java.lang.Math.min;
-import static java.util.Objects.requireNonNull;
+import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
 import ai.brokk.*;
 import ai.brokk.analyzer.CodeUnit;
@@ -143,10 +143,6 @@ public class ContextAgent {
     record LlmRecommendation(
             Set<ProjectFile> recommendedFiles, Set<ProjectFile> recommendedTests, Set<CodeUnit> recommendedClasses) {
         static final LlmRecommendation EMPTY = new LlmRecommendation(Set.of(), Set.of(), Set.of());
-
-        public LlmRecommendation(List<ProjectFile> files, List<ProjectFile> tests, List<CodeUnit> classes) {
-            this(new HashSet<>(files), new HashSet<>(tests), new HashSet<>(classes));
-        }
     }
 
     record RecommendationToolOutput(String llmText, List<String> filesToAdd, List<String> classesToSummarize)
@@ -412,25 +408,16 @@ public class ContextAgent {
         // while tests are filtered by filename and included as skeletons.
         var partitionedCandidates =
                 candidates.stream().collect(Collectors.partitioningBy(f -> ContextManager.isTestFile(f, analyzer)));
-        List<ProjectFile> primaryCandidates =
-                requireNonNull(partitionedCandidates.get(false), "partitioningBy must contain key false");
-        List<ProjectFile> testCandidates =
-                requireNonNull(partitionedCandidates.get(true), "partitioningBy must contain key true");
+        List<ProjectFile> primaryCandidates = castNonNull(partitionedCandidates.get(false));
+        List<ProjectFile> testCandidates = castNonNull(partitionedCandidates.get(true));
 
-        Set<ProjectFile> analyzedFileSet = primaryCandidates.stream()
-                .filter(pf -> !analyzer.getTopLevelDeclarations(pf).isEmpty())
-                .collect(Collectors.toSet());
-        List<ProjectFile> analyzedFiles = primaryCandidates.stream()
-                .filter(analyzedFileSet::contains)
-                .sorted()
-                .toList();
+        // partition a second time into analyzed / unanalyzed
+        Map<Boolean, List<ProjectFile>> analyzedPartition = primaryCandidates.stream()
+                .collect(Collectors.partitioningBy(
+                        pf -> !analyzer.getTopLevelDeclarations(pf).isEmpty()));
+        List<ProjectFile> analyzedFiles = castNonNull(analyzedPartition.get(true));
         boolean skipUnanalyzed = "true".equalsIgnoreCase(System.getenv("BRK_SKIP_UNANALYZED"));
-        List<ProjectFile> unAnalyzedFiles = skipUnanalyzed
-                ? List.of()
-                : primaryCandidates.stream()
-                        .filter(f -> !analyzedFileSet.contains(f))
-                        .sorted()
-                        .toList();
+        List<ProjectFile> unAnalyzedFiles = skipUnanalyzed ? List.of() : castNonNull(analyzedPartition.get(false));
 
         if (fullProjectScan) {
             analyzedFiles = pruneGroupCandidates(
@@ -449,6 +436,10 @@ public class ContextAgent {
                     filesLlmUnanalyzed);
         }
 
+        analyzedFiles = analyzedFiles.subList(0, Math.min(DESIRED_CANDIDATES, analyzedFiles.size()));
+        unAnalyzedFiles = unAnalyzedFiles.subList(0, Math.min(DESIRED_CANDIDATES, unAnalyzedFiles.size()));
+        testCandidates = testCandidates.subList(0, Math.min(DESIRED_CANDIDATES, testCandidates.size()));
+
         logger.debug(
                 "Selected candidates: analyzed={}, unAnalyzed={}, tests={} (fullProjectScan={}, skipped unanalyzed={})",
                 analyzedFiles.size(),
@@ -461,7 +452,7 @@ public class ContextAgent {
 
     List<ProjectFile> getWorkspaceRelevantCandidates(Context context, Set<ProjectFile> existingFiles)
             throws InterruptedException {
-        int maxNeighbors = DESIRED_CANDIDATES;
+        int maxNeighbors = 2 * DESIRED_CANDIDATES;
         var envMaxNeighbors = System.getenv("BRK_MAX_NEIGHBORS");
         if (envMaxNeighbors != null) {
             try {
@@ -473,14 +464,12 @@ public class ContextAgent {
 
         return context.getMostRelevantFiles(maxNeighbors).stream()
                 .filter(f -> !existingFiles.contains(f))
-                .sorted()
                 .toList();
     }
 
     List<ProjectFile> getFullProjectCandidates(Set<ProjectFile> existingFiles) {
         return cm.getProject().getAllFiles().stream()
                 .filter(f -> !existingFiles.contains(f))
-                .sorted()
                 .toList();
     }
 
