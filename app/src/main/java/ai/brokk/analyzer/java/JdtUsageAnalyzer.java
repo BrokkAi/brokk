@@ -5,10 +5,15 @@ import ai.brokk.analyzer.CodeUnitType;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.usages.UsageHit;
+import ai.brokk.concurrent.ExecutorsUtil;
+import ai.brokk.concurrent.LoggingExecutorService;
 import ai.brokk.project.IProject;
+import com.google.common.collect.Lists;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
+import java.util.concurrent.Callable;
+import java.util.concurrent.Future;
 import java.util.stream.Collectors;
 import org.eclipse.jdt.core.JavaCore;
 import org.eclipse.jdt.core.dom.AST;
@@ -132,44 +137,65 @@ public class JdtUsageAnalyzer {
      * Finds precise usages of a target CodeUnit within a set of candidate files.
      */
     public static Set<UsageHit> findUsages(CodeUnit target, Set<ProjectFile> candidateFiles, IProject project) {
-        if (candidateFiles.isEmpty()) {
+        // Filter candidate files to ensure only Java files are passed to JDT
+        List<ProjectFile> javaFiles = candidateFiles.stream()
+                .filter(pf -> pf.getFileName().endsWith(".java"))
+                .toList();
+
+        if (javaFiles.isEmpty()) {
             return Collections.emptySet();
         }
 
         String[] sourceRoots = inferSourceRoots(project);
         String[] classpath = new String[0];
-
-        ASTParser parser = ASTParser.newParser(AST.getJLSLatest());
-        parser.setResolveBindings(true);
-        parser.setBindingsRecovery(true);
-        parser.setKind(ASTParser.K_COMPILATION_UNIT);
-
         Map<String, String> options = JavaCore.getOptions();
         JavaCore.setComplianceOptions(JavaCore.latestSupportedJavaVersion(), options);
-        parser.setCompilerOptions(options);
 
-        parser.setEnvironment(classpath, sourceRoots, null, true);
+        // Partition the files into batches to parallelize JDT work.
+        // JDT's ASTParser is not thread-safe, so we use one per batch/thread.
+        List<List<ProjectFile>> batches = Lists.partition(javaFiles, 50);
 
-        // Filter candidate files to ensure only Java files are passed to JDT
-        String[] sourceFiles = candidateFiles.stream()
-                .filter(pf -> pf.getFileName().endsWith(".java"))
-                .map(pf -> pf.absPath().toString())
-                .toArray(String[]::new);
+        Set<UsageHit> allHits = new HashSet<>();
+        int threads = Runtime.getRuntime().availableProcessors();
+        try (LoggingExecutorService executor = ExecutorsUtil.newFixedThreadExecutor("jdt-usage-analyzer-", threads)) {
+            List<Callable<Set<UsageHit>>> tasks = batches.stream()
+                    .map(batch -> (Callable<Set<UsageHit>>) () -> {
+                        ASTParser parser = ASTParser.newParser(AST.getJLSLatest());
+                        parser.setResolveBindings(true);
+                        parser.setBindingsRecovery(true);
+                        parser.setKind(ASTParser.K_COMPILATION_UNIT);
+                        parser.setCompilerOptions(options);
+                        parser.setEnvironment(classpath, sourceRoots, null, true);
 
-        if (sourceFiles.length == 0) {
-            return Collections.emptySet();
+                        String[] sourcePaths = batch.stream()
+                                .map(pf -> pf.absPath().toString())
+                                .toArray(String[]::new);
+
+                        UsageCollector collector = new UsageCollector(target, new HashSet<>(batch));
+                        try {
+                            parser.createASTs(sourcePaths, null, new String[0], collector, null);
+                        } catch (AssertionError | Exception t) {
+                            log.error("JDT analysis failed for a batch in {}", target.fqName(), t);
+                            throw new RuntimeException("Failed to analyze JDT batch for " + target.fqName(), t);
+                        }
+                        return collector.getHits();
+                    })
+                    .toList();
+
+            try {
+                List<Future<Set<UsageHit>>> futures = executor.invokeAll(tasks);
+                for (var future : futures) {
+                    allHits.addAll(future.get());
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new RuntimeException("JDT usage analysis interrupted", e);
+            } catch (Exception e) {
+                throw new RuntimeException("JDT usage analysis failed", e);
+            }
         }
 
-        UsageCollector collector = new UsageCollector(target, candidateFiles);
-
-        try {
-            parser.createASTs(sourceFiles, null, new String[0], collector, null);
-        } catch (AssertionError | Exception t) {
-            log.error("JDT analysis failed for {}", target.fqName(), t);
-            throw new RuntimeException("Failed to analyze usages for " + target.fqName() + " using JDT", t);
-        }
-
-        return collector.getHits();
+        return Collections.unmodifiableSet(allHits);
     }
 
     private static String[] inferSourceRoots(IProject project) {
