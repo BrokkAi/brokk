@@ -757,6 +757,7 @@ tasks.register<JavaExec>("runAcpServer") {
     mainClass.set("ai.brokk.acpserver.BrokkAcpServer")
     classpath = sourceSets.main.get().runtimeClasspath
     systemProperty("java.awt.headless", "true")
+    standardInput = System.`in`
 }
 
 tasks.register<JavaExec>("runHeadlessCli") {
