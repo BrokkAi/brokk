@@ -400,6 +400,37 @@ func TestParseTreeSitterSymbolsTypeScriptDefaultNamedSignatures(t *testing.T) {
 	}
 }
 
+func TestParseTreeSitterSymbolsTypeScriptAccessorAndStaticSuffixes(t *testing.T) {
+	if !treeSitterEnabled() {
+		t.Skip("tree-sitter requires cgo support on this machine")
+	}
+
+	symbols, ok := parseTreeSitterSymbols("web/model.ts", ""+
+		"export class FieldAndFunction {\n"+
+		"  private _data: number = 0;\n"+
+		"  get data(): number { return this._data; }\n"+
+		"  set data(value: number) { this._data = value; }\n"+
+		"  static create(): FieldAndFunction { return new FieldAndFunction(); }\n"+
+		"}\n"+
+		"export namespace FieldAndFunction {\n"+
+		"  export function helper(): string { return 'ok'; }\n"+
+		"}\n")
+	if !ok {
+		t.Fatal("parseTreeSitterSymbols() = false, want true")
+	}
+
+	functions := sortedFQNames(filterByKind(symbols, "function"))
+	want := []string{
+		"web.FieldAndFunction.create$static",
+		"web.FieldAndFunction.data$get",
+		"web.FieldAndFunction.data$set",
+		"web.FieldAndFunction.helper",
+	}
+	if !slices.Equal(functions, want) {
+		t.Fatalf("functions = %#v, want %#v", functions, want)
+	}
+}
+
 func TestParseTreeSitterFileCapturesJavaImportsSupertypesAndTests(t *testing.T) {
 	if !treeSitterEnabled() {
 		t.Skip("tree-sitter requires cgo support on this machine")

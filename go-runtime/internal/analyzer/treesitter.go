@@ -498,12 +498,17 @@ func buildTreeSitterSymbols(relativePath string, language string, packageName st
 		if hasEnclosingTreeSitterFunction(functions, definition) {
 			continue
 		}
-		parentFQName := resolveTreeSitterParentClass(classes, classSymbols, definition)
+		parentSymbol := resolveTreeSitterParentClassSymbol(classes, classSymbols, definition)
+		parentFQName := ""
+		if parentSymbol != nil {
+			parentFQName = parentSymbol.FQName
+		}
 		shortName := definition.name
 		fqName := joinName(packageName, shortName)
 		if parentFQName != "" {
 			fqName = parentFQName + "." + definition.name
 		}
+		fqName = enhanceTypeScriptMemberFQName(language, parentSymbol, definition, fqName)
 		results = append(results, Symbol{
 			Kind:         "function",
 			Language:     language,
@@ -523,12 +528,17 @@ func buildTreeSitterSymbols(relativePath string, language string, packageName st
 	}
 
 	for _, definition := range fields {
-		parentFQName := resolveTreeSitterParentClass(classes, classSymbols, definition)
+		parentSymbol := resolveTreeSitterParentClassSymbol(classes, classSymbols, definition)
+		parentFQName := ""
+		if parentSymbol != nil {
+			parentFQName = parentSymbol.FQName
+		}
 		shortName := definition.name
 		fqName := joinName(packageName, shortName)
 		if parentFQName != "" {
 			fqName = parentFQName + "." + definition.name
 		}
+		fqName = enhanceTypeScriptMemberFQName(language, parentSymbol, definition, fqName)
 		results = append(results, Symbol{
 			Kind:         "field",
 			Language:     language,
@@ -597,7 +607,8 @@ func treeSitterJavaHasExplicitConstructor(classes []treeSitterDefinition, classS
 		if function.name != classDefinition.name {
 			continue
 		}
-		if resolveTreeSitterParentClass(classes, classSymbols, function) != classSymbol.FQName {
+		parent := resolveTreeSitterParentClassSymbol(classes, classSymbols, function)
+		if parent == nil || parent.FQName != classSymbol.FQName {
 			continue
 		}
 		return true
@@ -827,11 +838,12 @@ func findEnclosingTreeSitterClass(classes []treeSitterDefinition, current int, o
 	return best
 }
 
-func resolveTreeSitterParentClass(classes []treeSitterDefinition, classSymbols []Symbol, definition treeSitterDefinition) string {
+func resolveTreeSitterParentClassSymbol(classes []treeSitterDefinition, classSymbols []Symbol, definition treeSitterDefinition) *Symbol {
 	if definition.receiverType != "" {
-		for i, classSymbol := range classSymbols {
+		for i := range classSymbols {
+			classSymbol := &classSymbols[i]
 			if classSymbol.ShortName == definition.receiverType || strings.HasSuffix(classSymbol.FQName, "."+definition.receiverType) {
-				return classSymbols[i].FQName
+				return classSymbol
 			}
 		}
 	}
@@ -846,9 +858,43 @@ func resolveTreeSitterParentClass(classes []treeSitterDefinition, classSymbols [
 		}
 	}
 	if best >= 0 {
-		return classSymbols[best].FQName
+		return &classSymbols[best]
 	}
-	return ""
+	return nil
+}
+
+func enhanceTypeScriptMemberFQName(language string, parentSymbol *Symbol, definition treeSitterDefinition, fqName string) string {
+	if language != "typescript" || parentSymbol == nil {
+		return fqName
+	}
+	if treeSitterIsTypescriptNamespaceSignature(parentSymbol.Signature) {
+		return fqName
+	}
+
+	signature := strings.TrimSpace(definition.signature)
+	if signature == "" {
+		signature = strings.TrimSpace(definition.snippet)
+	}
+	switch {
+	case strings.HasPrefix(signature, "get "):
+		return fqName + "$get"
+	case strings.HasPrefix(signature, "set "):
+		return fqName + "$set"
+	case treeSitterHasTypeScriptStaticModifier(signature):
+		return fqName + "$static"
+	default:
+		return fqName
+	}
+}
+
+func treeSitterIsTypescriptNamespaceSignature(signature string) bool {
+	trimmed := strings.TrimSpace(signature)
+	return strings.Contains(trimmed, "namespace ") || strings.Contains(trimmed, "module ")
+}
+
+func treeSitterHasTypeScriptStaticModifier(signature string) bool {
+	trimmed := strings.TrimSpace(signature)
+	return strings.HasPrefix(trimmed, "static ") || strings.Contains(trimmed, "\nstatic ")
 }
 
 func hasEnclosingTreeSitterFunction(functions []treeSitterDefinition, definition treeSitterDefinition) bool {
