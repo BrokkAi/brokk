@@ -5,8 +5,12 @@ import ai.brokk.LlmOutputMeta;
 import ai.brokk.TaskEntry;
 import ai.brokk.acpserver.agent.SyncPromptContext;
 import ai.brokk.cli.MemoryConsole;
+import ai.brokk.concurrent.ExecutorsUtil;
 import dev.langchain4j.data.message.ChatMessageType;
 import java.util.List;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -19,7 +23,14 @@ import org.jetbrains.annotations.Nullable;
  */
 public class AcpProgressConsole extends MemoryConsole {
 
+    private static final int FLUSH_SIZE_THRESHOLD = 1024;
+    private static final long FLUSH_DELAY_MS = 50;
+
     private final SyncPromptContext ctx;
+    private final StringBuilder tokenBuffer = new StringBuilder();
+    private final ScheduledExecutorService flushScheduler =
+            ExecutorsUtil.newSingleThreadScheduledExecutor("AcpTokenFlush");
+    private @Nullable ScheduledFuture<?> pendingFlush;
 
     /**
      * Creates an ACP progress console.
@@ -35,8 +46,32 @@ public class AcpProgressConsole extends MemoryConsole {
     @Override
     public void llmOutput(String token, ChatMessageType type, LlmOutputMeta meta) {
         super.llmOutput(token, type, meta);
-        // Stream LLM tokens to the client as message chunks
-        ctx.sendMessage(token);
+        synchronized (tokenBuffer) {
+            tokenBuffer.append(token);
+            if (tokenBuffer.length() >= FLUSH_SIZE_THRESHOLD) {
+                flushTokenBuffer();
+            } else if (pendingFlush == null) {
+                pendingFlush = flushScheduler.schedule(this::flushTokenBuffer, FLUSH_DELAY_MS, TimeUnit.MILLISECONDS);
+            }
+        }
+    }
+
+    private void flushTokenBuffer() {
+        synchronized (tokenBuffer) {
+            if (pendingFlush != null) {
+                pendingFlush.cancel(false);
+                pendingFlush = null;
+            }
+            if (tokenBuffer.length() > 0) {
+                ctx.sendMessage(tokenBuffer.toString());
+                tokenBuffer.setLength(0);
+            }
+        }
+    }
+
+    public void shutdown() {
+        flushTokenBuffer();
+        flushScheduler.shutdown();
     }
 
     @Override
@@ -89,7 +124,7 @@ public class AcpProgressConsole extends MemoryConsole {
 
     @Override
     public void setLlmAndHistoryOutput(List<TaskEntry> history, TaskEntry taskEntry) {
-        // Send the task entry content as a message
+        flushTokenBuffer();
         String content = taskEntry.toString();
         if (!content.isBlank()) {
             ctx.sendMessage(content);
@@ -98,7 +133,7 @@ public class AcpProgressConsole extends MemoryConsole {
 
     @Override
     public void prepareOutputForNextStream(List<TaskEntry> history) {
-        // Reset transcript for new stream
+        flushTokenBuffer();
         resetTranscript();
     }
 

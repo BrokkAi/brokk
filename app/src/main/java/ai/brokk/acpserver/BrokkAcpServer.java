@@ -175,8 +175,10 @@ public class BrokkAcpServer {
             ctx.sendMessage("\n\nError: " + e.getMessage());
             return new PromptResponse(StopReason.ERROR, Map.of("error", e.getMessage()));
         } finally {
+            if (progressIo instanceof AcpProgressConsole acpConsole) {
+                acpConsole.shutdown();
+            }
             cm.setIo(originalIo);
         }
     }
-
 }
