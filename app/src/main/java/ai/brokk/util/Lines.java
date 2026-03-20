@@ -10,8 +10,15 @@ import org.jetbrains.annotations.Blocking;
 
 public final class Lines {
     public static final int MAX_CHARS_PER_LINE = 2048; // Claude Code is 2000
+    public static final int SAMPLE_MAX_LINES = 50;
+    public static final int SAMPLE_TOP_SHOWN = 25;
+    public static final int SAMPLE_BOTTOM_SHOWN = 25;
 
     private Lines() {}
+
+    public static HeadTail sample(String content) {
+        return cap(content, SAMPLE_MAX_LINES, SAMPLE_TOP_SHOWN, SAMPLE_BOTTOM_SHOWN);
+    }
 
     public static HeadTail cap(String content, int maxLines, int topShown, int bottomShown) {
         if (content.isEmpty()) {
