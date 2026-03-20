@@ -2,10 +2,13 @@ package ai.brokk.analyzer;
 
 import ai.brokk.analyzer.macro.MacroPolicy;
 import ai.brokk.analyzer.macro.MacroTemplateExpander;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.stream.Collectors;
+import org.jetbrains.annotations.Nullable;
 import org.jspecify.annotations.NullMarked;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -33,6 +36,10 @@ public interface MacroExpansionProvider extends CapabilityProvider {
 
         Language lang = analyzer.languages().iterator().next();
         MacroPolicy policy = analyzer.getProject().getMacroPolicies().get(lang);
+        Map<String, MacroPolicy.MacroMatch> policyMap = policy == null
+                ? Collections.emptyMap()
+                : policy.macros().stream()
+                        .collect(Collectors.toMap(MacroPolicy.MacroMatch::name, mm -> mm, (a, b) -> a));
 
         analyzer.withCachedQuery(
                 TreeSitterAnalyzer.QueryType.MACROS,
@@ -62,16 +69,12 @@ public interface MacroExpansionProvider extends CapabilityProvider {
                                         sourceContent.substringFrom(node).strip();
 
                                 boolean handled = false;
-                                if (policy != null) {
-                                    for (MacroPolicy.MacroMatch mm : policy.macros()) {
-                                        if (mm.name().equals(macroName)) {
-                                            if (mm.strategy() == MacroPolicy.MacroStrategy.TEMPLATE
-                                                    && mm.options() instanceof MacroPolicy.TemplateConfig tc) {
-                                                expandTemplate(analyzer, file, node, tc.template(), acc);
-                                                handled = true;
-                                            }
-                                            break;
-                                        }
+                                MacroPolicy.MacroMatch mm = policyMap.get(macroName);
+                                if (mm != null) {
+                                    if (mm.strategy() == MacroPolicy.MacroStrategy.TEMPLATE
+                                            && mm.options() instanceof MacroPolicy.TemplateConfig tc) {
+                                        expandTemplate(analyzer, file, node, tc.template(), acc);
+                                        handled = true;
                                     }
                                 }
 
@@ -190,8 +193,7 @@ public interface MacroExpansionProvider extends CapabilityProvider {
         }
     }
 
-    private @org.jetbrains.annotations.Nullable CodeUnit findTargetCodeUnit(
-            TSNode node, TreeSitterAnalyzer.FileAnalysisAccumulator acc) {
+    private @Nullable CodeUnit findTargetCodeUnit(TSNode node, TreeSitterAnalyzer.FileAnalysisAccumulator acc) {
         // For attribute macros like #[derive(Is)], the node is the identifier inside the attribute.
         // We need to find the declaration that this attribute decorates.
         TSNode attributeItem = node;
