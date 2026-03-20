@@ -144,8 +144,9 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected Set<String> getIgnoredCaptures() {
-        // C# query explicitly captures attributes/annotations to ignore them
-        var ignored = Set.of("annotation.definition");
+        // C# query explicitly captures attributes/annotations to ignore them.
+        // We include 'attribute_list' and 'annotation.definition' to ensure they don't leak into skeletons.
+        var ignored = Set.of("annotation.definition", "attribute_list", "test_attr");
         log.trace("CSharpAnalyzer: getIgnoredCaptures() returning: {}", ignored);
         return ignored;
     }

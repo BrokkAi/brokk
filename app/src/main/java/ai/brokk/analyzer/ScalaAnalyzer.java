@@ -86,7 +86,14 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer implements JvmBasedAnalyze
             }
         }
 
-        final String shortName = classChain.isEmpty() ? effectiveSimpleName : classChain + "." + effectiveSimpleName;
+        String shortName;
+        if (classChain.isEmpty()) {
+            // If classChain is empty and it's a field/function, it's a top-level definition in the package.
+            // We use the simple name directly.
+            shortName = effectiveSimpleName;
+        } else {
+            shortName = classChain + "." + effectiveSimpleName;
+        }
 
         var type =
                 switch (skeletonType) {

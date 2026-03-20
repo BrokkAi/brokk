@@ -130,13 +130,13 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
                     }
                 };
 
-        // For modules, compute the parent package and short name from the full package string.
-        // simpleName contains the full package (e.g., "com.example.foo"), so split it.
+        // For modules (package declarations), simpleName is the full package name (e.g., "com.example.foo").
         if (type == CodeUnitType.MODULE) {
-            String fullPackage = simpleName;
-            int lastDot = fullPackage.lastIndexOf('.');
-            String parentPkg = lastDot > 0 ? fullPackage.substring(0, lastDot) : "";
-            String leafName = lastDot > 0 ? fullPackage.substring(lastDot + 1) : fullPackage;
+            int lastDot = simpleName.lastIndexOf('.');
+            String parentPkg = (lastDot > 0) ? simpleName.substring(0, lastDot) : "";
+            // For a MODULE, the fqName should be the package name. 
+            // CodeUnit constructor sets fqName = parentPkg.isEmpty() ? leafName : parentPkg + "." + leafName
+            String leafName = (lastDot > 0) ? simpleName.substring(lastDot + 1) : simpleName;
             return new CodeUnit(file, type, parentPkg, leafName);
         }
 
