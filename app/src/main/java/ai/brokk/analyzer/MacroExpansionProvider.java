@@ -115,32 +115,41 @@ public interface MacroExpansionProvider extends CapabilityProvider {
         TreeSitterAnalyzer.FileAnalysisAccumulator snippetAcc = new TreeSitterAnalyzer.FileAnalysisAccumulator();
         analyzer.analyzeSnippet(expanded, file, snippetAcc);
 
-        // Re-scope the synthetic CodeUnits and register them
+        mergeSyntheticUnits(parentCu, snippetAcc, acc, node);
+    }
+
+    private void mergeSyntheticUnits(
+            CodeUnit parentCu,
+            TreeSitterAnalyzer.FileAnalysisAccumulator snippetAcc,
+            TreeSitterAnalyzer.FileAnalysisAccumulator acc,
+            TSNode node) {
+
         List<CodeUnit> snippetUnits =
                 snippetAcc.cuByFqName().values().stream().distinct().toList();
         Map<CodeUnit, CodeUnit> rescopedMap = new HashMap<>();
 
+        // Phase 1: Create rescoped versions
         for (CodeUnit syntheticCu : snippetUnits) {
-            // Avoid infinite recursion or redundant nesting if the snippet re-declares the parent
             if (Objects.equals(syntheticCu.fqName(), parentCu.fqName())) {
                 continue;
             }
 
             String parentShortName = parentCu.shortName();
             String syntheticShortName = syntheticCu.shortName();
-            String newShortName;
-            if (parentCu.isClass() && !syntheticShortName.startsWith(parentShortName + ".")) {
-                newShortName = parentShortName + "." + syntheticShortName;
-            } else {
-                newShortName = syntheticShortName;
-            }
+            boolean needsPrefix = parentCu.isClass() && !syntheticShortName.startsWith(parentShortName + ".");
+            String newShortName = needsPrefix ? parentShortName + "." + syntheticShortName : syntheticShortName;
 
             CodeUnit rescopedCu = new CodeUnit(
-                    file, syntheticCu.kind(), parentCu.packageName(), newShortName, syntheticCu.signature(), true);
+                    parentCu.source(),
+                    syntheticCu.kind(),
+                    parentCu.packageName(),
+                    newShortName,
+                    syntheticCu.signature(),
+                    true);
             rescopedMap.put(syntheticCu, rescopedCu);
         }
 
-        // Maintain internal hierarchy and attach to parent
+        // Phase 2: Register and attach
         for (Map.Entry<CodeUnit, CodeUnit> entry : rescopedMap.entrySet()) {
             CodeUnit orig = entry.getKey();
             CodeUnit rescoped = entry.getValue();
@@ -150,7 +159,10 @@ public interface MacroExpansionProvider extends CapabilityProvider {
             acc.addSymbolIndex(rescoped.identifier(), rescoped);
             acc.setHasBody(rescoped, snippetAcc.getHasBody(orig, false));
             snippetAcc.getSignatures(orig).forEach(sig -> acc.addSignature(rescoped, sig));
+
             // Use attribute range as a placeholder
+            int attrStart = node.getStartByte();
+            int attrEnd = node.getEndByte();
             acc.addRange(
                     rescoped,
                     new IAnalyzer.Range(
@@ -160,7 +172,7 @@ public interface MacroExpansionProvider extends CapabilityProvider {
                             node.getStartPoint().getRow(),
                             attrStart));
 
-            // Attach snippet-internal children
+            // Attach internal hierarchy
             for (CodeUnit child : snippetAcc.getChildren(orig)) {
                 CodeUnit rescopedChild = rescopedMap.get(child);
                 if (rescopedChild != null) {
@@ -168,11 +180,10 @@ public interface MacroExpansionProvider extends CapabilityProvider {
                 }
             }
 
-            // Attach roots of the snippet to the macro parent
+            // Attach roots of snippet to parent
             boolean isSnippetRoot = snippetAcc.topLevelCUs().contains(orig)
                     || snippetUnits.stream()
                             .noneMatch(pUnit -> snippetAcc.getChildren(pUnit).contains(orig));
-
             if (isSnippetRoot) {
                 acc.addChild(parentCu, rescoped);
             }
