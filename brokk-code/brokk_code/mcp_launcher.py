@@ -10,7 +10,6 @@ from brokk_code.runtime_utils import find_dev_jar
 
 _EXECUTOR_JAR_BASE_URL = "https://github.com/BrokkAi/brokk-releases/releases/download"
 _MCP_SERVER_MAIN_CLASS = "ai.brokk.mcpserver.BrokkExternalMcpServer"
-_MCP_JBANG_PACKAGE = "brokk-headless@brokkai/brokk-releases"
 
 
 def _is_brokk_launcher_path(path: Path) -> bool:
@@ -81,12 +80,14 @@ def build_jbang_mcp_command(*, jbang_binary: str, executor_version: str | None) 
         "--java",
         "21",
         "-R",
-        "-Djava.awt.headless=true "
-        + "-Dapple.awt.UIElement=true "
-        + "--enable-native-access=ALL-UNNAMED",
+        "-Djava.awt.headless=true",
+        "-R",
+        "-Dapple.awt.UIElement=true",
+        "-R",
+        "--enable-native-access=ALL-UNNAMED",
         "--main",
         _MCP_SERVER_MAIN_CLASS,
-        jar_url if executor_version else _MCP_JBANG_PACKAGE,
+        jar_url,
     ]
 
 

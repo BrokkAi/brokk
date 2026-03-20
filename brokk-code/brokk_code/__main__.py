@@ -39,7 +39,6 @@ REPO_COMPONENT_ALLOWLIST_REGEX = r"^[A-Za-z0-9_.-]+$"
 _EXECUTOR_JAR_BASE_URL = "https://github.com/BrokkAi/brokk-releases/releases/download"
 _HEADLESS_EXECUTOR_MAIN_CLASS = "ai.brokk.executor.HeadlessExecutorMain"
 _MCP_SERVER_MAIN_CLASS = "ai.brokk.mcpserver.BrokkExternalMcpServer"
-_MCP_JBANG_PACKAGE = "brokk-headless@brokkai/brokk-releases"
 _JBANG_PREFETCH_TIMEOUT_SECONDS = 120.0
 
 
@@ -114,6 +113,8 @@ def _build_executor_prefetch_command(
 
 
 def _build_mcp_prefetch_command(*, jbang_binary: str) -> list[str]:
+    version = BUNDLED_EXECUTOR_VERSION
+    jar_url = f"{_EXECUTOR_JAR_BASE_URL}/{version}/brokk-{version}.jar"
     return [
         jbang_binary,
         "--java",
@@ -124,7 +125,7 @@ def _build_mcp_prefetch_command(*, jbang_binary: str) -> list[str]:
         "--enable-native-access=ALL-UNNAMED",
         "--main",
         _MCP_SERVER_MAIN_CLASS,
-        _MCP_JBANG_PACKAGE,
+        jar_url,
         "--help",
     ]
 
@@ -1351,6 +1352,7 @@ def main():
 
     if args.command == "version":
         from brokk_code import __version__
+
         print(f"brokk {__version__}")
         return
 
