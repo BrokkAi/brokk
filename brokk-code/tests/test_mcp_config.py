@@ -92,6 +92,7 @@ def test_configure_claude_code_mcp_settings_skips_duplicate_brokk_mark(tmp_path,
     configure_claude_code_mcp_settings(force=True)
 
     content = instructions_path.read_text()
+    # Should skip managed block because legacy '# Brokk' marker is found
     assert "<!-- BROKK:BEGIN MANAGED SECTION -->" not in content
     assert content.count("# Brokk") == 1
     assert "Custom instructions" in content
@@ -127,6 +128,7 @@ def test_configure_codex_mcp_settings_skips_duplicate_brokk_mark(tmp_path, monke
     configure_codex_mcp_settings(force=True)
 
     content = agents_md.read_text()
+    # Should skip managed block because legacy '# Brokk' marker is found
     assert "<!-- BROKK:BEGIN MANAGED SECTION -->" not in content
     assert content.count("# Brokk") == 1
     assert "Already here" in content
@@ -137,7 +139,9 @@ def test_configure_mcp_updates_stale_managed_block(tmp_path, monkeypatch):
     agents_md = tmp_path / ".codex" / "AGENTS.md"
     agents_md.parent.mkdir(parents=True)
 
-    stale_content = "<!-- BROKK:BEGIN MANAGED SECTION -->\nOld content\n<!-- BROKK:END MANAGED SECTION -->"
+    stale_content = (
+        "<!-- BROKK:BEGIN MANAGED SECTION -->\nOld content\n<!-- BROKK:END MANAGED SECTION -->"
+    )
     agents_md.write_text(f"Prefix\n\n{stale_content}\n\nSuffix")
 
     configure_codex_mcp_settings(force=True)
@@ -155,7 +159,12 @@ def test_configure_mcp_migrates_legacy_block(tmp_path, monkeypatch):
     agents_md = tmp_path / ".codex" / "AGENTS.md"
     agents_md.parent.mkdir(parents=True)
 
-    legacy = "# Brokk\n- Prefer Brokk MCP tools for syntax-aware search and edits.\n- Prefer callCodeAgent for code changes.\n- Avoid shell text search when Brokk syntax-aware tools can answer."
+    legacy = (
+        "# Brokk\n"
+        "- Prefer Brokk MCP tools for syntax-aware search and edits.\n"
+        "- Prefer callCodeAgent for code changes.\n"
+        "- Avoid shell text search when Brokk syntax-aware tools can answer."
+    )
     agents_md.write_text(legacy)
 
     configure_codex_mcp_settings(force=True)
@@ -243,3 +252,30 @@ def test_install_codex_mcp_workspace_skill_creates_expected_skill(monkeypatch, t
     assert "name: brokk-mcp-workspace" in content
     assert "activateWorkspace" in content
     assert "getActiveWorkspace" in content
+
+
+def test_configure_codex_mcp_settings_recovers_malformed_delimiters(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    agents_md = tmp_path / ".codex" / "AGENTS.md"
+    agents_md.parent.mkdir(parents=True)
+
+    # Malformed: END before BEGIN with stale text
+    malformed_content = (
+        "<!-- BROKK:END MANAGED SECTION -->\nstale text\n<!-- BROKK:BEGIN MANAGED SECTION -->\n"
+    )
+    agents_md.write_text(malformed_content)
+
+    configure_codex_mcp_settings(force=True)
+
+    content = agents_md.read_text()
+    # Should contain exactly one BEGIN and one END in the right order
+    assert content.count("<!-- BROKK:BEGIN MANAGED SECTION -->") == 1
+    assert content.count("<!-- BROKK:END MANAGED SECTION -->") == 1
+    assert content.find("<!-- BROKK:BEGIN MANAGED SECTION -->") < content.find(
+        "<!-- BROKK:END MANAGED SECTION -->"
+    )
+    assert "activateWorkspace" in content
+    assert "getActiveWorkspace" in content
+    # Recovery path strips stray markers; stale text might persist or be moved
+    # depending on implementation.
+    # but the key is that the managed block is valid.

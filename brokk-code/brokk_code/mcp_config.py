@@ -16,7 +16,6 @@ _BROKK_MARKER_RE = re.compile(f"^{_BROKK_MARKER}$", re.MULTILINE)
 _BROKK_MANAGED_RE = re.compile(
     f"{re.escape(_BROKK_BEGIN_MANAGED)}.*?{re.escape(_BROKK_END_MANAGED)}", re.DOTALL
 )
-
 _BROKK_CODEX_WORKSPACE_SKILL_NAME = "brokk-mcp-workspace"
 
 _BROKK_INSTRUCTIONS_BODY = f"""{_BROKK_MARKER}
@@ -26,19 +25,17 @@ _BROKK_INSTRUCTIONS_BODY = f"""{_BROKK_MARKER}
 - At the start of each Codex session, activate Brokk MCP for the current workspace by
   calling activateWorkspace, then verify with getActiveWorkspace."""
 
-_BROKK_MANAGED_BLOCK = (
-    f"{_BROKK_BEGIN_MANAGED}\n{_BROKK_INSTRUCTIONS_BODY}\n{_BROKK_END_MANAGED}"
-)
+_BROKK_MANAGED_BLOCK = f"{_BROKK_BEGIN_MANAGED}\n{_BROKK_INSTRUCTIONS_BODY}\n{_BROKK_END_MANAGED}"
 
 _LEGACY_BLOCKS = [
-    # a) old 3-line Brokk block
+    # old 3-line Brokk block
     f"""{_BROKK_MARKER}
 - Prefer Brokk MCP tools for syntax-aware search and edits.
 - Prefer callCodeAgent for code changes.
 - Avoid shell text search when Brokk syntax-aware tools can answer.""",
-    # b) current block with activateWorkspace (matches _BROKK_INSTRUCTIONS_BODY)
+    # current legacy block with activateWorkspace/getActiveWorkspace
     _BROKK_INSTRUCTIONS_BODY,
-    # c) tools-specific guidance block
+    # tools-specific guidance block from b7efcf...
     f"""{_BROKK_MARKER}
 - Use searchSymbols (not Grep) to find class/function/field definitions by name.
 - Use scanUsages (not Grep) to find call sites and usages of a known symbol.
@@ -66,28 +63,34 @@ def _ensure_brokk_instructions(path: Path) -> None:
 
     content = path.read_text(encoding="utf-8")
 
-    # 1. Update existing managed block
+    # Update existing managed block. If delimiters are present but malformed
+    # (e.g. END before BEGIN), recover by rewriting a fresh managed block.
     if _BROKK_BEGIN_MANAGED in content and _BROKK_END_MANAGED in content:
-        new_content = _BROKK_MANAGED_RE.sub(_BROKK_MANAGED_BLOCK, content)
-        if new_content != content:
-            path.write_text(new_content, encoding="utf-8")
+        new_content, replacement_count = _BROKK_MANAGED_RE.subn(_BROKK_MANAGED_BLOCK, content)
+        if replacement_count > 0:
+            if new_content != content:
+                path.write_text(new_content, encoding="utf-8")
+            return
+
+        path.write_text(_BROKK_MANAGED_BLOCK, encoding="utf-8")
         return
 
-    # 2. Check for exact legacy matches or empty files
+    # Check for exact legacy matches or empty files
     trimmed = content.strip()
     if not trimmed or any(trimmed == legacy.strip() for legacy in _LEGACY_BLOCKS):
         path.write_text(_BROKK_MANAGED_BLOCK, encoding="utf-8")
         return
 
-    # 3. Preserve custom # Brokk content
+    # Preserve custom # Brokk content
     if _BROKK_MARKER_RE.search(content):
         return
 
-    # 4. Append managed block
+    # Append managed block
     separator = "\n\n" if not content.endswith("\n\n") else ""
     if content.endswith("\n") and not content.endswith("\n\n"):
         separator = "\n"
     new_content = content + separator + _BROKK_MANAGED_BLOCK
+
     path.write_text(new_content, encoding="utf-8")
 
 
