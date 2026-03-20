@@ -340,18 +340,20 @@ public class GoAnalyzerTest {
         assertEquals(
                 "declpkg.MyStruct.FieldA", fqnMap.get("declpkg.MyStruct.FieldA").fqName());
 
-        // 7. Global variable: Uses '_module_' convention to distinguish package-level vars from types/funcs
-        // This mimics a "module" scope for symbols that don't have a natural parent type.
+        // 7. Global variable: Uses _module_ prefix
+        assertNotNull(fqnMap.get("declpkg._module_.MyGlobalVar"), "Global variable MyGlobalVar should be present");
         assertEquals(
                 "declpkg._module_.MyGlobalVar",
                 fqnMap.get("declpkg._module_.MyGlobalVar").fqName());
 
-        // 8. Global constant: Also uses '_module_' convention
+        // 8. Global constant: Uses _module_ prefix
+        assertNotNull(fqnMap.get("declpkg._module_.MyGlobalConst"), "Global constant MyGlobalConst should be present");
         assertEquals(
                 "declpkg._module_.MyGlobalConst",
                 fqnMap.get("declpkg._module_.MyGlobalConst").fqName());
 
-        // 9. Type alias: Treated as FIELD_LIKE but follows '_module_' naming
+        // 9. Type alias: Treated as FIELD_LIKE with _module_ prefix
+        assertNotNull(fqnMap.get("declpkg._module_.StringAlias"), "Type alias StringAlias should be present");
         assertEquals(
                 "declpkg._module_.StringAlias",
                 fqnMap.get("declpkg._module_.StringAlias").fqName());

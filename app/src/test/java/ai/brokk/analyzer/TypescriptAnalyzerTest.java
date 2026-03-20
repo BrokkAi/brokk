@@ -1,5 +1,6 @@
 package ai.brokk.analyzer;
 
+import static ai.brokk.testutil.AssertionHelperUtil.assertCodeEquals;
 import static ai.brokk.testutil.TestProject.*;
 import static ai.brokk.testutil.UsageFinderTestUtil.fileNamesFromHits;
 import static ai.brokk.testutil.UsageFinderTestUtil.newFinder;
@@ -59,60 +60,51 @@ public class TypescriptAnalyzerTest {
         CodeUnit localDetailsAlias = CodeUnit.field(helloTsFile, "", "Hello.ts.LocalDetails");
 
         assertTrue(skeletons.containsKey(greeterClass), "Greeter class skeleton missing.");
-        assertEquals(
-                normalize.apply(
-                        """
+        assertCodeEquals(
+                """
             export class Greeter {
               greeting: string
               constructor(message: string) { ... }
               greet(): string { ... }
-            }"""),
-                normalize.apply(skeletons.get(greeterClass)));
+            }""",
+                skeletons.get(greeterClass));
 
         assertTrue(skeletons.containsKey(globalFunc), "globalFunc skeleton missing.");
-        assertEquals(
-                normalize.apply("export function globalFunc(num: number): number { ... }"),
-                normalize.apply(skeletons.get(globalFunc)));
+        assertCodeEquals("export function globalFunc(num: number): number { ... }", skeletons.get(globalFunc));
 
         assertTrue(
                 skeletons.containsKey(piConst),
                 "PI const skeleton missing. Found: "
                         + skeletons.keySet().stream().map(CodeUnit::fqName).collect(Collectors.joining(", ")));
-        assertEquals(normalize.apply("export const PI: number = 3.14159"), normalize.apply(skeletons.get(piConst)));
+        assertCodeEquals("export const PI: number = 3.14159", skeletons.get(piConst));
 
         assertTrue(skeletons.containsKey(pointInterface), "Point interface skeleton missing.");
-        assertEquals(
-                normalize.apply(
-                        """
+        assertCodeEquals(
+                """
             export interface Point {
               x: number
               y: number
               label?: string
               readonly originDistance?: number
               move(dx: number, dy: number): void
-            }"""),
-                normalize.apply(skeletons.get(pointInterface)));
+            }""",
+                skeletons.get(pointInterface));
 
         assertTrue(skeletons.containsKey(colorEnum), "Color enum skeleton missing.");
-        assertEquals(
-                normalize.apply(
-                        """
+        assertCodeEquals(
+                """
             export enum Color {
               Red,
               Green = 3,
               Blue
-            }"""),
-                normalize.apply(skeletons.get(colorEnum)));
+            }""",
+                skeletons.get(colorEnum));
 
         assertTrue(skeletons.containsKey(stringOrNumberAlias), "StringOrNumber type alias skeleton missing.");
-        assertEquals(
-                normalize.apply("export type StringOrNumber = string | number"),
-                normalize.apply(skeletons.get(stringOrNumberAlias)));
+        assertCodeEquals("export type StringOrNumber = string | number", skeletons.get(stringOrNumberAlias));
 
         assertTrue(skeletons.containsKey(localDetailsAlias), "LocalDetails type alias skeleton missing.");
-        assertEquals(
-                normalize.apply("type LocalDetails = { id: number, name: string }"),
-                normalize.apply(skeletons.get(localDetailsAlias)));
+        assertCodeEquals("type LocalDetails = { id: number, name: string }", skeletons.get(localDetailsAlias));
 
         // Check getDeclarationsInFile
         Set<CodeUnit> declarations = analyzer.getDeclarations(helloTsFile);
@@ -135,16 +127,14 @@ public class TypescriptAnalyzerTest {
         // Test getSkeleton for individual items
         Optional<String> stringOrNumberSkeleton = AnalyzerUtil.getSkeleton(analyzer, "Hello.ts.StringOrNumber");
         assertTrue(stringOrNumberSkeleton.isPresent());
-        assertEquals(
-                normalize.apply("export type StringOrNumber = string | number"),
-                normalize.apply(stringOrNumberSkeleton.get()));
+        assertCodeEquals("export type StringOrNumber = string | number", stringOrNumberSkeleton.get());
 
         Optional<String> greetMethodSkeleton = AnalyzerUtil.getSkeleton(analyzer, "Greeter.greet");
         assertTrue(greetMethodSkeleton.isPresent());
 
-        assertEquals(
-                normalize.apply("export function globalFunc(num: number): number { ... }"),
-                normalize.apply(AnalyzerUtil.getSkeleton(analyzer, "globalFunc").orElse("")));
+        assertCodeEquals(
+                "export function globalFunc(num: number): number { ... }",
+                AnalyzerUtil.getSkeleton(analyzer, "globalFunc").orElse(""));
     }
 
     @Test

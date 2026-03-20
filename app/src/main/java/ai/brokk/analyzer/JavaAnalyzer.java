@@ -130,13 +130,13 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
                     }
                 };
 
-        // For modules, compute the parent package and short name from the full package string.
-        // simpleName contains the full package (e.g., "com.example.foo"), so split it.
+        // For modules (package declarations), simpleName is the full package name (e.g., "com.example.foo").
         if (type == CodeUnitType.MODULE) {
-            String fullPackage = simpleName;
-            int lastDot = fullPackage.lastIndexOf('.');
-            String parentPkg = lastDot > 0 ? fullPackage.substring(0, lastDot) : "";
-            String leafName = lastDot > 0 ? fullPackage.substring(lastDot + 1) : fullPackage;
+            int lastDot = simpleName.lastIndexOf('.');
+            String parentPkg = (lastDot > 0) ? simpleName.substring(0, lastDot) : "";
+            // For a MODULE, the fqName should be the package name.
+            // CodeUnit constructor sets fqName = parentPkg.isEmpty() ? leafName : parentPkg + "." + leafName
+            String leafName = (lastDot > 0) ? simpleName.substring(lastDot + 1) : simpleName;
             return new CodeUnit(file, type, parentPkg, leafName);
         }
 
@@ -363,7 +363,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
                 QueryType.DEFINITIONS,
                 query -> {
                     try (TSQueryCursor cursor = new TSQueryCursor()) {
-                        cursor.exec(query, tree.getRootNode());
+                        cursor.exec(query, tree.getRootNode(), sourceContent.text());
 
                         TSQueryMatch match = new TSQueryMatch();
                         while (cursor.nextMatch(match)) {
@@ -918,10 +918,10 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
         withCachedQuery(
                 QueryType.IDENTIFIERS,
                 query -> {
+                    SourceContent sourceContent = SourceContent.of(source);
                     try (TSQueryCursor cursor = new TSQueryCursor()) {
-                        cursor.exec(query, root);
+                        cursor.exec(query, root, sourceContent.text());
 
-                        SourceContent sourceContent = SourceContent.of(source);
                         TSQueryMatch match = new TSQueryMatch();
 
                         while (cursor.nextMatch(match)) {
@@ -1516,15 +1516,15 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
         return withCachedQuery(
                 QueryType.DEFINITIONS,
                 query -> {
-                    try (TSQueryCursor cursor = new TSQueryCursor()) {
-                        // Ascend to the root node for matching
-                        TSNode root = classNode;
-                        while (root.getParent() != null && !root.getParent().isNull()) {
-                            root = root.getParent();
-                        }
+                    // Ascend to the root node for matching
+                    TSNode root = classNode;
+                    while (root.getParent() != null && !root.getParent().isNull()) {
+                        root = root.getParent();
+                    }
 
+                    try (TSQueryCursor cursor = new TSQueryCursor()) {
                         List<TSNode> aggregateSuperNodes = new ArrayList<>();
-                        cursor.exec(query, root);
+                        cursor.exec(query, root, sourceContent.text());
 
                         TSQueryMatch match = new TSQueryMatch();
                         final int targetStart = classNode.getStartByte();

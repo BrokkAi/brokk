@@ -220,7 +220,7 @@ public class CppAnalyzerTest {
 
             logger.debug("Function: {} -> Skeleton: {}", functionName, skeleton);
 
-            // The skeleton should contain {...} placeholder for functions with bodies
+            // The skeleton should contain the body placeholder for functions with bodies
             if (functionName.contains("getArea")
                     || functionName.contains("print")
                     || functionName.contains("global_func")) {
@@ -1068,7 +1068,7 @@ public class CppAnalyzerTest {
 
         String sig = fooEntry.get().getValue();
         // The signature should either include a body placeholder or actual body text; prefer placeholder check
-        assertCodeContains(sig, "{");
+        assertCodeContains(sig, "{...}");
     }
 
     @Test

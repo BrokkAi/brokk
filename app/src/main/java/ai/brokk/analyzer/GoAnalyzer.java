@@ -124,7 +124,7 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
                 QueryType.DEFINITIONS,
                 query -> {
                     try (TSQueryCursor cursor = new TSQueryCursor()) {
-                        cursor.exec(query, rootNode);
+                        cursor.exec(query, rootNode, sourceContent.text());
                         TSQueryMatch match = new TSQueryMatch();
 
                         while (cursor.nextMatch(match)) {
@@ -565,23 +565,19 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
 
         Map<String, TSNode> localCaptures = new HashMap<>();
         // Re-query the node to extract the receiver type from captures
-        withCachedQuery(
-                QueryType.DEFINITIONS,
-                query -> {
-                    try (TSQueryCursor cursor = new TSQueryCursor()) {
-                        cursor.exec(query, node);
-                        TSQueryMatch match = new TSQueryMatch();
+        withCachedQuery(QueryType.DEFINITIONS, query -> {
+            try (TSQueryCursor cursor = new TSQueryCursor()) {
+                cursor.exec(query, node, sourceContent.text());
+                TSQueryMatch match = new TSQueryMatch();
 
-                        if (cursor.nextMatch(match)) {
-                            for (TSQueryCapture capture : match.getCaptures()) {
-                                String capName = query.getCaptureNameForId(capture.getIndex());
-                                localCaptures.put(capName, capture.getNode());
-                            }
-                        }
+                if (cursor.nextMatch(match)) {
+                    for (TSQueryCapture capture : match.getCaptures()) {
+                        String capName = query.getCaptureNameForId(capture.getIndex());
+                        localCaptures.put(capName, capture.getNode());
                     }
-                    return true;
-                },
-                false);
+                }
+            }
+        });
 
         TSNode receiverNode = localCaptures.get("method.receiver.type");
         if (receiverNode != null && !receiverNode.isNull()) {
@@ -837,7 +833,7 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
                     QueryType.IDENTIFIERS,
                     query -> {
                         try (TSQueryCursor cursor = new TSQueryCursor()) {
-                            cursor.exec(query, tree.getRootNode());
+                            cursor.exec(query, tree.getRootNode(), sourceContent.text());
 
                             TSQueryMatch match = new TSQueryMatch();
                             while (cursor.nextMatch(match)) {
@@ -972,7 +968,7 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
                 QueryType.DEFINITIONS,
                 query -> {
                     try (TSQueryCursor cursor = new TSQueryCursor()) {
-                        cursor.exec(query, tree.getRootNode());
+                        cursor.exec(query, tree.getRootNode(), sourceContent.text());
                         TSQueryMatch match = new TSQueryMatch();
 
                         while (cursor.nextMatch(match)) {
