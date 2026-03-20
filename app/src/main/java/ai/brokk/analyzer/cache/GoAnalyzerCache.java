@@ -4,7 +4,6 @@ import ai.brokk.analyzer.ProjectFile;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import java.util.Set;
-import org.jspecify.annotations.NullMarked;
 
 /**
  * Go-specific cache extending the base analyzer cache.
@@ -13,7 +12,6 @@ import org.jspecify.annotations.NullMarked;
  * in Go as it may require scanning the filesystem or reading multiple files to find
  * the package declaration.
  */
-@NullMarked
 public final class GoAnalyzerCache extends AnalyzerCache {
 
     private final Cache<String, String> importPathToPackageNameCache;
@@ -26,11 +24,24 @@ public final class GoAnalyzerCache extends AnalyzerCache {
 
     public GoAnalyzerCache(GoAnalyzerCache previous, Set<ProjectFile> changedFiles) {
         super(previous, changedFiles);
-        // We transfer the whole cache; entries for changed files will be overwritten
-        // if the package name changes, but usually, import paths are stable.
         this.importPathToPackageNameCache =
                 Caffeine.newBuilder().maximumSize(10_000).build();
-        this.importPathToPackageNameCache.putAll(previous.importPathToPackageNameCache.asMap());
+
+        // Selective Invalidation: Copy previous entries but evict those matching changed files.
+        // This prevents stale package names while preserving resolution for unaffected imports.
+        previous.importPathToPackageNameCache.asMap().forEach((importPath, packageName) -> {
+            boolean affected = false;
+            for (ProjectFile pf : changedFiles) {
+                String relPath = pf.getRelPath().toString().replace('\\', '/');
+                if (relPath.contains("/" + importPath + "/") || relPath.startsWith(importPath + "/")) {
+                    affected = true;
+                    break;
+                }
+            }
+            if (!affected) {
+                this.importPathToPackageNameCache.put(importPath, packageName);
+            }
+        });
     }
 
     public Cache<String, String> importPathToPackageNameCache() {
