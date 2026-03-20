@@ -467,13 +467,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         }
 
         public void replaceTopLevelCodeUnit(CodeUnit oldCu, CodeUnit newCu) {
-            List<CodeUnit> kids = childrenByParent.remove(oldCu);
-            remove(oldCu);
-            if (kids != null) {
-                childrenByParent.put(newCu, kids);
-            }
-            addTopLevel(newCu);
+            removeRecursive(oldCu);
             registerCodeUnit(newCu);
+            addTopLevel(newCu);
         }
 
         public @Nullable CodeUnit findChildDuplicate(CodeUnit parent, CodeUnit cu) {
@@ -491,13 +487,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         }
 
         public void replaceChildCodeUnit(CodeUnit parent, CodeUnit oldCu, CodeUnit newCu) {
-            List<CodeUnit> kids = childrenByParent.remove(oldCu);
-            remove(oldCu);
-            if (kids != null) {
-                childrenByParent.put(newCu, kids);
-            }
-            addChild(parent, newCu);
+            removeRecursive(oldCu);
             registerCodeUnit(newCu);
+            addChild(parent, newCu);
         }
 
         public void detachChildren(CodeUnit cu) {
@@ -514,6 +506,16 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             hasBodyByCu.remove(cu);
             isTypeAliasByCu.remove(cu);
             lookupKeys.values().forEach(list -> list.removeIf(v -> v.equals(cu)));
+        }
+
+        public void removeRecursive(CodeUnit cu) {
+            List<CodeUnit> children = childrenByParent.get(cu);
+            if (children != null) {
+                for (CodeUnit child : new ArrayList<>(children)) {
+                    removeRecursive(child);
+                }
+            }
+            remove(cu);
         }
 
         public Map<CodeUnit, CodeUnitProperties> toCodeUnitProperties() {
