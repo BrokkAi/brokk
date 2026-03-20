@@ -132,6 +132,39 @@ def test_run_mcp_server_falls_back_to_versioned_jbang(monkeypatch, tmp_path) -> 
     assert any("brokk-0.99.0.jar" in arg for arg in command)
 
 
+def test_run_mcp_server_falls_back_to_bundled_jbang_version(monkeypatch, tmp_path) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_chdir(path: Path) -> None:
+        captured["cwd"] = path
+
+    def fake_execvpe(binary: str, command: list[str], env: dict[str, str]) -> None:
+        captured["binary"] = binary
+        captured["command"] = command
+        raise RuntimeError("stop")
+
+    monkeypatch.setattr(os, "chdir", fake_chdir)
+    monkeypatch.setattr(os, "execvpe", fake_execvpe)
+    monkeypatch.setattr(mcp_launcher, "find_dev_jar", lambda _workspace_dir: None)
+    monkeypatch.setattr(mcp_launcher, "git_toplevel_for", lambda _path: None)
+    monkeypatch.setattr(mcp_launcher, "ensure_jbang_ready", lambda: "/usr/local/bin/jbang")
+
+    with pytest.raises(RuntimeError, match="stop"):
+        mcp_launcher.run_mcp_server(
+            workspace_dir=tmp_path,
+            jar_path=None,
+            executor_version=None,
+        )
+
+    command = captured["command"]
+    assert captured["cwd"] == tmp_path.resolve()
+    assert captured["binary"] == "/usr/local/bin/jbang"
+    assert isinstance(command, list)
+    assert "--main" in command
+    assert "ai.brokk.mcpserver.BrokkExternalMcpServer" in command
+    assert any(f"brokk-{mcp_launcher.BUNDLED_EXECUTOR_VERSION}.jar" in arg for arg in command)
+
+
 def test_run_mcp_server_reports_missing_runtime(monkeypatch, tmp_path, capsys) -> None:
     monkeypatch.setattr(mcp_launcher, "find_dev_jar", lambda _workspace_dir: None)
     monkeypatch.setattr(mcp_launcher, "ensure_jbang_ready", lambda: "missing-runtime")
