@@ -72,9 +72,14 @@ def test_configure_claude_code_mcp_settings_appends_to_claude_md(tmp_path, monke
     assert instructions.exists()
     content = instructions.read_text()
     assert "# Brokk" in content
-    assert "Prefer Brokk MCP tools for syntax-aware search and edits." in content
-    assert "Prefer callCodeAgent for code changes." in content
-    assert "Avoid shell text search when Brokk syntax-aware tools can answer." in content
+    assert "Use searchSymbols (not Grep)" in content
+    assert "Use scanUsages (not Grep)" in content
+    assert "Use getMethodSources (not Read)" in content
+    assert "Use getClassSkeletons (not Read)" in content
+    assert "Use getClassSources (not Read)" in content
+    assert "Use getFileSummaries or skimFiles" in content
+    assert "Use scan to get oriented" in content
+    assert "Use callCodeAgent (not Edit/Write)" in content
 
 
 def test_configure_claude_code_mcp_settings_skips_duplicate_brokk_mark(tmp_path, monkeypatch):
@@ -102,9 +107,14 @@ def test_configure_codex_mcp_settings_appends_to_codex_agents(tmp_path, monkeypa
     assert agents_md.exists()
     content = agents_md.read_text()
     assert "# Brokk" in content
-    assert "Prefer Brokk MCP tools for syntax-aware search and edits." in content
-    assert "Prefer callCodeAgent for code changes." in content
-    assert "Avoid shell text search when Brokk syntax-aware tools can answer." in content
+    assert "Use searchSymbols (not Grep)" in content
+    assert "Use scanUsages (not Grep)" in content
+    assert "Use getMethodSources (not Read)" in content
+    assert "Use getClassSkeletons (not Read)" in content
+    assert "Use getClassSources (not Read)" in content
+    assert "Use getFileSummaries or skimFiles" in content
+    assert "Use scan to get oriented" in content
+    assert "Use callCodeAgent (not Edit/Write)" in content
 
 
 def test_configure_codex_mcp_settings_skips_duplicate_brokk_mark(tmp_path, monkeypatch):

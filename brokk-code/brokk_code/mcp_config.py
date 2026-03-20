@@ -12,9 +12,14 @@ _SERVER_NAME = "brokk"
 _BROKK_MARKER = "# Brokk"
 _BROKK_MARKER_RE = re.compile(f"^{_BROKK_MARKER}$", re.MULTILINE)
 _BROKK_INSTRUCTIONS = f"""{_BROKK_MARKER}
-- Prefer Brokk MCP tools for syntax-aware search and edits.
-- Prefer callCodeAgent for code changes.
-- Avoid shell text search when Brokk syntax-aware tools can answer.
+- Use searchSymbols (not Grep) to find class/function/field definitions by name.
+- Use scanUsages (not Grep) to find call sites and usages of a known symbol.
+- Use getMethodSources (not Read) to retrieve specific method implementations.
+- Use getClassSkeletons (not Read) to understand a class's API and structure.
+- Use getClassSources (not Read) only when you need the full class implementation.
+- Use getFileSummaries or skimFiles (not Read/Glob) for multi-file overviews.
+- Use scan to get oriented when starting a new task.
+- Use callCodeAgent (not Edit/Write) for all code changes.
 """
 _BROKK_MCP_PERMISSION_ALLOW: list[str] = [
     "Bash(./gradlew:*)",
