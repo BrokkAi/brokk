@@ -12,14 +12,9 @@
   (attribute
     (identifier) @_derive
     (#eq? @_derive "derive")
-    (token_tree
-      [
-        (identifier) @macro.derive.name
-        (type_identifier) @macro.derive.name
-      ]
-    )
+    (token_tree [(identifier) (type_identifier)] @macro.derive.name)
   )
-) @macro.derive
+)
 
 ; Capture other attribute macros like #[tokio::main] but NOT #[derive(...)]
 ; The predicate excludes "derive" to avoid double-matching
@@ -31,4 +26,4 @@
       (scoped_identifier) @macro.attribute.name
     ]
   )
-) @macro.attribute
+)

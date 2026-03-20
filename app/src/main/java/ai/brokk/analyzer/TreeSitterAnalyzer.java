@@ -1102,7 +1102,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             ProjectFile file, Function<SourceContent, R> fn, R defaultValue, byte @Nullable [] seedBytes) {
         SourceContent sc = cache.sources().get(file);
         if (sc == null) {
-            if (Files.exists(file.absPath())) {
+            if (seedBytes != null || Files.exists(file.absPath())) {
                 try {
                     byte[] bytes = seedBytes == null ? readFileBytes(file, null) : seedBytes;
                     if (bytes.length == 0) {
@@ -4379,7 +4379,20 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         if (snippet.isBlank()) return;
 
         byte[] bytes = snippet.getBytes(StandardCharsets.UTF_8);
-        FileAnalysisResult result = analyzeFileContent(file, bytes, null);
+
+        SourceContent originalSc = cache.sources().get(file);
+        cache.sources().remove(file);
+
+        FileAnalysisResult result;
+        try {
+            result = analyzeFileContent(file, bytes, null);
+        } finally {
+            if (originalSc != null) {
+                cache.sources().put(file, originalSc);
+            } else {
+                cache.sources().remove(file);
+            }
+        }
 
         // Map original CodeUnits from snippet to their synthetic versions to preserve relationships
         Map<CodeUnit, CodeUnit> syntheticMap = new HashMap<>();
