@@ -10,15 +10,45 @@ from brokk_code.zed_config import ExistingBrokkCodeEntryError, atomic_write_sett
 _IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _SERVER_NAME = "brokk"
 _BROKK_MARKER = "# Brokk"
+_BROKK_BEGIN_MANAGED = "<!-- BROKK:BEGIN MANAGED SECTION -->"
+_BROKK_END_MANAGED = "<!-- BROKK:END MANAGED SECTION -->"
 _BROKK_MARKER_RE = re.compile(f"^{_BROKK_MARKER}$", re.MULTILINE)
+_BROKK_MANAGED_RE = re.compile(
+    f"{re.escape(_BROKK_BEGIN_MANAGED)}.*?{re.escape(_BROKK_END_MANAGED)}", re.DOTALL
+)
+
 _BROKK_CODEX_WORKSPACE_SKILL_NAME = "brokk-mcp-workspace"
-_BROKK_INSTRUCTIONS = f"""{_BROKK_MARKER}
+
+_BROKK_INSTRUCTIONS_BODY = f"""{_BROKK_MARKER}
 - Prefer Brokk MCP tools for syntax-aware search and edits.
 - Prefer callCodeAgent for code changes.
 - Avoid shell text search when Brokk syntax-aware tools can answer.
 - At the start of each Codex session, activate Brokk MCP for the current workspace by
-  calling activateWorkspace, then verify with getActiveWorkspace.
-"""
+  calling activateWorkspace, then verify with getActiveWorkspace."""
+
+_BROKK_MANAGED_BLOCK = (
+    f"{_BROKK_BEGIN_MANAGED}\n{_BROKK_INSTRUCTIONS_BODY}\n{_BROKK_END_MANAGED}"
+)
+
+_LEGACY_BLOCKS = [
+    # a) old 3-line Brokk block
+    f"""{_BROKK_MARKER}
+- Prefer Brokk MCP tools for syntax-aware search and edits.
+- Prefer callCodeAgent for code changes.
+- Avoid shell text search when Brokk syntax-aware tools can answer.""",
+    # b) current block with activateWorkspace (matches _BROKK_INSTRUCTIONS_BODY)
+    _BROKK_INSTRUCTIONS_BODY,
+    # c) tools-specific guidance block
+    f"""{_BROKK_MARKER}
+- Use searchSymbols (not Grep) to find class/function/field definitions by name.
+- Use scanUsages (not Grep) to find call sites and usages of a known symbol.
+- Use getMethodSources (not Read) to retrieve specific method implementations.
+- Use getClassSkeletons (not Read) to understand a class's API and structure.
+- Use getClassSources (not Read) only when you need the full class implementation.
+- Use getFileSummaries or skimFiles (not Read/Glob) for multi-file overviews.
+- Use scan to get oriented when starting a new task.
+- Use callCodeAgent (not Edit/Write) for all code changes.""",
+]
 _BROKK_MCP_PERMISSION_ALLOW: list[str] = [
     "Bash(./gradlew:*)",
     # MCP permissions do not support wildcards for tool names.
@@ -28,24 +58,36 @@ _BROKK_MCP_PERMISSION_ALLOW: list[str] = [
 
 
 def _ensure_brokk_instructions(path: Path) -> None:
-    """Appends Brokk instructions to a markdown file if not already present."""
-    if path.exists():
-        content = path.read_text(encoding="utf-8")
-        if _BROKK_MARKER_RE.search(content):
-            return
-
-        # Ensure we have proper separation from existing content
-        if not content.strip():
-            new_content = _BROKK_INSTRUCTIONS
-        else:
-            separator = "\n\n" if not content.endswith("\n\n") else ""
-            if content.endswith("\n") and not content.endswith("\n\n"):
-                separator = "\n"
-            new_content = content + separator + _BROKK_INSTRUCTIONS
-    else:
+    """Manages Brokk instructions in a markdown file with delimiters and migration."""
+    if not path.exists():
         path.parent.mkdir(parents=True, exist_ok=True)
-        new_content = _BROKK_INSTRUCTIONS
+        path.write_text(_BROKK_MANAGED_BLOCK, encoding="utf-8")
+        return
 
+    content = path.read_text(encoding="utf-8")
+
+    # 1. Update existing managed block
+    if _BROKK_BEGIN_MANAGED in content and _BROKK_END_MANAGED in content:
+        new_content = _BROKK_MANAGED_RE.sub(_BROKK_MANAGED_BLOCK, content)
+        if new_content != content:
+            path.write_text(new_content, encoding="utf-8")
+        return
+
+    # 2. Check for exact legacy matches or empty files
+    trimmed = content.strip()
+    if not trimmed or any(trimmed == legacy.strip() for legacy in _LEGACY_BLOCKS):
+        path.write_text(_BROKK_MANAGED_BLOCK, encoding="utf-8")
+        return
+
+    # 3. Preserve custom # Brokk content
+    if _BROKK_MARKER_RE.search(content):
+        return
+
+    # 4. Append managed block
+    separator = "\n\n" if not content.endswith("\n\n") else ""
+    if content.endswith("\n") and not content.endswith("\n\n"):
+        separator = "\n"
+    new_content = content + separator + _BROKK_MANAGED_BLOCK
     path.write_text(new_content, encoding="utf-8")
 
 
