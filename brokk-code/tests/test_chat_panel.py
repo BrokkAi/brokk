@@ -808,9 +808,8 @@ async def test_chat_panel_history_and_filtering():
 
 @pytest.mark.asyncio
 async def test_brokk_app_command_result_handling_and_filtering():
-    """Verify that BrokkApp correctly routes COMMAND_RESULT events and they obey verbosity."""
+    """Verify that BrokkApp correctly routes COMMAND_RESULT events to history."""
     from brokk_code.app import BrokkApp
-    from brokk_code.widgets.chat_panel import ChatLog
 
     executor = MagicMock()
     app = BrokkApp(executor=executor)
@@ -818,19 +817,14 @@ async def test_brokk_app_command_result_handling_and_filtering():
     async def _noop() -> None:
         return None
 
-    # Avoid starting background workers during this integration test.
     app._start_executor = _noop  # type: ignore[method-assign]
     app._monitor_executor = _noop  # type: ignore[method-assign]
     app._poll_tasklist = _noop  # type: ignore[method-assign]
     app._poll_context = _noop  # type: ignore[method-assign]
 
-    app.show_verbose_output = False
-
     async with app.run_test() as pilot:
         chat = app.query_one(ChatPanel)
-        log = chat.query_one("#chat-log", ChatLog)
 
-        # Simulate a COMMAND_RESULT event
         event = {
             "type": "COMMAND_RESULT",
             "data": {
@@ -844,16 +838,16 @@ async def test_brokk_app_command_result_handling_and_filtering():
         app._handle_event(event)
         await pilot.pause()
 
-        # Verify it was added to history
-        assert any(m["kind"] == "TOOL_RESULT" for m in chat._message_history)
-        # Verbose is OFF by default, so it should NOT be in the rendered log lines
-        assert "hello world" not in "".join(str(line) for line in log.lines)
+        # Verify it was added to message history
+        assert any(m["kind"] == "COMMAND_SUMMARY" for m in chat._message_history)
 
-        # Toggle output ON
-        app.action_toggle_output()
-        await pilot.pause()
-        assert app.show_verbose_output is True
-        assert "hello world" in "".join(str(line) for line in log.lines)
+        # Verify it was added to command history (used by /ps)
+        history = chat.get_command_history()
+        assert len(history) == 1
+        assert history[0]["stage"] == "TestStage"
+        assert history[0]["command"] == "echo hello"
+        assert history[0]["success"] is True
+        assert history[0]["output"] == "hello world"
 
 
 @pytest.mark.asyncio
@@ -2314,7 +2308,6 @@ async def test_ps_command_opens_commands_modal():
 async def test_command_result_event_uses_compact_display():
     """Verify that COMMAND_RESULT events are handled with compact display via add_command_result."""
     from brokk_code.app import BrokkApp
-    from brokk_code.widgets.chat_panel import ChatLog
 
     executor = MagicMock()
     app = BrokkApp(executor=executor)
@@ -2329,7 +2322,6 @@ async def test_command_result_event_uses_compact_display():
 
     async with app.run_test() as pilot:
         chat = app.query_one(ChatPanel)
-        log = chat.query_one("#chat-log", ChatLog)
 
         # Simulate a COMMAND_RESULT event (success)
         event = {

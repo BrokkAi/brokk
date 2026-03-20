@@ -126,7 +126,8 @@ class StatusLine(Horizontal):
             text = f"{self._fragment_description} ({size_text} tokens)"
 
         if self._commands_running > 0:
-            cmd_text = f"{self._commands_running} command{'s' if self._commands_running != 1 else ''} running"
+            suffix = "s" if self._commands_running != 1 else ""
+            cmd_text = f"{self._commands_running} command{suffix} running"
             text = f"{cmd_text} {self.SEPARATOR} {text}"
 
         self._set_status_metadata(text)

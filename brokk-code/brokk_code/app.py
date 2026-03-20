@@ -23,6 +23,7 @@ from textual.widgets import Button, Input, ListItem, ListView, LoadingIndicator,
 from brokk_code.event_utils import is_failure_state, safe_data
 from brokk_code.executor import ExecutorError, ExecutorManager
 from brokk_code.git_utils import infer_github_repo_from_remote
+from brokk_code.modals.commands_modal import CommandsModalScreen
 from brokk_code.prompt_history import append_prompt, load_history
 from brokk_code.settings import (
     DEFAULT_THEME,
@@ -31,7 +32,6 @@ from brokk_code.settings import (
     write_brokk_api_key,
 )
 from brokk_code.welcome import build_welcome_message, get_braille_icon
-from brokk_code.modals.commands_modal import CommandsModalScreen
 from brokk_code.widgets.chat_panel import ChatInput, ChatPanel
 from brokk_code.widgets.context_panel import ContextPanel
 from brokk_code.widgets.dependencies_panel import DependenciesPanel
@@ -2978,6 +2978,13 @@ class BrokkApp(App):
                 chat.add_system_message(msg, level="ERROR")
             # Note: set_job_running(False) happens in _run_job finally block
         elif event_type == "COMMAND_RESULT":
+            logger.debug(
+                "COMMAND_RESULT event: stage=%s cmd=%s success=%s out_len=%d",
+                data.get("stage"),
+                data.get("command"),
+                data.get("success"),
+                len(data.get("output", "")),
+            )
             if chat:
                 stage = data.get("stage", "Command")
                 command = data.get("command", "")
