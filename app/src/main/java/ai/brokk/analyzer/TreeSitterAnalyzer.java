@@ -656,10 +656,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         return this.progressListener;
     }
 
-    protected final AnalyzerCache getCache() {
-        return this.cache;
-    }
-
     /**
      * Secondary constructor for snapshot instances: does not perform initial project-wide analysis,
      * but installs the provided prebuilt AnalyzerState as-is.
