@@ -37,6 +37,8 @@ public interface ContextFragment {
 
     Cache<String, Integer> lineCountCache =
             Caffeine.newBuilder().maximumSize(1000).build();
+    Cache<String, String> summaryTextCache =
+            Caffeine.newBuilder().maximumSize(1000).build();
 
     @Blocking
     default int lineCount() {
@@ -168,6 +170,16 @@ public interface ContextFragment {
                </fragment>
                """
                 .formatted(description().join(), text().join());
+    }
+
+    @Blocking
+    default String formatSummary() {
+        return """
+               <fragment_summary description="%s">
+               %s
+               </fragment_summary>
+               """
+                .formatted(description().join(), summaryText());
     }
 
     /**
@@ -337,5 +349,30 @@ public interface ContextFragment {
                 })
                 .sorted(Comparator.comparingLong(k -> k.minMtime))
                 .map(k -> k.fragment);
+    }
+
+    @Blocking
+    private String summaryText() {
+        return switch (this) {
+            case ContextFragments.ProjectPathFragment pf ->
+                summaryTextCache.get(id(), ignored -> new ContextFragments.SummaryFragment(
+                                pf.contextManager, pf.file().toString(), SummaryType.FILE_SKELETONS)
+                        .text()
+                        .join());
+            case ContextFragments.CodeFragment cf ->
+                summaryTextCache.get(id(), ignored -> new ContextFragments.SummaryFragment(
+                                cf.contextManager, cf.getFullyQualifiedName(), SummaryType.CODEUNIT_SKELETON)
+                        .text()
+                        .join());
+            case ContextFragments.SummaryFragment sf -> sf.text().join();
+            case ContextFragments.LineRangeFragment lf -> lf.text().join();
+            case ContextFragments.StacktraceFragment sf -> sf.text().join();
+            case ImageFragment ignored -> "No summary available";
+            default -> {
+                assert isText();
+                yield summaryTextCache.get(
+                        id(), k -> Lines.sample(text().join()).promptText());
+            }
+        };
     }
 }
