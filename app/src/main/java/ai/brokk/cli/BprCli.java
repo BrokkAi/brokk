@@ -827,9 +827,7 @@ public final class BprCli implements Callable<Integer> {
                                             ? "Build verification completed successfully."
                                             : "Build verification failed:\n" + buildError);
                             // we have no `result` since we did not interact with the LLM
-                            System.exit(buildError.isEmpty() ? 0 : 1);
-                            // make the compiler happy
-                            result = null;
+                            return buildError.isEmpty() ? 0 : 1;
                         } else { // lutzPrompt != null
                             if (planModel == null) {
                                 System.err.println("Error: --lutz requires --planmodel to be specified.");
