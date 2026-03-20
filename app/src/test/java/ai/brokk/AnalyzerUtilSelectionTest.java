@@ -219,6 +219,61 @@ public class AnalyzerUtilSelectionTest {
     }
 
     @Test
+    void sampleUsages_collapsesByOwnerAndUsesLowerPercentiles() {
+        ProjectFile file = pfA;
+        List<CodeUnit> owners = new java.util.ArrayList<>();
+        Map<String, List<CodeUnit>> methods = new java.util.HashMap<>();
+        TestAnalyzer sampleAnalyzer = new TestAnalyzer(owners, methods);
+        List<UsageHit> hits = new java.util.ArrayList<>();
+
+        for (int i = 1; i <= 10; i++) {
+            CodeUnit owner = CodeUnit.cls(file, "pkg", "Owner" + i);
+            CodeUnit method = CodeUnit.fn(file, "pkg.Owner" + i, "m" + i);
+            owners.add(owner);
+            sampleAnalyzer.setSource(method, "x".repeat(i * 10));
+            hits.add(new UsageHit(file, i, i, i + 1, method, 0.5, "hit-" + i));
+        }
+
+        CodeUnit lowerConfidenceShort = CodeUnit.fn(file, "pkg.Owner1", "tiny");
+        sampleAnalyzer.setSource(lowerConfidenceShort, "tiny");
+        hits.addFirst(new UsageHit(file, 100, 100, 101, lowerConfidenceShort, 0.1, "tiny-hit"));
+
+        List<AnalyzerUtil.CodeWithSource> sampled = AnalyzerUtil.sampleUsages(sampleAnalyzer, hits);
+
+        assertEquals(3, sampled.size(), "Expected three sampled examples");
+        assertEquals(
+                List.of(10, 20, 30),
+                sampled.stream().map(s -> s.code().length()).toList(),
+                "10/20/30 percentile sampling should choose the lower decile examples after owner collapse");
+        assertFalse(
+                sampled.stream().anyMatch(s -> s.code().equals("tiny")),
+                "Lower-confidence method from the same owner should not replace the owner's representative");
+    }
+
+    @Test
+    void sampleUsages_percentileCollisionsAdvanceToDistinctExamples() {
+        ProjectFile file = pfA;
+        List<CodeUnit> owners = new java.util.ArrayList<>();
+        TestAnalyzer sampleAnalyzer = new TestAnalyzer(owners, Map.of());
+        List<UsageHit> hits = new java.util.ArrayList<>();
+
+        for (int i = 1; i <= 4; i++) {
+            CodeUnit owner = CodeUnit.cls(file, "pkg", "CollisionOwner" + i);
+            CodeUnit method = CodeUnit.fn(file, "pkg.CollisionOwner" + i, "m" + i);
+            owners.add(owner);
+            sampleAnalyzer.setSource(method, "y".repeat(i * 7));
+            hits.add(new UsageHit(file, i, i, i + 1, method, 1.0, "collision-" + i));
+        }
+
+        List<AnalyzerUtil.CodeWithSource> sampled = AnalyzerUtil.sampleUsages(sampleAnalyzer, hits);
+
+        assertEquals(
+                List.of(7, 14, 21),
+                sampled.stream().map(s -> s.code().length()).toList(),
+                "Colliding percentile indices should advance to the next unused examples");
+    }
+
+    @Test
     void usages_sampleMode() {
         Optional<ContextFragment> frag = AnalyzerUtil.selectUsageFragment(
                 analyzer, cm, "com.acme.Foo.bar", false, ContextFragments.UsageMode.SAMPLE);

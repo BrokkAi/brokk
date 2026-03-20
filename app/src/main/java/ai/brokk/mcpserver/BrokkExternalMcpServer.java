@@ -2,6 +2,7 @@ package ai.brokk.mcpserver;
 
 import static java.util.Objects.requireNonNull;
 
+import ai.brokk.AnalyzerUtil;
 import ai.brokk.BuildInfo;
 import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
@@ -639,17 +640,12 @@ public class BrokkExternalMcpServer {
                     .append(hit.line())
                     .append(")\n"));
 
-            List<CodeUnit> distinctEnclosing =
-                    hitsLimited.stream().map(UsageHit::enclosing).distinct().toList();
-            List<CodeUnit> shortestExamples = distinctEnclosing.stream()
-                    .filter(cu -> cu.isFunction() || cu.isClass())
-                    .sorted(Comparator.comparingInt(cu ->
-                            analyzer.getSource(cu, true).map(String::length).orElse(Integer.MAX_VALUE)))
-                    .limit(3)
-                    .toList();
-
             out.append("\nExamples:\n\n");
-            List<String> exampleBlocks = sourceBlocksForCodeUnits(analyzer, shortestExamples);
+            List<String> exampleBlocks = sourceBlocksForCodeUnits(
+                    analyzer,
+                    AnalyzerUtil.sampleUsages(analyzer, externalHits).stream()
+                            .map(AnalyzerUtil.CodeWithSource::source)
+                            .toList());
             if (exampleBlocks.isEmpty()) {
                 out.append("(source unavailable)\n");
             } else {
@@ -686,7 +682,7 @@ public class BrokkExternalMcpServer {
                 if (lines.lineCount() == 0) {
                     continue;
                 }
-                blocks.add("```%s\n%s```".formatted(file, lines.text()));
+                blocks.add("```%s\n%s\n```".formatted(file, withLineNumbers(lines.text())));
             }
         }
         return blocks;
