@@ -133,6 +133,33 @@ def test_main_mcp_routes_to_launcher(monkeypatch, tmp_path) -> None:
     assert "ide" not in captured["kwargs"]
 
 
+def test_main_mcp_forwards_unknown_args_as_passthrough(monkeypatch, tmp_path) -> None:
+    captured: dict[str, Any] = {}
+
+    def fake_run_mcp_server(**kwargs: Any) -> None:
+        captured["kwargs"] = kwargs
+
+    monkeypatch.setattr(main_module, "run_mcp_server", fake_run_mcp_server)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "brokk",
+            "mcp",
+            "--workspace",
+            str(tmp_path),
+            "--help",
+            "--custom-flag",
+            "value",
+        ],
+    )
+
+    main_module.main()
+
+    assert captured["kwargs"]["workspace_dir"] == tmp_path.resolve()
+    assert captured["kwargs"]["passthrough_args"] == ["--help", "--custom-flag", "value"]
+
+
 def test_main_acp_accepts_legacy_ide_flag_but_ignores_it(monkeypatch, tmp_path) -> None:
     captured: dict[str, Any] = {}
     fake_acp_module = ModuleType("brokk_code.acp_server")
