@@ -150,13 +150,25 @@ public class BrokkExternalMcpServer {
         return (MainProject) project;
     }
 
-    private static WorkspaceState createWorkspaceState(Path requestedWorkspacePath) throws IOException {
+    private static WorkspaceState createWorkspaceState(Path requestedWorkspacePath) {
         Path workspaceRoot = resolveProjectRoot(requestedWorkspacePath);
-        var mainProject = new MainProject(workspaceRoot);
-        var contextManager = new ContextManager(mainProject);
-        contextManager.createHeadless(true, new MutedConsoleIO(contextManager.getIo()));
-        var historyWriter = createMcpToolCallHistoryWriter(workspaceRoot);
-        return new WorkspaceState(workspaceRoot, mainProject, contextManager, historyWriter);
+        MainProject mainProject = null;
+        ContextManager contextManager = null;
+        try {
+            mainProject = new MainProject(workspaceRoot);
+            contextManager = new ContextManager(mainProject);
+            contextManager.createHeadless(true, new MutedConsoleIO(contextManager.getIo()));
+            var historyWriter = createMcpToolCallHistoryWriter(workspaceRoot);
+            return new WorkspaceState(workspaceRoot, mainProject, contextManager, historyWriter);
+        } catch (RuntimeException e) {
+            if (contextManager != null) {
+                contextManager.close();
+            }
+            if (mainProject != null) {
+                mainProject.close();
+            }
+            throw e;
+        }
     }
 
     private void closeCurrentWorkspace() {
@@ -805,7 +817,7 @@ public class BrokkExternalMcpServer {
                                     throw new RuntimeException(e);
                                 }
 
-                                return runWithWorkspaceLock(spec.name(), () -> {
+                                return runWithWorkspaceLock(() -> {
                                     var historyWriter = mcpToolCallHistoryWriter;
                                     var logFile = historyWriter != null
                                             ? historyWriter.writeRequest(spec.name(), serializeRequest(request))
@@ -880,12 +892,9 @@ public class BrokkExternalMcpServer {
                 .build();
     }
 
-    private boolean isWorkspaceSwitchTool(String toolName) {
-        return "activateWorkspace".equals(toolName);
-    }
-
-    private <T> T runWithWorkspaceLock(String toolName, Supplier<T> supplier) {
-        var lock = isWorkspaceSwitchTool(toolName) ? workspaceLock.writeLock() : workspaceLock.readLock();
+    private <T> T runWithWorkspaceLock(Supplier<T> supplier) {
+        // Tool handlers mutate shared ContextManager state (e.g., setIo), so serialize all tool execution.
+        var lock = workspaceLock.writeLock();
         lock.lock();
         try {
             return supplier.get();
@@ -946,7 +955,7 @@ public class BrokkExternalMcpServer {
                 WorkspaceState newWorkspace;
                 try {
                     newWorkspace = createWorkspaceState(normalizedRoot);
-                } catch (IOException e) {
+                } catch (RuntimeException e) {
                     throw new ToolRegistry.ToolCallException(
                             ToolExecutionResult.Status.INTERNAL_ERROR,
                             "Failed to activate workspace: " + e.getMessage());
