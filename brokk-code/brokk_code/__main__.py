@@ -27,6 +27,7 @@ from brokk_code.intellij_config import configure_intellij_acp_settings
 from brokk_code.mcp_config import (
     configure_claude_code_mcp_settings,
     configure_codex_mcp_settings,
+    install_codex_mcp_workspace_skill,
 )
 from brokk_code.mcp_launcher import run_mcp_server
 from brokk_code.nvim_config import configure_nvim_codecompanion_acp_settings
@@ -1332,6 +1333,7 @@ def main():
                 codex_settings_path = configure_codex_mcp_settings(
                     force=args.force, uvx_command=uvx_command
                 )
+                codex_skill_path = install_codex_mcp_workspace_skill()
                 prefetch_commands = _build_install_prefetch_commands(
                     target=args.target,
                     jbang_binary=jbang_binary,
@@ -1340,6 +1342,7 @@ def main():
                 messages = [
                     f"Configured Claude Code MCP integration in {claude_settings_path}",
                     f"Configured Codex MCP integration in {codex_settings_path}",
+                    f"Installed Codex MCP workspace skill in {codex_skill_path}",
                 ]
             else:
                 # Should not happen due to argparse choices
