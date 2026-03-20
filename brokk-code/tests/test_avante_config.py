@@ -15,8 +15,8 @@ def test_configure_nvim_avante_acp_settings_creates_file(tmp_path) -> None:
     assert written_path == settings_path
     content = settings_path.read_text(encoding="utf-8")
     assert 'provider = "brokk"' in content
-    assert 'command = "brokk"' in content
-    assert 'args = { "acp" }' in content
+    assert 'command = "uvx"' in content
+    assert 'args = { "brokk", "acp" }' in content
 
 
 def test_configure_nvim_avante_acp_settings_rejects_existing_file(tmp_path) -> None:

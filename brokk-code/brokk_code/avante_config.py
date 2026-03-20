@@ -14,8 +14,9 @@ return {
   provider = "brokk",
   acp_providers = {
     brokk = {
-      command = "brokk",
-      args = { "acp" },
+      -- Uses uvx to always run the latest version of brokk
+      command = "uvx",
+      args = { "brokk", "acp" },
       env = {
         HOME = os.getenv("HOME"),
         PATH = os.getenv("PATH"),
