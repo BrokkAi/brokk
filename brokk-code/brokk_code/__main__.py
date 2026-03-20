@@ -355,7 +355,7 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
 
-    mcp_parser = subparsers.add_parser("mcp", help="Run in MCP server mode")
+    mcp_parser = subparsers.add_parser("mcp", help="Run in MCP server mode", add_help=False)
     _add_common_runtime_args(mcp_parser)
 
     install_parser = subparsers.add_parser("install", help="Install integration settings")
@@ -1177,7 +1177,10 @@ async def run_headless_job(
 
 def main():
     parser = _build_parser()
-    args = parser.parse_args()
+    args, unknown = parser.parse_known_args()
+
+    if unknown and args.command != "mcp":
+        parser.error(f"unrecognized arguments: {' '.join(unknown)}")
 
     if args.command == "install":
         messages: list[str] = []
@@ -1396,6 +1399,7 @@ def main():
             workspace_dir=workspace_path,
             jar_path=jar_path,
             executor_version=args.executor_version,
+            passthrough_args=unknown,
         )
         return
 

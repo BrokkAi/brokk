@@ -181,3 +181,29 @@ def test_run_mcp_server_reports_missing_runtime(monkeypatch, tmp_path, capsys) -
 
     assert exc.value.code == 1
     assert "Unable to launch MCP runtime" in capsys.readouterr().err
+
+
+def test_run_mcp_server_appends_passthrough_args(monkeypatch, tmp_path) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_execvpe(binary: str, command: list[str], env: dict[str, str]) -> None:
+        captured["command"] = command
+        raise RuntimeError("stop")
+
+    monkeypatch.setattr(os, "chdir", lambda _path: None)
+    monkeypatch.setattr(os, "execvpe", fake_execvpe)
+    monkeypatch.setattr(mcp_launcher, "find_dev_jar", lambda _workspace_dir: None)
+    monkeypatch.setattr(mcp_launcher, "git_toplevel_for", lambda _path: None)
+    monkeypatch.setattr(mcp_launcher, "ensure_jbang_ready", lambda: "jbang")
+
+    with pytest.raises(RuntimeError, match="stop"):
+        mcp_launcher.run_mcp_server(
+            workspace_dir=tmp_path,
+            jar_path=None,
+            executor_version=None,
+            passthrough_args=["--help", "--verbose"],
+        )
+
+    command = captured["command"]
+    assert isinstance(command, list)
+    assert command[-2:] == ["--help", "--verbose"]

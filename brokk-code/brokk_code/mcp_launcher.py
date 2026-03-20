@@ -91,6 +91,7 @@ def run_mcp_server(
     workspace_dir: Path,
     jar_path: Optional[Path],
     executor_version: str | None,
+    passthrough_args: list[str] | None = None,
 ) -> None:
     resolved_workspace_dir = resolve_mcp_workspace_dir(workspace_dir)
 
@@ -100,6 +101,9 @@ def run_mcp_server(
             jar_path=jar_path,
             executor_version=executor_version,
         )
+        if passthrough_args:
+            command.extend(passthrough_args)
+
         os.chdir(resolved_workspace_dir)
         os.execvpe(command[0], command, os.environ.copy())
     except ExecutorError as exc:
