@@ -18,25 +18,7 @@ _BROKK_MANAGED_RE = re.compile(
 )
 _BROKK_CODEX_WORKSPACE_SKILL_NAME = "brokk-mcp-workspace"
 
-_BROKK_INSTRUCTIONS_BODY = f"""{_BROKK_MARKER}
-- Prefer Brokk MCP tools for syntax-aware search and edits.
-- Prefer callCodeAgent for code changes.
-- Avoid shell text search when Brokk syntax-aware tools can answer.
-- At the start of each Codex session, activate Brokk MCP for the current workspace by
-  calling activateWorkspace, then verify with getActiveWorkspace."""
-
-_BROKK_MANAGED_BLOCK = f"{_BROKK_BEGIN_MANAGED}\n{_BROKK_INSTRUCTIONS_BODY}\n{_BROKK_END_MANAGED}"
-
-_LEGACY_BLOCKS = [
-    # old 3-line Brokk block
-    f"""{_BROKK_MARKER}
-- Prefer Brokk MCP tools for syntax-aware search and edits.
-- Prefer callCodeAgent for code changes.
-- Avoid shell text search when Brokk syntax-aware tools can answer.""",
-    # current legacy block with activateWorkspace/getActiveWorkspace
-    _BROKK_INSTRUCTIONS_BODY,
-    # tools-specific guidance block from b7efcf...
-    f"""{_BROKK_MARKER}
+_BROKK_INSTRUCTIONS_BODY_CLAUDE = f"""{_BROKK_MARKER}
 - Use searchSymbols (not Grep) to find class/function/field definitions by name.
 - Use scanUsages (not Grep) to find call sites and usages of a known symbol.
 - Use getMethodSources (not Read) to retrieve specific method implementations.
@@ -44,7 +26,42 @@ _LEGACY_BLOCKS = [
 - Use getClassSources (not Read) only when you need the full class implementation.
 - Use getFileSummaries or skimFiles (not Read/Glob) for multi-file overviews.
 - Use scan to get oriented when starting a new task.
-- Use callCodeAgent (not Edit/Write) for all code changes.""",
+- Use callCodeAgent (not Edit/Write) for all code changes."""
+
+_BROKK_INSTRUCTIONS_BODY_CODEX = f"""{_BROKK_MARKER}
+- Use searchSymbols (not Grep) to find class/function/field definitions by name.
+- Use scanUsages (not Grep) to find call sites and usages of a known symbol.
+- Use getMethodSources (not Read) to retrieve specific method implementations.
+- Use getClassSkeletons (not Read) to understand a class's API and structure.
+- Use getClassSources (not Read) only when you need the full class implementation.
+- Use getFileSummaries or skimFiles (not Read/Glob) for multi-file overviews.
+- Use scan to get oriented when starting a new task.
+- Use callCodeAgent (not Edit/Write) for all code changes.
+- At the start of each Codex session, activate Brokk MCP for the current workspace by
+  calling activateWorkspace, then verify with getActiveWorkspace."""
+
+_BROKK_MANAGED_BLOCK_CLAUDE = (
+    f"{_BROKK_BEGIN_MANAGED}\n{_BROKK_INSTRUCTIONS_BODY_CLAUDE}\n{_BROKK_END_MANAGED}"
+)
+_BROKK_MANAGED_BLOCK_CODEX = (
+    f"{_BROKK_BEGIN_MANAGED}\n{_BROKK_INSTRUCTIONS_BODY_CODEX}\n{_BROKK_END_MANAGED}"
+)
+
+_LEGACY_BLOCKS = [
+    # old 3-line generic block
+    f"""{_BROKK_MARKER}
+- Prefer Brokk MCP tools for syntax-aware search and edits.
+- Prefer callCodeAgent for code changes.
+- Avoid shell text search when Brokk syntax-aware tools can answer.""",
+    # old generic block with activateWorkspace/getActiveWorkspace
+    f"""{_BROKK_MARKER}
+- Prefer Brokk MCP tools for syntax-aware search and edits.
+- Prefer callCodeAgent for code changes.
+- Avoid shell text search when Brokk syntax-aware tools can answer.
+- At the start of each Codex session, activate Brokk MCP for the current workspace by
+  calling activateWorkspace, then verify with getActiveWorkspace.""",
+    # tools-specific guidance block from b7efcf...
+    _BROKK_INSTRUCTIONS_BODY_CLAUDE,
 ]
 _BROKK_MCP_PERMISSION_ALLOW: list[str] = [
     "Bash(./gradlew:*)",
@@ -54,11 +71,11 @@ _BROKK_MCP_PERMISSION_ALLOW: list[str] = [
 ]
 
 
-def _ensure_brokk_instructions(path: Path) -> None:
+def _ensure_brokk_instructions(path: Path, managed_block: str) -> None:
     """Manages Brokk instructions in a markdown file with delimiters and migration."""
     if not path.exists():
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(_BROKK_MANAGED_BLOCK, encoding="utf-8")
+        path.write_text(managed_block, encoding="utf-8")
         return
 
     content = path.read_text(encoding="utf-8")
@@ -66,19 +83,19 @@ def _ensure_brokk_instructions(path: Path) -> None:
     # Update existing managed block. If delimiters are present but malformed
     # (e.g. END before BEGIN), recover by rewriting a fresh managed block.
     if _BROKK_BEGIN_MANAGED in content and _BROKK_END_MANAGED in content:
-        new_content, replacement_count = _BROKK_MANAGED_RE.subn(_BROKK_MANAGED_BLOCK, content)
+        new_content, replacement_count = _BROKK_MANAGED_RE.subn(managed_block, content)
         if replacement_count > 0:
             if new_content != content:
                 path.write_text(new_content, encoding="utf-8")
             return
 
-        path.write_text(_BROKK_MANAGED_BLOCK, encoding="utf-8")
+        path.write_text(managed_block, encoding="utf-8")
         return
 
     # Check for exact legacy matches or empty files
     trimmed = content.strip()
     if not trimmed or any(trimmed == legacy.strip() for legacy in _LEGACY_BLOCKS):
-        path.write_text(_BROKK_MANAGED_BLOCK, encoding="utf-8")
+        path.write_text(managed_block, encoding="utf-8")
         return
 
     # Preserve custom # Brokk content
@@ -89,7 +106,7 @@ def _ensure_brokk_instructions(path: Path) -> None:
     separator = "\n\n" if not content.endswith("\n\n") else ""
     if content.endswith("\n") and not content.endswith("\n\n"):
         separator = "\n"
-    new_content = content + separator + _BROKK_MANAGED_BLOCK
+    new_content = content + separator + managed_block
 
     path.write_text(new_content, encoding="utf-8")
 
@@ -259,7 +276,7 @@ def configure_claude_code_mcp_settings(
     else:
         claude_md_path = path.parent / "CLAUDE.md"
 
-    _ensure_brokk_instructions(claude_md_path)
+    _ensure_brokk_instructions(claude_md_path, _BROKK_MANAGED_BLOCK_CLAUDE)
 
     return path
 
@@ -318,7 +335,7 @@ def configure_codex_mcp_settings(
     else:
         agents_md_path = path.parent / "AGENTS.md"
 
-    _ensure_brokk_instructions(agents_md_path)
+    _ensure_brokk_instructions(agents_md_path, _BROKK_MANAGED_BLOCK_CODEX)
 
     return path
 

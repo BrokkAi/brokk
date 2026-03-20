@@ -74,11 +74,10 @@ def test_configure_claude_code_mcp_settings_appends_to_claude_md(tmp_path, monke
     content = instructions.read_text()
     assert "<!-- BROKK:BEGIN MANAGED SECTION -->" in content
     assert "# Brokk" in content
-    assert "Prefer Brokk MCP tools for syntax-aware search and edits" in content
-    assert "Prefer callCodeAgent for code changes" in content
-    assert "Avoid shell text search when Brokk syntax-aware tools can answer" in content
-    assert "activateWorkspace" in content
-    assert "getActiveWorkspace" in content
+    assert "Use searchSymbols (not Grep)" in content
+    assert "Use callCodeAgent (not Edit/Write) for all code changes" in content
+    assert "activateWorkspace" not in content
+    assert "getActiveWorkspace" not in content
     assert "<!-- BROKK:END MANAGED SECTION -->" in content
 
 
@@ -110,9 +109,8 @@ def test_configure_codex_mcp_settings_appends_to_codex_agents(tmp_path, monkeypa
     content = agents_md.read_text()
     assert "<!-- BROKK:BEGIN MANAGED SECTION -->" in content
     assert "# Brokk" in content
-    assert "Prefer Brokk MCP tools for syntax-aware search and edits" in content
-    assert "Prefer callCodeAgent for code changes" in content
-    assert "Avoid shell text search when Brokk syntax-aware tools can answer" in content
+    assert "Use searchSymbols (not Grep)" in content
+    assert "Use callCodeAgent (not Edit/Write) for all code changes" in content
     assert "activateWorkspace" in content
     assert "getActiveWorkspace" in content
     assert "<!-- BROKK:END MANAGED SECTION -->" in content
