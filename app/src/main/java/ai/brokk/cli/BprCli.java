@@ -625,10 +625,7 @@ public final class BprCli implements Callable<Integer> {
                                 .flatMap(f -> f.sourceFiles().renderNowOr(Set.of()).stream())
                                 .map(pf -> pf.getRelPath().toString())
                                 .collect(Collectors.toSet());
-                        metrics.recordContextScan(
-                                filesAddedPaths.size(),
-                                !recommendations.success(),
-                                filesAddedPaths);
+                        metrics.recordContextScan(filesAddedPaths.size(), !recommendations.success(), filesAddedPaths);
                         metrics.recordOutcome(
                                 recommendations.success()
                                         ? TaskResult.StopReason.SUCCESS
@@ -737,8 +734,7 @@ public final class BprCli implements Callable<Integer> {
                                 var delta = ContextDelta.between(
                                                 explicitContext, requireNonNull(discoveredContext.get()))
                                         .join();
-                                var finalRec =
-                                        new ContextAgent.RecommendationResult(true, delta.addedFragments());
+                                var finalRec = new ContextAgent.RecommendationResult(true, delta.addedFragments());
                                 writeRecommendationToCache(finalRec, taskFile);
 
                                 var baseContext = cachedContextRec
