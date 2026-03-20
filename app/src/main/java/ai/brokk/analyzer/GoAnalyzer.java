@@ -80,7 +80,7 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
     }
 
     private GoAnalyzer(IProject project, ProgressListener listener, GoAnalyzerCache cache) {
-        super(project, Languages.GO, listener);
+        super(project, Languages.GO, listener, cache);
     }
 
     private GoAnalyzer(
@@ -89,7 +89,7 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
     }
 
     public static GoAnalyzer fromState(IProject project, AnalyzerState state, ProgressListener listener) {
-        return new GoAnalyzer(project, state, listener, null);
+        return new GoAnalyzer(project, state, listener, new GoAnalyzerCache());
     }
 
     @Override

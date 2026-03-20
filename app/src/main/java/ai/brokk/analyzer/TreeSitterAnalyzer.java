@@ -451,11 +451,15 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     }
 
     protected TreeSitterAnalyzer(IProject project, Language language, ProgressListener listener) {
+        this(project, language, listener, new AnalyzerCache());
+    }
+
+    protected TreeSitterAnalyzer(IProject project, Language language, ProgressListener listener, AnalyzerCache cache) {
         this.project = project;
         this.language = language;
         // Register listener early so it receives progress during construction
         progressListener = listener;
-        this.cache = new AnalyzerCache();
+        this.cache = cache;
 
         // Initialize query sources from resources.
         Map<QueryType, String> sources = new EnumMap<>(QueryType.class);
