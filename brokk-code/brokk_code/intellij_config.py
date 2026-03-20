@@ -9,7 +9,7 @@ from brokk_code.zed_config import (
 
 
 def configure_intellij_acp_settings(
-    *, force: bool = False, settings_path: Path | None = None
+    *, force: bool = False, settings_path: Path | None = None, uvx_command: str = "uvx"
 ) -> Path:
     """Configures IntelliJ for ACP mode."""
     path = settings_path or Path.home() / ".jetbrains" / "acp.json"
@@ -39,8 +39,8 @@ def configure_intellij_acp_settings(
         )
 
     agent_servers["Brokk Code"] = {
-        "command": "brokk",
-        "args": ["acp"],
+        "command": uvx_command,
+        "args": ["brokk", "acp"],
         "env": {},
     }
 

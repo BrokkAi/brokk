@@ -28,8 +28,10 @@ return {
             llm = "assistant",
             user = "user",
           },
+          -- Uses uvx to always run the latest version of brokk
           commands = {
             default = {
+              "uvx",
               "brokk",
               "acp",
             },

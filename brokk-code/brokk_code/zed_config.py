@@ -185,7 +185,7 @@ def loads_json_or_jsonc(text: str) -> Any:
         return json.loads(cleaned)
 
 
-def _brokk_code_agent_server_config() -> dict[str, Any]:
+def _brokk_code_agent_server_config(uvx_command: str = "uvx") -> dict[str, Any]:
     return {
         "favorite_config_option_values": {
             "reasoning": ["medium"],
@@ -193,8 +193,8 @@ def _brokk_code_agent_server_config() -> dict[str, Any]:
             "model": ["gpt-5.2"],
         },
         "type": "custom",
-        "command": "brokk",
-        "args": ["acp"],
+        "command": uvx_command,
+        "args": ["brokk", "acp"],
         "env": {},
     }
 
@@ -240,7 +240,9 @@ def _default_zed_settings_path() -> Path:
     return Path.home() / ".config" / "zed" / "settings.json"
 
 
-def configure_zed_acp_settings(*, force: bool = False, settings_path: Path | None = None) -> Path:
+def configure_zed_acp_settings(
+    *, force: bool = False, settings_path: Path | None = None, uvx_command: str = "uvx"
+) -> Path:
     path = settings_path or _default_zed_settings_path()
     prefix = ""
 
@@ -272,7 +274,7 @@ def configure_zed_acp_settings(*, force: bool = False, settings_path: Path | Non
             "agent_servers['Brokk Code'] already exists; use --force to overwrite it"
         )
 
-    agent_servers["Brokk Code"] = _brokk_code_agent_server_config()
+    agent_servers["Brokk Code"] = _brokk_code_agent_server_config(uvx_command)
 
     path.parent.mkdir(parents=True, exist_ok=True)
     _atomic_write_zed_settings(path, settings, prefix=prefix)
