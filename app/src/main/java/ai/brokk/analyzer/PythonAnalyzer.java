@@ -492,7 +492,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
                 QueryType.DEFINITIONS,
                 query -> {
                     try (TSQueryCursor cursor = new TSQueryCursor()) {
-                        cursor.exec(query, tree.getRootNode());
+                        cursor.exec(query, tree.getRootNode(), sourceContent.text());
 
                         var match = new TSQueryMatch();
                         while (cursor.nextMatch(match)) {
@@ -724,29 +724,29 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
         return withCachedQuery(
                 QueryType.DEFINITIONS,
                 query -> {
-                    try (TSQueryCursor cursor = new TSQueryCursor()) {
-                        // Use the actual definition node for range matching.
-                        // If classNode is a decorated_definition, we must find the inner class_definition node
-                        // to match the 'type.decl' capture in python.scm.
-                        TSNode matchNode = classNode;
-                        if (DECORATED_DEFINITION.equals(classNode.getType())) {
-                            for (int i = 0; i < classNode.getNamedChildCount(); i++) {
-                                TSNode child = classNode.getNamedChild(i);
-                                if (CLASS_DEFINITION.equals(child.getType())) {
-                                    matchNode = child;
-                                    break;
-                                }
+                    // Use the actual definition node for range matching.
+                    // If classNode is a decorated_definition, we must find the inner class_definition node
+                    // to match the 'type.decl' capture in python.scm.
+                    TSNode matchNode = classNode;
+                    if (DECORATED_DEFINITION.equals(classNode.getType())) {
+                        for (int i = 0; i < classNode.getNamedChildCount(); i++) {
+                            TSNode child = classNode.getNamedChild(i);
+                            if (CLASS_DEFINITION.equals(child.getType())) {
+                                matchNode = child;
+                                break;
                             }
                         }
+                    }
 
-                        // Ascend to root node for matching
-                        TSNode root = classNode;
-                        while (root.getParent() != null && !root.getParent().isNull()) {
-                            root = root.getParent();
-                        }
+                    // Ascend to root node for matching
+                    TSNode root = classNode;
+                    while (root.getParent() != null && !root.getParent().isNull()) {
+                        root = root.getParent();
+                    }
 
+                    try (TSQueryCursor cursor = new TSQueryCursor()) {
                         List<TSNode> aggregateSuperNodes = new ArrayList<>();
-                        cursor.exec(query, root);
+                        cursor.exec(query, root, sourceContent.text());
 
                         var match = new TSQueryMatch();
                         final int targetStart = matchNode.getStartByte();
@@ -898,16 +898,14 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
             var tree = parser.parseString(null, importLine);
             var rootNode = tree.getRootNode();
 
+            SourceContent importSc = SourceContent.of(importLine);
             withCachedQuery(QueryType.IMPORTS, query -> {
                 try (var cursor = new TSQueryCursor()) {
-                    cursor.exec(query, rootNode);
+                    cursor.exec(query, rootNode, importSc.text());
 
                     var match = new TSQueryMatch();
                     String currentModule = null;
                     String wildcardModule = null;
-
-                    // Prepare SourceContent for this import line to use textSlice overloads
-                    SourceContent importSc = SourceContent.of(importLine);
 
                     // Collect all captures from this import statement
                     while (cursor.nextMatch(match)) {
@@ -1210,13 +1208,13 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
                 return identifiers;
             }
 
+            SourceContent sc = SourceContent.of(source);
             withCachedQuery(
                     QueryType.IDENTIFIERS,
                     query -> {
                         try (TSQueryCursor cursor = new TSQueryCursor()) {
-                            cursor.exec(query, rootNode);
+                            cursor.exec(query, rootNode, sc.text());
 
-                            SourceContent sc = SourceContent.of(source);
                             TSQueryMatch match = new TSQueryMatch();
                             while (cursor.nextMatch(match)) {
                                 for (TSQueryCapture capture : match.getCaptures()) {

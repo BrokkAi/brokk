@@ -506,6 +506,11 @@ public interface IProject extends AutoCloseable {
     }
 
     /**
+     * Re-reads workspace properties from disk, picking up changes made by other processes.
+     */
+    default void reloadWorkspaceProperties() {}
+
+    /**
      * Returns the set of enabled (live) dependencies.
      */
     default Set<Dependency> getLiveDependencies() {

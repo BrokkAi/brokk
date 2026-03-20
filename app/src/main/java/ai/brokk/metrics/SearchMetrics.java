@@ -1,6 +1,5 @@
 package ai.brokk.metrics;
 
-import ai.brokk.Llm;
 import ai.brokk.TaskResult;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -29,10 +28,8 @@ public interface SearchMetrics {
      * @param filesAdded      count of files added
      * @param skipped         whether the scan was skipped
      * @param filesAddedPaths project-relative paths of files added during context scan (empty if skipped)
-     * @param metadata        response metadata including token usage (may be null)
      */
-    void recordContextScan(
-            int filesAdded, boolean skipped, Set<String> filesAddedPaths, @Nullable Llm.ResponseMetadata metadata);
+    void recordContextScan(int filesAdded, boolean skipped, Set<String> filesAddedPaths);
 
     void startTurn();
 
@@ -120,11 +117,7 @@ public interface SearchMetrics {
         INSTANCE;
 
         @Override
-        public void recordContextScan(
-                int filesAdded,
-                boolean skipped,
-                Set<String> filesAddedPaths,
-                @Nullable Llm.ResponseMetadata metadata) {}
+        public void recordContextScan(int filesAdded, boolean skipped, Set<String> filesAddedPaths) {}
 
         @Override
         public void startTurn() {}
@@ -174,7 +167,6 @@ public interface SearchMetrics {
         private int contextScanFilesAdded = 0;
         private boolean contextScanSkipped = false;
         private Set<String> contextScanFilesAddedPaths = new HashSet<>();
-        private @Nullable Llm.ResponseMetadata contextScanMetadata = null;
 
         // Per-turn metrics
         private int turnCounter = 0;
@@ -193,12 +185,10 @@ public interface SearchMetrics {
         private @Nullable List<FragmentInfo> finalWorkspaceFragments = null;
 
         @Override
-        public synchronized void recordContextScan(
-                int filesAdded, boolean skipped, Set<String> filesAddedPaths, @Nullable Llm.ResponseMetadata metadata) {
+        public synchronized void recordContextScan(int filesAdded, boolean skipped, Set<String> filesAddedPaths) {
             this.contextScanFilesAdded = filesAdded;
             this.contextScanSkipped = skipped;
             this.contextScanFilesAddedPaths = new HashSet<>(filesAddedPaths);
-            this.contextScanMetadata = metadata;
         }
 
         @Override
@@ -304,8 +294,7 @@ public interface SearchMetrics {
             var contextScan = new ContextScanInfo(
                     contextScanFilesAdded,
                     contextScanSkipped,
-                    new ArrayList<>(contextScanFilesAddedPaths.stream().sorted().toList()),
-                    contextScanMetadata);
+                    new ArrayList<>(contextScanFilesAddedPaths.stream().sorted().toList()));
 
             // Convert final workspace files to sorted list
             List<String> finalWorkspaceFilesList = finalWorkspaceFiles != null
@@ -351,11 +340,7 @@ public interface SearchMetrics {
         }
 
         /** Context scan metrics. */
-        public record ContextScanInfo(
-                int files_added,
-                boolean skipped,
-                List<String> files_added_paths,
-                @Nullable Llm.ResponseMetadata token_usage) {}
+        public record ContextScanInfo(int files_added, boolean skipped, List<String> files_added_paths) {}
 
         /** Metrics for a single search turn. */
         public static class TurnMetrics {

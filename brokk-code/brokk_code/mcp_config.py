@@ -5,7 +5,6 @@ import tomllib
 from pathlib import Path
 from typing import Any
 
-from brokk_code.executor import resolve_jbang_binary
 from brokk_code.zed_config import ExistingBrokkCodeEntryError, atomic_write_settings
 
 _IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -126,11 +125,6 @@ def _atomic_write_toml(path: Path, text: str) -> None:
     temp_path.replace(path)
 
 
-def _resolve_effective_jbang(jbang_path: str | None) -> str:
-    """Resolve the effective JBang binary path using the fallback chain."""
-    return jbang_path or resolve_jbang_binary() or "jbang"
-
-
 def _merge_claude_permissions(data: dict[str, Any]) -> None:
     permissions = data.get("permissions")
     if permissions is None:
@@ -158,34 +152,23 @@ def _merge_claude_permissions(data: dict[str, Any]) -> None:
             seen.add(rule)
 
 
-def _brokk_mcp_config(jbang_path: str) -> dict[str, Any]:
+def _brokk_mcp_config(uvx_command: str) -> dict[str, Any]:
     return {
-        "command": jbang_path,
-        "args": [
-            "--java",
-            "21",
-            "-R",
-            "-Djava.awt.headless=true -Dapple.awt.UIElement=true",
-            "-R",
-            "--enable-native-access=ALL-UNNAMED",
-            "--main",
-            "ai.brokk.mcpserver.BrokkExternalMcpServer",
-            "brokk-headless@brokkai/brokk-releases",
-        ],
+        "command": uvx_command,
+        "args": ["brokk", "mcp"],
         "type": "stdio",
     }
 
 
 def configure_claude_code_mcp_settings(
-    *, force: bool = False, settings_path: Path | None = None, jbang_path: str | None = None
+    *, force: bool = False, settings_path: Path | None = None, uvx_command: str = "uvx"
 ) -> Path:
     """Configure Claude Code MCP settings.
 
     Args:
         force: Overwrite existing brokk entry if present.
         settings_path: Custom path to .claude.json (default: ~/.claude.json).
-        jbang_path: Absolute path to JBang binary. If None, resolved via
-            resolve_jbang_binary() for non-login shell compatibility.
+        uvx_command: Path to the uvx binary (default: "uvx").
     """
     path = settings_path or Path.home() / ".claude.json"
     if path.exists():
@@ -211,8 +194,7 @@ def configure_claude_code_mcp_settings(
             f"mcpServers['{_SERVER_NAME}'] already exists; use --force to overwrite it"
         )
 
-    effective_jbang = _resolve_effective_jbang(jbang_path)
-    server_config = _brokk_mcp_config(effective_jbang) | {
+    server_config = _brokk_mcp_config(uvx_command) | {
         "env": {
             "MCP_TIMEOUT": "60000",
             "MCP_TOOL_TIMEOUT": "300000",
@@ -235,15 +217,14 @@ def configure_claude_code_mcp_settings(
 
 
 def configure_codex_mcp_settings(
-    *, force: bool = False, settings_path: Path | None = None, jbang_path: str | None = None
+    *, force: bool = False, settings_path: Path | None = None, uvx_command: str = "uvx"
 ) -> Path:
     """Configure Codex MCP settings.
 
     Args:
         force: Overwrite existing brokk entry if present.
         settings_path: Custom path to config.toml (default: ~/.codex/config.toml).
-        jbang_path: Absolute path to JBang binary. If None, resolved via
-            resolve_jbang_binary() for non-login shell compatibility.
+        uvx_command: Path to the uvx binary (default: "uvx").
     """
     path = settings_path or Path.home() / ".codex" / "config.toml"
     if path.exists():
@@ -272,15 +253,15 @@ def configure_codex_mcp_settings(
             f"mcp_servers['{_SERVER_NAME}'] already exists; use --force to overwrite it"
         )
 
-    effective_jbang = _resolve_effective_jbang(jbang_path)
-    server_config = _brokk_mcp_config(effective_jbang) | {
+    server_config = _brokk_mcp_config(uvx_command) | {
         "startup_timeout_sec": 60.0,
         "tool_timeout_sec": 300.0,
     }
     mcp_servers[_SERVER_NAME] = server_config
 
     path.parent.mkdir(parents=True, exist_ok=True)
-    toml_text = _serialize_toml(settings)
+    # Add comment explaining uvx usage (TOML supports comments)
+    toml_text = "# Brokk uses uvx to always run the latest version\n" + _serialize_toml(settings)
     _atomic_write_toml(path, toml_text)
 
     # Append to AGENTS.md

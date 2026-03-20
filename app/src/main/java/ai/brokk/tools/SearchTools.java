@@ -760,10 +760,11 @@ public class SearchTools {
 
     @Tool(
             """
-                    Retrieves summaries (class fields and method/function signatures) for all classes and top-level functions defined within specified project files.
-                    Supports glob patterns: '*' matches files in a single directory, '**' matches files recursively.
-                    This is a fast and efficient way to read multiple related files at once.
-                    (But if you don't know where what you want is located, you should use searchSymbols instead.)
+                    Returns class skeletons (fields + method signatures, no bodies) for all classes in the specified files.
+                    Ideal for understanding the API surface of a package or directory without reading full source.
+                    More detailed than skimFiles (includes types and signatures), cheaper than getClassSources (omits method bodies).
+                    Supports glob patterns: '*' matches one directory, '**' matches recursively.
+                    If you don't know which files to look at, use searchSymbols or scan instead.
                     """)
     public String getFileSummaries(
             @P(
@@ -815,16 +816,14 @@ public class SearchTools {
 
     @Tool(
             """
-            Default discovery tool for declarations in analyzed code, even when the exact name is unknown.
-            Searches for symbols (class/function/field/module definitions); ONLY returns symbol definitions/declarations.
-            DO NOT use for usages/call sites/instantiation/access patterns — use scanUsages for that.
+            Primary tool for finding where classes, functions, fields, and modules are defined.
+            Use when you know (or can guess) part of a symbol name but don't know its fully qualified name or location.
+            Returns definitions only -- for finding where a symbol is *used*, follow up with scanUsages.
 
-            - kinds: CLASS, FUNCTION, FIELD, MODULE
-            - FUNCTION may represent a member/instance/static method or a free/top-level function (varies by language/analyzer)
-            - FIELD may represent a class/instance/static field or a top-level/module/global variable (varies by language/analyzer)
-            - empty kind sections are omitted
+            Kinds: CLASS, FUNCTION, FIELD, MODULE (empty sections omitted).
+            Patterns are case-insensitive regex with implicit ^ and $, so use wildcarding: .*Foo.*, Abstract.*, [a-z]*DAO.
 
-            Examples:
+            Example output:
             <file path="src/main/java/com/example/Foo.java">
             [CLASS]
             - com.example.Foo
@@ -945,10 +944,10 @@ public class SearchTools {
 
     @Tool(
             """
-            Default tool for how known, analyzed symbols are used/wired.
-            Returns the call sites where symbols are used and three examples of full call site source.
-            Use this for questions like “how is X used/accessed/obtained/wired”.
-            If you don’t know the fully qualified symbol name, call searchSymbols once to get it.
+            Find where and how a symbol is used/called/accessed/wired across the codebase.
+            Returns call sites with enclosing context and up to three full source examples.
+            Use for questions like "how is X used", "who calls X", "how is X obtained/wired".
+            Requires fully qualified symbol names -- call searchSymbols first if you only have a partial name.
             """)
     public String scanUsages(
             @P("Fully qualified symbol names (package name, class name, optional member name) to find usages for")
@@ -980,8 +979,9 @@ public class SearchTools {
 
     @Tool(
             """
-                    Returns a summary of classes' contents, including fields and method signatures.
-                    Use this to understand class structures and APIs much faster than fetching full source code.
+                    Returns fields and method signatures (no bodies) for specified classes by fully qualified name.
+                    Use this to understand a class's API surface without the cost of full source.
+                    For examining specific method implementations, use getMethodSources instead of getClassSources.
                     """)
     public String getClassSkeletons(
             @P("Fully qualified class names to get the skeleton structures for") List<String> classNames) {
@@ -1007,9 +1007,9 @@ public class SearchTools {
 
     @Tool(
             """
-                    Returns the full source code of classes.
-                    This is expensive, so prefer requesting skeletons or method sources when possible.
-                    Use this when you need the complete implementation details, or if you think multiple methods in the classes may be relevant.
+                    Returns full source code of classes. This is the most expensive read operation (max 10 classes).
+                    Prefer getClassSkeletons (for API overview) or getMethodSources (for specific methods) when possible.
+                    Use this only when you need complete implementation details or most methods in a class are relevant.
                     """)
     public String getClassSources(
             @P("Fully qualified class names to retrieve the full source code for; max 10") List<String> classNames) {
@@ -1111,8 +1111,9 @@ public class SearchTools {
 
     @Tool(
             """
-                    Returns the full source code of specific methods or functions. Use this to examine the implementation of particular methods without retrieving the entire classes.
-                    Note: Depending on the language/analyzer, "function" may represent either a member method or a free/top-level function.
+                    Returns full source code of specific methods/functions by fully qualified name.
+                    Preferred over getClassSources when you only need 1-2 method implementations -- much cheaper.
+                    Typical workflow: getClassSkeletons to see the API, then getMethodSources for the methods you care about.
                     """)
     public String getMethodSources(
             @P("Fully qualified method names (package name, class name, method name) to retrieve sources for")
@@ -1521,15 +1522,11 @@ public class SearchTools {
 
     @Tool(
             """
-            Fallback for literals, config, comments, external refs, and un-analyzed files; not the first choice for analyzed code entity discovery.
-            Searches for a regex pattern within file contents across files matching a glob pattern.
+            Regex search across file contents -- use for string literals, config values, comments, log messages, and non-code files.
+            For finding code definitions (classes, methods), prefer searchSymbols. For finding usages of known symbols, prefer scanUsages.
             Provides grep-like output with line numbers and optional context lines.
 
-            Notes:
-            - This tool enforces a global limit of 500 total matching lines across all returned files.
-            - maxFiles is capped at 100.
-            - Per file+pattern block, at most 20 matching lines are shown (context lines do not count).
-            - The 500-match cap is soft within the currently processing file; that file is fully processed before truncation.
+            Limits: 500 total matching lines across all files. 20 matches per file per pattern. maxFiles capped at 100.
             """)
     public String searchFileContents(
             @P("Java-style regex patterns to search for.") List<String> patterns,
@@ -2339,12 +2336,10 @@ public class SearchTools {
 
     @Tool(
             """
-                    Returns a hierarchical "bag of identifiers" summary for files matched by the provided filename/glob patterns.
-                    This provides a quick overview of class members and nested structures by listing names only;
-                    it is significantly less detailed than getFileSummaries as it omits full signatures and field types.
-                    Supports glob patterns: '*' matches files in a single directory, '**' matches files recursively.
-                    The result is capped at 20 files.
-                    If the symbol summary is too large, it returns only filenames.
+                    Lightest-weight exploration tool: returns just the names of classes, methods, and fields in matching files.
+                    Use this first to get a quick overview of a package or directory before deciding what to examine in detail.
+                    For more detail (full signatures and types), follow up with getFileSummaries or getClassSkeletons.
+                    Supports glob patterns: '*' matches one directory, '**' matches recursively. Capped at 20 files.
                     """)
     public String skimFiles(
             @P(

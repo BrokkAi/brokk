@@ -598,8 +598,6 @@ public final class BprCli implements Callable<Integer> {
             } else {
                 var agent = new ContextAgent(cm, planModel, goalForScan);
                 recommendations = agent.getRecommendations(cm.liveContext());
-                io.showNotification(
-                        IConsoleIO.NotificationRole.INFO, "Deep Scan token usage: " + recommendations.metadata());
                 if (recommendations.success() && getCacheMode().canWrite()) {
                     writeRecommendationToCache(recommendations, deepScanCacheTaskFile);
                 }
@@ -623,11 +621,7 @@ public final class BprCli implements Callable<Integer> {
                         .flatMap(f -> f.sourceFiles().renderNowOr(Set.of()).stream())
                         .map(pf -> pf.getRelPath().toString())
                         .collect(Collectors.toSet());
-                metrics.recordContextScan(
-                        filesAddedPaths.size(),
-                        !recommendations.success(),
-                        filesAddedPaths,
-                        recommendations.metadata());
+                metrics.recordContextScan(filesAddedPaths.size(), !recommendations.success(), filesAddedPaths);
                 metrics.recordOutcome(
                         recommendations.success() ? TaskResult.StopReason.SUCCESS : TaskResult.StopReason.LLM_ERROR,
                         filesAddedPaths.size());
@@ -731,7 +725,7 @@ public final class BprCli implements Callable<Integer> {
                             && result.stopDetails().reason() == TaskResult.StopReason.SUCCESS) {
                         var delta = ContextDelta.between(explicitContext, requireNonNull(discoveredContext.get()))
                                 .join();
-                        var finalRec = new ContextAgent.RecommendationResult(true, delta.addedFragments(), null);
+                        var finalRec = new ContextAgent.RecommendationResult(true, delta.addedFragments());
                         writeRecommendationToCache(finalRec, taskFile);
 
                         var baseContext = cachedContextRec
@@ -1242,7 +1236,7 @@ public final class BprCli implements Callable<Integer> {
                         if (allFragments.isEmpty()) {
                             return Optional.empty();
                         }
-                        return Optional.of(new ContextAgent.RecommendationResult(true, allFragments, null));
+                        return Optional.of(new ContextAgent.RecommendationResult(true, allFragments));
                     }
                 } catch (IOException e) {
                     logger.warn("Failed to read properties cache from {}: {}", propsFile, e.getMessage());

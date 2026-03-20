@@ -152,7 +152,7 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
 
     private String runNamespaceQuery(TSQuery query, TSNode rootNode, SourceContent sourceContent) {
         try (TSQueryCursor cursor = new TSQueryCursor()) {
-            cursor.exec(query, rootNode);
+            cursor.exec(query, rootNode, sourceContent.text());
             TSQueryMatch match = new TSQueryMatch();
 
             if (cursor.nextMatch(match)) {
@@ -478,7 +478,7 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
                 QueryType.DEFINITIONS,
                 query -> {
                     try (TSQueryCursor cursor = new TSQueryCursor()) {
-                        cursor.exec(query, tree.getRootNode());
+                        cursor.exec(query, tree.getRootNode(), sourceContent.text());
                         TSQueryMatch match = new TSQueryMatch();
 
                         while (cursor.nextMatch(match)) {

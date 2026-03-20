@@ -12,11 +12,6 @@ from brokk_code.zed_config import ExistingBrokkCodeEntryError
 
 def test_configure_claude_code_mcp_settings_uses_claude_json(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
-    # Mock resolve_jbang_binary to return None so we get fallback "jbang"
-    monkeypatch.setattr(
-        "brokk_code.mcp_config.resolve_jbang_binary",
-        lambda: None,
-    )
 
     returned_path = configure_claude_code_mcp_settings(force=True)
 
@@ -27,7 +22,8 @@ def test_configure_claude_code_mcp_settings_uses_claude_json(tmp_path, monkeypat
     data = json.loads(expected_path.read_text(encoding="utf-8"))
     assert "mcpServers" in data
     assert "brokk" in data["mcpServers"]
-    assert data["mcpServers"]["brokk"]["command"] == "jbang"
+    assert data["mcpServers"]["brokk"]["command"] == "uvx"
+    assert data["mcpServers"]["brokk"]["args"] == ["brokk", "mcp"]
 
 
 def test_configure_claude_code_mcp_settings_preserves_existing_keys(tmp_path):
@@ -125,47 +121,38 @@ def test_configure_codex_mcp_settings_skips_duplicate_brokk_mark(tmp_path, monke
     assert "Already here" in content
 
 
-def test_configure_claude_code_mcp_settings_uses_absolute_jbang_path(tmp_path, monkeypatch):
-    """Verify the config uses an absolute JBang path for non-login shell compatibility."""
-    # Mock resolve_jbang_binary to return a known absolute path
-    monkeypatch.setattr(
-        "brokk_code.mcp_config.resolve_jbang_binary",
-        lambda: "/usr/local/bin/jbang",
-    )
-
+def test_configure_claude_code_mcp_settings_uses_uvx_command(tmp_path):
+    """Verify the config uses the provided uvx command path."""
     config_path = tmp_path / ".claude.json"
-    configure_claude_code_mcp_settings(force=True, settings_path=config_path)
+    configure_claude_code_mcp_settings(
+        force=True, settings_path=config_path, uvx_command="/usr/local/bin/uvx"
+    )
 
     data = json.loads(config_path.read_text(encoding="utf-8"))
-    assert data["mcpServers"]["brokk"]["command"] == "/usr/local/bin/jbang"
+    assert data["mcpServers"]["brokk"]["command"] == "/usr/local/bin/uvx"
+    assert data["mcpServers"]["brokk"]["args"] == ["brokk", "mcp"]
 
 
-def test_configure_codex_mcp_settings_uses_absolute_jbang_path(tmp_path, monkeypatch):
-    """Verify the config uses an absolute JBang path for non-login shell compatibility."""
-    monkeypatch.setattr(
-        "brokk_code.mcp_config.resolve_jbang_binary",
-        lambda: "/home/user/.jbang/bin/jbang",
-    )
-
+def test_configure_codex_mcp_settings_uses_uvx_command(tmp_path):
+    """Verify the config uses the provided uvx command path."""
     config_path = tmp_path / "config.toml"
-    configure_codex_mcp_settings(force=True, settings_path=config_path)
+    configure_codex_mcp_settings(
+        force=True, settings_path=config_path, uvx_command="/home/user/.local/bin/uvx"
+    )
 
     data = tomllib.loads(config_path.read_text(encoding="utf-8"))
-    assert data["mcp_servers"]["brokk"]["command"] == "/home/user/.jbang/bin/jbang"
+    assert data["mcp_servers"]["brokk"]["command"] == "/home/user/.local/bin/uvx"
+    assert data["mcp_servers"]["brokk"]["args"] == ["brokk", "mcp"]
 
 
-def test_configure_mcp_settings_falls_back_to_bare_jbang(tmp_path, monkeypatch):
-    """If JBang cannot be resolved, fall back to bare 'jbang' command."""
-    monkeypatch.setattr(
-        "brokk_code.mcp_config.resolve_jbang_binary",
-        lambda: None,
-    )
-
+def test_configure_claude_code_mcp_settings_defaults_to_uvx(tmp_path):
+    """When no uvx_command is given, defaults to bare 'uvx'."""
     config_path = tmp_path / ".claude.json"
     configure_claude_code_mcp_settings(force=True, settings_path=config_path)
 
     data = json.loads(config_path.read_text(encoding="utf-8"))
-    assert data["mcpServers"]["brokk"]["command"] == "jbang"
+    assert data["mcpServers"]["brokk"]["command"] == "uvx"
+    assert data["mcpServers"]["brokk"]["args"] == ["brokk", "mcp"]
 
 
 def test_configure_claude_code_mcp_settings_uses_brokk_server_permission_rule(tmp_path) -> None:

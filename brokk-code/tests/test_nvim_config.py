@@ -15,6 +15,7 @@ def test_configure_nvim_codecompanion_acp_settings_creates_file(tmp_path) -> Non
     assert written_path == settings_path
     content = settings_path.read_text(encoding="utf-8")
     assert 'name = "brokk"' in content
+    assert '"uvx"' in content
     assert '"brokk"' in content
     assert '"acp"' in content
     assert 'type = "acp"' in content

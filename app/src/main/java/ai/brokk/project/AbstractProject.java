@@ -197,6 +197,20 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         return repo instanceof GitRepo;
     }
 
+    /** Re-reads workspace properties from disk, picking up changes made by other processes. */
+    @Override
+    public final void reloadWorkspaceProperties() {
+        if (Files.exists(workspacePropertiesFile)) {
+            try (var reader = Files.newBufferedReader(workspacePropertiesFile)) {
+                workspaceProps.clear();
+                workspaceProps.load(reader);
+            } catch (Exception e) {
+                logger.error(
+                        "Error reloading workspace properties from {}: {}", workspacePropertiesFile, e.getMessage());
+            }
+        }
+    }
+
     /** Saves workspace-specific properties (window positions, etc.) */
     public final void saveWorkspaceProperties() {
         saveProperties(workspacePropertiesFile, workspaceProps, "Brokk workspace configuration");

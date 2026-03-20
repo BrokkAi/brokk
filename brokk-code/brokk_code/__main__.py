@@ -28,9 +28,11 @@ from brokk_code.mcp_config import (
     configure_claude_code_mcp_settings,
     configure_codex_mcp_settings,
 )
+from brokk_code.mcp_launcher import run_mcp_server
 from brokk_code.nvim_config import configure_nvim_codecompanion_acp_settings
 from brokk_code.nvim_init_patch import wire_nvim_plugin_setup
 from brokk_code.settings import Settings
+from brokk_code.uv_utils import UvSetupError, ensure_uv_ready
 from brokk_code.workspace import resolve_workspace_dir
 from brokk_code.zed_config import ExistingBrokkCodeEntryError, configure_zed_acp_settings
 
@@ -38,7 +40,6 @@ REPO_COMPONENT_ALLOWLIST_REGEX = r"^[A-Za-z0-9_.-]+$"
 _EXECUTOR_JAR_BASE_URL = "https://github.com/BrokkAi/brokk-releases/releases/download"
 _HEADLESS_EXECUTOR_MAIN_CLASS = "ai.brokk.executor.HeadlessExecutorMain"
 _MCP_SERVER_MAIN_CLASS = "ai.brokk.mcpserver.BrokkExternalMcpServer"
-_MCP_JBANG_PACKAGE = "brokk-headless@brokkai/brokk-releases"
 _JBANG_PREFETCH_TIMEOUT_SECONDS = 120.0
 
 
@@ -113,6 +114,8 @@ def _build_executor_prefetch_command(
 
 
 def _build_mcp_prefetch_command(*, jbang_binary: str) -> list[str]:
+    version = BUNDLED_EXECUTOR_VERSION
+    jar_url = f"{_EXECUTOR_JAR_BASE_URL}/{version}/brokk-{version}.jar"
     return [
         jbang_binary,
         "--java",
@@ -123,7 +126,7 @@ def _build_mcp_prefetch_command(*, jbang_binary: str) -> list[str]:
         "--enable-native-access=ALL-UNNAMED",
         "--main",
         _MCP_SERVER_MAIN_CLASS,
-        _MCP_JBANG_PACKAGE,
+        jar_url,
         "--help",
     ]
 
@@ -350,6 +353,9 @@ def _build_parser() -> argparse.ArgumentParser:
             "ACP behavior is now derived from client capabilities and client_info."
         ),
     )
+
+    mcp_parser = subparsers.add_parser("mcp", help="Run in MCP server mode")
+    _add_common_runtime_args(mcp_parser)
 
     install_parser = subparsers.add_parser("install", help="Install integration settings")
     install_parser.add_argument(
@@ -592,6 +598,9 @@ def _build_parser() -> argparse.ArgumentParser:
         default=False,
         help="Show full headless executor output (events/tokens) for debugging",
     )
+
+    version_parser = subparsers.add_parser("version", help="Print version information")
+    _add_common_runtime_args(version_parser)
 
     return parser
 
@@ -1175,11 +1184,15 @@ def main():
         try:
             if args.plugin and args.target not in {"nvim", "neovim"}:
                 raise ValueError("--plugin is only valid for install targets nvim/neovim")
+            uv_binary = ensure_uv_ready()
+            uvx_command = str(Path(uv_binary).parent / "uvx")
             jbang_binary = resolve_jbang_binary() if args.verbose else ensure_jbang_ready()
             if args.verbose and not jbang_binary:
                 jbang_binary = "jbang"
             if args.target == "zed":
-                settings_path = configure_zed_acp_settings(force=args.force)
+                settings_path = configure_zed_acp_settings(
+                    force=args.force, uvx_command=uvx_command
+                )
                 prefetch_commands = _build_install_prefetch_commands(
                     target=args.target,
                     jbang_binary=jbang_binary,
@@ -1187,7 +1200,9 @@ def main():
                 )
                 messages = [f"Configured Zed ACP integration in {settings_path}"]
             elif args.target == "intellij":
-                settings_path = configure_intellij_acp_settings(force=args.force)
+                settings_path = configure_intellij_acp_settings(
+                    force=args.force, uvx_command=uvx_command
+                )
                 prefetch_commands = _build_install_prefetch_commands(
                     target=args.target,
                     jbang_binary=jbang_binary,
@@ -1312,10 +1327,10 @@ def main():
                 )
             elif args.target == "mcp":
                 claude_settings_path = configure_claude_code_mcp_settings(
-                    force=args.force, jbang_path=jbang_binary
+                    force=args.force, uvx_command=uvx_command
                 )
                 codex_settings_path = configure_codex_mcp_settings(
-                    force=args.force, jbang_path=jbang_binary
+                    force=args.force, uvx_command=uvx_command
                 )
                 prefetch_commands = _build_install_prefetch_commands(
                     target=args.target,
@@ -1340,10 +1355,16 @@ def main():
         except (ExistingBrokkCodeEntryError, ValueError) as exc:
             print(f"Error: {exc}", file=sys.stderr)
             sys.exit(1)
-        except ExecutorError as exc:
+        except (ExecutorError, UvSetupError) as exc:
             print(f"Error: {exc}", file=sys.stderr)
             sys.exit(1)
 
+        return
+
+    if args.command == "version":
+        from brokk_code import __version__
+
+        print(f"brokk {__version__}")
         return
 
     workspace_path = Path(args.workspace).resolve()
@@ -1364,6 +1385,14 @@ def main():
                 executor_snapshot=args.executor_snapshot,
                 vendor=args.vendor,
             )
+        )
+        return
+
+    if args.command == "mcp":
+        run_mcp_server(
+            workspace_dir=workspace_path,
+            jar_path=jar_path,
+            executor_version=args.executor_version,
         )
         return
 

@@ -1677,10 +1677,9 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
             withCachedQuery(
                     QueryType.IDENTIFIERS,
                     query -> {
+                        SourceContent sourceContent = SourceContent.of(source);
                         try (TSQueryCursor cursor = new TSQueryCursor()) {
-                            cursor.exec(query, tree.getRootNode());
-
-                            SourceContent sourceContent = SourceContent.of(source);
+                            cursor.exec(query, tree.getRootNode(), sourceContent.text());
                             TSQueryMatch match = new TSQueryMatch();
                             while (cursor.nextMatch(match)) {
                                 for (TSQueryCapture capture : match.getCaptures()) {
@@ -1715,7 +1714,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
                 QueryType.DEFINITIONS,
                 query -> {
                     try (TSQueryCursor cursor = new TSQueryCursor()) {
-                        cursor.exec(query, tree.getRootNode());
+                        cursor.exec(query, tree.getRootNode(), sourceContent.text());
                         TSQueryMatch match = new TSQueryMatch();
                         while (cursor.nextMatch(match)) {
                             for (TSQueryCapture capture : match.getCaptures()) {

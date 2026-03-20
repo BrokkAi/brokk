@@ -89,10 +89,7 @@ public class PhpAnalyzerTest {
     void testGetDeclarationsInFile_NoNamespace() {
         ProjectFile noNsFile = new ProjectFile(testProject.getRoot(), "NoNamespace.php");
         Set<CodeUnit> declarations = analyzer.getDeclarations(noNsFile);
-        Set<String> expectedFqNames = Set.of(
-                "NoNsClass",
-                "NoNsClass.property", // Expecting no $ here after SCM fix
-                "globalFuncNoNs");
+        Set<String> expectedFqNames = Set.of("NoNsClass", "NoNsClass.property", "globalFuncNoNs");
         Set<String> actualFqNames = declarations.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
         assertEquals(expectedFqNames, actualFqNames, "Declarations in NoNamespace.php mismatch.");
     }

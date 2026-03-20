@@ -207,7 +207,7 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
         boolean isRenderMethod = "render".equals(functionName);
 
         if ((isRenderMethod || (isExported && isComponentName)) && returnTypeText.isEmpty()) {
-            if (returnsJsxElement(funcNode)) {
+            if (returnsJsxElement(funcNode, sourceContent)) {
                 inferredReturnType = "JSX.Element";
             }
         }
@@ -247,7 +247,7 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
         return "jsx_element".equals(type) || "jsx_self_closing_element".equals(type) || "jsx_fragment".equals(type);
     }
 
-    private boolean returnsJsxElement(TSNode funcNode) {
+    private boolean returnsJsxElement(TSNode funcNode, SourceContent sourceContent) {
         TSNode bodyNode =
                 funcNode.getChildByFieldName(getLanguageSyntaxProfile().bodyFieldName());
         if (bodyNode == null || bodyNode.isNull()) {
@@ -284,7 +284,7 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
 
             try (TSQuery returnJsxQuery = new TSQuery(jsLanguage, jsxReturnQueryStr);
                     TSQueryCursor cursor = new TSQueryCursor()) {
-                cursor.exec(returnJsxQuery, bodyNode);
+                cursor.exec(returnJsxQuery, bodyNode, sourceContent.text());
                 TSQueryMatch match = new TSQueryMatch();
                 if (cursor.nextMatch(match)) {
                     return true; // Found a JSX return
@@ -317,7 +317,7 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
         TSLanguage jsLanguage = getTSLanguage();
         try (TSQuery mutationQuery = new TSQuery(jsLanguage, mutationQueryStr);
                 TSQueryCursor cursor = new TSQueryCursor()) {
-            cursor.exec(mutationQuery, bodyNode);
+            cursor.exec(mutationQuery, bodyNode, sourceContent.text());
             TSQueryMatch match = new TSQueryMatch();
             while (cursor.nextMatch(match)) {
                 for (TSQueryCapture capture : match.getCaptures()) {
@@ -542,7 +542,7 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
 
         try (TSQuery query = new TSQuery(getTSLanguage(), queryStr);
                 TSQueryCursor cursor = new TSQueryCursor()) {
-            cursor.exec(query, importNode);
+            cursor.exec(query, importNode, sourceContent.text());
             TSQueryMatch match = new TSQueryMatch();
 
             while (cursor.nextMatch(match)) {
@@ -591,7 +591,7 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
 
             try (TSQuery query = new TSQuery(getTSLanguage(), queryStr);
                     TSQueryCursor cursor = new TSQueryCursor()) {
-                cursor.exec(query, rootNode);
+                cursor.exec(query, rootNode, sourceContent.text());
                 TSQueryMatch match = new TSQueryMatch();
 
                 while (cursor.nextMatch(match)) {
@@ -644,7 +644,7 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
             try (TSQuery query = createQuery(QueryType.IDENTIFIERS)) {
                 if (query != null) {
                     try (TSQueryCursor cursor = new TSQueryCursor()) {
-                        cursor.exec(query, rootNode);
+                        cursor.exec(query, rootNode, sourceContent.text());
                         TSQueryMatch match = new TSQueryMatch();
 
                         while (cursor.nextMatch(match)) {

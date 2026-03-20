@@ -14,11 +14,12 @@ from urllib.parse import quote
 
 import httpx
 
+from brokk_code.runtime_utils import find_dev_jar
 from brokk_code.workspace import resolve_workspace_dir
 
 logger = logging.getLogger(__name__)
 
-BUNDLED_EXECUTOR_VERSION = "0.23.1.beta6"
+BUNDLED_EXECUTOR_VERSION = "0.23.2.beta1"
 _EXECUTOR_JAR_BASE_URL = "https://github.com/BrokkAi/brokk-releases/releases/download"
 _EXECUTOR_MAIN_CLASS = "ai.brokk.executor.HeadlessExecutorMain"
 _READY_SENTINEL = "Executor listening on http://"
@@ -347,27 +348,7 @@ class ExecutorManager:
 
     def _find_dev_jar(self) -> Optional[Path]:
         """Searches for a local development JAR in the project structure."""
-
-        def _find_in_workspace(base: Path) -> Optional[Path]:
-            libs_dir = base / "app" / "build" / "libs"
-            if not libs_dir.exists():
-                return None
-
-            named_jar = list(libs_dir.glob("brokk-*.jar"))
-            if not named_jar:
-                return None
-
-            # Prefer the newest built jar when multiple versions are present.
-            return max(named_jar, key=lambda jar: jar.stat().st_mtime)
-
-        curr = self.workspace_dir
-        while curr != curr.parent:
-            if (curr / "gradlew").exists():
-                potential_jar = _find_in_workspace(curr)
-                if potential_jar:
-                    return potential_jar
-            curr = curr.parent
-        return None
+        return find_dev_jar(self.workspace_dir)
 
     async def start(self):
         """Starts the Java HeadlessExecutorMain subprocess."""
@@ -1346,6 +1327,131 @@ class ExecutorManager:
         except httpx.HTTPError as e:
             await self._handle_http_error(e, "/v1/review/submit")
             raise  # Should not be reached
+
+    async def get_dependencies(self) -> Dict[str, Any]:
+        """Returns all dependencies with their metadata and live status."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+        try:
+            resp = await self._http_client.get("/v1/dependencies")
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            await self._handle_http_error(e, "/v1/dependencies")
+            raise
+
+    async def update_live_dependencies(self, names: List[str]) -> Dict[str, Any]:
+        """Updates the set of live dependencies by name."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+        try:
+            resp = await self._http_client.put(
+                "/v1/dependencies", json={"liveDependencyNames": names}
+            )
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            await self._handle_http_error(e, "/v1/dependencies")
+            raise
+
+    async def update_dependency(self, name: str) -> Dict[str, Any]:
+        """Triggers an update of a dependency from its source."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+        if not name or not name.strip():
+            raise ExecutorError("name must not be blank")
+        endpoint = f"/v1/dependencies/{quote(name, safe='')}/update"
+        try:
+            resp = await self._http_client.post(endpoint, timeout=120.0)
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            await self._handle_http_error(e, endpoint)
+            raise
+
+    async def delete_dependency(self, name: str) -> Dict[str, Any]:
+        """Deletes a dependency by name."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+        if not name or not name.strip():
+            raise ExecutorError("name must not be blank")
+        endpoint = f"/v1/dependencies/{quote(name, safe='')}"
+        try:
+            resp = await self._http_client.delete(endpoint)
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            await self._handle_http_error(e, endpoint)
+            raise
+
+    async def list_remote_refs(self, repo_url: str) -> Dict[str, Any]:
+        """Lists branches and tags from a remote Git repository."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+        try:
+            resp = await self._http_client.post(
+                "/v1/dependencies/remote-refs",
+                json={"repoUrl": repo_url},
+                timeout=30.0,
+            )
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            await self._handle_http_error(e, "/v1/dependencies/remote-refs")
+            raise
+
+    async def import_dependency(
+        self,
+        name: str,
+        source_path: Optional[str] = None,
+        repo_url: Optional[str] = None,
+        ref: Optional[str] = None,
+        mark_live: bool = True,
+    ) -> Dict[str, Any]:
+        """Imports a new dependency from a local path or GitHub repository.
+
+        Args:
+            name: Name for the dependency (will be the directory name)
+            source_path: For local imports, the absolute path to source directory
+            repo_url: For Git imports, the repository URL
+            ref: For Git imports, the branch/tag/commit (default: main on server)
+            mark_live: Whether to mark the dependency as live after import
+
+        Returns:
+            Dict with status, name, and path of the imported dependency
+
+        Raises:
+            ExecutorError: If the executor is not started or the request fails
+        """
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+        if not name or not name.strip():
+            raise ExecutorError("name must not be blank")
+
+        payload: Dict[str, Any] = {"name": name.strip(), "markLive": mark_live}
+
+        if source_path:
+            payload["type"] = "local"
+            payload["sourcePath"] = source_path
+        elif repo_url:
+            payload["type"] = "git"
+            payload["repoUrl"] = repo_url
+            if ref:
+                payload["ref"] = ref
+        else:
+            raise ExecutorError("Either source_path or repo_url must be provided")
+
+        try:
+            resp = await self._http_client.post(
+                "/v1/dependencies/import",
+                json=payload,
+                timeout=120.0,
+            )
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            await self._handle_http_error(e, "/v1/dependencies/import")
+            raise
 
     async def cancel_job(self, job_id: str):
         """Cancels an active job."""
