@@ -110,8 +110,6 @@ public interface MacroExpansionProvider extends CapabilityProvider {
             return;
         }
 
-        int attrStart = node.getStartByte();
-        int attrEnd = node.getEndByte();
         Map<String, Object> context = Map.of("code_unit", parentCu, "children", acc.getChildren(parentCu));
         String expanded = MacroTemplateExpander.expand(template, context);
 
@@ -164,16 +162,14 @@ public interface MacroExpansionProvider extends CapabilityProvider {
             snippetAcc.getSignatures(orig).forEach(sig -> acc.addSignature(rescoped, sig));
 
             // Use attribute range as a placeholder
-            int attrStart = node.getStartByte();
-            int attrEnd = node.getEndByte();
             acc.addRange(
                     rescoped,
                     new IAnalyzer.Range(
-                            attrStart,
-                            attrEnd,
+                            node.getStartByte(),
+                            node.getEndByte(),
                             node.getStartPoint().getRow(),
                             node.getStartPoint().getRow(),
-                            attrStart));
+                            node.getStartByte()));
 
             // Attach internal hierarchy
             for (CodeUnit child : snippetAcc.getChildren(orig)) {
@@ -205,9 +201,6 @@ public interface MacroExpansionProvider extends CapabilityProvider {
             p = p.getParent();
         }
 
-        int attrStart = attributeItem.getStartByte();
-        int attrEnd = attributeItem.getEndByte();
-
         // Find next sibling that isn't an attribute or comment
         TSNode sibling = attributeItem.getNextSibling();
         while (sibling != null
@@ -216,15 +209,18 @@ public interface MacroExpansionProvider extends CapabilityProvider {
             sibling = sibling.getNextSibling();
         }
         int sibStart = (sibling != null && !sibling.isNull()) ? sibling.getStartByte() : -1;
+        int attrStartByte = attributeItem.getStartByte();
+        int attrEndByte = attributeItem.getEndByte();
 
         CodeUnit bestCu = null;
         int bestLength = Integer.MAX_VALUE;
 
         for (CodeUnit cu : acc.cuByFqName().values().stream().distinct().toList()) {
             for (IAnalyzer.Range range : acc.getRanges(cu)) {
-                boolean containsAttr = range.startByte() <= attrStart && range.endByte() >= attrEnd;
+                boolean containsAttr = range.startByte() <= attrStartByte && range.endByte() >= attrEndByte;
                 boolean matchesSibling = sibStart != -1 && range.startByte() == sibStart;
-                boolean startsAfterAttr = range.startByte() >= attrEnd && range.startByte() <= attrEnd + 20;
+                boolean startsAfterAttr = range.startByte() >= attrEndByte
+                        && range.startByte() <= attrEndByte + 20;
 
                 if (containsAttr || matchesSibling || startsAfterAttr) {
                     int len = range.endByte() - range.startByte();
