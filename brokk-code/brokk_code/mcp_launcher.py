@@ -80,9 +80,11 @@ def build_jbang_mcp_command(*, jbang_binary: str, executor_version: str | None) 
         "--java",
         "21",
         "-R",
-        "-Djava.awt.headless=true "
-        + "-Dapple.awt.UIElement=true "
-        + "--enable-native-access=ALL-UNNAMED",
+        "-Djava.awt.headless=true",
+        "-R",
+        "-Dapple.awt.UIElement=true",
+        "-R",
+        "--enable-native-access=ALL-UNNAMED",
         "--main",
         _MCP_SERVER_MAIN_CLASS,
         jar_url,
