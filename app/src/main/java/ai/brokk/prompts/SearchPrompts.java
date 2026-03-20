@@ -380,6 +380,8 @@ public class SearchPrompts {
                     - When you identify a specific class or method, prefer adding its summary or source (addClassSummariesToWorkspace, addMethodsToWorkspace) to keep the Workspace lean.
                 {{#if hasSyntaxAwareTools}}
                     - Prefer syntax-aware tools (searchSymbols, scanUsages, getSymbolLocations){{#if supportedTypes}} for {{supportedTypes}} files{{/if}} for higher-signal symbol and usage discovery.
+                    - If you know a concrete symbol and need to map callers, usages, or cross-file wiring, scanUsages is usually the fastest first step.
+                      Do not use scanUsages for literal/text/config search, or when you already know the exact file or method to read.
                 {{/if}}
                 {{#if hasStructuredDataTools}}
                     - Prefer structured query tools (jq, xmlSelect) for JSON or XML when structure matters.
@@ -428,6 +430,8 @@ public class SearchPrompts {
                 Workspace context guidance:
                   - If you know where to find what you're looking for, just add it, you don't need to keep searching "just in case".
                   - If you have a concrete symbol, filename, or literal string and only need exact locations, direct lookup tools are a good fit.
+                  - If you know a concrete symbol and need callers/usages/wiring across files, scanUsages is usually the best first lookup.
+                  - Do not use scanUsages for literal/text/config search or when you already know the exact file/method to inspect.
                   - If you still need to decide which files, tests, or subsystem matter, use callSearchAgent to identify specific files/classes/methods instead of guessing.
                   - The add*ToWorkspace tools do not work with directories or globs or wildcards as parameters;
                     if you don't know which specific items to add to the Workspace, invoke callSearchAgent.
