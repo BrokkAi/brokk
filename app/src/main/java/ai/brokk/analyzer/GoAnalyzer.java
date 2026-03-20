@@ -911,9 +911,12 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
         // Go doesn't create module CodeUnits like Java does.
         // Instead, find all CodeUnits whose packageName matches the imported package.
         Set<CodeUnit> resolved = new LinkedHashSet<>();
-        if (!importedPackageNames.isEmpty()) {
-            for (CodeUnit cu : snapshotState().codeUnitState().keySet()) {
-                if (!cu.isModule() && importedPackageNames.contains(cu.packageName())) {
+        for (String pkgName : importedPackageNames) {
+            // Pattern ^pkgName\. matches fqNames starting with "pkgName."
+            // since fqName = packageName + "." + shortName
+            String pattern = "^" + Pattern.quote(pkgName) + "\\.";
+            for (CodeUnit cu : searchDefinitions(pattern, false)) {
+                if (!cu.isModule()) {
                     resolved.add(cu);
                 }
             }
