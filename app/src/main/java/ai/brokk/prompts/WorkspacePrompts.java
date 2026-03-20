@@ -342,7 +342,7 @@ public final class WorkspacePrompts {
             messages.add(new UserMessage(cf.format().trim()));
         } else {
             var contents = new ArrayList<Content>();
-            contents.add(new TextContent(cf.text().join()));
+            contents.add(new TextContent(cf.description().join()));
             try {
                 var imageContent = processImageContent(cf);
                 if (imageContent != null) {
