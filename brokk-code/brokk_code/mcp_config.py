@@ -16,7 +16,8 @@ _BROKK_INSTRUCTIONS = f"""{_BROKK_MARKER}
 - Prefer Brokk MCP tools for syntax-aware search and edits.
 - Prefer callCodeAgent for code changes.
 - Avoid shell text search when Brokk syntax-aware tools can answer.
-- At the start of each Codex session, activate Brokk MCP for the current workspace by calling activateWorkspace, then verify with getActiveWorkspace.
+- At the start of each Codex session, activate Brokk MCP for the current workspace by
+  calling activateWorkspace, then verify with getActiveWorkspace.
 """
 _BROKK_MCP_PERMISSION_ALLOW: list[str] = [
     "Bash(./gradlew:*)",
