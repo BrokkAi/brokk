@@ -5,10 +5,14 @@ import static org.junit.jupiter.api.Assertions.*;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.UUID;
-import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -78,32 +82,45 @@ public final class HeadlessExecutorStdinShutdownIT {
             pb.redirectErrorStream(true);
             process = pb.start();
 
-            BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
-
-            Callable<String> waitForListening = () -> {
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    if (line.contains("Executor listening on http://")) {
-                        return line;
+            List<String> outputLines = Collections.synchronizedList(new ArrayList<>());
+            CountDownLatch bannerSeen = new CountDownLatch(1);
+            Future<?> outputPump = executor.submit(() -> {
+                try (var reader =
+                        new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        outputLines.add(line);
+                        if (line.contains("Executor listening on http://")) {
+                            bannerSeen.countDown();
+                        }
                     }
                 }
                 return null;
-            };
+            });
 
-            Future<String> listenFuture = executor.submit(waitForListening);
-            String bannerLine;
-            try {
-                bannerLine = listenFuture.get(60, TimeUnit.SECONDS);
-            } catch (Exception e) {
+            long bannerDeadlineNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(60);
+            boolean sawBanner = false;
+            while (System.nanoTime() < bannerDeadlineNanos) {
+                if (bannerSeen.await(250, TimeUnit.MILLISECONDS)) {
+                    sawBanner = true;
+                    break;
+                }
+                if (!process.isAlive() || outputPump.isDone()) {
+                    break;
+                }
+            }
+            if (!sawBanner) {
                 if (process.isAlive()) {
                     process.destroyForcibly();
                     process.waitFor();
                 }
-                fail("Timed out waiting for executor listening banner: " + e.getMessage());
-                return;
+                try {
+                    outputPump.get(5, TimeUnit.SECONDS);
+                } catch (Exception ignored) {
+                }
+                fail("Timed out waiting for executor listening banner. Output:%n" + formatOutput(outputLines));
             }
-
-            assertNotNull(bannerLine, "Executor process exited before printing listening banner");
+            assertTrue(process.isAlive(), "Executor process exited before printing listening banner");
 
             // Close the child's stdin to simulate parent death / EOF.
             try {
@@ -122,10 +139,19 @@ public final class HeadlessExecutorStdinShutdownIT {
                 }
             }
 
-            assertTrue(exited, "Process did not exit after stdin was closed");
+            try {
+                outputPump.get(10, TimeUnit.SECONDS);
+            } catch (Exception ignored) {
+            }
+
+            assertTrue(exited, "Process did not exit after stdin was closed. Output:%n" + formatOutput(outputLines));
 
             int exitCode = process.exitValue();
-            assertEquals(0, exitCode, "Executor process exited with unexpected code after stdin closure");
+            assertEquals(
+                    0,
+                    exitCode,
+                    "Executor process exited with unexpected code after stdin closure. Output:%n"
+                            + formatOutput(outputLines));
 
         } finally {
             argFile.toFile().delete();
@@ -137,5 +163,13 @@ public final class HeadlessExecutorStdinShutdownIT {
             } catch (Exception ignored) {
             }
         }
+    }
+
+    private static String formatOutput(List<String> outputLines) {
+        List<String> snapshot;
+        synchronized (outputLines) {
+            snapshot = new ArrayList<>(outputLines);
+        }
+        return snapshot.isEmpty() ? "(no output)" : String.join(System.lineSeparator(), snapshot);
     }
 }

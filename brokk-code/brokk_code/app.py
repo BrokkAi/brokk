@@ -9,7 +9,7 @@ import uuid
 import webbrowser
 from datetime import datetime
 from enum import StrEnum
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from textual import events
@@ -18,7 +18,7 @@ from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.css.query import NoMatches
 from textual.screen import ModalScreen
-from textual.widgets import Button, Input, ListItem, ListView, Static, TextArea
+from textual.widgets import Button, Input, ListItem, ListView, LoadingIndicator, Static, TextArea
 
 from brokk_code.event_utils import is_failure_state, safe_data
 from brokk_code.executor import ExecutorError, ExecutorManager
@@ -33,6 +33,7 @@ from brokk_code.settings import (
 from brokk_code.welcome import build_welcome_message, get_braille_icon
 from brokk_code.widgets.chat_panel import ChatInput, ChatPanel
 from brokk_code.widgets.context_panel import ContextPanel
+from brokk_code.widgets.dependencies_panel import DependenciesPanel
 from brokk_code.widgets.review_panel import GuidedReviewPanel
 from brokk_code.widgets.status_line import StatusLine
 from brokk_code.widgets.tasklist_panel import TaskListPanel
@@ -104,6 +105,207 @@ class ReviewModalScreen(ModalScreen[None]):
     def action_close_review(self) -> None:
         self._on_close()
         self.dismiss(None)
+
+
+class DependenciesModalScreen(ModalScreen[None]):
+    """Full-screen modal wrapper for the dependencies panel."""
+
+    BINDINGS = [
+        Binding("escape", "close_dependencies", "Close", show=False),
+    ]
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="dependencies-modal-container"):
+            yield DependenciesPanel(id="dependencies-panel")
+
+    def on_mount(self) -> None:
+        self.query_one("#dependencies-list", ListView).focus()
+        self.app.run_worker(self.app._refresh_dependencies_panel())
+
+    def action_close_dependencies(self) -> None:
+        self.dismiss(None)
+
+
+class AddDependencyModalScreen(ModalScreen[Optional[Dict[str, Any]]]):
+    """Modal for adding a new dependency from local path or Git repository."""
+
+    BINDINGS = [
+        Binding("escape", "dismiss", "Cancel", show=False),
+    ]
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._mode: str = "local"
+        self._selected_ref: Optional[str] = None
+        self._branch_refs: List[str] = []
+
+    @staticmethod
+    def _derive_name_from_path(path: str) -> str:
+        return PurePosixPath(path.strip().replace("\\", "/")).name
+
+    @staticmethod
+    def _derive_name_from_url(url: str) -> str:
+        derived = url.strip().rstrip("/").rsplit("/", 1)[-1]
+        return derived[:-4] if derived.endswith(".git") else derived
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="add-dependency-modal-container"):
+            yield Static("Add Dependency", id="add-dependency-title")
+
+            yield Static("Source:", id="add-dependency-source-label")
+            with Horizontal(id="add-dependency-mode-select"):
+                yield Button("Local Path", id="add-dependency-mode-local", variant="primary")
+                yield Button("Git Repository", id="add-dependency-mode-git")
+
+            # Local path input
+            with Vertical(id="add-dependency-local-section"):
+                yield Static("Local Path:", id="add-dependency-path-label")
+                yield Input(placeholder="/path/to/source/directory", id="add-dependency-path")
+
+            # Git input (hidden by default)
+            with Vertical(id="add-dependency-git-section", classes="hidden"):
+                yield Static("Repository URL:", id="add-dependency-repo-label")
+                with Horizontal(id="add-dependency-repo-row"):
+                    yield Input(
+                        placeholder="https://github.com/owner/repo", id="add-dependency-repo"
+                    )
+                    yield Button("Fetch Branches", id="add-dependency-fetch", variant="primary")
+                yield LoadingIndicator(id="add-dependency-fetch-spinner", classes="hidden")
+                yield Static("Branch/Tag:", id="add-dependency-branch-label", classes="hidden")
+                yield ListView(id="add-dependency-branch-list", classes="hidden")
+
+            yield Static("", id="add-dependency-error")
+
+            with Horizontal(id="add-dependency-actions"):
+                yield Button("Import", id="add-dependency-submit", variant="primary")
+                yield Button("Cancel", id="add-dependency-cancel")
+
+    def on_mount(self) -> None:
+        self.query_one("#add-dependency-path", Input).focus()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        button_id = event.button.id or ""
+
+        if button_id == "add-dependency-mode-local":
+            self._set_mode("local")
+        elif button_id == "add-dependency-mode-git":
+            self._set_mode("git")
+        elif button_id == "add-dependency-fetch":
+            self._fetch_branches()
+        elif button_id == "add-dependency-submit":
+            self._do_submit()
+        elif button_id == "add-dependency-cancel":
+            self.dismiss(None)
+
+    def on_list_view_selected(self, event: ListView.Selected) -> None:
+        if event.list_view.id == "add-dependency-branch-list":
+            index = event.list_view.index
+            if index is not None and 0 <= index < len(self._branch_refs):
+                self._selected_ref = self._branch_refs[index]
+
+    def on_list_view_highlighted(self, event: ListView.Highlighted) -> None:
+        if event.list_view.id == "add-dependency-branch-list" and event.item:
+            index = event.list_view.index
+            if index is not None and 0 <= index < len(self._branch_refs):
+                self._selected_ref = self._branch_refs[index]
+
+    def _set_mode(self, mode: str) -> None:
+        self._mode = mode
+        local_btn = self.query_one("#add-dependency-mode-local", Button)
+        git_btn = self.query_one("#add-dependency-mode-git", Button)
+        local_section = self.query_one("#add-dependency-local-section")
+        git_section = self.query_one("#add-dependency-git-section")
+
+        if mode == "local":
+            local_btn.variant = "primary"
+            git_btn.variant = "default"
+            local_section.remove_class("hidden")
+            git_section.add_class("hidden")
+        else:
+            local_btn.variant = "default"
+            git_btn.variant = "primary"
+            local_section.add_class("hidden")
+            git_section.remove_class("hidden")
+
+    def _fetch_branches(self) -> None:
+        repo_url = self.query_one("#add-dependency-repo", Input).value.strip()
+        if not repo_url:
+            self.query_one("#add-dependency-error", Static).update(
+                "[bold red]Enter a repository URL first[/]"
+            )
+            return
+        self.query_one("#add-dependency-error", Static).update("")
+        self.query_one("#add-dependency-fetch-spinner").remove_class("hidden")
+        self.query_one("#add-dependency-fetch", Button).disabled = True
+        self.app.run_worker(self._do_fetch_branches(repo_url))
+
+    async def _do_fetch_branches(self, repo_url: str) -> None:
+        try:
+            data = await self.app.executor.list_remote_refs(repo_url)
+            branches = data.get("branches", [])
+            tags = data.get("tags", [])
+            default_branch = data.get("defaultBranch")
+
+            branch_list = self.query_one("#add-dependency-branch-list", ListView)
+            branch_list.clear()
+            self._branch_refs = []
+
+            # Add branches, marking the default
+            for branch in branches:
+                suffix = " (default)" if branch == default_branch else ""
+                branch_list.append(ListItem(Static(f"{branch}{suffix}", markup=False)))
+                self._branch_refs.append(branch)
+
+            # Add tags with prefix
+            for tag in tags:
+                branch_list.append(ListItem(Static(f"{tag}", markup=False)))
+                self._branch_refs.append(tag)
+
+            self.query_one("#add-dependency-branch-label").remove_class("hidden")
+            branch_list.remove_class("hidden")
+
+            # Pre-select default branch
+            if default_branch and default_branch in branches:
+                branch_list.index = branches.index(default_branch)
+                self._selected_ref = default_branch
+            elif branches:
+                branch_list.index = 0
+                self._selected_ref = branches[0]
+
+            branch_list.focus()
+        except Exception as e:
+            self.query_one("#add-dependency-error", Static).update(
+                f"[bold red]Failed to fetch branches: {e}[/]"
+            )
+        finally:
+            self.query_one("#add-dependency-fetch-spinner").add_class("hidden")
+            self.query_one("#add-dependency-fetch", Button).disabled = False
+
+    def _do_submit(self) -> None:
+        error_label = self.query_one("#add-dependency-error", Static)
+        error_label.update("")
+
+        if self._mode == "local":
+            source_path = self.query_one("#add-dependency-path", Input).value.strip()
+            if not source_path:
+                error_label.update("[bold red]Local path is required[/]")
+                return
+            name = self._derive_name_from_path(source_path)
+            if not name:
+                error_label.update("[bold red]Could not derive name from path[/]")
+                return
+            self.dismiss({"name": name, "mode": "local", "source_path": source_path})
+        else:
+            repo_url = self.query_one("#add-dependency-repo", Input).value.strip()
+            if not repo_url:
+                error_label.update("[bold red]Repository URL is required[/]")
+                return
+            name = self._derive_name_from_url(repo_url)
+            if not name:
+                error_label.update("[bold red]Could not derive name from URL[/]")
+                return
+            ref = self._selected_ref
+            self.dismiss({"name": name, "mode": "git", "repo_url": repo_url, "ref": ref})
 
 
 class TaskListModalScreen(ModalScreen[None]):
@@ -2056,8 +2258,13 @@ class BrokkApp(App):
             elif check_text:
                 if self._current_switch_target_session_id:
                     # Queue non-slash prompts for execution after switch completes
+                    append_prompt(
+                        self.executor.workspace_dir,
+                        check_text,
+                        max_history=self.settings.prompt_history_size,
+                    )
                     if chat:
-                        chat.add_history_entry(raw_text)
+                        chat.add_history_entry(check_text)
                         chat.add_user_message(raw_text)
                     self._pending_switch_prompt = (self._current_switch_target_session_id, raw_text)
                     if chat:
@@ -2072,35 +2279,40 @@ class BrokkApp(App):
                         )
                 return
 
-        if check_text.startswith("/"):
-            self._handle_command(check_text)
-        elif check_text:
-            # Record in history regardless of routing
+        # Record ALL non-empty input in history (both prompts and slash commands)
+        if check_text:
             append_prompt(
-                self.executor.workspace_dir, raw_text, max_history=self.settings.prompt_history_size
+                self.executor.workspace_dir,
+                check_text,
+                max_history=self.settings.prompt_history_size,
             )
             chat = self._maybe_chat()
             if chat:
-                chat.add_history_entry(raw_text)
-                chat.add_user_message(raw_text)
-            if self.job_in_progress and self.current_job_id:
-                self._pending_prompt = raw_text
-                now = time.monotonic()
-                self._pending_updated_at = now
-                self._pending_generation += 1
-                self._pending_min_wait_until = max(
-                    self._pending_min_wait_until, now + self._resubmit_grace_s
-                )
-                # Avoid redundant cancellation messages if already pending
-                if self._pending_generation == 1 and chat:
-                    chat.add_system_message("Interrupting current job to start new request...")
-                self.run_worker(self.executor.cancel_job(self.current_job_id))
-            elif not self._executor_ready:
-                self._startup_pending_prompt = raw_text
-                if chat:
-                    chat.add_system_message("Queuing prompt until Brokk is ready...")
+                chat.add_history_entry(check_text)
+
+            if check_text.startswith("/"):
+                self._handle_command(check_text)
             else:
-                self.run_worker(self._run_job(raw_text))
+                if chat:
+                    chat.add_user_message(raw_text)
+                if self.job_in_progress and self.current_job_id:
+                    self._pending_prompt = raw_text
+                    now = time.monotonic()
+                    self._pending_updated_at = now
+                    self._pending_generation += 1
+                    self._pending_min_wait_until = max(
+                        self._pending_min_wait_until, now + self._resubmit_grace_s
+                    )
+                    # Avoid redundant cancellation messages if already pending
+                    if self._pending_generation == 1 and chat:
+                        chat.add_system_message("Interrupting current job to start new request...")
+                    self.run_worker(self.executor.cancel_job(self.current_job_id))
+                elif not self._executor_ready:
+                    self._startup_pending_prompt = raw_text
+                    if chat:
+                        chat.add_system_message("Queuing prompt until Brokk is ready...")
+                else:
+                    self.run_worker(self._run_job(raw_text))
 
     @staticmethod
     def _extract_at_mentions(task_input: str) -> List[str]:
@@ -2891,6 +3103,7 @@ class BrokkApp(App):
             {"command": "/task", "description": "Open/close the task list"},
             {"command": "/sessions", "description": "List and switch between sessions"},
             {"command": "/commit", "description": "Commit current changes"},
+            {"command": "/dependencies", "description": "Manage project dependencies"},
             {"command": "/pr", "description": "Create a pull request"},
             {
                 "command": "/pr review",
@@ -2998,6 +3211,8 @@ class BrokkApp(App):
                 )
                 return
             self.action_toggle_tasklist()
+        elif base == "/dependencies":
+            self.action_toggle_dependencies()
         elif base == "/commit":
             if not self._executor_ready:
                 chat.add_system_message(
@@ -3149,6 +3364,135 @@ class BrokkApp(App):
         chat = self._maybe_chat()
         if chat:
             chat.open_mode_menu(["CODE", "ASK", "LUTZ", "PLAN"], self.agent_mode)
+
+    def action_toggle_dependencies(self) -> None:
+        if isinstance(self.screen, DependenciesModalScreen):
+            self.screen.dismiss(None)
+            return
+
+        self.push_screen(DependenciesModalScreen())
+
+    async def _refresh_dependencies_panel(self) -> None:
+        """Fetches latest dependencies and updates the panel."""
+        if not self._executor_ready:
+            return
+        try:
+            data = await self.executor.get_dependencies()
+            deps_list = data.get("dependencies", [])
+            if isinstance(self.screen, DependenciesModalScreen):
+                panel = self.screen.query_one(DependenciesPanel)
+                panel.refresh_dependencies(deps_list)
+        except Exception as e:
+            chat = self._maybe_chat()
+            if chat:
+                chat.add_system_message(f"Failed to fetch dependencies: {e}", level="ERROR")
+
+    def _open_add_dependency_modal(self) -> None:
+        def on_result(result: Optional[Dict[str, Any]]) -> None:
+            if result:
+                self.run_worker(self._do_import_dependency(result))
+
+        self.push_screen(AddDependencyModalScreen(), on_result)
+
+    def _get_dependencies_panel(self) -> Optional[DependenciesPanel]:
+        if isinstance(self.screen, DependenciesModalScreen):
+            return self.screen.query_one(DependenciesPanel)
+        return None
+
+    async def _do_import_dependency(self, params: Dict[str, Any]) -> None:
+        chat = self._maybe_chat()
+        name = params.get("name", "")
+        mode = params.get("mode", "local")
+        panel = self._get_dependencies_panel()
+
+        try:
+            if chat:
+                chat.add_system_message(f"Importing dependency '{name}'...")
+            if panel:
+                panel.show_loading(f"Importing '{name}'...")
+
+            if mode == "local":
+                await self.executor.import_dependency(
+                    name=name,
+                    source_path=params.get("source_path"),
+                )
+            else:  # git
+                await self.executor.import_dependency(
+                    name=name,
+                    repo_url=params.get("repo_url"),
+                    ref=params.get("ref"),
+                )
+
+            if chat:
+                chat.add_system_message(
+                    f"Successfully imported dependency: {name}", level="SUCCESS"
+                )
+
+            await self._refresh_dependencies_panel()
+        except Exception as e:
+            if chat:
+                chat.add_system_message(f"Failed to import dependency: {e}", level="ERROR")
+            if panel:
+                panel.show_error(f"Import failed: {e}")
+            return
+        finally:
+            if panel:
+                panel.hide_loading()
+
+    def on_dependencies_panel_action_requested(
+        self, message: DependenciesPanel.ActionRequested
+    ) -> None:
+        self.run_worker(self._execute_dependencies_action(message))
+
+    async def _execute_dependencies_action(
+        self, message: DependenciesPanel.ActionRequested
+    ) -> None:
+        if not self._executor_ready:
+            return
+        chat = self._maybe_chat()
+
+        try:
+            if message.action == "toggle_live":
+                data = await self.executor.get_dependencies()
+                deps = data.get("dependencies", [])
+                current_live = [d["name"] for d in deps if d.get("isLive")]
+                if message.dependency_name in current_live:
+                    current_live.remove(message.dependency_name)
+                else:
+                    current_live.append(message.dependency_name)
+                await self.executor.update_live_dependencies(current_live)
+                if chat:
+                    chat.add_system_message("Updated live dependencies")
+
+            elif message.action == "update":
+                if chat:
+                    chat.add_system_message(f"Updating {message.dependency_name}...")
+                result = await self.executor.update_dependency(message.dependency_name)
+                changed = result.get("changedFiles", 0)
+                if chat:
+                    chat.add_system_message(
+                        f"Updated {message.dependency_name}: {changed} files changed"
+                    )
+
+            elif message.action == "delete":
+                await self.executor.delete_dependency(message.dependency_name)
+                if chat:
+                    chat.add_system_message(f"Deleted dependency: {message.dependency_name}")
+
+            elif message.action == "add":
+                self._open_add_dependency_modal()
+                return
+
+            elif message.action == "refresh":
+                pass
+
+            await self._refresh_dependencies_panel()
+        except Exception as e:
+            if chat:
+                chat.add_system_message(f"Dependency action failed: {e}", level="ERROR")
+            panel = self._get_dependencies_panel()
+            if panel:
+                panel.show_error(f"{message.action} failed: {e}")
 
     def action_toggle_context(self) -> None:
         if isinstance(self.screen, ContextModalScreen):

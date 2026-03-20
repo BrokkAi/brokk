@@ -21,6 +21,20 @@ def _stub_install_warmup(monkeypatch) -> None:
     )
 
 
+def test_main_version_subcommand_prints_version(monkeypatch, capsys) -> None:
+    """Verify `brokk version` prints the package version and exits cleanly."""
+    from brokk_code import __version__
+
+    monkeypatch.setattr(sys, "argv", ["brokk", "version"])
+
+    from brokk_code.__main__ import main
+
+    main()
+
+    captured = capsys.readouterr()
+    assert f"brokk {__version__}" in captured.out
+
+
 def test_main_defaults_to_tui(monkeypatch, tmp_path) -> None:
     captured: dict[str, Any] = {"ran": False}
     fake_app_module = ModuleType("brokk_code.app")
@@ -84,6 +98,37 @@ def test_main_acp_routes_to_server(monkeypatch, tmp_path) -> None:
     assert captured["kwargs"]["workspace_dir"] == tmp_path.resolve()
     assert captured["kwargs"]["executor_snapshot"] is False
     assert captured["kwargs"]["vendor"] == "Gemini"
+
+
+def test_main_mcp_routes_to_launcher(monkeypatch, tmp_path) -> None:
+    captured: dict[str, Any] = {}
+    jar_path = tmp_path / "brokk.jar"
+    jar_path.write_text("dummy")
+
+    def fake_run_mcp_server(**kwargs: Any) -> None:
+        captured["kwargs"] = kwargs
+
+    monkeypatch.setattr(main_module, "run_mcp_server", fake_run_mcp_server)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "brokk",
+            "mcp",
+            "--workspace",
+            str(tmp_path),
+            "--jar",
+            str(jar_path),
+            "--executor-version",
+            "0.99.0",
+        ],
+    )
+
+    main_module.main()
+
+    assert captured["kwargs"]["workspace_dir"] == tmp_path.resolve()
+    assert captured["kwargs"]["jar_path"] == jar_path.resolve()
+    assert captured["kwargs"]["executor_version"] == "0.99.0"
     # Ensure no residual ide parameter is passed from CLI to run_acp_server
     assert "ide" not in captured["kwargs"]
 

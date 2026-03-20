@@ -601,9 +601,7 @@ public final class BprCli implements Callable<Integer> {
                     } else {
                         var agent = new ContextAgent(cm, planModel, goalForScan);
                         recommendations = agent.getRecommendations(cm.liveContext());
-                        io.showNotification(
-                                IConsoleIO.NotificationRole.INFO,
-                                "Deep Scan token usage: " + recommendations.metadata());
+
                         if (recommendations.success() && getCacheMode().canWrite()) {
                             writeRecommendationToCache(recommendations, deepScanCacheTaskFile);
                         }
@@ -630,8 +628,7 @@ public final class BprCli implements Callable<Integer> {
                         metrics.recordContextScan(
                                 filesAddedPaths.size(),
                                 !recommendations.success(),
-                                filesAddedPaths,
-                                recommendations.metadata());
+                                filesAddedPaths);
                         metrics.recordOutcome(
                                 recommendations.success()
                                         ? TaskResult.StopReason.SUCCESS
@@ -741,7 +738,7 @@ public final class BprCli implements Callable<Integer> {
                                                 explicitContext, requireNonNull(discoveredContext.get()))
                                         .join();
                                 var finalRec =
-                                        new ContextAgent.RecommendationResult(true, delta.addedFragments(), null);
+                                        new ContextAgent.RecommendationResult(true, delta.addedFragments());
                                 writeRecommendationToCache(finalRec, taskFile);
 
                                 var baseContext = cachedContextRec
@@ -1260,7 +1257,7 @@ public final class BprCli implements Callable<Integer> {
                         if (allFragments.isEmpty()) {
                             return Optional.empty();
                         }
-                        return Optional.of(new ContextAgent.RecommendationResult(true, allFragments, null));
+                        return Optional.of(new ContextAgent.RecommendationResult(true, allFragments));
                     }
                 } catch (IOException e) {
                     logger.warn("Failed to read properties cache from {}: {}", propsFile, e.getMessage());

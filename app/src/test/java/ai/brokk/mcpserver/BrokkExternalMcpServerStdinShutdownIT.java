@@ -5,9 +5,13 @@ import static org.junit.jupiter.api.Assertions.*;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.concurrent.Callable;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -64,32 +68,45 @@ public final class BrokkExternalMcpServerStdinShutdownIT {
             pb.redirectErrorStream(true); // merge stderr (logs) into stdout for reading
             process = pb.start();
 
-            BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
-
-            Callable<String> waitForBanner = () -> {
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    if (line.contains("Brokk MCP Server starting")) {
-                        return line;
+            List<String> outputLines = Collections.synchronizedList(new ArrayList<>());
+            CountDownLatch bannerSeen = new CountDownLatch(1);
+            Future<?> outputPump = executor.submit(() -> {
+                try (var reader =
+                        new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        outputLines.add(line);
+                        if (line.contains("Brokk MCP Server starting")) {
+                            bannerSeen.countDown();
+                        }
                     }
                 }
                 return null;
-            };
+            });
 
-            Future<String> bannerFuture = executor.submit(waitForBanner);
-            String bannerLine;
-            try {
-                bannerLine = bannerFuture.get(60, TimeUnit.SECONDS);
-            } catch (Exception e) {
+            long bannerDeadlineNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(60);
+            boolean sawBanner = false;
+            while (System.nanoTime() < bannerDeadlineNanos) {
+                if (bannerSeen.await(250, TimeUnit.MILLISECONDS)) {
+                    sawBanner = true;
+                    break;
+                }
+                if (!process.isAlive() || outputPump.isDone()) {
+                    break;
+                }
+            }
+            if (!sawBanner) {
                 if (process.isAlive()) {
                     process.destroyForcibly();
                     process.waitFor();
                 }
-                fail("Timed out waiting for MCP server starting banner: " + e.getMessage());
-                return;
+                try {
+                    outputPump.get(5, TimeUnit.SECONDS);
+                } catch (Exception ignored) {
+                }
+                fail("Timed out waiting for MCP server starting banner. Output:%n" + formatOutput(outputLines));
             }
-
-            assertNotNull(bannerLine, "MCP server process exited before printing starting banner");
+            assertTrue(process.isAlive(), "MCP server process exited before printing starting banner");
 
             // Close stdin to simulate parent death.
             try {
@@ -107,8 +124,22 @@ public final class BrokkExternalMcpServerStdinShutdownIT {
                 }
             }
 
-            assertTrue(exited, "MCP server process did not exit after stdin was closed");
-            assertEquals(0, process.exitValue(), "MCP server exited with unexpected code after stdin closure");
+            try {
+                outputPump.get(10, TimeUnit.SECONDS);
+            } catch (Exception ignored) {
+            }
+
+            assertTrue(
+                    exited,
+                    "MCP server process did not exit after stdin was closed. Output:%n" + formatOutput(outputLines));
+            assertEquals(
+                    0,
+                    process.exitValue(),
+                    "MCP server exited with unexpected code after stdin closure. Output:%n"
+                            + formatOutput(outputLines));
+            assertTrue(
+                    outputLines.stream().anyMatch(line -> line.contains("stdin EOF detected; parent process gone")),
+                    "Expected stdin EOF shutdown log line. Output:%n" + formatOutput(outputLines));
 
         } finally {
             argFile.toFile().delete();
@@ -120,5 +151,13 @@ public final class BrokkExternalMcpServerStdinShutdownIT {
             } catch (Exception ignored) {
             }
         }
+    }
+
+    private static String formatOutput(List<String> outputLines) {
+        List<String> snapshot;
+        synchronized (outputLines) {
+            snapshot = new ArrayList<>(outputLines);
+        }
+        return snapshot.isEmpty() ? "(no output)" : String.join(System.lineSeparator(), snapshot);
     }
 }

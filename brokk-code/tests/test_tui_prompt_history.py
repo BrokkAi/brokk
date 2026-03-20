@@ -154,6 +154,79 @@ async def test_tui_history_navigation_and_duplicates(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_slash_commands_recorded_in_history(tmp_path):
+    """
+    Verify that slash commands are recorded in prompt history alongside regular prompts.
+    """
+    workspace = tmp_path / "project_slash"
+    workspace.mkdir()
+
+    stub = StubExecutor(workspace_dir=workspace, auto_release=True)
+
+    app = BrokkApp(executor=stub, workspace_dir=workspace)
+
+    async with app.run_test() as pilot:
+        await pilot.click("#chat-input")
+
+        # Submit a regular prompt
+        await submit_prompt(app, pilot, "hello world")
+
+        # Submit slash commands
+        await submit_prompt(app, pilot, "/info")
+        await submit_prompt(app, pilot, "/clear")
+
+        # Submit another regular prompt
+        await submit_prompt(app, pilot, "goodbye")
+
+    history = load_history(app.executor.workspace_dir)
+    assert history == ["hello world", "/info", "/clear", "goodbye"]
+
+
+@pytest.mark.asyncio
+async def test_slash_command_navigation_with_arrows(tmp_path, monkeypatch):
+    """
+    Verify that up-arrow navigates through slash commands in history
+    without triggering the autocomplete popup.
+    """
+    workspace = tmp_path / "project_nav_slash"
+    workspace.mkdir()
+
+    stub = StubExecutor(workspace_dir=workspace, auto_release=True)
+    app = BrokkApp(executor=stub, workspace_dir=workspace)
+    monkeypatch.setattr("brokk_code.app.append_prompt", lambda *args, **kwargs: None)
+
+    async with app.run_test() as pilot:
+        await pilot.click("#chat-input")
+
+        await submit_prompt(app, pilot, "hello")
+        await submit_prompt(app, pilot, "/info")
+        await submit_prompt(app, pilot, "goodbye")
+
+        chat_input = app.query_one("#chat-input")
+
+        chat_input.cursor_location = (0, 0)
+        await pilot.press("up")
+        await pilot.pause(0)
+        assert chat_input.text == "goodbye"
+
+        chat_input.cursor_location = (0, 0)
+        await pilot.press("up")
+        await pilot.pause(0)
+        assert chat_input.text == "/info"
+
+        chat_input.cursor_location = (0, 0)
+        await pilot.press("up")
+        await pilot.pause(0)
+        assert chat_input.text == "hello"
+
+        # Navigate back down through /info
+        chat_input.move_cursor(chat_input.document.end)
+        await pilot.press("down")
+        await pilot.pause(0)
+        assert chat_input.text == "/info"
+
+
+@pytest.mark.asyncio
 async def test_prompt_history_with_cwd_workspace(tmp_path, monkeypatch):
     """
     Regression test for Issue #2798:

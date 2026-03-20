@@ -74,6 +74,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
@@ -123,6 +124,25 @@ public class BrokkExternalMcpServer {
         }
     }
 
+    private static void initiateStdinEofShutdown(
+            AtomicReference<McpSyncServer> serverRef, AtomicBoolean shutdownInitiated) {
+        if (!shutdownInitiated.compareAndSet(false, true)) {
+            return;
+        }
+
+        logger.info("stdin EOF detected; parent process gone, shutting down");
+        try {
+            var server = serverRef.get();
+            if (server != null) {
+                server.closeGracefully();
+            }
+        } catch (Exception e) {
+            logger.warn("Error while closing MCP server after stdin EOF", e);
+        } finally {
+            System.exit(0);
+        }
+    }
+
     public static void main(String[] args) {
         System.setProperty("java.awt.headless", "true");
 
@@ -153,17 +173,18 @@ public class BrokkExternalMcpServer {
 
             McpJsonMapper mapper = McpJsonDefaults.getMapper();
             AtomicReference<McpSyncServer> serverRef = new AtomicReference<>();
+            AtomicBoolean shutdownInitiated = new AtomicBoolean(false);
 
             // Wrap System.in to detect EOF (parent process death) and exit cleanly.
-            // StdioServerTransportProvider reads from this stream for MCP messages;
-            // when the parent closes the pipe, read() returns -1 and we call System.exit(0).
+            // StdioServerTransportProvider reads from this stream for MCP messages.
+            // When the parent closes the pipe, read() returns -1 on the transport read path, so
+            // we close the MCP server and then terminate the process from the same path.
             InputStream stdinWrapper = new FilterInputStream(System.in) {
                 @Override
                 public int read() throws IOException {
                     int b = super.read();
                     if (b == -1) {
-                        logger.info("stdin EOF detected; parent process gone, exiting");
-                        System.exit(0);
+                        initiateStdinEofShutdown(serverRef, shutdownInitiated);
                     }
                     return b;
                 }
@@ -172,8 +193,7 @@ public class BrokkExternalMcpServer {
                 public int read(byte[] buf, int off, int len) throws IOException {
                     int n = super.read(buf, off, len);
                     if (n == -1) {
-                        logger.info("stdin EOF detected; parent process gone, exiting");
-                        System.exit(0);
+                        initiateStdinEofShutdown(serverRef, shutdownInitiated);
                     }
                     return n;
                 }
@@ -726,9 +746,10 @@ public class BrokkExternalMcpServer {
 
     @Tool(
             """
-            Agentic semantic/context recommender for relevant files and classes.
-            Returns a summary of recommended context to add when beginning a task.
-            Not the first choice for raw-text repo search across markdown, config, comments, or literals; use searchFileContents for that.
+            Start here when beginning a new task or when you need to understand what code is relevant to a goal.
+            Uses semantic analysis (import graphs, code structure) to recommend the most relevant files and classes -- much more accurate than text search for finding related code.
+            Returns summaries (skeletons) of recommended context.
+            Not for raw-text search (config, comments, literals) -- use searchFileContents for that.
             """)
     public String scan(
             @P("The natural-language goal or prompt to scan for.") String goal,
@@ -853,7 +874,11 @@ public class BrokkExternalMcpServer {
                 .stripTrailing();
     }
 
-    @Tool("Run build verification (compile and test) without making changes.")
+    @Tool(
+            """
+            Run build verification (compile and test) without making changes.
+            Use after callCodeAgent to verify the build is still passing, or to check current build status.
+            """)
     public String runBuild() throws InterruptedException {
         String error = cm.getProject().getBuildRunner().runVerification(cm);
         return error.isEmpty() ? "Build successful" : "Build failed:\n\n" + error;
@@ -914,7 +939,12 @@ public class BrokkExternalMcpServer {
         return "Build configuration verified (build and test) and updated.";
     }
 
-    @Tool("Solve all merge/rebase/cherry-pick conflicts in the repository.")
+    @Tool(
+            """
+            Resolve all merge/rebase/cherry-pick conflicts in the repository using blame-aware analysis.
+            Understands which side made which changes and preserves intent from both sides.
+            Only works when the repository is in a conflict state.
+            """)
     public String merge() throws InterruptedException, IOException, GitAPIException {
         var conflictOpt = ConflictInspector.inspectFromProject(cm.getProject());
         if (conflictOpt.isEmpty()) {

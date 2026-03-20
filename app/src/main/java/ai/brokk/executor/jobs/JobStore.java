@@ -1,5 +1,6 @@
 package ai.brokk.executor.jobs;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -211,9 +212,13 @@ public final class JobStore {
             if (line.isBlank()) {
                 continue;
             }
-            var event = objectMapper.readValue(line, JobEvent.class);
-            if (event.seq() > afterSeq) {
-                result.add(event);
+            try {
+                var event = objectMapper.readValue(line, JobEvent.class);
+                if (event.seq() > afterSeq) {
+                    result.add(event);
+                }
+            } catch (JsonProcessingException e) {
+                logger.debug("Skipping malformed event line (likely partial write): {}", e.getMessage());
             }
         }
 
@@ -343,14 +348,17 @@ public final class JobStore {
                 return new AtomicLong(0);
             }
 
-            // Last line should have the highest seq
-            var lastLine = lines.get(lines.size() - 1);
-            if (lastLine.isBlank()) {
-                return new AtomicLong(0);
+            for (int i = lines.size() - 1; i >= 0; i--) {
+                var line = lines.get(i);
+                if (line.isBlank()) continue;
+                try {
+                    var event = objectMapper.readValue(line, JobEvent.class);
+                    return new AtomicLong(event.seq());
+                } catch (JsonProcessingException e) {
+                    logger.debug("Skipping malformed line in sequence counter recovery: {}", e.getMessage());
+                }
             }
-
-            var lastEvent = objectMapper.readValue(lastLine, JobEvent.class);
-            return new AtomicLong(lastEvent.seq());
+            return new AtomicLong(0);
         } catch (IOException e) {
             logger.warn("Failed to load sequence counter for job {}", jobId, e);
             return new AtomicLong(0);

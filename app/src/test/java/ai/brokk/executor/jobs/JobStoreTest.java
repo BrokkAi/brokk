@@ -6,8 +6,10 @@ import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -157,6 +159,55 @@ class JobStoreTest {
         var result3 = store.createOrGetJob("unique-key-1", spec2);
         assertFalse(result3.isNewJob());
         assertEquals(result1.jobId(), result3.jobId());
+    }
+
+    @Test
+    void testReadEvents_skipsTruncatedJsonLine(@TempDir Path tempDir) throws Exception {
+        var store = new JobStore(tempDir);
+        var spec = JobSpec.of("test task", DEFAULT_PLANNER_MODEL);
+        var result = store.createOrGetJob("idem-key-1", spec);
+        var jobId = result.jobId();
+
+        store.appendEvent(jobId, JobEvent.of("event1", "data1"));
+        store.appendEvent(jobId, JobEvent.of("event2", "data2"));
+
+        // Simulate a partial write by appending a truncated JSON line
+        var eventsFile = store.getJobDir(jobId).resolve("events.jsonl");
+        Files.writeString(
+                eventsFile,
+                "{\"seq\":3,\"timestamp\":123,\"type\":\"TRUNC\n",
+                StandardCharsets.UTF_8,
+                StandardOpenOption.APPEND);
+
+        // readEvents should return only the 2 valid events, skipping the truncated line
+        var events = store.readEvents(jobId, -1, 0);
+        assertEquals(2, events.size());
+        assertEquals("event1", events.get(0).type());
+        assertEquals("event2", events.get(1).type());
+    }
+
+    @Test
+    void testSequenceCounter_skipsTruncatedTrailingLine(@TempDir Path tempDir) throws Exception {
+        var store = new JobStore(tempDir);
+        var spec = JobSpec.of("test task", DEFAULT_PLANNER_MODEL);
+        var result = store.createOrGetJob("idem-key-1", spec);
+        var jobId = result.jobId();
+
+        store.appendEvent(jobId, JobEvent.of("event1", "data1"));
+        store.appendEvent(jobId, JobEvent.of("event2", "data2"));
+
+        // Append a truncated line at the end
+        var eventsFile = store.getJobDir(jobId).resolve("events.jsonl");
+        Files.writeString(
+                eventsFile,
+                "{\"seq\":3,\"timestamp\":123,\"type\":\"TRUNC\n",
+                StandardCharsets.UTF_8,
+                StandardOpenOption.APPEND);
+
+        // New store should recover sequence counter from last valid event (seq=2)
+        var store2 = new JobStore(tempDir);
+        var seq = store2.appendEvent(jobId, JobEvent.of("event3", "data3"));
+        assertEquals(3L, seq);
     }
 
     @Test

@@ -665,7 +665,6 @@ public class LutzAgent {
                 LlmOutputMeta.newMessage());
 
         var recommendation = contextAgent.getRecommendations(context);
-        var md = recommendation.metadata();
 
         if (recommendation.success() && !recommendation.fragments().isEmpty()) {
             var totalTokens = contextAgent.calculateFragmentTokens(recommendation.fragments());
@@ -694,7 +693,7 @@ public class LutzAgent {
         Set<ProjectFile> filesAfterScan = workspaceFiles(context);
         Set<ProjectFile> filesAdded = new HashSet<>(filesAfterScan);
         filesAdded.removeAll(filesBeforeScan);
-        metrics.recordContextScan(filesAdded.size(), false, toRelativePaths(filesAdded), md);
+        metrics.recordContextScan(filesAdded.size(), false, toRelativePaths(filesAdded));
         context = context.addHistoryEntry(
                 io.getLlmRawMessages(), List.of(), TaskResult.Type.SCAN, scanModel, "Locate relevant context");
 
