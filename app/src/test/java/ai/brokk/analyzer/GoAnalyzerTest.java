@@ -342,15 +342,21 @@ public class GoAnalyzerTest {
 
         // 7. Global variable: Uses _module_ prefix
         assertNotNull(fqnMap.get("declpkg._module_.MyGlobalVar"), "Global variable MyGlobalVar should be present");
-        assertEquals("declpkg._module_.MyGlobalVar", fqnMap.get("declpkg._module_.MyGlobalVar").fqName());
+        assertEquals(
+                "declpkg._module_.MyGlobalVar",
+                fqnMap.get("declpkg._module_.MyGlobalVar").fqName());
 
         // 8. Global constant: Uses _module_ prefix
         assertNotNull(fqnMap.get("declpkg._module_.MyGlobalConst"), "Global constant MyGlobalConst should be present");
-        assertEquals("declpkg._module_.MyGlobalConst", fqnMap.get("declpkg._module_.MyGlobalConst").fqName());
+        assertEquals(
+                "declpkg._module_.MyGlobalConst",
+                fqnMap.get("declpkg._module_.MyGlobalConst").fqName());
 
         // 9. Type alias: Treated as FIELD_LIKE with _module_ prefix
         assertNotNull(fqnMap.get("declpkg._module_.StringAlias"), "Type alias StringAlias should be present");
-        assertEquals("declpkg._module_.StringAlias", fqnMap.get("declpkg._module_.StringAlias").fqName());
+        assertEquals(
+                "declpkg._module_.StringAlias",
+                fqnMap.get("declpkg._module_.StringAlias").fqName());
 
         // 10. Named type: Treated as CLASS_LIKE (can have methods), so no _module_ prefix
         assertEquals("declpkg.MyInt", fqnMap.get("declpkg.MyInt").fqName());
