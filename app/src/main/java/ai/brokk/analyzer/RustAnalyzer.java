@@ -694,19 +694,15 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
         Set<String> names = new HashSet<>();
         withCachedQuery(QueryType.MACROS, query -> {
             try (TSQueryCursor cursor = new TSQueryCursor()) {
-                cursor.exec(query, tree.getRootNode());
+                cursor.exec(query, tree.getRootNode(), sourceContent.text());
                 TSQueryMatch match = new TSQueryMatch();
                 while (cursor.nextMatch(match)) {
                     for (TSQueryCapture capture : match.getCaptures()) {
                         String captureName = query.getCaptureNameForId(capture.getIndex());
-                        if (captureName.endsWith(".invocation")) {
-                            String macroText = sourceContent
+                        if (captureName.endsWith(".name")) {
+                            names.add(sourceContent
                                     .substringFrom(capture.getNode())
-                                    .strip();
-                            int bangIndex = macroText.indexOf('!');
-                            if (bangIndex > 0) {
-                                names.add(macroText.substring(0, bangIndex).strip());
-                            }
+                                    .strip());
                         }
                     }
                 }
@@ -727,7 +723,7 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
                 QueryType.DEFINITIONS,
                 query -> {
                     try (TSQueryCursor cursor = new TSQueryCursor()) {
-                        cursor.exec(query, tree.getRootNode());
+                        cursor.exec(query, tree.getRootNode(), sourceContent.text());
 
                         TSQueryMatch match = new TSQueryMatch();
                         while (cursor.nextMatch(match)) {
