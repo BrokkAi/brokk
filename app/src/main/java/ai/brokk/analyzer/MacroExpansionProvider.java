@@ -219,8 +219,7 @@ public interface MacroExpansionProvider extends CapabilityProvider {
             for (IAnalyzer.Range range : acc.getRanges(cu)) {
                 boolean containsAttr = range.startByte() <= attrStartByte && range.endByte() >= attrEndByte;
                 boolean matchesSibling = sibStart != -1 && range.startByte() == sibStart;
-                boolean startsAfterAttr = range.startByte() >= attrEndByte
-                        && range.startByte() <= attrEndByte + 20;
+                boolean startsAfterAttr = range.startByte() >= attrEndByte && range.startByte() <= attrEndByte + 20;
 
                 if (containsAttr || matchesSibling || startsAfterAttr) {
                     int len = range.endByte() - range.startByte();

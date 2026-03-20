@@ -362,6 +362,20 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         private final Map<CodeUnit, Boolean> isTypeAliasByCu = new HashMap<>();
         private final Map<String, List<CodeUnit>> lookupKeys = new HashMap<>();
 
+        private Set<CodeUnit> getAllCus() {
+            Set<CodeUnit> all = new HashSet<>();
+            all.addAll(topLevelCUs);
+            all.addAll(cuByFqName.values());
+            all.addAll(childrenByParent.keySet());
+            childrenByParent.values().forEach(all::addAll);
+            all.addAll(signaturesByCu.keySet());
+            all.addAll(rangesByCu.keySet());
+            all.addAll(hasBodyByCu.keySet());
+            all.addAll(isTypeAliasByCu.keySet());
+            lookupKeys.values().forEach(all::addAll);
+            return all;
+        }
+
         public FileAnalysisAccumulator addTopLevel(CodeUnit cu) {
             topLevelCUs.add(cu);
             return this;
@@ -453,11 +467,13 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         }
 
         public void replaceTopLevelCodeUnit(CodeUnit oldCu, CodeUnit newCu) {
-            int idx = topLevelCUs.indexOf(oldCu);
-            if (idx != -1) {
-                topLevelCUs.set(idx, newCu);
-                registerCodeUnit(newCu);
+            List<CodeUnit> kids = childrenByParent.remove(oldCu);
+            remove(oldCu);
+            if (kids != null) {
+                childrenByParent.put(newCu, kids);
             }
+            addTopLevel(newCu);
+            registerCodeUnit(newCu);
         }
 
         public @Nullable CodeUnit findChildDuplicate(CodeUnit parent, CodeUnit cu) {
@@ -475,14 +491,13 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         }
 
         public void replaceChildCodeUnit(CodeUnit parent, CodeUnit oldCu, CodeUnit newCu) {
-            List<CodeUnit> kids = childrenByParent.get(parent);
+            List<CodeUnit> kids = childrenByParent.remove(oldCu);
+            remove(oldCu);
             if (kids != null) {
-                int idx = kids.indexOf(oldCu);
-                if (idx != -1) {
-                    kids.set(idx, newCu);
-                    registerCodeUnit(newCu);
-                }
+                childrenByParent.put(newCu, kids);
             }
+            addChild(parent, newCu);
+            registerCodeUnit(newCu);
         }
 
         public void detachChildren(CodeUnit cu) {
@@ -491,13 +506,19 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
         public void remove(CodeUnit cu) {
             topLevelCUs.remove(cu);
-            cuByFqName.remove(cu.fqName());
-            // This is a shallow remove; deep cleanup would require traversing childrenByParent
+            cuByFqName.values().removeIf(v -> v.equals(cu));
+            childrenByParent.remove(cu);
+            childrenByParent.values().forEach(list -> list.removeIf(v -> v.equals(cu)));
+            signaturesByCu.remove(cu);
+            rangesByCu.remove(cu);
+            hasBodyByCu.remove(cu);
+            isTypeAliasByCu.remove(cu);
+            lookupKeys.values().forEach(list -> list.removeIf(v -> v.equals(cu)));
         }
 
         public Map<CodeUnit, CodeUnitProperties> toCodeUnitProperties() {
             Map<CodeUnit, CodeUnitProperties> result = new HashMap<>();
-            cuByFqName.values().forEach(cu -> {
+            getAllCus().forEach(cu -> {
                 result.put(
                         cu,
                         new CodeUnitProperties(
@@ -512,7 +533,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
         public Map<String, Set<CodeUnit>> codeUnitsBySymbol() {
             Map<String, Set<CodeUnit>> result = new HashMap<>();
-            cuByFqName.values().forEach(cu -> {
+            getAllCus().forEach(cu -> {
                 result.computeIfAbsent(cu.identifier(), k -> new HashSet<>()).add(cu);
                 if (!cu.shortName().equals(cu.identifier())) {
                     result.computeIfAbsent(cu.shortName(), k -> new HashSet<>()).add(cu);
@@ -2010,6 +2031,12 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
      * @return true if the candidate should be ignored (existing kept), false if candidate should be added
      */
     protected boolean shouldIgnoreDuplicate(CodeUnit existing, CodeUnit candidate, ProjectFile file) {
+        // For function overloads with same FQN but different signatures, do not ignore.
+        if (existing.isFunction()
+                && candidate.isFunction()
+                && !Objects.equals(existing.signature(), candidate.signature())) {
+            return false;
+        }
         // Default: ignore duplicates (keep first)
         // Subclasses can override for language-specific logic
         return true;
