@@ -109,13 +109,11 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
                 yield CodeUnit.fn(file, packageName, finalShortName);
             }
             case CaptureNames.FIELD_DEFINITION -> { // Covers class properties, class constants, and global constants
-                // Strip PHP '$' prefix from property names for consistent FQNs
-                String identifier = simpleName.startsWith("$") ? simpleName.substring(1) : simpleName;
                 String finalShortName;
                 if (classChain.isEmpty()) { // Global constant
-                    finalShortName = "_module_." + identifier;
+                    finalShortName = "_module_." + simpleName;
                 } else { // Class property or class constant
-                    finalShortName = classChain + "." + identifier;
+                    finalShortName = classChain + "." + simpleName;
                 }
                 yield CodeUnit.field(file, packageName, finalShortName);
             }
