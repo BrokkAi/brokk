@@ -13,14 +13,10 @@ _BROKK_MARKER = "# Brokk"
 _BROKK_MARKER_RE = re.compile(f"^{_BROKK_MARKER}$", re.MULTILINE)
 _BROKK_CODEX_WORKSPACE_SKILL_NAME = "brokk-mcp-workspace"
 _BROKK_INSTRUCTIONS = f"""{_BROKK_MARKER}
-- Use searchSymbols (not Grep) to find class/function/field definitions by name.
-- Use scanUsages (not Grep) to find call sites and usages of a known symbol.
-- Use getMethodSources (not Read) to retrieve specific method implementations.
-- Use getClassSkeletons (not Read) to understand a class's API and structure.
-- Use getClassSources (not Read) only when you need the full class implementation.
-- Use getFileSummaries or skimFiles (not Read/Glob) for multi-file overviews.
-- Use scan to get oriented when starting a new task.
-- Use callCodeAgent (not Edit/Write) for all code changes.
+- Prefer Brokk MCP tools for syntax-aware search and edits.
+- Prefer callCodeAgent for code changes.
+- Avoid shell text search when Brokk syntax-aware tools can answer.
+- At the start of each Codex session, activate Brokk MCP for the current workspace by calling activateWorkspace, then verify with getActiveWorkspace.
 """
 _BROKK_MCP_PERMISSION_ALLOW: list[str] = [
     "Bash(./gradlew:*)",
@@ -293,7 +289,7 @@ Use this skill when Brokk MCP is connected but looking at the wrong repository.
 
 ## Steps
 
-1. Determine the current Codex workspace path.
+1. Determine the current Codex workspace path from this session (do not ask the user).
 2. Call Brokk MCP tool `activateWorkspace` with:
    - `workspacePath`: absolute current workspace path
 3. Call Brokk MCP tool `getActiveWorkspace` and verify:
