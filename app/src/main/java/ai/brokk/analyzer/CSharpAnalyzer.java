@@ -441,7 +441,7 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
                 QueryType.DEFINITIONS,
                 query -> {
                     try (TSQueryCursor cursor = new TSQueryCursor()) {
-                        cursor.exec(query, tree.getRootNode());
+                        cursor.exec(query, tree.getRootNode(), sourceContent.text());
                         TSQueryMatch match = new TSQueryMatch();
 
                         Set<String> testAttributes = Set.of(

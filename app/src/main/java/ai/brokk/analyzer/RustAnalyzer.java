@@ -681,7 +681,7 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
                 QueryType.DEFINITIONS,
                 query -> {
                     try (TSQueryCursor cursor = new TSQueryCursor()) {
-                        cursor.exec(query, tree.getRootNode());
+                        cursor.exec(query, tree.getRootNode(), sourceContent.text());
 
                         TSQueryMatch match = new TSQueryMatch();
                         while (cursor.nextMatch(match)) {

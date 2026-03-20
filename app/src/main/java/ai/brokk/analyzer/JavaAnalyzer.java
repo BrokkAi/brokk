@@ -363,7 +363,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
                 QueryType.DEFINITIONS,
                 query -> {
                     try (TSQueryCursor cursor = new TSQueryCursor()) {
-                        cursor.exec(query, tree.getRootNode());
+                        cursor.exec(query, tree.getRootNode(), sourceContent.text());
 
                         TSQueryMatch match = new TSQueryMatch();
                         while (cursor.nextMatch(match)) {
@@ -918,10 +918,10 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
         withCachedQuery(
                 QueryType.IDENTIFIERS,
                 query -> {
+                    SourceContent sourceContent = SourceContent.of(source);
                     try (TSQueryCursor cursor = new TSQueryCursor()) {
-                        cursor.exec(query, root);
+                        cursor.exec(query, root, sourceContent.text());
 
-                        SourceContent sourceContent = SourceContent.of(source);
                         TSQueryMatch match = new TSQueryMatch();
 
                         while (cursor.nextMatch(match)) {
@@ -1516,15 +1516,15 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
         return withCachedQuery(
                 QueryType.DEFINITIONS,
                 query -> {
-                    try (TSQueryCursor cursor = new TSQueryCursor()) {
-                        // Ascend to the root node for matching
-                        TSNode root = classNode;
-                        while (root.getParent() != null && !root.getParent().isNull()) {
-                            root = root.getParent();
-                        }
+                    // Ascend to the root node for matching
+                    TSNode root = classNode;
+                    while (root.getParent() != null && !root.getParent().isNull()) {
+                        root = root.getParent();
+                    }
 
+                    try (TSQueryCursor cursor = new TSQueryCursor()) {
                         List<TSNode> aggregateSuperNodes = new ArrayList<>();
-                        cursor.exec(query, root);
+                        cursor.exec(query, root, sourceContent.text());
 
                         TSQueryMatch match = new TSQueryMatch();
                         final int targetStart = classNode.getStartByte();

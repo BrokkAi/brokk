@@ -1119,7 +1119,7 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
 
             try (TSQuery query = new TSQuery(getTSLanguage(), queryStr);
                     TSQueryCursor cursor = new TSQueryCursor()) {
-                cursor.exec(query, rootNode);
+                cursor.exec(query, rootNode, sourceContent.text());
                 TSQueryMatch match = new TSQueryMatch();
 
                 while (cursor.nextMatch(match)) {
@@ -1170,7 +1170,7 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
             try (TSQuery query = createQuery(QueryType.IDENTIFIERS)) {
                 if (query != null) {
                     try (TSQueryCursor cursor = new TSQueryCursor()) {
-                        cursor.exec(query, rootNode);
+                        cursor.exec(query, rootNode, sourceContent.text());
                         TSQueryMatch match = new TSQueryMatch();
 
                         while (cursor.nextMatch(match)) {
