@@ -2344,7 +2344,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                             QueryType.IMPORTS,
                             importsQuery -> {
                                 try (TSQueryCursor cursor = new TSQueryCursor()) {
-                                    cursor.exec(importsQuery, rootNode);
+                                    cursor.exec(importsQuery, rootNode, sourceContent.text());
                                     TSQueryMatch match = new TSQueryMatch();
                                     while (cursor.nextMatch(match)) {
                                         Map<String, TSNode> capturedNodesForMatch = new HashMap<>();
@@ -2584,7 +2584,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 query -> {
                     List<Map.Entry<TSNode, DefinitionInfoRecord>> declarationNodes = new ArrayList<>();
                     try (TSQueryCursor cursor = new TSQueryCursor()) {
-                        cursor.exec(query, rootNode);
+                        cursor.exec(query, rootNode, sourceContent.text());
 
                         TSQueryMatch match = new TSQueryMatch();
                         while (cursor.nextMatch(match)) {
@@ -4491,7 +4491,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 QueryType.IDENTIFIERS,
                 query -> {
                     try (TSQueryCursor cursor = new TSQueryCursor()) {
-                        cursor.exec(query, root);
+                        cursor.exec(query, root, source);
 
                         SourceContent sourceContent = SourceContent.of(source);
                         TSQueryMatch match = new TSQueryMatch();
