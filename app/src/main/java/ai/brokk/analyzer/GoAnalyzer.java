@@ -3,9 +3,9 @@ package ai.brokk.analyzer;
 import static ai.brokk.analyzer.go.GoTreeSitterNodeTypes.*;
 
 import ai.brokk.analyzer.cache.AnalyzerCache;
+import ai.brokk.analyzer.cache.GoAnalyzerCache;
 import ai.brokk.project.IProject;
 import com.github.benmanes.caffeine.cache.Cache;
-import com.github.benmanes.caffeine.cache.Caffeine;
 import com.google.common.base.Splitter;
 import java.nio.file.Path;
 import java.util.Collection;
@@ -34,8 +34,7 @@ import org.treesitter.TreeSitterGo;
 public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisProvider {
     static final Logger log = LoggerFactory.getLogger(GoAnalyzer.class); // Changed to package-private
 
-    private final Cache<String, String> importPathToPackageNameCache =
-            Caffeine.newBuilder().maximumSize(10_000).build();
+    private final Cache<String, String> importPathToPackageNameCache;
 
     // Pattern to match both double-quoted and backtick-quoted import paths
     private static final Pattern IMPORT_PATH_PATTERN = Pattern.compile("\"([^\"]+)\"|`([^`]+)`");
@@ -80,12 +79,20 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
     }
 
     public GoAnalyzer(IProject project, ProgressListener listener) {
-        super(project, Languages.GO, listener);
+        this(project, listener, new GoAnalyzerCache());
+    }
+
+    private GoAnalyzer(IProject project, ProgressListener listener, GoAnalyzerCache cache) {
+        super(project, Languages.GO, null, listener, cache);
+        this.importPathToPackageNameCache = cache.importPathToPackageNameCache();
     }
 
     private GoAnalyzer(
-            IProject project, AnalyzerState state, ProgressListener listener, @Nullable AnalyzerCache cache) {
+            IProject project, AnalyzerState state, ProgressListener listener, @Nullable GoAnalyzerCache cache) {
         super(project, Languages.GO, state, listener, cache);
+        this.importPathToPackageNameCache = cache != null
+                ? cache.importPathToPackageNameCache()
+                : new GoAnalyzerCache().importPathToPackageNameCache();
     }
 
     public static GoAnalyzer fromState(IProject project, AnalyzerState state, ProgressListener listener) {
@@ -95,7 +102,12 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
     @Override
     protected IAnalyzer newSnapshot(
             AnalyzerState state, ProgressListener listener, @Nullable AnalyzerCache previousCache) {
-        return new GoAnalyzer(getProject(), state, listener, previousCache);
+        return new GoAnalyzer(getProject(), state, listener, (GoAnalyzerCache) previousCache);
+    }
+
+    @Override
+    protected AnalyzerCache createFilteredCache(AnalyzerCache previous, Set<ProjectFile> changedFiles) {
+        return new GoAnalyzerCache((GoAnalyzerCache) previous, changedFiles);
     }
 
     @Override
