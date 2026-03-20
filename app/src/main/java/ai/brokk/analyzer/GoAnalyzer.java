@@ -81,6 +81,20 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
 
     private GoAnalyzer(IProject project, ProgressListener listener, GoAnalyzerCache cache) {
         super(project, Languages.GO, listener, cache);
+        checkVendorDirectory(project);
+    }
+
+    private void checkVendorDirectory(IProject project) {
+        boolean hasVendor = project.getAnalyzableFiles(Languages.GO).stream().anyMatch(pf -> {
+            String relPath = pf.getRelPath().toString().replace('\\', '/');
+            return relPath.startsWith("vendor/") || relPath.contains("/vendor/");
+        });
+
+        if (hasVendor) {
+            log.warn("The 'vendor/' directory was detected in your Go project. "
+                    + "Analyzing dependencies in 'vendor/' significantly increases heap memory usage and analysis time. "
+                    + "It is highly recommended to exclude 'vendor/' from your project configuration.");
+        }
     }
 
     private GoAnalyzer(
