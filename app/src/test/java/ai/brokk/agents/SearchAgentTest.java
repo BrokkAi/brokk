@@ -17,7 +17,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-class SearchAgentTerminalActionsTest {
+class SearchAgentTest {
     @TempDir
     Path tempDir;
 
