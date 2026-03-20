@@ -134,7 +134,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
         if (type == CodeUnitType.MODULE) {
             int lastDot = simpleName.lastIndexOf('.');
             String parentPkg = (lastDot > 0) ? simpleName.substring(0, lastDot) : "";
-            // For a MODULE, the fqName should be the package name. 
+            // For a MODULE, the fqName should be the package name.
             // CodeUnit constructor sets fqName = parentPkg.isEmpty() ? leafName : parentPkg + "." + leafName
             String leafName = (lastDot > 0) ? simpleName.substring(lastDot + 1) : simpleName;
             return new CodeUnit(file, type, parentPkg, leafName);
