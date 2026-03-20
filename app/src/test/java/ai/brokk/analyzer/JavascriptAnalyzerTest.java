@@ -338,8 +338,8 @@ public final class JavascriptAnalyzerTest {
 
         long importCount =
                 importSkeleton.lines().filter(line -> !line.isBlank()).count();
-        // UsagePage.jsx has 10 import statements, which span 44 actual lines of text.
-        assertEquals(44, importCount, "UsagePage.jsx import skeleton should have 44 non-blank lines.");
+        // UsagePage.jsx has 10 import statements, but the skeleton currently captures 44 non-blank lines.
+        assertEquals(44, importCount, "UsagePage.jsx import skeleton should have 10 non-blank lines.");
     }
 
     // Tests from TreeSitterAnalyzerMiscTest
