@@ -524,8 +524,8 @@ public final class BprCli implements Callable<Integer> {
             // Resolve files and classes
             var resolvedEditFiles = resolveFiles(cm, project, editFiles, "editable file");
             var resolvedReadFiles = resolveFiles(cm, project, readFiles, "read-only file");
-            var resolvedClasses = resolveClasses(cm, addClasses, cm.getAnalyzer(), "class");
-            var resolvedSummaryClasses = resolveClasses(cm, addSummaryClasses, cm.getAnalyzer(), "summary class");
+            var resolvedClasses = resolveClasses(addClasses, cm.getAnalyzer(), "class");
+            var resolvedSummaryClasses = resolveClasses(addSummaryClasses, cm.getAnalyzer(), "summary class");
 
             // If any resolution failed, the helper methods will have printed an error.
             if ((resolvedEditFiles.isEmpty() && !editFiles.isEmpty())
@@ -913,7 +913,7 @@ public final class BprCli implements Callable<Integer> {
                 .toList();
     }
 
-    private List<String> resolveClasses(ContextManager cm, List<String> inputs, IAnalyzer analyzer, String entityType) {
+    private List<String> resolveClasses(List<String> inputs, IAnalyzer analyzer, String entityType) {
         if (inputs.isEmpty()) {
             return List.of();
         }
