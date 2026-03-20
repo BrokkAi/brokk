@@ -340,21 +340,17 @@ public class GoAnalyzerTest {
         assertEquals(
                 "declpkg.MyStruct.FieldA", fqnMap.get("declpkg.MyStruct.FieldA").fqName());
 
-        // 7. Global variable: Uses '_module_' convention to distinguish package-level vars from types/funcs
-        // This mimics a "module" scope for symbols that don't have a natural parent type.
-        assertEquals(
-                "declpkg._module_.MyGlobalVar",
-                fqnMap.get("declpkg._module_.MyGlobalVar").fqName());
+        // 7. Global variable: Uses _module_ prefix
+        assertNotNull(fqnMap.get("declpkg._module_.MyGlobalVar"), "Global variable MyGlobalVar should be present");
+        assertEquals("declpkg._module_.MyGlobalVar", fqnMap.get("declpkg._module_.MyGlobalVar").fqName());
 
-        // 8. Global constant: Also uses '_module_' convention
-        assertEquals(
-                "declpkg._module_.MyGlobalConst",
-                fqnMap.get("declpkg._module_.MyGlobalConst").fqName());
+        // 8. Global constant: Uses _module_ prefix
+        assertNotNull(fqnMap.get("declpkg._module_.MyGlobalConst"), "Global constant MyGlobalConst should be present");
+        assertEquals("declpkg._module_.MyGlobalConst", fqnMap.get("declpkg._module_.MyGlobalConst").fqName());
 
-        // 9. Type alias: Treated as FIELD_LIKE but follows '_module_' naming
-        assertEquals(
-                "declpkg._module_.StringAlias",
-                fqnMap.get("declpkg._module_.StringAlias").fqName());
+        // 9. Type alias: Treated as FIELD_LIKE with _module_ prefix
+        assertNotNull(fqnMap.get("declpkg._module_.StringAlias"), "Type alias StringAlias should be present");
+        assertEquals("declpkg._module_.StringAlias", fqnMap.get("declpkg._module_.StringAlias").fqName());
 
         // 10. Named type: Treated as CLASS_LIKE (can have methods), so no _module_ prefix
         assertEquals("declpkg.MyInt", fqnMap.get("declpkg.MyInt").fqName());
@@ -493,7 +489,7 @@ public class GoAnalyzerTest {
     void testGetSkeleton_PackageLevelVar() {
         // From declarations.go: var MyGlobalVar int = 42
         Optional<String> skeleton = AnalyzerUtil.getSkeleton(analyzer, "declpkg._module_.MyGlobalVar");
-        assertTrue(skeleton.isPresent(), "Skeleton for declpkg._module_.MyGlobalVar should be found.");
+        assertTrue(skeleton.isPresent(), "Skeleton for declpkg.MyGlobalVar should be found.");
         // The skeleton will be the text of the var_spec node
         assertCodeEquals("MyGlobalVar int = 42", skeleton.get());
     }
@@ -502,7 +498,7 @@ public class GoAnalyzerTest {
     void testGetSkeleton_PackageLevelConst() {
         // From declarations.go: const MyGlobalConst = "hello_const"
         Optional<String> skeleton = AnalyzerUtil.getSkeleton(analyzer, "declpkg._module_.MyGlobalConst");
-        assertTrue(skeleton.isPresent(), "Skeleton for declpkg._module_.MyGlobalConst should be found.");
+        assertTrue(skeleton.isPresent(), "Skeleton for declpkg.MyGlobalConst should be found.");
         // The skeleton will be the text of the const_spec node
         assertCodeEquals("MyGlobalConst = \"hello_const\"", skeleton.get());
     }
@@ -513,14 +509,14 @@ public class GoAnalyzerTest {
 
         Optional<CodeUnit> varDef =
                 analyzer.getDefinitions("declpkg._module_.MyGlobalVar").stream().findFirst();
-        assertTrue(varDef.isPresent(), "Definition for declpkg._module_.MyGlobalVar should be found.");
+        assertTrue(varDef.isPresent(), "Definition for declpkg.MyGlobalVar should be found.");
         assertEquals(CodeUnit.field(pf, "declpkg", "_module_.MyGlobalVar"), varDef.get());
         assertFalse(varDef.get().isFunction());
         assertFalse(varDef.get().isClass());
 
         Optional<CodeUnit> constDef = analyzer.getDefinitions("declpkg._module_.MyGlobalConst").stream()
                 .findFirst();
-        assertTrue(constDef.isPresent(), "Definition for declpkg._module_.MyGlobalConst should be found.");
+        assertTrue(constDef.isPresent(), "Definition for declpkg.MyGlobalConst should be found.");
         assertEquals(CodeUnit.field(pf, "declpkg", "_module_.MyGlobalConst"), constDef.get());
         assertFalse(constDef.get().isFunction());
         assertFalse(constDef.get().isClass());

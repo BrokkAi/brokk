@@ -93,7 +93,7 @@ public final class PythonAnalyzerTest {
         String funcASkeleton = skelA.get(funcA_CU);
         assertTrue(funcASkeleton.contains("def funcA():"), "funcA skeleton content error.");
 
-        var funcASummary = "def funcA(): ...\n";
+        var funcASummary = "def funcA(): ...";
         assertEquals(funcASummary.trim(), funcASkeleton.trim());
 
         // Replaced text block with standard string concatenation due to persistent compiler errors
@@ -104,7 +104,7 @@ public final class PythonAnalyzerTest {
                 + "  @staticmethod\n"
                 + "  def method4(foo: float, bar: int) -> int: ...\n"
                 + "  def method5(self) -> None: ...\n"
-                + "  def method6(self) -> None: ...\n";
+                + "  def method6(self) -> None: ...";
         // Note: PythonAnalyzer.getLanguageSpecificIndent() might affect exact string match if not "  "
         assertEquals(classASummary.trim(), classASkeleton.trim(), "Class A skeleton mismatch.");
 

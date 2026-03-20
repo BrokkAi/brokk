@@ -2169,11 +2169,12 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                     log.trace("Root node type for {}: {}", file, rootNode.getType());
 
                     // Phase 1: Explicit Imports Pass (New Multi-Query Architecture)
+                    final String sourceText = sourceContent.text();
                     withCachedQuery(
                             QueryType.IMPORTS,
                             importsQuery -> {
                                 try (TSQueryCursor cursor = new TSQueryCursor()) {
-                                    cursor.exec(importsQuery, rootNode, sourceContent.text());
+                                    cursor.exec(importsQuery, rootNode, sourceText);
                                     TSQueryMatch match = new TSQueryMatch();
                                     while (cursor.nextMatch(match)) {
                                         Map<String, TSNode> capturedNodesForMatch = new HashMap<>();
@@ -2404,12 +2405,13 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             throw new IllegalStateException("Required DEFINITIONS query source is missing for " + language);
         }
 
+        final String sourceText = sourceContent.text();
         return withCachedQuery(
                 QueryType.DEFINITIONS,
                 query -> {
                     List<Map.Entry<TSNode, DefinitionInfoRecord>> declarationNodes = new ArrayList<>();
                     try (TSQueryCursor cursor = new TSQueryCursor()) {
-                        cursor.exec(query, rootNode, sourceContent.text());
+                        cursor.exec(query, rootNode, sourceText);
 
                         TSQueryMatch match = new TSQueryMatch();
                         while (cursor.nextMatch(match)) {
@@ -4244,12 +4246,13 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         }
 
         Set<String> identifiers = new HashSet<>();
+        SourceContent sourceContent = SourceContent.of(source);
+        final String sourceText = sourceContent.text();
         withCachedQuery(
                 QueryType.IDENTIFIERS,
                 query -> {
-                    SourceContent sourceContent = SourceContent.of(source);
                     try (TSQueryCursor cursor = new TSQueryCursor()) {
-                        cursor.exec(query, root, sourceContent.text());
+                        cursor.exec(query, root, sourceText);
 
                         TSQueryMatch match = new TSQueryMatch();
 
