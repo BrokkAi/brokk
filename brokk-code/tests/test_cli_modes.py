@@ -484,6 +484,9 @@ def test_main_install_mcp_routes_to_installer(monkeypatch, tmp_path, capsys) -> 
     def fake_run_install_prefetch(commands):
         prefetched["commands"] = commands
 
+    def fake_install_codex_mcp_workspace_skill(*, skills_path=None):
+        return tmp_path / ".codex" / "skills" / "brokk-mcp-workspace" / "SKILL.md"
+
     monkeypatch.setattr(
         main_module,
         "configure_claude_code_mcp_settings",
@@ -493,6 +496,11 @@ def test_main_install_mcp_routes_to_installer(monkeypatch, tmp_path, capsys) -> 
         main_module,
         "configure_codex_mcp_settings",
         fake_configure_codex_mcp_settings,
+    )
+    monkeypatch.setattr(
+        main_module,
+        "install_codex_mcp_workspace_skill",
+        fake_install_codex_mcp_workspace_skill,
     )
     monkeypatch.setattr(main_module, "ensure_jbang_ready", lambda: "/usr/local/bin/jbang")
     monkeypatch.setattr(main_module, "_run_install_prefetch", fake_run_install_prefetch)
@@ -509,6 +517,7 @@ def test_main_install_mcp_routes_to_installer(monkeypatch, tmp_path, capsys) -> 
     assert captured["codex_force"] is True
     assert "Configured Claude Code MCP integration" in output
     assert "Configured Codex MCP integration" in output
+    assert "Installed Codex MCP workspace skill" in output
     assert "MCP runtime" in str(prefetched["commands"][0][0])
 
 

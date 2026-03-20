@@ -11,6 +11,7 @@ _IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _SERVER_NAME = "brokk"
 _BROKK_MARKER = "# Brokk"
 _BROKK_MARKER_RE = re.compile(f"^{_BROKK_MARKER}$", re.MULTILINE)
+_BROKK_CODEX_WORKSPACE_SKILL_NAME = "brokk-mcp-workspace"
 _BROKK_INSTRUCTIONS = f"""{_BROKK_MARKER}
 - Prefer Brokk MCP tools for syntax-aware search and edits.
 - Prefer callCodeAgent for code changes.
@@ -273,3 +274,34 @@ def configure_codex_mcp_settings(
     _ensure_brokk_instructions(agents_md_path)
 
     return path
+
+
+def _build_codex_workspace_skill_markdown() -> str:
+    return f"""---
+name: {_BROKK_CODEX_WORKSPACE_SKILL_NAME}
+description: Activate Brokk MCP for the current workspace with global Codex MCP config.
+---
+
+# Brokk MCP Workspace Activation
+
+Use this skill when Brokk MCP is connected but looking at the wrong repository.
+
+## Steps
+
+1. Determine the current Codex workspace path.
+2. Call Brokk MCP tool `activateWorkspace` with:
+   - `workspacePath`: absolute current workspace path
+3. Call Brokk MCP tool `getActiveWorkspace` and verify:
+   - `activeWorkspacePath` matches the same path (or its normalized git root)
+   - `source` is `runtime_override`
+"""
+
+
+def install_codex_mcp_workspace_skill(*, skills_path: Path | None = None) -> Path:
+    root = skills_path or (Path.home() / ".codex" / "skills")
+    skill_dir = root / _BROKK_CODEX_WORKSPACE_SKILL_NAME
+    skill_dir.mkdir(parents=True, exist_ok=True)
+
+    skill_path = skill_dir / "SKILL.md"
+    skill_path.write_text(_build_codex_workspace_skill_markdown(), encoding="utf-8")
+    return skill_path

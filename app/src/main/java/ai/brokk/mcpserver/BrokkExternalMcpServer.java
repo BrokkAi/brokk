@@ -76,7 +76,9 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Predicate;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import org.apache.logging.log4j.LogManager;
@@ -90,6 +92,8 @@ public class BrokkExternalMcpServer {
     private static final Logger logger = LogManager.getLogger(BrokkExternalMcpServer.class);
 
     private static final List<String> BASE_TOOL_NAMES = List.of(
+            "activateWorkspace",
+            "getActiveWorkspace",
             "scan",
             "callCodeAgent",
             "runBuild",
@@ -106,13 +110,30 @@ public class BrokkExternalMcpServer {
             "getMethodSources");
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
-    private final ContextManager cm;
-    private final @Nullable McpToolCallHistoryWriter mcpToolCallHistoryWriter;
+    private final ReentrantReadWriteLock workspaceLock = new ReentrantReadWriteLock(true);
+    private MainProject project;
+    private ContextManager cm;
+    private @Nullable McpToolCallHistoryWriter mcpToolCallHistoryWriter;
+    private Path activeWorkspaceRoot;
+    private WorkspaceActivationSource activeWorkspaceSource;
+
+    private enum WorkspaceActivationSource {
+        STARTUP,
+        RUNTIME_OVERRIDE
+    }
+
+    private record WorkspaceState(
+            Path workspaceRoot,
+            MainProject project,
+            ContextManager contextManager,
+            @Nullable McpToolCallHistoryWriter historyWriter) {}
 
     public BrokkExternalMcpServer(ContextManager cm) {
+        this.project = mainProjectFrom(cm.getProject());
         this.cm = cm;
-        this.mcpToolCallHistoryWriter =
-                createMcpToolCallHistoryWriter(cm.getProject().getRoot());
+        this.activeWorkspaceRoot = cm.getProject().getRoot().toAbsolutePath().normalize();
+        this.activeWorkspaceSource = WorkspaceActivationSource.STARTUP;
+        this.mcpToolCallHistoryWriter = createMcpToolCallHistoryWriter(this.activeWorkspaceRoot);
     }
 
     private static @Nullable McpToolCallHistoryWriter createMcpToolCallHistoryWriter(Path projectRoot) {
@@ -121,6 +142,30 @@ public class BrokkExternalMcpServer {
         } catch (IOException e) {
             logger.warn("Failed to initialize MCP tool call history logging", e);
             return null;
+        }
+    }
+
+    private static MainProject mainProjectFrom(IProject project) {
+        assert project instanceof MainProject : "BrokkExternalMcpServer requires MainProject";
+        return (MainProject) project;
+    }
+
+    private static WorkspaceState createWorkspaceState(Path requestedWorkspacePath) throws IOException {
+        Path workspaceRoot = resolveProjectRoot(requestedWorkspacePath);
+        var mainProject = new MainProject(workspaceRoot);
+        var contextManager = new ContextManager(mainProject);
+        contextManager.createHeadless(true, new MutedConsoleIO(contextManager.getIo()));
+        var historyWriter = createMcpToolCallHistoryWriter(workspaceRoot);
+        return new WorkspaceState(workspaceRoot, mainProject, contextManager, historyWriter);
+    }
+
+    private void closeCurrentWorkspace() {
+        workspaceLock.writeLock().lock();
+        try {
+            cm.close();
+            project.close();
+        } finally {
+            workspaceLock.writeLock().unlock();
         }
     }
 
@@ -149,12 +194,15 @@ public class BrokkExternalMcpServer {
         Path projectPath = resolveProjectRoot(Path.of("."));
         logger.info("Brokk MCP Server starting");
 
-        try (var project = new MainProject(projectPath);
-                var cm = new ContextManager(project)) {
-
-            cm.createHeadless(true, new MutedConsoleIO(cm.getIo()));
-
-            BrokkExternalMcpServer instance = new BrokkExternalMcpServer(cm);
+        BrokkExternalMcpServer instance = null;
+        try {
+            WorkspaceState startupWorkspace = createWorkspaceState(projectPath);
+            instance = new BrokkExternalMcpServer(startupWorkspace.contextManager());
+            instance.project = startupWorkspace.project();
+            instance.cm = startupWorkspace.contextManager();
+            instance.activeWorkspaceRoot = startupWorkspace.workspaceRoot();
+            instance.activeWorkspaceSource = WorkspaceActivationSource.STARTUP;
+            instance.mcpToolCallHistoryWriter = startupWorkspace.historyWriter();
 
             for (String arg : args) {
                 if ("--help".equals(arg) || "-h".equals(arg)) {
@@ -222,6 +270,10 @@ public class BrokkExternalMcpServer {
         } catch (Exception e) {
             logger.error("Failed to start Brokk MCP Server", e);
             System.exit(1);
+        } finally {
+            if (instance != null) {
+                instance.closeCurrentWorkspace();
+            }
         }
     }
 
@@ -710,14 +762,8 @@ public class BrokkExternalMcpServer {
     }
 
     public List<McpServerFeatures.SyncToolSpecification> toolSpecifications() {
-        SearchTools searchTools = new SearchTools(cm);
-        ToolRegistry registry = ToolRegistry.fromBase(ToolRegistry.empty())
-                .register(this)
-                .register(searchTools)
-                .build();
-
+        ToolRegistry registry = buildToolRegistryForCurrentWorkspace();
         List<String> toolNames = new ArrayList<>(BASE_TOOL_NAMES);
-
         var allFiles = cm.getProject().getAllFiles();
         boolean hasXml = allFiles.stream().anyMatch(f -> f.toString().endsWith(".xml"));
         boolean hasJson = allFiles.stream().anyMatch(f -> f.toString().endsWith(".json"));
@@ -731,7 +777,121 @@ public class BrokkExternalMcpServer {
             toolNames.add("jq");
         }
 
-        return toolSpecificationsFrom(cm, registry, toolNames, mcpToolCallHistoryWriter);
+        return registry.getTools(toolNames).stream()
+                .map(spec -> {
+                    McpSchema.JsonSchema inputSchema = spec.parameters() == null
+                            ? new McpSchema.JsonSchema("object", Map.of(), List.of(), false, null, null)
+                            : toMcpSchema(spec.parameters());
+
+                    boolean destructive = registry.isToolAnnotated(spec.name(), Destructive.class);
+                    McpSchema.ToolAnnotations toolAnnotations =
+                            new McpSchema.ToolAnnotations(null, !destructive, destructive, null, null, null);
+
+                    McpSchema.Tool mcpTool = McpSchema.Tool.builder()
+                            .name(spec.name())
+                            .description(spec.description())
+                            .inputSchema(inputSchema)
+                            .annotations(toolAnnotations)
+                            .build();
+
+                    return McpServerFeatures.SyncToolSpecification.builder()
+                            .tool(mcpTool)
+                            .callHandler((exchange, request) -> {
+                                var args = request.arguments() != null ? request.arguments() : Map.of();
+                                String jsonArgs;
+                                try {
+                                    jsonArgs = OBJECT_MAPPER.writeValueAsString(args);
+                                } catch (JsonProcessingException e) {
+                                    throw new RuntimeException(e);
+                                }
+
+                                return runWithWorkspaceLock(spec.name(), () -> {
+                                    var historyWriter = mcpToolCallHistoryWriter;
+                                    var logFile = historyWriter != null
+                                            ? historyWriter.writeRequest(spec.name(), serializeRequest(request))
+                                            : null;
+
+                                    Object progressToken = request.progressToken();
+                                    if (progressToken != null) {
+                                        exchange.progressNotification(new McpSchema.ProgressNotification(
+                                                progressToken, 0.0, 1.0, "Starting " + spec.name()));
+                                        if (historyWriter != null) {
+                                            historyWriter.appendProgress(
+                                                    requireNonNull(logFile), 0.0, "Starting " + spec.name());
+                                        }
+                                    }
+
+                                    ContextManager currentCm = cm;
+                                    ToolRegistry currentRegistry = buildToolRegistryForCurrentWorkspace();
+                                    IConsoleIO originalIo = currentCm.getIo();
+                                    IConsoleIO progressIo = progressToken != null
+                                            ? new ProgressNotifyingConsole(
+                                                    exchange, progressToken, historyWriter, logFile)
+                                            : new MutedConsoleIO(originalIo);
+                                    currentCm.setIo(progressIo);
+
+                                    try {
+                                        try {
+                                            ToolExecutionRequest lc4jRequest = ToolExecutionRequest.builder()
+                                                    .id("1")
+                                                    .name(spec.name())
+                                                    .arguments(jsonArgs)
+                                                    .build();
+                                            var result = currentRegistry.executeTool(lc4jRequest);
+                                            String resultText = result.status() == ToolExecutionResult.Status.SUCCESS
+                                                    ? maybeApplyMcpFormatting(
+                                                            spec.name(), args, result.resultText(), currentCm)
+                                                    : result.resultText();
+                                            McpSchema.CallToolResult callResult = McpSchema.CallToolResult.builder()
+                                                    .addTextContent(resultText)
+                                                    .isError(result.status() != ToolExecutionResult.Status.SUCCESS)
+                                                    .build();
+
+                                            if (historyWriter != null) {
+                                                String statusStr = callResult.isError() != null && callResult.isError()
+                                                        ? "ERROR"
+                                                        : "SUCCESS";
+                                                String body = callResult.content().stream()
+                                                        .filter(c -> c instanceof McpSchema.TextContent)
+                                                        .map(c -> ((McpSchema.TextContent) c).text())
+                                                        .collect(Collectors.joining("\n"));
+                                                historyWriter.appendResult(requireNonNull(logFile), statusStr, body);
+                                            }
+                                            return callResult;
+                                        } catch (InterruptedException e) {
+                                            Thread.currentThread().interrupt();
+                                            throw new RuntimeException(e);
+                                        }
+                                    } finally {
+                                        currentCm.setIo(originalIo);
+                                    }
+                                });
+                            })
+                            .build();
+                })
+                .collect(Collectors.toList());
+    }
+
+    private ToolRegistry buildToolRegistryForCurrentWorkspace() {
+        SearchTools searchTools = new SearchTools(cm);
+        return ToolRegistry.fromBase(ToolRegistry.empty())
+                .register(this)
+                .register(searchTools)
+                .build();
+    }
+
+    private boolean isWorkspaceSwitchTool(String toolName) {
+        return "activateWorkspace".equals(toolName);
+    }
+
+    private <T> T runWithWorkspaceLock(String toolName, Supplier<T> supplier) {
+        var lock = isWorkspaceSwitchTool(toolName) ? workspaceLock.writeLock() : workspaceLock.readLock();
+        lock.lock();
+        try {
+            return supplier.get();
+        } finally {
+            lock.unlock();
+        }
     }
 
     private boolean isJqOnPath() {
@@ -741,6 +901,99 @@ public class BrokkExternalMcpServer {
             return true;
         } catch (Environment.SubprocessException | InterruptedException e) {
             return false;
+        }
+    }
+
+    @Tool(
+            """
+            Set the active workspace for this running Brokk MCP server.
+            Use this for clients that keep a global MCP server config and need to retarget tools to a new repository.
+            The path must be absolute. The server normalizes to the nearest git root when present.
+            """)
+    public String activateWorkspace(
+            @P("Absolute path to the desired workspace (directory path).") String workspacePath) {
+        workspaceLock.writeLock().lock();
+        try {
+            Path rawPath;
+            try {
+                rawPath = Path.of(workspacePath);
+            } catch (RuntimeException e) {
+                throw new ToolRegistry.ToolCallException(
+                        ToolExecutionResult.Status.REQUEST_ERROR, "workspacePath is invalid: " + workspacePath);
+            }
+
+            if (!rawPath.isAbsolute()) {
+                throw new ToolRegistry.ToolCallException(
+                        ToolExecutionResult.Status.REQUEST_ERROR, "workspacePath must be an absolute path");
+            }
+
+            Path requestedPath;
+            try {
+                requestedPath = rawPath.toAbsolutePath().normalize();
+            } catch (RuntimeException e) {
+                throw new ToolRegistry.ToolCallException(
+                        ToolExecutionResult.Status.REQUEST_ERROR, "workspacePath is invalid: " + workspacePath);
+            }
+
+            if (!Files.isDirectory(requestedPath)) {
+                throw new ToolRegistry.ToolCallException(
+                        ToolExecutionResult.Status.REQUEST_ERROR, "workspacePath must reference an existing directory");
+            }
+
+            Path normalizedRoot = resolveProjectRoot(requestedPath);
+            boolean changed = !normalizedRoot.equals(activeWorkspaceRoot);
+            if (changed) {
+                WorkspaceState newWorkspace;
+                try {
+                    newWorkspace = createWorkspaceState(normalizedRoot);
+                } catch (IOException e) {
+                    throw new ToolRegistry.ToolCallException(
+                            ToolExecutionResult.Status.INTERNAL_ERROR,
+                            "Failed to activate workspace: " + e.getMessage());
+                }
+
+                var previousCm = cm;
+                var previousProject = project;
+
+                cm = newWorkspace.contextManager();
+                project = newWorkspace.project();
+                mcpToolCallHistoryWriter = newWorkspace.historyWriter();
+                activeWorkspaceRoot = newWorkspace.workspaceRoot();
+                activeWorkspaceSource = WorkspaceActivationSource.RUNTIME_OVERRIDE;
+
+                previousCm.close();
+                previousProject.close();
+            } else {
+                activeWorkspaceSource = WorkspaceActivationSource.RUNTIME_OVERRIDE;
+            }
+
+            return activationStatusJson(activeWorkspaceRoot, changed, activeWorkspaceSource);
+        } finally {
+            workspaceLock.writeLock().unlock();
+        }
+    }
+
+    @Tool("Return the currently active workspace root and activation source for this MCP server instance.")
+    public String getActiveWorkspace() {
+        workspaceLock.readLock().lock();
+        try {
+            return activationStatusJson(activeWorkspaceRoot, false, activeWorkspaceSource);
+        } finally {
+            workspaceLock.readLock().unlock();
+        }
+    }
+
+    private static String activationStatusJson(Path root, boolean changed, WorkspaceActivationSource source) {
+        try {
+            return OBJECT_MAPPER.writeValueAsString(Map.of(
+                    "activeWorkspacePath",
+                    root.toString(),
+                    "changed",
+                    changed,
+                    "source",
+                    source == WorkspaceActivationSource.STARTUP ? "startup" : "runtime_override"));
+        } catch (JsonProcessingException e) {
+            throw new RuntimeException(e);
         }
     }
 
