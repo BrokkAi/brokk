@@ -495,7 +495,7 @@ public class GoAnalyzerTest {
     void testGetSkeleton_PackageLevelVar() {
         // From declarations.go: var MyGlobalVar int = 42
         Optional<String> skeleton = AnalyzerUtil.getSkeleton(analyzer, "declpkg._module_.MyGlobalVar");
-        assertTrue(skeleton.isPresent(), "Skeleton for declpkg.MyGlobalVar should be found.");
+        assertTrue(skeleton.isPresent(), "Skeleton for declpkg._module_.MyGlobalVar should be found.");
         // The skeleton will be the text of the var_spec node
         assertCodeEquals("MyGlobalVar int = 42", skeleton.get());
     }
@@ -504,7 +504,7 @@ public class GoAnalyzerTest {
     void testGetSkeleton_PackageLevelConst() {
         // From declarations.go: const MyGlobalConst = "hello_const"
         Optional<String> skeleton = AnalyzerUtil.getSkeleton(analyzer, "declpkg._module_.MyGlobalConst");
-        assertTrue(skeleton.isPresent(), "Skeleton for declpkg.MyGlobalConst should be found.");
+        assertTrue(skeleton.isPresent(), "Skeleton for declpkg._module_.MyGlobalConst should be found.");
         // The skeleton will be the text of the const_spec node
         assertCodeEquals("MyGlobalConst = \"hello_const\"", skeleton.get());
     }
@@ -515,14 +515,14 @@ public class GoAnalyzerTest {
 
         Optional<CodeUnit> varDef =
                 analyzer.getDefinitions("declpkg._module_.MyGlobalVar").stream().findFirst();
-        assertTrue(varDef.isPresent(), "Definition for declpkg.MyGlobalVar should be found.");
+        assertTrue(varDef.isPresent(), "Definition for declpkg._module_.MyGlobalVar should be found.");
         assertEquals(CodeUnit.field(pf, "declpkg", "_module_.MyGlobalVar"), varDef.get());
         assertFalse(varDef.get().isFunction());
         assertFalse(varDef.get().isClass());
 
         Optional<CodeUnit> constDef = analyzer.getDefinitions("declpkg._module_.MyGlobalConst").stream()
                 .findFirst();
-        assertTrue(constDef.isPresent(), "Definition for declpkg.MyGlobalConst should be found.");
+        assertTrue(constDef.isPresent(), "Definition for declpkg._module_.MyGlobalConst should be found.");
         assertEquals(CodeUnit.field(pf, "declpkg", "_module_.MyGlobalConst"), constDef.get());
         assertFalse(constDef.get().isFunction());
         assertFalse(constDef.get().isClass());
