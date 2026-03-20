@@ -1,5 +1,4 @@
 import os
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -10,27 +9,6 @@ from brokk_code.runtime_utils import find_dev_jar
 
 _EXECUTOR_JAR_BASE_URL = "https://github.com/BrokkAi/brokk-releases/releases/download"
 _MCP_SERVER_MAIN_CLASS = "ai.brokk.mcpserver.BrokkExternalMcpServer"
-
-
-def _is_brokk_launcher_path(path: Path) -> bool:
-    launcher_names = {"brokk", "brokk.bat", "brokk.cmd", "brokk.exe", "brokk.ps1"}
-    if path.name.lower() not in launcher_names or not path.is_file():
-        return False
-    return os.access(path, os.X_OK) or path.suffix.lower() in {".bat", ".cmd", ".exe", ".ps1"}
-
-
-def resolve_brokk_command() -> str:
-    brokk_path = shutil.which("brokk")
-    if brokk_path:
-        return brokk_path
-
-    argv0 = Path(sys.argv[0])
-    if argv0.name and argv0.name != "-m":
-        candidate = argv0 if argv0.is_absolute() else (Path.cwd() / argv0)
-        if _is_brokk_launcher_path(candidate):
-            return str(candidate.resolve())
-
-    return "brokk"
 
 
 def git_toplevel_for(path: Path) -> Optional[Path]:
