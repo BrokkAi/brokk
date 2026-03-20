@@ -334,34 +334,19 @@ public final class WorkspacePrompts {
 
     private static void addFragmentMessage(
             List<ChatMessage> messages, ContextFragment cf, Set<SpecialTextType> suppressedTypes) {
+        if (isSuppressed(cf, suppressedTypes)) {
+            return;
+        }
+
         if (cf.isText()) {
-            if (cf instanceof ContextFragments.StringFragment sf) {
-                if (sf.specialType().isPresent()
-                        && suppressedTypes.contains(sf.specialType().get())) {
-                    return;
-                }
-            }
-            String formatted =
-                    """
-                <fragment description="%s">
-                %s
-                </fragment>"""
-                            .formatted(cf.description().join(), cf.text().join());
-            messages.add(new UserMessage(formatted.trim()));
+            messages.add(new UserMessage(cf.format().trim()));
         } else {
             var contents = new ArrayList<Content>();
             contents.add(new TextContent(cf.text().join()));
             try {
-                var cv = cf.imageBytes();
-                if (cv != null) {
-                    var bytes = cv.join();
-                    if (bytes != null) {
-                        var converted = ImageUtil.bytesToImage(bytes);
-                        if (converted != null) {
-                            var l4jImage = ImageUtil.toL4JImage(converted);
-                            contents.add(ImageContent.from(l4jImage));
-                        }
-                    }
+                var imageContent = processImageContent(cf);
+                if (imageContent != null) {
+                    contents.add(imageContent);
                 }
             } catch (IOException | UncheckedIOException e) {
                 logger.error(
@@ -373,6 +358,29 @@ public final class WorkspacePrompts {
             }
             messages.add(new UserMessage(contents));
         }
+    }
+
+    private static boolean isSuppressed(ContextFragment cf, Set<SpecialTextType> suppressedTypes) {
+        if (cf instanceof ContextFragments.StringFragment sf) {
+            return sf.specialType().isPresent()
+                    && suppressedTypes.contains(sf.specialType().get());
+        }
+        return false;
+    }
+
+    private static @Nullable ImageContent processImageContent(ContextFragment cf) throws IOException {
+        var cv = cf.imageBytes();
+        if (cv != null) {
+            var bytes = cv.join();
+            if (bytes != null) {
+                var converted = ImageUtil.bytesToImage(bytes);
+                if (converted != null) {
+                    var l4jImage = ImageUtil.toL4JImage(converted);
+                    return ImageContent.from(l4jImage);
+                }
+            }
+        }
+        return null;
     }
 
     /**
@@ -600,13 +608,11 @@ public final class WorkspacePrompts {
         var imageList = new ArrayList<ImageContent>();
 
         for (var cf : fragments) {
+            if (isSuppressed(cf, suppressedTypes)) {
+                continue;
+            }
+
             if (cf.isText()) {
-                if (cf instanceof ContextFragments.StringFragment sf) {
-                    if (sf.specialType().isPresent()
-                            && suppressedTypes.contains(sf.specialType().get())) {
-                        continue;
-                    }
-                }
                 textBuilder.append(cf.format()).append("\n\n");
                 continue;
             }
@@ -615,16 +621,9 @@ public final class WorkspacePrompts {
                             || cf instanceof ContextFragments.AnonymousImageFragment
                     : cf;
             try {
-                var cv = cf.imageBytes();
-                if (cv != null) {
-                    var bytes = cv.join();
-                    if (bytes != null) { // NOT gratuitous
-                        var converted = ImageUtil.bytesToImage(bytes);
-                        if (converted != null) {
-                            var l4jImage = ImageUtil.toL4JImage(converted);
-                            imageList.add(ImageContent.from(l4jImage));
-                        }
-                    }
+                var imageContent = processImageContent(cf);
+                if (imageContent != null) {
+                    imageList.add(imageContent);
                 }
                 textBuilder.append(cf.text().join()).append("\n\n");
             } catch (IOException | UncheckedIOException e) {
