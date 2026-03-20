@@ -3615,6 +3615,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     protected abstract IAnalyzer newSnapshot(
             AnalyzerState state, ProgressListener listener, @Nullable AnalyzerCache previousCache);
 
+    protected AnalyzerCache createFilteredCache(AnalyzerCache previous, Set<ProjectFile> changedFiles) {
+        return new AnalyzerCache(previous, changedFiles);
+    }
+
     @Override
     public IAnalyzer update(Set<ProjectFile> changedFiles) {
         if (changedFiles.isEmpty()) return this;
@@ -3747,7 +3751,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 nextSymbolKeyIndex,
                 snapshotNanos);
 
-        var filteredCache = new AnalyzerCache(this.cache, changedFiles);
+        var filteredCache = createFilteredCache(this.cache, changedFiles);
         this.isStale = true;
         return newSnapshot(typedState, getProgressListener(), filteredCache);
     }
