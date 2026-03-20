@@ -35,12 +35,20 @@ public class GitRepoRemoteMergeTest {
     @BeforeEach
     void setUp() throws Exception {
         // Initialize remote repository
-        remoteGit = Git.init().setDirectory(remoteDir.toFile()).setBare(true).call();
+        remoteGit = Git.init()
+                .setInitialBranch("master")
+                .setDirectory(remoteDir.toFile())
+                .setBare(true)
+                .call();
 
-        // Clone remote to create local repository
-        localGit = Git.cloneRepository()
-                .setURI(remoteDir.toUri().toString())
+        // Initialize local repository
+        localGit = Git.init()
+                .setInitialBranch("master")
                 .setDirectory(tempDir.toFile())
+                .call();
+        localGit.remoteAdd()
+                .setName("origin")
+                .setUri(new org.eclipse.jgit.transport.URIish(remoteDir.toUri().toString()))
                 .call();
         localRepo = new GitRepo(tempDir);
 
