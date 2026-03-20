@@ -1,4 +1,5 @@
 import os
+import sys
 from pathlib import Path
 
 import pytest
@@ -41,6 +42,7 @@ def test_run_mcp_server_execs_direct_java_with_explicit_jar(monkeypatch, tmp_pat
         captured["env"] = env
         raise RuntimeError("stop")
 
+    monkeypatch.setattr(sys, "platform", "linux")
     monkeypatch.setattr(os, "chdir", fake_chdir)
     monkeypatch.setattr(os, "execvpe", fake_execvpe)
     monkeypatch.setattr(mcp_launcher, "git_toplevel_for", lambda _path: None)
@@ -81,6 +83,7 @@ def test_run_mcp_server_prefers_local_dev_jar(monkeypatch, tmp_path) -> None:
         captured["command"] = command
         raise RuntimeError("stop")
 
+    monkeypatch.setattr(sys, "platform", "linux")
     monkeypatch.setattr(os, "chdir", fake_chdir)
     monkeypatch.setattr(os, "execvpe", fake_execvpe)
     monkeypatch.setattr(mcp_launcher, "git_toplevel_for", lambda _path: repo_root.resolve())
@@ -110,6 +113,7 @@ def test_run_mcp_server_falls_back_to_versioned_jbang(monkeypatch, tmp_path) -> 
         captured["command"] = command
         raise RuntimeError("stop")
 
+    monkeypatch.setattr(sys, "platform", "linux")
     monkeypatch.setattr(os, "chdir", fake_chdir)
     monkeypatch.setattr(os, "execvpe", fake_execvpe)
     monkeypatch.setattr(mcp_launcher, "find_dev_jar", lambda _workspace_dir: None)
@@ -143,6 +147,7 @@ def test_run_mcp_server_falls_back_to_bundled_jbang_version(monkeypatch, tmp_pat
         captured["command"] = command
         raise RuntimeError("stop")
 
+    monkeypatch.setattr(sys, "platform", "linux")
     monkeypatch.setattr(os, "chdir", fake_chdir)
     monkeypatch.setattr(os, "execvpe", fake_execvpe)
     monkeypatch.setattr(mcp_launcher, "find_dev_jar", lambda _workspace_dir: None)
@@ -193,6 +198,7 @@ def test_run_mcp_server_appends_passthrough_args_with_separator_for_jbang(
         captured["command"] = command
         raise RuntimeError("stop")
 
+    monkeypatch.setattr(sys, "platform", "linux")
     monkeypatch.setattr(os, "chdir", lambda _path: None)
     monkeypatch.setattr(os, "execvpe", fake_execvpe)
     monkeypatch.setattr(mcp_launcher, "find_dev_jar", lambda _workspace_dir: None)
@@ -223,6 +229,7 @@ def test_run_mcp_server_appends_passthrough_args_directly_for_java(monkeypatch, 
         captured["command"] = command
         raise RuntimeError("stop")
 
+    monkeypatch.setattr(sys, "platform", "linux")
     monkeypatch.setattr(os, "chdir", lambda _path: None)
     monkeypatch.setattr(os, "execvpe", fake_execvpe)
     monkeypatch.setattr(mcp_launcher, "git_toplevel_for", lambda _path: None)
