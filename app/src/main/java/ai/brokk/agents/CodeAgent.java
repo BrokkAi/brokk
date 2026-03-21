@@ -412,7 +412,7 @@ public class CodeAgent {
             // Select the appropriate model for this turn
             var service = contextManager.getService();
             if (allowPromotion && es.promoteModel()) {
-                coder.setModel(service.withReasoning(model, AbstractService.ReasoningLevel.HIGH));
+                coder.setModel(service.withReasoning(model, AbstractService.ReasoningLevel.MEDIUM));
             } else {
                 coder.setModel(model);
             }
