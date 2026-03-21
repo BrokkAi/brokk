@@ -817,6 +817,7 @@ public class SearchTools {
     @Tool(
             """
             Primary tool for finding where classes, functions, fields, and modules are defined.
+            This is usually the best first lookup for named code symbols in analyzed source files.
             Use when you know (or can guess) part of a symbol name but don't know its fully qualified name or location.
             Returns definitions only -- for finding where a symbol is *used*, follow up with scanUsages.
 
@@ -1523,7 +1524,7 @@ public class SearchTools {
     @Tool(
             """
             Regex search across file contents -- use for string literals, config values, comments, log messages, and non-code files.
-            For finding code definitions (classes, methods), prefer searchSymbols. For finding usages of known symbols, prefer scanUsages.
+            For finding code definitions (classes, methods), prefer searchSymbols or getSymbolLocations. For finding usages of known symbols, prefer scanUsages.
             Provides grep-like output with line numbers and optional context lines.
 
             Limits: 500 total matching lines across all files. 20 matches per file per pattern. maxFiles capped at 100.

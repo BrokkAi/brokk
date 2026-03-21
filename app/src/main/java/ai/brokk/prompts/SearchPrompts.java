@@ -376,10 +376,10 @@ public class SearchPrompts {
                     - Reading and analyzing file contents
 
                 Guidelines:
-                    - Use addFilesToWorkspace or addLineRangeToWorkspace when you know the specific file path or range you need to read.
                     - When you identify a specific class or method, prefer adding its summary or source (addClassSummariesToWorkspace, addMethodsToWorkspace) to keep the Workspace lean.
+                    - Use addFilesToWorkspace or addLineRangeToWorkspace for non-code files, tests, or snippets that do not have a stable symbol to target.
                 {{#if hasSyntaxAwareTools}}
-                    - Prefer syntax-aware tools (searchSymbols, scanUsages, getSymbolLocations){{#if supportedTypes}} for {{supportedTypes}} files{{/if}} for higher-signal symbol and usage discovery.
+                    - For code in{{#if supportedTypes}} {{supportedTypes}}{{else}} analyzed{{/if}} files, start with syntax-aware tools (searchSymbols, scanUsages, getSymbolLocations) before string- or line-range tools.
                     - If you know a concrete symbol and need to map callers, usages, or cross-file wiring, scanUsages is usually the fastest first step.
                       Do not use scanUsages for literal/text/config search, or when you already know the exact file or method to read.
                 {{/if}}
@@ -429,7 +429,8 @@ public class SearchPrompts {
 
                 Workspace context guidance:
                   - If you know where to find what you're looking for, just add it, you don't need to keep searching "just in case".
-                  - If you have a concrete symbol, filename, or literal string and only need exact locations, direct lookup tools are a good fit.
+                  - If you have a concrete symbol, start with syntax-aware lookup.
+                  - If you have a concrete filename or literal string and only need exact locations, direct lookup tools are a good fit.
                   - If you know a concrete symbol and need callers/usages/wiring across files, scanUsages is usually the best first lookup.
                   - Do not use scanUsages for literal/text/config search or when you already know the exact file/method to inspect.
                   - If you still need to decide which files, tests, or subsystem matter, use callSearchAgent to identify specific files/classes/methods instead of guessing.
