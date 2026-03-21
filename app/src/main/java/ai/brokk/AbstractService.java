@@ -564,9 +564,17 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
      * Creates a new model instance based on an existing model but with a different reasoning level.
      */
     public StreamingChatModel withReasoning(StreamingChatModel model, ReasoningLevel level) {
+        // support tests using custom classes
         if (!(model instanceof OpenAiStreamingChatModel)) {
-            // support tests using custom classes
             return model;
+        }
+
+        // don't request something the model doesn't support
+        if (!supportsReasoningEffort(nameOf(model))) {
+            level = ReasoningLevel.DEFAULT;
+        }
+        if (!supportsReasoningDisable(nameOf(model)) && level == ReasoningLevel.DISABLE) {
+            level = ReasoningLevel.LOW;
         }
 
         var config = ModelConfig.from(model, this);
