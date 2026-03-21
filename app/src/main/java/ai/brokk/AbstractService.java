@@ -2,6 +2,7 @@ package ai.brokk;
 
 import static java.lang.Math.max;
 import static java.lang.Math.min;
+import static java.util.Objects.requireNonNull;
 
 import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
@@ -557,6 +558,19 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
 
     public @Nullable StreamingChatModel getModel(ModelConfig config) {
         return getModel(config, null);
+    }
+
+    /**
+     * Creates a new model instance based on an existing model but with a different reasoning level.
+     */
+    public StreamingChatModel withReasoning(StreamingChatModel model, ReasoningLevel level) {
+        if (!(model instanceof OpenAiStreamingChatModel)) {
+            // support tests using custom classes
+            return model;
+        }
+
+        var config = ModelConfig.from(model, this);
+        return requireNonNull(getModel(new ModelConfig(config.name(), level, config.tier())));
     }
 
     public boolean supportsJsonSchema(StreamingChatModel model) {

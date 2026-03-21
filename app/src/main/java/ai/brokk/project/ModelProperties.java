@@ -40,7 +40,7 @@ public final class ModelProperties {
     // Common configurations. Note that we override thinking levels in some cases for speed.
     private static final ModelConfig gpt5Nano = new ModelConfig(GPT_5_NANO);
     private static final ModelConfig gpt5Mini = new ModelConfig(GPT_5_MINI, ReasoningLevel.LOW);
-    private static final ModelConfig gpt5_3Codex = new ModelConfig(GPT_5_3_CODEX, ReasoningLevel.DISABLE);
+    private static final ModelConfig codex5_3 = new ModelConfig(GPT_5_3_CODEX, ReasoningLevel.DISABLE);
 
     private static final ModelConfig gpt5_1CodexMiniOauth =
             new ModelConfig(GPT_5_1_CODEX_MINI_OAUTH, ReasoningLevel.LOW);
@@ -84,7 +84,7 @@ public final class ModelProperties {
     static final List<Service.FavoriteModel> DEFAULT_FAVORITE_MODELS = List.of(
             new Service.FavoriteModel("Opus 4.6", opus4_6),
             new Service.FavoriteModel("Sonnet 4.6", sonnet4_6),
-            new Service.FavoriteModel("GPT-5.3 Codex", gpt5_3Codex),
+            new Service.FavoriteModel("GPT-5.3 Codex", codex5_3),
             new Service.FavoriteModel("Flash 3", flash3),
             new Service.FavoriteModel("Gemini 3.1 Pro", g31p));
 
@@ -94,7 +94,7 @@ public final class ModelProperties {
      */
     public enum ModelType {
         // directly selected in the UI
-        CODE("codeConfig", flash3, gcf1),
+        CODE("codeConfig", codex5_3, gcf1),
         ARCHITECT("architectConfig", sonnet4_6, gcf1),
 
         // indirectly selectable via vendor preference
@@ -171,9 +171,9 @@ public final class ModelProperties {
                             ModelType.QUICK_EDIT, gpt5Mini,
                             ModelType.QUICKEST, gpt5Nano,
                             ModelType.COMMIT_MESSAGE, gpt5Mini,
-                            ModelType.REFERENCES, gpt5_3Codex,
-                            ModelType.SCAN, gpt5_3Codex,
-                            ModelType.SEARCH, gpt5_3Codex,
+                            ModelType.REFERENCES, codex5_3,
+                            ModelType.SCAN, codex5_3,
+                            ModelType.SEARCH, codex5_3,
                             ModelType.BUILD_PROCESSOR, gpt5Mini));
             map.put(
                     "OpenAI - Codex",

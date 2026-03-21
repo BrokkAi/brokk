@@ -2,6 +2,7 @@ package ai.brokk.agents;
 
 import static java.util.Objects.requireNonNull;
 
+import ai.brokk.AbstractService;
 import ai.brokk.EditBlock;
 import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
@@ -19,7 +20,6 @@ import ai.brokk.context.ContextFragments;
 import ai.brokk.context.ContextHistory;
 import ai.brokk.context.DiffService;
 import ai.brokk.context.SpecialTextType;
-import ai.brokk.project.ModelProperties;
 import ai.brokk.prompts.CodePrompts;
 import ai.brokk.prompts.EditBlockParser;
 import ai.brokk.prompts.QuickEditPrompts;
@@ -258,7 +258,8 @@ public class CodeAgent {
 
     public CodeAgent(IContextManager contextManager, StreamingChatModel model, IConsoleIO io) {
         this.contextManager = contextManager;
-        this.model = model;
+        var service = contextManager.getService();
+        this.model = service.withReasoning(model, AbstractService.ReasoningLevel.DISABLE);
         this.io = io;
 
         @Nullable String rawAttempts = System.getenv("BRK_CODE_BUILD_ATTEMPTS");
@@ -400,7 +401,7 @@ public class CodeAgent {
         }
 
         logger.debug("Starting task: {} with options {}", userInput, options);
-        TaskResult.TaskMeta meta = null;
+        TaskResult.TaskMeta meta;
         while (true) {
             if (Thread.interrupted()) {
                 logger.debug("CodeAgent interrupted");
@@ -409,18 +410,17 @@ public class CodeAgent {
             }
 
             // Select the appropriate model for this turn
-            if (allowPromotion && es.useArchitectModel()) {
-                var architectConfig = contextManager.getService().getModel(ModelProperties.ModelType.ARCHITECT);
-                coder.setModel(architectConfig);
+            var service = contextManager.getService();
+            if (allowPromotion && es.promoteModel()) {
+                coder.setModel(service.withReasoning(model, AbstractService.ReasoningLevel.HIGH));
             } else {
-                coder.setModel(this.model);
+                coder.setModel(model);
             }
 
             // Make the LLM request
             StreamingResult streamingResult;
             // Populate TaskMeta because this task engaged an LLM
-            meta = new TaskResult.TaskMeta(
-                    TaskResult.Type.CODE, Service.ModelConfig.from(coder.getModel(), contextManager.getService()));
+            meta = new TaskResult.TaskMeta(TaskResult.Type.CODE, Service.ModelConfig.from(coder.getModel(), service));
 
             try {
                 var suppressed = EnumSet.of(SpecialTextType.TASK_LIST);
@@ -1154,6 +1154,7 @@ public class CodeAgent {
                     esForStep = es.afterApply(
                             updatedConsecutiveApplyFailures,
                             newBlocksAppliedWithoutBuild,
+                            failedResults.size(),
                             editResult.originalContents());
                     report("Applied %d of %d unique block(s) successfully; asking LLM to retry"
                             .formatted(succeededCount, attemptedBlockCount));
@@ -1165,7 +1166,10 @@ public class CodeAgent {
                 }
                 updatedConsecutiveApplyFailures = 0; // Reset on success
                 esForStep = es.afterApply(
-                        updatedConsecutiveApplyFailures, newBlocksAppliedWithoutBuild, editResult.originalContents());
+                        updatedConsecutiveApplyFailures,
+                        newBlocksAppliedWithoutBuild,
+                        0,
+                        editResult.originalContents());
                 return new Step.Continue(csForStep, esForStep, blocksToApply);
             }
         } catch (EditStopException e) {
@@ -1679,7 +1683,7 @@ public class CodeAgent {
             Map<ProjectFile, String> originalFileContents,
             Map<ProjectFile, List<JavaDiagnostic>> javaLintDiagnostics,
             boolean showBuildError,
-            boolean useArchitectModel,
+            boolean promoteModel,
             List<ProjectFile> testFilesOverride) {
 
         public EditState(
@@ -1784,12 +1788,16 @@ public class CodeAgent {
                     originalFileContents,
                     javaLintDiagnostics,
                     false,
-                    newBuildFailures >= 3,
+                    newBuildFailures > 1,
                     testFilesOverride);
         }
 
         /** Returns a new WorkspaceState after applying blocks, updating relevant fields. */
-        EditState afterApply(int newApplyFailures, int newBlocksApplied, Map<ProjectFile, String> newOriginalContents) {
+        EditState afterApply(
+                int newApplyFailures,
+                int newBlocksApplied,
+                int failedBlocks,
+                Map<ProjectFile, String> newOriginalContents) {
             // Merge affected files from this apply into the running changedFiles set.
             var mergedChangedFiles = new HashSet<>(changedFiles);
             mergedChangedFiles.addAll(newOriginalContents.keySet());
@@ -1800,7 +1808,6 @@ public class CodeAgent {
                 mergedOriginals.putIfAbsent(e.getKey(), e.getValue());
             }
 
-            boolean shouldUseArchitect = newApplyFailures > 0 && newBlocksApplied == 0;
             return new EditState(
                     consecutiveParseFailures,
                     newApplyFailures,
@@ -1812,7 +1819,7 @@ public class CodeAgent {
                     Collections.unmodifiableMap(mergedOriginals),
                     javaLintDiagnostics,
                     showBuildError,
-                    shouldUseArchitect,
+                    failedBlocks > 0 && (newApplyFailures > 1 || (newBlocksApplied == 0 && failedBlocks > 1)),
                     testFilesOverride);
         }
 
