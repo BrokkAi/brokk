@@ -2978,7 +2978,7 @@ class BrokkApp(App):
                 chat.add_system_message(msg, level="ERROR")
             # Note: set_job_running(False) happens in _run_job finally block
         elif event_type == "COMMAND_RESULT":
-            logger.debug(
+            logger.info(
                 "COMMAND_RESULT event: stage=%s cmd=%s success=%s out_len=%d",
                 data.get("stage"),
                 data.get("command"),
