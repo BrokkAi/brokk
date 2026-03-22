@@ -325,7 +325,7 @@ public final class HistoryIo {
         if (isV4) {
             return readZipV4(zip, mgr);
         }
-        throw new InvalidObjectException("History zip file {} is not in a recognized format");
+        throw new InvalidObjectException("History zip file " + zip + " is not in a recognized format");
     }
 
     private static ContextHistory readZipV4(Path zip, IContextManager mgr) throws IOException {
