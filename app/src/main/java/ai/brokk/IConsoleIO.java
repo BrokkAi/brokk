@@ -125,6 +125,23 @@ public interface IConsoleIO {
         // pass
     }
 
+    /**
+     * Signals that a shell command is about to start executing.
+     * Headless consoles emit a COMMAND_START event; GUI consoles are no-ops.
+     */
+    default void commandStart(String stage, String command) {
+        // no-op by default
+    }
+
+    /**
+     * Signals that a shell command has finished executing.
+     * Headless consoles emit a COMMAND_RESULT event; GUI consoles are no-ops.
+     */
+    default void commandResult(String stage, String command, boolean success,
+                               String output, @Nullable String exception) {
+        // no-op by default
+    }
+
     //
     // ----- gui hooks -----
     //

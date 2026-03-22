@@ -211,21 +211,21 @@ public class ProjectBuildRunner {
         if (testRetriesEnv != null && !testRetriesEnv.isBlank()) {
             return runBuildWithTestRetries(ctx, verificationCommand, details, Integer.parseInt(testRetriesEnv.trim()));
         }
-        io.llmOutput("\nRunning verification command:", ChatMessageType.CUSTOM, LlmOutputMeta.DEFAULT);
-        io.llmOutput(
-                verificationCommand + "\n\n",
-                ChatMessageType.CUSTOM,
-                LlmOutputMeta.newMessage().withTerminal(true));
+        io.commandStart("Verification", verificationCommand);
+        var output = new StringBuilder();
         try {
             Environment.instance.runShellCommand(
                     verificationCommand,
                     project.getRoot(),
-                    line -> io.llmOutput(line + "\n", ChatMessageType.CUSTOM, LlmOutputMeta.terminal()),
+                    line -> output.append(line).append("\n"),
                     resolveTimeout(project.getRunCommandTimeoutSeconds()),
                     project.getShellConfig(),
                     details.environmentVariables());
+            io.commandResult("Verification", verificationCommand, true, output.toString(), null);
             return ctx.withBuildResult(true, "Build succeeded.");
         } catch (Environment.SubprocessException e) {
+            var fullOutput = output + "\n" + Objects.toString(e.getMessage(), "") + "\n" + Objects.toString(e.getOutput(), "");
+            io.commandResult("Verification", verificationCommand, false, fullOutput.strip(), e.getMessage());
             return ctx.withBuildResult(
                     false,
                     BuildOutputProcessor.processForLlm(
@@ -239,25 +239,17 @@ public class ProjectBuildRunner {
         var io = cm.getIo();
         String lintCommand = details.buildLintCommand();
         String testCommand = verificationCommand.equals(lintCommand) ? "" : verificationCommand;
-        io.llmOutput(
-                "\nRunning verification with test retries enabled:", ChatMessageType.CUSTOM, LlmOutputMeta.DEFAULT);
-        if (!lintCommand.isBlank())
-            io.llmOutput(
-                    "\nLint/compile: " + lintCommand + "\n",
-                    ChatMessageType.CUSTOM,
-                    LlmOutputMeta.newMessage().withTerminal(true));
-        if (!testCommand.isBlank())
-            io.llmOutput(
-                    "Test: " + testCommand + " (up to " + maxRetries + " attempts)\n\n",
-                    ChatMessageType.CUSTOM,
-                    LlmOutputMeta.terminal());
+        String combinedCommand = verificationCommand + " (with retries, max " + maxRetries + ")";
+        io.commandStart("Verification", combinedCommand);
+        var output = new StringBuilder();
         var result = BuildVerifier.verifyWithRetries(
                 project,
                 lintCommand,
                 testCommand,
                 maxRetries,
                 details.environmentVariables(),
-                line -> io.llmOutput(line + "\n", ChatMessageType.CUSTOM, LlmOutputMeta.terminal()));
+                line -> output.append(line).append("\n"));
+        io.commandResult("Verification", combinedCommand, result.success(), output.toString(), null);
         if (result.success()) return ctx.withBuildResult(true, "Build succeeded.");
         else return ctx.withBuildResult(false, BuildOutputProcessor.processForLlm(result.output(), cm));
     }
@@ -266,22 +258,22 @@ public class ProjectBuildRunner {
             Context ctx, String command, @Nullable BuildDetails override) throws InterruptedException {
         IContextManager cm = ctx.getContextManager();
         var io = cm.getIo();
-        io.llmOutput("\nRunning Post-Task command:", ChatMessageType.CUSTOM, LlmOutputMeta.newMessage());
-        io.llmOutput(
-                command + "\n\n",
-                ChatMessageType.CUSTOM,
-                LlmOutputMeta.newMessage().withTerminal(true));
+        io.commandStart("Post-Task", command);
+        var output = new StringBuilder();
         try {
             BuildDetails details = override != null ? override : project.awaitBuildDetails();
             Environment.instance.runShellCommand(
                     command,
                     project.getRoot(),
-                    line -> io.llmOutput(line + "\n", ChatMessageType.CUSTOM, LlmOutputMeta.terminal()),
+                    line -> output.append(line).append("\n"),
                     resolveTimeout(project.getTestCommandTimeoutSeconds()),
                     project.getShellConfig(),
                     details.environmentVariables());
+            io.commandResult("Post-Task", command, true, output.toString(), null);
             return ctx.withBuildResult(true, "Build succeeded.");
         } catch (Environment.SubprocessException e) {
+            var fullOutput = output + "\n" + Objects.toString(e.getMessage(), "") + "\n" + Objects.toString(e.getOutput(), "");
+            io.commandResult("Post-Task", command, false, fullOutput.strip(), e.getMessage());
             return ctx.withBuildResult(
                     false,
                     BuildOutputProcessor.processForLlm(

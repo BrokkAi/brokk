@@ -283,6 +283,28 @@ public class HeadlessHttpConsole extends MemoryConsole {
     }
 
     @Override
+    public void commandStart(String stage, String command) {
+        var data = new HashMap<String, Object>();
+        data.put("stage", stage);
+        data.put("command", command);
+        appendEvent("COMMAND_START", data);
+    }
+
+    @Override
+    public void commandResult(String stage, String command, boolean success,
+                              String output, @Nullable String exception) {
+        var data = new HashMap<String, Object>();
+        data.put("stage", stage);
+        data.put("command", command);
+        data.put("success", success);
+        data.put("output", output != null ? output : "");
+        if (exception != null && !exception.isBlank()) {
+            data.put("exception", exception);
+        }
+        appendEvent("COMMAND_RESULT", data);
+    }
+
+    @Override
     public void beforeToolCall(ToolExecutionRequest request) {
         var data = new HashMap<String, Object>();
         putIfNonNull(data, "id", request.id());
