@@ -127,19 +127,34 @@ public interface IConsoleIO {
 
     /**
      * Signals that a shell command is about to start executing.
-     * Headless consoles emit a COMMAND_START event; GUI consoles are no-ops.
+     * Default implementation outputs the stage and command via llmOutput.
+     * Headless consoles override to emit a COMMAND_START event instead.
      */
     default void commandStart(String stage, String command) {
-        // no-op by default
+        llmOutput("\nRunning " + stage + " command:", ChatMessageType.CUSTOM, LlmOutputMeta.DEFAULT);
+        llmOutput(
+                command + "\n\n",
+                ChatMessageType.CUSTOM,
+                LlmOutputMeta.newMessage().withTerminal(true));
+    }
+
+    /**
+     * Streams a single line of command output during execution.
+     * Default implementation forwards to llmOutput for Swing compatibility.
+     * Headless consoles override as no-op since output is delivered via commandResult.
+     */
+    default void commandOutput(String line) {
+        llmOutput(line + "\n", ChatMessageType.CUSTOM, LlmOutputMeta.terminal());
     }
 
     /**
      * Signals that a shell command has finished executing.
-     * Headless consoles emit a COMMAND_RESULT event; GUI consoles are no-ops.
+     * Default implementation is a no-op (Swing already saw output via commandOutput).
+     * Headless consoles override to emit a COMMAND_RESULT event.
      */
-    default void commandResult(String stage, String command, boolean success,
-                               String output, @Nullable String exception) {
-        // no-op by default
+    default void commandResult(
+            String stage, String command, boolean success, String output, @Nullable String exception) {
+        // no-op: Swing consoles already streamed output line-by-line via commandOutput
     }
 
     //

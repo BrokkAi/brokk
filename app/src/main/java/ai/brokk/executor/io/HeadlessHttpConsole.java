@@ -283,6 +283,11 @@ public class HeadlessHttpConsole extends MemoryConsole {
     }
 
     @Override
+    public void commandOutput(String line) {
+        // no-op: TUI receives full output via commandResult
+    }
+
+    @Override
     public void commandStart(String stage, String command) {
         var data = new HashMap<String, Object>();
         data.put("stage", stage);
@@ -291,8 +296,8 @@ public class HeadlessHttpConsole extends MemoryConsole {
     }
 
     @Override
-    public void commandResult(String stage, String command, boolean success,
-                              String output, @Nullable String exception) {
+    public void commandResult(
+            String stage, String command, boolean success, String output, @Nullable String exception) {
         var data = new HashMap<String, Object>();
         data.put("stage", stage);
         data.put("command", command);

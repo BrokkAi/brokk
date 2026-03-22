@@ -217,14 +217,18 @@ public class ProjectBuildRunner {
             Environment.instance.runShellCommand(
                     verificationCommand,
                     project.getRoot(),
-                    line -> output.append(line).append("\n"),
+                    line -> {
+                        output.append(line).append("\n");
+                        io.commandOutput(line);
+                    },
                     resolveTimeout(project.getRunCommandTimeoutSeconds()),
                     project.getShellConfig(),
                     details.environmentVariables());
             io.commandResult("Verification", verificationCommand, true, output.toString(), null);
             return ctx.withBuildResult(true, "Build succeeded.");
         } catch (Environment.SubprocessException e) {
-            var fullOutput = output + "\n" + Objects.toString(e.getMessage(), "") + "\n" + Objects.toString(e.getOutput(), "");
+            var fullOutput =
+                    output + "\n" + Objects.toString(e.getMessage(), "") + "\n" + Objects.toString(e.getOutput(), "");
             io.commandResult("Verification", verificationCommand, false, fullOutput.strip(), e.getMessage());
             return ctx.withBuildResult(
                     false,
@@ -243,12 +247,10 @@ public class ProjectBuildRunner {
         io.commandStart("Verification", combinedCommand);
         var output = new StringBuilder();
         var result = BuildVerifier.verifyWithRetries(
-                project,
-                lintCommand,
-                testCommand,
-                maxRetries,
-                details.environmentVariables(),
-                line -> output.append(line).append("\n"));
+                project, lintCommand, testCommand, maxRetries, details.environmentVariables(), line -> {
+                    output.append(line).append("\n");
+                    io.commandOutput(line);
+                });
         io.commandResult("Verification", combinedCommand, result.success(), output.toString(), null);
         if (result.success()) return ctx.withBuildResult(true, "Build succeeded.");
         else return ctx.withBuildResult(false, BuildOutputProcessor.processForLlm(result.output(), cm));
@@ -265,14 +267,18 @@ public class ProjectBuildRunner {
             Environment.instance.runShellCommand(
                     command,
                     project.getRoot(),
-                    line -> output.append(line).append("\n"),
+                    line -> {
+                        output.append(line).append("\n");
+                        io.commandOutput(line);
+                    },
                     resolveTimeout(project.getTestCommandTimeoutSeconds()),
                     project.getShellConfig(),
                     details.environmentVariables());
             io.commandResult("Post-Task", command, true, output.toString(), null);
             return ctx.withBuildResult(true, "Build succeeded.");
         } catch (Environment.SubprocessException e) {
-            var fullOutput = output + "\n" + Objects.toString(e.getMessage(), "") + "\n" + Objects.toString(e.getOutput(), "");
+            var fullOutput =
+                    output + "\n" + Objects.toString(e.getMessage(), "") + "\n" + Objects.toString(e.getOutput(), "");
             io.commandResult("Post-Task", command, false, fullOutput.strip(), e.getMessage());
             return ctx.withBuildResult(
                     false,
