@@ -1111,7 +1111,13 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
     void updateTokenCostIndicator() {
         var ctx = chrome.getContextManager().selectedContext();
-        Service.ModelConfig config = getSelectedConfig();
+        Service.ModelConfig config;
+        try {
+            config = getSelectedConfig();
+        } catch (IllegalStateException e) {
+            // Model configuration dialog is open; skip update - it will refresh when dialog closes
+            return;
+        }
 
         // Compute tokens off-EDT
         LoggingFuture.supplyAsync(() -> {
