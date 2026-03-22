@@ -1,7 +1,7 @@
 import asyncio
 import time
 import uuid
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, Tuple
 
 if TYPE_CHECKING:
     from textual.selection import Selection
@@ -835,7 +835,7 @@ class ChatPanel(Vertical):
 
         # Command history for /ps modal
         self._command_history: List[Dict[str, Any]] = []
-        self._commands_running: int = 0
+        self._running_commands: Set[str] = set()
 
     def compose(self) -> ComposeResult:
         yield ChatLog(highlight=True, markup=True, wrap=True, min_width=0, id="chat-log")
@@ -1494,18 +1494,32 @@ class ChatPanel(Vertical):
         """Returns the command history for the /ps modal."""
         return list(self._command_history)
 
-    def set_commands_running(self, count: int) -> None:
-        """Updates the count of currently running commands and the status line."""
-        self._commands_running = count
-        try:
-            status = self.query_one("#status-line", StatusLine)
-            status.set_commands_running(count)
-        except Exception:
-            pass
+    def add_running_command(self, key: str) -> None:
+        """Registers a command as running and updates the status line."""
+        self._running_commands.add(key)
+        self._sync_commands_running()
+
+    def remove_running_command(self, key: str) -> None:
+        """Unregisters a command as running and updates the status line."""
+        self._running_commands.discard(key)
+        self._sync_commands_running()
+
+    def clear_running_commands(self) -> None:
+        """Clears all running commands and updates the status line."""
+        self._running_commands.clear()
+        self._sync_commands_running()
 
     def get_commands_running(self) -> int:
         """Returns the count of currently running commands."""
-        return self._commands_running
+        return len(self._running_commands)
+
+    def _sync_commands_running(self) -> None:
+        """Syncs the running command count to the status line widget."""
+        try:
+            status = self.query_one("#status-line", StatusLine)
+            status.set_commands_running(len(self._running_commands))
+        except Exception:
+            pass
 
     def add_markdown(self, content: str) -> None:
         """Renders a block of Markdown content to the chat log."""

@@ -2137,7 +2137,7 @@ class BrokkApp(App):
                             "Job ended with %d command(s) still running",
                             stale,
                         )
-                    chat.set_commands_running(0)
+                    chat.clear_running_commands()
                 self.job_in_progress = False
             self.current_job_id = None
 
@@ -2985,15 +2985,15 @@ class BrokkApp(App):
                 output = data.get("output", "").strip()
                 exception = data.get("exception")
 
+                cmd_key = f"{stage}:{command}"
                 chat.add_command_result(stage, command, success, output, exception)
-
-                # Decrement running commands counter
-                current_running = chat.get_commands_running()
-                if current_running > 0:
-                    chat.set_commands_running(current_running - 1)
+                chat.remove_running_command(cmd_key)
         elif event_type == "COMMAND_START":
             if chat:
-                chat.set_commands_running(chat.get_commands_running() + 1)
+                stage = data.get("stage", "Command")
+                command = data.get("command", "")
+                cmd_key = f"{stage}:{command}"
+                chat.add_running_command(cmd_key)
         elif event_type == "STATE_HINT":
             hint_name = data.get("name")
             if hint_name in ("contextHistoryUpdated", "workspaceUpdated"):
@@ -4143,6 +4143,8 @@ class BrokkApp(App):
             save_last_session_id(self.executor.workspace_dir, session_id)
 
             chat._message_history.clear()
+            chat._command_history.clear()
+            chat.clear_running_commands()
             log = chat.query_one("#chat-log")
             res = log.query("*").remove()
             if asyncio.iscoroutine(res):
@@ -4234,6 +4236,8 @@ class BrokkApp(App):
 
             # Clear UI and history
             chat._message_history.clear()
+            chat._command_history.clear()
+            chat.clear_running_commands()
             # Clear log container (the ScrollableContainer containing message widgets)
             log = chat.query_one("#chat-log")
             res = log.query("*").remove()

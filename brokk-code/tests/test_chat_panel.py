@@ -1979,7 +1979,7 @@ async def test_get_command_history_returns_copy():
 
 @pytest.mark.asyncio
 async def test_set_and_get_commands_running():
-    """Verify commands running count can be set and retrieved."""
+    """Verify commands running count tracks add/remove of command keys."""
     from textual.app import App, ComposeResult
 
     class TestApp(App):
@@ -1993,16 +1993,22 @@ async def test_set_and_get_commands_running():
         # Initial state
         assert chat.get_commands_running() == 0
 
-        # Set running count
-        chat.set_commands_running(3)
+        # Add running commands
+        chat.add_running_command("Verification:make test")
+        chat.add_running_command("Post-Task:make lint")
+        chat.add_running_command("Verification:make build")
         assert chat.get_commands_running() == 3
 
-        # Update running count
-        chat.set_commands_running(1)
-        assert chat.get_commands_running() == 1
+        # Remove one
+        chat.remove_running_command("Post-Task:make lint")
+        assert chat.get_commands_running() == 2
 
-        # Reset to zero
-        chat.set_commands_running(0)
+        # Removing unknown key is safe
+        chat.remove_running_command("unknown:cmd")
+        assert chat.get_commands_running() == 2
+
+        # Clear all
+        chat.clear_running_commands()
         assert chat.get_commands_running() == 0
 
 

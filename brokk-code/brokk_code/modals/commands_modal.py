@@ -11,11 +11,18 @@ from textual.screen import ModalScreen
 from textual.widgets import ListItem, ListView, Static
 
 
+class CommandListItem(ListItem):
+    """A ListItem that carries associated command data."""
+
+    def __init__(self, *args, cmd_data: Dict[str, Any], **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.cmd_data = cmd_data
+
+
 class CommandsModalScreen(ModalScreen[None]):
     """Modal showing command history with expandable output."""
 
     BINDINGS = [
-        Binding("escape", "dismiss", "Close", show=False),
         Binding("q", "dismiss", "Close", show=False),
         Binding("enter", "toggle_output", "Toggle Output", show=False),
     ]
@@ -61,7 +68,7 @@ class CommandsModalScreen(ModalScreen[None]):
 
                         status = "[bold green]OK[/]" if success else "[bold red]FAIL[/]"
 
-                        li = ListItem(
+                        li = CommandListItem(
                             Horizontal(
                                 Static(dt, classes="cmd-col-time"),
                                 Static(stage, classes="cmd-col-stage"),
@@ -69,9 +76,9 @@ class CommandsModalScreen(ModalScreen[None]):
                                 Static(status, classes="cmd-col-status"),
                                 classes="command-row",
                             ),
+                            cmd_data=cmd,
                             id=f"cmd-{cmd_id}",
                         )
-                        li.cmd_data = cmd
                         list_items.append(li)
 
                     yield ListView(*list_items, id="commands-list")
@@ -125,11 +132,10 @@ class CommandsModalScreen(ModalScreen[None]):
             return
 
         item = list_view.highlighted_child
-        cmd_data = getattr(item, "cmd_data", None)
-        if cmd_data is None:
+        if not isinstance(item, CommandListItem):
             return
 
-        cmd_id = cmd_data.get("id", "")
+        cmd_id = item.cmd_data.get("id", "")
 
         # Toggle expansion
         if self._expanded_id == cmd_id:
@@ -142,21 +148,20 @@ class CommandsModalScreen(ModalScreen[None]):
             self._expanded_id = cmd_id
             self._show_output_for_item(item)
 
-    def _show_output_for_item(self, item: ListItem) -> None:
+    def _show_output_for_item(self, item: CommandListItem) -> None:
         """Show the output panel for the given list item."""
         try:
             output_panel = self.query_one("#commands-output-panel", Static)
         except NoMatches:
             return
 
-        cmd_data = getattr(item, "cmd_data", None)
-        if cmd_data is None:
+        if not isinstance(item, CommandListItem):
             return
 
-        self._expanded_id = cmd_data.get("id", "")
-        output = cmd_data.get("output", "").strip()
-        exception = cmd_data.get("exception")
-        command = cmd_data.get("command", "")
+        self._expanded_id = item.cmd_data.get("id", "")
+        output = item.cmd_data.get("output", "").strip()
+        exception = item.cmd_data.get("exception")
+        command = item.cmd_data.get("command", "")
 
         parts = [f"[bold]Command:[/] {command}"]
         if output:
@@ -172,14 +177,14 @@ class CommandsModalScreen(ModalScreen[None]):
     def on_key(self, event: events.Key) -> None:
         """Handle key events."""
         if event.key == "escape":
-            # If output is expanded, collapse it first
             if self._expanded_id is not None:
                 try:
                     output_panel = self.query_one("#commands-output-panel", Static)
                     output_panel.add_class("hidden")
                     output_panel.update("")
                     self._expanded_id = None
-                    event.stop()
-                    return
                 except NoMatches:
                     pass
+            else:
+                self.dismiss(None)
+            event.stop()
