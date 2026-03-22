@@ -1495,8 +1495,13 @@ class ChatPanel(Vertical):
         return list(self._command_history)
 
     def set_commands_running(self, count: int) -> None:
-        """Updates the count of currently running commands."""
+        """Updates the count of currently running commands and the status line."""
         self._commands_running = count
+        try:
+            status = self.query_one("#status-line", StatusLine)
+            status.set_commands_running(count)
+        except Exception:
+            pass
 
     def get_commands_running(self) -> int:
         """Returns the count of currently running commands."""
