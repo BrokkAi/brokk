@@ -3,6 +3,7 @@ package ai.brokk.exception;
 import ai.brokk.ExceptionReporter;
 import ai.brokk.concurrent.ExecutorsUtil;
 import ai.brokk.project.MainProject;
+import dev.langchain4j.exception.LangChain4jException;
 import java.lang.Thread.UncaughtExceptionHandler;
 import java.lang.reflect.InvocationTargetException;
 import java.util.concurrent.CancellationException;
@@ -43,6 +44,12 @@ public class GlobalExceptionHandler implements UncaughtExceptionHandler {
         // Globally suppress IE and CE—these are expected, not exceptional
         if (isCausedBy(th, InterruptedException.class) || isCausedBy(th, CancellationException.class)) {
             logger.debug("Suppressing cancellation/interrupt on thread %s".formatted(thread.getName()), th);
+            return;
+        }
+
+        // Suppress expected LLM/network exceptions - these are already handled by the Llm framework
+        if (isCausedBy(th, LangChain4jException.class)) {
+            logger.debug("Suppressing LangChain4jException on thread {}: {}", thread.getName(), th.getMessage());
             return;
         }
 
