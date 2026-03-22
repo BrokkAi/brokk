@@ -148,6 +148,14 @@ public interface IConsoleIO {
     }
 
     /**
+     * Returns true if this console consumes the buffered output delivered via commandResult.
+     * When false, ProjectBuildRunner skips buffering command output to avoid memory waste.
+     */
+    default boolean supportsCommandResult() {
+        return false;
+    }
+
+    /**
      * Signals that a shell command has finished executing.
      * Default implementation is a no-op (Swing already saw output via commandOutput).
      * Headless consoles override to emit a COMMAND_RESULT event.

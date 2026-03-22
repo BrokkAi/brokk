@@ -283,6 +283,11 @@ public class HeadlessHttpConsole extends MemoryConsole {
     }
 
     @Override
+    public boolean supportsCommandResult() {
+        return true;
+    }
+
+    @Override
     public void commandOutput(String line) {
         // no-op: TUI receives full output via commandResult
     }
