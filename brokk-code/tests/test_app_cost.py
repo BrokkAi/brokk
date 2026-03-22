@@ -58,6 +58,12 @@ class FakeChat:
     def set_response_finished(self):
         pass
 
+    def get_commands_running(self):
+        return 0
+
+    def set_commands_running(self, count):
+        pass
+
     def set_session_loading(self, loading: bool, message: str | None = None):
         pass
 

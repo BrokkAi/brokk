@@ -2131,7 +2131,12 @@ class BrokkApp(App):
                 if chat:
                     chat.set_response_finished()
                     chat.set_job_running(False)
-                    # Reset commands running counter when job ends
+                    stale = chat.get_commands_running()
+                    if stale > 0:
+                        logger.warning(
+                            "Job ended with %d command(s) still running",
+                            stale,
+                        )
                     chat.set_commands_running(0)
                 self.job_in_progress = False
             self.current_job_id = None
