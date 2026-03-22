@@ -1494,6 +1494,10 @@ class ChatPanel(Vertical):
         """Returns the command history for the /ps modal."""
         return list(self._command_history)
 
+    def clear_command_history(self) -> None:
+        """Clears the command history."""
+        self._command_history.clear()
+
     def add_running_command(self, key: str) -> None:
         """Registers a command as running and updates the status line."""
         self._running_commands.add(key)

@@ -71,6 +71,9 @@ class FakeChat:
     def clear_running_commands(self):
         pass
 
+    def clear_command_history(self):
+        pass
+
     def set_session_loading(self, loading: bool, message: str | None = None):
         pass
 

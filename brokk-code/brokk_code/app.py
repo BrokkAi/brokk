@@ -4143,7 +4143,7 @@ class BrokkApp(App):
             save_last_session_id(self.executor.workspace_dir, session_id)
 
             chat._message_history.clear()
-            chat._command_history.clear()
+            chat.clear_command_history()
             chat.clear_running_commands()
             log = chat.query_one("#chat-log")
             res = log.query("*").remove()
@@ -4236,7 +4236,7 @@ class BrokkApp(App):
 
             # Clear UI and history
             chat._message_history.clear()
-            chat._command_history.clear()
+            chat.clear_command_history()
             chat.clear_running_commands()
             # Clear log container (the ScrollableContainer containing message widgets)
             log = chat.query_one("#chat-log")
