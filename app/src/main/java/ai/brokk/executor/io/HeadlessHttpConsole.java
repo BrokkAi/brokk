@@ -302,7 +302,7 @@ public class HeadlessHttpConsole extends MemoryConsole {
         data.put("stage", stage);
         data.put("command", command);
         data.put("success", success);
-        data.put("output", output != null ? output : "");
+        data.put("output", output);
         if (exception != null && !exception.isBlank()) {
             data.put("exception", exception);
         }

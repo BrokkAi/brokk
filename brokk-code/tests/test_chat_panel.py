@@ -2426,3 +2426,92 @@ async def test_chat_panel_reflow_on_resize():
         # Verify content still exists
         content = "".join(str(line) for line in log.lines)
         assert "very long message" in content
+
+
+@pytest.mark.asyncio
+async def test_command_start_result_lifecycle_integration():
+    """Integration test: COMMAND_START increments running count, COMMAND_RESULT decrements it
+    and stores history accessible via /ps."""
+    from brokk_code.app import BrokkApp
+    from brokk_code.widgets.status_line import StatusLine
+
+    executor = MagicMock()
+    app = BrokkApp(executor=executor)
+
+    async def _noop() -> None:
+        return None
+
+    app._start_executor = _noop  # type: ignore[method-assign]
+    app._monitor_executor = _noop  # type: ignore[method-assign]
+    app._poll_tasklist = _noop  # type: ignore[method-assign]
+    app._poll_context = _noop  # type: ignore[method-assign]
+
+    async with app.run_test() as pilot:
+        chat = app.query_one(ChatPanel)
+        status = chat.query_one("#status-line", StatusLine)
+
+        # Initially no commands running
+        assert chat.get_commands_running() == 0
+
+        # Simulate COMMAND_START
+        app._handle_event({
+            "type": "COMMAND_START",
+            "data": {"stage": "Verification", "command": "make test"},
+        })
+        await pilot.pause()
+
+        assert chat.get_commands_running() == 1
+        assert status._commands_running == 1
+
+        # Second command starts
+        app._handle_event({
+            "type": "COMMAND_START",
+            "data": {"stage": "Post-Task", "command": "make lint"},
+        })
+        await pilot.pause()
+
+        assert chat.get_commands_running() == 2
+
+        # First command finishes
+        app._handle_event({
+            "type": "COMMAND_RESULT",
+            "data": {
+                "stage": "Verification",
+                "command": "make test",
+                "success": True,
+                "output": "All 42 tests passed",
+            },
+        })
+        await pilot.pause()
+
+        assert chat.get_commands_running() == 1
+        history = chat.get_command_history()
+        assert len(history) == 1
+        assert history[0]["stage"] == "Verification"
+        assert history[0]["success"] is True
+
+        # Second command fails
+        app._handle_event({
+            "type": "COMMAND_RESULT",
+            "data": {
+                "stage": "Post-Task",
+                "command": "make lint",
+                "success": False,
+                "output": "lint errors found",
+                "exception": "Process exited with code 1",
+            },
+        })
+        await pilot.pause()
+
+        assert chat.get_commands_running() == 0
+        assert status._commands_running == 0
+        history = chat.get_command_history()
+        assert len(history) == 2
+        assert history[1]["stage"] == "Post-Task"
+        assert history[1]["success"] is False
+        assert history[1]["exception"] == "Process exited with code 1"
+
+        # Verify chat shows compact summaries (not full output)
+        log_text = "".join(str(line) for line in chat.query_one("#chat-log").lines)
+        assert "All 42 tests passed" not in log_text  # output not in chat
+        assert "lint errors found" not in log_text  # output not in chat
