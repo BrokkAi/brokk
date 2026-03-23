@@ -93,6 +93,7 @@ public class GitIgnoreConfigurator {
                 content += "!AGENTS.md\n";
                 content += "!**/.brokk/style.md\n";
                 content += "!**/.brokk/project.properties\n";
+                content += "!**/.brokk/code_intelligence/macros/*.yml\n";
 
                 AtomicWrites.save(gitignorePf.absPath(), content);
                 gitignoreUpdated = true;
