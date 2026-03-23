@@ -1,6 +1,7 @@
 package ai.brokk.analyzer.cache;
 
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.util.PathNormalizer;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import java.util.Set;
@@ -32,7 +33,8 @@ public final class GoAnalyzerCache extends AnalyzerCache {
         previous.importPathToPackageNameCache.asMap().forEach((importPath, packageName) -> {
             boolean affected = false;
             for (ProjectFile pf : changedFiles) {
-                String relPath = pf.getRelPath().toString().replace('\\', '/');
+                String relPath =
+                        PathNormalizer.canonicalizeForProject(pf.getRelPath().toString(), pf.getRoot());
                 if (relPath.contains("/" + importPath + "/") || relPath.startsWith(importPath + "/")) {
                     affected = true;
                     break;
