@@ -48,8 +48,12 @@ public class FileSystemWalker {
                 public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
                     // Use attrs.isRegularFile() - more efficient and consistent
                     if (attrs.isRegularFile()) {
-                        var relPath = root.relativize(file);
-                        files.add(new ProjectFile(root, relPath));
+                        try {
+                            var relPath = root.relativize(file);
+                            files.add(new ProjectFile(root, relPath));
+                        } catch (IllegalArgumentException e) {
+                            logger.trace("Skipping file with unsupported path: {}", file);
+                        }
                     }
                     return FileVisitResult.CONTINUE;
                 }

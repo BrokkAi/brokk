@@ -245,6 +245,7 @@ class AcpStdioExecutor:
         self._response_futures: Dict[int, asyncio.Future[Any]] = {}
         self._notification_queue: asyncio.Queue[Dict[str, Any]] = asyncio.Queue()
         self._reader_task: Optional[asyncio.Task[None]] = None
+        self._stderr_task: Optional[asyncio.Task[None]] = None
         self.session_id: Optional[str] = None
 
     def _find_dev_jar(self) -> Optional[Path]:
@@ -339,7 +340,21 @@ class AcpStdioExecutor:
                 )
 
         self._reader_task = asyncio.create_task(self._read_stdout())
+        self._stderr_task = asyncio.create_task(self._drain_stderr())
         logger.info("ACP server subprocess started")
+
+    async def _drain_stderr(self) -> None:
+        """Drains stderr to prevent pipe buffer deadlock."""
+        assert self._process is not None
+        assert self._process.stderr is not None
+        while True:
+            try:
+                line = await self._process.stderr.readline()
+            except Exception:
+                break
+            if not line:
+                break
+            logger.debug("ACP server stderr: %s", line.decode().rstrip())
 
     async def _read_stdout(self) -> None:
         """Background task reading JSON-RPC messages from stdout."""
@@ -473,13 +488,15 @@ class AcpStdioExecutor:
 
     async def stop(self) -> None:
         """Stops the subprocess."""
-        if self._reader_task:
-            self._reader_task.cancel()
-            try:
-                await self._reader_task
-            except asyncio.CancelledError:
-                pass
-            self._reader_task = None
+        for task in (self._reader_task, self._stderr_task):
+            if task:
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+        self._reader_task = None
+        self._stderr_task = None
 
         if self._process:
             self._process.terminate()

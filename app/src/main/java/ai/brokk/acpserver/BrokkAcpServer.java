@@ -41,7 +41,6 @@ import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
@@ -52,38 +51,35 @@ import org.apache.logging.log4j.Logger;
  * <p>
  * This provides MCP-like tool access via the Agent Client Protocol,
  * allowing IDE integrations to interact with Brokk's agentic tools.
+ * <p>
+ * Per the ACP spec, the working directory is provided by the client
+ * via {@code session/new}, not by the process cwd. Project initialization
+ * is deferred until the first session is created.
  */
 public class BrokkAcpServer {
     private static final Logger logger = LogManager.getLogger(BrokkAcpServer.class);
 
-    private final ContextManager cm;
-
-    public BrokkAcpServer(ContextManager cm) {
-        this.cm = cm;
-    }
+    private MainProject project;
+    private ContextManager cm;
+    private volatile boolean initializing;
+    private volatile String initError;
 
     public static void main(String[] args) {
         System.setProperty("java.awt.headless", "true");
 
-        Path projectPath = Path.of(".").toAbsolutePath().normalize();
-
-        try (var project = new MainProject(projectPath);
-                var cm = new ContextManager(project)) {
-
-            cm.createHeadless(true, new MutedConsoleIO(cm.getIo()));
-
-            BrokkAcpServer instance = new BrokkAcpServer(cm);
-
-            for (String arg : args) {
-                if ("--help".equals(arg) || "-h".equals(arg)) {
-                    System.out.println("Brokk ACP Server v" + BuildInfo.version);
-                    System.out.println("Provides Agent Client Protocol (ACP) access to Brokk's agentic tools.");
-                    System.out.println();
-                    System.out.println("Usage: Run this server as a subprocess, communicating via stdin/stdout.");
-                    System.exit(0);
-                }
+        for (String arg : args) {
+            if ("--help".equals(arg) || "-h".equals(arg)) {
+                System.out.println("Brokk ACP Server v" + BuildInfo.version);
+                System.out.println("Provides Agent Client Protocol (ACP) access to Brokk's agentic tools.");
+                System.out.println();
+                System.out.println("Usage: Run this server as a subprocess, communicating via stdin/stdout.");
+                System.exit(0);
             }
+        }
 
+        var instance = new BrokkAcpServer();
+
+        try {
             AcpSyncAgent agent = instance.buildAgent();
             logger.info("Brokk ACP Server started");
 
@@ -91,6 +87,7 @@ public class BrokkAcpServer {
                     .addShutdownHook(new Thread(
                             () -> {
                                 logger.info("Brokk ACP Server shutting down");
+                                instance.close();
                             },
                             "BrokkACP-Server-ShutdownHook"));
 
@@ -98,6 +95,8 @@ public class BrokkAcpServer {
         } catch (Exception e) {
             logger.error("Failed to start Brokk ACP Server", e);
             System.exit(1);
+        } finally {
+            instance.close();
         }
     }
 
@@ -117,6 +116,67 @@ public class BrokkAcpServer {
                 .build();
     }
 
+    private void startProjectInitialization(Path projectPath) {
+        close();
+        initializing = true;
+        initError = null;
+        logger.info("Starting project initialization at {}", projectPath);
+        var initThread = new Thread(
+                () -> {
+                    try {
+                        var p = new MainProject(projectPath);
+                        var c = new ContextManager(p);
+                        c.createHeadless(true, new MutedConsoleIO(c.getIo()));
+                        project = p;
+                        cm = c;
+                        logger.info("Project initialized at {}", projectPath);
+                    } catch (Exception e) {
+                        initError = e.getMessage();
+                        logger.error("Failed to initialize project at {}", projectPath, e);
+                    } finally {
+                        initializing = false;
+                    }
+                },
+                "BrokkACP-ProjectInit");
+        initThread.setDaemon(true);
+        initThread.start();
+    }
+
+    private void close() {
+        if (cm != null) {
+            try {
+                cm.close();
+            } catch (Exception e) {
+                logger.warn("Error closing ContextManager", e);
+            }
+            cm = null;
+        }
+        if (project != null) {
+            try {
+                project.close();
+            } catch (Exception e) {
+                logger.warn("Error closing MainProject", e);
+            }
+            project = null;
+        }
+    }
+
+    private ContextManager requireSession() {
+        if (initializing) {
+            throw new AcpProtocolException(
+                    AcpProtocolException.INVALID_PARAMS, "Session is still initializing. Please wait.");
+        }
+        if (initError != null) {
+            throw new AcpProtocolException(
+                    AcpProtocolException.INVALID_PARAMS, "Session initialization failed: " + initError);
+        }
+        if (cm == null) {
+            throw new AcpProtocolException(
+                    AcpProtocolException.INVALID_PARAMS, "No active session. Call session/new first.");
+        }
+        return cm;
+    }
+
     private InitializeResponse handleInitialize(InitializeRequest req) {
         logger.debug("Received initialize request with protocol version {}", req.protocolVersion());
         if (req.protocolVersion() != 1) {
@@ -129,25 +189,29 @@ public class BrokkAcpServer {
 
     private NewSessionResponse handleNewSession(NewSessionRequest req) {
         String sessionId = UUID.randomUUID().toString();
-        logger.debug("Creating new ACP session {} for working directory {}", sessionId, req.workingDirectory());
+        var workingDir = req.workingDirectory();
+        logger.debug("Creating new ACP session {} for working directory {}", sessionId, workingDir);
 
-        // Validate working directory matches server's project root
-        if (req.workingDirectory() != null) {
-            var requestedDir = Path.of(req.workingDirectory()).toAbsolutePath().normalize();
-            var projectRoot = cm.getProject().getRoot().toAbsolutePath().normalize();
-            if (!requestedDir.equals(projectRoot)) {
-                logger.warn(
-                        "Requested workingDirectory {} differs from server project root {}", requestedDir, projectRoot);
-            }
+        if (workingDir == null || workingDir.isBlank()) {
+            throw new AcpProtocolException(
+                    AcpProtocolException.INVALID_PARAMS, "workingDirectory is required in session/new");
         }
 
-        // Clear workspace for fresh session
-        cm.dropWithHistorySemantics(List.of());
+        var requestedPath = Path.of(workingDir).toAbsolutePath().normalize();
+
+        // Initialize or re-initialize project if the directory changed
+        if (cm == null
+                || !cm.getProject().getRoot().toAbsolutePath().normalize().equals(requestedPath)) {
+            startProjectInitialization(requestedPath);
+        } else {
+            cm.dropWithHistorySemantics(List.of());
+        }
 
         return new NewSessionResponse(sessionId, null, null);
     }
 
     private PromptResponse handlePrompt(PromptRequest req, SyncPromptContext ctx) {
+        var activeCm = requireSession();
         logger.debug("Received prompt request for session {}", req.sessionId());
 
         // Extract text from messages
@@ -163,15 +227,15 @@ public class BrokkAcpServer {
         }
 
         // Create ACP progress console and swap it in
-        IConsoleIO originalIo = cm.getIo();
+        IConsoleIO originalIo = activeCm.getIo();
         IConsoleIO progressIo = new AcpProgressConsole(ctx, originalIo);
-        cm.setIo(progressIo);
+        activeCm.setIo(progressIo);
 
         try {
             // Execute using CodeAgent (similar to MCP's callCodeAgent)
-            var model = requireNonNull(
-                    cm.getService().getModel(cm.getProject().getModelConfig(ModelProperties.ModelType.CODE)));
-            var ca = new CodeAgent(cm, model);
+            var model = requireNonNull(activeCm.getService()
+                    .getModel(activeCm.getProject().getModelConfig(ModelProperties.ModelType.CODE)));
+            var ca = new CodeAgent(activeCm, model);
 
             TaskResult result = ca.execute(instructions, EnumSet.noneOf(CodeAgent.Option.class), List.of());
 
@@ -210,69 +274,74 @@ public class BrokkAcpServer {
                 acpConsole.shutdown();
             }
             try {
-                cm.setIo(originalIo);
+                activeCm.setIo(originalIo);
             } catch (Exception e) {
                 logger.error("Failed to restore original IO", e);
-                }
-                }
-                }
+            }
+        }
+    }
 
-                private ModelsListResponse handleModelsList(ModelsListRequest req) {
-                logger.debug("Received models/list request");
-                var models = cm.getService().getAvailableModels();
-                return new ModelsListResponse(models);
-                }
+    private ModelsListResponse handleModelsList(ModelsListRequest req) {
+        logger.debug("Received models/list request");
+        if (cm == null) {
+            return new ModelsListResponse(Map.of());
+        }
+        var models = cm.getService().getAvailableModels();
+        return new ModelsListResponse(models);
+    }
 
-                private ContextGetResponse handleContextGet(ContextGetRequest req) {
-                    logger.debug("Received context/get request");
-                    var context = cm.liveContext();
-                    var fragments = context.getAllFragmentsInDisplayOrder().stream()
-                            .map(f -> new ContextFragmentInfo(
-                                    f.id(),
-                                    f.getType().name(),
-                                    f.shortDescription().join()))
-                            .toList();
-                    return new ContextGetResponse(fragments);
-                }
+    private ContextGetResponse handleContextGet(ContextGetRequest req) {
+        logger.debug("Received context/get request");
+        var activeCm = requireSession();
+        var context = activeCm.liveContext();
+        var fragments = context.getAllFragmentsInDisplayOrder().stream()
+                .map(f -> new ContextFragmentInfo(
+                        f.id(), f.getType().name(), f.shortDescription().join()))
+                .toList();
+        return new ContextGetResponse(fragments);
+    }
 
-                private ContextAddFilesResponse handleContextAddFiles(ContextAddFilesRequest req) {
-                    logger.debug("Received context/add-files request with {} paths", req.relativePaths().size());
-                    var files = req.relativePaths().stream()
-                            .map(cm::toFile)
-                            .toList();
-                    cm.addFiles(files);
+    private ContextAddFilesResponse handleContextAddFiles(ContextAddFilesRequest req) {
+        logger.debug(
+                "Received context/add-files request with {} paths",
+                req.relativePaths().size());
+        var activeCm = requireSession();
+        var files = req.relativePaths().stream().map(activeCm::toFile).toList();
+        activeCm.addFiles(files);
 
-                    var addedIds = new ArrayList<String>();
-                    var context = cm.liveContext();
-                    for (var fragment : context.getAllFragmentsInDisplayOrder()) {
-                        var sourceFiles = fragment.sourceFiles().join();
-                        for (var file : files) {
-                            if (sourceFiles.contains(file)) {
-                                addedIds.add(fragment.id());
-                                break;
-                            }
-                        }
-                    }
-                    return new ContextAddFilesResponse(addedIds);
+        var addedIds = new ArrayList<String>();
+        var context = activeCm.liveContext();
+        for (var fragment : context.getAllFragmentsInDisplayOrder()) {
+            var sourceFiles = fragment.sourceFiles().join();
+            for (var file : files) {
+                if (sourceFiles.contains(file)) {
+                    addedIds.add(fragment.id());
+                    break;
                 }
+            }
+        }
+        return new ContextAddFilesResponse(addedIds);
+    }
 
-                private ContextDropResponse handleContextDrop(ContextDropRequest req) {
-                logger.debug("Received context/drop request with {} fragment IDs", req.fragmentIds().size());
-                var droppedIds = new ArrayList<>(req.fragmentIds());
-                cm.pushContext(ctx -> ctx.removeFragmentsByIds(req.fragmentIds()));
-                return new ContextDropResponse(droppedIds);
-                }
+    private ContextDropResponse handleContextDrop(ContextDropRequest req) {
+        logger.debug(
+                "Received context/drop request with {} fragment IDs",
+                req.fragmentIds().size());
+        var activeCm = requireSession();
+        var droppedIds = new ArrayList<>(req.fragmentIds());
+        activeCm.pushContext(ctx -> ctx.removeFragmentsByIds(req.fragmentIds()));
+        return new ContextDropResponse(droppedIds);
+    }
 
-                private SessionsListResponse handleSessionsList(SessionsListRequest req) {
-                logger.debug("Received sessions/list request");
-                var sessionManager = cm.getProject().getSessionManager();
-                var sessions = sessionManager.listSessions().stream()
-                    .map(s -> new SessionInfoDto(
-                            s.id().toString(),
-                            s.name(),
-                            s.created(),
-                            s.modified()))
-                    .toList();
-                return new SessionsListResponse(sessions);
-                }
-                }
+    private SessionsListResponse handleSessionsList(SessionsListRequest req) {
+        logger.debug("Received sessions/list request");
+        if (cm == null) {
+            return new SessionsListResponse(List.of());
+        }
+        var sessionManager = cm.getProject().getSessionManager();
+        var sessions = sessionManager.listSessions().stream()
+                .map(s -> new SessionInfoDto(s.id().toString(), s.name(), s.created(), s.modified()))
+                .toList();
+        return new SessionsListResponse(sessions);
+    }
+}

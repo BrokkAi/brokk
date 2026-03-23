@@ -113,7 +113,8 @@ public final class AcpAgent {
         /**
          * Sets the handler for context/add-files requests.
          */
-        public SyncAgentBuilder contextAddFilesHandler(Function<ContextAddFilesRequest, ContextAddFilesResponse> handler) {
+        public SyncAgentBuilder contextAddFilesHandler(
+                Function<ContextAddFilesRequest, ContextAddFilesResponse> handler) {
             this.contextAddFilesHandler = handler;
             return this;
         }

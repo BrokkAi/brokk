@@ -159,8 +159,7 @@ class BrokkAcpServerTest {
 
     @Test
     void contextGetResponseCanBeCreated() {
-        var fragments = List.of(
-                new ContextFragmentInfo("id1", "PROJECT_PATH", "src/Main.java"));
+        var fragments = List.of(new ContextFragmentInfo("id1", "PROJECT_PATH", "src/Main.java"));
         var response = new ContextGetResponse(fragments);
         assertEquals(1, response.fragments().size());
         assertEquals("id1", response.fragments().get(0).id());
@@ -198,8 +197,7 @@ class BrokkAcpServerTest {
 
     @Test
     void sessionsListResponseCanBeCreated() {
-        var sessions = List.of(
-                new SessionInfoDto("uuid-1", "Session 1", 1000L, 2000L));
+        var sessions = List.of(new SessionInfoDto("uuid-1", "Session 1", 1000L, 2000L));
         var response = new SessionsListResponse(sessions);
         assertEquals(1, response.sessions().size());
         assertEquals("Session 1", response.sessions().get(0).name());

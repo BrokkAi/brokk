@@ -1067,9 +1067,7 @@ class AcpStdioBridge:
                 try:
                     await self.executor.drop_context_fragments(attached_fragment_ids)
                 except Exception:
-                    logger.exception(
-                        "Failed to rollback context fragments after prompt failure"
-                    )
+                    logger.exception("Failed to rollback context fragments after prompt failure")
             raise
 
     async def cancel(self, *args: Any, **kwargs: Any) -> None:
@@ -1150,7 +1148,9 @@ async def run_acp_server(
             original_build_agent_router = acp_agent_router.build_agent_router
 
             def patched_build_agent_router(agent: Any, use_unstable_protocol: bool = False) -> Any:
-                router = original_build_agent_router(agent, use_unstable_protocol=use_unstable_protocol)
+                router = original_build_agent_router(
+                    agent, use_unstable_protocol=use_unstable_protocol
+                )
                 router.route_request(
                     AGENT_METHODS["session_set_config_option"],
                     SetSessionConfigOptionRequest,
@@ -1234,7 +1234,9 @@ async def run_acp_server(
                 if current_model not in model_names and model_names:
                     current_model = model_names[0]
                     self._model_by_session[session_id] = current_model
-                current_reasoning = self._reasoning_by_session.get(session_id, DEFAULT_REASONING_LEVEL)
+                current_reasoning = self._reasoning_by_session.get(
+                    session_id, DEFAULT_REASONING_LEVEL
+                )
                 reasoning_options = _reasoning_options_for_model(current_model, catalog)
                 if current_reasoning not in reasoning_options:
                     current_reasoning = "default"
@@ -1363,7 +1365,9 @@ async def run_acp_server(
                         AvailableCommand(name=cmd["name"], description=cmd["description"])
                         for cmd in acp_slash_commands()
                     ]
-                    await self.client.session_update(session_id, update_available_commands(commands))
+                    await self.client.session_update(
+                        session_id, update_available_commands(commands)
+                    )
 
                 task = asyncio.create_task(_run())
                 self._commands_tasks.add(task)
@@ -1430,7 +1434,9 @@ async def run_acp_server(
                 **kwargs: Any,
             ) -> NewSessionResponse:
                 del mcp_servers
-                requested_name = str(kwargs.get("title") or kwargs.get("name") or "ACP Session").strip()
+                requested_name = str(
+                    kwargs.get("title") or kwargs.get("name") or "ACP Session"
+                ).strip()
                 session_name = requested_name or "ACP Session"
                 session_id = await stdio_bridge.start_and_create_session(name=session_name, cwd=cwd)
                 self._ensure_session_defaults(session_id, cwd)
@@ -1518,7 +1524,9 @@ async def run_acp_server(
                     session_cwd = None
                     if isinstance(entry, dict):
                         updated_at = _to_iso8601_utc(
-                            entry.get("modified") or entry.get("updatedAt") or entry.get("updated_at")
+                            entry.get("modified")
+                            or entry.get("updatedAt")
+                            or entry.get("updated_at")
                         )
                         session_cwd = entry.get("cwd")
                     if isinstance(session_cwd, str) and session_cwd.strip():
@@ -1652,7 +1660,9 @@ async def run_acp_server(
                     available = _available_model_names(catalog)
                     available_set = set(available)
                     fallback_model = available[0] if available else DEFAULT_MODEL_SELECTION
-                    chosen_model = selected_model if selected_model in available_set else fallback_model
+                    chosen_model = (
+                        selected_model if selected_model in available_set else fallback_model
+                    )
                     self._model_by_session[session_id] = chosen_model
                     try:
                         self._default_model_id = chosen_model
@@ -1722,7 +1732,9 @@ async def run_acp_server(
                     planner_model_id, str(reasoning_level), catalog
                 )
                 reasoning_level_code = (
-                    kwargs.get("reasoning_level_code") or kwargs.get("reasoningLevelCode") or "disable"
+                    kwargs.get("reasoning_level_code")
+                    or kwargs.get("reasoningLevelCode")
+                    or "disable"
                 )
                 if not self.client:
                     raise ExecutorError("ACP client connection not established.")
