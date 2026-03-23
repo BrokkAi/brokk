@@ -203,6 +203,7 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
             try {
                 if (awaitHeadlessInitOrRespond(exchange, jobId)) return;
                 var responseSessionId = ensureActiveSessionForSubmission(sessionIdHeader);
+                jobStore.persistSessionId(jobId, responseSessionId);
                 response.put("sessionId", responseSessionId.toString());
 
                 var contextTextFragmentIds = new ArrayList<String>();
@@ -235,7 +236,7 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
             }
         } else {
             try {
-                var responseSessionId = resolveResponseSessionId(sessionIdHeader, true);
+                var responseSessionId = resolveReplaySessionId(jobId, sessionIdHeader, true);
                 response.put("sessionId", responseSessionId.toString());
                 SimpleHttpServer.sendJsonResponse(exchange, 200, response);
             } catch (Exception e) {
@@ -308,6 +309,7 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
             try {
                 if (awaitHeadlessInitOrRespond(exchange, jobId)) return;
                 var responseSessionId = resolveResponseSessionId(null, true);
+                jobStore.persistSessionId(jobId, responseSessionId);
                 executeJobAsync(jobId, jobSpec, List.of());
                 SimpleHttpServer.sendJsonResponse(
                         exchange,
@@ -320,7 +322,7 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
             }
         } else {
             try {
-                var responseSessionId = resolveResponseSessionId(null, true);
+                var responseSessionId = resolveReplaySessionId(jobId, null, true);
                 SimpleHttpServer.sendJsonResponse(
                         exchange,
                         200,
@@ -381,6 +383,7 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
             try {
                 if (awaitHeadlessInitOrRespond(exchange, jobId)) return;
                 var responseSessionId = resolveResponseSessionId(null, true);
+                jobStore.persistSessionId(jobId, responseSessionId);
                 executeJobAsync(jobId, jobSpec, List.of());
                 SimpleHttpServer.sendJsonResponse(
                         exchange,
@@ -393,7 +396,7 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
             }
         } else {
             try {
-                var responseSessionId = resolveResponseSessionId(null, true);
+                var responseSessionId = resolveReplaySessionId(jobId, null, true);
                 SimpleHttpServer.sendJsonResponse(
                         exchange,
                         200,
@@ -526,8 +529,7 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
         }
 
         logger.warn(
-                "Current session {} is unavailable; creating fallback session before job submission",
-                currentSessionId);
+                "Current session {} is unavailable; creating fallback session before job submission", currentSessionId);
         contextManager.createSessionAsync(ContextManager.DEFAULT_SESSION_NAME).get(30, TimeUnit.SECONDS);
 
         var replacementSessionId = contextManager.getCurrentSessionId();
@@ -547,6 +549,32 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
             return ensureActiveSessionForSubmission(null);
         }
         return contextManager.getCurrentSessionId();
+    }
+
+    private @Nullable UUID loadPersistedJobSessionId(String jobId) throws IOException {
+        var spec = jobStore.loadSpec(jobId);
+        if (spec == null) {
+            return null;
+        }
+        var raw = spec.tags().get("session_id");
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        try {
+            return UUID.fromString(raw);
+        } catch (IllegalArgumentException e) {
+            logger.warn("Job {} has invalid persisted session_id '{}'", jobId, raw);
+            return null;
+        }
+    }
+
+    private UUID resolveReplaySessionId(String jobId, @Nullable UUID requestedSessionId, boolean ensureAvailable)
+            throws Exception {
+        var persisted = loadPersistedJobSessionId(jobId);
+        if (persisted != null) {
+            return persisted;
+        }
+        return resolveResponseSessionId(requestedSessionId, ensureAvailable);
     }
 
     private void maybeAutoRenameSession(UUID sessionId, String taskInput) {

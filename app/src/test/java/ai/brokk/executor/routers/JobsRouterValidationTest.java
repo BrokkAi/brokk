@@ -1,8 +1,8 @@
 package ai.brokk.executor.routers;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.ContextManager;
@@ -211,9 +211,8 @@ class JobsRouterValidationTest {
         assertNotNull(sessionIdObj);
         String sessionId = String.valueOf(sessionIdObj);
         assertTrue(!sessionId.isBlank());
-        assertTrue(
-                contextManager.getProject().getSessionManager().listSessions().stream()
-                        .anyMatch(s -> s.id().toString().equals(sessionId)));
+        assertTrue(contextManager.getProject().getSessionManager().listSessions().stream()
+                .anyMatch(s -> s.id().toString().equals(sessionId)));
     }
 
     @Test
@@ -225,6 +224,18 @@ class JobsRouterValidationTest {
         first.getRequestHeaders().set("Idempotency-Key", idemKey);
         jobsRouter.handle(first);
         assertEquals(201, first.responseCode());
+        @SuppressWarnings("unchecked")
+        Map<String, Object> firstPayload = MAPPER.readValue(first.responseBodyBytes(), Map.class);
+        Object firstSessionIdObj = firstPayload.get("sessionId");
+        assertNotNull(firstSessionIdObj);
+        String firstSessionId = String.valueOf(firstSessionIdObj);
+        assertTrue(!firstSessionId.isBlank());
+
+        // Change active session to prove replay returns original persisted sessionId,
+        // not recomputed current session state.
+        var sm = jobsRouter.contextManager.getProject().getSessionManager();
+        var otherSessionId = sm.newSession("Other Session").id();
+        contextManager.switchSessionAsync(otherSessionId).get();
 
         var second = TestHttpExchange.jsonRequest("POST", "/v1/jobs", body);
         second.getRequestHeaders().set("Idempotency-Key", idemKey);
@@ -235,7 +246,45 @@ class JobsRouterValidationTest {
         Map<String, Object> secondPayload = MAPPER.readValue(second.responseBodyBytes(), Map.class);
         Object sessionIdObj = secondPayload.get("sessionId");
         assertNotNull(sessionIdObj);
-        assertTrue(!String.valueOf(sessionIdObj).isBlank());
+        assertEquals(firstSessionId, String.valueOf(sessionIdObj));
+    }
+
+    @Test
+    void postIssueJob_idempotentReplay_returnsPersistedSessionId() throws Exception {
+        String idemKey = UUID.randomUUID().toString();
+        Map<String, Object> body = Map.of(
+                "owner",
+                "brokk",
+                "repo",
+                "repo",
+                "issueNumber",
+                123,
+                "githubToken",
+                "ghp_test",
+                "plannerModel",
+                "gpt-4");
+
+        var first = TestHttpExchange.jsonRequest("POST", "/v1/jobs/issue", body);
+        first.getRequestHeaders().set("Idempotency-Key", idemKey);
+        jobsRouter.handle(first);
+        assertEquals(201, first.responseCode());
+        @SuppressWarnings("unchecked")
+        Map<String, Object> firstPayload = MAPPER.readValue(first.responseBodyBytes(), Map.class);
+        String firstSessionId = String.valueOf(firstPayload.get("sessionId"));
+        assertTrue(!firstSessionId.isBlank());
+
+        var sm = jobsRouter.contextManager.getProject().getSessionManager();
+        var otherSessionId = sm.newSession("Issue Replay Session").id();
+        contextManager.switchSessionAsync(otherSessionId).get();
+
+        var second = TestHttpExchange.jsonRequest("POST", "/v1/jobs/issue", body);
+        second.getRequestHeaders().set("Idempotency-Key", idemKey);
+        jobsRouter.handle(second);
+        assertEquals(200, second.responseCode());
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> secondPayload = MAPPER.readValue(second.responseBodyBytes(), Map.class);
+        assertEquals(firstSessionId, String.valueOf(secondPayload.get("sessionId")));
     }
 
     @Test

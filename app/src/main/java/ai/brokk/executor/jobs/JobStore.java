@@ -253,6 +253,54 @@ public final class JobStore {
     }
 
     /**
+     * Persist the effective session id for a job in meta.json.
+     *
+     * <p>This is used so idempotent replays can return the exact session used when the job was first
+     * accepted, rather than recomputing from current executor state.
+     *
+     * @param jobId The job ID
+     * @param sessionId The effective session ID used for submission
+     * @throws IOException If I/O fails
+     */
+    public synchronized void persistSessionId(String jobId, UUID sessionId) throws IOException {
+        var metaFile = jobsDir.resolve(jobId).resolve("meta.json");
+        if (!Files.exists(metaFile)) {
+            return;
+        }
+
+        var spec = objectMapper.readValue(metaFile.toFile(), JobSpec.class);
+        var existing = spec.tags().get("session_id");
+        var desired = sessionId.toString();
+        if (desired.equals(existing)) {
+            return;
+        }
+
+        var tags = new HashMap<>(spec.tags());
+        tags.put("session_id", desired);
+        var updated = new JobSpec(
+                spec.taskInput(),
+                spec.autoCommit(),
+                spec.autoCompress(),
+                spec.plannerModel(),
+                spec.scanModel(),
+                spec.codeModel(),
+                spec.preScan(),
+                tags,
+                spec.sourceBranch(),
+                spec.targetBranch(),
+                spec.reasoningLevel(),
+                spec.reasoningLevelCode(),
+                spec.temperature(),
+                spec.temperatureCode(),
+                spec.skipVerification(),
+                spec.maxIssueFixAttempts());
+
+        var tempMetaFile = metaFile.resolveSibling(".meta.json.tmp");
+        objectMapper.writeValue(tempMetaFile.toFile(), updated);
+        Files.move(tempMetaFile, metaFile, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+    }
+
+    /**
      * Write an artifact file (e.g., diff.txt) for a job.
      *
      * @param jobId The job ID
