@@ -71,7 +71,29 @@ public interface MacroExpansionProvider extends CapabilityProvider {
                                 boolean handled = false;
                                 MacroPolicy.MacroMatch mm = policyMap.get(macroName);
                                 if (mm != null) {
-                                    if (mm.strategy() == MacroPolicy.MacroStrategy.TEMPLATE
+                                    String parent = mm.parent();
+                                    boolean parentRequirementMet = parent == null;
+
+                                    if (parent != null) {
+                                        parentRequirementMet = analyzer.as(ImportAnalysisProvider.class)
+                                                .map(provider -> {
+                                                    try {
+                                                        List<ImportInfo> infos = provider.importInfoOf(file);
+                                                        return infos.stream().anyMatch(info -> {
+                                                            boolean nameMatches = info.isWildcard()
+                                                                    || Objects.equals(info.identifier(), macroName);
+                                                            return nameMatches && info.rawSnippet().contains(parent);
+                                                        });
+                                                    } catch (Exception e) {
+                                                        // Fallback if provider is called before file state is fully ready
+                                                        return false;
+                                                    }
+                                                })
+                                                .orElse(false);
+                                    }
+
+                                    if (parentRequirementMet
+                                            && mm.strategy() == MacroPolicy.MacroStrategy.TEMPLATE
                                             && mm.options() instanceof MacroPolicy.TemplateConfig tc) {
                                         expandTemplate(analyzer, file, node, tc.template(), acc);
                                         handled = true;
