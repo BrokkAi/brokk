@@ -1,5 +1,6 @@
 package ai.brokk.analyzer.macro;
 
+import static ai.brokk.testutil.AssertionHelperUtil.assertCodeEquals;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.analyzer.CodeUnit;
@@ -58,8 +59,15 @@ public class RustMacroTest {
             Optional<String> source = analyzer.getSource(isRunning, false);
             assertTrue(source.isPresent(), "Source should be present for synthetic function Status.is_Running");
             String sourceText = source.get();
-            assertTrue(sourceText.contains("# This declaration is synthetic"), "Source should contain synthetic marker");
+            assertTrue(
+                    sourceText.contains("# This declaration is synthetic"), "Source should contain synthetic marker");
             assertTrue(sourceText.contains("fn is_Running"), "Source should contain function signature");
+            assertCodeEquals(
+                    """
+                # This declaration is synthetic
+                pub fn is_Running(&self) -> bool { ... }
+                """,
+                    sourceText);
         }
     }
 

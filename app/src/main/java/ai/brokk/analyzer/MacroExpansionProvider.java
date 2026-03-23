@@ -159,8 +159,7 @@ public interface MacroExpansionProvider extends CapabilityProvider {
         String nodeText = sourceContent.substringFrom(targetNode);
         if (nodeText.contains("static")) {
             // Primitive extraction for lazy_static! { [pub] static [ref] NAME: TYPE = ... }
-            Pattern pattern =
-                    Pattern.compile("static\\s+(?:ref\\s+)?([\\w_]+)\\s*:\\s*([^=;{]+)");
+            Pattern pattern = Pattern.compile("static\\s+(?:ref\\s+)?([\\w_]+)\\s*:\\s*([^=;{]+)");
             Matcher m = pattern.matcher(nodeText);
             if (m.find()) {
                 context.put("name", m.group(1).strip());
