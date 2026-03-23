@@ -610,6 +610,7 @@ def test_install_neovim_invalid_selection_skips_key_prompt(monkeypatch) -> None:
 
     # Patch rich.console.Console.input to return an invalid selection
     from rich.console import Console
+
     monkeypatch.setattr(Console, "input", lambda self, prompt="": "99")
 
     monkeypatch.setattr(sys, "argv", ["brokk", "install", "neovim"])
