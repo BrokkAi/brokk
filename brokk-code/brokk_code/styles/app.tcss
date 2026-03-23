@@ -813,21 +813,18 @@ SettingsModalScreen {
     margin-right: 1;
 }
 
-#settings-exclusion-list,
-#settings-env-var-list {
+#settings-exclusion-list {
     height: 6;
     max-height: 8;
     border: tall $primary-darken-1;
     background: transparent;
 }
 
-#settings-exclusion-list > ListItem,
-#settings-env-var-list > ListItem {
+#settings-exclusion-list > ListItem {
     padding: 0 1;
 }
 
-#settings-exclusion-list > ListItem:focus,
-#settings-env-var-list > ListItem:focus {
+#settings-exclusion-list > ListItem:focus {
     background: $accent 20%;
 }
 
@@ -912,43 +909,6 @@ ModuleEditModalScreen {
 }
 
 #module-edit-modal-actions Button {
-    margin-right: 1;
-}
-
-/* Environment Variable Modal */
-EnvVarModalScreen {
-    align: center middle;
-}
-
-#env-var-modal-container {
-    width: 60;
-    height: auto;
-    max-height: 80%;
-    border: thick $primary;
-    background: $surface;
-    padding: 1 2;
-}
-
-#env-var-modal-title {
-    text-align: center;
-    width: 100%;
-    text-style: bold;
-    margin-bottom: 1;
-    color: $text;
-}
-
-.env-var-label {
-    margin-top: 1;
-    color: $text;
-}
-
-#env-var-modal-actions {
-    width: 100%;
-    height: auto;
-    margin-top: 1;
-}
-
-#env-var-modal-actions Button {
     margin-right: 1;
 }
 

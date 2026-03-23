@@ -1143,53 +1143,6 @@ class ModelReasoningSelectModal(ModalScreen[tuple[str, str]]):
             logger.error("Failed to parse index from ListItem id: %s", message.item.id)
 
 
-class EnvVarModalScreen(ModalScreen[Optional[tuple[str, str]]]):
-    """Small modal to prompt for an environment variable key and value."""
-
-    BINDINGS = [
-        Binding("escape", "dismiss", "Cancel", show=False),
-    ]
-
-    def __init__(self, title: str = "Add Environment Variable") -> None:
-        super().__init__()
-        self._title = title
-
-    def compose(self) -> ComposeResult:
-        with Vertical(id="env-var-modal-container"):
-            yield Static(self._title, id="env-var-modal-title")
-            yield Static("Key:", classes="env-var-label")
-            yield Input(placeholder="e.g., JAVA_HOME", id="env-var-key-input")
-            yield Static("Value:", classes="env-var-label")
-            yield Input(placeholder="e.g., /usr/lib/jvm/java-21", id="env-var-value-input")
-            with Horizontal(id="env-var-modal-actions"):
-                yield Button("Add", id="env-var-add", variant="primary")
-                yield Button("Cancel", id="env-var-cancel")
-
-    def on_mount(self) -> None:
-        self.query_one("#env-var-key-input", Input).focus()
-
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        button_id = event.button.id or ""
-        if button_id == "env-var-add":
-            key = self.query_one("#env-var-key-input", Input).value.strip()
-            value = self.query_one("#env-var-value-input", Input).value.strip()
-            if key:
-                self.dismiss((key, value))
-            else:
-                self.dismiss(None)
-        elif button_id == "env-var-cancel":
-            self.dismiss(None)
-
-    def on_input_submitted(self, event: Input.Submitted) -> None:
-        if event.input.id == "env-var-key-input":
-            self.query_one("#env-var-value-input", Input).focus()
-        elif event.input.id == "env-var-value-input":
-            key = self.query_one("#env-var-key-input", Input).value.strip()
-            value = self.query_one("#env-var-value-input", Input).value.strip()
-            if key:
-                self.dismiss((key, value))
-
-
 class ModuleEditModalScreen(ModalScreen[Optional[Dict[str, str]]]):
     """Small modal to add or edit a module build entry."""
 
@@ -1302,7 +1255,6 @@ class SettingsModalScreen(ModalScreen[None]):
         super().__init__()
         self._settings_data: Optional[Dict[str, Any]] = None
         self._exclusion_patterns: List[str] = []
-        self._env_vars: Dict[str, str] = {}
         self._modules: List[Dict[str, str]] = []
         self._shell_executable: str = ""
         self._shell_args: str = ""
@@ -1320,12 +1272,16 @@ class SettingsModalScreen(ModalScreen[None]):
 
                         with Horizontal(classes="settings-row"):
                             yield Static("Build/Lint Command:", classes="settings-label")
-                            yield Input(placeholder="e.g., make lint", id="settings-build-lint-command")
+                            yield Input(
+                                placeholder="e.g., make lint", id="settings-build-lint-command"
+                            )
                             yield Checkbox("Enabled", id="settings-build-lint-enabled", value=True)
 
                         with Horizontal(classes="settings-row"):
                             yield Static("Test All Command:", classes="settings-label")
-                            yield Input(placeholder="e.g., make test", id="settings-test-all-command")
+                            yield Input(
+                                placeholder="e.g., make test", id="settings-test-all-command"
+                            )
                             yield Checkbox("Enabled", id="settings-test-all-enabled", value=True)
 
                         with Horizontal(classes="settings-row"):
@@ -1346,8 +1302,12 @@ class SettingsModalScreen(ModalScreen[None]):
                         with Horizontal(classes="settings-row"):
                             yield Static("Code Agent Test Scope:", classes="settings-label")
                             with RadioSet(id="settings-test-scope"):
-                                yield RadioButton("Run All Tests", id="settings-scope-all", value=True)
-                                yield RadioButton("Run Tests in Workspace", id="settings-scope-workspace")
+                                yield RadioButton(
+                                    "Run All Tests", id="settings-scope-all", value=True
+                                )
+                                yield RadioButton(
+                                    "Run Tests in Workspace", id="settings-scope-workspace"
+                                )
 
                         with Horizontal(classes="settings-row"):
                             yield Static("Run Command Timeout (sec):", classes="settings-label")
@@ -1412,18 +1372,10 @@ class SettingsModalScreen(ModalScreen[None]):
                             yield Button("Add", id="settings-exclusion-add", variant="primary")
                             yield Button("Remove", id="settings-exclusion-remove")
 
-                        yield Static("Environment Variables:", classes="settings-subsection-label")
-                        yield Static(
-                            "Environment variables for build commands",
-                            classes="settings-hint",
-                        )
-                        yield ListView(id="settings-env-var-list")
-                        with Horizontal(classes="settings-list-actions"):
-                            yield Button("Add", id="settings-env-var-add", variant="primary")
-                            yield Button("Remove", id="settings-env-var-remove")
-
                         with Horizontal(classes="settings-row"):
-                            yield Static("Auto-update Local Dependencies:", classes="settings-label")
+                            yield Static(
+                                "Auto-update Local Dependencies:", classes="settings-label"
+                            )
                             yield Checkbox("", id="settings-auto-update-local", value=False)
 
                         with Horizontal(classes="settings-row"):
@@ -1461,7 +1413,9 @@ class SettingsModalScreen(ModalScreen[None]):
                             with Vertical(id="settings-github-fields", classes="hidden"):
                                 with Horizontal(classes="settings-row"):
                                     yield Static("Owner:", classes="settings-label")
-                                    yield Input(placeholder="e.g., owner", id="settings-github-owner")
+                                    yield Input(
+                                        placeholder="e.g., owner", id="settings-github-owner"
+                                    )
                                 with Horizontal(classes="settings-row"):
                                     yield Static("Repository:", classes="settings-label")
                                     yield Input(placeholder="e.g., repo", id="settings-github-repo")
@@ -1599,11 +1553,6 @@ class SettingsModalScreen(ModalScreen[None]):
         self._exclusion_patterns = sorted(set(str(p) for p in raw_patterns if p), key=str.lower)
         self._refresh_exclusion_list()
 
-        # Code Intelligence - Environment Variables
-        raw_env = build_details.get("environmentVariables", {})
-        self._env_vars = {str(k): str(v) for k, v in raw_env.items() if k}
-        self._refresh_env_var_list()
-
         # Code Intelligence - Auto-update flags
         self.query_one("#settings-auto-update-local", Checkbox).value = project_settings.get(
             "autoUpdateLocalDependencies", False
@@ -1681,13 +1630,6 @@ class SettingsModalScreen(ModalScreen[None]):
         list_view.clear()
         for pattern in self._exclusion_patterns:
             list_view.append(ListItem(Static(pattern, markup=False)))
-
-    def _refresh_env_var_list(self) -> None:
-        """Refreshes the environment variables ListView."""
-        list_view = self.query_one("#settings-env-var-list", ListView)
-        list_view.clear()
-        for key, value in sorted(self._env_vars.items()):
-            list_view.append(ListItem(Static(f"{key}={value}", markup=False)))
 
     def _refresh_modules_list(self) -> None:
         """Refreshes the modules ListView."""
@@ -1812,10 +1754,6 @@ class SettingsModalScreen(ModalScreen[None]):
             self._add_exclusion_pattern()
         elif button_id == "settings-exclusion-remove":
             self._remove_selected_exclusion()
-        elif button_id == "settings-env-var-add":
-            self._add_env_var()
-        elif button_id == "settings-env-var-remove":
-            self._remove_selected_env_var()
         elif button_id == "settings-module-add":
             self._add_module()
         elif button_id == "settings-module-edit":
@@ -1858,33 +1796,13 @@ class SettingsModalScreen(ModalScreen[None]):
             del self._exclusion_patterns[list_view.index]
             self._refresh_exclusion_list()
 
-    def _add_env_var(self) -> None:
-        """Opens a modal to add a new environment variable."""
-
-        def on_result(result: Optional[tuple[str, str]]) -> None:
-            if result:
-                key, value = result
-                self._env_vars[key] = value
-                self._refresh_env_var_list()
-
-        self.app.push_screen(EnvVarModalScreen(), on_result)
-
-    def _remove_selected_env_var(self) -> None:
-        """Removes the selected environment variable."""
-        list_view = self.query_one("#settings-env-var-list", ListView)
-        sorted_keys = sorted(self._env_vars.keys())
-        if list_view.index is not None and 0 <= list_view.index < len(sorted_keys):
-            key_to_remove = sorted_keys[list_view.index]
-            del self._env_vars[key_to_remove]
-            self._refresh_env_var_list()
-
     async def _save_settings(self) -> None:
         """Saves form values via executor API."""
         error_label = self.query_one("#settings-error", Static)
         error_label.update("")
 
         try:
-            # Collect build settings (including exclusion patterns, env vars, and modules)
+            # Collect build settings (including exclusion patterns and modules)
             build_data: Dict[str, Any] = {
                 "buildLintCommand": self.query_one("#settings-build-lint-command", Input).value,
                 "buildLintEnabled": self.query_one("#settings-build-lint-enabled", Checkbox).value,
@@ -1896,7 +1814,6 @@ class SettingsModalScreen(ModalScreen[None]):
                     "#settings-after-tasklist-command", Input
                 ).value,
                 "exclusionPatterns": self._exclusion_patterns,
-                "environmentVariables": self._env_vars,
                 "modules": self._modules,
             }
 
