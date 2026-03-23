@@ -977,6 +977,7 @@ public class SettingsProjectBuildPanel extends JPanel {
 
     public void loadBuildPanelSettings() {
         try {
+            project.reloadBuildDetailsFromDisk();
             var buildDetails = project.awaitBuildDetails();
             populateUiFromDetails(buildDetails);
         } catch (Exception e) {
