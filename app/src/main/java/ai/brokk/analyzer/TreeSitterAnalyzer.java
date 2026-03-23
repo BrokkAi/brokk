@@ -2364,6 +2364,26 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                     // Register modules from imports
                     wrapModulesFromImports(file, localImportStatements, rootNode, sourceContent, acc);
 
+                    // Ensure the file's own module is registered so macros can attach to it as a fallback
+                    String currentPackage = determinePackageName(file, rootNode, rootNode, sourceContent);
+                    String fileName = file.getFileName();
+                    int lastDotIdx = fileName.lastIndexOf('.');
+                    String fileStem = lastDotIdx == -1 ? fileName : fileName.substring(0, lastDotIdx);
+
+                    String moduleSimpleName = (currentPackage.isEmpty()) ? fileStem : currentPackage.substring(currentPackage.lastIndexOf('.') + 1);
+
+                    CodeUnit fileModule = CodeUnit.module(file, currentPackage, moduleSimpleName);
+                    if (acc.getByFqName(fileModule.fqName()) == null) {
+                        acc.registerCodeUnit(fileModule);
+                        addTopLevelCodeUnit(fileModule, acc, file);
+                        acc.addLookupKey(fileModule.fqName(), fileModule);
+                        acc.addSymbolIndex(fileModule.identifier(), fileModule);
+                        acc.addSymbolIndex(fileModule.shortName(), fileModule);
+                    }
+
+                    // Phase 3: Post-processing Hook (e.g., Macros)
+                    postProcessAnalysis(rootNode, file, sourceContent, acc);
+
                     // Synthesize implicit constructors
                     for (CodeUnit cu : List.copyOf(acc.cuByFqName().values())) {
                         if (cu.isClass()) {
@@ -2386,9 +2406,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                     }
 
                     boolean containsTests = containsTestMarkers(tree, sourceContent);
-
-                    // Phase 3: Post-processing Hook (e.g., Macros)
-                    postProcessAnalysis(rootNode, file, sourceContent, acc);
 
                     Map<CodeUnit, CodeUnitProperties> localStates = acc.toCodeUnitProperties();
 

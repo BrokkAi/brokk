@@ -16,9 +16,9 @@ public class MacroPipelineTest {
         assertNotNull(policy);
         assertEquals("rust", policy.language());
 
-        boolean foundMyMacro = policy.macros().stream()
-                .anyMatch(m -> "my_macro".equals(m.name()) && m.strategy() == MacroPolicy.MacroStrategy.TEMPLATE);
-        assertTrue(foundMyMacro, "Should find 'my_macro' with TEMPLATE strategy");
+        boolean foundVec = policy.macros().stream()
+                .anyMatch(m -> "vec".equals(m.name()) && m.strategy() == MacroPolicy.MacroStrategy.BYPASS);
+        assertTrue(foundVec, "Should find 'vec' with BYPASS strategy");
     }
 
     @Test
@@ -57,25 +57,23 @@ public class MacroPipelineTest {
 
     @Test
     void testTemplateExpansion() throws IOException {
-        MacroPolicy policy = MacroPolicyLoader.loadFromResource("/macros/rust/std-v1.yml");
-        MacroPolicy.MacroMatch myMacro = policy.macros().stream()
-                .filter(m -> "my_macro".equals(m.name()))
+        MacroPolicy policy = MacroPolicyLoader.loadFromResource("/macros/rust/lazy_static-v1.yml");
+        MacroPolicy.MacroMatch lazyStatic = policy.macros().stream()
+                .filter(m -> "lazy_static".equals(m.name()))
                 .findFirst()
                 .orElseThrow();
 
-        assertInstanceOf(MacroPolicy.TemplateConfig.class, myMacro.options());
-        String template = ((MacroPolicy.TemplateConfig) myMacro.options()).template();
+        assertInstanceOf(MacroPolicy.TemplateConfig.class, lazyStatic.options());
+        String template = ((MacroPolicy.TemplateConfig) lazyStatic.options()).template();
 
         Map<String, Object> context = Map.of(
-                "name",
-                "User",
-                "fields",
-                List.of(Map.of("name", "id", "type", "u32"), Map.of("name", "username", "type", "String")));
+                "name", "SETTINGS",
+                "type", "HashMap<String, String>");
 
         String expanded = MacroTemplateExpander.expand(template, context);
 
         // Normalize whitespace for comparison
         String normalized = expanded.replaceAll("\\s+", " ").trim();
-        assertEquals("pub struct User { id: u32, username: String, }", normalized);
+        assertEquals("pub static SETTINGS: HashMap<String, String>;", normalized);
     }
 }

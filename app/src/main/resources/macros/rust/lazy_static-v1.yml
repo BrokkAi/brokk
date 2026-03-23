@@ -5,4 +5,4 @@ macros:
     parent: "lazy_static"
     strategy: "TEMPLATE"
     options:
-      template: "pub static {{name}}: {{type}};"
+      template: "pub static {{name}}: {{{type}}};"

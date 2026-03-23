@@ -1,13 +1,64 @@
 version: "1"
 language: "rust"
 macros:
+  - name: "vec"
+    strategy: "BYPASS"
+    options: {}
+  - name: "lazy_static"
+    parent: "lazy_static"
+    strategy: "BYPASS"
+    options: {}
+  - name: "format"
+    strategy: "BYPASS"
+    options: {}
+  - name: "println"
+    strategy: "BYPASS"
+    options: {}
+  - name: "panic"
+    strategy: "BYPASS"
+    options: {}
+  - name: "assert"
+    strategy: "BYPASS"
+    options: {}
+  - name: "Clone"
+    strategy: "BYPASS"
+    options: {}
+  - name: "Copy"
+    strategy: "BYPASS"
+    options: {}
+  - name: "Debug"
+    strategy: "BYPASS"
+    options: {}
+  - name: "Default"
+    strategy: "BYPASS"
+    options: {}
+  - name: "PartialEq"
+    strategy: "BYPASS"
+    options: {}
+  - name: "Eq"
+    strategy: "BYPASS"
+    options: {}
+  - name: "PartialOrd"
+    strategy: "BYPASS"
+    options: {}
+  - name: "Ord"
+    strategy: "BYPASS"
+    options: {}
+  - name: "Hash"
+    strategy: "BYPASS"
+    options: {}
+  - name: "test"
+    strategy: "BYPASS"
+    options: {}
+  - name: "inline"
+    strategy: "BYPASS"
+    options: {}
+  - name: "cfg"
+    strategy: "BYPASS"
+    options: {}
   - name: "Serialize"
     strategy: "BYPASS"
     options: {}
   - name: "Deserialize"
     strategy: "BYPASS"
     options: {}
-  - name: "my_macro"
-    strategy: "TEMPLATE"
-    options:
-      template: "pub struct {{name}} { {{#fields}}{{name}}: {{type}}, {{/fields}} }"

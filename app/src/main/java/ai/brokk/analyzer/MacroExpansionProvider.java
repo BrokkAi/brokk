@@ -73,7 +73,7 @@ public interface MacroExpansionProvider extends CapabilityProvider {
                                 if (mm != null && isParentRequirementMet(macroName, mm, acc)) {
                                     handled = true;
                                     if (mm.options() instanceof MacroPolicy.TemplateConfig tc) {
-                                        expandTemplate(analyzer, file, node, tc.template(), acc);
+                                        expandTemplate(analyzer, file, node, sourceContent, tc.template(), acc);
                                     }
                                 }
 
@@ -117,9 +117,14 @@ public interface MacroExpansionProvider extends CapabilityProvider {
     }
 
     private void expandTemplate(
-            TreeSitterAnalyzer analyzer, ProjectFile file, TSNode node, String template, FileAnalysisAccumulator acc) {
+            TreeSitterAnalyzer analyzer,
+            ProjectFile file,
+            TSNode node,
+            SourceContent sourceContent,
+            String template,
+            FileAnalysisAccumulator acc) {
 
-        CodeUnit parentCu = findTargetCodeUnit(node, acc);
+        CodeUnit parentCu = findTargetCodeUnit(node, file, acc);
         if (parentCu == null) {
             log.warn(
                     "Could not find CodeUnit for macro attribute at {}-{} in {}",
@@ -129,7 +134,31 @@ public interface MacroExpansionProvider extends CapabilityProvider {
             return;
         }
 
-        Map<String, Object> context = Map.of("code_unit", parentCu, "children", acc.getChildren(parentCu));
+        Map<String, Object> context = new HashMap<>();
+        context.put("code_unit", parentCu);
+        context.put("children", acc.getChildren(parentCu));
+
+        // Basic variable extraction for bang macros like lazy_static!
+        // We look at the parent to get the full macro_invocation text
+        TSNode targetNode = node;
+        TSNode p = node.getParent();
+        while (p != null && !p.isNull() && !p.getType().contains("item") && !p.getType().contains("declaration")) {
+            targetNode = p;
+            if (p.getType().equals("macro_invocation")) break;
+            p = p.getParent();
+        }
+
+        String nodeText = sourceContent.substringFrom(targetNode);
+        if (nodeText.contains("static")) {
+            // Primitive extraction for lazy_static! { [pub] static [ref] NAME: TYPE = ... }
+            java.util.regex.Pattern pattern = java.util.regex.Pattern.compile("static\\s+(?:ref\\s+)?([\\w_]+)\\s*:\\s*([^=;{]+)");
+            java.util.regex.Matcher m = pattern.matcher(nodeText);
+            if (m.find()) {
+                context.put("name", m.group(1).strip());
+                context.put("type", m.group(2).strip());
+            }
+        }
+
         String expanded = MacroTemplateExpander.expand(template, context);
 
         FileAnalysisAccumulator snippetAcc = new FileAnalysisAccumulator();
@@ -174,6 +203,9 @@ public interface MacroExpansionProvider extends CapabilityProvider {
             acc.registerCodeUnit(rescoped);
             acc.addLookupKey(rescoped.fqName(), rescoped);
             acc.addSymbolIndex(rescoped.identifier(), rescoped);
+            if (!rescoped.shortName().equals(rescoped.identifier())) {
+                acc.addSymbolIndex(rescoped.shortName(), rescoped);
+            }
             acc.setHasBody(rescoped, snippetAcc.getHasBody(orig, false));
             snippetAcc.getSignatures(orig).forEach(sig -> acc.addSignature(rescoped, sig));
 
@@ -205,13 +237,14 @@ public interface MacroExpansionProvider extends CapabilityProvider {
         }
     }
 
-    private @Nullable CodeUnit findTargetCodeUnit(TSNode node, FileAnalysisAccumulator acc) {
+    private @Nullable CodeUnit findTargetCodeUnit(TSNode node, ProjectFile file, FileAnalysisAccumulator acc) {
         // For attribute macros like #[derive(Is)], the node is the identifier inside the attribute.
         // We need to find the declaration that this attribute decorates.
         TSNode attributeItem = node;
         TSNode p = node.getParent();
         while (p != null && !p.isNull()) {
-            if (p.getType().contains("attribute")) {
+            // Note: Rust top-level bang macros like lazy_static! are often wrapped in macro_invocation
+            if (p.getType().contains("attribute") || p.getType().contains("macro_invocation")) {
                 attributeItem = p;
             }
             p = p.getParent();
@@ -231,7 +264,8 @@ public interface MacroExpansionProvider extends CapabilityProvider {
         CodeUnit bestCu = null;
         int bestLength = Integer.MAX_VALUE;
 
-        for (CodeUnit cu : acc.cuByFqName().values().stream().distinct().toList()) {
+        List<CodeUnit> allCus = acc.cuByFqName().values().stream().distinct().toList();
+        for (CodeUnit cu : allCus) {
             for (IAnalyzer.Range range : acc.getRanges(cu)) {
                 boolean containsAttr = range.startByte() <= attrStartByte && range.endByte() >= attrEndByte;
                 boolean matchesSibling = sibStart != -1 && range.startByte() == sibStart;
@@ -246,6 +280,16 @@ public interface MacroExpansionProvider extends CapabilityProvider {
                 }
             }
         }
+
+        // Fallback: If no specific CodeUnit was found (e.g. top-level bang macro),
+        // target the Module CodeUnit for this file.
+        if (bestCu == null) {
+            return allCus.stream()
+                    .filter(cu -> cu.isModule() && Objects.equals(cu.source(), file))
+                    .findFirst()
+                    .orElse(null);
+        }
+
         return bestCu;
     }
 }
