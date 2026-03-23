@@ -68,6 +68,9 @@ export async function activate(context: vscode.ExtensionContext) {
       connectOrSpawn(context)
     ),
     vscode.commands.registerCommand("brokk.stopExecutor", stopExecutor),
+    vscode.commands.registerCommand("brokk.restartExecutor", () =>
+      restartExecutor(context)
+    ),
     vscode.commands.registerCommand(
       "brokk.addFile",
       (clickedUri?: vscode.Uri, selectedUris?: vscode.Uri[]) => {
@@ -315,19 +318,31 @@ function setConnected(client: BrokkClient, port: number, sessionOrLabel: string)
   log(`Connected to executor on port ${port}`);
 }
 
-function stopExecutor() {
+function stopExecutorInternal() {
   if (executorProcess) {
     executorProcess.kill();
     executorProcess = null;
   }
   eventDispatcher?.dispose();
   eventDispatcher = null;
+}
+
+function stopExecutor() {
+  stopExecutorInternal();
   statusBarItem.text = "$(circle-slash) Brokk: Stopped";
   statusBarItem.tooltip = "Click to restart";
   vscode.window.showInformationMessage("Brokk executor stopped.");
 }
 
+async function restartExecutor(context: vscode.ExtensionContext) {
+  log("Restarting executor...");
+  stopExecutorInternal();
+  statusBarItem.text = "$(sync~spin) Brokk: Restarting...";
+  statusBarItem.tooltip = "Restarting executor...";
+  panelProvider.sendConnectionStatus("starting");
+  await connectOrSpawn(context);
+}
+
 export function deactivate() {
-  executorProcess?.kill();
-  eventDispatcher?.dispose();
+  stopExecutorInternal();
 }
