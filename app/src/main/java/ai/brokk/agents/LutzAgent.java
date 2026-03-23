@@ -62,7 +62,6 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
@@ -652,6 +651,10 @@ public class LutzAgent {
         return objective;
     }
 
+    Set<String> finalTurnPreTerminalToolNames() {
+        return mcpTools.isEmpty() ? Set.of("dropWorkspaceFragments") : Set.of("dropWorkspaceFragments", "callMcpTool");
+    }
+
     public Context scanContext() throws InterruptedException {
         Context context = currentState.context();
 
@@ -925,8 +928,9 @@ public class LutzAgent {
                             context));
                 }
 
+                var finalTurnPreTerminalTools = agent.finalTurnPreTerminalToolNames();
                 for (var req : orderedRequests) {
-                    if (!"dropWorkspaceFragments".equals(req.name())) {
+                    if (!finalTurnPreTerminalTools.contains(req.name())) {
                         continue;
                     }
 
@@ -1110,7 +1114,8 @@ public class LutzAgent {
 
             @Nullable SearchPrompts.SpecialTurnTooling specialToolingNotice = null;
             if (isFinalTurn()) {
-                var allowedFinalTurnTools = Streams.concat(Stream.of("dropWorkspaceFragments"), terminalTools.stream())
+                var allowedFinalTurnTools = Streams.concat(
+                                agent.finalTurnPreTerminalToolNames().stream(), terminalTools.stream())
                         .distinct()
                         .toList();
                 specialToolingNotice = new SearchPrompts.SpecialTurnTooling("Final turn", allowedFinalTurnTools);
