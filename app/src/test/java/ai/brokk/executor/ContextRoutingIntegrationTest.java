@@ -118,6 +118,22 @@ class ContextRoutingIntegrationTest {
     }
 
     @Test
+    void testGetAuthValidate_isRegistered() throws Exception {
+        var uri = URI.create("http://127.0.0.1:" + executor.getPort() + "/v1/auth/validate");
+        var request = HttpRequest.newBuilder(uri)
+                .header("Authorization", "Bearer " + authToken)
+                .GET()
+                .build();
+
+        var response = client.send(request, HttpResponse.BodyHandlers.discarding());
+
+        assertNotEquals(
+                HttpURLConnection.HTTP_NOT_FOUND,
+                response.statusCode(),
+                "Endpoint /v1/auth/validate should be registered and not return 404");
+    }
+
+    @Test
     void testListSessionsUsesProjectSessionManagerTitles() throws Exception {
         var createUri = URI.create("http://127.0.0.1:" + executor.getPort() + "/v1/sessions");
         var createRequest = HttpRequest.newBuilder(createUri)

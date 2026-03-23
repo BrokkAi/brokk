@@ -90,6 +90,14 @@ public interface IConsoleIO {
         showNotification(role, message);
     }
 
+    /**
+     * Reports the latest Brokk auth validation snapshot (tier/status/balance).
+     * Default implementation is a no-op.
+     */
+    default void brokkAuthValidationUpdated(BrokkAuthValidation validation) {
+        // no-op
+    }
+
     default void showOutputSpinner(String message) {}
 
     default void hideOutputSpinner() {}

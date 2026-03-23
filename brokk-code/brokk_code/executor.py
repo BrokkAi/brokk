@@ -873,6 +873,19 @@ class ExecutorManager:
             await self._handle_http_error(e, "/v1/models")
             raise  # Should not be reached
 
+    async def validate_brokk_auth(self) -> Dict[str, Any]:
+        """Returns Brokk auth/account validation details for the current executor key."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+
+        try:
+            resp = await self._http_client.get("/v1/auth/validate")
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            await self._handle_http_error(e, "/v1/auth/validate")
+            raise  # Should not be reached
+
     async def get_model_config(self) -> Dict[str, Any]:
         """Returns the persisted CODE and ARCHITECT model configs from the executor."""
         if not self._http_client:

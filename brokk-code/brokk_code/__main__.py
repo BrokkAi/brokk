@@ -32,7 +32,13 @@ from brokk_code.mcp_config import (
 from brokk_code.mcp_launcher import run_mcp_server
 from brokk_code.nvim_config import configure_nvim_codecompanion_acp_settings
 from brokk_code.nvim_init_patch import wire_nvim_plugin_setup
-from brokk_code.settings import Settings
+from brokk_code.settings import (
+    Settings,
+    get_brokk_properties_path,
+    read_brokk_properties,
+    write_brokk_api_key,
+    write_brokk_properties,
+)
 from brokk_code.uv_utils import UvSetupError, ensure_uv_ready
 from brokk_code.workspace import resolve_workspace_dir
 from brokk_code.zed_config import ExistingBrokkCodeEntryError, configure_zed_acp_settings
@@ -92,6 +98,287 @@ def _validate_github_params(
             file=sys.stderr,
         )
         sys.exit(1)
+
+
+def _print_brokk_login_instructions() -> None:
+    print("Get your Brokk API key:")
+    print("1. Open https://brokk.ai/")
+    print('2. Click "Try Brokk Now"')
+    print("3. Log in with GitHub or Google")
+    print("4. Copy your API key")
+    print()
+    print("Paste shortcuts:")
+    print("  macOS Terminal/iTerm: Cmd+V")
+    print("  Windows Terminal/PowerShell: Ctrl+V (or right-click)")
+    print("  Linux terminals: Ctrl+Shift+V or Shift+Insert")
+    print()
+
+
+def _read_api_key_from_stdin() -> str:
+    key = sys.stdin.read().strip()
+    if not key:
+        raise ValueError("No API key data was read from standard input.")
+    return key
+
+
+def _read_masked_input(prompt: str) -> str:
+    if not sys.stdin.isatty():
+        raise ValueError("Interactive API key input requires a TTY terminal.")
+
+    if sys.platform == "win32":
+        import msvcrt
+
+        chars: list[str] = []
+        sys.stdout.write(prompt)
+        sys.stdout.flush()
+        while True:
+            ch = msvcrt.getwch()
+            if ch in {"\r", "\n"}:
+                sys.stdout.write("\n")
+                sys.stdout.flush()
+                return "".join(chars)
+            if ch == "\003":
+                sys.stdout.write("\n")
+                sys.stdout.flush()
+                raise KeyboardInterrupt
+            if ch in {"\b", "\x7f"}:
+                if chars:
+                    chars.pop()
+                    sys.stdout.write("\b \b")
+                    sys.stdout.flush()
+                continue
+            if ch in {"\x00", "\xe0"}:
+                _ = msvcrt.getwch()
+                continue
+            chars.append(ch)
+            sys.stdout.write("*")
+            sys.stdout.flush()
+
+    import termios
+    import tty
+
+    fd = sys.stdin.fileno()
+    old_settings = termios.tcgetattr(fd)
+    chars = []
+    sys.stdout.write(prompt)
+    sys.stdout.flush()
+    try:
+        tty.setraw(fd)
+        while True:
+            ch = sys.stdin.read(1)
+            if ch in {"\r", "\n"}:
+                sys.stdout.write("\n")
+                sys.stdout.flush()
+                return "".join(chars)
+            if ch == "\x03":
+                sys.stdout.write("\n")
+                sys.stdout.flush()
+                raise KeyboardInterrupt
+            if ch == "\x04" and not chars:
+                sys.stdout.write("\n")
+                sys.stdout.flush()
+                raise EOFError("No API key entered.")
+            if ch in {"\x7f", "\b"}:
+                if chars:
+                    chars.pop()
+                    sys.stdout.write("\b \b")
+                    sys.stdout.flush()
+                continue
+            chars.append(ch)
+            sys.stdout.write("*")
+            sys.stdout.flush()
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+
+
+def _read_api_key_interactive() -> str:
+    _print_brokk_login_instructions()
+    print("Paste your Brokk API key below, then press Enter.")
+    print("Your input will be masked as '*' (one star per character).")
+    return _read_masked_input("Brokk API key: ").strip()
+
+
+def _looks_like_auth_failure(message: str) -> bool:
+    text = message.lower()
+    return (
+        "401" in text
+        or "unauthorized" in text
+        or "forbidden" in text
+        or ("invalid" in text and "key" in text)
+        or ("api key" in text and "failed" in text)
+    )
+
+
+def _validation_not_possible(message: str) -> bool:
+    text = message.lower()
+    return (
+        "jbang executable not found" in text
+        or "java executable not found" in text
+        or "failed to extract port from executor output" in text
+        or "executor failed to become ready" in text
+    )
+
+
+def _is_missing_validate_endpoint(message: str) -> bool:
+    text = message.lower()
+    return "/v1/auth/validate" in text and "not found (404)" in text
+
+
+async def _validate_brokk_api_key(
+    *,
+    api_key: str,
+    workspace_dir: Path,
+    jar_path: Path | None,
+    executor_version: str | None,
+    executor_snapshot: bool,
+    vendor: str | None,
+) -> dict[str, Any]:
+    from brokk_code.executor import ExecutorManager
+
+    manager = ExecutorManager(
+        workspace_dir=workspace_dir,
+        jar_path=jar_path,
+        executor_version=executor_version,
+        executor_snapshot=executor_snapshot,
+        vendor=vendor,
+        exit_on_stdin_eof=True,
+        brokk_api_key=api_key,
+    )
+    try:
+        await manager.start()
+        if not await manager.wait_ready(timeout=20.0):
+            raise ExecutorError("Executor failed to become ready for API key validation.")
+        try:
+            return await manager.validate_brokk_auth()
+        except ExecutorError as exc:
+            if _is_missing_validate_endpoint(str(exc)):
+                await manager.get_models()
+                return {
+                    "state": "LEGACY_VALID",
+                    "valid": True,
+                    "subscribed": False,
+                    "hasBalance": False,
+                    "message": "Validated with legacy model discovery path.",
+                }
+            raise
+    finally:
+        await manager.stop()
+
+
+async def run_login(
+    *,
+    workspace_dir: Path,
+    jar_path: Path | None = None,
+    executor_version: str | None = None,
+    executor_snapshot: bool = True,
+    vendor: str | None = None,
+    read_from_stdin: bool = False,
+    skip_validate: bool = False,
+) -> None:
+    try:
+        if read_from_stdin:
+            if sys.stdin.isatty():
+                raise ValueError("--stdin requires piped input on standard input.")
+            key = _read_api_key_from_stdin()
+        elif not sys.stdin.isatty():
+            key = _read_api_key_from_stdin()
+        else:
+            key = _read_api_key_interactive()
+    except (ValueError, EOFError) as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(1)
+    except KeyboardInterrupt:
+        print("\nLogin cancelled.", file=sys.stderr)
+        sys.exit(1)
+
+    if not key:
+        print("Error: API key cannot be empty.", file=sys.stderr)
+        sys.exit(1)
+
+    await asyncio.to_thread(write_brokk_api_key, key)
+    print(f"Saved Brokk API key to {get_brokk_properties_path()}")
+
+    if skip_validate:
+        print("Skipped validation (--skip-validate).")
+        return
+
+    print("Validating API key with the Brokk executor...")
+    try:
+        validation = await _validate_brokk_api_key(
+            api_key=key,
+            workspace_dir=workspace_dir,
+            jar_path=jar_path,
+            executor_version=executor_version,
+            executor_snapshot=executor_snapshot,
+            vendor=vendor,
+        )
+        state = str(validation.get("state", "")).strip().upper()
+        message = str(validation.get("message", "")).strip()
+        valid = bool(validation.get("valid"))
+        subscribed = bool(validation.get("subscribed"))
+        has_balance = bool(validation.get("hasBalance"))
+        balance_raw = validation.get("balance")
+        balance = balance_raw if isinstance(balance_raw, (int, float)) else None
+
+        if valid:
+            if state == "LEGACY_VALID":
+                print("API key validation succeeded.")
+                return
+
+            tier = "paid" if subscribed else "free"
+            if has_balance and balance is not None:
+                print(f"API key validation succeeded: {tier} user, balance ${balance:.2f}.")
+            else:
+                print(f"API key validation succeeded: {tier} user.")
+            return
+
+        if state in {"INVALID_KEY", "INVALID_KEY_FORMAT", "UNKNOWN_USER", "MISSING_KEY"}:
+            detail = message if message else state
+            print(f"Error: API key validation failed [{state}]: {detail}", file=sys.stderr)
+            print(
+                "The key was saved, but it appears invalid. Run `brokk login` to update it.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+        if _validation_not_possible(message):
+            print(f"Could not validate API key automatically: {message}")
+            print("The key is saved and will be validated on next Brokk run.")
+            return
+
+        detail = message if message else state
+        print(f"Warning: API key validation was inconclusive [{state}]: {detail}")
+        print("The key is saved. If Brokk reports auth errors, run `brokk login` again.")
+    except Exception as exc:
+        message = str(exc)
+        if _looks_like_auth_failure(message):
+            print(f"Error: API key validation failed: {message}", file=sys.stderr)
+            print(
+                "The key was saved, but it appears invalid. Run `brokk login` to update it.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+        if _validation_not_possible(message):
+            print(f"Could not validate API key automatically: {message}")
+            print("The key is saved and will be validated on next Brokk run.")
+            return
+
+        print(f"Warning: API key validation was inconclusive: {message}")
+        print("The key is saved. If Brokk reports auth errors, run `brokk login` again.")
+
+
+def run_logout() -> None:
+    props = read_brokk_properties()
+    had_saved_key = bool(props.get("brokkApiKey", "").strip())
+    write_brokk_properties({"brokkApiKey": None})
+    props_path = get_brokk_properties_path()
+    if had_saved_key:
+        print(f"Removed saved Brokk API key from {props_path}")
+    else:
+        print(f"No saved Brokk API key found in {props_path}")
+    if os.getenv("BROKK_API_KEY"):
+        print("Note: BROKK_API_KEY is still set in your environment and can still be used.")
 
 
 def _build_executor_prefetch_command(
@@ -599,6 +886,24 @@ def _build_parser() -> argparse.ArgumentParser:
         default=False,
         help="Show full headless executor output (events/tokens) for debugging",
     )
+
+    login_parser = subparsers.add_parser("login", help="Save your Brokk API key")
+    _add_common_runtime_args(login_parser)
+    login_parser.add_argument(
+        "--stdin",
+        action="store_true",
+        default=False,
+        help="Read the Brokk API key from stdin",
+    )
+    login_parser.add_argument(
+        "--skip-validate",
+        action="store_true",
+        default=False,
+        help="Save the key without immediate executor validation",
+    )
+
+    logout_parser = subparsers.add_parser("logout", help="Remove your saved Brokk API key")
+    _add_common_runtime_args(logout_parser)
 
     version_parser = subparsers.add_parser("version", help="Print version information")
     _add_common_runtime_args(version_parser)
@@ -1373,8 +1678,34 @@ def main():
         print(f"brokk {__version__}")
         return
 
+    if args.command == "logout":
+        run_logout()
+        return
+
     workspace_path = Path(args.workspace).resolve()
     jar_path = Path(args.jar).resolve() if args.jar else None
+
+    if args.command == "login":
+        validation_workspace = workspace_path
+        if not validation_workspace.exists():
+            validation_workspace = Path.cwd().resolve()
+            print(
+                f"Warning: Workspace path does not exist: {workspace_path}. "
+                f"Using {validation_workspace} for validation."
+            )
+
+        asyncio.run(
+            run_login(
+                workspace_dir=validation_workspace,
+                jar_path=jar_path,
+                executor_version=args.executor_version,
+                executor_snapshot=args.executor_snapshot,
+                vendor=args.vendor,
+                read_from_stdin=args.stdin,
+                skip_validate=args.skip_validate,
+            )
+        )
+        return
 
     if args.command == "acp":
         try:
