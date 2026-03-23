@@ -53,6 +53,12 @@ public interface AcpTransport {
 
     /**
      * Handler for incoming JSON-RPC requests.
+     * <p>
+     * <b>Threading contract:</b> Transport implementations must dispatch {@code session/prompt}
+     * calls on a dedicated thread so that the main read loop remains free to process
+     * {@code session/cancel} concurrently. The handler captures {@code Thread.currentThread()}
+     * during prompt execution to support interrupt-based cancellation via
+     * {@link ai.brokk.acpserver.agent.AcpSyncAgent#interruptPrompt()}.
      */
     @FunctionalInterface
     interface MessageHandler {

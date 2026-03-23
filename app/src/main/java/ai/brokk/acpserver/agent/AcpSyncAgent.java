@@ -124,7 +124,10 @@ public class AcpSyncAgent {
                 }
                 var req = parseAs(params, PromptRequest.class);
                 var ctx = new SyncPromptContext(req.sessionId(), transport);
-                // Run prompt synchronously — the transport handles threading if needed
+                // Runs synchronously on the caller's thread. The transport must dispatch
+                // session/prompt on a separate thread so that session/cancel can still be
+                // received on the main loop. We capture the thread here so that
+                // interruptPrompt() can interrupt it for cancellation.
                 try {
                     promptThread = Thread.currentThread();
                     yield promptHandler.apply(req, ctx);

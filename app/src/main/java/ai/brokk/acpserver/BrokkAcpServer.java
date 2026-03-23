@@ -72,16 +72,11 @@ import org.jetbrains.annotations.Nullable;
 public class BrokkAcpServer {
     private static final Logger logger = LogManager.getLogger(BrokkAcpServer.class);
 
-    @Nullable
-    private MainProject project;
-
-    @Nullable
-    private ContextManager cm;
-
+    @Nullable private volatile MainProject project;
+    @Nullable private volatile ContextManager cm;
     private volatile boolean initializing;
-
-    @Nullable
-    private volatile String initError;
+    @Nullable private volatile Path initializingPath;
+    @Nullable private volatile String initError;
 
     @Nullable
     private AcpSyncAgent agent;
@@ -153,6 +148,7 @@ public class BrokkAcpServer {
     private void startProjectInitialization(Path projectPath) {
         close();
         initializing = true;
+        initializingPath = projectPath;
         initError = null;
         logger.info("Starting project initialization at {}", projectPath);
         var initThread = new Thread(
@@ -177,6 +173,8 @@ public class BrokkAcpServer {
     }
 
     private void close() {
+        initializing = false;
+        initializingPath = null;
         if (cm != null) {
             try {
                 cm.close();
@@ -250,7 +248,10 @@ public class BrokkAcpServer {
         // Initialize or re-initialize project if the directory changed
         if (cm == null
                 || !cm.getProject().getRoot().toAbsolutePath().normalize().equals(requestedPath)) {
-            startProjectInitialization(requestedPath);
+            // Don't restart if already initializing the same path
+            if (!initializing || !requestedPath.equals(initializingPath)) {
+                startProjectInitialization(requestedPath);
+            }
         } else {
             cm.dropWithHistorySemantics(List.of());
         }
