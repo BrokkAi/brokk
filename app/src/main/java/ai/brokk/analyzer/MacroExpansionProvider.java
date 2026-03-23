@@ -72,12 +72,8 @@ public interface MacroExpansionProvider extends CapabilityProvider {
                                 MacroPolicy.MacroMatch mm = policyMap.get(macroName);
                                 if (mm != null && isParentRequirementMet(macroName, mm, acc)) {
                                     handled = true;
-                                    switch (mm.options()) {
-                                        case MacroPolicy.TemplateConfig tc -> expandTemplate(
-                                                analyzer, file, node, tc.template(), acc);
-                                        case MacroPolicy.AIExpandConfig ac -> {}
-                                        case MacroPolicy.BuiltinConfig bc -> {}
-                                        case MacroPolicy.BypassConfig byc -> {}
+                                    if (mm.options() instanceof MacroPolicy.TemplateConfig tc) {
+                                        expandTemplate(analyzer, file, node, tc.template(), acc);
                                     }
                                 }
 
@@ -96,8 +92,7 @@ public interface MacroExpansionProvider extends CapabilityProvider {
                 false);
     }
 
-    private boolean isParentRequirementMet(
-            String macroName, MacroPolicy.MacroMatch mm, FileAnalysisAccumulator acc) {
+    private boolean isParentRequirementMet(String macroName, MacroPolicy.MacroMatch mm, FileAnalysisAccumulator acc) {
         String parent = mm.parent();
         if (parent == null) {
             return true;
@@ -117,15 +112,12 @@ public interface MacroExpansionProvider extends CapabilityProvider {
         }
 
         // 2. Fallback: If no explicit import, check if ANY wildcard imports the parent.
-        return infos.stream().anyMatch(info -> info.isWildcard() && info.rawSnippet().contains(parent));
+        return infos.stream()
+                .anyMatch(info -> info.isWildcard() && info.rawSnippet().contains(parent));
     }
 
     private void expandTemplate(
-            TreeSitterAnalyzer analyzer,
-            ProjectFile file,
-            TSNode node,
-            String template,
-            FileAnalysisAccumulator acc) {
+            TreeSitterAnalyzer analyzer, ProjectFile file, TSNode node, String template, FileAnalysisAccumulator acc) {
 
         CodeUnit parentCu = findTargetCodeUnit(node, acc);
         if (parentCu == null) {
@@ -147,10 +139,7 @@ public interface MacroExpansionProvider extends CapabilityProvider {
     }
 
     private void mergeSyntheticUnits(
-            CodeUnit parentCu,
-            FileAnalysisAccumulator snippetAcc,
-            FileAnalysisAccumulator acc,
-            TSNode node) {
+            CodeUnit parentCu, FileAnalysisAccumulator snippetAcc, FileAnalysisAccumulator acc, TSNode node) {
 
         List<CodeUnit> snippetUnits =
                 snippetAcc.cuByFqName().values().stream().distinct().toList();

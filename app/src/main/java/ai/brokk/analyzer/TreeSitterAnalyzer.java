@@ -174,8 +174,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
      * @return the result of the function, or {@code defaultValue} if the query source is missing
      */
     protected final <T> T withCachedQuery(QueryType type, Function<TSQuery, T> fn, T defaultValue) {
-        Map<QueryType, TSQuery> cache = threadLocalQueries.get();
-        TSQuery query = cache.get(type);
+        Map<QueryType, TSQuery> queryMap = threadLocalQueries.get();
+        TSQuery query = queryMap.get(type);
 
         if (query == null) {
             String source = querySources.get(type);
@@ -185,7 +185,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             }
             query = new TSQuery(getTSLanguage(), source);
             queryCompilationCount.incrementAndGet();
-            cache.put(type, query);
+            queryMap.put(type, query);
         }
 
         return fn.apply(query);
@@ -348,7 +348,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             Map<String, SkeletonType> captureConfiguration,
             String asyncKeywordNodeType,
             Set<String> modifierNodeTypes) {}
-
 
     private record FileAnalysisResult(
             List<CodeUnit> topLevelCUs,
@@ -2403,7 +2402,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                             acc.topLevelCUs().stream().distinct().toList(),
                             Collections.unmodifiableMap(localStates),
                             acc.codeUnitsBySymbol().entrySet().stream()
-                                    .collect(Collectors.toMap(entry -> entry.getKey(), entry -> new HashSet<>(entry.getValue()))),
+                                    .collect(Collectors.toMap(
+                                            entry -> entry.getKey(), entry -> new HashSet<>(entry.getValue()))),
                             Collections.unmodifiableList(localImportInfos),
                             containsTests);
                 },
@@ -4239,7 +4239,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         }
 
         // Merge results using synthetic versions
-        for (Map.Entry<CodeUnit, CodeUnitProperties> entry : result.codeUnitState().entrySet()) {
+        for (Map.Entry<CodeUnit, CodeUnitProperties> entry :
+                result.codeUnitState().entrySet()) {
             CodeUnit originalCu = entry.getKey();
             CodeUnitProperties props = entry.getValue();
             CodeUnit syntheticCu = syntheticMap.get(originalCu);

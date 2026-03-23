@@ -28,15 +28,7 @@ public record MacroPolicy(String version, String language, List<MacroMatch> macr
                     MacroConfig options) {
 
         public MacroMatch {
-            scope = scope != null ? scope : MacroScope.LIBRARY;
-        }
-
-        public MacroMatch(String name, @Nullable String parent) {
-            this(name, parent, MacroScope.LIBRARY, MacroStrategy.BYPASS, new BypassConfig());
-        }
-
-        public MacroMatch(String name, @Nullable String parent, MacroStrategy strategy, MacroConfig options) {
-            this(name, parent, MacroScope.LIBRARY, strategy, options);
+            scope = (scope != null) ? scope : MacroScope.LIBRARY;
         }
     }
 

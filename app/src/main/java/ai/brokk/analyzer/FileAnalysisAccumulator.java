@@ -10,13 +10,10 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Set;
 import org.jetbrains.annotations.Nullable;
 
-/**
- * Mutable accumulator for per-file analysis state.
- */
+/** Mutable accumulator for per-file analysis state. */
 public class FileAnalysisAccumulator {
     private final Set<CodeUnit> topLevelCUs = new LinkedHashSet<>();
     private final Map<CodeUnit, Set<CodeUnit>> children = new LinkedHashMap<>();
@@ -206,7 +203,10 @@ public class FileAnalysisAccumulator {
     }
 
     public @Nullable CodeUnit findChildDuplicate(CodeUnit parent, CodeUnit cu) {
-        return getChildren(parent).stream().filter(t -> t.equals(cu)).findFirst().orElse(null);
+        return getChildren(parent).stream()
+                .filter(t -> t.equals(cu))
+                .findFirst()
+                .orElse(null);
     }
 
     public @Nullable CodeUnit findChildCrossKindDuplicate(CodeUnit parent, CodeUnit cu) {
