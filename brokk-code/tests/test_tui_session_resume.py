@@ -417,7 +417,7 @@ async def test_resume_then_switch_session_updates_session_cost(tmp_path):
     get_session_zip_path(workspace, last_id).write_bytes(b"zip-data")
 
     stub = SessionStubExecutor()
-    stub.wait_ready = AsyncMock(return_value=True)
+    stub.wait_live = AsyncMock(return_value=True)
 
     # Configure stub to return different costs based on session_id
     async def get_context_side_effect():
@@ -477,7 +477,7 @@ async def test_resume_session_seeds_session_cost_from_context(tmp_path):
     zip_path.write_bytes(b"zip-data")
 
     stub = SessionStubExecutor()
-    stub.wait_ready = AsyncMock(return_value=True)
+    stub.wait_live = AsyncMock(return_value=True)
     stub.get_context = AsyncMock(
         return_value={
             "branch": "main",
@@ -519,3 +519,4 @@ async def test_ctrl_d_bound_to_shutdown(tmp_path):
         assert stub.stop.called
         assert app._shutdown_completed is True
         assert mock_exit.called
+

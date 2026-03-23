@@ -1,6 +1,8 @@
 package ai.brokk.executor.routers;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.ContextManager;
@@ -155,6 +157,85 @@ class JobsRouterValidationTest {
 
         var updated = sm.getSessionsCache().get(sessionId);
         assertEquals("My Custom Name", updated.name());
+    }
+
+    @Test
+    void postJobs_withKnownSessionHeader_switchesActiveSession_andReturnsRequestedSessionId() throws Exception {
+        var sm = jobsRouter.contextManager.getProject().getSessionManager();
+        var firstSessionId = sm.newSession("Session A").id();
+        var targetSessionId = sm.newSession("Session B").id();
+        contextManager.switchSessionAsync(firstSessionId).get();
+        assertNotEquals(targetSessionId, contextManager.getCurrentSessionId());
+
+        Map<String, Object> body = Map.of("taskInput", "target specific session", "plannerModel", "gpt-4");
+        var exchange = TestHttpExchange.jsonRequest("POST", "/v1/jobs", body);
+        exchange.getRequestHeaders().set("Idempotency-Key", UUID.randomUUID().toString());
+        exchange.getRequestHeaders().set("X-Session-Id", targetSessionId.toString());
+
+        jobsRouter.handle(exchange);
+
+        assertEquals(201, exchange.responseCode());
+        @SuppressWarnings("unchecked")
+        Map<String, Object> payload = MAPPER.readValue(exchange.responseBodyBytes(), Map.class);
+        assertEquals(targetSessionId.toString(), payload.get("sessionId"));
+        assertEquals(targetSessionId, contextManager.getCurrentSessionId());
+    }
+
+    @Test
+    void postJobs_withUnknownSessionHeader_returnsValidationError() throws Exception {
+        Map<String, Object> body = Map.of("taskInput", "unknown session test", "plannerModel", "gpt-4");
+        var exchange = TestHttpExchange.jsonRequest("POST", "/v1/jobs", body);
+        exchange.getRequestHeaders().set("Idempotency-Key", UUID.randomUUID().toString());
+        exchange.getRequestHeaders().set("X-Session-Id", UUID.randomUUID().toString());
+
+        jobsRouter.handle(exchange);
+
+        assertEquals(400, exchange.responseCode());
+        var payload = MAPPER.readValue(exchange.responseBodyBytes(), ErrorPayload.class);
+        assertEquals(ErrorPayload.Code.VALIDATION_ERROR, payload.code());
+        assertTrue(payload.message().contains("Unknown Session-Id"), payload.message());
+    }
+
+    @Test
+    void postJobs_withoutValidActiveSession_autoCreatesSession_andReturnsSessionId() throws Exception {
+        Map<String, Object> body = Map.of("taskInput", "auto session bootstrap", "plannerModel", "gpt-4");
+        var exchange = TestHttpExchange.jsonRequest("POST", "/v1/jobs", body);
+        exchange.getRequestHeaders().set("Idempotency-Key", UUID.randomUUID().toString());
+
+        jobsRouter.handle(exchange);
+
+        assertEquals(201, exchange.responseCode());
+        @SuppressWarnings("unchecked")
+        Map<String, Object> payload = MAPPER.readValue(exchange.responseBodyBytes(), Map.class);
+        Object sessionIdObj = payload.get("sessionId");
+        assertNotNull(sessionIdObj);
+        String sessionId = String.valueOf(sessionIdObj);
+        assertTrue(!sessionId.isBlank());
+        assertTrue(
+                contextManager.getProject().getSessionManager().listSessions().stream()
+                        .anyMatch(s -> s.id().toString().equals(sessionId)));
+    }
+
+    @Test
+    void postJobs_idempotentResponse_includesSessionId() throws Exception {
+        String idemKey = UUID.randomUUID().toString();
+        Map<String, Object> body = Map.of("taskInput", "idempotent session response", "plannerModel", "gpt-4");
+
+        var first = TestHttpExchange.jsonRequest("POST", "/v1/jobs", body);
+        first.getRequestHeaders().set("Idempotency-Key", idemKey);
+        jobsRouter.handle(first);
+        assertEquals(201, first.responseCode());
+
+        var second = TestHttpExchange.jsonRequest("POST", "/v1/jobs", body);
+        second.getRequestHeaders().set("Idempotency-Key", idemKey);
+        jobsRouter.handle(second);
+        assertEquals(200, second.responseCode());
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> secondPayload = MAPPER.readValue(second.responseBodyBytes(), Map.class);
+        Object sessionIdObj = secondPayload.get("sessionId");
+        assertNotNull(sessionIdObj);
+        assertTrue(!String.valueOf(sessionIdObj).isBlank());
     }
 
     @Test

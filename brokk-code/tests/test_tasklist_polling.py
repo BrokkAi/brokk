@@ -26,7 +26,7 @@ class StubExecutor(ExecutorManager):
         self.session_id = "session-1"
         return self.session_id
 
-    async def wait_ready(self, timeout: float = 30.0) -> bool:
+    async def wait_live(self, timeout: float = 30.0) -> bool:
         return True
 
     def check_alive(self) -> bool:
@@ -271,3 +271,4 @@ async def test_context_chips_wrap_into_multiple_rows(tmp_path):
 
             rows = panel.query(".context-chip-row")
             assert len(rows) > 1
+

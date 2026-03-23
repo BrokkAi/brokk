@@ -31,7 +31,7 @@ class StubExecutor(ExecutorManager):
         self.session_id = "session-1"
         return self.session_id
 
-    async def wait_ready(self, timeout: float = 30.0) -> bool:
+    async def wait_live(self, timeout: float = 30.0) -> bool:
         return True
 
     def check_alive(self) -> bool:
@@ -511,3 +511,4 @@ async def test_run_selected_task_does_not_mark_done_on_cancellation(tmp_path: Pa
 
     # Task should NOT be marked done since it was cancelled
     assert len(executor.set_tasklist_calls) == 0
+

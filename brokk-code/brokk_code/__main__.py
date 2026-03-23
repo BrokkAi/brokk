@@ -215,6 +215,7 @@ def _validation_not_possible(message: str) -> bool:
         "jbang executable not found" in text
         or "java executable not found" in text
         or "failed to extract port from executor output" in text
+        or "executor failed to become live" in text
         or "executor failed to become ready" in text
     )
 
@@ -246,8 +247,8 @@ async def _validate_brokk_api_key(
     )
     try:
         await manager.start()
-        if not await manager.wait_ready(timeout=20.0):
-            raise ExecutorError("Executor failed to become ready for API key validation.")
+        if not await manager.wait_live(timeout=20.0):
+            raise ExecutorError("Executor failed to become live for API key validation.")
         try:
             return await manager.validate_brokk_auth()
         except ExecutorError as exc:
@@ -933,9 +934,8 @@ async def run_commit(
 
     try:
         await manager.start()
-        await manager.create_session(name="Headless commit")
-        if not await manager.wait_ready():
-            print("Error: executor failed to become ready.", file=sys.stderr)
+        if not await manager.wait_live():
+            print("Error: executor failed to become live.", file=sys.stderr)
             sys.exit(1)
 
         result = await manager.commit_context(message)
@@ -987,9 +987,8 @@ async def run_pr_create(
 
     try:
         await manager.start()
-        await manager.create_session(name="Headless PR create")
-        if not await manager.wait_ready():
-            print("Error: executor failed to become ready.", file=sys.stderr)
+        if not await manager.wait_live():
+            print("Error: executor failed to become live.", file=sys.stderr)
             sys.exit(1)
 
         # If title or body is missing, suggest them first
@@ -1123,15 +1122,11 @@ async def run_pr_review_job(
         _update_shutdown_context()
         await manager.start()
 
-        stage = "creating executor session"
+        stage = "waiting for executor liveness"
         _update_shutdown_context()
-        await manager.create_session(name=f"PR Review #{pr_number}")
-
-        stage = "waiting for executor readiness"
-        _update_shutdown_context()
-        if not await manager.wait_ready():
+        if not await manager.wait_live():
             print(
-                f"Error during PR review job ({stage}): executor failed to become ready.",
+                f"Error during PR review job ({stage}): executor failed to become live.",
                 file=sys.stderr,
             )
             sys.exit(1)
@@ -1346,16 +1341,11 @@ async def run_headless_job(
         _update_shutdown_context()
         await manager.start()
 
-        # Create session before wait_ready to satisfy Java-side readiness requirements
-        stage = "creating executor session"
+        stage = "waiting for executor liveness"
         _update_shutdown_context()
-        await manager.create_session(name=f"Headless {mode}")
-
-        stage = "waiting for executor readiness"
-        _update_shutdown_context()
-        if not await manager.wait_ready():
+        if not await manager.wait_live():
             print(
-                f"Error during {mode} job ({stage}): executor failed to become ready.",
+                f"Error during {mode} job ({stage}): executor failed to become live.",
                 file=sys.stderr,
             )
             sys.exit(1)

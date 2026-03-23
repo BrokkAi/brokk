@@ -1566,7 +1566,7 @@ class BrokkApp(App):
             if self.executor.session_id:
                 save_last_session_id(self.executor.workspace_dir, self.executor.session_id)
 
-            if await self.executor.wait_ready():
+            if await self.executor.wait_live():
                 self._executor_ready = True
                 await self._sync_model_roles_from_executor()
                 # Initial context load
@@ -4311,8 +4311,7 @@ class BrokkApp(App):
                 await self.executor.start()
                 self._executor_started = True
 
-                # 4. Restore session state OR create new session BEFORE waiting for readiness.
-                # Java /health/ready requires a session to be loaded.
+                # 4. Restore session state or create a new session for continuity.
                 restored = False
                 if session_zip and current_sid:
                     try:
@@ -4329,9 +4328,9 @@ class BrokkApp(App):
                             level="WARNING",
                         )
 
-                # 5. Wait for readiness now that a session is loaded
-                if not await self.executor.wait_ready():
-                    raise ExecutorError("New executor failed to become ready.")
+                # 5. Wait for liveness before resuming traffic
+                if not await self.executor.wait_live():
+                    raise ExecutorError("New executor failed to become live.")
 
                 self._executor_ready = True
                 await self._sync_model_roles_from_executor()

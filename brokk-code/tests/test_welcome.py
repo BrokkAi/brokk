@@ -12,7 +12,7 @@ async def test_welcome_message_shown_on_startup(tmp_path: Path):
     mock_executor = MagicMock()
     mock_executor.workspace_dir = tmp_path
     mock_executor.start = AsyncMock()
-    mock_executor.wait_ready = AsyncMock(return_value=True)
+    mock_executor.wait_live = AsyncMock(return_value=True)
     mock_executor.check_alive = MagicMock(return_value=True)
     mock_executor.get_health_live = AsyncMock(return_value={})
     mock_executor.create_session = AsyncMock()
@@ -86,7 +86,7 @@ async def test_welcome_message_updates_after_pypi_fetch(tmp_path: Path):
     mock_executor = MagicMock()
     mock_executor.workspace_dir = tmp_path
     mock_executor.start = AsyncMock()
-    mock_executor.wait_ready = AsyncMock(return_value=True)
+    mock_executor.wait_live = AsyncMock(return_value=True)
 
     with patch(
         "brokk_code.app.BrokkApp._fetch_latest_pypi_version", new_callable=AsyncMock
@@ -129,3 +129,4 @@ async def test_show_welcome_message_handles_nomatches_gracefully(tmp_path: Path)
 
     mock_chat.add_welcome.assert_called_once()
     mock_chat.update_welcome.assert_called_once()
+

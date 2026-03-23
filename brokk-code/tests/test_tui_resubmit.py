@@ -28,7 +28,7 @@ class StubExecutor(ExecutorManager):
     async def create_session(self, name: str = "TUI Session") -> str:
         return "session-1"
 
-    async def wait_ready(self, timeout: float = 30.0) -> bool:
+    async def wait_live(self, timeout: float = 30.0) -> bool:
         return True
 
     def check_alive(self) -> bool:
@@ -198,3 +198,4 @@ async def test_large_paste_submits_as_job(tmp_path):
 
         # Verify it was submitted as a job
         assert all(c["type"] == "submit" for c in stub.calls)
+

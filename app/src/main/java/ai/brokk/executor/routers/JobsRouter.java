@@ -134,6 +134,10 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
                 RouterUtil.sendValidationError(exchange, "Invalid Session-Id format: must be a valid UUID");
                 return;
             }
+            if (!hasKnownSession(sessionIdHeader)) {
+                RouterUtil.sendValidationError(exchange, "Unknown Session-Id: " + sessionIdHeader);
+                return;
+            }
         }
         var githubToken = exchange.getRequestHeaders().getFirst("X-Github-Token");
 
@@ -198,6 +202,8 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
             }
             try {
                 if (awaitHeadlessInitOrRespond(exchange, jobId)) return;
+                var responseSessionId = ensureActiveSessionForSubmission(sessionIdHeader);
+                response.put("sessionId", responseSessionId.toString());
 
                 var contextTextFragmentIds = new ArrayList<String>();
                 if (validJobContextTexts != null && !validJobContextTexts.isEmpty()) {
@@ -218,7 +224,7 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
 
                 // Auto-rename session if it has a default name (best effort)
                 if (sessionIdHeader != null) {
-                    maybeAutoRenameSession(sessionIdHeader, request.taskInput());
+                    maybeAutoRenameSession(responseSessionId, request.taskInput());
                 }
 
                 SimpleHttpServer.sendJsonResponse(exchange, 201, response);
@@ -228,7 +234,15 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
                 SimpleHttpServer.sendJsonResponse(exchange, 500, ErrorPayload.internalError("Failed to start job", e));
             }
         } else {
-            SimpleHttpServer.sendJsonResponse(exchange, 200, response);
+            try {
+                var responseSessionId = resolveResponseSessionId(sessionIdHeader, true);
+                response.put("sessionId", responseSessionId.toString());
+                SimpleHttpServer.sendJsonResponse(exchange, 200, response);
+            } catch (Exception e) {
+                logger.error("Failed to resolve session for existing job {}", jobId, e);
+                SimpleHttpServer.sendJsonResponse(
+                        exchange, 500, ErrorPayload.internalError("Failed to resolve session", e));
+            }
         }
     }
 
@@ -293,15 +307,29 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
             }
             try {
                 if (awaitHeadlessInitOrRespond(exchange, jobId)) return;
+                var responseSessionId = resolveResponseSessionId(null, true);
                 executeJobAsync(jobId, jobSpec, List.of());
-                SimpleHttpServer.sendJsonResponse(exchange, 201, Map.of("jobId", jobId, "state", "queued"));
+                SimpleHttpServer.sendJsonResponse(
+                        exchange,
+                        201,
+                        Map.of("jobId", jobId, "state", "queued", "sessionId", responseSessionId.toString()));
             } catch (Exception e) {
                 jobReservation.releaseIfOwner(jobId);
                 logger.error("Failed to start issue job {}", jobId, e);
                 SimpleHttpServer.sendJsonResponse(exchange, 500, ErrorPayload.internalError("Failed to start job", e));
             }
         } else {
-            SimpleHttpServer.sendJsonResponse(exchange, 200, Map.of("jobId", jobId, "state", "queued"));
+            try {
+                var responseSessionId = resolveResponseSessionId(null, true);
+                SimpleHttpServer.sendJsonResponse(
+                        exchange,
+                        200,
+                        Map.of("jobId", jobId, "state", "queued", "sessionId", responseSessionId.toString()));
+            } catch (Exception e) {
+                logger.error("Failed to resolve session for existing issue job {}", jobId, e);
+                SimpleHttpServer.sendJsonResponse(
+                        exchange, 500, ErrorPayload.internalError("Failed to resolve session", e));
+            }
         }
     }
 
@@ -352,15 +380,29 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
             }
             try {
                 if (awaitHeadlessInitOrRespond(exchange, jobId)) return;
+                var responseSessionId = resolveResponseSessionId(null, true);
                 executeJobAsync(jobId, jobSpec, List.of());
-                SimpleHttpServer.sendJsonResponse(exchange, 201, Map.of("jobId", jobId, "state", "queued"));
+                SimpleHttpServer.sendJsonResponse(
+                        exchange,
+                        201,
+                        Map.of("jobId", jobId, "state", "queued", "sessionId", responseSessionId.toString()));
             } catch (Exception e) {
                 jobReservation.releaseIfOwner(jobId);
                 logger.error("Failed to start PR review job {}", jobId, e);
                 SimpleHttpServer.sendJsonResponse(exchange, 500, ErrorPayload.internalError("Failed to start job", e));
             }
         } else {
-            SimpleHttpServer.sendJsonResponse(exchange, 200, Map.of("jobId", jobId, "state", "queued"));
+            try {
+                var responseSessionId = resolveResponseSessionId(null, true);
+                SimpleHttpServer.sendJsonResponse(
+                        exchange,
+                        200,
+                        Map.of("jobId", jobId, "state", "queued", "sessionId", responseSessionId.toString()));
+            } catch (Exception e) {
+                logger.error("Failed to resolve session for existing PR review job {}", jobId, e);
+                SimpleHttpServer.sendJsonResponse(
+                        exchange, 500, ErrorPayload.internalError("Failed to resolve session", e));
+            }
         }
     }
 
@@ -452,6 +494,59 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
             SimpleHttpServer.sendJsonResponse(exchange, code, payload);
             return true;
         }
+    }
+
+    private boolean hasKnownSession(UUID sessionId) {
+        return contextManager.getProject().getSessionManager().listSessions().stream()
+                .anyMatch(session -> session.id().equals(sessionId));
+    }
+
+    private UUID ensureActiveSessionForSubmission(@Nullable UUID requestedSessionId) throws Exception {
+        if (requestedSessionId != null) {
+            if (!hasKnownSession(requestedSessionId)) {
+                throw new IllegalArgumentException("Unknown session for job submission: " + requestedSessionId);
+            }
+            var currentSessionId = contextManager.getCurrentSessionId();
+            if (!requestedSessionId.equals(currentSessionId)) {
+                logger.info(
+                        "Switching active session from {} to {} for job submission",
+                        currentSessionId,
+                        requestedSessionId);
+                contextManager.switchSessionAsync(requestedSessionId).get(30, TimeUnit.SECONDS);
+            }
+            var activeSessionId = contextManager.getCurrentSessionId();
+            if (hasKnownSession(activeSessionId)) {
+                return activeSessionId;
+            }
+        }
+
+        var currentSessionId = contextManager.getCurrentSessionId();
+        if (hasKnownSession(currentSessionId)) {
+            return currentSessionId;
+        }
+
+        logger.warn(
+                "Current session {} is unavailable; creating fallback session before job submission",
+                currentSessionId);
+        contextManager.createSessionAsync(ContextManager.DEFAULT_SESSION_NAME).get(30, TimeUnit.SECONDS);
+
+        var replacementSessionId = contextManager.getCurrentSessionId();
+        if (!hasKnownSession(replacementSessionId)) {
+            throw new IllegalStateException("Failed to create a valid active session for job submission");
+        }
+
+        logger.info("Using fallback session {} for new job submission", replacementSessionId);
+        return replacementSessionId;
+    }
+
+    private UUID resolveResponseSessionId(@Nullable UUID requestedSessionId, boolean ensureAvailable) throws Exception {
+        if (requestedSessionId != null && hasKnownSession(requestedSessionId)) {
+            return requestedSessionId;
+        }
+        if (ensureAvailable) {
+            return ensureActiveSessionForSubmission(null);
+        }
+        return contextManager.getCurrentSessionId();
     }
 
     private void maybeAutoRenameSession(UUID sessionId, String taskInput) {

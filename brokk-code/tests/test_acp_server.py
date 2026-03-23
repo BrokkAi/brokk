@@ -456,7 +456,7 @@ def test_known_session_ids_handles_bad_payload() -> None:
     assert _known_session_ids("bad") == set()
 
 
-async def test_ensure_ready_bootstraps_session_before_wait_ready() -> None:
+async def test_ensure_ready_bootstraps_session_before_wait_live() -> None:
     calls: list[str] = []
 
     class StubExecutor:
@@ -487,15 +487,15 @@ async def test_start_and_create_session_avoids_bootstrap_on_first_call() -> None
             calls.append(f"create_session:{name}")
             return "session-real"
 
-        async def wait_ready(self) -> bool:
-            calls.append("wait_ready")
+        async def wait_live(self) -> bool:
+            calls.append("wait_live")
             return True
 
     bridge = BrokkAcpBridge(StubExecutor())  # type: ignore[arg-type]
     session_id = await bridge.start_and_create_session(name="Requested Session")
 
     assert session_id == "session-real"
-    assert calls == ["start", "create_session:Requested Session", "wait_ready"]
+    assert calls == ["start", "create_session:Requested Session", "wait_live"]
 
 
 async def test_ensure_ready_noops_when_workspace_is_unchanged(tmp_path: Path) -> None:
@@ -569,7 +569,7 @@ async def test_prompt_standard_flow_calls_submit_job_and_streams_tokens(tmp_path
         async def create_session(self, name: str = "ignored") -> str:
             return "session-1"
 
-        async def wait_ready(self) -> bool:
+        async def wait_live(self) -> bool:
             return True
 
         async def switch_session(self, sid: str) -> bool:
@@ -631,7 +631,7 @@ async def test_prompt_context_command_renders_snapshot_without_job(tmp_path: Pat
         async def create_session(self, name: str) -> str:
             return "session-1"
 
-        async def wait_ready(self) -> bool:
+        async def wait_live(self) -> bool:
             return True
 
         async def switch_session(self, sid: str) -> bool:
@@ -695,3 +695,4 @@ async def test_prompt_context_command_renders_snapshot_without_job(tmp_path: Pat
     assert table.index("| file.py |") < table.index("| other.txt |")
     assert "**Total Tokens:** 1,234 / 200,000" in table
     assert "![Token usage](data:image/png;base64," in table
+

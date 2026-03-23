@@ -1091,14 +1091,10 @@ def test_main_issue_create_verbose_routes_correctly(monkeypatch, tmp_path) -> No
 
 @pytest.mark.asyncio
 @patch("brokk_code.executor.ExecutorManager")
-async def test_run_headless_job_creates_session_before_wait_ready(
+async def test_run_headless_job_waits_for_live_before_submit(
     mock_executor_class, tmp_path
 ) -> None:
-    """Verifies that run_headless_job creates a session before polling for readiness.
-
-    This ordering is required because the Java executor's /health/ready endpoint
-    only returns 200 OK after a session has been created.
-    """
+    """Verifies that run_headless_job waits for liveness before submitting."""
     from unittest.mock import AsyncMock
 
     call_order: list[str] = []
@@ -1107,12 +1103,8 @@ async def test_run_headless_job_creates_session_before_wait_ready(
     async def mock_start():
         call_order.append("start")
 
-    async def mock_create_session(name: str = ""):
-        call_order.append("create_session")
-        return "session-123"
-
-    async def mock_wait_ready(timeout: float = 30.0):
-        call_order.append("wait_ready")
+    async def mock_wait_live(timeout: float = 30.0):
+        call_order.append("wait_live")
         return True
 
     async def mock_submit_job(**kwargs):
@@ -1127,8 +1119,7 @@ async def test_run_headless_job_creates_session_before_wait_ready(
         call_order.append("stop")
 
     mock_manager.start = AsyncMock(side_effect=mock_start)
-    mock_manager.create_session = AsyncMock(side_effect=mock_create_session)
-    mock_manager.wait_ready = AsyncMock(side_effect=mock_wait_ready)
+    mock_manager.wait_live = AsyncMock(side_effect=mock_wait_live)
     mock_manager.submit_job = AsyncMock(side_effect=mock_submit_job)
     mock_manager.stream_events = mock_stream_events
     mock_manager.stop = AsyncMock(side_effect=mock_stop)
@@ -1141,23 +1132,17 @@ async def test_run_headless_job_creates_session_before_wait_ready(
         tags={},
     )
 
-    # Verify the critical ordering: create_session MUST come before wait_ready
+    # Verify lifecycle ordering: start -> wait_live -> submit_job
     assert "start" in call_order
-    assert "create_session" in call_order
-    assert "wait_ready" in call_order
+    assert "wait_live" in call_order
     assert "submit_job" in call_order
 
     start_idx = call_order.index("start")
-    create_session_idx = call_order.index("create_session")
-    wait_ready_idx = call_order.index("wait_ready")
+    wait_live_idx = call_order.index("wait_live")
     submit_job_idx = call_order.index("submit_job")
 
-    # The critical assertion: session must be created before waiting for readiness
-    assert start_idx < create_session_idx, "start() must be called before create_session()"
-    assert create_session_idx < wait_ready_idx, (
-        "create_session() must be called before wait_ready()"
-    )
-    assert wait_ready_idx < submit_job_idx, "wait_ready() must be called before submit_job()"
+    assert start_idx < wait_live_idx, "start() must be called before wait_live()"
+    assert wait_live_idx < submit_job_idx, "wait_live() must be called before submit_job()"
 
 
 @pytest.mark.asyncio
@@ -1170,7 +1155,7 @@ async def test_run_headless_job_reports_failed_terminal_state(
     mock_manager = mock_executor_class.return_value
     mock_manager.start = AsyncMock()
     mock_manager.create_session = AsyncMock(return_value="session-123")
-    mock_manager.wait_ready = AsyncMock(return_value=True)
+    mock_manager.wait_live = AsyncMock(return_value=True)
     mock_manager.submit_job = AsyncMock(return_value="job-456")
 
     async def mock_stream_events(job_id: str):
@@ -1211,7 +1196,7 @@ async def test_run_headless_job_reports_stage_on_submit_failure(
     mock_manager = mock_executor_class.return_value
     mock_manager.start = AsyncMock()
     mock_manager.create_session = AsyncMock(return_value="session-123")
-    mock_manager.wait_ready = AsyncMock(return_value=True)
+    mock_manager.wait_live = AsyncMock(return_value=True)
     mock_manager.submit_job = AsyncMock(side_effect=ExecutorError("401 Unauthorized"))
     mock_manager.stop = AsyncMock()
 
@@ -1242,7 +1227,7 @@ async def test_run_headless_job_uses_nested_event_data_for_errors_and_quiet_noti
     mock_manager = mock_executor_class.return_value
     mock_manager.start = AsyncMock()
     mock_manager.create_session = AsyncMock(return_value="session-123")
-    mock_manager.wait_ready = AsyncMock(return_value=True)
+    mock_manager.wait_live = AsyncMock(return_value=True)
     mock_manager.submit_job = AsyncMock(return_value="job-456")
 
     async def mock_stream_events(job_id: str):
@@ -1284,7 +1269,7 @@ async def test_run_headless_job_verbose_shows_full_event_output(
     mock_manager = mock_executor_class.return_value
     mock_manager.start = AsyncMock()
     mock_manager.create_session = AsyncMock(return_value="session-123")
-    mock_manager.wait_ready = AsyncMock(return_value=True)
+    mock_manager.wait_live = AsyncMock(return_value=True)
     mock_manager.submit_job = AsyncMock(return_value="job-456")
 
     async def mock_stream_events(job_id: str):
@@ -1326,7 +1311,7 @@ async def test_run_headless_job_exits_nonzero_on_error_event_without_failed_stat
     mock_manager = mock_executor_class.return_value
     mock_manager.start = AsyncMock()
     mock_manager.create_session = AsyncMock(return_value="session-123")
-    mock_manager.wait_ready = AsyncMock(return_value=True)
+    mock_manager.wait_live = AsyncMock(return_value=True)
     mock_manager.submit_job = AsyncMock(return_value="job-456")
 
     async def mock_stream_events(job_id: str):
@@ -1364,7 +1349,7 @@ async def test_run_headless_job_prints_issue_created_link_from_suppressed_tokens
     mock_manager = mock_executor_class.return_value
     mock_manager.start = AsyncMock()
     mock_manager.create_session = AsyncMock(return_value="session-123")
-    mock_manager.wait_ready = AsyncMock(return_value=True)
+    mock_manager.wait_live = AsyncMock(return_value=True)
     mock_manager.submit_job = AsyncMock(return_value="job-456")
 
     async def mock_stream_events(job_id: str):
@@ -1403,7 +1388,7 @@ async def test_run_headless_job_prints_issue_created_link_from_issue_writer_noti
     mock_manager = mock_executor_class.return_value
     mock_manager.start = AsyncMock()
     mock_manager.create_session = AsyncMock(return_value="session-123")
-    mock_manager.wait_ready = AsyncMock(return_value=True)
+    mock_manager.wait_live = AsyncMock(return_value=True)
     mock_manager.submit_job = AsyncMock(return_value="job-456")
 
     async def mock_stream_events(job_id: str):
@@ -1442,7 +1427,7 @@ async def test_run_headless_job_prints_issue_created_link_from_tool_output_resul
     mock_manager = mock_executor_class.return_value
     mock_manager.start = AsyncMock()
     mock_manager.create_session = AsyncMock(return_value="session-123")
-    mock_manager.wait_ready = AsyncMock(return_value=True)
+    mock_manager.wait_live = AsyncMock(return_value=True)
     mock_manager.submit_job = AsyncMock(return_value="job-456")
 
     async def mock_stream_events(job_id: str):
@@ -1482,7 +1467,7 @@ async def test_run_headless_job_prints_issue_created_link_from_structured_issue_
     mock_manager = mock_executor_class.return_value
     mock_manager.start = AsyncMock()
     mock_manager.create_session = AsyncMock(return_value="session-123")
-    mock_manager.wait_ready = AsyncMock(return_value=True)
+    mock_manager.wait_live = AsyncMock(return_value=True)
     mock_manager.submit_job = AsyncMock(return_value="job-456")
 
     async def mock_stream_events(job_id: str):
@@ -1960,8 +1945,8 @@ async def test_run_pr_create_with_explicit_title_body(mock_executor_class, tmp_p
         call_order.append("create_session")
         return "session-123"
 
-    async def mock_wait_ready(timeout: float = 30.0):
-        call_order.append("wait_ready")
+    async def mock_wait_live(timeout: float = 30.0):
+        call_order.append("wait_live")
         return True
 
     async def mock_pr_suggest(**kwargs):
@@ -1977,7 +1962,7 @@ async def test_run_pr_create_with_explicit_title_body(mock_executor_class, tmp_p
 
     mock_manager.start = AsyncMock(side_effect=mock_start)
     mock_manager.create_session = AsyncMock(side_effect=mock_create_session)
-    mock_manager.wait_ready = AsyncMock(side_effect=mock_wait_ready)
+    mock_manager.wait_live = AsyncMock(side_effect=mock_wait_live)
     mock_manager.pr_suggest = AsyncMock(side_effect=mock_pr_suggest)
     mock_manager.pr_create = AsyncMock(side_effect=mock_pr_create)
     mock_manager.stop = AsyncMock(side_effect=mock_stop)
@@ -2006,7 +1991,7 @@ async def test_run_pr_create_suggests_when_title_missing(mock_executor_class, tm
 
     mock_manager.start = AsyncMock()
     mock_manager.create_session = AsyncMock(return_value="session-123")
-    mock_manager.wait_ready = AsyncMock(return_value=True)
+    mock_manager.wait_live = AsyncMock(return_value=True)
 
     async def mock_pr_suggest(**kwargs):
         call_order.append("pr_suggest")
@@ -2046,7 +2031,7 @@ async def test_run_pr_create_suggests_when_both_title_and_body_omitted(
 
     mock_manager.start = AsyncMock()
     mock_manager.create_session = AsyncMock(return_value="session-123")
-    mock_manager.wait_ready = AsyncMock(return_value=True)
+    mock_manager.wait_live = AsyncMock(return_value=True)
 
     async def mock_pr_suggest(**kwargs):
         captured_suggest_args.update(kwargs)
@@ -2103,7 +2088,7 @@ async def test_run_pr_create_executor_error_exits_nonzero(
     mock_manager = mock_executor_class.return_value
     mock_manager.start = AsyncMock()
     mock_manager.create_session = AsyncMock(return_value="session-123")
-    mock_manager.wait_ready = AsyncMock(return_value=True)
+    mock_manager.wait_live = AsyncMock(return_value=True)
     mock_manager.pr_create = AsyncMock(side_effect=ExecutorError("GitHub API error"))
     mock_manager.stop = AsyncMock()
 
@@ -2190,12 +2175,8 @@ async def test_run_commit_calls_lifecycle_in_order(mock_executor_class, tmp_path
     async def mock_start():
         call_order.append("start")
 
-    async def mock_create_session(name: str = ""):
-        call_order.append("create_session")
-        return "session-123"
-
-    async def mock_wait_ready(timeout: float = 30.0):
-        call_order.append("wait_ready")
+    async def mock_wait_live(timeout: float = 30.0):
+        call_order.append("wait_live")
         return True
 
     async def mock_commit_context(message=None):
@@ -2206,8 +2187,7 @@ async def test_run_commit_calls_lifecycle_in_order(mock_executor_class, tmp_path
         call_order.append("stop")
 
     mock_manager.start = AsyncMock(side_effect=mock_start)
-    mock_manager.create_session = AsyncMock(side_effect=mock_create_session)
-    mock_manager.wait_ready = AsyncMock(side_effect=mock_wait_ready)
+    mock_manager.wait_live = AsyncMock(side_effect=mock_wait_live)
     mock_manager.commit_context = AsyncMock(side_effect=mock_commit_context)
     mock_manager.stop = AsyncMock(side_effect=mock_stop)
 
@@ -2217,20 +2197,17 @@ async def test_run_commit_calls_lifecycle_in_order(mock_executor_class, tmp_path
     )
 
     assert "start" in call_order
-    assert "create_session" in call_order
-    assert "wait_ready" in call_order
+    assert "wait_live" in call_order
     assert "commit_context:My commit message" in call_order
     assert "stop" in call_order
 
     start_idx = call_order.index("start")
-    create_session_idx = call_order.index("create_session")
-    wait_ready_idx = call_order.index("wait_ready")
+    wait_live_idx = call_order.index("wait_live")
     commit_idx = call_order.index("commit_context:My commit message")
     stop_idx = call_order.index("stop")
 
-    assert start_idx < create_session_idx
-    assert create_session_idx < wait_ready_idx
-    assert wait_ready_idx < commit_idx
+    assert start_idx < wait_live_idx
+    assert wait_live_idx < commit_idx
     assert commit_idx < stop_idx
 
 
@@ -2243,7 +2220,7 @@ async def test_run_commit_no_changes(mock_executor_class, tmp_path, capsys) -> N
     mock_manager = mock_executor_class.return_value
     mock_manager.start = AsyncMock()
     mock_manager.create_session = AsyncMock(return_value="session-123")
-    mock_manager.wait_ready = AsyncMock(return_value=True)
+    mock_manager.wait_live = AsyncMock(return_value=True)
     mock_manager.commit_context = AsyncMock(return_value={"status": "no_changes"})
     mock_manager.stop = AsyncMock()
 
@@ -2263,7 +2240,7 @@ async def test_run_commit_success_output(mock_executor_class, tmp_path, capsys) 
     mock_manager = mock_executor_class.return_value
     mock_manager.start = AsyncMock()
     mock_manager.create_session = AsyncMock(return_value="session-123")
-    mock_manager.wait_ready = AsyncMock(return_value=True)
+    mock_manager.wait_live = AsyncMock(return_value=True)
     mock_manager.commit_context = AsyncMock(
         return_value={"commitId": "abc1234567890", "firstLine": "Fix parser bug"}
     )
@@ -2290,7 +2267,7 @@ async def test_run_commit_executor_error_exits_nonzero(
     mock_manager = mock_executor_class.return_value
     mock_manager.start = AsyncMock()
     mock_manager.create_session = AsyncMock(return_value="session-123")
-    mock_manager.wait_ready = AsyncMock(return_value=True)
+    mock_manager.wait_live = AsyncMock(return_value=True)
     mock_manager.commit_context = AsyncMock(side_effect=ExecutorError("Git error"))
     mock_manager.stop = AsyncMock()
 
@@ -2769,12 +2746,8 @@ async def test_run_pr_review_job_calls_submit_pr_review_job(mock_executor_class,
     async def mock_start():
         call_order.append("start")
 
-    async def mock_create_session(name: str = ""):
-        call_order.append(f"create_session:{name}")
-        return "session-123"
-
-    async def mock_wait_ready(timeout: float = 30.0):
-        call_order.append("wait_ready")
+    async def mock_wait_live(timeout: float = 30.0):
+        call_order.append("wait_live")
         return True
 
     async def mock_submit_pr_review_job(**kwargs):
@@ -2788,8 +2761,7 @@ async def test_run_pr_review_job_calls_submit_pr_review_job(mock_executor_class,
         call_order.append("stop")
 
     mock_manager.start = AsyncMock(side_effect=mock_start)
-    mock_manager.create_session = AsyncMock(side_effect=mock_create_session)
-    mock_manager.wait_ready = AsyncMock(side_effect=mock_wait_ready)
+    mock_manager.wait_live = AsyncMock(side_effect=mock_wait_live)
     mock_manager.submit_pr_review_job = AsyncMock(side_effect=mock_submit_pr_review_job)
     mock_manager.stream_events = mock_stream_events
     mock_manager.stop = AsyncMock(side_effect=mock_stop)
@@ -2804,8 +2776,7 @@ async def test_run_pr_review_job_calls_submit_pr_review_job(mock_executor_class,
     )
 
     assert "start" in call_order
-    assert any("create_session:PR Review #42" in c for c in call_order)
-    assert "wait_ready" in call_order
+    assert "wait_live" in call_order
     assert any("submit_pr_review_job" in c for c in call_order)
 
     submit_call = [c for c in call_order if "submit_pr_review_job" in c][0]
@@ -2827,7 +2798,7 @@ async def test_run_pr_review_job_exits_nonzero_on_failed_state(
     mock_manager = mock_executor_class.return_value
     mock_manager.start = AsyncMock()
     mock_manager.create_session = AsyncMock(return_value="session-123")
-    mock_manager.wait_ready = AsyncMock(return_value=True)
+    mock_manager.wait_live = AsyncMock(return_value=True)
     mock_manager.submit_pr_review_job = AsyncMock(return_value="job-456")
 
     async def mock_stream_events(job_id: str):
@@ -2881,3 +2852,4 @@ def test_install_calls_ensure_jbang_ready(monkeypatch, tmp_path) -> None:
     main_module.main()
 
     assert ensure_called["n"] == 1
+

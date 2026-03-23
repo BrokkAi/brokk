@@ -49,7 +49,7 @@ class TestPickSessionStartupFlow:
 
         app.executor.start = AsyncMock()
         app.executor.create_session = AsyncMock(side_effect=create_session)
-        app.executor.wait_ready = AsyncMock(return_value=True)
+        app.executor.wait_live = AsyncMock(return_value=True)
         app.executor.get_health_live = AsyncMock(return_value={})
 
         app._maybe_chat = MagicMock(return_value=None)
@@ -94,7 +94,7 @@ class TestPickSessionStartupFlow:
 
         app.executor.start = AsyncMock()
         app.executor.create_session = AsyncMock(return_value="s1")
-        app.executor.wait_ready = AsyncMock(return_value=True)
+        app.executor.wait_live = AsyncMock(return_value=True)
         app.executor.get_health_live = AsyncMock(return_value={})
 
         app._maybe_chat = MagicMock(return_value=None)
@@ -133,7 +133,7 @@ class TestPickSessionStartupFlow:
 
         app.executor.start = AsyncMock()
         app.executor.create_session = AsyncMock(return_value="s-default")
-        app.executor.wait_ready = AsyncMock(return_value=True)
+        app.executor.wait_live = AsyncMock(return_value=True)
         app.executor.get_health_live = AsyncMock(return_value={})
 
         app._maybe_chat = MagicMock(return_value=None)
@@ -220,8 +220,8 @@ class TestPickSessionStartupFlow:
                     pass
 
     @pytest.mark.asyncio
-    async def test_pick_session_not_scheduled_when_wait_ready_fails(self, tmp_path):
-        """When wait_ready returns False, _show_sessions should NOT be scheduled."""
+    async def test_pick_session_not_scheduled_when_wait_live_fails(self, tmp_path):
+        """When wait_live returns False, _show_sessions should NOT be scheduled."""
         app = BrokkApp(workspace_dir=tmp_path, pick_session=True)
         app.executor = MagicMock()
         app.executor.workspace_dir = tmp_path
@@ -233,7 +233,7 @@ class TestPickSessionStartupFlow:
 
         app.executor.start = AsyncMock()
         app.executor.create_session = AsyncMock(side_effect=create_session)
-        app.executor.wait_ready = AsyncMock(return_value=False)
+        app.executor.wait_live = AsyncMock(return_value=False)
         app.executor.get_health_live = AsyncMock(return_value={})
 
         app._maybe_chat = MagicMock(return_value=None)
@@ -255,7 +255,7 @@ class TestPickSessionStartupFlow:
                 if hasattr(coro, "cr_code") and coro.cr_code.co_name == "_show_sessions"
             ]
             assert len(show_sessions_scheduled) == 0, (
-                "_show_sessions should NOT be scheduled when wait_ready returns False"
+                "_show_sessions should NOT be scheduled when wait_live returns False"
             )
         finally:
             for coro in scheduled:
@@ -278,7 +278,7 @@ class TestPickSessionStartupFlow:
 
         app.executor.start = AsyncMock()
         app.executor.create_session = AsyncMock(side_effect=create_session)
-        app.executor.wait_ready = AsyncMock(return_value=True)
+        app.executor.wait_live = AsyncMock(return_value=True)
         app.executor.get_health_live = AsyncMock(return_value={})
 
         app._maybe_chat = MagicMock(return_value=None)
@@ -322,3 +322,4 @@ class TestPickSessionStartupFlow:
                     coro.close()
                 except Exception:
                     pass
+

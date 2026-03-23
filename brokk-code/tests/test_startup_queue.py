@@ -21,7 +21,7 @@ class StubExecutor(ExecutorManager):
         self.session_id = "session-1"
         return self.session_id
 
-    async def wait_ready(self, timeout: float = 30.0) -> bool:
+    async def wait_live(self, timeout: float = 30.0) -> bool:
         if self.ready_event:
             await self.ready_event.wait()
         return True
@@ -42,7 +42,7 @@ def _set_test_api_key(monkeypatch):
 async def test_startup_prompt_queued_and_executed(tmp_path):
     """Verifies that a prompt submitted before readiness is executed once ready."""
     stub = StubExecutor(tmp_path)
-    # We use an event to control when wait_ready returns
+    # We use an event to control when wait_live returns
     stub.ready_event = AsyncMock()
     stub.ready_event.wait = AsyncMock()
 
@@ -68,7 +68,7 @@ async def test_startup_prompt_queued_and_executed(tmp_path):
             app._executor_ready = True
             # Manually trigger the queue check that happens at the end of _start_executor
             # instead of fighting the background task timing in tests.
-            # (In production, _start_executor handles this after wait_ready)
+            # (In production, _start_executor handles this after wait_live)
             prompt = app._startup_pending_prompt
             app._startup_pending_prompt = None
             await app._run_job(prompt)
@@ -105,3 +105,4 @@ async def test_multiple_startup_prompts_collapse(tmp_path):
             await app._run_job(prompt)
 
             mock_run_job.assert_called_once_with("Prompt 2")
+
