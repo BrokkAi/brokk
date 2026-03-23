@@ -33,7 +33,7 @@ class RelaunchFakeExecutor:
     def check_alive(self):
         return self._alive
 
-    async def wait_ready(self, timeout=30.0):
+    async def wait_live(self, timeout=30.0):
         return self._alive
 
     async def download_session_zip(self, session_id):
@@ -157,8 +157,8 @@ async def test_relaunch_failure_after_start_leaves_app_not_ready(tmp_path):
 
 @pytest.mark.asyncio
 async def test_relaunch_sequencing_restores_before_ready_poll(tmp_path):
-    """Verify that session restoration happens BEFORE wait_ready is called.
-    This is critical because /health/ready returns 503 until a session is loaded.
+    """Verify that session restoration happens BEFORE wait_live is called.
+    This keeps restored state available before we resume traffic.
     """
     fake = RelaunchFakeExecutor(tmp_path)
     app = BrokkApp(executor=fake, workspace_dir=tmp_path)
@@ -169,7 +169,7 @@ async def test_relaunch_sequencing_restores_before_ready_poll(tmp_path):
 
     original_start = fake.start
     original_import = fake.import_session_zip
-    original_wait = fake.wait_ready
+    original_wait = fake.wait_live
 
     async def start_spy():
         call_log.append("start")
@@ -180,12 +180,12 @@ async def test_relaunch_sequencing_restores_before_ready_poll(tmp_path):
         return await original_import(zip_bytes, session_id)
 
     async def wait_spy(timeout=30.0):
-        call_log.append("wait_ready")
+        call_log.append("wait_live")
         return await original_wait(timeout)
 
     fake.start = start_spy
     fake.import_session_zip = import_spy
-    fake.wait_ready = wait_spy
+    fake.wait_live = wait_spy
 
     # Mock chat
     mock_chat = MagicMock()
@@ -196,8 +196,8 @@ async def test_relaunch_sequencing_restores_before_ready_poll(tmp_path):
     # The expected sequence for a healthy relaunch with existing session is:
     # 1. start
     # 2. import (or create_session)
-    # 3. wait_ready
-    expected_sequence = ["start", "import", "wait_ready"]
+    # 3. wait_live
+    expected_sequence = ["start", "import", "wait_live"]
 
     # Filter call_log to just these three so unrelated calls don't break the test
     relevant_calls = [c for c in call_log if c in expected_sequence]

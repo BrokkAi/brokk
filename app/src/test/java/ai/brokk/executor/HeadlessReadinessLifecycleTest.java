@@ -2,6 +2,7 @@ package ai.brokk.executor;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.ContextManager;
@@ -43,15 +44,21 @@ class HeadlessReadinessLifecycleTest {
     }
 
     @Test
-    void testReadinessTransitionsAfterSessionCreation() throws Exception {
-        // 1. Initial state: should be 503 NOT_READY
+    void testReadyEndpointIsDeprecatedLivenessAlias() throws Exception {
+        // /health/ready should return 200 even before session creation.
         var readyUrl = URI.create(baseUrl + "/health/ready").toURL();
         var conn1 = (HttpURLConnection) readyUrl.openConnection();
         conn1.setRequestMethod("GET");
-        assertEquals(503, conn1.getResponseCode());
+        assertEquals(200, conn1.getResponseCode());
+        assertEquals("true", conn1.getHeaderField("Deprecation"));
+        var warning = conn1.getHeaderField("Warning");
+        assertNotNull(warning);
+        assertTrue(warning.contains("Deprecated endpoint"), warning);
 
-        var errorBody = MAPPER.readValue(conn1.getErrorStream(), Map.class);
-        assertEquals("NOT_READY", errorBody.get("code"));
+        var initialReadyBody = MAPPER.readValue(conn1.getInputStream(), Map.class);
+        assertEquals("ready", initialReadyBody.get("status"));
+        assertTrue(initialReadyBody.containsKey("sessionId"));
+        assertNull(initialReadyBody.get("sessionId"));
 
         // 2. Create a session
         var sessionsUrl = URI.create(baseUrl + "/v1/sessions").toURL();
@@ -69,10 +76,7 @@ class HeadlessReadinessLifecycleTest {
         String createdSessionId = (String) createBody.get("sessionId");
         assertNotNull(createdSessionId);
 
-        // 3. Post-creation state: should be 200 OK
-        // Note: The ContextManager may quarantine a newly-created session and create a replacement session
-        // asynchronously. Therefore readiness only guarantees that some session is loaded, not that it is
-        // necessarily the exact same sessionId returned by the POST above.
+        // 3. Post-creation state: still 200 with ready payload.
         var conn3 = (HttpURLConnection) readyUrl.openConnection();
         conn3.setRequestMethod("GET");
         assertEquals(200, conn3.getResponseCode());
@@ -80,7 +84,7 @@ class HeadlessReadinessLifecycleTest {
         var readyBody = MAPPER.readValue(conn3.getInputStream(), Map.class);
         assertEquals("ready", readyBody.get("status"));
 
-        // sessionId should be present and non-empty, but it may differ from the originally-created session id
+        // sessionId should be present and non-empty.
         Object readySessionIdObj = readyBody.get("sessionId");
         assertNotNull(readySessionIdObj);
         String readySessionId = String.valueOf(readySessionIdObj);

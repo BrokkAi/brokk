@@ -326,7 +326,7 @@ Once running, the executor exposes the following endpoints:
 ### Health & Info (Unauthenticated)
 
 - **`GET /health/live`** - Liveness check, returns `200` if server is running
-- **`GET /health/ready`** - Readiness check, returns `200` if session loaded, `503` otherwise
+- **`GET /health/ready`** - Deprecated compatibility endpoint; currently mirrors `/health/live` and returns `200` when server is running
 - **`GET /v1/executor`** - Returns executor info (ID, version, protocol version)
 
 ### Session Management (Authenticated)

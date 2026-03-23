@@ -28,6 +28,7 @@ export IDEMP_KEY="job-$(date +%s)"
 
 ```bash
 curl -sS "${BASE}/health/live"
+# Deprecated alias for compatibility during migration:
 curl -sS "${BASE}/health/ready"
 ```
 

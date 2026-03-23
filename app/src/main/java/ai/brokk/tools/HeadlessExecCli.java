@@ -106,22 +106,14 @@ public class HeadlessExecCli {
             var baseUrl = "http://127.0.0.1:" + port;
             logger.info("Executor started on port {}", port);
 
-            // Create session first
-            var sessionId = createSession(baseUrl);
-            if (sessionId == null) {
-                System.err.println("ERROR: Failed to create session");
-                return 1;
-            }
-            logger.info("Created session: {}", sessionId);
-
-            // Poll /health/ready until ready
-            if (!pollHealthReady(baseUrl)) {
-                System.err.println("ERROR: Executor failed to become ready");
+            // Poll /health/live until ready
+            if (!pollHealthLive(baseUrl)) {
+                System.err.println("ERROR: Executor failed to become live");
                 return 1;
             }
 
             // Submit job
-            var jobId = submitJob(baseUrl, sessionId);
+            var jobId = submitJob(baseUrl);
             if (jobId == null) {
                 System.err.println("ERROR: Failed to submit job");
                 return 1;
@@ -228,48 +220,19 @@ public class HeadlessExecCli {
     }
 
     /**
-     * POST /v1/sessions to create a session.
+     * Poll /health/live until executor is live or timeout.
      */
-    @Nullable
-    private String createSession(String baseUrl) throws IOException {
-        var body = mapper.createObjectNode();
-        body.put("name", "CLI Session " + System.currentTimeMillis());
-
-        var request = new Request.Builder()
-                .url(baseUrl + "/v1/sessions")
-                .post(RequestBody.create(mapper.writeValueAsString(body), JSON))
-                .header("Authorization", "Bearer " + authToken)
-                .build();
-
-        try (var response = httpClient.newCall(request).execute()) {
-            if (response.code() != 201) {
-                logger.error("Failed to create session: {} {}", response.code(), response.body());
-                return null;
-            }
-            var responseBody = response.body();
-            if (responseBody == null) {
-                logger.error("Empty response body from /v1/sessions");
-                return null;
-            }
-            var json = mapper.readTree(responseBody.string());
-            return json.get("sessionId").asText();
-        }
-    }
-
-    /**
-     * Poll /health/ready until executor is ready or timeout.
-     */
-    private boolean pollHealthReady(String baseUrl) {
+    private boolean pollHealthLive(String baseUrl) {
         long deadline = System.currentTimeMillis() + READY_POLL_TIMEOUT_MS;
         while (System.currentTimeMillis() < deadline) {
             try {
                 var request = new Request.Builder()
-                        .url(baseUrl + "/health/ready")
+                        .url(baseUrl + "/health/live")
                         .get()
                         .build();
                 try (var response = httpClient.newCall(request).execute()) {
                     if (response.code() == 200) {
-                        logger.info("/health/ready returned 200");
+                        logger.info("/health/live returned 200");
                         return true;
                     }
                 }
@@ -290,9 +253,8 @@ public class HeadlessExecCli {
      * POST /v1/jobs to submit a job.
      */
     @Nullable
-    private String submitJob(String baseUrl, String sessionId) throws IOException {
+    private String submitJob(String baseUrl) throws IOException {
         var jobSpec = mapper.createObjectNode();
-        jobSpec.put("sessionId", sessionId);
         jobSpec.put("taskInput", prompt);
         jobSpec.put("autoCommit", autoCommit);
         jobSpec.put("autoCompress", autoCompress);
