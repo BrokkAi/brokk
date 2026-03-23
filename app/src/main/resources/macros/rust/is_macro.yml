@@ -2,6 +2,7 @@ version: "1.0"
 language: "rust"
 macros:
   - name: "Is"
+    parent: "is_macro"
     strategy: "TEMPLATE"
     options:
       template: "{{#children}}pub fn is_{{identifier}}(&self) -> bool { matches!(self, Self::{{identifier}} { .. }) } {{/children}}"
