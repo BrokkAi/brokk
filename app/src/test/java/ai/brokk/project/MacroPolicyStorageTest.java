@@ -36,7 +36,10 @@ class MacroPolicyStorageTest {
         project.setMacroPolicy(lang, policy);
 
         // Verify file existence
-        Path expectedFile = tempDir.resolve(".brokk").resolve("macros_rust.yml");
+        Path expectedFile = tempDir.resolve(".brokk")
+                .resolve("code_intelligence")
+                .resolve("macros")
+                .resolve("rust.yml");
         assertTrue(java.nio.file.Files.exists(expectedFile), "Policy file should exist");
 
         // Load back
@@ -56,7 +59,10 @@ class MacroPolicyStorageTest {
         MacroPolicy policy = new MacroPolicy("1.0", "java", List.of());
         project.setMacroPolicy(lang, policy);
 
-        Path expectedFile = tempDir.resolve(".brokk").resolve("macros_java.yml");
+        Path expectedFile = tempDir.resolve(".brokk")
+                .resolve("code_intelligence")
+                .resolve("macros")
+                .resolve("java.yml");
         assertTrue(java.nio.file.Files.exists(expectedFile));
 
         project.setMacroPolicy(lang, null);

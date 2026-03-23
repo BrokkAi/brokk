@@ -309,7 +309,9 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         Map<Language, MacroPolicy> policies = new HashMap<>();
         for (Language lang : getAnalyzerLanguages()) {
             Path policyFile = root.resolve(BROKK_DIR)
-                    .resolve("macros_" + lang.internalName().toLowerCase(Locale.ROOT) + ".yml");
+                    .resolve("code_intelligence")
+                    .resolve("macros")
+                    .resolve(lang.internalName().toLowerCase(Locale.ROOT) + ".yml");
             if (Files.exists(policyFile)) {
                 try (var is = Files.newInputStream(policyFile)) {
                     policies.put(lang, MacroPolicyLoader.load(is));
@@ -324,7 +326,9 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     @Override
     public void setMacroPolicy(Language language, @Nullable MacroPolicy policy) {
         Path policyFile = root.resolve(BROKK_DIR)
-                .resolve("macros_" + language.internalName().toLowerCase(Locale.ROOT) + ".yml");
+                .resolve("code_intelligence")
+                .resolve("macros")
+                .resolve(language.internalName().toLowerCase(Locale.ROOT) + ".yml");
         try {
             if (policy == null) {
                 Files.deleteIfExists(policyFile);
