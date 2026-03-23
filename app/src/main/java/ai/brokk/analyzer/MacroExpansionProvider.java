@@ -70,33 +70,14 @@ public interface MacroExpansionProvider extends CapabilityProvider {
 
                                 boolean handled = false;
                                 MacroPolicy.MacroMatch mm = policyMap.get(macroName);
-                                if (mm != null) {
-                                    String parent = mm.parent();
-                                    boolean parentRequirementMet = parent == null;
-
-                                    if (parent != null) {
-                                        parentRequirementMet = analyzer.as(ImportAnalysisProvider.class)
-                                                .map(provider -> {
-                                                    try {
-                                                        List<ImportInfo> infos = provider.importInfoOf(file);
-                                                        return infos.stream().anyMatch(info -> {
-                                                            boolean nameMatches = info.isWildcard()
-                                                                    || Objects.equals(info.identifier(), macroName);
-                                                            return nameMatches && info.rawSnippet().contains(parent);
-                                                        });
-                                                    } catch (Exception e) {
-                                                        // Fallback if provider is called before file state is fully ready
-                                                        return false;
-                                                    }
-                                                })
-                                                .orElse(false);
-                                    }
-
-                                    if (parentRequirementMet
-                                            && mm.strategy() == MacroPolicy.MacroStrategy.TEMPLATE
-                                            && mm.options() instanceof MacroPolicy.TemplateConfig tc) {
-                                        expandTemplate(analyzer, file, node, tc.template(), acc);
-                                        handled = true;
+                                if (mm != null && isParentRequirementMet(analyzer, file, macroName, mm)) {
+                                    handled = true;
+                                    switch (mm.options()) {
+                                        case MacroPolicy.TemplateConfig tc -> expandTemplate(
+                                                analyzer, file, node, tc.template(), acc);
+                                        default -> {
+                                            // Strategy recognized but either no-op or handled elsewhere
+                                        }
                                     }
                                 }
 
@@ -113,6 +94,29 @@ public interface MacroExpansionProvider extends CapabilityProvider {
                     return true;
                 },
                 false);
+    }
+
+    private boolean isParentRequirementMet(
+            TreeSitterAnalyzer analyzer, ProjectFile file, String macroName, MacroPolicy.MacroMatch mm) {
+        String parent = mm.parent();
+        if (parent == null) {
+            return true;
+        }
+
+        return analyzer.as(ImportAnalysisProvider.class)
+                .map(provider -> {
+                    try {
+                        List<ImportInfo> infos = provider.importInfoOf(file);
+                        return infos.stream().anyMatch(info -> {
+                            boolean nameMatches = info.isWildcard() || Objects.equals(info.identifier(), macroName);
+                            return nameMatches && info.rawSnippet().contains(parent);
+                        });
+                    } catch (Exception e) {
+                        // Fallback if provider is called before file state is fully ready
+                        return false;
+                    }
+                })
+                .orElse(false);
     }
 
     private void expandTemplate(

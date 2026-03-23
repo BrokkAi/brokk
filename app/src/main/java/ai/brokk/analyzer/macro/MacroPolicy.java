@@ -25,12 +25,14 @@ public record MacroPolicy(String version, String language, List<MacroMatch> macr
                         @JsonSubTypes.Type(value = BypassConfig.class, name = "BYPASS")
                     })
                     @JsonProperty("options")
-                    @Nullable
                     MacroConfig options) {
+
         public MacroMatch {
-            if (scope == null) {
-                scope = MacroScope.LIBRARY;
-            }
+            scope = scope != null ? scope : MacroScope.LIBRARY;
+        }
+
+        public MacroMatch(String name, @Nullable String parent) {
+            this(name, parent, MacroScope.LIBRARY, MacroStrategy.BYPASS, new BypassConfig());
         }
     }
 
