@@ -20,6 +20,7 @@ import ai.brokk.acpserver.spec.AcpSchema.ContextGetRequest;
 import ai.brokk.acpserver.spec.AcpSchema.ContextGetResponse;
 import ai.brokk.acpserver.spec.AcpSchema.InitializeRequest;
 import ai.brokk.acpserver.spec.AcpSchema.InitializeResponse;
+import ai.brokk.acpserver.spec.AcpSchema.ModelInfo;
 import ai.brokk.acpserver.spec.AcpSchema.ModelsListRequest;
 import ai.brokk.acpserver.spec.AcpSchema.ModelsListResponse;
 import ai.brokk.acpserver.spec.AcpSchema.NewSessionRequest;
@@ -284,9 +285,12 @@ public class BrokkAcpServer {
     private ModelsListResponse handleModelsList(ModelsListRequest req) {
         logger.debug("Received models/list request");
         if (cm == null) {
-            return new ModelsListResponse(Map.of());
+            return new ModelsListResponse(List.of());
         }
-        var models = cm.getService().getAvailableModels();
+        var modelMap = cm.getService().getAvailableModels();
+        var models = modelMap.entrySet().stream()
+                .map(e -> new ModelInfo(e.getKey(), e.getValue()))
+                .toList();
         return new ModelsListResponse(models);
     }
 

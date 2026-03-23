@@ -3,7 +3,6 @@ package ai.brokk.acpserver.spec;
 import com.fasterxml.jackson.annotation.JsonSubTypes;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import java.util.List;
-import java.util.Map;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -51,7 +50,9 @@ public final class AcpSchema {
         }
     }
 
-    public record ModelsListResponse(Map<String, String> models) {}
+    public record ModelInfo(String name, String location) {}
+
+    public record ModelsListResponse(List<ModelInfo> models) {}
 
     public record ContextFragmentInfo(String id, String type, String description) {}
 

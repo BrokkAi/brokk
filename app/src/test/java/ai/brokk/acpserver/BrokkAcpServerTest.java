@@ -13,7 +13,6 @@ import ai.brokk.acpserver.transport.AcpTransport;
 import dev.langchain4j.data.message.ChatMessageType;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 class BrokkAcpServerTest {
@@ -146,9 +145,10 @@ class BrokkAcpServerTest {
 
     @Test
     void modelsListResponseCanBeCreated() {
-        var response = new ModelsListResponse(Map.of("gpt-4", "openai"));
+        var response = new ModelsListResponse(List.of(new ModelInfo("gpt-4", "openai")));
         assertEquals(1, response.models().size());
-        assertEquals("openai", response.models().get("gpt-4"));
+        assertEquals("gpt-4", response.models().get(0).name());
+        assertEquals("openai", response.models().get(0).location());
     }
 
     @Test
