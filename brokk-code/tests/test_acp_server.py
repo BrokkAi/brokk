@@ -817,3 +817,126 @@ async def test_prompt_context_command_renders_snapshot_without_job(tmp_path: Pat
     assert table.index("| file.py |") < table.index("| other.txt |")
     assert "**Total Tokens:** 1,234 / 200,000" in table
     assert "![Token usage](data:image/png;base64," in table
+
+
+# ── AcpStdioBridge tests ──────────────────────────────────────────────
+
+
+from brokk_code.acp_server import AcpStdioBridge
+
+
+class StubStdioExecutor:
+    """Minimal stub for AcpStdioExecutor used in AcpStdioBridge tests."""
+
+    def __init__(self) -> None:
+        self.workspace_dir = Path("/stub/workspace")
+        self.session_id: str | None = None
+        self.calls: list[str] = []
+
+    async def start(self) -> None:
+        self.calls.append("start")
+
+    async def initialize(self) -> dict[str, Any]:
+        self.calls.append("initialize")
+        return {}
+
+    async def new_session(self, working_directory: str) -> str:
+        self.calls.append(f"new_session:{working_directory}")
+        return "stub-session-id"
+
+    async def list_sessions(self) -> dict[str, Any]:
+        self.calls.append("list_sessions")
+        return {"sessions": []}
+
+    async def switch_session(self, session_id: str) -> dict[str, Any]:
+        self.calls.append(f"switch_session:{session_id}")
+        return {"status": "ok", "sessionId": session_id}
+
+    async def get_conversation(self) -> dict[str, Any]:
+        self.calls.append("get_conversation")
+        return {"entries": []}
+
+
+@pytest.mark.asyncio
+async def test_stdio_bridge_ensure_ready_starts_once() -> None:
+    executor = StubStdioExecutor()
+    bridge = AcpStdioBridge(executor)  # type: ignore[arg-type]
+
+    await bridge.ensure_ready("/project/a")
+    await bridge.ensure_ready("/project/b")
+
+    assert bridge._started is True
+    assert executor.calls == [
+        "start",
+        "initialize",
+        "new_session:/project/a",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_stdio_bridge_ensure_ready_concurrent_calls_start_once() -> None:
+    import asyncio
+
+    executor = StubStdioExecutor()
+    bridge = AcpStdioBridge(executor)  # type: ignore[arg-type]
+
+    await asyncio.gather(
+        bridge.ensure_ready("/project/a"),
+        bridge.ensure_ready("/project/b"),
+        bridge.ensure_ready("/project/c"),
+    )
+
+    assert bridge._started is True
+    start_count = executor.calls.count("start")
+    assert start_count == 1, f"Expected start called once, got {start_count}: {executor.calls}"
+
+
+@pytest.mark.asyncio
+async def test_stdio_bridge_not_started_initially() -> None:
+    executor = StubStdioExecutor()
+    bridge = AcpStdioBridge(executor)  # type: ignore[arg-type]
+
+    assert bridge._started is False
+
+
+@pytest.mark.asyncio
+async def test_stdio_executor_switch_session_sends_correct_method() -> None:
+    from brokk_code.executor import AcpStdioExecutor
+
+    executor = AcpStdioExecutor()
+    mock = MockAcpStdioExecutor()
+    mock.next_result = {"status": "ok", "sessionId": "uuid-1"}
+
+    async def mock_send(method: str, params: dict[str, Any]) -> dict[str, Any]:
+        mock.calls.append((method, params))
+        return mock.next_result
+
+    executor._send_request = mock_send  # type: ignore[method-assign]
+
+    result = await executor.switch_session("uuid-1")
+
+    assert len(mock.calls) == 1
+    assert mock.calls[0] == ("session/switch", {"sessionId": "uuid-1"})
+    assert result == {"status": "ok", "sessionId": "uuid-1"}
+    assert executor.session_id == "uuid-1"
+
+
+@pytest.mark.asyncio
+async def test_stdio_executor_get_conversation_sends_correct_method() -> None:
+    from brokk_code.executor import AcpStdioExecutor
+
+    executor = AcpStdioExecutor()
+    mock = MockAcpStdioExecutor()
+    mock.next_result = {"entries": [{"sequence": 1, "isCompressed": False}]}
+
+    async def mock_send(method: str, params: dict[str, Any]) -> dict[str, Any]:
+        mock.calls.append((method, params))
+        return mock.next_result
+
+    executor._send_request = mock_send  # type: ignore[method-assign]
+
+    result = await executor.get_conversation()
+
+    assert len(mock.calls) == 1
+    assert mock.calls[0] == ("context/get-conversation", {})
+    assert result == {"entries": [{"sequence": 1, "isCompressed": False}]}

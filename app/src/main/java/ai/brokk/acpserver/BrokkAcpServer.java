@@ -184,9 +184,23 @@ public class BrokkAcpServer {
     }
 
     private ContextManager requireSession() {
+        // Wait for project initialization to complete (up to 60 seconds)
         if (initializing) {
-            throw new AcpProtocolException(
-                    AcpProtocolException.INVALID_PARAMS, "Session is still initializing. Please wait.");
+            logger.info("Waiting for project initialization to complete...");
+            long deadline = System.currentTimeMillis() + 60_000;
+            while (initializing && System.currentTimeMillis() < deadline) {
+                try {
+                    Thread.sleep(500);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new AcpProtocolException(
+                            AcpProtocolException.INTERNAL_ERROR, "Interrupted while waiting for initialization.");
+                }
+            }
+            if (initializing) {
+                throw new AcpProtocolException(
+                        AcpProtocolException.INTERNAL_ERROR, "Session initialization timed out after 60 seconds.");
+            }
         }
         if (initError != null) {
             throw new AcpProtocolException(

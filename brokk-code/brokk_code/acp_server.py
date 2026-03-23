@@ -892,15 +892,19 @@ class AcpStdioBridge:
         self.executor = executor
         self._session_id: Optional[str] = None
         self._started = False
+        self._ready_lock = asyncio.Lock()
 
     async def ensure_ready(self, cwd: Optional[str] = None) -> None:
         if self._started:
             return
-        await self.executor.start()
-        await self.executor.initialize()
-        working_dir = cwd or str(self.executor.workspace_dir)
-        self._session_id = await self.executor.new_session(working_dir)
-        self._started = True
+        async with self._ready_lock:
+            if self._started:
+                return
+            await self.executor.start()
+            await self.executor.initialize()
+            working_dir = cwd or str(self.executor.workspace_dir)
+            self._session_id = await self.executor.new_session(working_dir)
+            self._started = True
 
     async def start_and_create_session(self, name: str, cwd: Optional[str] = None) -> str:
         """Starts the executor on-demand and creates the session."""
@@ -1701,11 +1705,12 @@ async def run_acp_server(
 
             async def prompt(self, prompt: Any, session_id: str, **kwargs: Any) -> Any:
                 # If session_id is unknown (e.g. Zed restarted and reuses old ID),
-                # bootstrap session defaults from the workspace directory
+                # bootstrap session defaults from the workspace directory.
+                # Do NOT call ensure_ready here — only new_session should start the server
+                # (it receives the correct cwd from Zed).
                 if session_id not in self._cwd_by_session:
                     effective_cwd = str(workspace_dir)
                     self._ensure_session_defaults(session_id, effective_cwd)
-                    await stdio_bridge.ensure_ready(effective_cwd)
                 logger.debug(
                     "prompt session_id=%r, known_sessions=%r",
                     session_id,
@@ -2271,8 +2276,9 @@ async def run_acp_server(
             **kwargs: Any,
         ) -> ListSessionsResponse:
             del cursor, kwargs
+            if not bridge._started:
+                return ListSessionsResponse(sessions=[])
             try:
-                await bridge.ensure_ready(cwd)
                 sessions_payload = await bridge.executor.list_sessions()
             except Exception:
                 logger.warning("list_sessions: failed to list sessions", exc_info=True)
