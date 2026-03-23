@@ -197,6 +197,7 @@ class JobsRouterValidationTest {
         var payload = MAPPER.readValue(exchange.responseBodyBytes(), ErrorPayload.class);
         assertEquals(ErrorPayload.Code.VALIDATION_ERROR, payload.code());
         assertTrue(payload.message().contains("Unknown Session-Id"), payload.message());
+        assertEquals(fsSnapshotBefore, snapshotTree(jobStoreDir), "JobStore dir changed for invalid session header");
     }
 
     @Test
@@ -297,6 +298,26 @@ class JobsRouterValidationTest {
         @SuppressWarnings("unchecked")
         Map<String, Object> replayPayload = MAPPER.readValue(replay.responseBodyBytes(), Map.class);
         assertEquals(requestedSessionId.toString(), String.valueOf(replayPayload.get("sessionId")));
+    }
+
+    @Test
+    void postJobs_unknownSessionHeader_doesNotPoisonIdempotencyKey() throws Exception {
+        String idemKey = UUID.randomUUID().toString();
+        Map<String, Object> body = Map.of("taskInput", "poison check", "plannerModel", "gpt-4");
+
+        var invalid = TestHttpExchange.jsonRequest("POST", "/v1/jobs", body);
+        invalid.getRequestHeaders().set("Idempotency-Key", idemKey);
+        invalid.getRequestHeaders().set("X-Session-Id", UUID.randomUUID().toString());
+        jobsRouter.handle(invalid);
+
+        assertEquals(400, invalid.responseCode());
+        assertEquals(fsSnapshotBefore, snapshotTree(jobStoreDir), "Invalid request must not persist idempotency entry");
+
+        var retry = TestHttpExchange.jsonRequest("POST", "/v1/jobs", body);
+        retry.getRequestHeaders().set("Idempotency-Key", idemKey);
+        jobsRouter.handle(retry);
+
+        assertEquals(201, retry.responseCode(), "Retry with same key should create new job after invalid first attempt");
     }
 
     @Test

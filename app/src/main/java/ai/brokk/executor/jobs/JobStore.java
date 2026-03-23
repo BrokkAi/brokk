@@ -131,6 +131,23 @@ public final class JobStore {
     }
 
     /**
+     * Look up an existing job for an idempotency key without creating any new job records.
+     *
+     * @param idempKey The idempotency key (arbitrary string)
+     * @return Existing job ID, or null when this key has not been seen before
+     * @throws IOException If I/O fails
+     */
+    public synchronized @Nullable String findJobIdByIdempotencyKey(String idempKey) throws IOException {
+        var hash = hashIdempKey(idempKey);
+        var idempFile = idempotencyDir.resolve(hash + ".json");
+        if (!Files.exists(idempFile)) {
+            return null;
+        }
+        var entry = objectMapper.readValue(idempFile.toFile(), IdempotencyEntry.class);
+        return entry.jobId;
+    }
+
+    /**
      * Append an event to a job's event stream.
      * Assigns a monotonically increasing sequence number.
      *
