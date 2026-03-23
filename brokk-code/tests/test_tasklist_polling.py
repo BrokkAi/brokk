@@ -271,4 +271,3 @@ async def test_context_chips_wrap_into_multiple_rows(tmp_path):
 
             rows = panel.query(".context-chip-row")
             assert len(rows) > 1
-

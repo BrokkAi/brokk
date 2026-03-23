@@ -198,4 +198,3 @@ async def test_large_paste_submits_as_job(tmp_path):
 
         # Verify it was submitted as a job
         assert all(c["type"] == "submit" for c in stub.calls)
-

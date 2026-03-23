@@ -147,4 +147,3 @@ async def test_shutdown_retries_stop_after_failure(tmp_path):
     await app._shutdown_once(show_message=False)
     assert fake.stop_calls == 2
     assert app._shutdown_completed is True
-

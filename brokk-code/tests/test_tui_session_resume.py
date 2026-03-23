@@ -519,4 +519,3 @@ async def test_ctrl_d_bound_to_shutdown(tmp_path):
         assert stub.stop.called
         assert app._shutdown_completed is True
         assert mock_exit.called
-

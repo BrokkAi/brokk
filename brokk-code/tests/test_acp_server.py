@@ -695,4 +695,3 @@ async def test_prompt_context_command_renders_snapshot_without_job(tmp_path: Pat
     assert table.index("| file.py |") < table.index("| other.txt |")
     assert "**Total Tokens:** 1,234 / 200,000" in table
     assert "![Token usage](data:image/png;base64," in table
-

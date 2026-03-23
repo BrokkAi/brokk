@@ -511,4 +511,3 @@ async def test_run_selected_task_does_not_mark_done_on_cancellation(tmp_path: Pa
 
     # Task should NOT be marked done since it was cancelled
     assert len(executor.set_tasklist_calls) == 0
-
