@@ -269,7 +269,8 @@ public final class HeadlessExecutorMain {
         this.server.registerUnauthenticatedContext("/health/ready", this::handleHealthReady);
         this.server.registerUnauthenticatedContext("/v1/executor", this::handleExecutor);
 
-        var sessionsRouter = new SessionsRouter(this.contextManager, this.contextManager.getProject().getSessionManager());
+        var sessionsRouter = new SessionsRouter(
+                this.contextManager, this.contextManager.getProject().getSessionManager());
         this.server.registerAuthenticatedContext("/v1/sessions", sessionsRouter);
 
         this.jobRunner = new JobRunner(this.contextManager, this.jobStore);
@@ -336,19 +337,29 @@ public final class HeadlessExecutorMain {
         exchange.getResponseHeaders().add("Deprecation", "true");
         exchange.getResponseHeaders().add("Warning", "299 - \"Deprecated endpoint: use /health/live\"");
 
-        var response = Map.of(
-                "status",
-                "ready",
-                "sessionId",
-                String.valueOf(contextManager.getCurrentSessionId()),
-                "execId",
-                this.execId.toString(),
-                "version",
-                BuildInfo.version,
-                "protocolVersion",
-                1);
+        var response = new HashMap<String, Object>();
+        response.put("status", "ready");
+        response.put("sessionId", resolveReadySessionId());
+        response.put("execId", this.execId.toString());
+        response.put("version", BuildInfo.version);
+        response.put("protocolVersion", 1);
         logger.info("/health/ready served as deprecated liveness alias");
         SimpleHttpServer.sendJsonResponse(exchange, response);
+    }
+
+    private @Nullable String resolveReadySessionId() {
+        try {
+            var currentSessionId = contextManager.getCurrentSessionId();
+            var hasKnownActiveSession = contextManager.getProject().getSessionManager().listSessions().stream()
+                    .anyMatch(session -> session.id().equals(currentSessionId));
+            if (hasKnownActiveSession) {
+                return currentSessionId.toString();
+            }
+            return null;
+        } catch (Exception e) {
+            logger.warn("Failed to resolve sessionId for /health/ready payload", e);
+            return null;
+        }
     }
 
     private void handleExecutor(HttpExchange exchange) throws IOException {

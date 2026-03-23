@@ -2,6 +2,7 @@ package ai.brokk.executor;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.ContextManager;
@@ -56,7 +57,8 @@ class HeadlessReadinessLifecycleTest {
 
         var initialReadyBody = MAPPER.readValue(conn1.getInputStream(), Map.class);
         assertEquals("ready", initialReadyBody.get("status"));
-        assertNotNull(initialReadyBody.get("sessionId"));
+        assertTrue(initialReadyBody.containsKey("sessionId"));
+        assertNull(initialReadyBody.get("sessionId"));
 
         // 2. Create a session
         var sessionsUrl = URI.create(baseUrl + "/v1/sessions").toURL();
