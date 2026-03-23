@@ -18,8 +18,8 @@ import { BrokkPanelProvider } from "./providers/BrokkPanelProvider";
 import { DiffContentProvider } from "./providers/DiffContentProvider";
 
 let executorProcess: ChildProcess | null = null;
-let statusBarItem: vscode.StatusBarItem;
-let panelProvider: BrokkPanelProvider;
+let statusBarItem: vscode.StatusBarItem | null = null;
+let panelProvider: BrokkPanelProvider | null = null;
 let eventDispatcher: EventDispatcher | null = null;
 
 const outputChannel = vscode.window.createOutputChannel("Brokk");
@@ -68,6 +68,9 @@ export async function activate(context: vscode.ExtensionContext) {
       connectOrSpawn(context)
     ),
     vscode.commands.registerCommand("brokk.stopExecutor", stopExecutor),
+    vscode.commands.registerCommand("brokk.restartExecutor", () =>
+      restartExecutor(context)
+    ),
     vscode.commands.registerCommand(
       "brokk.addFile",
       (clickedUri?: vscode.Uri, selectedUris?: vscode.Uri[]) => {
@@ -105,13 +108,17 @@ async function ensureJbangInstalled(): Promise<string | null> {
     "Cancel"
   );
   if (choice !== "Install jbang") {
-    statusBarItem.text = "$(circle-slash) Brokk: Not connected";
-    statusBarItem.tooltip = "jbang is required. Click to retry.";
+    if (statusBarItem) {
+      statusBarItem.text = "$(circle-slash) Brokk: Not connected";
+      statusBarItem.tooltip = "jbang is required. Click to retry.";
+    }
     return null;
   }
 
   log("Installing jbang...");
-  statusBarItem.text = "$(sync~spin) Brokk: Installing jbang...";
+  if (statusBarItem) {
+    statusBarItem.text = "$(sync~spin) Brokk: Installing jbang...";
+  }
   const installedPath = await installJbang();
   log(`jbang installed at ${installedPath}`);
   return installedPath;
@@ -146,14 +153,18 @@ async function connectOrSpawn(context: vscode.ExtensionContext) {
     const extToken = configToken || process.env.BROKK_AUTH_TOKEN || "";
 
     if (!extPort || !extToken) {
-      statusBarItem.text = "$(error) Brokk: Missing config";
-      statusBarItem.tooltip = "Set brokk.executorPort and brokk.authToken for external mode";
+      if (statusBarItem) {
+        statusBarItem.text = "$(error) Brokk: Missing config";
+        statusBarItem.tooltip = "Set brokk.executorPort and brokk.authToken for external mode";
+      }
       vscode.window.showErrorMessage("Brokk: External mode requires executorPort and authToken settings.");
       return;
     }
 
     log(`Connecting to external executor on port ${extPort}`);
-    statusBarItem.text = "$(sync~spin) Brokk: Connecting...";
+    if (statusBarItem) {
+      statusBarItem.text = "$(sync~spin) Brokk: Connecting...";
+    }
     try {
       const client = new BrokkClient(extPort, extToken);
       await client.checkLive();
@@ -161,8 +172,10 @@ async function connectOrSpawn(context: vscode.ExtensionContext) {
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       log(`Failed to connect to external executor: ${message}`);
-      statusBarItem.text = "$(error) Brokk: Connection failed";
-      statusBarItem.tooltip = message;
+      if (statusBarItem) {
+        statusBarItem.text = "$(error) Brokk: Connection failed";
+        statusBarItem.tooltip = message;
+      }
       vscode.window.showErrorMessage(`Brokk: Could not connect to executor on port ${extPort}: ${message}`);
     }
     return;
@@ -171,9 +184,11 @@ async function connectOrSpawn(context: vscode.ExtensionContext) {
   // --- jbang / local modes need a workspace ---
   const workspaceFolders = vscode.workspace.workspaceFolders;
   if (!workspaceFolders) {
-    statusBarItem.text = "$(warning) Brokk: No workspace";
-    statusBarItem.tooltip = "Open a folder to use Brokk";
-    panelProvider.sendConnectionStatus("noWorkspace");
+    if (statusBarItem) {
+      statusBarItem.text = "$(warning) Brokk: No workspace";
+      statusBarItem.tooltip = "Open a folder to use Brokk";
+    }
+    panelProvider?.sendConnectionStatus("noWorkspace");
     return;
   }
 
@@ -183,8 +198,10 @@ async function connectOrSpawn(context: vscode.ExtensionContext) {
   log(`Workspace: ${workspaceDir}`);
   log(`Extension dir: ${extensionDir}`);
 
-  statusBarItem.text = "$(sync~spin) Brokk: Starting...";
-  panelProvider.sendConnectionStatus("starting");
+  if (statusBarItem) {
+    statusBarItem.text = "$(sync~spin) Brokk: Starting...";
+  }
+  panelProvider?.sendConnectionStatus("starting");
 
   try {
     let handle;
@@ -207,7 +224,9 @@ async function connectOrSpawn(context: vscode.ExtensionContext) {
 
         if (isSpawnError) {
           log(`Initial JBang launch failed (${message}). Attempting recovery...`);
-          statusBarItem.text = "$(sync~spin) Brokk: Recovering JBang...";
+          if (statusBarItem) {
+            statusBarItem.text = "$(sync~spin) Brokk: Recovering JBang...";
+          }
           
           // Re-resolve or re-install
           jbangBinary = resolveJbangBinary() || await ensureJbangInstalled();
@@ -252,7 +271,9 @@ async function connectOrSpawn(context: vscode.ExtensionContext) {
 
     log(`Executor spawned on port ${handle.port}`);
 
-    statusBarItem.text = "$(sync~spin) Brokk: Waiting for live...";
+    if (statusBarItem) {
+      statusBarItem.text = "$(sync~spin) Brokk: Waiting for live...";
+    }
     const sessionId = await waitForReady(handle.port, handle.authToken);
     log(`Session label: ${sessionId}`);
 
@@ -267,9 +288,11 @@ async function connectOrSpawn(context: vscode.ExtensionContext) {
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     log(`Startup failed: ${message}`);
-    statusBarItem.text = "$(error) Brokk: Failed";
-    statusBarItem.tooltip = `${message}\n\nClick to retry, or configure brokk.launchMode in settings.`;
-    panelProvider.sendConnectionStatus("failed", message);
+    if (statusBarItem) {
+      statusBarItem.text = "$(error) Brokk: Failed";
+      statusBarItem.tooltip = `${message}\n\nClick to retry, or configure brokk.launchMode in settings.`;
+    }
+    panelProvider?.sendConnectionStatus("failed", message);
     vscode.window.showErrorMessage(`Brokk: ${message}`);
   }
 }
@@ -309,25 +332,47 @@ function setConnected(client: BrokkClient, port: number, sessionOrLabel: string)
     panelProvider.refreshTaskList();
   });
 
-  panelProvider.sendConnectionStatus("connected");
-  statusBarItem.text = "$(check) Brokk: Connected";
-  statusBarItem.tooltip = `Executor on port ${port}, session: ${sessionOrLabel}`;
+  panelProvider?.sendConnectionStatus("connected");
+  if (statusBarItem) {
+    statusBarItem.text = "$(check) Brokk: Connected";
+    statusBarItem.tooltip = `Executor on port ${port}, session: ${sessionOrLabel}`;
+  }
   log(`Connected to executor on port ${port}`);
 }
 
-function stopExecutor() {
+/**
+ * Centralized teardown for executor-related lifecycle. 
+ * Cleans up the process, event dispatcher, and associated state.
+ */
+function stopExecutorInternal() {
   if (executorProcess) {
     executorProcess.kill();
     executorProcess = null;
   }
   eventDispatcher?.dispose();
   eventDispatcher = null;
-  statusBarItem.text = "$(circle-slash) Brokk: Stopped";
-  statusBarItem.tooltip = "Click to restart";
+}
+
+function stopExecutor() {
+  stopExecutorInternal();
+  if (statusBarItem) {
+    statusBarItem.text = "$(circle-slash) Brokk: Stopped";
+    statusBarItem.tooltip = "Click to restart";
+  }
   vscode.window.showInformationMessage("Brokk executor stopped.");
 }
 
+async function restartExecutor(context: vscode.ExtensionContext) {
+  log("Restarting executor...");
+  stopExecutorInternal();
+  if (statusBarItem) {
+    statusBarItem.text = "$(sync~spin) Brokk: Restarting...";
+    statusBarItem.tooltip = "Restarting executor...";
+  }
+  panelProvider?.sendConnectionStatus("starting");
+  await connectOrSpawn(context);
+}
+
 export function deactivate() {
-  executorProcess?.kill();
-  eventDispatcher?.dispose();
+  stopExecutorInternal();
 }

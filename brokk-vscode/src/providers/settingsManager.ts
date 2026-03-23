@@ -143,7 +143,8 @@ export async function handleOpenAiSettingsMessage(
  */
 export async function handleSettingsMessage(
   msg: { type: string; [key: string]: unknown },
-  sendFn: (type: string, data: Record<string, unknown>) => void
+  sendFn: (type: string, data: Record<string, unknown>) => void,
+  onApiKeySaved?: () => void
 ): Promise<void> {
   try {
     switch (msg.type) {
@@ -167,6 +168,7 @@ export async function handleSettingsMessage(
             const balance = await fetchBalanceFromApi(key);
             writeProperty("brokkApiKey", key);
             sendFn("settingsSaved", { balance });
+            onApiKeySaved?.();
           } catch (err: unknown) {
             const message = err instanceof Error ? err.message : String(err);
             sendFn("settingsError", { message });
@@ -175,6 +177,7 @@ export async function handleSettingsMessage(
         } else {
           writeProperty("brokkApiKey", "");
           sendFn("settingsSaved", { balance: null });
+          onApiKeySaved?.();
         }
         break;
       }
