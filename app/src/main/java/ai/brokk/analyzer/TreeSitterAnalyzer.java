@@ -1393,6 +1393,13 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             return Optional.empty();
         }
 
+        if (cu.isSynthetic()) {
+            List<String> sigs = signaturesOf(cu);
+            if (!sigs.isEmpty()) {
+                return Optional.of("# This declaration is synthetic\n" + sigs.getFirst());
+            }
+        }
+
         var ranges = rangesOf(cu);
         if (ranges.isEmpty()) {
             return Optional.empty();
@@ -1416,6 +1423,13 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     private Set<String> getSourcesForFunction(CodeUnit cu, boolean includeComments) {
         if (!cu.isFunction()) {
             return Collections.emptySet();
+        }
+
+        if (cu.isSynthetic()) {
+            List<String> sigs = signaturesOf(cu);
+            if (!sigs.isEmpty()) {
+                return Set.of("# This declaration is synthetic\n" + sigs.getFirst());
+            }
         }
 
         List<Range> rangesForOverloads = rangesOf(cu);

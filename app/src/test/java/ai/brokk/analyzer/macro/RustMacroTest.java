@@ -58,8 +58,8 @@ public class RustMacroTest {
             Optional<String> source = analyzer.getSource(isRunning, false);
             assertTrue(source.isPresent(), "Source should be present for synthetic function Status.is_Running");
             String sourceText = source.get();
+            assertTrue(sourceText.contains("# This declaration is synthetic"), "Source should contain synthetic marker");
             assertTrue(sourceText.contains("fn is_Running"), "Source should contain function signature");
-            assertTrue(sourceText.contains("matches!(self, Self::Running { .. })"), "Source should contain expansion logic");
         }
     }
 
