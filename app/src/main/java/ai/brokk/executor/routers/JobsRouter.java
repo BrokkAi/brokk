@@ -180,14 +180,14 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
                 JobSpec.DEFAULT_MAX_ISSUE_FIX_ATTEMPTS);
 
         if (awaitHeadlessInitOrRespond(exchange, null)) return;
-        if (sessionIdHeader != null && !hasKnownSession(sessionIdHeader)) {
-            RouterUtil.sendValidationError(exchange, "Unknown Session-Id: " + sessionIdHeader);
-            return;
-        }
 
         var createResult = jobStore.createOrGetJob(idempotencyKey, jobSpec);
         var jobId = createResult.jobId();
         var isNewJob = createResult.isNewJob();
+        if (isNewJob && sessionIdHeader != null && !hasKnownSession(sessionIdHeader)) {
+            RouterUtil.sendValidationError(exchange, "Unknown Session-Id: " + sessionIdHeader);
+            return;
+        }
 
         var status = jobStore.loadStatus(jobId);
         var state = status != null ? status.state() : "queued";

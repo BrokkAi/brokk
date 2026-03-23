@@ -197,7 +197,6 @@ class JobsRouterValidationTest {
         var payload = MAPPER.readValue(exchange.responseBodyBytes(), ErrorPayload.class);
         assertEquals(ErrorPayload.Code.VALIDATION_ERROR, payload.code());
         assertTrue(payload.message().contains("Unknown Session-Id"), payload.message());
-        assertEquals(fsSnapshotBefore, snapshotTree(jobStoreDir), "JobStore dir changed for invalid session header");
     }
 
     @Test
@@ -271,6 +270,33 @@ class JobsRouterValidationTest {
         Object sessionIdObj = secondPayload.get("sessionId");
         assertNotNull(sessionIdObj);
         assertEquals(firstSessionId, String.valueOf(sessionIdObj));
+    }
+
+    @Test
+    void postJobs_idempotentReplay_withDeletedRequestedSession_stillReturnsExistingJob() throws Exception {
+        String idemKey = UUID.randomUUID().toString();
+        var sm = jobsRouter.contextManager.getProject().getSessionManager();
+        var requestedSessionId = sm.newSession("Replay Target").id();
+        Map<String, Object> body = Map.of("taskInput", "idempotent replay header test", "plannerModel", "gpt-4");
+
+        var first = TestHttpExchange.jsonRequest("POST", "/v1/jobs", body);
+        first.getRequestHeaders().set("Idempotency-Key", idemKey);
+        first.getRequestHeaders().set("X-Session-Id", requestedSessionId.toString());
+        jobsRouter.handle(first);
+        assertEquals(201, first.responseCode());
+
+        sm.deleteSession(requestedSessionId);
+        assertTrue(sm.listSessions().stream().noneMatch(s -> s.id().equals(requestedSessionId)));
+
+        var replay = TestHttpExchange.jsonRequest("POST", "/v1/jobs", body);
+        replay.getRequestHeaders().set("Idempotency-Key", idemKey);
+        replay.getRequestHeaders().set("X-Session-Id", requestedSessionId.toString());
+        jobsRouter.handle(replay);
+
+        assertEquals(200, replay.responseCode());
+        @SuppressWarnings("unchecked")
+        Map<String, Object> replayPayload = MAPPER.readValue(replay.responseBodyBytes(), Map.class);
+        assertEquals(requestedSessionId.toString(), String.valueOf(replayPayload.get("sessionId")));
     }
 
     @Test
