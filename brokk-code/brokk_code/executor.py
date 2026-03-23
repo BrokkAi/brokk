@@ -388,7 +388,9 @@ class AcpStdioExecutor:
                 future.set_exception(ExecutorError("ACP server connection closed"))
         self._response_futures.clear()
 
-    async def _send_request(self, method: str, params: Dict[str, Any]) -> Any:
+    async def _send_request(
+        self, method: str, params: Dict[str, Any], *, timeout: Optional[float] = 120.0
+    ) -> Any:
         """Sends a JSON-RPC request and waits for response."""
         assert self._process is not None
         assert self._process.stdin is not None
@@ -409,7 +411,13 @@ class AcpStdioExecutor:
         self._process.stdin.write(line.encode())
         await self._process.stdin.drain()
 
-        return await future
+        try:
+            if timeout is not None:
+                return await asyncio.wait_for(future, timeout=timeout)
+            return await future
+        except asyncio.TimeoutError:
+            self._response_futures.pop(request_id, None)
+            raise ExecutorError(f"Request '{method}' timed out after {timeout}s")
 
     async def initialize(self) -> Dict[str, Any]:
         """Sends initialize request."""
@@ -477,6 +485,7 @@ class AcpStdioExecutor:
                     "sessionId": session_id,
                     "messages": messages,
                 },
+                timeout=None,
             )
         )
 
