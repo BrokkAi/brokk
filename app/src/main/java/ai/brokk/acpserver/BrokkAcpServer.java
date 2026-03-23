@@ -85,7 +85,7 @@ public class BrokkAcpServer {
     private volatile SessionState state = new SessionState.Uninitialized();
 
     @Nullable
-    private AcpSyncAgent agent;
+    private volatile AcpSyncAgent agent;
 
     public static void main(String[] args) {
         System.setProperty("java.awt.headless", "true");
@@ -157,13 +157,29 @@ public class BrokkAcpServer {
         logger.info("Starting project initialization at {}", projectPath);
         var initThread = new Thread(
                 () -> {
+                    MainProject p = null;
+                    ContextManager c = null;
                     try {
-                        var p = new MainProject(projectPath);
-                        var c = new ContextManager(p);
+                        p = new MainProject(projectPath);
+                        c = new ContextManager(p);
                         c.createHeadless(true, new MutedConsoleIO(c.getIo()));
                         state = new SessionState.Ready(p, c);
                         logger.info("Project initialized at {}", projectPath);
                     } catch (Exception e) {
+                        if (c != null) {
+                            try {
+                                c.close();
+                            } catch (Exception ex) {
+                                logger.warn("Error closing ContextManager during failed init", ex);
+                            }
+                        }
+                        if (p != null) {
+                            try {
+                                p.close();
+                            } catch (Exception ex) {
+                                logger.warn("Error closing MainProject during failed init", ex);
+                            }
+                        }
                         state = new SessionState.Failed(
                                 projectPath,
                                 e.getMessage() != null
@@ -323,8 +339,10 @@ public class BrokkAcpServer {
                 }
             } catch (Exception e) {
                 logger.error("Error processing prompt", e);
-                ctx.sendMessage("\n\nError: " + e.getMessage());
-                return new PromptResponse(StopReason.ERROR, Map.of("error", e.getMessage()));
+                var errorMsg =
+                        e.getMessage() != null ? e.getMessage() : e.getClass().getName();
+                ctx.sendMessage("\n\nError: " + errorMsg);
+                return new PromptResponse(StopReason.ERROR, Map.of("error", errorMsg));
             } finally {
                 try {
                     activeCm.setIo(originalIo);
@@ -425,8 +443,11 @@ public class BrokkAcpServer {
         } catch (Exception e) {
             var cause = e.getCause() != null ? e.getCause() : e;
             logger.error("Error switching to session {}", sessionId, cause);
+            var causeMsg = cause.getMessage() != null
+                    ? cause.getMessage()
+                    : cause.getClass().getName();
             throw new AcpProtocolException(
-                    AcpProtocolException.INTERNAL_ERROR, "Failed to switch session: " + cause.getMessage());
+                    AcpProtocolException.INTERNAL_ERROR, "Failed to switch session: " + causeMsg);
         }
     }
 

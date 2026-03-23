@@ -489,21 +489,29 @@ class AcpStdioExecutor:
             )
         )
 
-        while not prompt_task.done():
-            try:
-                notification = await asyncio.wait_for(
-                    self._notification_queue.get(),
-                    timeout=0.1,
-                )
+        try:
+            while not prompt_task.done():
+                try:
+                    notification = await asyncio.wait_for(
+                        self._notification_queue.get(),
+                        timeout=0.1,
+                    )
+                    if notification.get("method") == "session/update":
+                        yield notification.get("params", {})
+                except asyncio.TimeoutError:
+                    continue
+
+            while not self._notification_queue.empty():
+                notification = self._notification_queue.get_nowait()
                 if notification.get("method") == "session/update":
                     yield notification.get("params", {})
-            except asyncio.TimeoutError:
-                continue
-
-        while not self._notification_queue.empty():
-            notification = self._notification_queue.get_nowait()
-            if notification.get("method") == "session/update":
-                yield notification.get("params", {})
+        finally:
+            if not prompt_task.done():
+                prompt_task.cancel()
+                try:
+                    await prompt_task
+                except (asyncio.CancelledError, Exception):
+                    pass
 
         await prompt_task
 
