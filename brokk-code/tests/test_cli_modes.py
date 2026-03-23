@@ -130,9 +130,7 @@ async def test_run_login_interactive_path(monkeypatch, tmp_path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_run_login_validation_reports_paid_balance(
-    monkeypatch, tmp_path, capsys
-) -> None:
+async def test_run_login_validation_reports_paid_balance(monkeypatch, tmp_path, capsys) -> None:
     monkeypatch.setattr(sys, "stdin", StringIO("stdin-key\n"))
 
     async def fake_validate(**_kwargs):
@@ -160,9 +158,7 @@ async def test_run_login_validation_reports_paid_balance(
 
 
 @pytest.mark.asyncio
-async def test_run_login_validation_unknown_user_exits_nonzero(
-    monkeypatch, tmp_path
-) -> None:
+async def test_run_login_validation_unknown_user_exits_nonzero(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(sys, "stdin", StringIO("stdin-key\n"))
 
     async def fake_validate(**_kwargs):
@@ -573,6 +569,13 @@ def test_main_install_neovim_with_plugin_avante_routes_to_installer(
 
 def test_main_install_plugin_with_non_neovim_target_exits_nonzero(monkeypatch) -> None:
     _stub_install_warmup(monkeypatch)
+
+    called = {"ensure_key": False}
+
+    def fake_ensure_key():
+        called["ensure_key"] = True
+
+    monkeypatch.setattr(main_module, "_ensure_install_api_key", fake_ensure_key)
     monkeypatch.setattr(
         sys,
         "argv",
@@ -583,6 +586,27 @@ def test_main_install_plugin_with_non_neovim_target_exits_nonzero(monkeypatch) -
         main_module.main()
 
     assert exc.value.code == 1
+    assert not called["ensure_key"], "Should not check key for invalid args"
+
+
+def test_ensure_install_api_key_treats_whitespace_as_missing(monkeypatch) -> None:
+    """Verify that a whitespace-only key in settings triggers the prompt/read path."""
+    from brokk_code.settings import Settings
+
+    monkeypatch.setattr(Settings, "get_brokk_api_key", lambda self: "   ")
+
+    prompted = {"called": False}
+
+    def fake_prompt():
+        prompted["called"] = True
+        return "new-key"
+
+    monkeypatch.setattr(main_module, "_read_api_key_interactive", fake_prompt)
+    monkeypatch.setattr(main_module, "write_brokk_api_key", lambda k: None)
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+
+    main_module._ensure_install_api_key()
+    assert prompted["called"] is True
 
 
 def test_main_install_neovim_routes_to_installer(monkeypatch, tmp_path, capsys) -> None:
@@ -2990,6 +3014,7 @@ def test_install_zed_with_missing_key_interactive_persists_key(
     out = capsys.readouterr().out
     assert "Saved Brokk API key" in out
     from brokk_code.settings import read_brokk_properties
+
     assert read_brokk_properties().get("brokkApiKey") == "new-interactive-key"
 
 
@@ -3018,6 +3043,7 @@ def test_install_intellij_with_missing_key_piped_persists_key(
     out = capsys.readouterr().out
     assert "Saved Brokk API key" in out
     from brokk_code.settings import read_brokk_properties
+
     assert read_brokk_properties().get("brokkApiKey") == "piped-key"
 
 
@@ -3056,6 +3082,7 @@ def test_install_mcp_with_missing_key_piped_persists_key(
     out = capsys.readouterr().out
     assert "Saved Brokk API key" in out
     from brokk_code.settings import read_brokk_properties
+
     assert read_brokk_properties().get("brokkApiKey") == "mcp-piped-key"
 
 
@@ -3074,9 +3101,7 @@ def test_install_fails_with_empty_stdin(monkeypatch, tmp_path) -> None:
     assert exc.value.code == 1
 
 
-def test_install_continues_when_key_already_configured(
-    monkeypatch, tmp_path, capsys
-) -> None:
+def test_install_continues_when_key_already_configured(monkeypatch, tmp_path, capsys) -> None:
     """Verify that install does not prompt or read stdin if key is already in env/props."""
     # Set key in env
     monkeypatch.setenv("BROKK_API_KEY", "existing-env-key")

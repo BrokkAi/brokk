@@ -199,7 +199,8 @@ def _read_api_key_interactive() -> str:
 
 
 def _ensure_install_api_key() -> None:
-    if Settings().get_brokk_api_key():
+    key = (Settings().get_brokk_api_key() or "").strip()
+    if key:
         return
 
     if sys.stdin.isatty():
@@ -1505,12 +1506,15 @@ def main():
         parser.error(f"unrecognized arguments: {' '.join(unknown)}")
 
     if args.command == "install":
+        # Fast-fail validation before prompting for API keys
+        if args.plugin and args.target not in {"nvim", "neovim"}:
+            print("Error: --plugin is only valid for install targets nvim/neovim", file=sys.stderr)
+            sys.exit(1)
+
         messages: list[str] = []
         prefetch_commands: list[tuple[str, list[str]]] = []
         try:
             _ensure_install_api_key()
-            if args.plugin and args.target not in {"nvim", "neovim"}:
-                raise ValueError("--plugin is only valid for install targets nvim/neovim")
             uv_binary = ensure_uv_ready()
             uvx_command = str(Path(uv_binary).parent / "uvx")
             jbang_binary = resolve_jbang_binary() if args.verbose else ensure_jbang_ready()
