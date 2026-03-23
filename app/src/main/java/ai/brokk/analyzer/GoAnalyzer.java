@@ -3,9 +3,8 @@ package ai.brokk.analyzer;
 import static ai.brokk.analyzer.go.GoTreeSitterNodeTypes.*;
 
 import ai.brokk.analyzer.cache.AnalyzerCache;
+import ai.brokk.analyzer.cache.GoAnalyzerCache;
 import ai.brokk.project.IProject;
-import com.github.benmanes.caffeine.cache.Cache;
-import com.github.benmanes.caffeine.cache.Caffeine;
 import com.google.common.base.Splitter;
 import java.nio.file.Path;
 import java.util.Collection;
@@ -33,9 +32,6 @@ import org.treesitter.TreeSitterGo;
 
 public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisProvider {
     static final Logger log = LoggerFactory.getLogger(GoAnalyzer.class); // Changed to package-private
-
-    private final Cache<String, String> importPathToPackageNameCache =
-            Caffeine.newBuilder().maximumSize(10_000).build();
 
     // Pattern to match both double-quoted and backtick-quoted import paths
     private static final Pattern IMPORT_PATH_PATTERN = Pattern.compile("\"([^\"]+)\"|`([^`]+)`");
@@ -80,22 +76,45 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
     }
 
     public GoAnalyzer(IProject project, ProgressListener listener) {
-        super(project, Languages.GO, listener);
+        this(project, listener, new GoAnalyzerCache());
+    }
+
+    private GoAnalyzer(IProject project, ProgressListener listener, GoAnalyzerCache cache) {
+        super(project, Languages.GO, listener, cache);
+        checkVendorDirectory(project);
+    }
+
+    private void checkVendorDirectory(IProject project) {
+        boolean hasVendor = project.getAnalyzableFiles(Languages.GO).stream().anyMatch(pf -> {
+            String relPath = pf.getRelPath().toString().replace('\\', '/');
+            return relPath.startsWith("vendor/") || relPath.contains("/vendor/");
+        });
+
+        if (hasVendor) {
+            log.warn("The 'vendor/' directory was detected in your Go project. "
+                    + "Analyzing dependencies in 'vendor/' significantly increases heap memory usage and analysis time. "
+                    + "It is highly recommended to exclude 'vendor/' from your project configuration.");
+        }
     }
 
     private GoAnalyzer(
-            IProject project, AnalyzerState state, ProgressListener listener, @Nullable AnalyzerCache cache) {
+            IProject project, AnalyzerState state, ProgressListener listener, @Nullable GoAnalyzerCache cache) {
         super(project, Languages.GO, state, listener, cache);
     }
 
     public static GoAnalyzer fromState(IProject project, AnalyzerState state, ProgressListener listener) {
-        return new GoAnalyzer(project, state, listener, null);
+        return new GoAnalyzer(project, state, listener, new GoAnalyzerCache());
     }
 
     @Override
     protected IAnalyzer newSnapshot(
             AnalyzerState state, ProgressListener listener, @Nullable AnalyzerCache previousCache) {
-        return new GoAnalyzer(getProject(), state, listener, previousCache);
+        return new GoAnalyzer(getProject(), state, listener, (GoAnalyzerCache) previousCache);
+    }
+
+    @Override
+    protected AnalyzerCache createFilteredCache(AnalyzerCache previous, Set<ProjectFile> changedFiles) {
+        return new GoAnalyzerCache((GoAnalyzerCache) previous, changedFiles);
     }
 
     @Override
@@ -902,12 +921,9 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
         // Go doesn't create module CodeUnits like Java does.
         // Instead, find all CodeUnits whose packageName matches the imported package.
         Set<CodeUnit> resolved = new LinkedHashSet<>();
-        for (String pkgName : importedPackageNames) {
-            // Pattern ^pkgName\. matches fqNames starting with "pkgName."
-            // since fqName = packageName + "." + shortName
-            String pattern = "^" + Pattern.quote(pkgName) + "\\.";
-            for (CodeUnit cu : searchDefinitions(pattern, false)) {
-                if (!cu.isModule()) {
+        if (!importedPackageNames.isEmpty()) {
+            for (CodeUnit cu : snapshotState().codeUnitState().keySet()) {
+                if (!cu.isModule() && importedPackageNames.contains(cu.packageName())) {
                     resolved.add(cu);
                 }
             }
@@ -917,7 +933,8 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
     }
 
     private String resolveImportPathToPackageName(String importPath) {
-        return importPathToPackageNameCache.get(importPath, path -> {
+        GoAnalyzerCache goCache = (GoAnalyzerCache) getCache();
+        return goCache.importPathToPackageNameCache().get(importPath, path -> {
             // 1. Try to find actual source files in the project that match this import path.
             // Go import paths always use forward slashes.
             Set<ProjectFile> goFiles = getProject().getAnalyzableFiles(Languages.GO);
