@@ -17,6 +17,7 @@ import ai.brokk.project.ModelProperties;
 import ai.brokk.testutil.TestAnalyzer;
 import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestContextManager;
+import ai.brokk.util.Lines;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import java.nio.file.Path;
@@ -344,7 +345,7 @@ public class ContextAgentTest {
                 .collect(java.util.stream.Collectors.joining("\n"));
         big.write(content);
 
-        var capped = ContextAgent.capUnanalyzedTextForPrompt(content);
+        var capped = Lines.sample(content);
         String rendered = ContextAgent.renderFileForPrompt(big, capped);
 
         assertTrue(
@@ -375,7 +376,7 @@ public class ContextAgentTest {
                 .collect(java.util.stream.Collectors.joining("\n"));
         small.write(content);
 
-        var capped = ContextAgent.capUnanalyzedTextForPrompt(content);
+        var capped = Lines.sample(content);
         String rendered = ContextAgent.renderFileForPrompt(small, capped);
 
         assertTrue(rendered.startsWith("<file path='src/un/analyzed/Small.txt'>\n"), rendered);
@@ -397,7 +398,7 @@ public class ContextAgentTest {
                 .collect(java.util.stream.Collectors.joining("\r\n"));
         crlf.write(content);
 
-        var capped = ContextAgent.capUnanalyzedTextForPrompt(content);
+        var capped = Lines.sample(content);
         String rendered = ContextAgent.renderFileForPrompt(crlf, capped);
 
         assertTrue(
@@ -428,7 +429,7 @@ public class ContextAgentTest {
                 .collect(java.util.stream.Collectors.joining("\r"));
         cr.write(content);
 
-        var capped = ContextAgent.capUnanalyzedTextForPrompt(content);
+        var capped = Lines.sample(content);
         String rendered = ContextAgent.renderFileForPrompt(cr, capped);
 
         assertTrue(
@@ -454,7 +455,7 @@ public class ContextAgentTest {
                         .collect(java.util.stream.Collectors.joining("\n"))
                 + "\n";
 
-        var capped = ContextAgent.capUnanalyzedTextForPrompt(content);
+        var capped = Lines.sample(content);
         assertTrue(capped.truncated());
         assertEquals(51, capped.totalLines());
         assertTrue(capped.promptText().contains("----- OMITTED 1 LINES -----"), capped.promptText());
@@ -464,7 +465,7 @@ public class ContextAgentTest {
 
     @Test
     void unanalyzedPrompt_emptyContentIsNotTruncated() {
-        var capped = ContextAgent.capUnanalyzedTextForPrompt("");
+        var capped = Lines.sample("");
         assertFalse(capped.truncated());
         assertEquals("", capped.promptText());
     }
@@ -473,7 +474,7 @@ public class ContextAgentTest {
     void unanalyzedPrompt_oneHugeLine_isCappedAndMarked() {
         String huge = "A".repeat(200_000);
 
-        var capped = ContextAgent.capUnanalyzedTextForPrompt(huge);
+        var capped = Lines.sample(huge);
 
         assertFalse(capped.truncated(), "Line count is 1 so it should not be line-truncated by count.");
         assertTrue(capped.promptText().contains("[TRUNCATED "), capped.promptText());
@@ -491,7 +492,7 @@ public class ContextAgentTest {
 
         content = hugeLine + "\n" + content;
 
-        var capped = ContextAgent.capUnanalyzedTextForPrompt(content);
+        var capped = Lines.sample(content);
 
         assertTrue(capped.truncated());
         assertTrue(capped.promptText().contains("----- OMITTED "), capped.promptText());

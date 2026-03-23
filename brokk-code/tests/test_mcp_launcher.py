@@ -1,4 +1,5 @@
 import os
+import sys
 from pathlib import Path
 
 import pytest
@@ -41,6 +42,7 @@ def test_run_mcp_server_execs_direct_java_with_explicit_jar(monkeypatch, tmp_pat
         captured["env"] = env
         raise RuntimeError("stop")
 
+    monkeypatch.setattr(sys, "platform", "linux")
     monkeypatch.setattr(os, "chdir", fake_chdir)
     monkeypatch.setattr(os, "execvpe", fake_execvpe)
     monkeypatch.setattr(mcp_launcher, "git_toplevel_for", lambda _path: None)
@@ -81,6 +83,7 @@ def test_run_mcp_server_prefers_local_dev_jar(monkeypatch, tmp_path) -> None:
         captured["command"] = command
         raise RuntimeError("stop")
 
+    monkeypatch.setattr(sys, "platform", "linux")
     monkeypatch.setattr(os, "chdir", fake_chdir)
     monkeypatch.setattr(os, "execvpe", fake_execvpe)
     monkeypatch.setattr(mcp_launcher, "git_toplevel_for", lambda _path: repo_root.resolve())
@@ -110,6 +113,7 @@ def test_run_mcp_server_falls_back_to_versioned_jbang(monkeypatch, tmp_path) -> 
         captured["command"] = command
         raise RuntimeError("stop")
 
+    monkeypatch.setattr(sys, "platform", "linux")
     monkeypatch.setattr(os, "chdir", fake_chdir)
     monkeypatch.setattr(os, "execvpe", fake_execvpe)
     monkeypatch.setattr(mcp_launcher, "find_dev_jar", lambda _workspace_dir: None)
@@ -143,6 +147,7 @@ def test_run_mcp_server_falls_back_to_bundled_jbang_version(monkeypatch, tmp_pat
         captured["command"] = command
         raise RuntimeError("stop")
 
+    monkeypatch.setattr(sys, "platform", "linux")
     monkeypatch.setattr(os, "chdir", fake_chdir)
     monkeypatch.setattr(os, "execvpe", fake_execvpe)
     monkeypatch.setattr(mcp_launcher, "find_dev_jar", lambda _workspace_dir: None)
@@ -181,3 +186,65 @@ def test_run_mcp_server_reports_missing_runtime(monkeypatch, tmp_path, capsys) -
 
     assert exc.value.code == 1
     assert "Unable to launch MCP runtime" in capsys.readouterr().err
+
+
+def test_run_mcp_server_appends_passthrough_args_with_separator_for_jbang(
+    monkeypatch, tmp_path
+) -> None:
+    """Verify JBang launches include '--' before passthrough args."""
+    captured: dict[str, object] = {}
+
+    def fake_execvpe(binary: str, command: list[str], env: dict[str, str]) -> None:
+        captured["command"] = command
+        raise RuntimeError("stop")
+
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setattr(os, "chdir", lambda _path: None)
+    monkeypatch.setattr(os, "execvpe", fake_execvpe)
+    monkeypatch.setattr(mcp_launcher, "find_dev_jar", lambda _workspace_dir: None)
+    monkeypatch.setattr(mcp_launcher, "git_toplevel_for", lambda _path: None)
+    monkeypatch.setattr(mcp_launcher, "ensure_jbang_ready", lambda: "/usr/local/bin/jbang")
+
+    with pytest.raises(RuntimeError, match="stop"):
+        mcp_launcher.run_mcp_server(
+            workspace_dir=tmp_path,
+            jar_path=None,
+            executor_version=None,
+            passthrough_args=["--help", "--verbose"],
+        )
+
+    command = captured["command"]
+    assert isinstance(command, list)
+    assert command[0] == "/usr/local/bin/jbang"
+    # For JBang, we expect -- before passthrough args
+    assert command[-3:] == ["--", "--help", "--verbose"]
+
+
+def test_run_mcp_server_appends_passthrough_args_directly_for_java(monkeypatch, tmp_path) -> None:
+    captured: dict[str, object] = {}
+    dummy_jar = tmp_path / "brokk.jar"
+    dummy_jar.write_text("dummy")
+
+    def fake_execvpe(binary: str, command: list[str], env: dict[str, str]) -> None:
+        captured["command"] = command
+        raise RuntimeError("stop")
+
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setattr(os, "chdir", lambda _path: None)
+    monkeypatch.setattr(os, "execvpe", fake_execvpe)
+    monkeypatch.setattr(mcp_launcher, "git_toplevel_for", lambda _path: None)
+
+    with pytest.raises(RuntimeError, match="stop"):
+        mcp_launcher.run_mcp_server(
+            workspace_dir=tmp_path,
+            jar_path=dummy_jar,
+            executor_version=None,
+            passthrough_args=["--help"],
+        )
+
+    command = captured["command"]
+    assert isinstance(command, list)
+    assert command[0] == "java"
+    # For direct java, we expect no -- separator
+    assert command[-1] == "--help"
+    assert "--" not in command

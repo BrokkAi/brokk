@@ -1,5 +1,7 @@
 package dev.langchain4j.model.openai.internal.chat;
 
+import static dev.langchain4j.internal.Utils.isNotNullOrBlank;
+
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -7,6 +9,7 @@ import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import com.fasterxml.jackson.databind.annotation.JsonNaming;
 import com.fasterxml.jackson.databind.annotation.JsonPOJOBuilder;
+import java.util.Locale;
 import java.util.Objects;
 
 @JsonDeserialize(builder = ToolCall.Builder.class)
@@ -98,6 +101,13 @@ public class ToolCall {
 
         public Builder index(Integer index) {
             this.index = index;
+            return this;
+        }
+
+        public Builder type(String type) {
+            if (isNotNullOrBlank(type)) {
+                this.type = ToolType.valueOf(type.toUpperCase(Locale.ROOT));
+            }
             return this;
         }
 

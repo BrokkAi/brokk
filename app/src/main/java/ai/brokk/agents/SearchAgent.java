@@ -75,6 +75,7 @@ public class SearchAgent {
     private final IConsoleIO io;
     private final Llm llm;
     private final SearchTools searchTools;
+    private final Context initialContext;
 
     private final SearchMetrics metrics;
 
@@ -124,6 +125,7 @@ public class SearchAgent {
                 : "true".equalsIgnoreCase(System.getenv("BRK_COLLECT_METRICS"))
                         ? SearchMetrics.tracking()
                         : SearchMetrics.noOp();
+        this.initialContext = initialContext;
         this.context = initialContext;
         this.llm = cm.getLlm(new Llm.Options(model, goal, TaskResult.Type.SEARCH).withEcho());
         this.llm.setOutput(io);
@@ -295,13 +297,12 @@ public class SearchAgent {
         return errorResult(new TaskResult.StopDetails(TaskResult.StopReason.TURN_LIMIT, "Turn limit reached."));
     }
 
-    private String buildTurnDirective(int turn, List<ContextFragment> previousTurnAdditions) {
-        var workspaceToc = WorkspacePrompts.formatToc(context).trim();
-        String tocContent = workspaceToc;
-        if (workspaceToc.startsWith("<workspace_toc>") && workspaceToc.endsWith("</workspace_toc>")) {
-            tocContent = workspaceToc.substring(
-                    "<workspace_toc>".length(), workspaceToc.length() - "</workspace_toc>".length());
-        }
+    String buildTurnDirective(int turn, List<ContextFragment> previousTurnAdditions) {
+        String toc = WorkspacePrompts.formatToc(context)
+                .replace(
+                        "Here is a list of the full contents of the Workspace that you can refer to above.",
+                        "Here is the full Workspace TOC, including the starting fragments and anything you have added so far.")
+                .trim();
 
         boolean finalTurn = turn == MAX_TURNS;
         String nextToolRequest = finalTurn
@@ -313,21 +314,43 @@ public class SearchAgent {
         var additionsBlock = previousTurnAdditions.isEmpty()
                 ? ""
                 : """
-                        <previous_turn_additions>
-                      %s
-                        </previous_turn_additions>
-                        """
+                  <previous_turn_additions>
+                  %s
+                  </previous_turn_additions>
+                  """
                         .formatted(additions);
+
+        var initialSummary = formatInitialWorkspaceSummary();
 
         return """
                 <turn>
-                  <goal>%s</goal>
                 %s
-                  <next_tool_request>%s</next_tool_request>
-                  <workspace_toc>%s</workspace_toc>
+
+                <goal>%s</goal>
+
+                %s
+
+                <next_tool_request>%s</next_tool_request>
+
+                %s
                 </turn>
                 """
-                .formatted(goal, additionsBlock, nextToolRequest, tocContent);
+                .formatted(initialSummary, goal, additionsBlock, nextToolRequest, toc);
+    }
+
+    private String formatInitialWorkspaceSummary() {
+        var summaries = initialContext.getAllFragmentsInDisplayOrder().stream()
+                .map(ContextFragment::formatSummary)
+                .collect(Collectors.joining("\n"));
+        var body = summaries.isBlank() ? "No starting fragments were provided." : summaries;
+        return """
+                <initial_workspace_summary>
+                These starting workspace fragments have been summarized for brevity.
+                If you need full source, call addFilesToWorkspace / addClassesToWorkspace.
+                %s
+                </initial_workspace_summary>
+                """
+                .formatted(body);
     }
 
     private boolean isTerminalTool(String toolName) {

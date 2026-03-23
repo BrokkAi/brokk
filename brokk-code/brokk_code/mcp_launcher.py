@@ -91,6 +91,7 @@ def run_mcp_server(
     workspace_dir: Path,
     jar_path: Optional[Path],
     executor_version: str | None,
+    passthrough_args: list[str] | None = None,
 ) -> None:
     resolved_workspace_dir = resolve_mcp_workspace_dir(workspace_dir)
 
@@ -100,8 +101,23 @@ def run_mcp_server(
             jar_path=jar_path,
             executor_version=executor_version,
         )
+        if passthrough_args:
+            # JBang requires '--' before arguments intended for the Java main class
+            # to distinguish them from JBang's own options.
+            # build_direct_mcp_command always starts with 'java'.
+            if command[0] != "java":
+                command.append("--")
+            command.extend(passthrough_args)
+
         os.chdir(resolved_workspace_dir)
-        os.execvpe(command[0], command, os.environ.copy())
+        if sys.platform == "win32":
+            # os.execvpe on Windows doesn't truly replace the process and
+            # stdout/stderr from the child may be silently lost.  Use
+            # subprocess.run so output is properly inherited.
+            result = subprocess.run(command, env=os.environ.copy())
+            sys.exit(result.returncode)
+        else:
+            os.execvpe(command[0], command, os.environ.copy())
     except ExecutorError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         sys.exit(1)

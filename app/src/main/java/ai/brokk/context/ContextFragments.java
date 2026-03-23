@@ -1516,31 +1516,22 @@ public class ContextFragments {
                     .append(hit.line())
                     .append(")\n"));
 
-            List<CodeUnit> distinctEnclosing =
-                    hitsLimited.stream().map(UsageHit::enclosing).distinct().toList();
-
             sb.append("\nExamples:\n\n");
 
-            List<AnalyzerUtil.CodeWithSource> processed =
-                    AnalyzerUtil.processUsages(analyzer, distinctEnclosing).stream()
-                            .filter(p -> !p.code().isBlank())
-                            .toList();
+            List<AnalyzerUtil.CodeWithSource> sampledExamples = AnalyzerUtil.sampleUsages(analyzer, externalHits);
 
-            List<AnalyzerUtil.CodeWithSource> shortestExamples = processed.stream()
-                    .sorted(Comparator.comparingInt(p -> p.code().length()))
-                    .limit(3)
-                    .toList();
-
-            if (shortestExamples.isEmpty()) {
+            if (sampledExamples.isEmpty()) {
                 sb.append("(source unavailable)\n");
             } else {
-                sb.append(AnalyzerUtil.CodeWithSource.text(analyzer, shortestExamples))
+                sb.append(AnalyzerUtil.CodeWithSource.text(analyzer, sampledExamples))
                         .append("\n");
             }
 
             String text = sb.toString().trim();
 
-            Set<CodeUnit> allSources = new LinkedHashSet<>(distinctEnclosing);
+            Set<CodeUnit> allSources =
+                    hitsLimited.stream().map(UsageHit::enclosing).collect(Collectors.toCollection(LinkedHashSet::new));
+            sampledExamples.stream().map(AnalyzerUtil.CodeWithSource::source).forEach(allSources::add);
             Set<ProjectFile> files = allSources.stream().map(CodeUnit::source).collect(Collectors.toSet());
             return new ContentSnapshot(text, allSources, files, (List<Byte>) null, valid);
         }

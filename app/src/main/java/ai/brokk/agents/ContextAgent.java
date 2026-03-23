@@ -74,10 +74,6 @@ public class ContextAgent {
 
     private static final int DESIRED_CANDIDATES = 100;
 
-    private static final int UNANALYZED_MAX_LINES = 50;
-    private static final int UNANALYZED_TOP_SHOWN = 25;
-    private static final int UNANALYZED_BOTTOM_SHOWN = 25;
-
     enum GroupType {
         ANALYZED,
         UNANALYZED
@@ -1160,14 +1156,10 @@ public class ContextAgent {
                 .parallel()
                 .map(file -> {
                     var content = file.read().orElse("");
-                    return Map.entry(file, capUnanalyzedTextForPrompt(content));
+                    return Map.entry(file, Lines.sample(content));
                 })
                 .filter(entry -> !entry.getValue().promptText().isEmpty())
                 .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (v1, v2) -> v1));
-    }
-
-    static Lines.HeadTail capUnanalyzedTextForPrompt(String content) {
-        return Lines.cap(content, UNANALYZED_MAX_LINES, UNANALYZED_TOP_SHOWN, UNANALYZED_BOTTOM_SHOWN);
     }
 
     static String renderFileForPrompt(ProjectFile file, Lines.HeadTail content) {
