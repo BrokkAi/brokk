@@ -13,6 +13,7 @@ import brokk_code.git_utils as git_utils_module
 
 
 def _stub_install_warmup(monkeypatch) -> None:
+    monkeypatch.setattr(main_module, "ensure_uv_ready", lambda: "/usr/local/bin/uv")
     monkeypatch.setattr(main_module, "ensure_jbang_ready", lambda: "/usr/local/bin/jbang")
     monkeypatch.setattr(main_module, "_run_install_prefetch", lambda _commands: None)
     monkeypatch.setattr(
@@ -399,7 +400,7 @@ def test_main_install_zed_routes_to_installer(monkeypatch, tmp_path, capsys) -> 
     captured: dict[str, Any] = {}
 
     def fake_configure_zed_acp_settings(
-        *, force: bool = False, settings_path=None, uvx_command=None
+        *, force: bool = False, settings_path: Any = None, uvx_command: Any = None
     ):
         captured["force"] = force
         return tmp_path / ".config" / "zed" / "settings.json"
@@ -451,7 +452,7 @@ def test_main_install_intellij_routes_to_installer(monkeypatch, tmp_path, capsys
     captured: dict[str, Any] = {}
 
     def fake_configure_intellij_acp_settings(
-        *, force: bool = False, settings_path=None, uvx_command=None
+        *, force: bool = False, settings_path: Any = None, uvx_command: Any = None
     ):
         captured["force"] = force
         return tmp_path / "intellij-config"
@@ -472,7 +473,9 @@ def test_main_install_intellij_routes_to_installer(monkeypatch, tmp_path, capsys
 def test_main_install_nvim_routes_to_installer(monkeypatch, tmp_path, capsys) -> None:
     captured: dict[str, Any] = {}
 
-    def fake_configure_nvim_codecompanion_acp_settings(*, force: bool = False, settings_path=None):
+    def fake_configure_nvim_codecompanion_acp_settings(
+        *, force: bool = False, settings_path: Any = None
+    ):
         captured["force"] = force
         return tmp_path / ".config" / "nvim" / "lua" / "brokk" / "brokk_codecompanion.lua"
 
@@ -516,7 +519,9 @@ def test_main_install_neovim_with_plugin_codecompanion_routes_to_installer(
 ) -> None:
     captured: dict[str, Any] = {}
 
-    def fake_configure_nvim_codecompanion_acp_settings(*, force: bool = False, settings_path=None):
+    def fake_configure_nvim_codecompanion_acp_settings(
+        *, force: bool = False, settings_path: Any = None
+    ):
         captured["force"] = force
         return tmp_path / ".config" / "nvim" / "lua" / "brokk" / "brokk_codecompanion.lua"
 
@@ -542,7 +547,7 @@ def test_main_install_neovim_with_plugin_avante_routes_to_installer(
 ) -> None:
     captured: dict[str, Any] = {}
 
-    def fake_configure_nvim_avante_acp_settings(*, force: bool = False, settings_path=None):
+    def fake_configure_nvim_avante_acp_settings(*, force: bool = False, settings_path: Any = None):
         captured["force"] = force
         return tmp_path / ".config" / "nvim" / "lua" / "brokk" / "brokk_avante.lua"
 
@@ -565,6 +570,13 @@ def test_main_install_neovim_with_plugin_avante_routes_to_installer(
 
 def test_main_install_plugin_with_non_neovim_target_exits_nonzero(monkeypatch) -> None:
     _stub_install_warmup(monkeypatch)
+
+    called = {"ensure_key": False}
+
+    def fake_ensure_key():
+        called["ensure_key"] = True
+
+    monkeypatch.setattr(main_module, "_ensure_install_api_key", fake_ensure_key)
     monkeypatch.setattr(
         sys,
         "argv",
@@ -575,12 +587,66 @@ def test_main_install_plugin_with_non_neovim_target_exits_nonzero(monkeypatch) -
         main_module.main()
 
     assert exc.value.code == 1
+    assert not called["ensure_key"], "Should not check key for invalid args"
+
+
+def test_install_neovim_invalid_selection_skips_key_prompt(monkeypatch) -> None:
+    """Verify that if Neovim plugin selection fails, API key is not prompted."""
+    _stub_install_warmup(monkeypatch)
+
+    called = {"ensure_key": False}
+
+    def fake_ensure_key():
+        called["ensure_key"] = True
+
+    monkeypatch.setattr(main_module, "_ensure_install_api_key", fake_ensure_key)
+
+    class FakeTtyInput(StringIO):
+        def isatty(self) -> bool:
+            return True
+
+    # Use a custom stream to satisfy Rich's Console detection and selection
+    monkeypatch.setattr(sys, "stdin", FakeTtyInput(""))
+
+    # Patch rich.console.Console.input to return an invalid selection
+    from rich.console import Console
+    monkeypatch.setattr(Console, "input", lambda self, prompt="": "99")
+
+    monkeypatch.setattr(sys, "argv", ["brokk", "install", "neovim"])
+
+    with pytest.raises(SystemExit) as exc:
+        main_module.main()
+
+    assert exc.value.code == 1
+    assert not called["ensure_key"], "Should not prompt for API key if selection is invalid"
+
+
+def test_ensure_install_api_key_treats_whitespace_as_missing(monkeypatch) -> None:
+    """Verify that a whitespace-only key in settings triggers the prompt/read path."""
+    from brokk_code.settings import Settings
+
+    monkeypatch.setattr(Settings, "get_brokk_api_key", lambda self: "   ")
+
+    prompted = {"called": False}
+
+    def fake_prompt():
+        prompted["called"] = True
+        return "new-key"
+
+    monkeypatch.setattr(main_module, "_read_api_key_interactive", fake_prompt)
+    monkeypatch.setattr(main_module, "write_brokk_api_key", lambda k: None)
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+
+    main_module._ensure_install_api_key()
+    assert prompted["called"] is True
 
 
 def test_main_install_neovim_routes_to_installer(monkeypatch, tmp_path, capsys) -> None:
     captured: dict[str, Any] = {}
 
-    def fake_configure_nvim_codecompanion_acp_settings(*, force: bool = False, settings_path=None):
+    def fake_configure_nvim_codecompanion_acp_settings(
+        *, force: bool = False, settings_path: Any = None
+    ):
         captured["force"] = force
         return tmp_path / ".config" / "nvim" / "lua" / "brokk" / "brokk_codecompanion.lua"
 
@@ -599,7 +665,9 @@ def test_main_install_neovim_routes_to_installer(monkeypatch, tmp_path, capsys) 
     assert "Configured Neovim CodeCompanion ACP adapter" in output
 
 
-def test_main_install_neovim_with_plugin_codecompanion_conflict_exits_nonzero(monkeypatch) -> None:
+def test_main_install_neovim_with_plugin_codecompanion_conflict_exits_nonzero(
+    monkeypatch,
+) -> None:
     def fake_configure_nvim_codecompanion_acp_settings(*, force: bool = False, settings_path=None):
         raise main_module.ExistingBrokkCodeEntryError("exists")
 
@@ -684,21 +752,29 @@ def test_main_install_mcp_routes_to_installer(monkeypatch, tmp_path, capsys) -> 
     prefetched: dict[str, Any] = {}
 
     def fake_configure_claude_code_mcp_settings(
-        *, force: bool = False, settings_path=None, jbang_path=None, uvx_command=None
+        *,
+        force: bool = False,
+        settings_path: Any = None,
+        jbang_path: Any = None,
+        uvx_command: Any = None,
     ):
         captured["claude_force"] = force
         return tmp_path / "claude.json"
 
     def fake_configure_codex_mcp_settings(
-        *, force: bool = False, settings_path=None, jbang_path=None, uvx_command=None
+        *,
+        force: bool = False,
+        settings_path: Any = None,
+        jbang_path: Any = None,
+        uvx_command: Any = None,
     ):
         captured["codex_force"] = force
         return tmp_path / "codex.toml"
 
-    def fake_run_install_prefetch(commands):
+    def fake_run_install_prefetch(commands: Any):
         prefetched["commands"] = commands
 
-    def fake_install_codex_mcp_workspace_skill(*, skills_path=None):
+    def fake_install_codex_mcp_workspace_skill(*, skills_path: Any = None):
         return tmp_path / ".codex" / "skills" / "brokk-mcp-workspace" / "SKILL.md"
 
     monkeypatch.setattr(
@@ -2822,14 +2898,19 @@ async def test_run_pr_review_job_exits_nonzero_on_failed_state(
 
 
 def test_install_calls_ensure_jbang_ready(monkeypatch, tmp_path) -> None:
-    """install command calls ensure_jbang_ready() directly (not _resolve_jbang_for_install)."""
+    """install command calls ensure_jbang_ready() directly."""
+    from brokk_code.settings import write_brokk_api_key
+
+    write_brokk_api_key("test-key")
+    monkeypatch.delenv("BROKK_API_KEY", raising=False)
+
     ensure_called = {"n": 0}
 
     def fake_ensure_jbang_ready() -> str:
         ensure_called["n"] += 1
         return "/usr/bin/jbang"
 
-    def fake_configure_zed_acp_settings(*, force=False, uvx_command=None):
+    def fake_configure_zed_acp_settings(*, force: bool = False, uvx_command: str | None = None):
         return tmp_path / "zed.json"
 
     monkeypatch.setattr(main_module, "ensure_jbang_ready", fake_ensure_jbang_ready)
@@ -2840,9 +2921,8 @@ def test_install_calls_ensure_jbang_ready(monkeypatch, tmp_path) -> None:
         "_build_install_prefetch_commands",
         lambda **kwargs: [],
     )
-    monkeypatch.setattr(main_module, "sys", __import__("sys"))
     monkeypatch.setattr(
-        __import__("sys"),
+        sys,
         "argv",
         ["brokk", "install", "zed"],
     )
@@ -2850,3 +2930,201 @@ def test_install_calls_ensure_jbang_ready(monkeypatch, tmp_path) -> None:
     main_module.main()
 
     assert ensure_called["n"] == 1
+
+
+def test_install_zed_skips_prompt_when_key_configured(monkeypatch, tmp_path) -> None:
+    from brokk_code.settings import write_brokk_api_key
+
+    write_brokk_api_key("existing-key")
+    monkeypatch.delenv("BROKK_API_KEY", raising=False)
+
+    def fail_if_called(*args, **kwargs):
+        pytest.fail("API key read should not be called when key exists")
+
+    monkeypatch.setattr(main_module, "_read_api_key_interactive", fail_if_called)
+    monkeypatch.setattr(main_module, "_read_api_key_from_stdin", fail_if_called)
+    monkeypatch.setattr(main_module, "ensure_uv_ready", lambda: "/usr/bin/uv")
+    monkeypatch.setattr(main_module, "ensure_jbang_ready", lambda: "/usr/bin/jbang")
+    monkeypatch.setattr(main_module, "_run_install_prefetch", lambda _commands: None)
+    monkeypatch.setattr(
+        main_module,
+        "configure_zed_acp_settings",
+        lambda *, force=False, settings_path=None, uvx_command=None: tmp_path / "zed.json",
+    )
+
+    monkeypatch.setattr(sys, "argv", ["brokk", "install", "zed"])
+    main_module.main()
+
+
+def test_install_mcp_skips_prompt_when_key_configured(monkeypatch, tmp_path) -> None:
+    from brokk_code.settings import write_brokk_api_key
+
+    write_brokk_api_key("existing-key")
+    monkeypatch.delenv("BROKK_API_KEY", raising=False)
+
+    def fail_if_called(*args, **kwargs):
+        pytest.fail("API key read should not be called when key exists")
+
+    monkeypatch.setattr(main_module, "_read_api_key_interactive", fail_if_called)
+    monkeypatch.setattr(main_module, "_read_api_key_from_stdin", fail_if_called)
+    monkeypatch.setattr(main_module, "ensure_uv_ready", lambda: "/usr/bin/uv")
+    monkeypatch.setattr(main_module, "ensure_jbang_ready", lambda: "/usr/bin/jbang")
+    monkeypatch.setattr(main_module, "_run_install_prefetch", lambda _commands: None)
+    monkeypatch.setattr(
+        main_module,
+        "configure_claude_code_mcp_settings",
+        lambda *, force=False, settings_path=None, uvx_command=None: tmp_path / "c.json",
+    )
+    monkeypatch.setattr(
+        main_module,
+        "configure_codex_mcp_settings",
+        lambda *, force=False, settings_path=None, uvx_command=None: tmp_path / "cx.toml",
+    )
+    monkeypatch.setattr(
+        main_module, "install_codex_mcp_workspace_skill", lambda *, skills_path=None: tmp_path / "s"
+    )
+
+    monkeypatch.setattr(sys, "argv", ["brokk", "install", "mcp"])
+    main_module.main()
+
+
+def test_install_zed_with_missing_key_interactive_persists_key(
+    monkeypatch,
+    tmp_path,
+    capsys,
+) -> None:
+    """Verify that 'install zed' prompts for a key if missing in TTY and saves it."""
+    monkeypatch.delenv("BROKK_API_KEY", raising=False)
+
+    class FakeTtyInput(StringIO):
+        def isatty(self) -> bool:
+            return True
+
+    monkeypatch.setattr(sys, "stdin", FakeTtyInput(""))
+    monkeypatch.setattr(main_module, "_read_api_key_interactive", lambda: "new-interactive-key")
+    _stub_install_warmup(monkeypatch)
+
+    def fake_configure_zed(*args, **kwargs):
+        return tmp_path / "zed.json"
+
+    monkeypatch.setattr(main_module, "configure_zed_acp_settings", fake_configure_zed)
+    monkeypatch.setattr(sys, "argv", ["brokk", "install", "zed"])
+
+    main_module.main()
+
+    out = capsys.readouterr().out
+    assert "Saved Brokk API key" in out
+    from brokk_code.settings import read_brokk_properties
+
+    assert read_brokk_properties().get("brokkApiKey") == "new-interactive-key"
+
+
+def test_install_intellij_with_missing_key_piped_persists_key(
+    monkeypatch,
+    tmp_path,
+    capsys,
+) -> None:
+    """Verify that 'install intellij' reads from stdin if missing key and not a TTY."""
+    monkeypatch.delenv("BROKK_API_KEY", raising=False)
+
+    monkeypatch.setattr(sys, "stdin", StringIO("piped-key\n"))
+    # Ensure it's not detected as TTY
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: False)
+
+    _stub_install_warmup(monkeypatch)
+
+    def fake_configure_intellij(*args, **kwargs):
+        return tmp_path / "intellij"
+
+    monkeypatch.setattr(main_module, "configure_intellij_acp_settings", fake_configure_intellij)
+    monkeypatch.setattr(sys, "argv", ["brokk", "install", "intellij"])
+
+    main_module.main()
+
+    out = capsys.readouterr().out
+    assert "Saved Brokk API key" in out
+    from brokk_code.settings import read_brokk_properties
+
+    assert read_brokk_properties().get("brokkApiKey") == "piped-key"
+
+
+def test_install_mcp_with_missing_key_piped_persists_key(
+    monkeypatch,
+    tmp_path,
+    capsys,
+) -> None:
+    """Verify that 'install mcp' reads from stdin if missing key and not a TTY."""
+    monkeypatch.delenv("BROKK_API_KEY", raising=False)
+
+    monkeypatch.setattr(sys, "stdin", StringIO("mcp-piped-key\n"))
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: False)
+
+    _stub_install_warmup(monkeypatch)
+    monkeypatch.setattr(
+        main_module,
+        "configure_claude_code_mcp_settings",
+        lambda **k: tmp_path / "c",
+    )
+    monkeypatch.setattr(
+        main_module,
+        "configure_codex_mcp_settings",
+        lambda **k: tmp_path / "x",
+    )
+    monkeypatch.setattr(
+        main_module,
+        "install_codex_mcp_workspace_skill",
+        lambda **k: tmp_path / "s",
+    )
+
+    monkeypatch.setattr(sys, "argv", ["brokk", "install", "mcp"])
+
+    main_module.main()
+
+    out = capsys.readouterr().out
+    assert "Saved Brokk API key" in out
+    from brokk_code.settings import read_brokk_properties
+
+    assert read_brokk_properties().get("brokkApiKey") == "mcp-piped-key"
+
+
+def test_install_fails_with_empty_stdin(monkeypatch, tmp_path) -> None:
+    """Verify that install exits non-zero if key is missing and stdin is empty."""
+    monkeypatch.delenv("BROKK_API_KEY", raising=False)
+
+    monkeypatch.setattr(sys, "stdin", StringIO(""))
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: False)
+
+    monkeypatch.setattr(sys, "argv", ["brokk", "install", "zed"])
+
+    with pytest.raises(SystemExit) as exc:
+        main_module.main()
+
+    assert exc.value.code == 1
+
+
+def test_install_continues_when_key_already_configured(monkeypatch, tmp_path, capsys) -> None:
+    """Verify that install does not prompt or read stdin if key is already in env/props."""
+    # Set key in env
+    monkeypatch.setenv("BROKK_API_KEY", "existing-env-key")
+
+    def fail_if_called(*args, **kwargs):
+        pytest.fail("API key read should not be called when key exists")
+
+    monkeypatch.setattr(main_module, "_read_api_key_interactive", fail_if_called)
+    monkeypatch.setattr(main_module, "_read_api_key_from_stdin", fail_if_called)
+
+    _stub_install_warmup(monkeypatch)
+    monkeypatch.setattr(main_module, "ensure_uv_ready", lambda: "/usr/bin/uv")
+    monkeypatch.setattr(
+        main_module,
+        "configure_zed_acp_settings",
+        lambda *, force=False, settings_path=None, uvx_command=None: tmp_path / "z",
+    )
+    monkeypatch.setattr(sys, "argv", ["brokk", "install", "zed"])
+
+    # Should not raise SystemExit
+    main_module.main()
+
+    out = capsys.readouterr().out
+    assert "Configured Zed ACP" in out
+    assert "Saved Brokk API key" not in out
