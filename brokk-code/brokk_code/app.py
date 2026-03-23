@@ -23,6 +23,7 @@ from textual.widgets import Button, Input, ListItem, ListView, LoadingIndicator,
 from brokk_code.event_utils import is_failure_state, safe_data
 from brokk_code.executor import ExecutorError, ExecutorManager
 from brokk_code.git_utils import infer_github_repo_from_remote
+from brokk_code.modals.commands_modal import CommandsModalScreen
 from brokk_code.prompt_history import append_prompt, load_history
 from brokk_code.settings import (
     DEFAULT_THEME,
@@ -2130,6 +2131,13 @@ class BrokkApp(App):
                 if chat:
                     chat.set_response_finished()
                     chat.set_job_running(False)
+                    stale = chat.get_commands_running()
+                    if stale > 0:
+                        logger.warning(
+                            "Job ended with %d command(s) still running",
+                            stale,
+                        )
+                    chat.clear_running_commands()
                 self.job_in_progress = False
             self.current_job_id = None
 
@@ -2963,6 +2971,13 @@ class BrokkApp(App):
                 chat.add_system_message(msg, level="ERROR")
             # Note: set_job_running(False) happens in _run_job finally block
         elif event_type == "COMMAND_RESULT":
+            logger.info(
+                "COMMAND_RESULT event: stage=%s cmd=%s success=%s out_len=%d",
+                data.get("stage"),
+                data.get("command"),
+                data.get("success"),
+                len(data.get("output", "")),
+            )
             if chat:
                 stage = data.get("stage", "Command")
                 command = data.get("command", "")
@@ -2970,16 +2985,15 @@ class BrokkApp(App):
                 output = data.get("output", "").strip()
                 exception = data.get("exception")
 
-                status = "[bold green]Success[/]" if success else "[bold red]Failed[/]"
-                header = f"**{stage}**: `{command}` ({status})"
-
-                parts = [header]
-                if output:
-                    parts.append(f"```\n{output}\n```")
-                if exception:
-                    parts.append(f"**Error**: {exception}")
-
-                chat.add_tool_result("\n\n".join(parts))
+                cmd_key = f"{stage}:{command}"
+                chat.add_command_result(stage, command, success, output, exception)
+                chat.remove_running_command(cmd_key)
+        elif event_type == "COMMAND_START":
+            if chat:
+                stage = data.get("stage", "Command")
+                command = data.get("command", "")
+                cmd_key = f"{stage}:{command}"
+                chat.add_running_command(cmd_key)
         elif event_type == "STATE_HINT":
             hint_name = data.get("name")
             if hint_name in ("contextHistoryUpdated", "workspaceUpdated"):
@@ -3110,6 +3124,7 @@ class BrokkApp(App):
                 "description": "Submit a PR review job (supports --severity LEVEL)",
             },
             {"command": "/review", "description": "Generate guided review of changes"},
+            {"command": "/ps", "description": "Show command history"},
             {"command": "/info", "description": "Show current configuration and status"},
             {"command": "/quit", "description": "Exit the application"},
             {"command": "/exit", "description": "Exit the application"},
@@ -3255,6 +3270,9 @@ class BrokkApp(App):
                 self.run_worker(self._create_pull_request(base_branch))
         elif base == "/review":
             self._handle_local_review_command(parts)
+        elif base == "/ps":
+            if chat:
+                self.push_screen(CommandsModalScreen(chat.get_command_history()))
         elif base in ("/quit", "/exit"):
             self.action_quit()
         else:
@@ -4125,6 +4143,8 @@ class BrokkApp(App):
             save_last_session_id(self.executor.workspace_dir, session_id)
 
             chat._message_history.clear()
+            chat.clear_command_history()
+            chat.clear_running_commands()
             log = chat.query_one("#chat-log")
             res = log.query("*").remove()
             if asyncio.iscoroutine(res):
@@ -4216,6 +4236,8 @@ class BrokkApp(App):
 
             # Clear UI and history
             chat._message_history.clear()
+            chat.clear_command_history()
+            chat.clear_running_commands()
             # Clear log container (the ScrollableContainer containing message widgets)
             log = chat.query_one("#chat-log")
             res = log.query("*").remove()
