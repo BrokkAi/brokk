@@ -277,55 +277,53 @@ public class BrokkAcpServer {
 
         // Create ACP progress console and swap it in
         IConsoleIO originalIo = activeCm.getIo();
-        IConsoleIO progressIo = new AcpProgressConsole(ctx, originalIo);
-        activeCm.setIo(progressIo);
+        try (var progressIo = new AcpProgressConsole(ctx, originalIo)) {
+            activeCm.setIo(progressIo);
 
-        try {
-            // Execute using CodeAgent (similar to MCP's callCodeAgent)
-            var model = requireNonNull(activeCm.getService()
-                    .getModel(activeCm.getProject().getModelConfig(ModelProperties.ModelType.CODE)));
-            var ca = new CodeAgent(activeCm, model);
-
-            TaskResult result = ca.execute(instructions, EnumSet.noneOf(CodeAgent.Option.class), List.of());
-
-            var stopDetails = result.stopDetails();
-            var reason = stopDetails.reason();
-
-            // Build response metadata
-            Map<String, Object> meta = new HashMap<>();
-            meta.put("stopReason", reason.name());
-            if (!stopDetails.explanation().isBlank()) {
-                meta.put("explanation", stopDetails.explanation());
-            }
-
-            // Send final status message
-            if (reason == TaskResult.StopReason.SUCCESS) {
-                ctx.sendMessage("\n\nTask completed successfully.");
-                return new PromptResponse(StopReason.END_TURN, meta);
-            } else {
-                String explanation = stopDetails.explanation();
-                if (reason == TaskResult.StopReason.BUILD_ERROR) {
-                    String buildError = result.context().getBuildError();
-                    if (!buildError.isBlank() && !explanation.contains(buildError)) {
-                        explanation = (explanation.isBlank() ? "" : (explanation + "\n\n")) + buildError;
-                    }
-                }
-                ctx.sendMessage(
-                        "\n\nTask stopped: " + reason.name() + (explanation.isBlank() ? "" : "\n" + explanation));
-                return new PromptResponse(StopReason.END_TURN, meta);
-            }
-        } catch (Exception e) {
-            logger.error("Error processing prompt", e);
-            ctx.sendMessage("\n\nError: " + e.getMessage());
-            return new PromptResponse(StopReason.ERROR, Map.of("error", e.getMessage()));
-        } finally {
-            if (progressIo instanceof AcpProgressConsole acpConsole) {
-                acpConsole.shutdown();
-            }
             try {
-                activeCm.setIo(originalIo);
+                // Execute using CodeAgent (similar to MCP's callCodeAgent)
+                var model = requireNonNull(activeCm.getService()
+                        .getModel(activeCm.getProject().getModelConfig(ModelProperties.ModelType.CODE)));
+                var ca = new CodeAgent(activeCm, model);
+
+                TaskResult result = ca.execute(instructions, EnumSet.noneOf(CodeAgent.Option.class), List.of());
+
+                var stopDetails = result.stopDetails();
+                var reason = stopDetails.reason();
+
+                // Build response metadata
+                Map<String, Object> meta = new HashMap<>();
+                meta.put("stopReason", reason.name());
+                if (!stopDetails.explanation().isBlank()) {
+                    meta.put("explanation", stopDetails.explanation());
+                }
+
+                // Send final status message
+                if (reason == TaskResult.StopReason.SUCCESS) {
+                    ctx.sendMessage("\n\nTask completed successfully.");
+                    return new PromptResponse(StopReason.END_TURN, meta);
+                } else {
+                    String explanation = stopDetails.explanation();
+                    if (reason == TaskResult.StopReason.BUILD_ERROR) {
+                        String buildError = result.context().getBuildError();
+                        if (!buildError.isBlank() && !explanation.contains(buildError)) {
+                            explanation = (explanation.isBlank() ? "" : (explanation + "\n\n")) + buildError;
+                        }
+                    }
+                    ctx.sendMessage(
+                            "\n\nTask stopped: " + reason.name() + (explanation.isBlank() ? "" : "\n" + explanation));
+                    return new PromptResponse(StopReason.END_TURN, meta);
+                }
             } catch (Exception e) {
-                logger.error("Failed to restore original IO", e);
+                logger.error("Error processing prompt", e);
+                ctx.sendMessage("\n\nError: " + e.getMessage());
+                return new PromptResponse(StopReason.ERROR, Map.of("error", e.getMessage()));
+            } finally {
+                try {
+                    activeCm.setIo(originalIo);
+                } catch (Exception e) {
+                    logger.error("Failed to restore original IO", e);
+                }
             }
         }
     }

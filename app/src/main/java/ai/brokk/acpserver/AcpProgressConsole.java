@@ -21,7 +21,7 @@ import org.jetbrains.annotations.Nullable;
  * <p>
  * Similar to ProgressNotifyingConsole in the MCP server implementation.
  */
-public class AcpProgressConsole extends MemoryConsole {
+public class AcpProgressConsole extends MemoryConsole implements AutoCloseable {
 
     private static final int FLUSH_SIZE_THRESHOLD = 1024;
     private static final long FLUSH_DELAY_MS = 50;
@@ -72,6 +72,11 @@ public class AcpProgressConsole extends MemoryConsole {
     public void shutdown() {
         flushTokenBuffer();
         flushScheduler.shutdown();
+    }
+
+    @Override
+    public void close() {
+        shutdown();
     }
 
     @Override
