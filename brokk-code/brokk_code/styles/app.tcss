@@ -757,6 +757,247 @@ PrCreateModalScreen {
     color: $text;
 }
 
+/* Settings Modal Styles */
+SettingsModalScreen {
+    align: center middle;
+}
+
+#settings-modal-container {
+    width: 100%;
+    height: 100%;
+    padding: 1 2;
+    background: $surface;
+}
+
+#settings-modal-title {
+    text-align: center;
+    width: 100%;
+    text-style: bold;
+    margin-bottom: 1;
+    color: $text;
+}
+
+#settings-form-scroll {
+    height: 1fr;
+    border: tall $primary-darken-1;
+    padding: 1 2;
+}
+
+.settings-section-title {
+    text-style: bold;
+    color: $accent;
+    margin-top: 2;
+    margin-bottom: 1;
+}
+
+.settings-subsection-label {
+    margin-top: 1;
+    color: $text;
+}
+
+.settings-hint {
+    color: $text-disabled;
+    margin-bottom: 1;
+}
+
+.settings-list-actions {
+    height: auto;
+    margin-top: 1;
+    margin-bottom: 1;
+}
+
+.settings-list-actions Button {
+    margin-right: 1;
+}
+
+#settings-exclusion-list,
+#settings-env-var-list {
+    height: 6;
+    max-height: 8;
+    border: tall $primary-darken-1;
+    background: transparent;
+}
+
+#settings-exclusion-list > ListItem,
+#settings-env-var-list > ListItem {
+    padding: 0 1;
+}
+
+#settings-exclusion-list > ListItem:focus,
+#settings-env-var-list > ListItem:focus {
+    background: $accent 20%;
+}
+
+#settings-commit-format {
+    height: 5;
+    margin-bottom: 1;
+}
+
+#settings-modules-list {
+    height: 6;
+    max-height: 8;
+    border: tall $primary-darken-1;
+    background: transparent;
+}
+
+#settings-modules-list > ListItem {
+    padding: 0 1;
+}
+
+#settings-modules-list > ListItem:focus {
+    background: $accent 20%;
+}
+
+/* Issue Provider Section */
+#settings-issue-provider-select {
+    height: auto;
+    margin-bottom: 1;
+}
+
+#settings-issue-provider-select Button {
+    margin-right: 1;
+}
+
+#settings-issue-none-section,
+#settings-issue-github-section,
+#settings-issue-jira-section {
+    height: auto;
+    margin-bottom: 1;
+    padding: 0 1;
+}
+
+#settings-issue-none-text {
+    color: $text-disabled;
+}
+
+#settings-github-fields {
+    height: auto;
+    margin-top: 1;
+}
+
+/* Module Edit Modal */
+ModuleEditModalScreen {
+    align: center middle;
+}
+
+#module-edit-modal-container {
+    width: 70;
+    height: auto;
+    max-height: 90%;
+    border: thick $primary;
+    background: $surface;
+    padding: 1 2;
+}
+
+#module-edit-modal-title {
+    text-align: center;
+    width: 100%;
+    text-style: bold;
+    margin-bottom: 1;
+    color: $text;
+}
+
+.module-edit-label {
+    margin-top: 1;
+    color: $text;
+}
+
+#module-edit-modal-actions {
+    width: 100%;
+    height: auto;
+    margin-top: 1;
+}
+
+#module-edit-modal-actions Button {
+    margin-right: 1;
+}
+
+/* Environment Variable Modal */
+EnvVarModalScreen {
+    align: center middle;
+}
+
+#env-var-modal-container {
+    width: 60;
+    height: auto;
+    max-height: 80%;
+    border: thick $primary;
+    background: $surface;
+    padding: 1 2;
+}
+
+#env-var-modal-title {
+    text-align: center;
+    width: 100%;
+    text-style: bold;
+    margin-bottom: 1;
+    color: $text;
+}
+
+.env-var-label {
+    margin-top: 1;
+    color: $text;
+}
+
+#env-var-modal-actions {
+    width: 100%;
+    height: auto;
+    margin-top: 1;
+}
+
+#env-var-modal-actions Button {
+    margin-right: 1;
+}
+
+.settings-row {
+    height: auto;
+    width: 100%;
+    margin-bottom: 1;
+}
+
+.settings-label {
+    width: 25;
+    height: auto;
+    padding-right: 1;
+}
+
+.settings-row Input {
+    width: 1fr;
+}
+
+.settings-row Checkbox {
+    width: auto;
+    margin-left: 1;
+}
+
+.settings-row RadioSet {
+    width: 1fr;
+    height: auto;
+    layout: horizontal;
+}
+
+.settings-row RadioButton {
+    width: auto;
+    margin-right: 2;
+}
+
+#settings-error {
+    height: auto;
+    color: $error;
+    margin-top: 1;
+}
+
+#settings-modal-actions {
+    width: 100%;
+    height: auto;
+    align: center middle;
+    margin-top: 1;
+}
+
+#settings-modal-actions Button {
+    margin: 0 1;
+}
+
 /* Commands Modal Styles */
 #commands-modal-container {
     width: 100%;

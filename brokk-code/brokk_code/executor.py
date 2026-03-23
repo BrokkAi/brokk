@@ -1394,6 +1394,80 @@ class ExecutorManager:
             await self._handle_http_error(e, endpoint)
             raise
 
+    async def get_settings(self) -> Dict[str, Any]:
+        """Returns the full project settings from the executor."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+        try:
+            resp = await self._http_client.get("/v1/settings")
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            await self._handle_http_error(e, "/v1/settings")
+            raise
+
+    async def update_build_settings(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Updates build settings in the executor."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+        try:
+            resp = await self._http_client.post("/v1/settings/build", json=data)
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            await self._handle_http_error(e, "/v1/settings/build")
+            raise
+
+    async def update_project_settings(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Updates project settings in the executor."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+        try:
+            resp = await self._http_client.post("/v1/settings/project", json=data)
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            await self._handle_http_error(e, "/v1/settings/project")
+            raise
+
+    async def update_shell_config(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Updates shell configuration in the executor."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+        try:
+            resp = await self._http_client.post("/v1/settings/shell", json=data)
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            await self._handle_http_error(e, "/v1/settings/shell")
+            raise
+
+    async def update_issue_provider(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Updates issue provider configuration in the executor."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+        try:
+            resp = await self._http_client.post("/v1/settings/issues", json=data)
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            await self._handle_http_error(e, "/v1/settings/issues")
+            raise
+
+    async def update_data_retention(self, policy: str) -> Dict[str, Any]:
+        """Updates data retention policy in the executor."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+        try:
+            resp = await self._http_client.post(
+                "/v1/settings/data-retention", json={"policy": policy}
+            )
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            await self._handle_http_error(e, "/v1/settings/data-retention")
+            raise
+
     async def delete_dependency(self, name: str) -> Dict[str, Any]:
         """Deletes a dependency by name."""
         if not self._http_client:
