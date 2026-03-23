@@ -72,11 +72,17 @@ import org.jetbrains.annotations.Nullable;
 public class BrokkAcpServer {
     private static final Logger logger = LogManager.getLogger(BrokkAcpServer.class);
 
-    @Nullable private volatile MainProject project;
-    @Nullable private volatile ContextManager cm;
-    private volatile boolean initializing;
-    @Nullable private volatile Path initializingPath;
-    @Nullable private volatile String initError;
+    private sealed interface SessionState {
+        record Uninitialized() implements SessionState {}
+
+        record Initializing(Path path) implements SessionState {}
+
+        record Ready(MainProject project, ContextManager cm) implements SessionState {}
+
+        record Failed(Path path, String error) implements SessionState {}
+    }
+
+    private volatile SessionState state = new SessionState.Uninitialized();
 
     @Nullable
     private AcpSyncAgent agent;
@@ -104,7 +110,7 @@ public class BrokkAcpServer {
                     .addShutdownHook(new Thread(
                             () -> {
                                 logger.info("Brokk ACP Server shutting down");
-                                instance.close();
+                                instance.closeCurrentSession();
                             },
                             "BrokkACP-Server-ShutdownHook"));
 
@@ -113,7 +119,7 @@ public class BrokkAcpServer {
             logger.error("Failed to start Brokk ACP Server", e);
             System.exit(1);
         } finally {
-            instance.close();
+            instance.closeCurrentSession();
         }
     }
 
@@ -146,10 +152,8 @@ public class BrokkAcpServer {
     }
 
     private void startProjectInitialization(Path projectPath) {
-        close();
-        initializing = true;
-        initializingPath = projectPath;
-        initError = null;
+        closeCurrentSession();
+        state = new SessionState.Initializing(projectPath);
         logger.info("Starting project initialization at {}", projectPath);
         var initThread = new Thread(
                 () -> {
@@ -157,14 +161,15 @@ public class BrokkAcpServer {
                         var p = new MainProject(projectPath);
                         var c = new ContextManager(p);
                         c.createHeadless(true, new MutedConsoleIO(c.getIo()));
-                        project = p;
-                        cm = c;
+                        state = new SessionState.Ready(p, c);
                         logger.info("Project initialized at {}", projectPath);
                     } catch (Exception e) {
-                        initError = e.getMessage();
+                        state = new SessionState.Failed(
+                                projectPath,
+                                e.getMessage() != null
+                                        ? e.getMessage()
+                                        : e.getClass().getName());
                         logger.error("Failed to initialize project at {}", projectPath, e);
-                    } finally {
-                        initializing = false;
                     }
                 },
                 "BrokkACP-ProjectInit");
@@ -172,33 +177,29 @@ public class BrokkAcpServer {
         initThread.start();
     }
 
-    private void close() {
-        initializing = false;
-        initializingPath = null;
-        if (cm != null) {
+    private void closeCurrentSession() {
+        var current = state;
+        state = new SessionState.Uninitialized();
+        if (current instanceof SessionState.Ready ready) {
             try {
-                cm.close();
+                ready.cm().close();
             } catch (Exception e) {
                 logger.warn("Error closing ContextManager", e);
             }
-            cm = null;
-        }
-        if (project != null) {
             try {
-                project.close();
+                ready.project().close();
             } catch (Exception e) {
                 logger.warn("Error closing MainProject", e);
             }
-            project = null;
         }
     }
 
     private ContextManager requireSession() {
-        // Wait for project initialization to complete (up to 60 seconds)
-        if (initializing) {
+        var current = state;
+        if (current instanceof SessionState.Initializing) {
             logger.info("Waiting for project initialization to complete...");
             long deadline = System.currentTimeMillis() + 60_000;
-            while (initializing && System.currentTimeMillis() < deadline) {
+            while (state instanceof SessionState.Initializing && System.currentTimeMillis() < deadline) {
                 try {
                     Thread.sleep(500);
                 } catch (InterruptedException e) {
@@ -207,20 +208,20 @@ public class BrokkAcpServer {
                             AcpProtocolException.INTERNAL_ERROR, "Interrupted while waiting for initialization.");
                 }
             }
-            if (initializing) {
+            current = state;
+        }
+        return switch (current) {
+            case SessionState.Ready ready -> ready.cm();
+            case SessionState.Failed failed ->
+                throw new AcpProtocolException(
+                        AcpProtocolException.INVALID_PARAMS, "Session initialization failed: " + failed.error());
+            case SessionState.Initializing __ ->
                 throw new AcpProtocolException(
                         AcpProtocolException.INTERNAL_ERROR, "Session initialization timed out after 60 seconds.");
-            }
-        }
-        if (initError != null) {
-            throw new AcpProtocolException(
-                    AcpProtocolException.INVALID_PARAMS, "Session initialization failed: " + initError);
-        }
-        if (cm == null) {
-            throw new AcpProtocolException(
-                    AcpProtocolException.INVALID_PARAMS, "No active session. Call session/new first.");
-        }
-        return cm;
+            case SessionState.Uninitialized __ ->
+                throw new AcpProtocolException(
+                        AcpProtocolException.INVALID_PARAMS, "No active session. Call session/new first.");
+        };
     }
 
     private InitializeResponse handleInitialize(InitializeRequest req) {
@@ -244,16 +245,22 @@ public class BrokkAcpServer {
         }
 
         var requestedPath = Path.of(workingDir).toAbsolutePath().normalize();
+        var current = state;
 
-        // Initialize or re-initialize project if the directory changed
-        if (cm == null
-                || !cm.getProject().getRoot().toAbsolutePath().normalize().equals(requestedPath)) {
-            // Don't restart if already initializing the same path
-            if (!initializing || !requestedPath.equals(initializingPath)) {
-                startProjectInitialization(requestedPath);
-            }
+        if (current instanceof SessionState.Ready ready
+                && ready.cm()
+                        .getProject()
+                        .getRoot()
+                        .toAbsolutePath()
+                        .normalize()
+                        .equals(requestedPath)) {
+            ready.cm().dropWithHistorySemantics(List.of());
+        } else if (current instanceof SessionState.Initializing init
+                && init.path().equals(requestedPath)) {
+            // Already initializing the same path — let it finish
+            logger.debug("Already initializing {}, skipping redundant init", requestedPath);
         } else {
-            cm.dropWithHistorySemantics(List.of());
+            startProjectInitialization(requestedPath);
         }
 
         return new NewSessionResponse(sessionId, null, null);
@@ -330,10 +337,10 @@ public class BrokkAcpServer {
 
     private ModelsListResponse handleModelsList(ModelsListRequest req) {
         logger.debug("Received models/list request");
-        if (cm == null) {
+        if (!(state instanceof SessionState.Ready ready)) {
             return new ModelsListResponse(List.of());
         }
-        var modelMap = cm.getService().getAvailableModels();
+        var modelMap = ready.cm().getService().getAvailableModels();
         var models = modelMap.entrySet().stream()
                 .map(e -> new ModelInfo(e.getKey(), e.getValue()))
                 .toList();
@@ -385,10 +392,10 @@ public class BrokkAcpServer {
 
     private SessionsListResponse handleSessionsList(SessionsListRequest req) {
         logger.debug("Received sessions/list request");
-        if (cm == null) {
+        if (!(state instanceof SessionState.Ready ready)) {
             return new SessionsListResponse(List.of());
         }
-        var sessionManager = cm.getProject().getSessionManager();
+        var sessionManager = ready.cm().getProject().getSessionManager();
         var sessions = sessionManager.listSessions().stream()
                 .map(s -> new SessionInfoDto(s.id().toString(), s.name(), s.created(), s.modified()))
                 .toList();

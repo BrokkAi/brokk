@@ -126,16 +126,19 @@ public class StdioAcpAgentTransport implements AcpTransport {
 
         // Run session/prompt on a worker thread so the main loop stays free for cancel
         if ("session/prompt".equals(request.method())) {
-            var promptThread = new Thread(() -> {
-                try {
-                    dispatchRequest(request, handler);
-                } catch (Throwable t) {
-                    logger.error("Prompt thread died unexpectedly", t);
-                    sendErrorResponse(request.id(),
-                                      JsonRpcMessage.RpcError.INTERNAL_ERROR,
-                                      t.getClass().getName());
-                }
-            }, "BrokkACP-Prompt");
+            var promptThread = new Thread(
+                    () -> {
+                        try {
+                            dispatchRequest(request, handler);
+                        } catch (Throwable t) {
+                            logger.error("Prompt thread died unexpectedly", t);
+                            sendErrorResponse(
+                                    request.id(),
+                                    JsonRpcMessage.RpcError.INTERNAL_ERROR,
+                                    t.getClass().getName());
+                        }
+                    },
+                    "BrokkACP-Prompt");
             promptThread.setDaemon(true);
             promptThread.start();
             return;
