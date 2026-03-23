@@ -8,6 +8,10 @@ import ai.brokk.acpserver.spec.AcpSchema.AgentMessageChunk;
 import ai.brokk.acpserver.spec.AcpSchema.AgentThought;
 import ai.brokk.acpserver.spec.AcpSchema.ClientCapabilities;
 import ai.brokk.acpserver.spec.AcpSchema.Content;
+import ai.brokk.acpserver.spec.AcpSchema.ConversationEntry;
+import ai.brokk.acpserver.spec.AcpSchema.ConversationMessage;
+import ai.brokk.acpserver.spec.AcpSchema.GetConversationRequest;
+import ai.brokk.acpserver.spec.AcpSchema.GetConversationResponse;
 import ai.brokk.acpserver.spec.AcpSchema.ImageContent;
 import ai.brokk.acpserver.spec.AcpSchema.InitializeRequest;
 import ai.brokk.acpserver.spec.AcpSchema.InitializeResponse;
@@ -15,6 +19,8 @@ import ai.brokk.acpserver.spec.AcpSchema.NewSessionRequest;
 import ai.brokk.acpserver.spec.AcpSchema.NewSessionResponse;
 import ai.brokk.acpserver.spec.AcpSchema.PromptRequest;
 import ai.brokk.acpserver.spec.AcpSchema.PromptResponse;
+import ai.brokk.acpserver.spec.AcpSchema.SessionSwitchRequest;
+import ai.brokk.acpserver.spec.AcpSchema.SessionSwitchResponse;
 import ai.brokk.acpserver.spec.AcpSchema.SessionUpdate;
 import ai.brokk.acpserver.spec.AcpSchema.SessionUpdateNotification;
 import ai.brokk.acpserver.spec.AcpSchema.StopReason;
@@ -186,5 +192,74 @@ class AcpSchemaSerializationTest {
         // Verify type field is present
         assert chunkJson.contains("\"type\":\"agent_message_chunk\"");
         assert thoughtJson.contains("\"type\":\"agent_thought\"");
+    }
+
+    @Test
+    void sessionSwitchRequestRoundTrip() throws Exception {
+        var request = new SessionSwitchRequest("session-uuid");
+
+        String json = mapper.writeValueAsString(request);
+        var deserialized = mapper.readValue(json, SessionSwitchRequest.class);
+
+        assertEquals("session-uuid", deserialized.sessionId());
+    }
+
+    @Test
+    void sessionSwitchResponseRoundTrip() throws Exception {
+        var response = new SessionSwitchResponse("ok", "session-uuid");
+
+        String json = mapper.writeValueAsString(response);
+        var deserialized = mapper.readValue(json, SessionSwitchResponse.class);
+
+        assertEquals("ok", deserialized.status());
+        assertEquals("session-uuid", deserialized.sessionId());
+    }
+
+    @Test
+    void getConversationRequestRoundTrip() throws Exception {
+        var request = new GetConversationRequest();
+
+        String json = mapper.writeValueAsString(request);
+        var deserialized = mapper.readValue(json, GetConversationRequest.class);
+
+        assertNotNull(deserialized);
+    }
+
+    @Test
+    void getConversationResponseRoundTrip() throws Exception {
+        var messages = List.of(
+                new ConversationMessage("user", "Hello", null),
+                new ConversationMessage("ai", "Response", "reasoning text"));
+        var entry = new ConversationEntry(1, false, "CODE", messages, null);
+        var response = new GetConversationResponse(List.of(entry));
+
+        String json = mapper.writeValueAsString(response);
+        var deserialized = mapper.readValue(json, GetConversationResponse.class);
+
+        assertEquals(1, deserialized.entries().size());
+        var e = deserialized.entries().getFirst();
+        assertEquals(1, e.sequence());
+        assertFalse(e.isCompressed());
+        assertEquals("CODE", e.taskType());
+        assertEquals(2, e.messages().size());
+        assertEquals("user", e.messages().get(0).role());
+        assertEquals("Hello", e.messages().get(0).text());
+        assertNull(e.messages().get(0).reasoning());
+        assertEquals("reasoning text", e.messages().get(1).reasoning());
+        assertNull(e.summary());
+    }
+
+    @Test
+    void getConversationResponseWithSummaryRoundTrip() throws Exception {
+        var entry = new ConversationEntry(5, true, "ASK", null, "A compressed summary");
+        var response = new GetConversationResponse(List.of(entry));
+
+        String json = mapper.writeValueAsString(response);
+        var deserialized = mapper.readValue(json, GetConversationResponse.class);
+
+        var e = deserialized.entries().getFirst();
+        assertTrue(e.isCompressed());
+        assertNull(e.messages());
+        assertEquals("A compressed summary", e.summary());
     }
 }

@@ -14,12 +14,29 @@ class AcpSyncAgentTest {
 
     private final ObjectMapper mapper = new ObjectMapper();
 
+    private AcpAgent.SyncAgentBuilder baseBuilder(MockAcpTransport transport) {
+        return AcpAgent.sync(transport)
+                .initializeHandler(req -> InitializeResponse.ok())
+                .newSessionHandler(req -> new NewSessionResponse("s1", null, null))
+                .promptHandler((req, ctx) -> PromptResponse.endTurn())
+                .modelsListHandler(req -> new ModelsListResponse(List.of()))
+                .contextGetHandler(req -> new ContextGetResponse(List.of()))
+                .contextAddFilesHandler(req -> new ContextAddFilesResponse(List.of()))
+                .contextDropHandler(req -> new ContextDropResponse(List.of()))
+                .sessionsListHandler(req -> new SessionsListResponse(List.of()));
+    }
+
     @Test
     void builderRequiresInitializeHandler() {
         var transport = new MockAcpTransport();
         var builder = AcpAgent.sync(transport)
                 .newSessionHandler(req -> new NewSessionResponse("s1", null, null))
-                .promptHandler((req, ctx) -> PromptResponse.endTurn());
+                .promptHandler((req, ctx) -> PromptResponse.endTurn())
+                .modelsListHandler(req -> new ModelsListResponse(List.of()))
+                .contextGetHandler(req -> new ContextGetResponse(List.of()))
+                .contextAddFilesHandler(req -> new ContextAddFilesResponse(List.of()))
+                .contextDropHandler(req -> new ContextDropResponse(List.of()))
+                .sessionsListHandler(req -> new SessionsListResponse(List.of()));
 
         assertThrows(IllegalStateException.class, builder::build);
     }
@@ -29,7 +46,12 @@ class AcpSyncAgentTest {
         var transport = new MockAcpTransport();
         var builder = AcpAgent.sync(transport)
                 .initializeHandler(req -> InitializeResponse.ok())
-                .promptHandler((req, ctx) -> PromptResponse.endTurn());
+                .promptHandler((req, ctx) -> PromptResponse.endTurn())
+                .modelsListHandler(req -> new ModelsListResponse(List.of()))
+                .contextGetHandler(req -> new ContextGetResponse(List.of()))
+                .contextAddFilesHandler(req -> new ContextAddFilesResponse(List.of()))
+                .contextDropHandler(req -> new ContextDropResponse(List.of()))
+                .sessionsListHandler(req -> new SessionsListResponse(List.of()));
 
         assertThrows(IllegalStateException.class, builder::build);
     }
@@ -39,7 +61,12 @@ class AcpSyncAgentTest {
         var transport = new MockAcpTransport();
         var builder = AcpAgent.sync(transport)
                 .initializeHandler(req -> InitializeResponse.ok())
-                .newSessionHandler(req -> new NewSessionResponse("s1", null, null));
+                .newSessionHandler(req -> new NewSessionResponse("s1", null, null))
+                .modelsListHandler(req -> new ModelsListResponse(List.of()))
+                .contextGetHandler(req -> new ContextGetResponse(List.of()))
+                .contextAddFilesHandler(req -> new ContextAddFilesResponse(List.of()))
+                .contextDropHandler(req -> new ContextDropResponse(List.of()))
+                .sessionsListHandler(req -> new SessionsListResponse(List.of()));
 
         assertThrows(IllegalStateException.class, builder::build);
     }
@@ -49,14 +76,12 @@ class AcpSyncAgentTest {
         var transport = new MockAcpTransport();
         var initCalled = new boolean[] {false};
 
-        AcpAgent.sync(transport)
+        baseBuilder(transport)
                 .initializeHandler(req -> {
                     initCalled[0] = true;
                     assertEquals(1, req.protocolVersion());
                     return InitializeResponse.ok();
                 })
-                .newSessionHandler(req -> new NewSessionResponse("s1", null, null))
-                .promptHandler((req, ctx) -> PromptResponse.endTurn())
                 .build()
                 .run();
 
@@ -72,14 +97,12 @@ class AcpSyncAgentTest {
         var transport = new MockAcpTransport();
         var sessionCalled = new boolean[] {false};
 
-        AcpAgent.sync(transport)
-                .initializeHandler(req -> InitializeResponse.ok())
+        baseBuilder(transport)
                 .newSessionHandler(req -> {
                     sessionCalled[0] = true;
                     assertEquals("/workspace", req.workingDirectory());
                     return new NewSessionResponse("session-123", null, null);
                 })
-                .promptHandler((req, ctx) -> PromptResponse.endTurn())
                 .build()
                 .run();
 
@@ -96,9 +119,7 @@ class AcpSyncAgentTest {
         var transport = new MockAcpTransport();
         var promptCalled = new boolean[] {false};
 
-        AcpAgent.sync(transport)
-                .initializeHandler(req -> InitializeResponse.ok())
-                .newSessionHandler(req -> new NewSessionResponse("s1", null, null))
+        baseBuilder(transport)
                 .promptHandler((req, ctx) -> {
                     promptCalled[0] = true;
                     assertEquals("session-abc", req.sessionId());
@@ -121,14 +142,72 @@ class AcpSyncAgentTest {
     void throwsOnUnknownMethod() throws Exception {
         var transport = new MockAcpTransport();
 
-        AcpAgent.sync(transport)
-                .initializeHandler(req -> InitializeResponse.ok())
-                .newSessionHandler(req -> new NewSessionResponse("s1", null, null))
-                .promptHandler((req, ctx) -> PromptResponse.endTurn())
+        baseBuilder(transport).build().run();
+
+        var ex = assertThrows(AcpProtocolException.class, () -> transport.simulateRequest("unknown/method", null, 4));
+        assertEquals(AcpProtocolException.METHOD_NOT_FOUND, ex.code());
+    }
+
+    @Test
+    void dispatchesSessionSwitchRequest() throws Exception {
+        var transport = new MockAcpTransport();
+        var switchCalled = new boolean[] {false};
+
+        baseBuilder(transport)
+                .sessionSwitchHandler(req -> {
+                    switchCalled[0] = true;
+                    assertEquals("session-uuid", req.sessionId());
+                    return new SessionSwitchResponse("ok", req.sessionId());
+                })
                 .build()
                 .run();
 
-        var ex = assertThrows(AcpProtocolException.class, () -> transport.simulateRequest("unknown/method", null, 4));
+        JsonNode params = mapper.readTree("{\"sessionId\":\"session-uuid\"}");
+        Object result = transport.simulateRequest("session/switch", params, 5);
+
+        assertTrue(switchCalled[0]);
+        assertInstanceOf(SessionSwitchResponse.class, result);
+        assertEquals("ok", ((SessionSwitchResponse) result).status());
+    }
+
+    @Test
+    void dispatchesGetConversationRequest() throws Exception {
+        var transport = new MockAcpTransport();
+        var convCalled = new boolean[] {false};
+
+        baseBuilder(transport)
+                .getConversationHandler(req -> {
+                    convCalled[0] = true;
+                    return new GetConversationResponse(List.of());
+                })
+                .build()
+                .run();
+
+        Object result = transport.simulateRequest("context/get-conversation", null, 6);
+
+        assertTrue(convCalled[0]);
+        assertInstanceOf(GetConversationResponse.class, result);
+    }
+
+    @Test
+    void sessionSwitchWithoutHandlerThrows() throws Exception {
+        var transport = new MockAcpTransport();
+
+        baseBuilder(transport).build().run();
+
+        JsonNode params = mapper.readTree("{\"sessionId\":\"session-uuid\"}");
+        var ex = assertThrows(AcpProtocolException.class, () -> transport.simulateRequest("session/switch", params, 7));
+        assertEquals(AcpProtocolException.METHOD_NOT_FOUND, ex.code());
+    }
+
+    @Test
+    void getConversationWithoutHandlerThrows() throws Exception {
+        var transport = new MockAcpTransport();
+
+        baseBuilder(transport).build().run();
+
+        var ex = assertThrows(
+                AcpProtocolException.class, () -> transport.simulateRequest("context/get-conversation", null, 8));
         assertEquals(AcpProtocolException.METHOD_NOT_FOUND, ex.code());
     }
 

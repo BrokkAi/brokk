@@ -454,6 +454,18 @@ class AcpStdioExecutor:
         result = await self._send_request("sessions/list", {})
         return result if isinstance(result, dict) else {}
 
+    async def switch_session(self, session_id: str) -> Dict[str, Any]:
+        """Switches the active session by ID."""
+        result = await self._send_request("session/switch", {"sessionId": session_id})
+        if isinstance(result, dict):
+            self.session_id = session_id
+        return result if isinstance(result, dict) else {}
+
+    async def get_conversation(self) -> Dict[str, Any]:
+        """Returns displayable conversation entries for the current session context."""
+        result = await self._send_request("context/get-conversation", {})
+        return result if isinstance(result, dict) else {}
+
     async def prompt(
         self, session_id: str, messages: List[Dict[str, Any]]
     ) -> AsyncIterator[Dict[str, Any]]:

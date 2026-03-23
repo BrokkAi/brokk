@@ -7,6 +7,8 @@ import ai.brokk.acpserver.spec.AcpSchema.ContextDropRequest;
 import ai.brokk.acpserver.spec.AcpSchema.ContextDropResponse;
 import ai.brokk.acpserver.spec.AcpSchema.ContextGetRequest;
 import ai.brokk.acpserver.spec.AcpSchema.ContextGetResponse;
+import ai.brokk.acpserver.spec.AcpSchema.GetConversationRequest;
+import ai.brokk.acpserver.spec.AcpSchema.GetConversationResponse;
 import ai.brokk.acpserver.spec.AcpSchema.InitializeRequest;
 import ai.brokk.acpserver.spec.AcpSchema.InitializeResponse;
 import ai.brokk.acpserver.spec.AcpSchema.ModelsListRequest;
@@ -15,6 +17,8 @@ import ai.brokk.acpserver.spec.AcpSchema.NewSessionRequest;
 import ai.brokk.acpserver.spec.AcpSchema.NewSessionResponse;
 import ai.brokk.acpserver.spec.AcpSchema.PromptRequest;
 import ai.brokk.acpserver.spec.AcpSchema.PromptResponse;
+import ai.brokk.acpserver.spec.AcpSchema.SessionSwitchRequest;
+import ai.brokk.acpserver.spec.AcpSchema.SessionSwitchResponse;
 import ai.brokk.acpserver.spec.AcpSchema.SessionsListRequest;
 import ai.brokk.acpserver.spec.AcpSchema.SessionsListResponse;
 import ai.brokk.acpserver.transport.AcpTransport;
@@ -48,6 +52,8 @@ public class AcpSyncAgent {
     private final Function<ContextDropRequest, ContextDropResponse> contextDropHandler;
     private final Function<SessionsListRequest, SessionsListResponse> sessionsListHandler;
     private final Consumer<CancelRequest> cancelHandler;
+    private final @Nullable Function<SessionSwitchRequest, SessionSwitchResponse> sessionSwitchHandler;
+    private final @Nullable Function<GetConversationRequest, GetConversationResponse> getConversationHandler;
 
     private volatile @Nullable Thread promptThread;
 
@@ -61,7 +67,9 @@ public class AcpSyncAgent {
             Function<ContextAddFilesRequest, ContextAddFilesResponse> contextAddFilesHandler,
             Function<ContextDropRequest, ContextDropResponse> contextDropHandler,
             Function<SessionsListRequest, SessionsListResponse> sessionsListHandler,
-            Consumer<CancelRequest> cancelHandler) {
+            Consumer<CancelRequest> cancelHandler,
+            @Nullable Function<SessionSwitchRequest, SessionSwitchResponse> sessionSwitchHandler,
+            @Nullable Function<GetConversationRequest, GetConversationResponse> getConversationHandler) {
         this.transport = transport;
         this.initializeHandler = initializeHandler;
         this.newSessionHandler = newSessionHandler;
@@ -72,6 +80,8 @@ public class AcpSyncAgent {
         this.contextDropHandler = contextDropHandler;
         this.sessionsListHandler = sessionsListHandler;
         this.cancelHandler = cancelHandler;
+        this.sessionSwitchHandler = sessionSwitchHandler;
+        this.getConversationHandler = getConversationHandler;
     }
 
     /**
@@ -153,6 +163,24 @@ public class AcpSyncAgent {
             case "sessions/list" -> {
                 var req = params != null ? parseAs(params, SessionsListRequest.class) : new SessionsListRequest();
                 yield sessionsListHandler.apply(req);
+            }
+            case "session/switch" -> {
+                if (sessionSwitchHandler == null) {
+                    throw new AcpProtocolException("Method not found: " + method);
+                }
+                if (params == null) {
+                    throw new AcpProtocolException(
+                            AcpProtocolException.INVALID_PARAMS, "Missing params for session/switch");
+                }
+                var req = parseAs(params, SessionSwitchRequest.class);
+                yield sessionSwitchHandler.apply(req);
+            }
+            case "context/get-conversation" -> {
+                if (getConversationHandler == null) {
+                    throw new AcpProtocolException("Method not found: " + method);
+                }
+                var req = params != null ? parseAs(params, GetConversationRequest.class) : new GetConversationRequest();
+                yield getConversationHandler.apply(req);
             }
             default -> throw new AcpProtocolException("Method not found: " + method);
         };

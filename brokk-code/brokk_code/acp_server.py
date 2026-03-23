@@ -2213,7 +2213,15 @@ async def run_acp_server(
             known_session_ids = _known_session_ids(sessions_payload.get("sessions", []))
             if requested_session_id not in known_session_ids:
                 return None
-            await bridge.executor.switch_session(requested_session_id)
+            try:
+                await bridge.executor.switch_session(requested_session_id)
+            except Exception:
+                logger.warning(
+                    "load_session: switch_session failed for %r",
+                    requested_session_id,
+                    exc_info=True,
+                )
+                return None
             self._ensure_session_defaults(requested_session_id, cwd)
             await self._refresh_model_catalog(requested_session_id)
             self._schedule_replay_loaded_session(requested_session_id)
@@ -2263,8 +2271,12 @@ async def run_acp_server(
             **kwargs: Any,
         ) -> ListSessionsResponse:
             del cursor, kwargs
-            await bridge.ensure_ready(cwd)
-            sessions_payload = await bridge.executor.list_sessions()
+            try:
+                await bridge.ensure_ready(cwd)
+                sessions_payload = await bridge.executor.list_sessions()
+            except Exception:
+                logger.warning("list_sessions: failed to list sessions", exc_info=True)
+                return ListSessionsResponse(sessions=[])
             executor_sessions = sessions_payload.get("sessions", [])
             sessions = []
             for entry in executor_sessions:

@@ -35,6 +35,10 @@ public final class AcpSchema {
 
     public record CancelRequest(@Nullable String sessionId) {}
 
+    public record SessionSwitchRequest(String sessionId) {}
+
+    public record GetConversationRequest() {}
+
     // ========== Responses ==========
 
     public record InitializeResponse(
@@ -67,6 +71,19 @@ public final class AcpSchema {
     public record SessionInfoDto(String id, String name, long created, long modified) {}
 
     public record SessionsListResponse(List<SessionInfoDto> sessions) {}
+
+    public record SessionSwitchResponse(String status, String sessionId) {}
+
+    public record ConversationMessage(String role, String text, @Nullable String reasoning) {}
+
+    public record ConversationEntry(
+            int sequence,
+            boolean isCompressed,
+            @Nullable String taskType,
+            @Nullable List<ConversationMessage> messages,
+            @Nullable String summary) {}
+
+    public record GetConversationResponse(List<ConversationEntry> entries) {}
 
     // ========== Content Types ==========
 

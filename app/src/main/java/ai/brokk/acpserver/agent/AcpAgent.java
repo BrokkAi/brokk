@@ -7,6 +7,8 @@ import ai.brokk.acpserver.spec.AcpSchema.ContextDropRequest;
 import ai.brokk.acpserver.spec.AcpSchema.ContextDropResponse;
 import ai.brokk.acpserver.spec.AcpSchema.ContextGetRequest;
 import ai.brokk.acpserver.spec.AcpSchema.ContextGetResponse;
+import ai.brokk.acpserver.spec.AcpSchema.GetConversationRequest;
+import ai.brokk.acpserver.spec.AcpSchema.GetConversationResponse;
 import ai.brokk.acpserver.spec.AcpSchema.InitializeRequest;
 import ai.brokk.acpserver.spec.AcpSchema.InitializeResponse;
 import ai.brokk.acpserver.spec.AcpSchema.ModelsListRequest;
@@ -15,6 +17,8 @@ import ai.brokk.acpserver.spec.AcpSchema.NewSessionRequest;
 import ai.brokk.acpserver.spec.AcpSchema.NewSessionResponse;
 import ai.brokk.acpserver.spec.AcpSchema.PromptRequest;
 import ai.brokk.acpserver.spec.AcpSchema.PromptResponse;
+import ai.brokk.acpserver.spec.AcpSchema.SessionSwitchRequest;
+import ai.brokk.acpserver.spec.AcpSchema.SessionSwitchResponse;
 import ai.brokk.acpserver.spec.AcpSchema.SessionsListRequest;
 import ai.brokk.acpserver.spec.AcpSchema.SessionsListResponse;
 import ai.brokk.acpserver.transport.AcpTransport;
@@ -45,6 +49,8 @@ public final class AcpAgent {
         private @Nullable Function<ContextDropRequest, ContextDropResponse> contextDropHandler;
         private @Nullable Function<SessionsListRequest, SessionsListResponse> sessionsListHandler;
         private @Nullable Consumer<CancelRequest> cancelHandler;
+        private @Nullable Function<SessionSwitchRequest, SessionSwitchResponse> sessionSwitchHandler;
+        private @Nullable Function<GetConversationRequest, GetConversationResponse> getConversationHandler;
 
         SyncAgentBuilder(AcpTransport transport) {
             this.transport = transport;
@@ -96,6 +102,17 @@ public final class AcpAgent {
             return this;
         }
 
+        public SyncAgentBuilder sessionSwitchHandler(Function<SessionSwitchRequest, SessionSwitchResponse> handler) {
+            this.sessionSwitchHandler = handler;
+            return this;
+        }
+
+        public SyncAgentBuilder getConversationHandler(
+                Function<GetConversationRequest, GetConversationResponse> handler) {
+            this.getConversationHandler = handler;
+            return this;
+        }
+
         public AcpSyncAgent build() {
             if (initializeHandler == null) throw new IllegalStateException("initializeHandler is required");
             if (newSessionHandler == null) throw new IllegalStateException("newSessionHandler is required");
@@ -115,7 +132,9 @@ public final class AcpAgent {
                     contextAddFilesHandler,
                     contextDropHandler,
                     sessionsListHandler,
-                    cancelHandler != null ? cancelHandler : req -> {});
+                    cancelHandler != null ? cancelHandler : req -> {},
+                    sessionSwitchHandler,
+                    getConversationHandler);
         }
     }
 }

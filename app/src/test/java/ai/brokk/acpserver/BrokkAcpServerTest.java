@@ -203,6 +203,56 @@ class BrokkAcpServerTest {
         assertEquals("Session 1", response.sessions().get(0).name());
     }
 
+    @Test
+    void sessionSwitchRequestCanBeCreated() {
+        var request = new SessionSwitchRequest("uuid-1");
+        assertEquals("uuid-1", request.sessionId());
+    }
+
+    @Test
+    void sessionSwitchResponseCanBeCreated() {
+        var response = new SessionSwitchResponse("ok", "uuid-1");
+        assertEquals("ok", response.status());
+        assertEquals("uuid-1", response.sessionId());
+    }
+
+    @Test
+    void getConversationRequestCanBeCreated() {
+        var request = new GetConversationRequest();
+        assertNotNull(request);
+    }
+
+    @Test
+    void getConversationResponseCanBeCreated() {
+        var messages = List.of(
+                new ConversationMessage("user", "Hello", null),
+                new ConversationMessage("ai", "Hi there!", "thinking..."));
+        var entry = new ConversationEntry(1, false, "CODE", messages, null);
+        var response = new GetConversationResponse(List.of(entry));
+
+        assertEquals(1, response.entries().size());
+        var e = response.entries().get(0);
+        assertEquals(1, e.sequence());
+        assertEquals(false, e.isCompressed());
+        assertEquals("CODE", e.taskType());
+        assertEquals(2, e.messages().size());
+        assertEquals("user", e.messages().get(0).role());
+        assertEquals("thinking...", e.messages().get(1).reasoning());
+        assertNull(e.summary());
+    }
+
+    @Test
+    void getConversationResponseWithSummaryCanBeCreated() {
+        var entry = new ConversationEntry(2, true, "ASK", null, "Compressed summary");
+        var response = new GetConversationResponse(List.of(entry));
+
+        assertEquals(1, response.entries().size());
+        var e = response.entries().get(0);
+        assertTrue(e.isCompressed());
+        assertNull(e.messages());
+        assertEquals("Compressed summary", e.summary());
+    }
+
     // Mock transport for testing
     private static class MockAcpTransport implements AcpTransport {
         private final List<SentNotification> sentNotifications = new ArrayList<>();

@@ -19,6 +19,10 @@ import ai.brokk.acpserver.spec.AcpSchema.ContextDropResponse;
 import ai.brokk.acpserver.spec.AcpSchema.ContextFragmentInfo;
 import ai.brokk.acpserver.spec.AcpSchema.ContextGetRequest;
 import ai.brokk.acpserver.spec.AcpSchema.ContextGetResponse;
+import ai.brokk.acpserver.spec.AcpSchema.ConversationEntry;
+import ai.brokk.acpserver.spec.AcpSchema.ConversationMessage;
+import ai.brokk.acpserver.spec.AcpSchema.GetConversationRequest;
+import ai.brokk.acpserver.spec.AcpSchema.GetConversationResponse;
 import ai.brokk.acpserver.spec.AcpSchema.InitializeRequest;
 import ai.brokk.acpserver.spec.AcpSchema.InitializeResponse;
 import ai.brokk.acpserver.spec.AcpSchema.ModelInfo;
@@ -29,6 +33,8 @@ import ai.brokk.acpserver.spec.AcpSchema.NewSessionResponse;
 import ai.brokk.acpserver.spec.AcpSchema.PromptRequest;
 import ai.brokk.acpserver.spec.AcpSchema.PromptResponse;
 import ai.brokk.acpserver.spec.AcpSchema.SessionInfoDto;
+import ai.brokk.acpserver.spec.AcpSchema.SessionSwitchRequest;
+import ai.brokk.acpserver.spec.AcpSchema.SessionSwitchResponse;
 import ai.brokk.acpserver.spec.AcpSchema.SessionsListRequest;
 import ai.brokk.acpserver.spec.AcpSchema.SessionsListResponse;
 import ai.brokk.acpserver.spec.AcpSchema.StopReason;
@@ -37,13 +43,17 @@ import ai.brokk.acpserver.transport.StdioAcpAgentTransport;
 import ai.brokk.agents.CodeAgent;
 import ai.brokk.project.MainProject;
 import ai.brokk.project.ModelProperties;
+import ai.brokk.util.Messages;
+import dev.langchain4j.data.message.AiMessage;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -117,6 +127,8 @@ public class BrokkAcpServer {
                 .contextDropHandler(this::handleContextDrop)
                 .sessionsListHandler(this::handleSessionsList)
                 .cancelHandler(this::handleCancel)
+                .sessionSwitchHandler(this::handleSwitchSession)
+                .getConversationHandler(this::handleGetConversation)
                 .build();
         return agent;
     }
@@ -356,5 +368,69 @@ public class BrokkAcpServer {
                 .map(s -> new SessionInfoDto(s.id().toString(), s.name(), s.created(), s.modified()))
                 .toList();
         return new SessionsListResponse(sessions);
+    }
+
+    private SessionSwitchResponse handleSwitchSession(SessionSwitchRequest req) {
+        logger.debug("Received session/switch request for {}", req.sessionId());
+        var activeCm = requireSession();
+
+        if (req.sessionId() == null || req.sessionId().isBlank()) {
+            throw new AcpProtocolException(AcpProtocolException.INVALID_PARAMS, "sessionId is required");
+        }
+
+        UUID sessionId;
+        try {
+            sessionId = UUID.fromString(req.sessionId());
+        } catch (IllegalArgumentException e) {
+            throw new AcpProtocolException(
+                    AcpProtocolException.INVALID_PARAMS, "Invalid sessionId: " + req.sessionId());
+        }
+
+        try {
+            activeCm.switchSessionAsync(sessionId).get(30, TimeUnit.SECONDS);
+            logger.info("Switched to session: {}", sessionId);
+            return new SessionSwitchResponse("ok", sessionId.toString());
+        } catch (Exception e) {
+            var cause = e.getCause() != null ? e.getCause() : e;
+            logger.error("Error switching to session {}", sessionId, cause);
+            throw new AcpProtocolException(
+                    AcpProtocolException.INTERNAL_ERROR, "Failed to switch session: " + cause.getMessage());
+        }
+    }
+
+    private GetConversationResponse handleGetConversation(GetConversationRequest req) {
+        logger.debug("Received context/get-conversation request");
+        var activeCm = requireSession();
+        var taskHistory = activeCm.liveContext().getTaskHistory();
+        var entries = new ArrayList<ConversationEntry>();
+
+        for (var task : taskHistory) {
+            String taskType = task.meta() != null ? task.meta().type().displayName() : null;
+
+            var log = task.mopLog();
+            List<ConversationMessage> messages = null;
+            String summary = null;
+
+            if (log != null) {
+                messages = new ArrayList<>();
+                for (var msg : log.messages()) {
+                    String role = msg.type().name().toLowerCase(Locale.ROOT);
+                    String text = Messages.getText(msg);
+                    String reasoning = null;
+                    if (msg instanceof AiMessage ai
+                            && ai.reasoningContent() != null
+                            && !ai.reasoningContent().isBlank()) {
+                        reasoning = ai.reasoningContent();
+                    }
+                    messages.add(new ConversationMessage(role, text, reasoning));
+                }
+            } else if (task.summary() != null) {
+                summary = task.summary();
+            }
+
+            entries.add(new ConversationEntry(task.sequence(), task.isCompressed(), taskType, messages, summary));
+        }
+
+        return new GetConversationResponse(entries);
     }
 }
