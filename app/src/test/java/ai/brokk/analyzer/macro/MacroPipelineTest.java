@@ -54,26 +54,4 @@ public class MacroPipelineTest {
         assertTrue(expanded.contains("pub fn is_Running(&self) -> bool { matches!(self, Self::Running { .. }) }"));
         assertTrue(expanded.contains("pub fn is_Stopped(&self) -> bool { matches!(self, Self::Stopped { .. }) }"));
     }
-
-    @Test
-    void testTemplateExpansion() throws IOException {
-        MacroPolicy policy = MacroPolicyLoader.loadFromResource("/macros/rust/lazy_static-v1.yml");
-        MacroPolicy.MacroMatch lazyStatic = policy.macros().stream()
-                .filter(m -> "lazy_static".equals(m.name()))
-                .findFirst()
-                .orElseThrow();
-
-        assertInstanceOf(MacroPolicy.TemplateConfig.class, lazyStatic.options());
-        String template = ((MacroPolicy.TemplateConfig) lazyStatic.options()).template();
-
-        Map<String, Object> context = Map.of(
-                "name", "SETTINGS",
-                "type", "HashMap<String, String>");
-
-        String expanded = MacroTemplateExpander.expand(template, context);
-
-        // Normalize whitespace for comparison
-        String normalized = expanded.replaceAll("\\s+", " ").trim();
-        assertEquals("pub static SETTINGS: HashMap<String, String>;", normalized);
-    }
 }

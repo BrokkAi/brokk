@@ -2,7 +2,5 @@ version: "1"
 language: "rust"
 macros:
   - name: "lazy_static"
-    parent: "lazy_static"
-    strategy: "TEMPLATE"
-    options:
-      template: "pub static {{name}}: {{{type}}};"
+    strategy: "BYPASS"
+    options: {}

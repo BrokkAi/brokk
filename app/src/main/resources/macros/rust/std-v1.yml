@@ -1,11 +1,8 @@
 version: "1"
 language: "rust"
 macros:
+  # Common bang macros
   - name: "vec"
-    strategy: "BYPASS"
-    options: {}
-  - name: "lazy_static"
-    parent: "lazy_static"
     strategy: "BYPASS"
     options: {}
   - name: "format"
@@ -20,6 +17,17 @@ macros:
   - name: "assert"
     strategy: "BYPASS"
     options: {}
+  - name: "todo"
+    strategy: "BYPASS"
+    options: {}
+  - name: "unimplemented"
+    strategy: "BYPASS"
+    options: {}
+  - name: "unreachable"
+    strategy: "BYPASS"
+    options: {}
+
+  # Common derive macros (standard)
   - name: "Clone"
     strategy: "BYPASS"
     options: {}
@@ -47,6 +55,8 @@ macros:
   - name: "Hash"
     strategy: "BYPASS"
     options: {}
+
+  # Attribute macros
   - name: "test"
     strategy: "BYPASS"
     options: {}
@@ -56,6 +66,11 @@ macros:
   - name: "cfg"
     strategy: "BYPASS"
     options: {}
+  - name: "derive"
+    strategy: "BYPASS"
+    options: {}
+
+  # Common external derives
   - name: "Serialize"
     strategy: "BYPASS"
     options: {}

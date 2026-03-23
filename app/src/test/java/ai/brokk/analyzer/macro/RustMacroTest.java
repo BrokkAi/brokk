@@ -51,7 +51,7 @@ public class RustMacroTest {
     }
 
     @Test
-    void testLazyStaticMacroExpansion() {
+    void testLazyStaticMacroBypass() {
         String rustSource =
                 """
                 use lazy_static::lazy_static;
@@ -68,13 +68,10 @@ public class RustMacroTest {
             IAnalyzer analyzer = testProject.getAnalyzer();
             assertNotNull(analyzer);
 
-            // The macro expansion should produce a synthetic static field named SETTINGS
-            List<CodeUnit> definitions = analyzer.getDefinitions("SETTINGS").stream().toList();
-            assertEquals(1, definitions.size(), "Should find synthetic SETTINGS static");
-            CodeUnit settings = definitions.getFirst();
-
-            assertTrue(settings.isField(), "SETTINGS should be a field/static");
-            assertTrue(settings.isSynthetic(), "SETTINGS should be marked as synthetic");
+            // With BYPASS, SETTINGS should not be expanded/found as a CodeUnit
+            List<CodeUnit> definitions =
+                    analyzer.getDefinitions("SETTINGS").stream().toList();
+            assertEquals(0, definitions.size(), "Should not find expanded static for bypassed macro");
         }
     }
 

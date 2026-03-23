@@ -7,6 +7,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.jetbrains.annotations.Nullable;
 import org.jspecify.annotations.NullMarked;
@@ -94,7 +96,7 @@ public interface MacroExpansionProvider extends CapabilityProvider {
 
     private boolean isParentRequirementMet(String macroName, MacroPolicy.MacroMatch mm, FileAnalysisAccumulator acc) {
         String parent = mm.parent();
-        if (parent == null) {
+        if (parent == null || parent.isBlank()) {
             return true;
         }
 
@@ -108,12 +110,15 @@ public interface MacroExpansionProvider extends CapabilityProvider {
         if (explicitImport.isPresent()) {
             // If explicitly imported, it MUST match the parent requirement.
             // Shadowing means we don't look at wildcards if an explicit match exists.
-            return explicitImport.get().rawSnippet().contains(parent);
+            String snippet = explicitImport.get().rawSnippet();
+            return snippet.contains(parent) || snippet.contains(parent.replace("_", "-"));
         }
 
         // 2. Fallback: If no explicit import, check if ANY wildcard imports the parent.
-        return infos.stream()
-                .anyMatch(info -> info.isWildcard() && info.rawSnippet().contains(parent));
+        return infos.stream().anyMatch(info -> {
+            String snippet = info.rawSnippet();
+            return info.isWildcard() && (snippet.contains(parent) || snippet.contains(parent.replace("_", "-")));
+        });
     }
 
     private void expandTemplate(
@@ -142,7 +147,10 @@ public interface MacroExpansionProvider extends CapabilityProvider {
         // We look at the parent to get the full macro_invocation text
         TSNode targetNode = node;
         TSNode p = node.getParent();
-        while (p != null && !p.isNull() && !p.getType().contains("item") && !p.getType().contains("declaration")) {
+        while (p != null
+                && !p.isNull()
+                && !p.getType().contains("item")
+                && !p.getType().contains("declaration")) {
             targetNode = p;
             if (p.getType().equals("macro_invocation")) break;
             p = p.getParent();
@@ -151,8 +159,9 @@ public interface MacroExpansionProvider extends CapabilityProvider {
         String nodeText = sourceContent.substringFrom(targetNode);
         if (nodeText.contains("static")) {
             // Primitive extraction for lazy_static! { [pub] static [ref] NAME: TYPE = ... }
-            java.util.regex.Pattern pattern = java.util.regex.Pattern.compile("static\\s+(?:ref\\s+)?([\\w_]+)\\s*:\\s*([^=;{]+)");
-            java.util.regex.Matcher m = pattern.matcher(nodeText);
+            Pattern pattern =
+                    Pattern.compile("static\\s+(?:ref\\s+)?([\\w_]+)\\s*:\\s*([^=;{]+)");
+            Matcher m = pattern.matcher(nodeText);
             if (m.find()) {
                 context.put("name", m.group(1).strip());
                 context.put("type", m.group(2).strip());

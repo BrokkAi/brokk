@@ -2370,7 +2370,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                     int lastDotIdx = fileName.lastIndexOf('.');
                     String fileStem = lastDotIdx == -1 ? fileName : fileName.substring(0, lastDotIdx);
 
-                    String moduleSimpleName = (currentPackage.isEmpty()) ? fileStem : currentPackage.substring(currentPackage.lastIndexOf('.') + 1);
+                    String moduleSimpleName =  currentPackage.isEmpty()
+                            ? fileStem
+                            : currentPackage.substring(currentPackage.lastIndexOf('.') + 1);
 
                     CodeUnit fileModule = CodeUnit.module(file, currentPackage, moduleSimpleName);
                     if (acc.getByFqName(fileModule.fqName()) == null) {

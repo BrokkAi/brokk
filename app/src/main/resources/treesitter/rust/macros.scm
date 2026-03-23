@@ -4,6 +4,7 @@
     (identifier) @macro.name
     (scoped_identifier) @macro.name
   ]
+  (token_tree) @macro.body
 ) @macro.invocation
 
 ; Capture derive macro arguments like #[derive(Debug, Is)]
