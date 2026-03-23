@@ -1087,7 +1087,11 @@ async def run_acp_server(
     executor_snapshot: bool,
     vendor: Optional[str] = None,
 ) -> None:
-    use_acp_server = os.environ.get("BROKK_USE_ACP_SERVER", "").lower() in ("1", "true", "yes")
+    use_acp_server = os.environ.get("BROKK_USE_ACP_SERVER", "true").lower() not in (
+        "0",
+        "false",
+        "no",
+    )
 
     # Import ACP SDK once at the top of the function
     try:

@@ -1,11 +1,14 @@
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from brokk_code.acp_server import (
     BASE_MODEL_IDS,
     DEFAULT_MODEL_SELECTION,
     DEFAULT_REASONING_LEVEL,
     REASONING_LEVEL_IDS,
+    AcpStdioBridge,
     BrokkAcpBridge,
     _available_model_names,
     _build_available_models,
@@ -456,9 +459,6 @@ def test_known_session_ids_handles_bad_payload() -> None:
     assert _known_session_ids("bad") == set()
 
 
-import pytest
-
-
 class MockAcpStdioExecutor:
     """Mock AcpStdioExecutor for testing JSON-RPC method calls."""
 
@@ -820,9 +820,6 @@ async def test_prompt_context_command_renders_snapshot_without_job(tmp_path: Pat
 
 
 # ── AcpStdioBridge tests ──────────────────────────────────────────────
-
-
-from brokk_code.acp_server import AcpStdioBridge
 
 
 class StubStdioExecutor:

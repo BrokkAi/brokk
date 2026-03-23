@@ -249,14 +249,14 @@ class AcpStdioExecutor:
         self.session_id: Optional[str] = None
 
     def _find_dev_jar(self) -> Optional[Path]:
-        """Searches for a local development acp-server JAR in the project structure."""
+        """Searches for a local development JAR in the project structure."""
 
         def _find_in_workspace(base: Path) -> Optional[Path]:
-            libs_dir = base / "acp-server" / "build" / "libs"
+            libs_dir = base / "app" / "build" / "libs"
             if not libs_dir.exists():
                 return None
 
-            named_jar = list(libs_dir.glob("brokk-acp-server-*.jar"))
+            named_jar = list(libs_dir.glob("brokk-*.jar"))
             if not named_jar:
                 return None
 
@@ -288,7 +288,7 @@ class AcpStdioExecutor:
         jbang_bin = await asyncio.to_thread(ensure_jbang_ready)
 
         version = self.executor_version or BUNDLED_EXECUTOR_VERSION
-        jar_url = f"{_EXECUTOR_JAR_BASE_URL}/{version}/brokk-acp-server-{version}.jar"
+        jar_url = f"{_EXECUTOR_JAR_BASE_URL}/{version}/brokk-{version}.jar"
         cmd = [
             jbang_bin,
             "--java",
