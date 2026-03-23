@@ -8,8 +8,8 @@ import ai.brokk.executor.http.SimpleHttpServer;
 import ai.brokk.executor.jobs.ErrorPayload;
 import ai.brokk.issues.IssueProviderType;
 import ai.brokk.issues.IssuesProviderConfig;
+import ai.brokk.project.IProject;
 import ai.brokk.project.IProject.CodeAgentTestScope;
-import ai.brokk.project.MainProject;
 import ai.brokk.project.MainProject.DataRetentionPolicy;
 import ai.brokk.util.ShellConfig;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -166,7 +166,7 @@ public final class SettingsRouter implements SimpleHttpServer.CheckedHttpHandler
         return map;
     }
 
-    private Map<String, Object> buildProjectSettingsMap(ai.brokk.project.IProject project) {
+    private Map<String, Object> buildProjectSettingsMap(IProject project) {
         var map = new LinkedHashMap<String, Object>();
         map.put("commitMessageFormat", project.getCommitMessageFormat());
         map.put("codeAgentTestScope", project.getCodeAgentTestScope().name());
@@ -213,33 +213,26 @@ public final class SettingsRouter implements SimpleHttpServer.CheckedHttpHandler
             var current = project.awaitBuildDetails();
 
             // Merge only provided fields
-            String buildLintCommand = request.buildLintCommand() != null
-                    ? request.buildLintCommand()
-                    : current.buildLintCommand();
-            boolean buildLintEnabled = request.buildLintEnabled() != null
-                    ? request.buildLintEnabled()
-                    : current.buildLintEnabled();
-            String testAllCommand = request.testAllCommand() != null
-                    ? request.testAllCommand()
-                    : current.testAllCommand();
-            boolean testAllEnabled = request.testAllEnabled() != null
-                    ? request.testAllEnabled()
-                    : current.testAllEnabled();
-            String testSomeCommand = request.testSomeCommand() != null
-                    ? request.testSomeCommand()
-                    : current.testSomeCommand();
-            boolean testSomeEnabled = request.testSomeEnabled() != null
-                    ? request.testSomeEnabled()
-                    : current.testSomeEnabled();
+            String buildLintCommand =
+                    request.buildLintCommand() != null ? request.buildLintCommand() : current.buildLintCommand();
+            boolean buildLintEnabled =
+                    request.buildLintEnabled() != null ? request.buildLintEnabled() : current.buildLintEnabled();
+            String testAllCommand =
+                    request.testAllCommand() != null ? request.testAllCommand() : current.testAllCommand();
+            boolean testAllEnabled =
+                    request.testAllEnabled() != null ? request.testAllEnabled() : current.testAllEnabled();
+            String testSomeCommand =
+                    request.testSomeCommand() != null ? request.testSomeCommand() : current.testSomeCommand();
+            boolean testSomeEnabled =
+                    request.testSomeEnabled() != null ? request.testSomeEnabled() : current.testSomeEnabled();
             Set<String> exclusionPatterns = request.exclusionPatterns() != null
                     ? new LinkedHashSet<>(request.exclusionPatterns())
                     : current.exclusionPatterns();
             Map<String, String> environmentVariables = request.environmentVariables() != null
                     ? new LinkedHashMap<>(request.environmentVariables())
                     : current.environmentVariables();
-            Integer maxBuildAttempts = request.maxBuildAttempts() != null
-                    ? request.maxBuildAttempts()
-                    : current.maxBuildAttempts();
+            Integer maxBuildAttempts =
+                    request.maxBuildAttempts() != null ? request.maxBuildAttempts() : current.maxBuildAttempts();
             String afterTaskListCommand = request.afterTaskListCommand() != null
                     ? request.afterTaskListCommand()
                     : current.afterTaskListCommand();
@@ -296,7 +289,8 @@ public final class SettingsRouter implements SimpleHttpServer.CheckedHttpHandler
             }
 
             if (request.codeAgentTestScope() != null) {
-                var scope = CodeAgentTestScope.fromString(request.codeAgentTestScope(), project.getCodeAgentTestScope());
+                var scope =
+                        CodeAgentTestScope.fromString(request.codeAgentTestScope(), project.getCodeAgentTestScope());
                 project.setCodeAgentTestScope(scope);
             }
 
@@ -381,28 +375,41 @@ public final class SettingsRouter implements SimpleHttpServer.CheckedHttpHandler
 
         try {
             var project = contextManager.getProject();
-            IssueProvider provider = switch (type) {
-                case NONE -> IssueProvider.none();
-                case GITHUB -> {
-                    var configNode = requestNode.get("config");
-                    if (configNode == null) {
-                        yield IssueProvider.github();
-                    } else {
-                        String owner = configNode.has("owner") ? configNode.get("owner").asText("") : "";
-                        String repo = configNode.has("repo") ? configNode.get("repo").asText("") : "";
-                        String host = configNode.has("host") ? configNode.get("host").asText("") : "";
-                        yield IssueProvider.github(owner, repo, host);
-                    }
-                }
-                case JIRA -> {
-                    var configNode = requestNode.get("config");
-                    // configNode is guaranteed non-null here due to validation above
-                    String baseUrl = configNode.has("baseUrl") ? configNode.get("baseUrl").asText("") : "";
-                    String apiToken = configNode.has("apiToken") ? configNode.get("apiToken").asText("") : "";
-                    String projectKey = configNode.has("projectKey") ? configNode.get("projectKey").asText("") : "";
-                    yield IssueProvider.jira(baseUrl, apiToken, projectKey);
-                }
-            };
+            IssueProvider provider =
+                    switch (type) {
+                        case NONE -> IssueProvider.none();
+                        case GITHUB -> {
+                            var configNode = requestNode.get("config");
+                            if (configNode == null) {
+                                yield IssueProvider.github();
+                            } else {
+                                String owner = configNode.has("owner")
+                                        ? configNode.get("owner").asText("")
+                                        : "";
+                                String repo = configNode.has("repo")
+                                        ? configNode.get("repo").asText("")
+                                        : "";
+                                String host = configNode.has("host")
+                                        ? configNode.get("host").asText("")
+                                        : "";
+                                yield IssueProvider.github(owner, repo, host);
+                            }
+                        }
+                        case JIRA -> {
+                            var configNode = requestNode.get("config");
+                            // configNode is guaranteed non-null here due to validation above
+                            String baseUrl = configNode.has("baseUrl")
+                                    ? configNode.get("baseUrl").asText("")
+                                    : "";
+                            String apiToken = configNode.has("apiToken")
+                                    ? configNode.get("apiToken").asText("")
+                                    : "";
+                            String projectKey = configNode.has("projectKey")
+                                    ? configNode.get("projectKey").asText("")
+                                    : "";
+                            yield IssueProvider.jira(baseUrl, apiToken, projectKey);
+                        }
+                    };
 
             project.setIssuesProvider(provider);
 
@@ -415,7 +422,8 @@ public final class SettingsRouter implements SimpleHttpServer.CheckedHttpHandler
     }
 
     private void handlePostDataRetention(HttpExchange exchange) throws IOException {
-        var request = RouterUtil.parseJsonOr400(exchange, UpdateDataRetentionRequest.class, "/v1/settings/data-retention");
+        var request =
+                RouterUtil.parseJsonOr400(exchange, UpdateDataRetentionRequest.class, "/v1/settings/data-retention");
         if (request == null) return;
 
         if (request.policy() == null || request.policy().isBlank()) {
@@ -427,7 +435,8 @@ public final class SettingsRouter implements SimpleHttpServer.CheckedHttpHandler
         try {
             policy = DataRetentionPolicy.valueOf(request.policy().toUpperCase(Locale.ROOT));
         } catch (IllegalArgumentException e) {
-            RouterUtil.sendValidationError(exchange, "Invalid policy: " + request.policy() + ". Must be IMPROVE_BROKK or MINIMAL");
+            RouterUtil.sendValidationError(
+                    exchange, "Invalid policy: " + request.policy() + ". Must be IMPROVE_BROKK or MINIMAL");
             return;
         }
 

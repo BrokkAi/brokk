@@ -7,9 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import ai.brokk.ContextManager;
 import ai.brokk.IssueProvider;
 import ai.brokk.agents.BuildAgent.BuildDetails;
-import ai.brokk.project.IProject.CodeAgentTestScope;
 import ai.brokk.project.MainProject;
-import ai.brokk.util.ShellConfig;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.file.Path;
@@ -108,9 +106,7 @@ class SettingsRouterTest {
         project.saveBuildDetails(initialDetails);
 
         // Update only the build command
-        var body = Map.of(
-                "buildLintCommand", "updated-build",
-                "testAllEnabled", false);
+        var body = Map.of("buildLintCommand", "updated-build", "testAllEnabled", false);
 
         var exchange = TestHttpExchange.jsonRequest("POST", "/v1/settings/build", body);
         settingsRouter.handle(exchange);
@@ -137,10 +133,14 @@ class SettingsRouterTest {
     @SuppressWarnings("unchecked")
     void handlePostProject_updatesSettings() throws Exception {
         var body = Map.of(
-                "commitMessageFormat", "feat: {{description}}",
-                "codeAgentTestScope", "ALL",
-                "runCommandTimeoutSeconds", 120,
-                "autoUpdateLocalDependencies", true);
+                "commitMessageFormat",
+                "feat: {{description}}",
+                "codeAgentTestScope",
+                "ALL",
+                "runCommandTimeoutSeconds",
+                120,
+                "autoUpdateLocalDependencies",
+                true);
 
         var exchange = TestHttpExchange.jsonRequest("POST", "/v1/settings/project", body);
         settingsRouter.handle(exchange);
@@ -163,9 +163,7 @@ class SettingsRouterTest {
     @Test
     @SuppressWarnings("unchecked")
     void handlePostShell_updatesConfig() throws Exception {
-        var body = Map.of(
-                "executable", "/bin/bash",
-                "args", List.of("-lc"));
+        var body = Map.of("executable", "/bin/bash", "args", List.of("-lc"));
 
         var exchange = TestHttpExchange.jsonRequest("POST", "/v1/settings/shell", body);
         settingsRouter.handle(exchange);
@@ -199,8 +197,10 @@ class SettingsRouterTest {
     @SuppressWarnings("unchecked")
     void handlePostIssues_updatesGithubProvider() throws Exception {
         var body = Map.of(
-                "type", "GITHUB",
-                "config", Map.of(
+                "type",
+                "GITHUB",
+                "config",
+                Map.of(
                         "owner", "myorg",
                         "repo", "myrepo",
                         "host", "github.enterprise.com"));

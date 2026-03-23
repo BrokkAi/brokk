@@ -777,9 +777,12 @@ SettingsModalScreen {
     color: $text;
 }
 
-#settings-form-scroll {
+#settings-tabs {
     height: 1fr;
-    border: tall $primary-darken-1;
+}
+
+.settings-tab-scroll {
+    height: 1fr;
     padding: 1 2;
 }
 

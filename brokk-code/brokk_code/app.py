@@ -28,6 +28,8 @@ from textual.widgets import (
     RadioButton,
     RadioSet,
     Static,
+    TabbedContent,
+    TabPane,
     TextArea,
 )
 
@@ -1219,13 +1221,9 @@ class ModuleEditModalScreen(ModalScreen[Optional[Dict[str, str]]]):
         with Vertical(id="module-edit-modal-container"):
             yield Static(self._title, id="module-edit-modal-title")
             yield Static("Alias:", classes="module-edit-label")
-            yield Input(
-                value=self._alias, placeholder="e.g., backend", id="module-edit-alias"
-            )
+            yield Input(value=self._alias, placeholder="e.g., backend", id="module-edit-alias")
             yield Static("Language:", classes="module-edit-label")
-            yield Input(
-                value=self._language, placeholder="e.g., Java", id="module-edit-language"
-            )
+            yield Input(value=self._language, placeholder="e.g., Java", id="module-edit-language")
             yield Static("Relative Path:", classes="module-edit-label")
             yield Input(
                 value=self._relative_path,
@@ -1314,206 +1312,212 @@ class SettingsModalScreen(ModalScreen[None]):
     def compose(self) -> ComposeResult:
         with Vertical(id="settings-modal-container"):
             yield Static("Settings", id="settings-modal-title")
-            with VerticalScroll(id="settings-form-scroll"):
-                # Build Configuration Section
-                yield Static("Build Configuration", classes="settings-section-title")
+            with TabbedContent(id="settings-tabs"):
+                with TabPane("Build", id="settings-tab-build"):
+                    with VerticalScroll(classes="settings-tab-scroll"):
+                        # Build Configuration Section
+                        yield Static("Build Configuration", classes="settings-section-title")
 
-                with Horizontal(classes="settings-row"):
-                    yield Static("Build/Lint Command:", classes="settings-label")
-                    yield Input(placeholder="e.g., make lint", id="settings-build-lint-command")
-                    yield Checkbox("Enabled", id="settings-build-lint-enabled", value=True)
-
-                with Horizontal(classes="settings-row"):
-                    yield Static("Test All Command:", classes="settings-label")
-                    yield Input(placeholder="e.g., make test", id="settings-test-all-command")
-                    yield Checkbox("Enabled", id="settings-test-all-enabled", value=True)
-
-                with Horizontal(classes="settings-row"):
-                    yield Static("Test Some Command:", classes="settings-label")
-                    yield Input(
-                        placeholder="e.g., make test TESTS={testfiles}",
-                        id="settings-test-some-command",
-                    )
-                    yield Checkbox("Enabled", id="settings-test-some-enabled", value=True)
-
-                with Horizontal(classes="settings-row"):
-                    yield Static("Post-Task-List Command:", classes="settings-label")
-                    yield Input(
-                        placeholder="Command to run after task list completes",
-                        id="settings-after-tasklist-command",
-                    )
-
-                with Horizontal(classes="settings-row"):
-                    yield Static("Code Agent Test Scope:", classes="settings-label")
-                    with RadioSet(id="settings-test-scope"):
-                        yield RadioButton("Run All Tests", id="settings-scope-all", value=True)
-                        yield RadioButton("Run Tests in Workspace", id="settings-scope-workspace")
-
-                with Horizontal(classes="settings-row"):
-                    yield Static("Run Command Timeout (sec):", classes="settings-label")
-                    yield Input(
-                        placeholder="-1 for no timeout",
-                        id="settings-run-timeout",
-                    )
-
-                with Horizontal(classes="settings-row"):
-                    yield Static("Test Command Timeout (sec):", classes="settings-label")
-                    yield Input(
-                        placeholder="-1 for no timeout",
-                        id="settings-test-timeout",
-                    )
-
-                # Code Intelligence Section
-                yield Static("Code Intelligence", classes="settings-section-title")
-
-                yield Static("Exclusion Patterns:", classes="settings-subsection-label")
-                yield Static(
-                    "Patterns to exclude from code intelligence (e.g., build, node_modules, *.svg)",
-                    classes="settings-hint",
-                )
-                yield ListView(id="settings-exclusion-list")
-                with Horizontal(classes="settings-list-actions"):
-                    yield Button("Add", id="settings-exclusion-add", variant="primary")
-                    yield Button("Remove", id="settings-exclusion-remove")
-
-                yield Static("Environment Variables:", classes="settings-subsection-label")
-                yield Static(
-                    "Environment variables for build commands",
-                    classes="settings-hint",
-                )
-                yield ListView(id="settings-env-var-list")
-                with Horizontal(classes="settings-list-actions"):
-                    yield Button("Add", id="settings-env-var-add", variant="primary")
-                    yield Button("Remove", id="settings-env-var-remove")
-
-                with Horizontal(classes="settings-row"):
-                    yield Static("Auto-update Local Dependencies:", classes="settings-label")
-                    yield Checkbox("", id="settings-auto-update-local", value=False)
-
-                with Horizontal(classes="settings-row"):
-                    yield Static("Auto-update Git Dependencies:", classes="settings-label")
-                    yield Checkbox("", id="settings-auto-update-git", value=False)
-
-                # Issue Provider Section
-                yield Static("Issue Provider", classes="settings-section-title")
-                yield Static(
-                    "Configure issue tracker integration for fetching issues",
-                    classes="settings-hint",
-                )
-
-                with Horizontal(id="settings-issue-provider-select"):
-                    yield Button("None", id="settings-issue-none", variant="primary")
-                    yield Button("GitHub", id="settings-issue-github")
-                    yield Button("Jira", id="settings-issue-jira")
-
-                # None provider section
-                with Vertical(id="settings-issue-none-section"):
-                    yield Static(
-                        "No issue provider configured.",
-                        id="settings-issue-none-text",
-                    )
-
-                # GitHub provider section
-                with Vertical(id="settings-issue-github-section", classes="hidden"):
-                    yield Checkbox(
-                        "Fetch issues from a different GitHub repository",
-                        id="settings-github-override",
-                        value=False,
-                    )
-                    with Vertical(id="settings-github-fields", classes="hidden"):
                         with Horizontal(classes="settings-row"):
-                            yield Static("Owner:", classes="settings-label")
-                            yield Input(placeholder="e.g., owner", id="settings-github-owner")
-                        with Horizontal(classes="settings-row"):
-                            yield Static("Repository:", classes="settings-label")
-                            yield Input(placeholder="e.g., repo", id="settings-github-repo")
-                        with Horizontal(classes="settings-row"):
-                            yield Static("Host (optional):", classes="settings-label")
-                            yield Input(placeholder="github.com", id="settings-github-host")
-                    yield Static(
-                        "If not overridden, issues are fetched from the project's own GitHub repository.",
-                        classes="settings-hint",
-                    )
+                            yield Static("Build/Lint Command:", classes="settings-label")
+                            yield Input(placeholder="e.g., make lint", id="settings-build-lint-command")
+                            yield Checkbox("Enabled", id="settings-build-lint-enabled", value=True)
 
-                # Jira provider section
-                with Vertical(id="settings-issue-jira-section", classes="hidden"):
-                    with Horizontal(classes="settings-row"):
-                        yield Static("Base URL:", classes="settings-label")
-                        yield Input(
-                            placeholder="https://yourcompany.atlassian.net",
-                            id="settings-jira-base-url",
+                        with Horizontal(classes="settings-row"):
+                            yield Static("Test All Command:", classes="settings-label")
+                            yield Input(placeholder="e.g., make test", id="settings-test-all-command")
+                            yield Checkbox("Enabled", id="settings-test-all-enabled", value=True)
+
+                        with Horizontal(classes="settings-row"):
+                            yield Static("Test Some Command:", classes="settings-label")
+                            yield Input(
+                                placeholder="e.g., make test TESTS={testfiles}",
+                                id="settings-test-some-command",
+                            )
+                            yield Checkbox("Enabled", id="settings-test-some-enabled", value=True)
+
+                        with Horizontal(classes="settings-row"):
+                            yield Static("Post-Task-List Command:", classes="settings-label")
+                            yield Input(
+                                placeholder="Command to run after task list completes",
+                                id="settings-after-tasklist-command",
+                            )
+
+                        with Horizontal(classes="settings-row"):
+                            yield Static("Code Agent Test Scope:", classes="settings-label")
+                            with RadioSet(id="settings-test-scope"):
+                                yield RadioButton("Run All Tests", id="settings-scope-all", value=True)
+                                yield RadioButton("Run Tests in Workspace", id="settings-scope-workspace")
+
+                        with Horizontal(classes="settings-row"):
+                            yield Static("Run Command Timeout (sec):", classes="settings-label")
+                            yield Input(
+                                placeholder="-1 for no timeout",
+                                id="settings-run-timeout",
+                            )
+
+                        with Horizontal(classes="settings-row"):
+                            yield Static("Test Command Timeout (sec):", classes="settings-label")
+                            yield Input(
+                                placeholder="-1 for no timeout",
+                                id="settings-test-timeout",
+                            )
+
+                        # Modules Section
+                        yield Static("Modules", classes="settings-section-title")
+                        yield Static(
+                            "Configure build commands for submodules/subprojects",
+                            classes="settings-hint",
                         )
-                    with Horizontal(classes="settings-row"):
-                        yield Static("API Token:", classes="settings-label")
-                        yield Input(
-                            placeholder="API Token",
-                            password=True,
-                            id="settings-jira-api-token",
-                        )
-                    with Horizontal(classes="settings-row"):
-                        yield Static("Project Key:", classes="settings-label")
-                        yield Input(
-                            placeholder="e.g., CASSANDRA",
-                            id="settings-jira-project-key",
+                        yield ListView(id="settings-modules-list")
+                        with Horizontal(classes="settings-list-actions"):
+                            yield Button("Add", id="settings-module-add", variant="primary")
+                            yield Button("Edit", id="settings-module-edit")
+                            yield Button("Remove", id="settings-module-remove")
+                            yield Button("▲", id="settings-module-up")
+                            yield Button("▼", id="settings-module-down")
+
+                        # Shell Configuration Section
+                        yield Static("Shell Configuration", classes="settings-section-title")
+                        yield Static(
+                            "Configure the shell used to execute build commands",
+                            classes="settings-hint",
                         )
 
-                # Modules Section
-                yield Static("Modules", classes="settings-section-title")
-                yield Static(
-                    "Configure build commands for submodules/subprojects",
-                    classes="settings-hint",
-                )
-                yield ListView(id="settings-modules-list")
-                with Horizontal(classes="settings-list-actions"):
-                    yield Button("Add", id="settings-module-add", variant="primary")
-                    yield Button("Edit", id="settings-module-edit")
-                    yield Button("Remove", id="settings-module-remove")
-                    yield Button("▲", id="settings-module-up")
-                    yield Button("▼", id="settings-module-down")
+                        with Horizontal(classes="settings-row"):
+                            yield Static("Execute With:", classes="settings-label")
+                            yield Input(
+                                placeholder="e.g., /bin/sh",
+                                id="settings-shell-executable",
+                            )
 
-                # Shell Configuration Section
-                yield Static("Shell Configuration", classes="settings-section-title")
-                yield Static(
-                    "Configure the shell used to execute build commands",
-                    classes="settings-hint",
-                )
+                        with Horizontal(classes="settings-row"):
+                            yield Static("Default Parameters:", classes="settings-label")
+                            yield Input(
+                                placeholder="e.g., -c",
+                                id="settings-shell-args",
+                            )
 
-                with Horizontal(classes="settings-row"):
-                    yield Static("Execute With:", classes="settings-label")
-                    yield Input(
-                        placeholder="e.g., /bin/sh",
-                        id="settings-shell-executable",
-                    )
+                with TabPane("Code Intelligence", id="settings-tab-ci"):
+                    with VerticalScroll(classes="settings-tab-scroll"):
+                        yield Static("Code Intelligence", classes="settings-section-title")
 
-                with Horizontal(classes="settings-row"):
-                    yield Static("Default Parameters:", classes="settings-label")
-                    yield Input(
-                        placeholder="e.g., -c",
-                        id="settings-shell-args",
-                    )
+                        yield Static("Exclusion Patterns:", classes="settings-subsection-label")
+                        yield Static(
+                            "Patterns to exclude from code intelligence (e.g., build, node_modules, *.svg)",
+                            classes="settings-hint",
+                        )
+                        yield ListView(id="settings-exclusion-list")
+                        with Horizontal(classes="settings-list-actions"):
+                            yield Button("Add", id="settings-exclusion-add", variant="primary")
+                            yield Button("Remove", id="settings-exclusion-remove")
 
-                # Project General Section
-                yield Static("Project General", classes="settings-section-title")
+                        yield Static("Environment Variables:", classes="settings-subsection-label")
+                        yield Static(
+                            "Environment variables for build commands",
+                            classes="settings-hint",
+                        )
+                        yield ListView(id="settings-env-var-list")
+                        with Horizontal(classes="settings-list-actions"):
+                            yield Button("Add", id="settings-env-var-add", variant="primary")
+                            yield Button("Remove", id="settings-env-var-remove")
 
-                yield Static("Commit Message Format:", classes="settings-subsection-label")
-                yield TextArea(id="settings-commit-format")
+                        with Horizontal(classes="settings-row"):
+                            yield Static("Auto-update Local Dependencies:", classes="settings-label")
+                            yield Checkbox("", id="settings-auto-update-local", value=False)
 
-                yield Static("Data Retention Policy:", classes="settings-subsection-label")
-                with RadioSet(id="settings-data-retention"):
-                    yield RadioButton(
-                        "Make Brokk Better for Everyone",
-                        id="settings-retention-improve",
-                        value=True,
-                    )
-                    yield RadioButton(
-                        "Essential Use Only",
-                        id="settings-retention-minimal",
-                    )
-                yield Static(
-                    "Data retention policy affects which AI models are available. "
-                    "Deepseek models are not available under Essential Use Only policy.",
-                    classes="settings-hint",
-                )
+                        with Horizontal(classes="settings-row"):
+                            yield Static("Auto-update Git Dependencies:", classes="settings-label")
+                            yield Checkbox("", id="settings-auto-update-git", value=False)
+
+                with TabPane("Integrations", id="settings-tab-integrations"):
+                    with VerticalScroll(classes="settings-tab-scroll"):
+                        # Issue Provider Section
+                        yield Static("Issue Provider", classes="settings-section-title")
+                        yield Static(
+                            "Configure issue tracker integration for fetching issues",
+                            classes="settings-hint",
+                        )
+
+                        with Horizontal(id="settings-issue-provider-select"):
+                            yield Button("None", id="settings-issue-none", variant="primary")
+                            yield Button("GitHub", id="settings-issue-github")
+                            yield Button("Jira", id="settings-issue-jira")
+
+                        # None provider section
+                        with Vertical(id="settings-issue-none-section"):
+                            yield Static(
+                                "No issue provider configured.",
+                                id="settings-issue-none-text",
+                            )
+
+                        # GitHub provider section
+                        with Vertical(id="settings-issue-github-section", classes="hidden"):
+                            yield Checkbox(
+                                "Fetch issues from a different GitHub repository",
+                                id="settings-github-override",
+                                value=False,
+                            )
+                            with Vertical(id="settings-github-fields", classes="hidden"):
+                                with Horizontal(classes="settings-row"):
+                                    yield Static("Owner:", classes="settings-label")
+                                    yield Input(placeholder="e.g., owner", id="settings-github-owner")
+                                with Horizontal(classes="settings-row"):
+                                    yield Static("Repository:", classes="settings-label")
+                                    yield Input(placeholder="e.g., repo", id="settings-github-repo")
+                                with Horizontal(classes="settings-row"):
+                                    yield Static("Host (optional):", classes="settings-label")
+                                    yield Input(placeholder="github.com", id="settings-github-host")
+                            yield Static(
+                                "If not overridden, issues are fetched from the project's own GitHub repository.",
+                                classes="settings-hint",
+                            )
+
+                        # Jira provider section
+                        with Vertical(id="settings-issue-jira-section", classes="hidden"):
+                            with Horizontal(classes="settings-row"):
+                                yield Static("Base URL:", classes="settings-label")
+                                yield Input(
+                                    placeholder="https://yourcompany.atlassian.net",
+                                    id="settings-jira-base-url",
+                                )
+                            with Horizontal(classes="settings-row"):
+                                yield Static("API Token:", classes="settings-label")
+                                yield Input(
+                                    placeholder="API Token",
+                                    password=True,
+                                    id="settings-jira-api-token",
+                                )
+                            with Horizontal(classes="settings-row"):
+                                yield Static("Project Key:", classes="settings-label")
+                                yield Input(
+                                    placeholder="e.g., CASSANDRA",
+                                    id="settings-jira-project-key",
+                                )
+
+                with TabPane("General", id="settings-tab-general"):
+                    with VerticalScroll(classes="settings-tab-scroll"):
+                        yield Static("Project General", classes="settings-section-title")
+
+                        yield Static("Commit Message Format:", classes="settings-subsection-label")
+                        yield TextArea(id="settings-commit-format")
+
+                        yield Static("Data Retention Policy:", classes="settings-subsection-label")
+                        with RadioSet(id="settings-data-retention"):
+                            yield RadioButton(
+                                "Make Brokk Better for Everyone",
+                                id="settings-retention-improve",
+                                value=True,
+                            )
+                            yield RadioButton(
+                                "Essential Use Only",
+                                id="settings-retention-minimal",
+                            )
+                        yield Static(
+                            "Data retention policy affects which AI models are available. "
+                            "Deepseek models are not available under Essential Use Only policy.",
+                            classes="settings-hint",
+                        )
 
             yield Static("", id="settings-error")
 
@@ -1592,9 +1596,7 @@ class SettingsModalScreen(ModalScreen[None]):
 
         # Code Intelligence - Exclusion Patterns
         raw_patterns = build_details.get("exclusionPatterns", [])
-        self._exclusion_patterns = sorted(
-            set(str(p) for p in raw_patterns if p), key=str.lower
-        )
+        self._exclusion_patterns = sorted(set(str(p) for p in raw_patterns if p), key=str.lower)
         self._refresh_exclusion_list()
 
         # Code Intelligence - Environment Variables
@@ -1654,9 +1656,7 @@ class SettingsModalScreen(ModalScreen[None]):
             self.query_one("#settings-github-repo", Input).value = repo
             self.query_one("#settings-github-host", Input).value = host
         elif provider_type == "JIRA":
-            self.query_one("#settings-jira-base-url", Input).value = str(
-                config.get("baseUrl", "")
-            )
+            self.query_one("#settings-jira-base-url", Input).value = str(config.get("baseUrl", ""))
             self.query_one("#settings-jira-api-token", Input).value = str(
                 config.get("apiToken", "")
             )
@@ -1849,9 +1849,7 @@ class SettingsModalScreen(ModalScreen[None]):
                     self._exclusion_patterns.sort(key=str.lower)
                     self._refresh_exclusion_list()
 
-        self.app.push_screen(
-            TaskTitleModalScreen("Add Exclusion Pattern", initial=""), on_result
-        )
+        self.app.push_screen(TaskTitleModalScreen("Add Exclusion Pattern", initial=""), on_result)
 
     def _remove_selected_exclusion(self) -> None:
         """Removes the selected exclusion pattern."""
@@ -1948,10 +1946,12 @@ class SettingsModalScreen(ModalScreen[None]):
             shell_executable = self.query_one("#settings-shell-executable", Input).value.strip()
             shell_args_str = self.query_one("#settings-shell-args", Input).value.strip()
             shell_args = shell_args_str.split() if shell_args_str else []
-            await self.app.executor.update_shell_config({
-                "executable": shell_executable,
-                "args": shell_args,
-            })
+            await self.app.executor.update_shell_config(
+                {
+                    "executable": shell_executable,
+                    "args": shell_args,
+                }
+            )
 
             # Save issue provider configuration
             issue_provider_data: Dict[str, Any] = {"type": self._issue_provider_type}
