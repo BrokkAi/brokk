@@ -322,4 +322,3 @@ class TestPickSessionStartupFlow:
                     coro.close()
                 except Exception:
                     pass
-

@@ -1091,9 +1091,7 @@ def test_main_issue_create_verbose_routes_correctly(monkeypatch, tmp_path) -> No
 
 @pytest.mark.asyncio
 @patch("brokk_code.executor.ExecutorManager")
-async def test_run_headless_job_waits_for_live_before_submit(
-    mock_executor_class, tmp_path
-) -> None:
+async def test_run_headless_job_waits_for_live_before_submit(mock_executor_class, tmp_path) -> None:
     """Verifies that run_headless_job waits for liveness before submitting."""
     from unittest.mock import AsyncMock
 
@@ -2852,4 +2850,3 @@ def test_install_calls_ensure_jbang_ready(monkeypatch, tmp_path) -> None:
     main_module.main()
 
     assert ensure_called["n"] == 1
-

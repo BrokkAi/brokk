@@ -129,4 +129,3 @@ async def test_show_welcome_message_handles_nomatches_gracefully(tmp_path: Path)
 
     mock_chat.add_welcome.assert_called_once()
     mock_chat.update_welcome.assert_called_once()
-

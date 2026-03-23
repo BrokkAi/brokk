@@ -237,4 +237,3 @@ async def test_concurrent_relaunch_short_circuits(tmp_path):
     # Verify short-circuit message was shown
     calls = [args[0] for args, kwargs in mock_chat.add_system_message.call_args_list]
     assert any("already in progress" in m for m in calls)
-

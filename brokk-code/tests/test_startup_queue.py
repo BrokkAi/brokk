@@ -105,4 +105,3 @@ async def test_multiple_startup_prompts_collapse(tmp_path):
             await app._run_job(prompt)
 
             mock_run_job.assert_called_once_with("Prompt 2")
-
