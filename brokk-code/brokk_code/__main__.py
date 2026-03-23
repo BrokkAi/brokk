@@ -198,6 +198,23 @@ def _read_api_key_interactive() -> str:
     return _read_masked_input("Brokk API key: ").strip()
 
 
+def _ensure_install_api_key() -> None:
+    if Settings().get_brokk_api_key():
+        return
+
+    if sys.stdin.isatty():
+        key = _read_api_key_interactive()
+    else:
+        key = _read_api_key_from_stdin()
+
+    key = key.strip()
+    if not key:
+        raise ValueError("API key cannot be empty.")
+
+    write_brokk_api_key(key)
+    print(f"Saved Brokk API key to {get_brokk_properties_path()}")
+
+
 def _looks_like_auth_failure(message: str) -> bool:
     text = message.lower()
     return (
@@ -1491,6 +1508,7 @@ def main():
         messages: list[str] = []
         prefetch_commands: list[tuple[str, list[str]]] = []
         try:
+            _ensure_install_api_key()
             if args.plugin and args.target not in {"nvim", "neovim"}:
                 raise ValueError("--plugin is only valid for install targets nvim/neovim")
             uv_binary = ensure_uv_ready()
