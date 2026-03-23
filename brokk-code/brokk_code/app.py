@@ -21,6 +21,7 @@ from textual.screen import ModalScreen
 from textual.widgets import (
     Button,
     Checkbox,
+    DataTable,
     Input,
     ListItem,
     ListView,
@@ -1329,7 +1330,7 @@ class SettingsModalScreen(ModalScreen[None]):
                             "Configure build commands for submodules/subprojects",
                             classes="settings-hint",
                         )
-                        yield ListView(id="settings-modules-list")
+                        yield DataTable(id="settings-modules-table", cursor_type="row")
                         with Horizontal(classes="settings-list-actions"):
                             yield Button("Add", id="settings-module-add", variant="primary")
                             yield Button("Edit", id="settings-module-edit")
@@ -1575,7 +1576,7 @@ class SettingsModalScreen(ModalScreen[None]):
             for m in raw_modules
             if isinstance(m, dict)
         ]
-        self._refresh_modules_list()
+        self._refresh_modules_table()
 
         # Shell Configuration
         shell_config = self._settings_data.get("shellConfig", {})
@@ -1631,16 +1632,17 @@ class SettingsModalScreen(ModalScreen[None]):
         for pattern in self._exclusion_patterns:
             list_view.append(ListItem(Static(pattern, markup=False)))
 
-    def _refresh_modules_list(self) -> None:
-        """Refreshes the modules ListView."""
-        list_view = self.query_one("#settings-modules-list", ListView)
-        list_view.clear()
+    def _refresh_modules_table(self) -> None:
+        """Refreshes the modules DataTable."""
+        table = self.query_one("#settings-modules-table", DataTable)
+        table.clear(columns=True)
+        table.add_columns("Alias", "Language", "Path")
         for module in self._modules:
-            alias = module.get("alias", "")
-            language = module.get("language", "")
-            path = module.get("relativePath", "")
-            label = f"{alias} ({language}) — {path}" if alias else f"({language}) — {path}"
-            list_view.append(ListItem(Static(label, markup=False)))
+            table.add_row(
+                module.get("alias", ""),
+                module.get("language", ""),
+                module.get("relativePath", ""),
+            )
 
     def _add_module(self) -> None:
         """Opens a modal to add a new module."""
@@ -1648,21 +1650,28 @@ class SettingsModalScreen(ModalScreen[None]):
         def on_result(result: Optional[Dict[str, str]]) -> None:
             if result:
                 self._modules.append(result)
-                self._refresh_modules_list()
+                self._refresh_modules_table()
 
         self.app.push_screen(ModuleEditModalScreen("Add Module"), on_result)
 
+    def _get_selected_module_index(self) -> Optional[int]:
+        """Returns the index of the selected row in the modules table, or None."""
+        table = self.query_one("#settings-modules-table", DataTable)
+        if table.cursor_row is not None and 0 <= table.cursor_row < len(self._modules):
+            return table.cursor_row
+        return None
+
     def _edit_selected_module(self) -> None:
         """Opens a modal to edit the selected module."""
-        list_view = self.query_one("#settings-modules-list", ListView)
-        if list_view.index is None or list_view.index < 0 or list_view.index >= len(self._modules):
+        idx = self._get_selected_module_index()
+        if idx is None:
             return
-        module = self._modules[list_view.index]
+        module = self._modules[idx]
 
         def on_result(result: Optional[Dict[str, str]]) -> None:
-            if result and list_view.index is not None:
-                self._modules[list_view.index] = result
-                self._refresh_modules_list()
+            if result:
+                self._modules[idx] = result
+                self._refresh_modules_table()
 
         self.app.push_screen(
             ModuleEditModalScreen(
@@ -1679,25 +1688,25 @@ class SettingsModalScreen(ModalScreen[None]):
 
     def _remove_selected_module(self) -> None:
         """Removes the selected module."""
-        list_view = self.query_one("#settings-modules-list", ListView)
-        if list_view.index is not None and 0 <= list_view.index < len(self._modules):
-            del self._modules[list_view.index]
-            self._refresh_modules_list()
+        idx = self._get_selected_module_index()
+        if idx is not None:
+            del self._modules[idx]
+            self._refresh_modules_table()
 
     def _move_module(self, direction: int) -> None:
         """Moves the selected module up (-1) or down (+1)."""
-        list_view = self.query_one("#settings-modules-list", ListView)
-        if list_view.index is None:
+        idx = self._get_selected_module_index()
+        if idx is None:
             return
-        idx = list_view.index
         new_idx = idx + direction
         if 0 <= new_idx < len(self._modules):
             self._modules[idx], self._modules[new_idx] = (
                 self._modules[new_idx],
                 self._modules[idx],
             )
-            self._refresh_modules_list()
-            list_view.index = new_idx
+            self._refresh_modules_table()
+            table = self.query_one("#settings-modules-table", DataTable)
+            table.move_cursor(row=new_idx)
 
     def _set_issue_provider_type(self, provider_type: str) -> None:
         """Sets the issue provider type and shows/hides corresponding sections."""
@@ -1771,9 +1780,9 @@ class SettingsModalScreen(ModalScreen[None]):
         elif button_id == "settings-issue-jira":
             self._set_issue_provider_type("JIRA")
 
-    def on_list_view_selected(self, event: ListView.Selected) -> None:
-        """Handle Enter key on list items to edit modules."""
-        if event.list_view.id == "settings-modules-list":
+    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
+        """Handle Enter key on table rows to edit modules."""
+        if event.data_table.id == "settings-modules-table":
             self._edit_selected_module()
 
     def _add_exclusion_pattern(self) -> None:

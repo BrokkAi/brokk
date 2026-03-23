@@ -833,19 +833,11 @@ SettingsModalScreen {
     margin-bottom: 1;
 }
 
-#settings-modules-list {
-    height: 6;
-    max-height: 8;
+#settings-modules-table {
+    height: 8;
+    max-height: 12;
     border: tall $primary-darken-1;
     background: transparent;
-}
-
-#settings-modules-list > ListItem {
-    padding: 0 1;
-}
-
-#settings-modules-list > ListItem:focus {
-    background: $accent 20%;
 }
 
 /* Issue Provider Section */
