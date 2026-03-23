@@ -54,6 +54,51 @@ brokk
 python -m brokk_code
 ```
 
+### Login and Logout (Brokk API Key)
+
+Interactive login (masked input):
+
+```bash
+uv run brokk login
+```
+
+Piped login:
+
+```bash
+echo "your-brokk-api-key" | uv run brokk login --stdin
+```
+
+Remove your saved Brokk API key:
+
+```bash
+uv run brokk logout
+```
+
+When you run `brokk login` interactively, Brokk prints these setup steps:
+
+1. Go to <https://brokk.ai/>
+2. Click **Try Brokk Now**
+3. Login with GitHub or Google
+4. Copy your API key
+5. Paste it into the terminal
+
+Interactive key input is masked as `*` characters (one star per character).
+
+After login, Brokk immediately validates the key and reports account state (paid/free/unknown) and balance when available.
+
+Clipboard piping examples:
+
+```bash
+# macOS
+pbpaste | uv run brokk login --stdin
+
+# Windows PowerShell
+Get-Clipboard | uv run brokk login --stdin
+
+# Linux (xclip)
+xclip -o -selection clipboard | uv run brokk login --stdin
+```
+
 ### Resuming Sessions
 
 Brokk automatically saves your session state (fragments, history, etc.) when you exit.

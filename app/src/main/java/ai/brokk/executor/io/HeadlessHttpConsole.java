@@ -1,5 +1,6 @@
 package ai.brokk.executor.io;
 
+import ai.brokk.BrokkAuthValidation;
 import ai.brokk.LlmOutputMeta;
 import ai.brokk.TaskEntry;
 import ai.brokk.agents.BlitzForge;
@@ -135,6 +136,21 @@ public class HeadlessHttpConsole extends MemoryConsole {
                 "message", message,
                 "title", title);
         appendEvent("NOTIFICATION", data);
+    }
+
+    @Override
+    public void brokkAuthValidationUpdated(BrokkAuthValidation validation) {
+        var data = new HashMap<String, Object>();
+        data.put("state", validation.state().name());
+        data.put("valid", validation.valid());
+        data.put("subscribed", validation.subscribed());
+        data.put("hasBalance", validation.hasBalance());
+        data.put("balanceDisplay", validation.balanceDisplay());
+        data.put("message", validation.message());
+        if (validation.hasBalance()) {
+            data.put("balance", validation.balance());
+        }
+        appendEvent("BROKK_AUTH_VALIDATION", data);
     }
 
     /**

@@ -1,6 +1,7 @@
 import subprocess
 import sys
 from contextlib import contextmanager
+from io import StringIO
 from types import ModuleType, SimpleNamespace
 from typing import Any
 from unittest.mock import patch
@@ -33,6 +34,173 @@ def test_main_version_subcommand_prints_version(monkeypatch, capsys) -> None:
 
     captured = capsys.readouterr()
     assert f"brokk {__version__}" in captured.out
+
+
+def test_main_login_routes_to_run_login(monkeypatch, tmp_path) -> None:
+    captured: dict[str, Any] = {}
+
+    async def fake_run_login(**kwargs: Any) -> None:
+        captured["kwargs"] = kwargs
+
+    monkeypatch.setattr(main_module, "run_login", fake_run_login)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "brokk",
+            "login",
+            "--workspace",
+            str(tmp_path),
+            "--stdin",
+            "--skip-validate",
+        ],
+    )
+
+    main_module.main()
+
+    assert captured["kwargs"]["workspace_dir"] == tmp_path.resolve()
+    assert captured["kwargs"]["read_from_stdin"] is True
+    assert captured["kwargs"]["skip_validate"] is True
+
+
+def test_main_logout_routes_to_run_logout(monkeypatch) -> None:
+    called = {"value": False}
+
+    def fake_run_logout() -> None:
+        called["value"] = True
+
+    monkeypatch.setattr(main_module, "run_logout", fake_run_logout)
+    monkeypatch.setattr(sys, "argv", ["brokk", "logout"])
+
+    main_module.main()
+
+    assert called["value"] is True
+
+
+@pytest.mark.asyncio
+async def test_run_login_reads_stdin_and_saves_key(monkeypatch, tmp_path) -> None:
+    from brokk_code.settings import read_brokk_properties
+
+    monkeypatch.setattr(sys, "stdin", StringIO("stdin-key\n"))
+
+    await main_module.run_login(
+        workspace_dir=tmp_path,
+        read_from_stdin=True,
+        skip_validate=True,
+    )
+
+    assert read_brokk_properties().get("brokkApiKey") == "stdin-key"
+
+
+@pytest.mark.asyncio
+async def test_run_login_stdin_requires_pipe(monkeypatch, tmp_path) -> None:
+    class FakeTtyInput(StringIO):
+        def isatty(self) -> bool:
+            return True
+
+    monkeypatch.setattr(sys, "stdin", FakeTtyInput(""))
+
+    with pytest.raises(SystemExit) as exc:
+        await main_module.run_login(
+            workspace_dir=tmp_path,
+            read_from_stdin=True,
+            skip_validate=True,
+        )
+
+    assert exc.value.code == 1
+
+
+@pytest.mark.asyncio
+async def test_run_login_interactive_path(monkeypatch, tmp_path) -> None:
+    from brokk_code.settings import read_brokk_properties
+
+    class FakeTtyInput(StringIO):
+        def isatty(self) -> bool:
+            return True
+
+    monkeypatch.setattr(sys, "stdin", FakeTtyInput(""))
+    monkeypatch.setattr(main_module, "_read_api_key_interactive", lambda: "interactive-key")
+
+    await main_module.run_login(
+        workspace_dir=tmp_path,
+        skip_validate=True,
+    )
+
+    assert read_brokk_properties().get("brokkApiKey") == "interactive-key"
+
+
+@pytest.mark.asyncio
+async def test_run_login_validation_reports_paid_balance(monkeypatch, tmp_path, capsys) -> None:
+    monkeypatch.setattr(sys, "stdin", StringIO("stdin-key\n"))
+
+    async def fake_validate(**_kwargs):
+        return {
+            "state": "PAID_USER",
+            "valid": True,
+            "subscribed": True,
+            "hasBalance": True,
+            "balance": 4.5,
+        }
+
+    monkeypatch.setattr(
+        main_module,
+        "_validate_brokk_api_key",
+        fake_validate,
+    )
+
+    await main_module.run_login(
+        workspace_dir=tmp_path,
+        read_from_stdin=True,
+    )
+
+    captured = capsys.readouterr()
+    assert "paid user, balance $4.50" in captured.out
+
+
+@pytest.mark.asyncio
+async def test_run_login_validation_unknown_user_exits_nonzero(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(sys, "stdin", StringIO("stdin-key\n"))
+
+    async def fake_validate(**_kwargs):
+        return {
+            "state": "UNKNOWN_USER",
+            "valid": False,
+            "subscribed": False,
+            "hasBalance": False,
+            "message": "User not found",
+        }
+
+    monkeypatch.setattr(
+        main_module,
+        "_validate_brokk_api_key",
+        fake_validate,
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        await main_module.run_login(
+            workspace_dir=tmp_path,
+            read_from_stdin=True,
+        )
+
+    assert exc.value.code == 1
+
+
+def test_main_login_rejects_api_key_flag(monkeypatch) -> None:
+    monkeypatch.setattr(sys, "argv", ["brokk", "login", "--api-key", "secret"])
+    with pytest.raises(SystemExit) as exc:
+        main_module.main()
+    assert exc.value.code == 2
+
+
+def test_run_logout_removes_saved_key(monkeypatch) -> None:
+    from brokk_code.settings import read_brokk_properties, write_brokk_api_key
+
+    write_brokk_api_key("persisted-key")
+    monkeypatch.delenv("BROKK_API_KEY", raising=False)
+
+    main_module.run_logout()
+
+    assert "brokkApiKey" not in read_brokk_properties()
 
 
 def test_main_defaults_to_tui(monkeypatch, tmp_path) -> None:

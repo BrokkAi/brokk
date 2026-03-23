@@ -216,6 +216,99 @@ public class Service extends AbstractService implements ExceptionReporter.Report
         getUserBalance(key);
     }
 
+    @Blocking
+    public static BrokkAuthValidation validateBrokkAuth(@Nullable String key) {
+        if (key == null || key.isBlank()) {
+            return new BrokkAuthValidation(
+                    BrokkAuthValidation.State.MISSING_KEY, false, false, false, 0f, "No Brokk API key configured.");
+        }
+
+        try {
+            parseKey(key);
+        } catch (IllegalArgumentException e) {
+            return new BrokkAuthValidation(
+                    BrokkAuthValidation.State.INVALID_KEY_FORMAT,
+                    false,
+                    false,
+                    false,
+                    0f,
+                    exceptionMessageOr(e, "Invalid Brokk API key format."));
+        }
+
+        try {
+            var info = getBalanceInfo(key);
+            if (info.isSubscribed()) {
+                return new BrokkAuthValidation(
+                        BrokkAuthValidation.State.PAID_USER,
+                        true,
+                        true,
+                        true,
+                        info.balance(),
+                        "Valid Brokk API key for a paid account.");
+            }
+            return new BrokkAuthValidation(
+                    BrokkAuthValidation.State.FREE_USER,
+                    true,
+                    false,
+                    true,
+                    info.balance(),
+                    "Valid Brokk API key for a free account.");
+        } catch (IllegalArgumentException e) {
+            return new BrokkAuthValidation(
+                    BrokkAuthValidation.State.INVALID_KEY,
+                    false,
+                    false,
+                    false,
+                    0f,
+                    exceptionMessageOr(e, "Invalid Brokk API key."));
+        } catch (ServiceHttpException e) {
+            if (isUnknownUserError(e)) {
+                return new BrokkAuthValidation(
+                        BrokkAuthValidation.State.UNKNOWN_USER,
+                        false,
+                        false,
+                        false,
+                        0f,
+                        exceptionMessageOr(e, "Unknown Brokk user."));
+            }
+            return new BrokkAuthValidation(
+                    BrokkAuthValidation.State.SERVICE_ERROR,
+                    false,
+                    false,
+                    false,
+                    0f,
+                    exceptionMessageOr(e, "Brokk service error."));
+        } catch (IOException e) {
+            return new BrokkAuthValidation(
+                    BrokkAuthValidation.State.NETWORK_ERROR,
+                    false,
+                    false,
+                    false,
+                    0f,
+                    exceptionMessageOr(e, "Network error while validating Brokk API key."));
+        }
+    }
+
+    private static String exceptionMessageOr(Exception exception, String fallback) {
+        return Objects.requireNonNullElse(exception.getMessage(), fallback);
+    }
+
+    private static boolean isUnknownUserError(ServiceHttpException exception) {
+        if (exception.getStatusCode() == 404) {
+            return true;
+        }
+
+        String body = exception.getResponseBody();
+        if (body == null || body.isBlank()) {
+            return false;
+        }
+        body = body.toLowerCase(Locale.ROOT);
+        return body.contains("unknown user")
+                || body.contains("user not found")
+                || body.contains("no such user")
+                || body.contains("unknown account");
+    }
+
     /**
      * Fetches available models from the LLM proxy, populates the provided maps, and applies filters.
      */

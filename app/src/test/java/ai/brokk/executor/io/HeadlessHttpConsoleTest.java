@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import ai.brokk.BrokkAuthValidation;
 import ai.brokk.IConsoleIO;
 import ai.brokk.LlmOutputMeta;
 import ai.brokk.TaskEntry;
@@ -234,6 +235,34 @@ class HeadlessHttpConsoleTest {
         assertEquals("System Title", data.get("title"));
 
         cleanup();
+    }
+
+    @Test
+    void testBrokkAuthValidation_MapsToAuthValidationEvent() throws Exception {
+        var validation = new BrokkAuthValidation(
+                BrokkAuthValidation.State.FREE_USER,
+                true,
+                false,
+                true,
+                1.50f,
+                "Valid Brokk API key for a free account.");
+
+        console.brokkAuthValidationUpdated(validation);
+
+        var events = awaitEvents(1, 1_000);
+        assertEquals(1, events.size());
+
+        var event = events.get(0);
+        assertEquals("BROKK_AUTH_VALIDATION", event.type());
+
+        @SuppressWarnings("unchecked")
+        var data = (Map<String, Object>) event.data();
+        assertEquals("FREE_USER", data.get("state"));
+        assertEquals(true, data.get("valid"));
+        assertEquals(false, data.get("subscribed"));
+        assertEquals(true, data.get("hasBalance"));
+        assertEquals("$1.50", data.get("balanceDisplay"));
+        assertEquals("Valid Brokk API key for a free account.", data.get("message"));
     }
 
     @Test
