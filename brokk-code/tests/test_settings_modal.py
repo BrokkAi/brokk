@@ -315,6 +315,62 @@ async def test_settings_modal_shell_config(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_settings_modal_issue_provider_type_selection(tmp_path):
+    """Verify selecting a provider type shows the correct configuration fields."""
+    stub = StubExecutor(tmp_path)
+    app = BrokkApp(executor=stub, workspace_dir=tmp_path)
+    async with app.run_test() as pilot:
+        app._executor_ready = True
+        app.action_open_settings()
+        await pilot.pause()
+        await pilot.pause()
+
+        from textual.widgets import Button
+
+        modal = app.screen
+        assert isinstance(modal, SettingsModalScreen)
+
+        # Initially set to NONE - verify None section is visible
+        none_section = modal.query_one("#settings-issue-none-section")
+        github_section = modal.query_one("#settings-issue-github-section")
+        jira_section = modal.query_one("#settings-issue-jira-section")
+
+        assert "hidden" not in none_section.classes
+        assert "hidden" in github_section.classes
+        assert "hidden" in jira_section.classes
+
+        # Click GitHub button
+        github_btn = modal.query_one("#settings-issue-github", Button)
+        github_btn.press()
+        await pilot.pause()
+
+        # Verify GitHub section is now visible
+        assert "hidden" in none_section.classes
+        assert "hidden" not in github_section.classes
+        assert "hidden" in jira_section.classes
+
+        # Click Jira button
+        jira_btn = modal.query_one("#settings-issue-jira", Button)
+        jira_btn.press()
+        await pilot.pause()
+
+        # Verify Jira section is now visible
+        assert "hidden" in none_section.classes
+        assert "hidden" in github_section.classes
+        assert "hidden" not in jira_section.classes
+
+        # Click None button to go back
+        none_btn = modal.query_one("#settings-issue-none", Button)
+        none_btn.press()
+        await pilot.pause()
+
+        # Verify None section is visible again
+        assert "hidden" not in none_section.classes
+        assert "hidden" in github_section.classes
+        assert "hidden" in jira_section.classes
+
+
+@pytest.mark.asyncio
 async def test_settings_modal_add_module(tmp_path):
     """Verify add module button opens ModuleEditModalScreen."""
     from brokk_code.app import ModuleEditModalScreen
