@@ -317,7 +317,8 @@ class JobsRouterValidationTest {
         retry.getRequestHeaders().set("Idempotency-Key", idemKey);
         jobsRouter.handle(retry);
 
-        assertEquals(201, retry.responseCode(), "Retry with same key should create new job after invalid first attempt");
+        assertEquals(
+                201, retry.responseCode(), "Retry with same key should create new job after invalid first attempt");
     }
 
     @Test
