@@ -293,12 +293,15 @@ export class BrokkPanelProvider implements vscode.WebviewViewProvider {
 
     // Settings messages don't require executor client
     if (msg.type === "loadSettings" || msg.type === "saveApiKey" || msg.type === "fetchBalance") {
-      await handleSettingsMessage(msg, (type, data) => {
-        this.sendToWebview(type, data);
-        if (msg.type === "saveApiKey" && type === "settingsSaved") {
-          void vscode.commands.executeCommand("brokk.restartExecutor");
+      await handleSettingsMessage(
+        msg,
+        (type, data) => this.sendToWebview(type, data),
+        () => {
+          if (msg.type === "saveApiKey") {
+            void vscode.commands.executeCommand("brokk.restartExecutor");
+          }
         }
-      });
+      );
       return;
     }
 
