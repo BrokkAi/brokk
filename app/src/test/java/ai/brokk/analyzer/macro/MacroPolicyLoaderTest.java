@@ -34,12 +34,14 @@ class MacroPolicyLoaderTest {
 
         MacroPolicy.MacroMatch println = policy.macros().get(0);
         assertEquals("println", println.name());
+        assertNull(println.parent());
         assertEquals(MacroPolicy.MacroStrategy.BYPASS, println.strategy());
         assertEquals(MacroPolicy.MacroScope.LIBRARY, println.scope());
         assertInstanceOf(MacroPolicy.BypassConfig.class, println.options());
 
         MacroPolicy.MacroMatch vec = policy.macros().get(1);
         assertEquals("vec", vec.name());
+        assertNull(vec.parent());
         assertEquals(MacroPolicy.MacroStrategy.AI_EXPAND, vec.strategy());
         assertEquals(MacroPolicy.MacroScope.LIBRARY, vec.scope());
         assertNotNull(vec.options());

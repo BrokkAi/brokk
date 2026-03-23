@@ -10,6 +10,7 @@ public record MacroPolicy(String version, String language, List<MacroMatch> macr
 
     public record MacroMatch(
             @JsonProperty("name") String name,
+            @JsonProperty("parent") @Nullable String parent,
             @JsonProperty("scope") @Nullable MacroScope scope,
             @JsonProperty("strategy") MacroStrategy strategy,
             @JsonTypeInfo(
