@@ -272,10 +272,10 @@ async function connectOrSpawn(context: vscode.ExtensionContext) {
     log(`Executor spawned on port ${handle.port}`);
 
     if (statusBarItem) {
-      statusBarItem.text = "$(sync~spin) Brokk: Waiting for ready...";
+      statusBarItem.text = "$(sync~spin) Brokk: Waiting for live...";
     }
     const sessionId = await waitForReady(handle.port, handle.authToken);
-    log(`Session ready: ${sessionId}`);
+    log(`Session label: ${sessionId}`);
 
     const client = new BrokkClient(handle.port, handle.authToken);
     setConnected(client, handle.port, sessionId);

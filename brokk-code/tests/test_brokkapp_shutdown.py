@@ -66,7 +66,7 @@ class FakeExecutor:
         await asyncio.sleep(0)
         return self.session_id
 
-    async def wait_ready(self, timeout: float = 30.0) -> bool:
+    async def wait_live(self, timeout: float = 30.0) -> bool:
         # For tests we don't want to block; treat as ready only if _alive is True
         await asyncio.sleep(0)
         return self._alive and not self._stopped

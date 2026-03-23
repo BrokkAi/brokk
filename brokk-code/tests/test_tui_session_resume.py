@@ -391,6 +391,12 @@ class FakeChat:
     def set_session_loading(self, loading: bool, message: str | None = None):
         pass
 
+    def clear_command_history(self):
+        pass
+
+    def clear_running_commands(self):
+        pass
+
     def set_token_usage(self, used, max_tokens, fragments, session_cost=None):
         self.last_session_cost = session_cost
 
@@ -417,7 +423,7 @@ async def test_resume_then_switch_session_updates_session_cost(tmp_path):
     get_session_zip_path(workspace, last_id).write_bytes(b"zip-data")
 
     stub = SessionStubExecutor()
-    stub.wait_ready = AsyncMock(return_value=True)
+    stub.wait_live = AsyncMock(return_value=True)
 
     # Configure stub to return different costs based on session_id
     async def get_context_side_effect():
@@ -477,7 +483,7 @@ async def test_resume_session_seeds_session_cost_from_context(tmp_path):
     zip_path.write_bytes(b"zip-data")
 
     stub = SessionStubExecutor()
-    stub.wait_ready = AsyncMock(return_value=True)
+    stub.wait_live = AsyncMock(return_value=True)
     stub.get_context = AsyncMock(
         return_value={
             "branch": "main",

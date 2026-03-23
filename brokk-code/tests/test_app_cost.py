@@ -24,6 +24,7 @@ class FakeLog:
 class FakeChat:
     def __init__(self):
         self._message_history = []
+        self._command_history = []
         self.status_line = FakeStatusLine()
         self.log = FakeLog()
         self.last_session_cost = None
@@ -56,6 +57,21 @@ class FakeChat:
         pass
 
     def set_response_finished(self):
+        pass
+
+    def get_commands_running(self):
+        return 0
+
+    def add_running_command(self, key):
+        pass
+
+    def remove_running_command(self, key):
+        pass
+
+    def clear_running_commands(self):
+        pass
+
+    def clear_command_history(self):
         pass
 
     def set_session_loading(self, loading: bool, message: str | None = None):

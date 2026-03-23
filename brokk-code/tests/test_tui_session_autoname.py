@@ -35,7 +35,9 @@ async def test_client_no_longer_explicitly_renames_on_job(tmp_path):
     app.executor = stub
     app._executor_ready = True
 
-    app._maybe_chat = MagicMock()
+    mock_chat = MagicMock()
+    mock_chat.get_commands_running.return_value = 0
+    app._maybe_chat = MagicMock(return_value=mock_chat)
 
     # Submit a prompt that would previously trigger a client-side rename
     # (session name is "TUI Session")
