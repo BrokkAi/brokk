@@ -1,9 +1,6 @@
 version: "1"
 language: "rust"
 macros:
-  - name: "lazy_static"
-    strategy: "BYPASS"
-    options: {}
   - name: "Serialize"
     strategy: "BYPASS"
     options: {}

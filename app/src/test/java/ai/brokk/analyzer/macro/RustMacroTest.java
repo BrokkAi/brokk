@@ -50,6 +50,34 @@ public class RustMacroTest {
         }
     }
 
+    @Test
+    void testLazyStaticMacroExpansion() {
+        String rustSource =
+                """
+                use lazy_static::lazy_static;
+                lazy_static! {
+                    pub static ref SETTINGS: HashMap<String, String> = HashMap::new();
+                }
+                """;
+
+        try (ITestProject testProject = InlineTestProjectCreator.empty()
+                .addFileContents(rustSource, "src/lib.rs")
+                .withMacros(Languages.RUST, "lazy_static-v1")
+                .build()) {
+
+            IAnalyzer analyzer = testProject.getAnalyzer();
+            assertNotNull(analyzer);
+
+            // The macro expansion should produce a synthetic static field named SETTINGS
+            List<CodeUnit> definitions = analyzer.getDefinitions("SETTINGS").stream().toList();
+            assertEquals(1, definitions.size(), "Should find synthetic SETTINGS static");
+            CodeUnit settings = definitions.getFirst();
+
+            assertTrue(settings.isField(), "SETTINGS should be a field/static");
+            assertTrue(settings.isSynthetic(), "SETTINGS should be marked as synthetic");
+        }
+    }
+
     private void assertSyntheticFunction(List<CodeUnit> units, String fqName) {
         CodeUnit match = units.stream()
                 .filter(cu -> cu.fqName().equals(fqName))
