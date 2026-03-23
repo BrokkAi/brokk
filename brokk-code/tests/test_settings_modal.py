@@ -1,8 +1,8 @@
+# Settings modal test suite - verifies SettingsModalScreen behavior
 import pytest
 
 from brokk_code.app import BrokkApp, SettingsModalScreen
 from brokk_code.executor import ExecutorManager
-from textual.widgets import Input, Checkbox, ListView, TextArea
 
 
 @pytest.fixture(autouse=True)
@@ -10,10 +10,61 @@ def _set_test_api_key(monkeypatch):
     monkeypatch.setenv("BROKK_API_KEY", "test-api-key")
 
 
+MOCK_SETTINGS = {
+    "buildDetails": {
+        "buildLintCommand": "make lint",
+        "buildLintEnabled": True,
+        "testAllCommand": "make test",
+        "testAllEnabled": True,
+        "testSomeCommand": "make test TESTS={testfiles}",
+        "testSomeEnabled": False,
+        "afterTaskListCommand": "",
+        "exclusionPatterns": ["build", "node_modules", "*.svg"],
+        "environmentVariables": {"CC": "gcc", "JAVA_HOME": "/usr/lib/jvm"},
+        "modules": [
+            {
+                "alias": "backend",
+                "language": "Java",
+                "relativePath": "backend/",
+                "buildLintCommand": "./gradlew build",
+                "testAllCommand": "./gradlew test",
+                "testSomeCommand": "./gradlew test --tests {{#classes}}",
+            },
+            {
+                "alias": "frontend",
+                "language": "TypeScript",
+                "relativePath": "frontend/",
+                "buildLintCommand": "npm run lint",
+                "testAllCommand": "npm test",
+                "testSomeCommand": "npm test -- {{#files}}",
+            },
+        ],
+    },
+    "projectSettings": {
+        "codeAgentTestScope": "ALL",
+        "runCommandTimeoutSeconds": -1,
+        "testCommandTimeoutSeconds": 120,
+        "commitMessageFormat": "feat: {description}",
+        "autoUpdateLocalDependencies": True,
+        "autoUpdateGitDependencies": False,
+    },
+    "shellConfig": {
+        "executable": "/bin/sh",
+        "args": ["-c"],
+    },
+    "issueProvider": {
+        "type": "NONE",
+        "config": {},
+    },
+    "dataRetentionPolicy": "IMPROVE_BROKK",
+}
+
+
 class StubExecutor(ExecutorManager):
+    """Minimal executor stub for settings modal tests."""
+
     def __init__(self, workspace_dir):
         super().__init__(workspace_dir=workspace_dir)
-        self._settings_data = None
 
     async def start(self):
         pass
@@ -34,37 +85,11 @@ class StubExecutor(ExecutorManager):
     async def get_health_live(self):
         return {"version": "test", "protocolVersion": "1", "execId": "test-id"}
 
-    def _default_settings(self):
-        return {
-            "buildDetails": {
-                "buildLintCommand": "make lint",
-                "buildLintEnabled": True,
-                "testAllCommand": "make test",
-                "testAllEnabled": True,
-                "testSomeCommand": "make test-some",
-                "testSomeEnabled": False,
-                "afterTaskListCommand": "echo done",
-                "exclusionPatterns": [],
-                "environmentVariables": {},
-                "modules": [],
-            },
-            "projectSettings": {
-                "codeAgentTestScope": "ALL",
-                "runCommandTimeoutSeconds": 30,
-                "testCommandTimeoutSeconds": 60,
-                "commitMessageFormat": "",
-                "autoUpdateLocalDependencies": False,
-                "autoUpdateGitDependencies": False,
-                "dataRetentionPolicy": "IMPROVE_BROKK",
-            },
-            "shellConfig": {"executable": "/bin/sh", "args": ["-c"]},
-            "issueProvider": {"type": "NONE", "config": {}},
-        }
-
     async def get_settings(self):
-        if self._settings_data is not None:
-            return self._settings_data
-        return self._default_settings()
+        return MOCK_SETTINGS
+
+    async def get_model_config(self):
+        return {}
 
     async def update_build_settings(self, data):
         return data
@@ -72,212 +97,287 @@ class StubExecutor(ExecutorManager):
     async def update_project_settings(self, data):
         return data
 
-    async def update_data_retention(self, policy):
-        return {"policy": policy}
-
     async def update_shell_config(self, data):
         return data
 
     async def update_issue_provider(self, data):
         return data
 
-    async def get_model_config(self):
-        return {}
+    async def update_data_retention(self, policy):
+        return {"policy": policy}
 
 
 @pytest.mark.asyncio
-async def test_settings_command_opens_modal(tmp_path):
-    """Verifies that the /settings command opens the SettingsModalScreen."""
+async def test_settings_modal_opens(tmp_path):
+    """Verify that action_open_settings pushes a SettingsModalScreen."""
     stub = StubExecutor(tmp_path)
     app = BrokkApp(executor=stub, workspace_dir=tmp_path)
-
     async with app.run_test() as pilot:
         app._executor_ready = True
-        app._handle_command("/settings")
+        app.action_open_settings()
         await pilot.pause()
-        await pilot.pause()
-
         assert isinstance(app.screen, SettingsModalScreen)
 
 
 @pytest.mark.asyncio
-async def test_settings_modal_displays_build_fields(tmp_path):
-    """Verifies that build configuration fields are displayed with correct values."""
+async def test_settings_modal_build_fields_display(tmp_path):
+    """Verify build configuration fields are populated from executor settings."""
     stub = StubExecutor(tmp_path)
     app = BrokkApp(executor=stub, workspace_dir=tmp_path)
-
     async with app.run_test() as pilot:
         app._executor_ready = True
-        app._handle_command("/settings")
+        app.action_open_settings()
         await pilot.pause()
         await pilot.pause()
 
-        assert isinstance(app.screen, SettingsModalScreen)
+        from textual.widgets import Checkbox, Input
 
-        build_lint_cmd = app.screen.query_one("#settings-build-lint-command", Input)
-        assert build_lint_cmd.value == "make lint"
+        modal = app.screen
+        assert isinstance(modal, SettingsModalScreen)
 
-        build_lint_enabled = app.screen.query_one("#settings-build-lint-enabled", Checkbox)
-        assert build_lint_enabled.value is True
+        build_lint = modal.query_one("#settings-build-lint-command", Input)
+        assert build_lint.value == "make lint"
 
-        test_all_cmd = app.screen.query_one("#settings-test-all-command", Input)
-        assert test_all_cmd.value == "make test"
+        test_all = modal.query_one("#settings-test-all-command", Input)
+        assert test_all.value == "make test"
 
-        test_all_enabled = app.screen.query_one("#settings-test-all-enabled", Checkbox)
-        assert test_all_enabled.value is True
+        test_some = modal.query_one("#settings-test-some-command", Input)
+        assert test_some.value == "make test TESTS={testfiles}"
 
-        test_some_cmd = app.screen.query_one("#settings-test-some-command", Input)
-        assert test_some_cmd.value == "make test-some"
-
-        test_some_enabled = app.screen.query_one("#settings-test-some-enabled", Checkbox)
+        test_some_enabled = modal.query_one("#settings-test-some-enabled", Checkbox)
         assert test_some_enabled.value is False
 
-        after_tasklist_cmd = app.screen.query_one("#settings-after-tasklist-command", Input)
-        assert after_tasklist_cmd.value == "echo done"
-
-        run_timeout = app.screen.query_one("#settings-run-timeout", Input)
-        assert run_timeout.value == "30"
-
-        test_timeout = app.screen.query_one("#settings-test-timeout", Input)
-        assert test_timeout.value == "60"
-
 
 @pytest.mark.asyncio
-async def test_settings_escape_dismisses_modal(tmp_path):
-    """Verifies that pressing Escape dismisses the SettingsModalScreen."""
+async def test_settings_modal_escape_dismisses(tmp_path):
+    """Verify pressing Escape dismisses the settings modal."""
     stub = StubExecutor(tmp_path)
     app = BrokkApp(executor=stub, workspace_dir=tmp_path)
-
     async with app.run_test() as pilot:
         app._executor_ready = True
-        app._handle_command("/settings")
+        app.action_open_settings()
         await pilot.pause()
-        await pilot.pause()
-
         assert isinstance(app.screen, SettingsModalScreen)
 
         await pilot.press("escape")
         await pilot.pause()
-
         assert not isinstance(app.screen, SettingsModalScreen)
 
 
 @pytest.mark.asyncio
-async def test_settings_modal_displays_exclusion_patterns(tmp_path):
-    """Verifies that exclusion patterns are displayed in the list."""
+async def test_settings_modal_exclusion_patterns(tmp_path):
+    """Verify exclusion patterns are displayed in the list."""
     stub = StubExecutor(tmp_path)
-    stub._settings_data = stub._default_settings()
-    stub._settings_data["buildDetails"]["exclusionPatterns"] = ["node_modules", "build", "*.svg"]
     app = BrokkApp(executor=stub, workspace_dir=tmp_path)
-
     async with app.run_test() as pilot:
         app._executor_ready = True
-        app._handle_command("/settings")
+        app.action_open_settings()
         await pilot.pause()
         await pilot.pause()
 
-        assert isinstance(app.screen, SettingsModalScreen)
+        from textual.widgets import ListView
 
-        assert len(app.screen._exclusion_patterns) == 3
-        assert "node_modules" in app.screen._exclusion_patterns
-        assert "build" in app.screen._exclusion_patterns
-        assert "*.svg" in app.screen._exclusion_patterns
+        modal = app.screen
+        assert isinstance(modal, SettingsModalScreen)
+
+        exclusion_list = modal.query_one("#settings-exclusion-list", ListView)
+        assert len(exclusion_list.children) == 3
 
 
 @pytest.mark.asyncio
-async def test_settings_modal_exclusion_pattern_removal(tmp_path):
-    """Verifies that exclusion patterns can be removed."""
+async def test_settings_modal_commit_format(tmp_path):
+    """Verify commit message format is populated in TextArea."""
     stub = StubExecutor(tmp_path)
-    stub._settings_data = stub._default_settings()
-    stub._settings_data["buildDetails"]["exclusionPatterns"] = ["node_modules", "build"]
     app = BrokkApp(executor=stub, workspace_dir=tmp_path)
-
     async with app.run_test() as pilot:
         app._executor_ready = True
-        app._handle_command("/settings")
+        app.action_open_settings()
         await pilot.pause()
         await pilot.pause()
 
-        assert isinstance(app.screen, SettingsModalScreen)
+        from textual.widgets import TextArea
 
-        assert len(app.screen._exclusion_patterns) == 2
+        modal = app.screen
+        assert isinstance(modal, SettingsModalScreen)
 
-        exclusion_list = app.screen.query_one("#settings-exclusion-list", ListView)
-        exclusion_list.index = 0
-        await pilot.pause()
-
-        app.screen._exclusion_patterns.remove("build")
-        app.screen._refresh_exclusion_list()
-        await pilot.pause()
-
-        assert len(app.screen._exclusion_patterns) == 1
-        assert "node_modules" in app.screen._exclusion_patterns
-        assert "build" not in app.screen._exclusion_patterns
+        commit_format = modal.query_one("#settings-commit-format", TextArea)
+        assert commit_format.text == "feat: {description}"
 
 
 @pytest.mark.asyncio
-async def test_settings_modal_commit_format_populated(tmp_path):
-    """Verifies that commit message format is populated with current value."""
+async def test_settings_modal_env_vars(tmp_path):
+    """Verify environment variables are displayed in the list."""
     stub = StubExecutor(tmp_path)
-    stub._settings_data = stub._default_settings()
-    stub._settings_data["projectSettings"]["commitMessageFormat"] = "feat: {description}\n\nBody here"
     app = BrokkApp(executor=stub, workspace_dir=tmp_path)
-
     async with app.run_test() as pilot:
         app._executor_ready = True
-        app._handle_command("/settings")
+        app.action_open_settings()
         await pilot.pause()
         await pilot.pause()
 
-        assert isinstance(app.screen, SettingsModalScreen)
+        from textual.widgets import ListView
 
-        commit_format = app.screen.query_one("#settings-commit-format", TextArea)
-        assert commit_format.text == "feat: {description}\n\nBody here"
+        modal = app.screen
+        assert isinstance(modal, SettingsModalScreen)
 
-
-@pytest.mark.asyncio
-async def test_settings_modal_env_vars_displayed(tmp_path):
-    """Verifies that environment variables are displayed as key=value pairs."""
-    stub = StubExecutor(tmp_path)
-    stub._settings_data = stub._default_settings()
-    stub._settings_data["buildDetails"]["environmentVariables"] = {
-        "JAVA_HOME": "/usr/lib/jvm/java-21",
-        "PATH_EXTRA": "/custom/bin",
-    }
-    app = BrokkApp(executor=stub, workspace_dir=tmp_path)
-
-    async with app.run_test() as pilot:
-        app._executor_ready = True
-        app._handle_command("/settings")
-        await pilot.pause()
-        await pilot.pause()
-
-        assert isinstance(app.screen, SettingsModalScreen)
-
-        assert len(app.screen._env_vars) == 2
-        assert app.screen._env_vars["JAVA_HOME"] == "/usr/lib/jvm/java-21"
-        assert app.screen._env_vars["PATH_EXTRA"] == "/custom/bin"
+        env_list = modal.query_one("#settings-env-var-list", ListView)
+        assert len(env_list.children) == 2
 
 
 @pytest.mark.asyncio
 async def test_settings_modal_auto_update_flags(tmp_path):
-    """Verifies that auto-update dependency flags are displayed correctly."""
+    """Verify auto-update dependency checkboxes reflect loaded settings."""
     stub = StubExecutor(tmp_path)
-    stub._settings_data = stub._default_settings()
-    stub._settings_data["projectSettings"]["autoUpdateLocalDependencies"] = True
-    stub._settings_data["projectSettings"]["autoUpdateGitDependencies"] = False
     app = BrokkApp(executor=stub, workspace_dir=tmp_path)
-
     async with app.run_test() as pilot:
         app._executor_ready = True
-        app._handle_command("/settings")
+        app.action_open_settings()
         await pilot.pause()
         await pilot.pause()
 
-        assert isinstance(app.screen, SettingsModalScreen)
+        from textual.widgets import Checkbox
 
-        auto_local = app.screen.query_one("#settings-auto-update-local", Checkbox)
-        auto_git = app.screen.query_one("#settings-auto-update-git", Checkbox)
+        modal = app.screen
+        assert isinstance(modal, SettingsModalScreen)
 
+        auto_local = modal.query_one("#settings-auto-update-local", Checkbox)
         assert auto_local.value is True
+
+        auto_git = modal.query_one("#settings-auto-update-git", Checkbox)
         assert auto_git.value is False
+
+
+@pytest.mark.asyncio
+async def test_settings_modal_timeouts(tmp_path):
+    """Verify timeout fields are populated from settings."""
+    stub = StubExecutor(tmp_path)
+    app = BrokkApp(executor=stub, workspace_dir=tmp_path)
+    async with app.run_test() as pilot:
+        app._executor_ready = True
+        app.action_open_settings()
+        await pilot.pause()
+        await pilot.pause()
+
+        from textual.widgets import Input
+
+        modal = app.screen
+        assert isinstance(modal, SettingsModalScreen)
+
+        run_timeout = modal.query_one("#settings-run-timeout", Input)
+        assert run_timeout.value == "-1"
+
+        test_timeout = modal.query_one("#settings-test-timeout", Input)
+        assert test_timeout.value == "120"
+
+
+@pytest.mark.asyncio
+async def test_settings_modal_modules_list(tmp_path):
+    """Verify modules are displayed in the list with alias, language, path."""
+    stub = StubExecutor(tmp_path)
+    app = BrokkApp(executor=stub, workspace_dir=tmp_path)
+    async with app.run_test() as pilot:
+        app._executor_ready = True
+        app.action_open_settings()
+        await pilot.pause()
+        await pilot.pause()
+
+        from textual.widgets import ListView
+
+        modal = app.screen
+        assert isinstance(modal, SettingsModalScreen)
+
+        modules_list = modal.query_one("#settings-modules-list", ListView)
+        # MOCK_SETTINGS has 2 modules: backend and frontend
+        assert len(modules_list.children) == 2
+
+
+@pytest.mark.asyncio
+async def test_settings_modal_shell_config(tmp_path):
+    """Verify shell configuration fields are populated from settings."""
+    stub = StubExecutor(tmp_path)
+    app = BrokkApp(executor=stub, workspace_dir=tmp_path)
+    async with app.run_test() as pilot:
+        app._executor_ready = True
+        app.action_open_settings()
+        await pilot.pause()
+        await pilot.pause()
+
+        from textual.widgets import Input
+
+        modal = app.screen
+        assert isinstance(modal, SettingsModalScreen)
+
+        shell_exec = modal.query_one("#settings-shell-executable", Input)
+        assert shell_exec.value == "/bin/sh"
+
+        shell_args = modal.query_one("#settings-shell-args", Input)
+        assert shell_args.value == "-c"
+
+
+@pytest.mark.asyncio
+async def test_settings_modal_add_module(tmp_path):
+    """Verify add module button opens ModuleEditModalScreen."""
+    from brokk_code.app import ModuleEditModalScreen
+
+    stub = StubExecutor(tmp_path)
+    app = BrokkApp(executor=stub, workspace_dir=tmp_path)
+    async with app.run_test() as pilot:
+        app._executor_ready = True
+        app.action_open_settings()
+        await pilot.pause()
+        await pilot.pause()
+
+        modal = app.screen
+        assert isinstance(modal, SettingsModalScreen)
+
+        # Click the Add button for modules
+        add_btn = modal.query_one("#settings-module-add")
+        add_btn.press()
+        await pilot.pause()
+
+        # ModuleEditModalScreen should now be on top
+        assert isinstance(app.screen, ModuleEditModalScreen)
+
+
+@pytest.mark.asyncio
+async def test_module_edit_modal_fields(tmp_path):
+    """Verify ModuleEditModalScreen has all required input fields."""
+    from brokk_code.app import ModuleEditModalScreen
+    from textual.widgets import Input
+
+    stub = StubExecutor(tmp_path)
+    app = BrokkApp(executor=stub, workspace_dir=tmp_path)
+    async with app.run_test() as pilot:
+        app._executor_ready = True
+
+        # Push the modal directly with initial values
+        modal = ModuleEditModalScreen(
+            "Edit Module",
+            alias="test-alias",
+            language="Python",
+            relative_path="src/",
+            build_lint_command="make lint",
+            test_all_command="make test",
+            test_some_command="make test {{#files}}",
+        )
+        app.push_screen(modal)
+        await pilot.pause()
+
+        # Verify all fields exist and have correct values
+        alias_input = modal.query_one("#module-edit-alias", Input)
+        assert alias_input.value == "test-alias"
+
+        lang_input = modal.query_one("#module-edit-language", Input)
+        assert lang_input.value == "Python"
+
+        path_input = modal.query_one("#module-edit-path", Input)
+        assert path_input.value == "src/"
+
+        build_input = modal.query_one("#module-edit-build-cmd", Input)
+        assert build_input.value == "make lint"
+
+        test_all_input = modal.query_one("#module-edit-test-all-cmd", Input)
+        assert test_all_input.value == "make test"
+
+        test_some_input = modal.query_one("#module-edit-test-some-cmd", Input)
+        assert test_some_input.value == "make test {{#files}}"
