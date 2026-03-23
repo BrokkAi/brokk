@@ -8,6 +8,7 @@ import ai.brokk.analyzer.Languages;
 import ai.brokk.testutil.ITestProject;
 import ai.brokk.testutil.InlineTestProjectCreator;
 import java.util.List;
+import java.util.Optional;
 import org.junit.jupiter.api.Test;
 
 public class RustMacroTest {
@@ -47,6 +48,18 @@ public class RustMacroTest {
             assertSyntheticFunction(children, "Status.is_Running");
             assertSyntheticFunction(children, "Status.is_Stopped");
             assertSyntheticFunction(children, "Status.is_Initial");
+
+            // Assert source code check for one of the synthetic units
+            CodeUnit isRunning = children.stream()
+                    .filter(cu -> cu.fqName().equals("Status.is_Running"))
+                    .findFirst()
+                    .orElseThrow();
+
+            Optional<String> source = analyzer.getSource(isRunning, false);
+            assertTrue(source.isPresent(), "Source should be present for synthetic function Status.is_Running");
+            String sourceText = source.get();
+            assertTrue(sourceText.contains("fn is_Running"), "Source should contain function signature");
+            assertTrue(sourceText.contains("matches!(self, Self::Running { .. })"), "Source should contain expansion logic");
         }
     }
 

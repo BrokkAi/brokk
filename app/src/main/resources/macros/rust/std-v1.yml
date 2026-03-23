@@ -69,6 +69,9 @@ macros:
   - name: "derive"
     strategy: "BYPASS"
     options: {}
+  - name: "matches"
+    strategy: "BYPASS"
+    options: {}
 
   # Common external derives
   - name: "Serialize"
