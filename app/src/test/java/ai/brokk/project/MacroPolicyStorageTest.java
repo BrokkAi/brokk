@@ -31,8 +31,8 @@ class MacroPolicyStorageTest {
                         "my_macro",
                         null,
                         MacroPolicy.MacroScope.LIBRARY,
-                        MacroPolicy.MacroStrategy.AI_EXPAND,
-                        new MacroPolicy.AIExpandConfig(null, null))));
+                        MacroPolicy.MacroStrategy.BYPASS,
+                        new MacroPolicy.BypassConfig())));
 
         project.setMacroPolicy(lang, policy);
 

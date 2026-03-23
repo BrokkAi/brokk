@@ -21,9 +21,9 @@ class MacroPolicyLoaderTest {
                     options: {}
                   - name: "vec"
                     scope: "LIBRARY"
-                    strategy: "AI_EXPAND"
+                    strategy: "TEMPLATE"
                     options:
-                      max_tokens: 500
+                      template: "pub fn vec_macro() {}"
                 """;
 
         MacroPolicy policy = MacroPolicyLoader.load(new ByteArrayInputStream(yaml.getBytes(StandardCharsets.UTF_8)));
@@ -42,10 +42,10 @@ class MacroPolicyLoaderTest {
         MacroPolicy.MacroMatch vec = policy.macros().get(1);
         assertEquals("vec", vec.name());
         assertNull(vec.parent());
-        assertEquals(MacroPolicy.MacroStrategy.AI_EXPAND, vec.strategy());
+        assertEquals(MacroPolicy.MacroStrategy.TEMPLATE, vec.strategy());
         assertEquals(MacroPolicy.MacroScope.LIBRARY, vec.scope());
         assertNotNull(vec.options());
-        assertInstanceOf(MacroPolicy.AIExpandConfig.class, vec.options());
-        assertEquals(500, ((MacroPolicy.AIExpandConfig) vec.options()).max_tokens());
+        assertInstanceOf(MacroPolicy.TemplateConfig.class, vec.options());
+        assertEquals("pub fn vec_macro() {}", ((MacroPolicy.TemplateConfig) vec.options()).template());
     }
 }
