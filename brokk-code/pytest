@@ -1,0 +1,8 @@
+#!/bin/sh
+set -eu
+# This shim ensures that calls to 'pytest' in the brokk-code directory 
+# are routed through 'uv run' as required by the project standards.
+if command -v uv >/dev/null 2>&1; then
+  exec uv run pytest "$@"
+fi
+exec python3 -m pytest "$@"

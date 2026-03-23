@@ -1514,13 +1514,13 @@ def main():
         messages: list[str] = []
         prefetch_commands: list[tuple[str, list[str]]] = []
         try:
-            _ensure_install_api_key()
             uv_binary = ensure_uv_ready()
             uvx_command = str(Path(uv_binary).parent / "uvx")
             jbang_binary = resolve_jbang_binary() if args.verbose else ensure_jbang_ready()
             if args.verbose and not jbang_binary:
                 jbang_binary = "jbang"
             if args.target == "zed":
+                _ensure_install_api_key()
                 settings_path = configure_zed_acp_settings(
                     force=args.force, uvx_command=uvx_command
                 )
@@ -1531,6 +1531,7 @@ def main():
                 )
                 messages = [f"Configured Zed ACP integration in {settings_path}"]
             elif args.target == "intellij":
+                _ensure_install_api_key()
                 settings_path = configure_intellij_acp_settings(
                     force=args.force, uvx_command=uvx_command
                 )
@@ -1542,6 +1543,7 @@ def main():
                 messages = [f"Configured IntelliJ ACP integration in {settings_path}"]
             elif args.target in {"nvim", "neovim"}:
                 selected_plugin = _resolve_neovim_plugin(plugin=args.plugin)
+                _ensure_install_api_key()
                 if selected_plugin == "codecompanion":
                     settings_path = configure_nvim_codecompanion_acp_settings(force=args.force)
                     patch_result = wire_nvim_plugin_setup(
@@ -1657,6 +1659,7 @@ def main():
                     executor_version=args.executor_version,
                 )
             elif args.target == "mcp":
+                _ensure_install_api_key()
                 claude_settings_path = configure_claude_code_mcp_settings(
                     force=args.force, uvx_command=uvx_command
                 )

@@ -13,6 +13,7 @@ import brokk_code.git_utils as git_utils_module
 
 
 def _stub_install_warmup(monkeypatch) -> None:
+    monkeypatch.setattr(main_module, "ensure_uv_ready", lambda: "/usr/local/bin/uv")
     monkeypatch.setattr(main_module, "ensure_jbang_ready", lambda: "/usr/local/bin/jbang")
     monkeypatch.setattr(main_module, "_run_install_prefetch", lambda _commands: None)
     monkeypatch.setattr(
@@ -587,6 +588,37 @@ def test_main_install_plugin_with_non_neovim_target_exits_nonzero(monkeypatch) -
 
     assert exc.value.code == 1
     assert not called["ensure_key"], "Should not check key for invalid args"
+
+
+def test_install_neovim_invalid_selection_skips_key_prompt(monkeypatch) -> None:
+    """Verify that if Neovim plugin selection fails, API key is not prompted."""
+    _stub_install_warmup(monkeypatch)
+
+    called = {"ensure_key": False}
+
+    def fake_ensure_key():
+        called["ensure_key"] = True
+
+    monkeypatch.setattr(main_module, "_ensure_install_api_key", fake_ensure_key)
+
+    class FakeTtyInput(StringIO):
+        def isatty(self) -> bool:
+            return True
+
+    # Use a custom stream to satisfy Rich's Console detection and selection
+    monkeypatch.setattr(sys, "stdin", FakeTtyInput(""))
+
+    # Patch rich.console.Console.input to return an invalid selection
+    from rich.console import Console
+    monkeypatch.setattr(Console, "input", lambda self, prompt="": "99")
+
+    monkeypatch.setattr(sys, "argv", ["brokk", "install", "neovim"])
+
+    with pytest.raises(SystemExit) as exc:
+        main_module.main()
+
+    assert exc.value.code == 1
+    assert not called["ensure_key"], "Should not prompt for API key if selection is invalid"
 
 
 def test_ensure_install_api_key_treats_whitespace_as_missing(monkeypatch) -> None:
