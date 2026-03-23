@@ -1071,7 +1071,8 @@ class AcpStdioBridge:
             raise
 
     async def cancel(self, *args: Any, **kwargs: Any) -> None:
-        pass
+        session_id = _extract_session_id_for_cancel(args, kwargs)
+        await self.executor.cancel(session_id)
 
 
 async def run_acp_server(

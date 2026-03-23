@@ -11,6 +11,7 @@ import ai.brokk.acpserver.agent.AcpAgent;
 import ai.brokk.acpserver.agent.AcpProtocolException;
 import ai.brokk.acpserver.agent.AcpSyncAgent;
 import ai.brokk.acpserver.agent.SyncPromptContext;
+import ai.brokk.acpserver.spec.AcpSchema.CancelRequest;
 import ai.brokk.acpserver.spec.AcpSchema.ContextAddFilesRequest;
 import ai.brokk.acpserver.spec.AcpSchema.ContextAddFilesResponse;
 import ai.brokk.acpserver.spec.AcpSchema.ContextDropRequest;
@@ -64,6 +65,7 @@ public class BrokkAcpServer {
     private ContextManager cm;
     private volatile boolean initializing;
     private volatile String initError;
+    private AcpSyncAgent agent;
 
     public static void main(String[] args) {
         System.setProperty("java.awt.headless", "true");
@@ -105,7 +107,7 @@ public class BrokkAcpServer {
      * Builds the ACP agent with all handlers configured.
      */
     public AcpSyncAgent buildAgent() {
-        return AcpAgent.sync(new StdioAcpAgentTransport())
+        agent = AcpAgent.sync(new StdioAcpAgentTransport())
                 .initializeHandler(this::handleInitialize)
                 .newSessionHandler(this::handleNewSession)
                 .promptHandler(this::handlePrompt)
@@ -114,7 +116,14 @@ public class BrokkAcpServer {
                 .contextAddFilesHandler(this::handleContextAddFiles)
                 .contextDropHandler(this::handleContextDrop)
                 .sessionsListHandler(this::handleSessionsList)
+                .cancelHandler(this::handleCancel)
                 .build();
+        return agent;
+    }
+
+    private void handleCancel(CancelRequest req) {
+        logger.info("Received cancel request for session {}", req.sessionId());
+        agent.interruptPrompt();
     }
 
     private void startProjectInitialization(Path projectPath) {

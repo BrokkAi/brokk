@@ -124,9 +124,23 @@ public class StdioAcpAgentTransport implements AcpTransport {
             return;
         }
 
+        // Run session/prompt on a worker thread so the main loop stays free for cancel
+        if ("session/prompt".equals(request.method())) {
+            var promptThread = new Thread(() -> dispatchRequest(request, handler), "BrokkACP-Prompt");
+            promptThread.setDaemon(true);
+            promptThread.start();
+            return;
+        }
+
+        dispatchRequest(request, handler);
+    }
+
+    private void dispatchRequest(JsonRpcMessage.Request request, MessageHandler handler) {
         try {
             Object result = handler.handle(request.method(), request.params(), request.id());
-            sendResponse(request.id(), result);
+            if (result != null) {
+                sendResponse(request.id(), result);
+            }
         } catch (AcpProtocolException e) {
             logger.warn("Protocol error handling request {}: {}", request.method(), e.getMessage());
             sendErrorResponse(request.id(), e.code(), e.getMessage());

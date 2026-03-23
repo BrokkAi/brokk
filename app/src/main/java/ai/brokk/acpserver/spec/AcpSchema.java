@@ -33,6 +33,8 @@ public final class AcpSchema {
 
     public record SessionsListRequest() {}
 
+    public record CancelRequest(@Nullable String sessionId) {}
+
     // ========== Responses ==========
 
     public record InitializeResponse(

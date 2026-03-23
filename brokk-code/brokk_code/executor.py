@@ -486,6 +486,19 @@ class AcpStdioExecutor:
 
         await prompt_task
 
+    async def cancel(self, session_id: Optional[str] = None) -> None:
+        """Sends a cancel notification to the ACP server."""
+        if self._process is None or self._process.stdin is None:
+            return
+        notification = {
+            "jsonrpc": "2.0",
+            "method": "session/cancel",
+            "params": {"sessionId": session_id},
+        }
+        line = json.dumps(notification) + "\n"
+        self._process.stdin.write(line.encode())
+        await self._process.stdin.drain()
+
     async def stop(self) -> None:
         """Stops the subprocess."""
         for task in (self._reader_task, self._stderr_task):

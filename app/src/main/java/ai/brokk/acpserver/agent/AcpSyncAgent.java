@@ -1,5 +1,6 @@
 package ai.brokk.acpserver.agent;
 
+import ai.brokk.acpserver.spec.AcpSchema.CancelRequest;
 import ai.brokk.acpserver.spec.AcpSchema.ContextAddFilesRequest;
 import ai.brokk.acpserver.spec.AcpSchema.ContextAddFilesResponse;
 import ai.brokk.acpserver.spec.AcpSchema.ContextDropRequest;
@@ -20,17 +21,22 @@ import ai.brokk.acpserver.transport.AcpTransport;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.function.BiFunction;
+import java.util.function.Consumer;
 import java.util.function.Function;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * Synchronous ACP agent implementation.
+ * Synchronous ACP agent implementation with async prompt support.
  * <p>
  * Handles incoming JSON-RPC requests by dispatching to registered handlers.
- * The agent blocks on {@link #run()} until the transport closes.
+ * The {@code session/prompt} handler runs on a separate thread so the main
+ * transport loop remains free to process {@code session/cancel} requests.
  */
 public class AcpSyncAgent {
 
+    private static final Logger logger = LogManager.getLogger(AcpSyncAgent.class);
     private final ObjectMapper mapper = new ObjectMapper();
     private final AcpTransport transport;
     private final Function<InitializeRequest, InitializeResponse> initializeHandler;
@@ -41,6 +47,9 @@ public class AcpSyncAgent {
     private final Function<ContextAddFilesRequest, ContextAddFilesResponse> contextAddFilesHandler;
     private final Function<ContextDropRequest, ContextDropResponse> contextDropHandler;
     private final Function<SessionsListRequest, SessionsListResponse> sessionsListHandler;
+    private final Consumer<CancelRequest> cancelHandler;
+
+    private volatile @Nullable Thread promptThread;
 
     AcpSyncAgent(
             AcpTransport transport,
@@ -51,7 +60,8 @@ public class AcpSyncAgent {
             Function<ContextGetRequest, ContextGetResponse> contextGetHandler,
             Function<ContextAddFilesRequest, ContextAddFilesResponse> contextAddFilesHandler,
             Function<ContextDropRequest, ContextDropResponse> contextDropHandler,
-            Function<SessionsListRequest, SessionsListResponse> sessionsListHandler) {
+            Function<SessionsListRequest, SessionsListResponse> sessionsListHandler,
+            Consumer<CancelRequest> cancelHandler) {
         this.transport = transport;
         this.initializeHandler = initializeHandler;
         this.newSessionHandler = newSessionHandler;
@@ -61,6 +71,7 @@ public class AcpSyncAgent {
         this.contextAddFilesHandler = contextAddFilesHandler;
         this.contextDropHandler = contextDropHandler;
         this.sessionsListHandler = sessionsListHandler;
+        this.cancelHandler = cancelHandler;
     }
 
     /**
@@ -102,7 +113,18 @@ public class AcpSyncAgent {
                 }
                 var req = parseAs(params, PromptRequest.class);
                 var ctx = new SyncPromptContext(req.sessionId(), transport);
-                yield promptHandler.apply(req, ctx);
+                // Run prompt synchronously — the transport handles threading if needed
+                try {
+                    promptThread = Thread.currentThread();
+                    yield promptHandler.apply(req, ctx);
+                } finally {
+                    promptThread = null;
+                }
+            }
+            case "session/cancel" -> {
+                var req = params != null ? parseAs(params, CancelRequest.class) : new CancelRequest(null);
+                cancelHandler.accept(req);
+                yield null;
             }
             case "models/list" -> {
                 var req = params != null ? parseAs(params, ModelsListRequest.class) : new ModelsListRequest();
@@ -134,6 +156,17 @@ public class AcpSyncAgent {
             }
             default -> throw new AcpProtocolException("Method not found: " + method);
         };
+    }
+
+    /**
+     * Interrupts the thread currently executing a prompt, if any.
+     */
+    public void interruptPrompt() {
+        var thread = promptThread;
+        if (thread != null) {
+            logger.info("Interrupting prompt thread");
+            thread.interrupt();
+        }
     }
 
     private <T> T parseAs(JsonNode params, Class<T> type) {
