@@ -134,10 +134,6 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
                 RouterUtil.sendValidationError(exchange, "Invalid Session-Id format: must be a valid UUID");
                 return;
             }
-            if (!hasKnownSession(sessionIdHeader)) {
-                RouterUtil.sendValidationError(exchange, "Unknown Session-Id: " + sessionIdHeader);
-                return;
-            }
         }
         var githubToken = exchange.getRequestHeaders().getFirst("X-Github-Token");
 
@@ -183,6 +179,12 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
                 skipVerificationFlag,
                 JobSpec.DEFAULT_MAX_ISSUE_FIX_ATTEMPTS);
 
+        if (awaitHeadlessInitOrRespond(exchange, null)) return;
+        if (sessionIdHeader != null && !hasKnownSession(sessionIdHeader)) {
+            RouterUtil.sendValidationError(exchange, "Unknown Session-Id: " + sessionIdHeader);
+            return;
+        }
+
         var createResult = jobStore.createOrGetJob(idempotencyKey, jobSpec);
         var jobId = createResult.jobId();
         var isNewJob = createResult.isNewJob();
@@ -201,7 +203,6 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
                 return;
             }
             try {
-                if (awaitHeadlessInitOrRespond(exchange, jobId)) return;
                 var responseSessionId = ensureActiveSessionForSubmission(sessionIdHeader);
                 jobStore.persistSessionId(jobId, responseSessionId);
                 response.put("sessionId", responseSessionId.toString());
@@ -236,7 +237,7 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
             }
         } else {
             try {
-                var responseSessionId = resolveReplaySessionId(jobId, sessionIdHeader, true);
+                var responseSessionId = resolveReplaySessionId(jobId, sessionIdHeader);
                 response.put("sessionId", responseSessionId.toString());
                 SimpleHttpServer.sendJsonResponse(exchange, 200, response);
             } catch (Exception e) {
@@ -322,7 +323,7 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
             }
         } else {
             try {
-                var responseSessionId = resolveReplaySessionId(jobId, null, true);
+                var responseSessionId = resolveReplaySessionId(jobId, null);
                 SimpleHttpServer.sendJsonResponse(
                         exchange,
                         200,
@@ -396,7 +397,7 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
             }
         } else {
             try {
-                var responseSessionId = resolveReplaySessionId(jobId, null, true);
+                var responseSessionId = resolveReplaySessionId(jobId, null);
                 SimpleHttpServer.sendJsonResponse(
                         exchange,
                         200,
@@ -482,12 +483,14 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
         }
     }
 
-    private boolean awaitHeadlessInitOrRespond(HttpExchange exchange, String jobId) throws IOException {
+    private boolean awaitHeadlessInitOrRespond(HttpExchange exchange, @Nullable String jobId) throws IOException {
         try {
             headlessInit.get(30, TimeUnit.SECONDS);
             return false;
         } catch (TimeoutException | InterruptedException | ExecutionException e) {
-            jobReservation.releaseIfOwner(jobId);
+            if (jobId != null) {
+                jobReservation.releaseIfOwner(jobId);
+            }
             if (e instanceof InterruptedException) Thread.currentThread().interrupt();
             int code = (e instanceof ExecutionException) ? 500 : 503;
             var payload = (e instanceof ExecutionException)
@@ -568,13 +571,12 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
         }
     }
 
-    private UUID resolveReplaySessionId(String jobId, @Nullable UUID requestedSessionId, boolean ensureAvailable)
-            throws Exception {
+    private UUID resolveReplaySessionId(String jobId, @Nullable UUID requestedSessionId) throws Exception {
         var persisted = loadPersistedJobSessionId(jobId);
         if (persisted != null) {
             return persisted;
         }
-        return resolveResponseSessionId(requestedSessionId, ensureAvailable);
+        return resolveResponseSessionId(requestedSessionId, false);
     }
 
     private void maybeAutoRenameSession(UUID sessionId, String taskInput) {

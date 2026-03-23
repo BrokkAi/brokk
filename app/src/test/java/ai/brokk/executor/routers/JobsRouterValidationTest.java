@@ -9,6 +9,7 @@ import ai.brokk.ContextManager;
 import ai.brokk.executor.JobReservation;
 import ai.brokk.executor.jobs.ErrorPayload;
 import ai.brokk.executor.jobs.JobRunner;
+import ai.brokk.executor.jobs.JobSpec;
 import ai.brokk.executor.jobs.JobStore;
 import ai.brokk.project.MainProject;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -47,7 +48,9 @@ class JobsRouterValidationTest {
     private List<String> fsSnapshotBefore;
 
     private ContextManager contextManager;
+    private JobStore jobStore;
     private JobRunner jobRunner;
+    private JobReservation jobReservation;
 
     @BeforeEach
     void setUp(@TempDir Path tempDir) throws Exception {
@@ -57,10 +60,10 @@ class JobsRouterValidationTest {
 
         jobStoreDir = tempDir.resolve("job-store");
         Files.createDirectories(jobStoreDir);
-        var jobStore = new JobStore(jobStoreDir);
+        jobStore = new JobStore(jobStoreDir);
 
         jobRunner = new JobRunner(contextManager, jobStore);
-        var jobReservation = new JobReservation();
+        jobReservation = new JobReservation();
         // Ensure the reservation is clear
         String currentJob = jobReservation.current();
         if (currentJob != null) {
@@ -194,6 +197,27 @@ class JobsRouterValidationTest {
         var payload = MAPPER.readValue(exchange.responseBodyBytes(), ErrorPayload.class);
         assertEquals(ErrorPayload.Code.VALIDATION_ERROR, payload.code());
         assertTrue(payload.message().contains("Unknown Session-Id"), payload.message());
+        assertEquals(fsSnapshotBefore, snapshotTree(jobStoreDir), "JobStore dir changed for invalid session header");
+    }
+
+    @Test
+    void postJobs_withSessionHeader_waitsForHeadlessInit_beforeUnknownSessionValidation() throws Exception {
+        var failingInit = new CompletableFuture<Void>();
+        failingInit.completeExceptionally(new IllegalStateException("init failed"));
+        var routerWithFailingInit = new JobsRouter(contextManager, jobStore, jobRunner, jobReservation, failingInit);
+
+        Map<String, Object> body = Map.of("taskInput", "unknown session test", "plannerModel", "gpt-4");
+        var exchange = TestHttpExchange.jsonRequest("POST", "/v1/jobs", body);
+        exchange.getRequestHeaders().set("Idempotency-Key", UUID.randomUUID().toString());
+        exchange.getRequestHeaders().set("X-Session-Id", UUID.randomUUID().toString());
+
+        routerWithFailingInit.handle(exchange);
+
+        assertEquals(500, exchange.responseCode());
+        var payload = MAPPER.readValue(exchange.responseBodyBytes(), ErrorPayload.class);
+        assertEquals(ErrorPayload.Code.INTERNAL_ERROR, payload.code());
+        assertTrue(payload.message().contains("Executor initialization failed"), payload.message());
+        assertTrue(!payload.message().contains("Unknown Session-Id"), payload.message());
     }
 
     @Test
@@ -247,6 +271,56 @@ class JobsRouterValidationTest {
         Object sessionIdObj = secondPayload.get("sessionId");
         assertNotNull(sessionIdObj);
         assertEquals(firstSessionId, String.valueOf(sessionIdObj));
+    }
+
+    @Test
+    void postJobs_legacyReplay_doesNotCreateOrSwitchSession_whenCurrentSessionIsInvalid() throws Exception {
+        String idemKey = UUID.randomUUID().toString();
+        Map<String, Object> body = Map.of("taskInput", "legacy replay", "plannerModel", "gpt-4");
+
+        var legacySpec = new JobSpec(
+                "legacy replay",
+                false,
+                false,
+                "gpt-4",
+                null,
+                null,
+                false,
+                Map.of(),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                false,
+                JobSpec.DEFAULT_MAX_ISSUE_FIX_ATTEMPTS);
+        var created = jobStore.createOrGetJob(idemKey, legacySpec);
+        assertTrue(created.isNewJob());
+
+        var sm = jobsRouter.contextManager.getProject().getSessionManager();
+        if (sm.listSessions().isEmpty()) {
+            sm.newSession("Replay Session");
+        }
+        var staleCurrentSessionId = contextManager.getCurrentSessionId();
+
+        for (var session : List.copyOf(sm.listSessions())) {
+            sm.deleteSession(session.id());
+        }
+        assertTrue(sm.listSessions().isEmpty());
+        assertEquals(staleCurrentSessionId, contextManager.getCurrentSessionId());
+
+        var replay = TestHttpExchange.jsonRequest("POST", "/v1/jobs", body);
+        replay.getRequestHeaders().set("Idempotency-Key", idemKey);
+
+        jobsRouter.handle(replay);
+
+        assertEquals(200, replay.responseCode());
+        @SuppressWarnings("unchecked")
+        Map<String, Object> replayPayload = MAPPER.readValue(replay.responseBodyBytes(), Map.class);
+        assertEquals(staleCurrentSessionId.toString(), String.valueOf(replayPayload.get("sessionId")));
+        assertTrue(sm.listSessions().isEmpty(), "Replay should not auto-create sessions");
+        assertEquals(staleCurrentSessionId, contextManager.getCurrentSessionId(), "Replay should not switch sessions");
     }
 
     @Test
