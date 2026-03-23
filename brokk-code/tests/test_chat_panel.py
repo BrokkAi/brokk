@@ -2454,34 +2454,40 @@ async def test_command_start_result_lifecycle_integration():
         assert chat.get_commands_running() == 0
 
         # Simulate COMMAND_START
-        app._handle_event({
-            "type": "COMMAND_START",
-            "data": {"stage": "Verification", "command": "make test"},
-        })
+        app._handle_event(
+            {
+                "type": "COMMAND_START",
+                "data": {"stage": "Verification", "command": "make test"},
+            }
+        )
         await pilot.pause()
 
         assert chat.get_commands_running() == 1
         assert status._commands_running == 1
 
         # Second command starts
-        app._handle_event({
-            "type": "COMMAND_START",
-            "data": {"stage": "Post-Task", "command": "make lint"},
-        })
+        app._handle_event(
+            {
+                "type": "COMMAND_START",
+                "data": {"stage": "Post-Task", "command": "make lint"},
+            }
+        )
         await pilot.pause()
 
         assert chat.get_commands_running() == 2
 
         # First command finishes
-        app._handle_event({
-            "type": "COMMAND_RESULT",
-            "data": {
-                "stage": "Verification",
-                "command": "make test",
-                "success": True,
-                "output": "All 42 tests passed",
-            },
-        })
+        app._handle_event(
+            {
+                "type": "COMMAND_RESULT",
+                "data": {
+                    "stage": "Verification",
+                    "command": "make test",
+                    "success": True,
+                    "output": "All 42 tests passed",
+                },
+            }
+        )
         await pilot.pause()
 
         assert chat.get_commands_running() == 1
@@ -2491,16 +2497,18 @@ async def test_command_start_result_lifecycle_integration():
         assert history[0]["success"] is True
 
         # Second command fails
-        app._handle_event({
-            "type": "COMMAND_RESULT",
-            "data": {
-                "stage": "Post-Task",
-                "command": "make lint",
-                "success": False,
-                "output": "lint errors found",
-                "exception": "Process exited with code 1",
-            },
-        })
+        app._handle_event(
+            {
+                "type": "COMMAND_RESULT",
+                "data": {
+                    "stage": "Post-Task",
+                    "command": "make lint",
+                    "success": False,
+                    "output": "lint errors found",
+                    "exception": "Process exited with code 1",
+                },
+            }
+        )
         await pilot.pause()
 
         assert chat.get_commands_running() == 0
