@@ -3,6 +3,8 @@ package ai.brokk.executor.routers;
 import ai.brokk.ContextManager;
 import ai.brokk.IssueProvider;
 import ai.brokk.agents.BuildAgent.BuildDetails;
+import ai.brokk.analyzer.Language;
+import ai.brokk.analyzer.Languages;
 import ai.brokk.agents.BuildAgent.ModuleBuildEntry;
 import ai.brokk.executor.http.SimpleHttpServer;
 import ai.brokk.executor.jobs.ErrorPayload;
@@ -103,6 +105,15 @@ public final class SettingsRouter implements SimpleHttpServer.CheckedHttpHandler
             return;
         }
 
+        if (normalizedPath.equals("/v1/settings/languages")) {
+            if ("POST".equals(method)) {
+                handlePostLanguages(exchange);
+            } else {
+                RouterUtil.sendMethodNotAllowed(exchange);
+            }
+            return;
+        }
+
         SimpleHttpServer.sendJsonResponse(exchange, 404, ErrorPayload.of(ErrorPayload.Code.NOT_FOUND, "Not found"));
     }
 
@@ -128,6 +139,9 @@ public final class SettingsRouter implements SimpleHttpServer.CheckedHttpHandler
 
             // Data retention policy
             response.put("dataRetentionPolicy", project.getDataRetentionPolicy().name());
+
+            // Analyzer languages
+            response.put("analyzerLanguages", buildAnalyzerLanguagesMap(project));
 
             SimpleHttpServer.sendJsonResponse(exchange, response);
         } catch (Exception e) {
@@ -181,6 +195,38 @@ public final class SettingsRouter implements SimpleHttpServer.CheckedHttpHandler
         var map = new LinkedHashMap<String, Object>();
         map.put("executable", config.executable());
         map.put("args", new ArrayList<>(config.args()));
+        return map;
+    }
+
+    private Map<String, Object> buildAnalyzerLanguagesMap(IProject project) {
+        var map = new LinkedHashMap<String, Object>();
+
+        // Configured languages (user-selected)
+        var configured = project.getAnalyzerLanguages().stream()
+                .filter(lang -> lang != Languages.NONE)
+                .map(Language::internalName)
+                .toList();
+        map.put("configured", configured);
+
+        // Detected languages (from project files)
+        var detected = Languages.findLanguagesInProject(project).stream()
+                .filter(lang -> lang != Languages.NONE)
+                .map(Language::internalName)
+                .toList();
+        map.put("detected", detected);
+
+        // Available languages (all supported, excluding NONE)
+        var available = Languages.ALL_LANGUAGES.stream()
+                .filter(lang -> lang != Languages.NONE)
+                .map(lang -> {
+                    var langMap = new LinkedHashMap<String, String>();
+                    langMap.put("name", lang.name());
+                    langMap.put("internalName", lang.internalName());
+                    return langMap;
+                })
+                .toList();
+        map.put("available", available);
+
         return map;
     }
 
@@ -491,4 +537,41 @@ public final class SettingsRouter implements SimpleHttpServer.CheckedHttpHandler
     private record UpdateShellRequest(@Nullable String executable, @Nullable List<String> args) {}
 
     private record UpdateDataRetentionRequest(@Nullable String policy) {}
+
+    private record UpdateLanguagesRequest(@Nullable List<String> languages) {}
+
+    private void handlePostLanguages(HttpExchange exchange) throws IOException {
+        var request = RouterUtil.parseJsonOr400(exchange, UpdateLanguagesRequest.class, "/v1/settings/languages");
+        if (request == null) return;
+
+        if (request.languages() == null) {
+            RouterUtil.sendValidationError(exchange, "languages is required");
+            return;
+        }
+
+        try {
+            var project = contextManager.getProject();
+            var convertedSet = new LinkedHashSet<Language>();
+
+            for (var name : request.languages()) {
+                try {
+                    var lang = Languages.valueOf(name);
+                    if (lang != Languages.NONE) {
+                        convertedSet.add(lang);
+                    }
+                } catch (IllegalArgumentException e) {
+                    RouterUtil.sendValidationError(exchange, "Invalid language: " + name);
+                    return;
+                }
+            }
+
+            project.setAnalyzerLanguages(convertedSet);
+
+            SimpleHttpServer.sendJsonResponse(exchange, Map.of("status", "updated"));
+        } catch (Exception e) {
+            logger.error("Error handling POST /v1/settings/languages", e);
+            SimpleHttpServer.sendJsonResponse(
+                    exchange, 500, ErrorPayload.internalError("Failed to update languages", e));
+        }
+    }
 }

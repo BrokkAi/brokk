@@ -312,4 +312,61 @@ class SettingsRouterTest {
 
         assertEquals(405, exchange.responseCode());
     }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void handleGetSettings_includesAnalyzerLanguages() throws Exception {
+        var exchange = TestHttpExchange.request("GET", "/v1/settings");
+        settingsRouter.handle(exchange);
+
+        assertEquals(200, exchange.responseCode());
+        Map<String, Object> body = MAPPER.readValue(exchange.responseBodyBytes(), new TypeReference<>() {});
+
+        assertTrue(body.containsKey("analyzerLanguages"), "Should contain analyzerLanguages");
+
+        var analyzerLanguages = (Map<String, Object>) body.get("analyzerLanguages");
+        assertTrue(analyzerLanguages.containsKey("configured"), "Should contain configured");
+        assertTrue(analyzerLanguages.containsKey("detected"), "Should contain detected");
+        assertTrue(analyzerLanguages.containsKey("available"), "Should contain available");
+
+        var available = (List<Map<String, String>>) analyzerLanguages.get("available");
+        assertNotNull(available);
+        assertTrue(available.size() > 0, "available should not be empty");
+
+        var firstLang = available.get(0);
+        assertTrue(firstLang.containsKey("name"), "Each available language should have name");
+        assertTrue(firstLang.containsKey("internalName"), "Each available language should have internalName");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void handlePostLanguages_updatesConfiguredLanguages() throws Exception {
+        var body = Map.of("languages", List.of("JAVA", "PYTHON"));
+
+        var exchange = TestHttpExchange.jsonRequest("POST", "/v1/settings/languages", body);
+        settingsRouter.handle(exchange);
+
+        assertEquals(200, exchange.responseCode());
+
+        // Verify via GET
+        var getExchange = TestHttpExchange.request("GET", "/v1/settings");
+        settingsRouter.handle(getExchange);
+
+        Map<String, Object> response = MAPPER.readValue(getExchange.responseBodyBytes(), new TypeReference<>() {});
+        var analyzerLanguages = (Map<String, Object>) response.get("analyzerLanguages");
+        var configured = (List<String>) analyzerLanguages.get("configured");
+
+        assertTrue(configured.contains("JAVA"), "configured should contain JAVA");
+        assertTrue(configured.contains("PYTHON"), "configured should contain PYTHON");
+    }
+
+    @Test
+    void handlePostLanguages_invalidLanguage_returns400() throws Exception {
+        var body = Map.of("languages", List.of("INVALID"));
+
+        var exchange = TestHttpExchange.jsonRequest("POST", "/v1/settings/languages", body);
+        settingsRouter.handle(exchange);
+
+        assertEquals(400, exchange.responseCode());
+    }
 }

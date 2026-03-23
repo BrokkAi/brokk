@@ -588,6 +588,7 @@ public class SettingsDialog extends BaseThemedDialog implements ThemeAware {
             String commitFormat = null;
 
             if (project != null) {
+                project.reloadBuildDetailsFromDisk();
                 var future = project.getBuildDetailsFuture();
                 if (future.isDone() && !future.isCancelled()) {
                     buildDetails = future.getNow(BuildAgent.BuildDetails.EMPTY);
