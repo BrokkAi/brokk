@@ -34,6 +34,10 @@ public record MacroPolicy(String version, String language, List<MacroMatch> macr
         public MacroMatch(String name, @Nullable String parent) {
             this(name, parent, MacroScope.LIBRARY, MacroStrategy.BYPASS, new BypassConfig());
         }
+
+        public MacroMatch(String name, @Nullable String parent, MacroStrategy strategy, MacroConfig options) {
+            this(name, parent, MacroScope.LIBRARY, strategy, options);
+        }
     }
 
     public enum MacroScope {

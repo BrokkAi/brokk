@@ -23,6 +23,7 @@ public class MacroPipelineTest {
 
     @Test
     void testLoadIsMacroPolicyAndExpand() throws IOException {
+        // The Is macro in is_macro.yml has parent: "is_macro"
         MacroPolicy policy = MacroPolicyLoader.loadFromResource("/macros/rust/is_macro.yml");
         assertNotNull(policy);
         assertEquals("rust", policy.language());
@@ -40,6 +41,8 @@ public class MacroPipelineTest {
         // Create a parent CodeUnit (Enum) with child variants.
         // We use null for ProjectFile as it's not needed for template expansion.
         CodeUnit parent = CodeUnit.cls(null, "state", "Status");
+
+        // The Is macro has parent: "is_macro"
 
         CodeUnit variant1 = CodeUnit.field(null, "state", "Status.Running");
         CodeUnit variant2 = CodeUnit.field(null, "state", "Status.Stopped");

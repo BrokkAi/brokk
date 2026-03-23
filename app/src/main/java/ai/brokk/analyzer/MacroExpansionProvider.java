@@ -32,7 +32,7 @@ public interface MacroExpansionProvider extends CapabilityProvider {
             TSNode rootNode,
             ProjectFile file,
             SourceContent sourceContent,
-            TreeSitterAnalyzer.FileAnalysisAccumulator acc) {
+            FileAnalysisAccumulator acc) {
 
         Language lang = analyzer.languages().iterator().next();
         MacroPolicy policy = analyzer.getProject().getMacroPolicies().get(lang);
@@ -97,7 +97,7 @@ public interface MacroExpansionProvider extends CapabilityProvider {
     }
 
     private boolean isParentRequirementMet(
-            String macroName, MacroPolicy.MacroMatch mm, TreeSitterAnalyzer.FileAnalysisAccumulator acc) {
+            String macroName, MacroPolicy.MacroMatch mm, FileAnalysisAccumulator acc) {
         String parent = mm.parent();
         if (parent == null) {
             return true;
@@ -125,7 +125,7 @@ public interface MacroExpansionProvider extends CapabilityProvider {
             ProjectFile file,
             TSNode node,
             String template,
-            TreeSitterAnalyzer.FileAnalysisAccumulator acc) {
+            FileAnalysisAccumulator acc) {
 
         CodeUnit parentCu = findTargetCodeUnit(node, acc);
         if (parentCu == null) {
@@ -140,7 +140,7 @@ public interface MacroExpansionProvider extends CapabilityProvider {
         Map<String, Object> context = Map.of("code_unit", parentCu, "children", acc.getChildren(parentCu));
         String expanded = MacroTemplateExpander.expand(template, context);
 
-        TreeSitterAnalyzer.FileAnalysisAccumulator snippetAcc = new TreeSitterAnalyzer.FileAnalysisAccumulator();
+        FileAnalysisAccumulator snippetAcc = new FileAnalysisAccumulator();
         analyzer.analyzeSnippet(expanded, file, snippetAcc);
 
         mergeSyntheticUnits(parentCu, snippetAcc, acc, node);
@@ -148,8 +148,8 @@ public interface MacroExpansionProvider extends CapabilityProvider {
 
     private void mergeSyntheticUnits(
             CodeUnit parentCu,
-            TreeSitterAnalyzer.FileAnalysisAccumulator snippetAcc,
-            TreeSitterAnalyzer.FileAnalysisAccumulator acc,
+            FileAnalysisAccumulator snippetAcc,
+            FileAnalysisAccumulator acc,
             TSNode node) {
 
         List<CodeUnit> snippetUnits =
@@ -216,7 +216,7 @@ public interface MacroExpansionProvider extends CapabilityProvider {
         }
     }
 
-    private @Nullable CodeUnit findTargetCodeUnit(TSNode node, TreeSitterAnalyzer.FileAnalysisAccumulator acc) {
+    private @Nullable CodeUnit findTargetCodeUnit(TSNode node, FileAnalysisAccumulator acc) {
         // For attribute macros like #[derive(Is)], the node is the identifier inside the attribute.
         // We need to find the declaration that this attribute decorates.
         TSNode attributeItem = node;

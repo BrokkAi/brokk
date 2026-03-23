@@ -16,7 +16,7 @@ public class RustMacroTest {
     void testRustIsMacroExpansion() {
         String rustSource =
                 """
-                use is_macro::*;
+                use is_macro::Is;
                 #[derive(Is)]
                 pub enum Status {
                     Running,

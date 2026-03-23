@@ -349,201 +349,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             String asyncKeywordNodeType,
             Set<String> modifierNodeTypes) {}
 
-    /**
-     * Mutable accumulator for per-file analysis state.
-     */
-    public static class FileAnalysisAccumulator {
-        private final List<CodeUnit> topLevelCUs = new ArrayList<>();
-        private final Map<String, CodeUnit> cuByFqName = new HashMap<>();
-        private final Map<CodeUnit, List<CodeUnit>> childrenByParent = new HashMap<>();
-        private final Map<CodeUnit, List<String>> signaturesByCu = new HashMap<>();
-        private final Map<CodeUnit, List<Range>> rangesByCu = new HashMap<>();
-        private final Map<CodeUnit, Boolean> hasBodyByCu = new HashMap<>();
-        private final Map<CodeUnit, Boolean> isTypeAliasByCu = new HashMap<>();
-        private final Map<String, List<CodeUnit>> lookupKeys = new HashMap<>();
-
-        private Set<CodeUnit> getAllCus() {
-            Set<CodeUnit> all = new HashSet<>();
-            all.addAll(topLevelCUs);
-            all.addAll(cuByFqName.values());
-            all.addAll(childrenByParent.keySet());
-            childrenByParent.values().forEach(all::addAll);
-            all.addAll(signaturesByCu.keySet());
-            all.addAll(rangesByCu.keySet());
-            all.addAll(hasBodyByCu.keySet());
-            all.addAll(isTypeAliasByCu.keySet());
-            lookupKeys.values().forEach(all::addAll);
-            return all;
-        }
-
-        public FileAnalysisAccumulator addTopLevel(CodeUnit cu) {
-            topLevelCUs.add(cu);
-            return this;
-        }
-
-        public FileAnalysisAccumulator registerCodeUnit(CodeUnit cu) {
-            cuByFqName.put(cu.fqName(), cu);
-            return this;
-        }
-
-        public @Nullable CodeUnit getByFqName(String fqName) {
-            return cuByFqName.get(fqName);
-        }
-
-        public FileAnalysisAccumulator addChild(CodeUnit parent, CodeUnit child) {
-            childrenByParent.computeIfAbsent(parent, k -> new ArrayList<>()).add(child);
-            return this;
-        }
-
-        public FileAnalysisAccumulator addSignature(CodeUnit cu, String signature) {
-            signaturesByCu.computeIfAbsent(cu, k -> new ArrayList<>()).add(signature);
-            return this;
-        }
-
-        public FileAnalysisAccumulator addRange(CodeUnit cu, Range range) {
-            rangesByCu.computeIfAbsent(cu, k -> new ArrayList<>()).add(range);
-            return this;
-        }
-
-        public FileAnalysisAccumulator setHasBody(CodeUnit cu, boolean hasBody) {
-            hasBodyByCu.put(cu, hasBody);
-            return this;
-        }
-
-        public boolean getHasBody(CodeUnit cu, boolean defaultValue) {
-            return hasBodyByCu.getOrDefault(cu, defaultValue);
-        }
-
-        public void setIsTypeAlias(CodeUnit cu, boolean isTypeAlias) {
-            isTypeAliasByCu.put(cu, isTypeAlias);
-        }
-
-        public List<CodeUnit> topLevelCUs() {
-            return topLevelCUs;
-        }
-
-        public Map<String, CodeUnit> cuByFqName() {
-            return cuByFqName;
-        }
-
-        public List<CodeUnit> getChildren(CodeUnit parent) {
-            return childrenByParent.getOrDefault(parent, List.of());
-        }
-
-        public List<String> getSignatures(CodeUnit cu) {
-            return signaturesByCu.getOrDefault(cu, List.of());
-        }
-
-        public List<Range> getRanges(CodeUnit cu) {
-            return rangesByCu.getOrDefault(cu, List.of());
-        }
-
-        public void addLookupKey(String key, CodeUnit cu) {
-            lookupKeys.computeIfAbsent(key, k -> new ArrayList<>()).add(cu);
-        }
-
-        public FileAnalysisAccumulator addSymbolIndex(String key, CodeUnit cu) {
-            addLookupKey(key, cu);
-            return this;
-        }
-
-        public List<String> getLookupKeys(CodeUnit cu) {
-            List<String> keys = new ArrayList<>();
-            lookupKeys.forEach((k, v) -> {
-                if (v.contains(cu)) keys.add(k);
-            });
-            return keys;
-        }
-
-        public @Nullable CodeUnit findTopLevelDuplicate(CodeUnit cu) {
-            return topLevelCUs.stream().filter(t -> t.equals(cu)).findFirst().orElse(null);
-        }
-
-        public @Nullable CodeUnit findTopLevelCrossKindDuplicate(CodeUnit cu) {
-            return topLevelCUs.stream()
-                    .filter(t -> t.fqName().equals(cu.fqName()))
-                    .findFirst()
-                    .orElse(null);
-        }
-
-        public void replaceTopLevelCodeUnit(CodeUnit oldCu, CodeUnit newCu) {
-            removeRecursive(oldCu);
-            registerCodeUnit(newCu);
-            addTopLevel(newCu);
-        }
-
-        public @Nullable CodeUnit findChildDuplicate(CodeUnit parent, CodeUnit cu) {
-            return getChildren(parent).stream()
-                    .filter(t -> t.equals(cu))
-                    .findFirst()
-                    .orElse(null);
-        }
-
-        public @Nullable CodeUnit findChildCrossKindDuplicate(CodeUnit parent, CodeUnit cu) {
-            return getChildren(parent).stream()
-                    .filter(t -> t.fqName().equals(cu.fqName()))
-                    .findFirst()
-                    .orElse(null);
-        }
-
-        public void replaceChildCodeUnit(CodeUnit parent, CodeUnit oldCu, CodeUnit newCu) {
-            removeRecursive(oldCu);
-            registerCodeUnit(newCu);
-            addChild(parent, newCu);
-        }
-
-        public void detachChildren(CodeUnit cu) {
-            childrenByParent.remove(cu);
-        }
-
-        public void remove(CodeUnit cu) {
-            topLevelCUs.remove(cu);
-            cuByFqName.values().removeIf(v -> v.equals(cu));
-            childrenByParent.remove(cu);
-            childrenByParent.values().forEach(list -> list.removeIf(v -> v.equals(cu)));
-            signaturesByCu.remove(cu);
-            rangesByCu.remove(cu);
-            hasBodyByCu.remove(cu);
-            isTypeAliasByCu.remove(cu);
-            lookupKeys.values().forEach(list -> list.removeIf(v -> v.equals(cu)));
-        }
-
-        public void removeRecursive(CodeUnit cu) {
-            List<CodeUnit> children = childrenByParent.get(cu);
-            if (children != null) {
-                for (CodeUnit child : new ArrayList<>(children)) {
-                    removeRecursive(child);
-                }
-            }
-            remove(cu);
-        }
-
-        public Map<CodeUnit, CodeUnitProperties> toCodeUnitProperties() {
-            Map<CodeUnit, CodeUnitProperties> result = new HashMap<>();
-            getAllCus().forEach(cu -> {
-                result.put(
-                        cu,
-                        new CodeUnitProperties(
-                                Collections.unmodifiableSequencedSet(new LinkedHashSet<>(getChildren(cu))),
-                                Collections.unmodifiableSequencedSet(new LinkedHashSet<>(getSignatures(cu))),
-                                Collections.unmodifiableSequencedSet(new LinkedHashSet<>(getRanges(cu))),
-                                getHasBody(cu, false),
-                                isTypeAliasByCu.getOrDefault(cu, false)));
-            });
-            return result;
-        }
-
-        public Map<String, Set<CodeUnit>> codeUnitsBySymbol() {
-            Map<String, Set<CodeUnit>> result = new HashMap<>();
-            getAllCus().forEach(cu -> {
-                result.computeIfAbsent(cu.identifier(), k -> new HashSet<>()).add(cu);
-                if (!cu.shortName().equals(cu.identifier())) {
-                    result.computeIfAbsent(cu.shortName(), k -> new HashSet<>()).add(cu);
-                }
-            });
-            return result;
-        }
-    }
 
     private record FileAnalysisResult(
             List<CodeUnit> topLevelCUs,
@@ -2555,6 +2360,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                             .map(ImportInfo::rawSnippet)
                             .toList();
 
+                    localImportInfos.forEach(acc::registerImport);
+
                     // Register modules from imports
                     wrapModulesFromImports(file, localImportStatements, rootNode, sourceContent, acc);
 
@@ -2596,7 +2403,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                             acc.topLevelCUs().stream().distinct().toList(),
                             Collections.unmodifiableMap(localStates),
                             acc.codeUnitsBySymbol().entrySet().stream()
-                                    .collect(Collectors.toMap(Map.Entry::getKey, e -> new HashSet<>(e.getValue()))),
+                                    .collect(Collectors.toMap(entry -> entry.getKey(), entry -> new HashSet<>(entry.getValue()))),
                             Collections.unmodifiableList(localImportInfos),
                             containsTests);
                 },
@@ -4432,8 +4239,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         }
 
         // Merge results using synthetic versions
-        for (Map.Entry<CodeUnit, CodeUnitProperties> entry :
-                result.codeUnitState().entrySet()) {
+        for (Map.Entry<CodeUnit, CodeUnitProperties> entry : result.codeUnitState().entrySet()) {
             CodeUnit originalCu = entry.getKey();
             CodeUnitProperties props = entry.getValue();
             CodeUnit syntheticCu = syntheticMap.get(originalCu);

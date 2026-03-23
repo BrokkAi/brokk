@@ -28,11 +28,12 @@ public class FileAnalysisAccumulator {
     private final Map<String, Set<CodeUnit>> codeUnitsBySymbol = new HashMap<>();
     private final Map<String, CodeUnit> cuByFqName = new HashMap<>();
     private final Map<CodeUnit, Set<String>> lookupKeys = new HashMap<>();
+    private final List<ImportInfo> importInfos = new ArrayList<>();
 
     public FileAnalysisAccumulator() {}
 
     /**
-     * Adds a CodeUnit to the top-level list. Mutations should only be performed via these APIs.
+     * Adds a CodeUnit to the top-level list.
      * @return this accumulator for chaining.
      */
     public FileAnalysisAccumulator addTopLevel(CodeUnit cu) {
@@ -42,7 +43,7 @@ public class FileAnalysisAccumulator {
     }
 
     /**
-     * Adds a parent-child relationship. Mutations should only be performed via these APIs.
+     * Adds a parent-child relationship.
      * @return this accumulator for chaining.
      */
     public FileAnalysisAccumulator addChild(CodeUnit parent, CodeUnit child) {
@@ -53,7 +54,7 @@ public class FileAnalysisAccumulator {
     }
 
     /**
-     * Adds a signature to a CodeUnit. Mutations should only be performed via these APIs.
+     * Adds a signature to a CodeUnit.
      * @return this accumulator for chaining.
      */
     public FileAnalysisAccumulator addSignature(CodeUnit cu, String signature) {
@@ -62,7 +63,7 @@ public class FileAnalysisAccumulator {
     }
 
     /**
-     * Adds a source range to a CodeUnit. Mutations should only be performed via these APIs.
+     * Adds a source range to a CodeUnit.
      * @return this accumulator for chaining.
      */
     public FileAnalysisAccumulator addRange(CodeUnit cu, Range range) {
@@ -71,7 +72,7 @@ public class FileAnalysisAccumulator {
     }
 
     /**
-     * Sets whether the CodeUnit has a body. Mutations should only be performed via these APIs.
+     * Sets whether the CodeUnit has a body.
      * @return this accumulator for chaining.
      */
     public FileAnalysisAccumulator setHasBody(CodeUnit cu, boolean body) {
@@ -89,12 +90,26 @@ public class FileAnalysisAccumulator {
     }
 
     /**
-     * Indexes a CodeUnit by a symbol. Mutations should only be performed via these APIs.
+     * Indexes a CodeUnit by a symbol.
      * @return this accumulator for chaining.
      */
     public FileAnalysisAccumulator addSymbolIndex(String symbol, CodeUnit cu) {
         codeUnitsBySymbol.computeIfAbsent(symbol, k -> new HashSet<>()).add(cu);
         return this;
+    }
+
+    /**
+     * Registers an import found during analysis.
+     */
+    public void registerImport(ImportInfo info) {
+        importInfos.add(info);
+    }
+
+    /**
+     * Returns an unmodifiable list of imports found in the file.
+     */
+    public List<ImportInfo> importInfos() {
+        return List.copyOf(importInfos);
     }
 
     /**
@@ -135,34 +150,12 @@ public class FileAnalysisAccumulator {
     }
 
     /**
-     * Registers a lookup key for a CodeUnit. Mutations should only be performed via these APIs.
+     * Registers a lookup key for a CodeUnit.
      * @return this accumulator for chaining.
      */
     public FileAnalysisAccumulator addLookupKey(String lookupKey, CodeUnit cu) {
         cuByFqName.put(lookupKey, cu);
         lookupKeys.computeIfAbsent(cu, k -> new LinkedHashSet<>()).add(lookupKey);
-        return this;
-    }
-
-    /**
-     * Replaces an existing top-level CodeUnit with a new one, ensuring descendants and symbol indices are updated.
-     * @return this accumulator for chaining.
-     */
-    public FileAnalysisAccumulator replaceTopLevelCodeUnit(CodeUnit existing, CodeUnit replacement) {
-        remove(existing);
-        addTopLevel(replacement);
-        registerCodeUnit(replacement);
-        return this;
-    }
-
-    /**
-     * Replaces an existing child CodeUnit with a new one under the same parent.
-     * @return this accumulator for chaining.
-     */
-    public FileAnalysisAccumulator replaceChildCodeUnit(CodeUnit parent, CodeUnit existing, CodeUnit replacement) {
-        remove(existing);
-        addChild(parent, replacement);
-        registerCodeUnit(replacement);
         return this;
     }
 
@@ -191,40 +184,46 @@ public class FileAnalysisAccumulator {
         }
     }
 
-    /**
-     * Returns an immutable mapping of FQNs (or signature-augmented lookup keys) to CodeUnits.
-     * Mutations should be performed via accumulator APIs.
-     */
     public @Nullable CodeUnit getByFqName(String key) {
         return cuByFqName.get(key);
     }
 
-    public boolean getHasBody(CodeUnit cu, boolean defaultValue) {
-        return hasBody.getOrDefault(cu, defaultValue);
+    public @Nullable CodeUnit findTopLevelDuplicate(CodeUnit cu) {
+        return topLevelCUs.stream().filter(t -> t.equals(cu)).findFirst().orElse(null);
     }
 
-    /**
-     * Returns a view of the children for the given CodeUnit.
-     */
-    public List<CodeUnit> getChildren(CodeUnit cu) {
-        Set<CodeUnit> kids = children.get(cu);
-        return kids == null ? List.of() : List.copyOf(kids);
+    public @Nullable CodeUnit findTopLevelCrossKindDuplicate(CodeUnit cu) {
+        return topLevelCUs.stream()
+                .filter(t -> t.fqName().equals(cu.fqName()))
+                .findFirst()
+                .orElse(null);
     }
 
-    /**
-     * Returns a view of the signatures for the given CodeUnit.
-     */
-    public List<String> getSignatures(CodeUnit cu) {
-        Set<String> sigs = signatures.get(cu);
-        return sigs == null ? List.of() : List.copyOf(sigs);
+    public void replaceTopLevelCodeUnit(CodeUnit oldCu, CodeUnit newCu) {
+        remove(oldCu);
+        registerCodeUnit(newCu);
+        addTopLevel(newCu);
     }
 
-    /**
-     * Returns a view of the ranges for the given CodeUnit.
-     */
-    public List<Range> getRanges(CodeUnit cu) {
-        Set<Range> ranges = sourceRanges.get(cu);
-        return ranges == null ? List.of() : List.copyOf(ranges);
+    public @Nullable CodeUnit findChildDuplicate(CodeUnit parent, CodeUnit cu) {
+        return getChildren(parent).stream().filter(t -> t.equals(cu)).findFirst().orElse(null);
+    }
+
+    public @Nullable CodeUnit findChildCrossKindDuplicate(CodeUnit parent, CodeUnit cu) {
+        return getChildren(parent).stream()
+                .filter(t -> t.fqName().equals(cu.fqName()))
+                .findFirst()
+                .orElse(null);
+    }
+
+    public void replaceChildCodeUnit(CodeUnit parent, CodeUnit oldCu, CodeUnit newCu) {
+        remove(oldCu);
+        registerCodeUnit(newCu);
+        addChild(parent, newCu);
+    }
+
+    public void detachChildren(CodeUnit cu) {
+        children.remove(cu);
     }
 
     public List<String> getLookupKeys(CodeUnit cu) {
@@ -232,16 +231,27 @@ public class FileAnalysisAccumulator {
         return keys == null ? List.of() : List.copyOf(keys);
     }
 
-    public void detachChildren(CodeUnit cu) {
-        Set<CodeUnit> kids = children.remove(cu);
-        if (kids != null) {
-            for (CodeUnit child : kids) {
-                CodeUnit parent = childToParent.get(child);
-                if (Objects.equals(parent, cu)) {
-                    childToParent.remove(child);
-                }
-            }
-        }
+    public boolean getHasBody(CodeUnit cu, boolean defaultValue) {
+        return hasBody.getOrDefault(cu, defaultValue);
+    }
+
+    public List<CodeUnit> getChildren(CodeUnit cu) {
+        Set<CodeUnit> kids = children.get(cu);
+        return kids == null ? List.of() : List.copyOf(kids);
+    }
+
+    public List<String> getSignatures(CodeUnit cu) {
+        Set<String> sigs = signatures.get(cu);
+        return sigs == null ? List.of() : List.copyOf(sigs);
+    }
+
+    public List<Range> getRanges(CodeUnit cu) {
+        Set<Range> ranges = sourceRanges.get(cu);
+        return ranges == null ? List.of() : List.copyOf(ranges);
+    }
+
+    public Map<String, Set<CodeUnit>> codeUnitsBySymbol() {
+        return Map.copyOf(codeUnitsBySymbol);
     }
 
     public Map<CodeUnit, CodeUnitProperties> toCodeUnitProperties() {
@@ -272,107 +282,13 @@ public class FileAnalysisAccumulator {
         return Map.copyOf(cuByFqName);
     }
 
-    /**
-     * Returns an immutable list of top-level CodeUnits for the file.
-     * Mutations should be performed via accumulator APIs.
-     */
     public List<CodeUnit> topLevelCUs() {
         return List.copyOf(topLevelCUs);
     }
 
-    /**
-     * Returns an immutable snapshot of parent-child relationships.
-     * Mutations should be performed via accumulator APIs.
-     */
     public Map<CodeUnit, Set<CodeUnit>> children() {
         Map<CodeUnit, Set<CodeUnit>> copy = new HashMap<>();
         children.forEach((k, v) -> copy.put(k, Collections.unmodifiableSet(new LinkedHashSet<>(v))));
         return Collections.unmodifiableMap(copy);
-    }
-
-    /**
-     * Returns an immutable snapshot of signatures associated with each CodeUnit.
-     * Mutations should be performed via accumulator APIs.
-     */
-    public Map<CodeUnit, Set<String>> signatures() {
-        Map<CodeUnit, Set<String>> copy = new HashMap<>();
-        signatures.forEach((k, v) -> copy.put(k, Collections.unmodifiableSet(new LinkedHashSet<>(v))));
-        return Collections.unmodifiableMap(copy);
-    }
-
-    /**
-     * Returns an immutable snapshot of source ranges for each CodeUnit.
-     * Mutations should be performed via accumulator APIs.
-     */
-    public Map<CodeUnit, Set<Range>> sourceRanges() {
-        Map<CodeUnit, Set<Range>> copy = new HashMap<>();
-        sourceRanges.forEach((k, v) -> copy.put(k, Collections.unmodifiableSet(new LinkedHashSet<>(v))));
-        return Collections.unmodifiableMap(copy);
-    }
-
-    /**
-     * Returns an immutable mapping of CodeUnits to their body-presence flag.
-     * Mutations should be performed via accumulator APIs.
-     */
-    public Map<CodeUnit, Boolean> hasBody() {
-        return Map.copyOf(hasBody);
-    }
-
-    /**
-     * Returns an immutable snapshot of the symbol index.
-     * Mutations should be performed via accumulator APIs.
-     */
-    public Map<String, Set<CodeUnit>> codeUnitsBySymbol() {
-        Map<String, Set<CodeUnit>> copy = new HashMap<>();
-        codeUnitsBySymbol.forEach((k, v) -> copy.put(k, Set.copyOf(v)));
-        return Collections.unmodifiableMap(copy);
-    }
-
-    /**
-     * Returns an immutable snapshot of all lookup keys (FQNs/signatures) registered for each CodeUnit.
-     * Mutations should be performed via accumulator APIs.
-     */
-    public Map<CodeUnit, List<String>> lookupKeys() {
-        Map<CodeUnit, List<String>> copy = new HashMap<>();
-        lookupKeys.forEach((k, v) -> copy.put(k, List.copyOf(v)));
-        return Collections.unmodifiableMap(copy);
-    }
-
-    public @Nullable CodeUnit findTopLevelDuplicate(CodeUnit cu) {
-        return topLevelCUs.stream()
-                .filter(existing -> sameLogicalIdentity(existing, cu))
-                .findFirst()
-                .orElse(null);
-    }
-
-    public @Nullable CodeUnit findTopLevelCrossKindDuplicate(CodeUnit cu) {
-        return topLevelCUs.stream()
-                .filter(existing -> existing.fqName().equals(cu.fqName()) && existing.kind() != cu.kind())
-                .findFirst()
-                .orElse(null);
-    }
-
-    public @Nullable CodeUnit findChildDuplicate(CodeUnit parent, CodeUnit child) {
-        Set<CodeUnit> kids = children.get(parent);
-        if (kids == null) return null;
-        return kids.stream()
-                .filter(existing -> sameLogicalIdentity(existing, child))
-                .findFirst()
-                .orElse(null);
-    }
-
-    public @Nullable CodeUnit findChildCrossKindDuplicate(CodeUnit parent, CodeUnit child) {
-        Set<CodeUnit> kids = children.get(parent);
-        if (kids == null) return null;
-        return kids.stream()
-                .filter(existing -> existing.fqName().equals(child.fqName()) && existing.kind() != child.kind())
-                .findFirst()
-                .orElse(null);
-    }
-
-    private static boolean sameLogicalIdentity(CodeUnit left, CodeUnit right) {
-        return left.kind() == right.kind()
-                && Objects.equals(left.fqName(), right.fqName())
-                && Objects.equals(left.signature(), right.signature());
     }
 }
