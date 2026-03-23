@@ -17,7 +17,6 @@ import org.apache.logging.log4j.Logger;
 public class GitIgnoreUtils {
     private static final Logger logger = LogManager.getLogger(GitIgnoreUtils.class);
 
-
     // Utility class - prevent instantiation
     private GitIgnoreUtils() {}
 
