@@ -1,5 +1,6 @@
 package ai.brokk.analyzer.macro;
 
+import static ai.brokk.testutil.AssertionHelperUtil.assertCodeContains;
 import static ai.brokk.testutil.AssertionHelperUtil.assertCodeEquals;
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -93,6 +94,56 @@ public class RustMacroTest {
             List<CodeUnit> definitions =
                     analyzer.getDefinitions("SETTINGS").stream().toList();
             assertEquals(0, definitions.size(), "Should not find expanded static for bypassed macro");
+        }
+    }
+
+    @Test
+    void testRustDefaultMacroExpansion() {
+        String rustSource =
+                """
+                #[derive(Default)]
+                pub struct Config {
+                    pub port: u16,
+                }
+                """;
+
+        try (ITestProject testProject = InlineTestProjectCreator.empty()
+                .addFileContents(rustSource, "src/lib.rs")
+                .withMacros(Languages.RUST, "std-v1")
+                .build()) {
+
+            IAnalyzer analyzer = testProject.getAnalyzer();
+            assertNotNull(analyzer);
+
+            // Find the Config struct
+            CodeUnit configStruct = analyzer.getDefinitions("Config").stream()
+                    .findFirst()
+                    .orElseThrow();
+
+            // Verify that the synthetic default() method was attached.
+            // When using an 'impl Default for Config' block, the methods are typically 
+            // scoped under the trait name within the rescoped hierarchy.
+            List<CodeUnit> children = analyzer.getDirectChildren(configStruct);
+            
+            // The synthetic function might be direct or nested depending on how the 
+            // impl block is parsed. We'll search through all declarations in the file 
+            // for the expected FQN.
+            CodeUnit defaultFn = analyzer.getDeclarations(configStruct.source()).stream()
+                    .filter(cu -> cu.fqName().endsWith(".default") && cu.isSynthetic())
+                    .findFirst()
+                    .orElseThrow(() -> new AssertionError("Missing synthetic default() method"));
+
+            assertTrue(defaultFn.fqName().contains("Config"), "FQN should contain struct name");
+
+            Optional<String> source = analyzer.getSource(defaultFn, false);
+            assertTrue(source.isPresent(), "Source should be present for synthetic default");
+            String sourceText = source.get();
+
+            // Print source for debugging if the test fails in CI
+            System.out.println("Synthetic source for " + defaultFn.fqName() + ":\n" + sourceText);
+
+            assertCodeContains(sourceText, "# This declaration is synthetic");
+            assertCodeContains(sourceText, "pub fn default() -> Self");
         }
     }
 

@@ -38,8 +38,9 @@ macros:
     strategy: "BYPASS"
     options: {}
   - name: "Default"
-    strategy: "BYPASS"
-    options: {}
+    strategy: "TEMPLATE"
+    options:
+      template: "impl Default for {{identifier}} { pub fn default() -> Self { unimplemented!() } }"
   - name: "PartialEq"
     strategy: "BYPASS"
     options: {}
