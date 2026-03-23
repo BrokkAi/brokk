@@ -7,8 +7,8 @@ from brokk_code.app import BrokkApp
 
 
 @pytest.mark.asyncio
-async def test_welcome_message_shown_on_startup(tmp_path: Path):
-    """Verify welcome message appears on every startup."""
+async def test_welcome_message_shown_on_first_run(tmp_path: Path):
+    """Verify welcome message appears when no API key is present (first run)."""
     mock_executor = MagicMock()
     mock_executor.workspace_dir = tmp_path
     mock_executor.start = AsyncMock()
@@ -21,16 +21,42 @@ async def test_welcome_message_shown_on_startup(tmp_path: Path):
     mock_executor.get_context = AsyncMock(return_value={"usedTokens": 0})
     mock_executor.get_tasklist = AsyncMock(return_value={"tasks": []})
 
-    for history in ([], ["previous prompt"]):
-        with patch("brokk_code.app.load_history", return_value=history):
-            app = BrokkApp(executor=mock_executor)
-            async with app.run_test() as pilot:
-                await pilot.pause()
+    with patch("brokk_code.app.load_history", return_value=[]), \
+         patch("brokk_code.app.Settings.get_brokk_api_key", return_value=None):
+        app = BrokkApp(executor=mock_executor)
+        async with app.run_test() as pilot:
+            await pilot.pause()
 
-                chat_log = app.query_one("#chat-log")
-                content = "".join(str(line) for line in chat_log.lines)
-                assert "Welcome to Brokk" in content, f"Expected welcome with history={history!r}"
-                assert "Context Engineering" in content
+            chat_log = app.query_one("#chat-log")
+            content = "".join(str(line) for line in chat_log.lines)
+            assert "Welcome to Brokk" in content
+            assert "Context Engineering" in content
+
+
+@pytest.mark.asyncio
+async def test_welcome_message_not_shown_for_returning_user(tmp_path: Path):
+    """Verify welcome message is suppressed for returning users with key and history."""
+    mock_executor = MagicMock()
+    mock_executor.workspace_dir = tmp_path
+    mock_executor.start = AsyncMock()
+    mock_executor.wait_live = AsyncMock(return_value=True)
+    mock_executor.check_alive = MagicMock(return_value=True)
+    mock_executor.get_health_live = AsyncMock(return_value={})
+    mock_executor.create_session = AsyncMock()
+    mock_executor.session_id = "test-session"
+    mock_executor.stop = AsyncMock()
+    mock_executor.get_context = AsyncMock(return_value={"usedTokens": 0})
+    mock_executor.get_tasklist = AsyncMock(return_value={"tasks": []})
+
+    with patch("brokk_code.app.load_history", return_value=["prior command"]), \
+         patch("brokk_code.app.Settings.get_brokk_api_key", return_value="sk-valid"):
+        app = BrokkApp(executor=mock_executor)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            chat_log = app.query_one("#chat-log")
+            content = "".join(str(line) for line in chat_log.lines)
+            assert "Welcome to Brokk" not in content
 
 
 def test_build_welcome_message_content():
@@ -90,7 +116,8 @@ async def test_welcome_message_updates_after_pypi_fetch(tmp_path: Path):
 
     with patch(
         "brokk_code.app.BrokkApp._fetch_latest_pypi_version", new_callable=AsyncMock
-    ) as mock_fetch:
+    ) as mock_fetch, \
+         patch("brokk_code.app.Settings.get_brokk_api_key", return_value=None):
         mock_fetch.return_value = "1.2.3"
         app = BrokkApp(executor=mock_executor)
 
@@ -117,15 +144,22 @@ async def test_show_welcome_message_handles_nomatches_gracefully(tmp_path: Path)
     mock_executor.workspace_dir = tmp_path
     app = BrokkApp(executor=mock_executor)
 
-    # Mock _maybe_chat to return a mock that raises NoMatches
+    # Mock _maybe_chat to return a mock that raises NoMatches.
+    # We use a side_effect for has_welcome_message to simulate state transition:
+    # 1. Non-refresh call: returns False -> triggers add_welcome path.
+    # 2. Refresh call (pre-check): returns True -> allows proceeding to update.
     mock_chat = MagicMock()
-    mock_chat.update_welcome.side_effect = NoMatches("No nodes match '#chat-log'")
-    mock_chat.add_welcome.side_effect = NoMatches("No nodes match '#chat-log'")
+    mock_chat.has_welcome_message.side_effect = [False, True]
+    mock_chat.update_welcome.side_effect = NoMatches("No nodes match log")
+    mock_chat.add_welcome.side_effect = NoMatches("No nodes match log")
 
     with patch.object(app, "_maybe_chat", return_value=mock_chat):
-        # Should not raise
+        # Should not raise despite NoMatches side effects
+        # Path 1: Initial add (non-refresh)
         app._show_welcome_message(refresh=False)
+        # Path 2: Update (refresh)
         app._show_welcome_message(refresh=True)
 
+    # Verify both paths were attempted exactly once
     mock_chat.add_welcome.assert_called_once()
     mock_chat.update_welcome.assert_called_once()

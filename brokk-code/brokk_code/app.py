@@ -1321,12 +1321,19 @@ class BrokkApp(App):
         if not chat:
             return
 
+        # If refreshing, only proceed if there's an existing welcome message to update.
+        # This prevents the update checker from introducing a welcome message for returning users.
+        if refresh and not chat.has_welcome_message():
+            return
+
         msg = build_welcome_message(self.get_slash_commands(), self.latest_pypi_version)
         try:
             if refresh:
                 chat.update_welcome(msg)
             else:
-                chat.add_welcome(get_braille_icon(), msg)
+                # Double-check we don't duplicate it if already present
+                if not chat.has_welcome_message():
+                    chat.add_welcome(get_braille_icon(), msg)
         except Exception:
             # Safely ignore races during teardown/unmount if the chat log or other
             # expected widgets are gone.
@@ -1458,15 +1465,21 @@ class BrokkApp(App):
         self.app_resume_signal.subscribe(self, self._on_app_resume)
         chat = self._maybe_chat()
         logger.info("Using workspace directory: %s", self.executor.workspace_dir)
+
+        # Determine if this is a first-run/onboarding scenario
+        has_api_key = bool(self.settings.get_brokk_api_key())
+        history = load_history(self.executor.workspace_dir)
+        should_show_welcome = not has_api_key or not history
+
         if chat:
             chat.show_verbose = self.show_verbose_output
             chat.set_token_bar_visible(True)
 
             # Load initial prompt history for arrow-key navigation
-            history = load_history(self.executor.workspace_dir)
             chat.set_history(history)
 
-            self._show_welcome_message()
+            if should_show_welcome:
+                self._show_welcome_message()
 
         # Check for updates in background
         self.run_worker(self._check_for_updates())

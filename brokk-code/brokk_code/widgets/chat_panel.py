@@ -1530,6 +1530,10 @@ class ChatPanel(Vertical):
         self._message_history.append({"kind": "AI", "content": content})
         self._render_message_entry("AI", content)
 
+    def has_welcome_message(self) -> bool:
+        """Returns True if a welcome message is currently in the history."""
+        return any(entry["kind"] == "WELCOME" for entry in self._message_history)
+
     def add_welcome(self, icon: str, body: str) -> None:
         """Renders the welcome message: icon in Brokk red, followed by Markdown body."""
         self._message_history.append({"kind": "WELCOME", "content": body, "icon": icon})
