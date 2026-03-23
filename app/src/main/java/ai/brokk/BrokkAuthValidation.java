@@ -32,4 +32,3 @@ public record BrokkAuthValidation(
         return String.format(Locale.ROOT, "$%.2f", balance);
     }
 }
-

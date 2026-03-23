@@ -218,14 +218,9 @@ public class Service extends AbstractService implements ExceptionReporter.Report
 
     @Blocking
     public static BrokkAuthValidation validateBrokkAuth(String key) {
-        if (key.isBlank()) {
+        if (key == null || key.isBlank()) {
             return new BrokkAuthValidation(
-                    BrokkAuthValidation.State.MISSING_KEY,
-                    false,
-                    false,
-                    false,
-                    0f,
-                    "No Brokk API key configured.");
+                    BrokkAuthValidation.State.MISSING_KEY, false, false, false, 0f, "No Brokk API key configured.");
         }
 
         try {
@@ -274,7 +269,11 @@ public class Service extends AbstractService implements ExceptionReporter.Report
             return true;
         }
 
-        String body = exception.getResponseBody().toLowerCase(Locale.ROOT);
+        String body = exception.getResponseBody();
+        if (body == null || body.isBlank()) {
+            return false;
+        }
+        body = body.toLowerCase(Locale.ROOT);
         return body.contains("unknown user")
                 || body.contains("user not found")
                 || body.contains("no such user")

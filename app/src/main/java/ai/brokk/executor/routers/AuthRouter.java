@@ -8,7 +8,6 @@ import ai.brokk.executor.jobs.ErrorPayload;
 import ai.brokk.project.MainProject;
 import com.sun.net.httpserver.HttpExchange;
 import java.util.HashMap;
-import java.util.Map;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import org.apache.logging.log4j.LogManager;

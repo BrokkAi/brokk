@@ -8,6 +8,15 @@ import org.junit.jupiter.api.Test;
 
 class ServiceAuthValidationTest {
     @Test
+    void validateBrokkAuth_nullKey_returnsMissingKey() {
+        var result = Service.validateBrokkAuth(null);
+
+        assertEquals(BrokkAuthValidation.State.MISSING_KEY, result.state());
+        assertFalse(result.valid());
+        assertFalse(result.hasBalance());
+    }
+
+    @Test
     void validateBrokkAuth_blankKey_returnsMissingKey() {
         var result = Service.validateBrokkAuth("");
 
@@ -25,4 +34,3 @@ class ServiceAuthValidationTest {
         assertTrue(result.message().contains("format"));
     }
 }
-
