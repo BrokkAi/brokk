@@ -65,9 +65,9 @@ public class RustMacroTest {
             assertTrue(sourceText.contains("fn is_Running"), "Source should contain function signature");
             assertCodeEquals(
                     """
-                # This declaration is synthetic
-                pub fn is_Running(&self) -> bool { ... }
-                """,
+                    # This declaration is synthetic
+                    pub fn is_Running(&self) -> bool { ... }
+                    """,
                     sourceText);
         }
     }
@@ -116,18 +116,16 @@ public class RustMacroTest {
             assertNotNull(analyzer);
 
             // Find the Config struct
-            CodeUnit configStruct = analyzer.getDefinitions("Config").stream()
-                    .findFirst()
-                    .orElseThrow();
+            CodeUnit configStruct =
+                    analyzer.getDefinitions("Config").stream().findFirst().orElseThrow();
 
             // Verify that the synthetic default() method was attached.
-            // When using an 'impl Default for Config' block, the methods are typically 
+            // When using an 'impl Default for Config' block, the methods are typically
             // scoped under the trait name within the rescoped hierarchy.
             List<CodeUnit> children = analyzer.getDirectChildren(configStruct);
-            
-            // The synthetic function might be direct or nested depending on how the 
-            // impl block is parsed. We'll search through all declarations in the file 
-            // for the expected FQN.
+
+            // The synthetic function might be direct or nested depending on how the
+            // impl block is parsed. We'll search through all declarations in the file
             CodeUnit defaultFn = analyzer.getDeclarations(configStruct.source()).stream()
                     .filter(cu -> cu.fqName().endsWith(".default") && cu.isSynthetic())
                     .findFirst()
