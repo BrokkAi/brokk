@@ -65,6 +65,7 @@ public interface AcpTransport {
          * @return the result object, or null if this is a notification
          * @throws Exception if handling fails
          */
+        @Nullable
         Object handle(String method, @Nullable JsonNode params, @Nullable Object id) throws Exception;
     }
 }

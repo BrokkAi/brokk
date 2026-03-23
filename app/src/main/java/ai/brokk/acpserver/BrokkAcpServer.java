@@ -57,6 +57,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * ACP (Agent Client Protocol) server entry point for Brokk.
@@ -71,10 +72,18 @@ import org.apache.logging.log4j.Logger;
 public class BrokkAcpServer {
     private static final Logger logger = LogManager.getLogger(BrokkAcpServer.class);
 
+    @Nullable
     private MainProject project;
+
+    @Nullable
     private ContextManager cm;
+
     private volatile boolean initializing;
+
+    @Nullable
     private volatile String initError;
+
+    @Nullable
     private AcpSyncAgent agent;
 
     public static void main(String[] args) {
@@ -135,7 +144,10 @@ public class BrokkAcpServer {
 
     private void handleCancel(CancelRequest req) {
         logger.info("Received cancel request for session {}", req.sessionId());
-        agent.interruptPrompt();
+        var a = agent;
+        if (a != null) {
+            a.interruptPrompt();
+        }
     }
 
     private void startProjectInitialization(Path projectPath) {

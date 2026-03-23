@@ -19,7 +19,7 @@ public final class AcpSchema {
 
     public record InitializeRequest(int protocolVersion, @Nullable ClientCapabilities capabilities) {}
 
-    public record NewSessionRequest(String workingDirectory, List<TextContent> context) {}
+    public record NewSessionRequest(@Nullable String workingDirectory, @Nullable List<TextContent> context) {}
 
     public record PromptRequest(String sessionId, List<Content> messages) {}
 
@@ -35,7 +35,7 @@ public final class AcpSchema {
 
     public record CancelRequest(@Nullable String sessionId) {}
 
-    public record SessionSwitchRequest(String sessionId) {}
+    public record SessionSwitchRequest(@Nullable String sessionId) {}
 
     public record GetConversationRequest() {}
 

@@ -98,6 +98,7 @@ public class AcpSyncAgent {
         transport.close();
     }
 
+    @Nullable
     private Object handleMessage(String method, @Nullable JsonNode params, @Nullable Object id) {
         return switch (method) {
             case "initialize" -> {

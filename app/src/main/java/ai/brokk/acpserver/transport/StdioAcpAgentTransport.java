@@ -136,21 +136,26 @@ public class StdioAcpAgentTransport implements AcpTransport {
     }
 
     private void dispatchRequest(JsonRpcMessage.Request request, MessageHandler handler) {
+        var method = request.method();
+        if (method == null) {
+            return;
+        }
         try {
-            Object result = handler.handle(request.method(), request.params(), request.id());
+            var result = handler.handle(method, request.params(), request.id());
             if (result != null) {
                 sendResponse(request.id(), result);
             }
         } catch (AcpProtocolException e) {
-            logger.warn("Protocol error handling request {}: {}", request.method(), e.getMessage());
-            sendErrorResponse(request.id(), e.code(), e.getMessage());
+            logger.warn("Protocol error handling request {}: {}", method, e.getMessage());
+            var msg = e.getMessage();
+            sendErrorResponse(request.id(), e.code(), msg != null ? msg : "Protocol error");
         } catch (Exception e) {
-            logger.error("Error handling request {}: {}", request.method(), e.getMessage(), e);
-            String errorMsg = e.getMessage();
+            logger.error("Error handling request {}: {}", method, e.getMessage(), e);
+            var msg = e.getMessage();
             sendErrorResponse(
                     request.id(),
                     JsonRpcMessage.RpcError.INTERNAL_ERROR,
-                    errorMsg != null ? errorMsg : e.getClass().getName());
+                    msg != null ? msg : e.getClass().getName());
         }
     }
 
