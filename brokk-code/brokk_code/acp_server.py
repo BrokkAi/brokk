@@ -1033,6 +1033,7 @@ class AcpStdioBridge:
         # Add any @-mentioned files from ACP embedded/linked resource blocks to context.
         attached_fragment_ids: list[str] = []
         file_paths = extract_resource_file_paths(prompt, cwd)
+        logger.info("AcpStdioBridge file paths (cwd=%r): %r", cwd, file_paths)
         if file_paths:
             try:
                 resp = await self.executor.add_context_files(file_paths)
@@ -1699,6 +1700,17 @@ async def run_acp_server(
                 return SetSessionConfigOptionResponse(config_options=options)
 
             async def prompt(self, prompt: Any, session_id: str, **kwargs: Any) -> Any:
+                # If session_id is unknown (e.g. Zed restarted and reuses old ID),
+                # bootstrap session defaults from the workspace directory
+                if session_id not in self._cwd_by_session:
+                    effective_cwd = str(workspace_dir)
+                    self._ensure_session_defaults(session_id, effective_cwd)
+                    await stdio_bridge.ensure_ready(effective_cwd)
+                logger.debug(
+                    "prompt session_id=%r, known_sessions=%r",
+                    session_id,
+                    list(self._cwd_by_session.keys()),
+                )
                 await self._refresh_model_catalog_if_fallback(session_id)
                 mode = normalize_mode(kwargs.get("mode") or self._mode_by_session.get(session_id))
                 planner_model = (
