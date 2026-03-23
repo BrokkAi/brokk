@@ -70,14 +70,14 @@ public interface MacroExpansionProvider extends CapabilityProvider {
 
                                 boolean handled = false;
                                 MacroPolicy.MacroMatch mm = policyMap.get(macroName);
-                                if (mm != null && isParentRequirementMet(analyzer, file, macroName, mm)) {
+                                if (mm != null && isParentRequirementMet(macroName, mm, acc)) {
                                     handled = true;
                                     switch (mm.options()) {
                                         case MacroPolicy.TemplateConfig tc -> expandTemplate(
                                                 analyzer, file, node, tc.template(), acc);
-                                        default -> {
-                                            // Strategy recognized but either no-op or handled elsewhere
-                                        }
+                                        case MacroPolicy.AIExpandConfig ac -> {}
+                                        case MacroPolicy.BuiltinConfig bc -> {}
+                                        case MacroPolicy.BypassConfig byc -> {}
                                     }
                                 }
 
@@ -97,26 +97,27 @@ public interface MacroExpansionProvider extends CapabilityProvider {
     }
 
     private boolean isParentRequirementMet(
-            TreeSitterAnalyzer analyzer, ProjectFile file, String macroName, MacroPolicy.MacroMatch mm) {
+            String macroName, MacroPolicy.MacroMatch mm, TreeSitterAnalyzer.FileAnalysisAccumulator acc) {
         String parent = mm.parent();
         if (parent == null) {
             return true;
         }
 
-        return analyzer.as(ImportAnalysisProvider.class)
-                .map(provider -> {
-                    try {
-                        List<ImportInfo> infos = provider.importInfoOf(file);
-                        return infos.stream().anyMatch(info -> {
-                            boolean nameMatches = info.isWildcard() || Objects.equals(info.identifier(), macroName);
-                            return nameMatches && info.rawSnippet().contains(parent);
-                        });
-                    } catch (Exception e) {
-                        // Fallback if provider is called before file state is fully ready
-                        return false;
-                    }
-                })
-                .orElse(false);
+        List<ImportInfo> infos = acc.importInfos();
+
+        // 1. Direct/Explicit Import Check
+        var explicitImport = infos.stream()
+                .filter(info -> !info.isWildcard() && Objects.equals(info.identifier(), macroName))
+                .findFirst();
+
+        if (explicitImport.isPresent()) {
+            // If explicitly imported, it MUST match the parent requirement.
+            // Shadowing means we don't look at wildcards if an explicit match exists.
+            return explicitImport.get().rawSnippet().contains(parent);
+        }
+
+        // 2. Fallback: If no explicit import, check if ANY wildcard imports the parent.
+        return infos.stream().anyMatch(info -> info.isWildcard() && info.rawSnippet().contains(parent));
     }
 
     private void expandTemplate(
