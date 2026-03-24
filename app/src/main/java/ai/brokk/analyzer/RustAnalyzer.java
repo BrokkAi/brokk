@@ -718,6 +718,98 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
     }
 
     @Override
+    public void enrichChildContext(
+            TreeSitterAnalyzer analyzer,
+            CodeUnit targetCu,
+            CodeUnit childCu,
+            Map<String, Object> childMap,
+            FileAnalysisAccumulator acc,
+            SourceContent sourceContent,
+            TSNode rootNode) {
+        if (!childCu.isField()) {
+            return;
+        }
+
+        List<IAnalyzer.Range> ranges = acc.getRanges(childCu);
+        if (ranges.isEmpty()) {
+            return;
+        }
+
+        IAnalyzer.Range range = ranges.getFirst();
+        if (rootNode == null || rootNode.isNull()) {
+            log.warn("enrichChildContext: rootNode is null for {}", childCu.fqName());
+            return;
+        }
+
+        // Use descendant for range which is more reliable for finding the node containing the definition
+        TSNode variantNode = rootNode.getDescendantForByteRange(range.startByte(), range.endByte());
+
+        if (variantNode == null || variantNode.isNull()) {
+            log.debug(
+                    "enrichChildContext: no node found for {} at range [{}, {}]",
+                    childCu.identifier(),
+                    range.startByte(),
+                    range.endByte());
+            return;
+        }
+
+        log.debug(
+                "enrichChildContext: child={}, range=[{}, {}], foundNode={}",
+                childCu.identifier(),
+                range.startByte(),
+                range.endByte(),
+                variantNode.getType());
+
+        // Find the enum_variant node. The range might point to the identifier, so we climb.
+        while (variantNode != null && !variantNode.isNull() && !ENUM_VARIANT.equals(variantNode.getType())) {
+            variantNode = variantNode.getParent();
+            if (variantNode == null || variantNode.isNull() || variantNode.equals(rootNode)) {
+                variantNode = null;
+                break;
+            }
+        }
+
+        if (variantNode == null || variantNode.isNull()) {
+            return;
+        }
+
+        // Check for tuple variants: Variant(u32, String) or struct variants: Variant { x: u32 }
+        // In rust tree-sitter, the fields of a variant are children of the enum_variant node,
+        // often under a 'body' field which can be an 'ordered_field_declaration_list' (tuples)
+        // or a 'field_declaration_list' (structs).
+        TSNode variantBody = variantNode.getChildByFieldName("body");
+        if (variantBody == null || variantBody.isNull()) {
+            // Fallback: look for children with known variant body types
+            for (int i = 0; i < variantNode.getChildCount(); i++) {
+                TSNode child = variantNode.getChild(i);
+                if (child != null && !child.isNull()) {
+                    String type = child.getType();
+                    if (ORDERED_FIELD_DECL_LIST.equals(type)
+                            || ORDERED_FIELD_DECLARATION_LIST.equals(type)
+                            || FIELD_DECLARATION_LIST.equals(type)) {
+                        variantBody = child;
+                        break;
+                    }
+                }
+            }
+        }
+
+        if (variantBody != null && !variantBody.isNull()) {
+            childMap.put("has_payload", true);
+
+            // For KeyPress(char), variantBody text is '(char)'.
+            // Extract the inner content.
+            String innerText = sourceContent.substringFrom(variantBody).trim();
+            if (innerText.startsWith("(") && innerText.endsWith(")")) {
+                innerText = innerText.substring(1, innerText.length() - 1).trim();
+            } else if (innerText.startsWith("{") && innerText.endsWith("}")) {
+                innerText = innerText.substring(1, innerText.length() - 1).trim();
+            }
+            childMap.put("inner_type", innerText);
+        }
+    }
+
+    @Override
     protected boolean containsTestMarkers(TSTree tree, SourceContent sourceContent) {
         return withCachedQuery(
                 QueryType.DEFINITIONS,

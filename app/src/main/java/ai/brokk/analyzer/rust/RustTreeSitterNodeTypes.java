@@ -36,6 +36,11 @@ public final class RustTreeSitterNodeTypes {
     public static final String ARRAY_TYPE = "array_type";
     public static final String TUPLE_TYPE = "tuple_type";
 
+    // Variant bodies
+    public static final String ORDERED_FIELD_DECLARATION_LIST = "ordered_field_declaration_list";
+    public static final String ORDERED_FIELD_DECL_LIST = "ordered_field_decl_list";
+    public static final String FIELD_DECLARATION_LIST = "field_declaration_list";
+
     // Other declarations
     public static final String ATTRIBUTE = "attribute";
     public static final String ATTRIBUTE_ITEM = "attribute_item";

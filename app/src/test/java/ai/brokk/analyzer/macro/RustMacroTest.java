@@ -184,6 +184,52 @@ public class RustMacroTest {
         }
     }
 
+    @Test
+    void testRustIsMacroWithPayload() {
+        String rustSource =
+                """
+                use is_macro::Is;
+                #[derive(Is)]
+                pub enum WebEvent {
+                    PageLoad,
+                    KeyPress(char),
+                    Paste(String),
+                }
+                """;
+
+        try (ITestProject testProject = InlineTestProjectCreator.empty()
+                .addFileContents(rustSource, "src/lib.rs")
+                .withMacros(Languages.RUST, "is_macro")
+                .build()) {
+
+            IAnalyzer analyzer = testProject.getAnalyzer();
+            CodeUnit webEvent = analyzer.getDefinitions("WebEvent").stream().findFirst().orElseThrow();
+            List<CodeUnit> children = analyzer.getDirectChildren(webEvent);
+
+            // Verify basic is_xxx methods
+            assertSyntheticFunction(children, "WebEvent.is_PageLoad");
+            assertSyntheticFunction(children, "WebEvent.is_KeyPress");
+            assertSyntheticFunction(children, "WebEvent.is_Paste");
+
+            // Verify payload methods for KeyPress(char)
+            assertSyntheticFunction(children, "WebEvent.as_key_press");
+            assertSyntheticFunction(children, "WebEvent.as_mut_key_press");
+            assertSyntheticFunction(children, "WebEvent.unwrap_key_press");
+
+            // Verify payload methods for Paste(String)
+            assertSyntheticFunction(children, "WebEvent.as_paste");
+            assertSyntheticFunction(children, "WebEvent.unwrap_paste");
+
+            CodeUnit asPaste = children.stream()
+                    .filter(cu -> cu.fqName().equals("WebEvent.as_paste"))
+                    .findFirst()
+                    .orElseThrow();
+
+            String source = analyzer.getSource(asPaste, false).orElse("");
+            assertCodeContains(source, "fn as_paste(&self) -> Option<&String>");
+        }
+    }
+
     private void assertSyntheticFunction(List<CodeUnit> units, String fqName) {
         CodeUnit match = units.stream()
                 .filter(cu -> cu.fqName().equals(fqName))

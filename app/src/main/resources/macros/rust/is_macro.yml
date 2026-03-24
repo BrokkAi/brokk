@@ -5,4 +5,12 @@ macros:
     parent: "is_macro"
     strategy: "TEMPLATE"
     options:
-      template: "{{#children}}pub fn is_{{identifier}}(&self) -> bool { matches!(self, Self::{{identifier}} { .. }) } {{/children}}"
+      template: >-
+        {{#children}}
+        pub fn is_{{identifier}}(&self) -> bool { matches!(self, Self::{{identifier}} { .. }) }
+        {{#has_payload}}
+        pub fn as_{{snake_case_name}}(&self) -> Option<&{{inner_type}}> { if let Self::{{identifier}}(val) = self { Some(val) } else { None } }
+        pub fn as_mut_{{snake_case_name}}(&mut self) -> Option<&mut {{inner_type}}> { if let Self::{{identifier}}(val) = self { Some(val) } else { None } }
+        pub fn unwrap_{{snake_case_name}}(self) -> {{inner_type}} { if let Self::{{identifier}}(val) = self { val } else { panic!("called `unwrap_{{snake_case_name}}()` on a node that is not `{{identifier}}`") } }
+        {{/has_payload}}
+        {{/children}}

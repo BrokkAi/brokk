@@ -964,8 +964,15 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         return withSource(
                 file,
                 sc -> {
-                    try (TSTree tree = getTSParser().parseString(null, sc.text())) {
+                    TSParser parser = getTSParser();
+                    try (TSTree tree = parser.parseString(null, sc.text())) {
                         if (tree == null) {
+                            log.debug("Failed to parse tree for {}: parser returned null", file);
+                            return defaultValue;
+                        }
+                        TSNode root = tree.getRootNode();
+                        if (root.isNull()) {
+                            log.debug("Failed to parse tree for {}: root node is null", file);
                             return defaultValue;
                         }
                         return fn.apply(tree);
