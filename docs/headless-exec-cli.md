@@ -58,11 +58,11 @@ Or via Gradle:
 
 | Option | Type | Required | Default | Description |
 |--------|------|----------|---------|-------------|
-| `--mode MODE` | String | No | `ARCHITECT` | Execution mode: `ASK`, `CODE`, `ARCHITECT`, `LUTZ`, `SEARCH`, `REVIEW`, `ISSUE`, or `ISSUE_WRITER` |
+| `--mode MODE` | String | No | `ARCHITECT` | Execution mode: `ASK`, `CODE`, `ARCHITECT`, `LUTZ`, `SEARCH`, `REVIEW`, `ISSUE`, `ISSUE_DIAGNOSE`, or `ISSUE_WRITER` |
 | `--planner-model MODEL` | String | **Yes** | N/A | LLM model for planning and reasoning (e.g., `gpt-5`, `claude-3-opus`) |
-| `--scan-model MODEL` | String | No | Project default | LLM model to use for repository scanning (used by `SEARCH` mode; if omitted, the project's default scan model is used) |
-| `--code-model MODEL` | String | No | Project default | LLM model for code generation (CODE and ARCHITECT modes). Note: `--code-model` is ignored when using `--mode SEARCH` or `--mode ASK`. |
-| `--pre-scan` | Flag | No | `false` | When used together with `--mode ASK`, enable a repository pre-scan that seeds the Workspace before ASK reasoning. The current executor implementation uses the project's default scan model for this pre-scan. Ignored for modes other than `ASK`. |
+| `--scan-model MODEL` | String | No | Project default | LLM model to use for repository scanning (used by `SEARCH` mode and `ASK` pre-scan) |
+| `--code-model MODEL` | String | No | Project default | LLM model for code generation (CODE and ARCHITECT modes). Note: `--code-model` is ignored when using `--mode SEARCH`, `--mode ASK`, or `--mode ISSUE_DIAGNOSE`. |
+| `--pre-scan` | Flag | No | `false` | When used together with `--mode ASK`, enable a repository pre-scan that seeds the Workspace before ASK reasoning. If `--scan-model` is provided, it is used for this pre-scan. Ignored for modes other than `ASK`. |
 | `--reasoning-level LEVEL` | String | No | N/A | Job-level reasoning level override for the planner model (passed as `reasoningLevel` in the `POST /v1/jobs` payload) |
 | `--reasoning-level-code LEVEL` | String | No | N/A | Job-level reasoning level override for the code model (passed as `reasoningLevelCode` in the `POST /v1/jobs` payload). Applies to CODE and ARCHITECT modes. |
 | `--temperature VALUE` | Number | No | N/A | Job-level temperature override for the planner model (passed as `temperature` in the `POST /v1/jobs` payload) |
@@ -70,17 +70,17 @@ Or via Gradle:
 | `--token TOKEN` | String | No | Random UUID | Authentication token for the executor (defaults to a randomly generated UUID if not provided) |
 | `--auto-commit` | Flag | No | `false` | Enable automatic git commits after task completion |
 | `--auto-compress` | Flag | No | `false` | Enable automatic context compression to reduce token usage |
-| `--github-token TOKEN` | String | See `ISSUE`/`REVIEW`/`ISSUE_WRITER` | N/A | GitHub API token (required for `ISSUE`, `REVIEW`, and `ISSUE_WRITER` modes) |
-| `--repo-owner OWNER` | String | See `ISSUE`/`REVIEW`/`ISSUE_WRITER` | N/A | GitHub repository owner (required for `ISSUE`, `REVIEW`, and `ISSUE_WRITER` modes) |
-| `--repo-name REPO` | String | See `ISSUE`/`REVIEW`/`ISSUE_WRITER` | N/A | GitHub repository name (required for `ISSUE`, `REVIEW`, and `ISSUE_WRITER` modes) |
-| `--issue-number NUMBER` | Integer | See `ISSUE` | N/A | GitHub issue number (required for `ISSUE` mode) |
+| `--github-token TOKEN` | String | See `ISSUE`/`ISSUE_DIAGNOSE`/`REVIEW`/`ISSUE_WRITER` | N/A | GitHub API token (required for `ISSUE`, `ISSUE_DIAGNOSE`, `REVIEW`, and `ISSUE_WRITER` modes) |
+| `--repo-owner OWNER` | String | See `ISSUE`/`ISSUE_DIAGNOSE`/`REVIEW`/`ISSUE_WRITER` | N/A | GitHub repository owner (required for `ISSUE`, `ISSUE_DIAGNOSE`, `REVIEW`, and `ISSUE_WRITER` modes) |
+| `--repo-name REPO` | String | See `ISSUE`/`ISSUE_DIAGNOSE`/`REVIEW`/`ISSUE_WRITER` | N/A | GitHub repository name (required for `ISSUE`, `ISSUE_DIAGNOSE`, `REVIEW`, and `ISSUE_WRITER` modes) |
+| `--issue-number NUMBER` | Integer | See `ISSUE`/`ISSUE_DIAGNOSE` | N/A | GitHub issue number (required for `ISSUE` and `ISSUE_DIAGNOSE` modes) |
 | `--pr-number NUMBER` | Integer | See `REVIEW` | N/A | GitHub PR number (required for `REVIEW` mode) |
 | `--max-issue-fix-attempts N`| Integer | No | `20` | Maximum number of attempts to fix a failing build in `ISSUE` mode |
 | `--build-settings JSON` | String | No | N/A | JSON string describing build/test commands for `ISSUE` mode verification |
 | `--issue-delivery MODE` | String | No | N/A | Control PR creation in `ISSUE` mode. Set to `none` to disable PR creation. |
 | `--skip-verification` | Flag | No | `false` | When used with `--mode ISSUE` only: instructs the executor to run in "quick" mode by skipping expensive verification and review loops (per-task verification, the review-bot inline fix loop, and the final tests/lint + review gate). Branch creation/cleanup and optional PR creation (when `--issue-delivery` is enabled) still occur. Other modes ignore this flag. |
 | `--help` | Flag | No | N/A | Display usage information and exit |
-| `<prompt>` | Positional | Conditional | N/A | The task or question to submit to the executor (optional in ISSUE/REVIEW mode, required otherwise) |
+| `<prompt>` | Positional | Conditional | N/A | The task or question to submit to the executor (optional in `ISSUE`, `ISSUE_DIAGNOSE`, and `REVIEW` modes; required otherwise, including `ISSUE_WRITER`) |
 
 ## Usage Examples
 
@@ -91,6 +91,7 @@ Or via Gradle:
 | CODE Mode: Single-Shot Code Generation | Use `--mode CODE` and provide `--code-model` for code generation |
 | ARCHITECT / LUTZ | Multi-step planning and execution flows |
 | ISSUE Mode: GitHub Issue Processing | Solve a GitHub issue, verify the fix, and optionally create a PR |
+| ISSUE_DIAGNOSE Mode: Issue Analysis | Analyze a GitHub issue and post a diagnosis comment |
 | REVIEW Mode: Pull Request Review | Analyze a Pull Request and provide review comments |
 
 ### ASK Mode: Read-Only Answer From Current Workspace Context
@@ -109,12 +110,12 @@ Characteristics:
 
 Optional pre-scan:
 - Use `--pre-scan` (only meaningful with `--mode ASK`) to seed the Workspace via a repository scan before running ASK reasoning. This can improve recall for large repositories or vague queries.
-- The CLI may include `scanModel` in the job payload, but the current executor implementation does not apply `scanModel` to the ASK pre-scan. Use `--scan-model` with `--mode SEARCH` to control the scanning model.
+- If `--scan-model` is provided, it is used for the pre-scan.
 
 ASK with pre-scan:
 
 ```bash
-./gradlew :app:runHeadlessCli --args="--mode ASK --planner-model gpt-5 --pre-scan 'Explain what the UserService class does.'"
+./gradlew :app:runHeadlessCli --args="--mode ASK --planner-model gpt-5 --pre-scan --scan-model gpt-5-mini 'Explain what the UserService class does.'"
 ```
 
 **Note:** The `--pre-scan` flag is ignored unless `--mode ASK` is selected.
@@ -218,6 +219,25 @@ Quick/skip-verification example (faster, skips tests/lint and review-bot loops; 
 ```bash
 ./gradlew :app:runHeadlessCli --args="--mode ISSUE --planner-model gpt-5 --code-model gpt-5-mini --github-token ghp_xxxx --repo-owner acme-corp --repo-name service-api --issue-number 42 --skip-verification"
 ```
+
+### ISSUE_DIAGNOSE Mode: Analyze a GitHub Issue
+
+Analyzes a GitHub issue (including comments and images) and posts a diagnosis comment to the issue without making code changes.
+
+```bash
+./gradlew :app:runHeadlessCli --args="--mode ISSUE_DIAGNOSE --planner-model gpt-5 --github-token ghp_yourToken --repo-owner acme-corp --repo-name service-api --issue-number 42"
+```
+
+Characteristics:
+- **Read-only**: Does not create branches or modify code.
+- **Analysis Only**: Focuses on understanding the issue and providing a public diagnosis.
+- **Two-Phase Workflow**: Often followed by a run in `ISSUE` mode to actually implement the fix.
+
+**Required for ISSUE_DIAGNOSE mode:**
+- `--github-token`: A valid GitHub PAT with repository access.
+- `--repo-owner`: The owner of the repository.
+- `--repo-name`: The name of the repository.
+- `--issue-number`: The numeric ID of the issue to process.
 
 ### ISSUE_WRITER Mode: Create a GitHub Issue
 
@@ -413,9 +433,9 @@ Optimize cost and performance by using different models:
 
 ### Issue: "ISSUE mode required fields missing"
 
-**Cause:** One or more required fields for `ISSUE` mode (`--github-token`, `--repo-owner`, `--repo-name`, or `--issue-number`) were omitted while using `--mode ISSUE`.
+**Cause:** One or more required fields for `ISSUE` or `ISSUE_DIAGNOSE` mode (`--github-token`, `--repo-owner`, `--repo-name`, or `--issue-number`) were omitted.
 
-**Solution:** Ensure all four required GitHub parameters are provided when running in `ISSUE` mode.
+**Solution:** Ensure all four required GitHub parameters are provided when running in these modes.
 
 ### Issue: "REVIEW mode required fields missing"
 

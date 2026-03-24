@@ -2,7 +2,7 @@
 
 The Headless Executor runs Brokk sessions in a server mode, controllable via HTTP+JSON API. It's designed for remote execution, CI/CD pipelines, and programmatic task automation.
 
-The `brokk-code` client currently bundles or targets headless executor version **0.23.1.beta6** by default when launched via JBang.
+The `brokk-code` client currently bundles or targets headless executor version **0.23.3.beta1** by default when launched via JBang.
 
 For end-to-end request examples (sessions, jobs, events, and mode-specific payloads), see [headless-executor-testing-with-curl.md](headless-executor-testing-with-curl.md).
 
@@ -63,14 +63,14 @@ ASK supports an optional repository pre-scan that seeds the Workspace with addit
 
 Model selection semantics for the pre-scan:
 - The ASK reasoning always uses `plannerModel` (this remains required).
-- The pre-scan currently uses the project's default scan model (`Service.getScanModel()`).
-- The `scanModel` field is accepted in the job payload, but it is currently only used by SEARCH mode (it is not applied to the ASK pre-scan in the current implementation).
+- If `preScan` is true and `scanModel` is provided in the job payload, the executor uses that explicit `scanModel` for the pre-scan.
+- If `preScan` is true and `scanModel` is omitted, the executor falls back to the project's default scan model.
 - `codeModel` is ignored for ASK (ASK is read-only).
 
 Example job fields for pre-scan behavior:
 - `"plannerModel": "gpt-5"`  — required for ASK reasoning
 - `"preScan": true`         — enable repository pre-scan before reasoning
-- `"scanModel": "gpt-5-mini"` — optional override used by SEARCH mode (not applied to ASK pre-scan currently)
+- `"scanModel": "gpt-5-mini"` — optional override used for the pre-scan
 
 ASK does not perform tool-driven repository discovery by itself. For read-only repository discovery (symbol search, usages, file search, etc.), use SEARCH mode.
 
@@ -79,14 +79,10 @@ ASK does not perform tool-driven repository discovery by itself. For read-only r
 ASK mode requires:
 - `plannerModel`: The LLM model to use for generating the answer
 - `preScan` (optional): When `true`, run a repository pre-scan that seeds the Workspace before reasoning
-- `scanModel` (optional): Used by SEARCH mode; not applied to ASK pre-scan in the current implementation
+- `scanModel` (optional): Used for the pre-scan if `preScan` is true; otherwise used by SEARCH mode
 - `autoCompress` (optional): Enable automatic context compression (recommended for large codebases)
 
 ASK mode **ignores** `codeModel` since it does not perform code generation.
-
-### ASK execution notes
-
-Note: In the current implementation, ASK pre-scan always uses the project's default scan model, regardless of `scanModel`.
 
 For concrete ASK request/streaming examples, use the curl examples document linked at the top of this page.
 
@@ -335,6 +331,12 @@ Once running, the executor exposes the following endpoints:
   - Body: `{ "name": "<session name>" }`
   - Returns `201`: `{ "sessionId": "<uuid>", "name": "<session name>" }`
 
+- **`POST /v1/sessions/rename`** - Rename a session
+  - Body: `{ "sessionId": "<uuid>", "name": "<new name>" }`
+
+- **`POST /v1/sessions/delete`** - Delete a session
+  - Body: `{ "sessionId": "<uuid>" }`
+
 - **`POST /v1/sessions/switch`** - Switch the active session
   - Body: `{ "sessionId": "<uuid>" }`
   - Returns: `{ "status": "ok", "sessionId": "<uuid>" }`
@@ -469,10 +471,43 @@ Once running, the executor exposes the following endpoints:
 
 - **`GET /v1/favorites`** - List favorite model configs
 
+- **`GET /v1/model-config`** - Get current global model configuration
+- **`POST /v1/model-config`** - Update global model configuration
+
+### Repo Helpers (Authenticated)
+
+- **`POST /v1/repo/commit`** - Commit current workspace changes.
+  - Body: `{ "message": "<string>" }`
+- **`POST /v1/repo/pr/suggest`** - Suggest a PR title and body based on session changes
+- **`POST /v1/repo/pr/create`** - Create a GitHub Pull Request
+- **`POST /v1/repo/pr/sessions`** - List sessions associated with PRs
+
+### Auth & OAuth (Authenticated)
+
+- **`GET /v1/auth/validate`** - Validate current authentication/API keys
+- **`POST /v1/openai/oauth/start`** - Start OpenAI OAuth flow
+- **`GET /v1/openai/oauth/status`** - Check OpenAI OAuth status
+
+### Guided Review (Authenticated)
+
+- **`POST /v1/review/submit`** - Submit a guided review response
+
+### Dependencies (Authenticated)
+
+- **`GET /v1/dependencies`** - List project dependencies
+- **`PUT /v1/dependencies`** - Update dependency list
+- **`POST /v1/dependencies/import`** - Import dependencies from build files
+- **`POST /v1/dependencies/remote-refs`** - Fetch remote references for dependencies
+- **`POST /v1/dependencies/{name}/update`** - Update a specific dependency
+- **`DELETE /v1/dependencies/{name}`** - Remove a dependency
+
 ### Job Management (Authenticated)
 
 - **`POST /v1/jobs`** - Create and execute a job
   - Requires `Idempotency-Key` header for safe retries
+  - Headers:
+    - `X-Session-Id`: (Optional) Select or switch to this session before submission
+    - `X-Github-Token`: (Optional) Merged into job tags as `github_token`
   - Body: Job JSON accepted by the headless API. Most fields correspond to persisted `JobSpec`, but:
     - `sessionId` exists in the request body for compatibility, but it is not currently used to select the active session. Jobs execute against the server's currently active session (set by `POST /v1/sessions` or `PUT /v1/sessions`).
     - `sourceBranch` / `targetBranch` are persisted/reserved `JobSpec` fields but are not currently accepted by `POST /v1/jobs` (they will always be null when jobs are created via this endpoint).
@@ -483,12 +518,13 @@ Once running, the executor exposes the following endpoints:
   - **LUTZ mode**: Set `"tags": { "mode": "LUTZ" }` to enable two-phase planning and execution (SearchAgent generates a task list, then ArchitectAgent executes tasks sequentially), honoring autoCommit and autoCompress
   - **REVIEW mode**: Set `"tags": { "mode": "REVIEW" }` to review a GitHub PR (requires github_token, repo_owner, repo_name, pr_number in tags)
   - **ISSUE mode**: Set `"tags": { "mode": "ISSUE" }` to resolve a GitHub Issue. Requires `github_token`, `repo_owner`, `repo_name`, and `issue_number` in tags. ISSUE-mode jobs may include an optional top-level boolean field `skipVerification` in the job JSON; when present and `true` the executor will run the ISSUE quick (skip-verification) flow (see ISSUE Mode section for details). This field is only honored for jobs whose `tags.mode == "ISSUE"`; other modes ignore it.
+  - **ISSUE_DIAGNOSE mode**: Set `"tags": { "mode": "ISSUE_DIAGNOSE" }` to analyze a GitHub issue and post a diagnosis comment without code changes. Requires `github_token`, `repo_owner`, `repo_name`, and `issue_number` in tags.
   - **ISSUE_WRITER mode**: Set `"tags": { "mode": "ISSUE_WRITER" }` to discover evidence in the repo and create a GitHub issue (requires github_token, repo_owner, repo_name in tags).
   - **ARCHITECT mode** (default): Orchestrates multi-step planning and implementation
 
-### Observability and Model Controls (0.23.0.beta9)
+### Observability and Model Controls
 
-Version 0.23.0.beta9 introduces refined controls for LLM reasoning and structured cost reporting.
+The executor provides refined controls for LLM reasoning and structured cost reporting.
 
 #### Cost Reporting
 The executor emits structured `NOTIFICATION` events with a `level: "COST"` and a numeric `cost` field representing USD. These notifications include per-turn cost deltas.
@@ -594,7 +630,7 @@ Run the JAR:
 
 ```bash
 java -Djava.awt.headless=true -Dapple.awt.UIElement=true \
-  -cp app/build/libs/brokk-0.23.1.beta6.jar \
+  -cp app/build/libs/brokk-<version>.jar \
   ai.brokk.executor.HeadlessExecutorMain \
   --exec-id 550e8400-e29b-41d4-a716-446655440000 \
   --listen-addr 0.0.0.0:8080 \

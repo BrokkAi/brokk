@@ -35,31 +35,40 @@ Token-by-token model output.
 Emitted when the LLM requests a tool execution.
 
 `data` object:
-- `id` (string): Unique identifier for the tool call.
-- `name` (string): Name of the tool being called.
-- `arguments` (string): JSON-formatted string of tool arguments.
+- `id` (string): Unique identifier for the tool call
+- `name` (string): Name of the tool being called
+- `arguments` (string): JSON-formatted string of tool arguments
 
 ### `TOOL_OUTPUT`
 
 Emitted when a tool execution completes.
 
 `data` object:
-- `id` (string): Matches the `id` from the corresponding `TOOL_CALL`.
-- `name` (string): Name of the tool that was executed.
-- `status` (string): Execution status (`SUCCESS`, `REQUEST_ERROR`, `INTERNAL_ERROR`, or `FATAL`).
-- `resultText` (string): The textual output or error message from the tool.
+- `id` (string): Matches the `id` from the corresponding `TOOL_CALL`
+- `name` (string): Name of the tool that was executed
+- `status` (string): Execution status (`SUCCESS`, `REQUEST_ERROR`, `INTERNAL_ERROR`, or `FATAL`)
+- `resultText` (string): The textual output or error message from the tool
+
+### `COMMAND_START`
+
+Emitted when a command begins during a structured workflow.
+
+`data` object:
+- `stage` (string)
+- `command` (string)
 
 ### `NOTIFICATION`
 
-Human-readable progress/status messages.
+Human-readable progress or status messages.
 
 `data` is one of:
 - Object form:
-  - `level` (string, e.g. `INFO`, `WARNING`, `ERROR`)
+  - `level` (string, e.g. `INFO`, `WARNING`, `ERROR`, `COST`)
   - `message` (string)
   - `title` (string, optional)
+  - `cost` (number, optional): Present for `COST`-level notifications, representing USD
 - String form:
-  - Plain notification text (emitted by some ISSUE flows)
+  - Plain notification text
 
 ### `ERROR`
 
@@ -71,7 +80,7 @@ Tool/error notification emitted by console integration.
 
 ### `CONTEXT_BASELINE`
 
-Baseline snapshot hints used by UIs when stream output is reset/reseeded.
+Baseline snapshot hints used by UIs when stream output is reset or reseeded.
 
 `data` object:
 - `count` (int)
@@ -79,7 +88,7 @@ Baseline snapshot hints used by UIs when stream output is reset/reseeded.
 
 ### `STATE_HINT`
 
-UI state hints for spinners/progress/state transitions.
+UI state hints for spinners, progress, and state transitions.
 
 `data` object:
 - `name` (string)
@@ -97,20 +106,62 @@ Currently used `name` values include:
 - `gitRepoUpdated`
 - `contextHistoryUpdated`
 
+### `BROKK_AUTH_VALIDATION`
+
+Emitted during Brokk authentication or account validation checks.
+
+`data` object:
+- `state` (string)
+- `valid` (boolean)
+- `subscribed` (boolean)
+- `hasBalance` (boolean)
+- `balanceDisplay` (string)
+- `message` (string)
+- `balance` (number, optional)
+
 ### `COMMAND_RESULT`
 
-Structured result for build/test/lint/review-loop command execution in ISSUE workflows.
+Structured result for build/test/lint/review-loop command execution.
 
 `data` object:
 - `stage` (string)
 - `command` (string)
 - `attempt` (int, optional)
-- `skipped` (boolean)
+- `skipped` (boolean, optional)
 - `skipReason` (string, optional)
 - `success` (boolean)
-- `output` (string, truncated to max 25,000 chars)
-- `outputTruncated` (boolean, optional; present when truncation happened)
+- `output` (string)
+- `outputTruncated` (boolean, optional)
 - `exception` (string, optional)
+
+### `REVIEW_PROGRESS`
+
+Emitted during automated review workflows to report progress.
+
+`data` object:
+- `stage` (string)
+- `percent` (int)
+
+### `REVIEW_COMPLETE`
+
+Final structured summary for an automated review.
+
+`data` object:
+- `overview` (string)
+- `keyChanges` (array of objects with `title`, `description`, `excerpts`)
+- `designNotes` (array of objects with `title`, `description`, `excerpts`, `recommendation`)
+- `tacticalNotes` (array of objects with `title`, `description`, `excerpts`, `recommendation`)
+- `additionalTests` (array of objects with `title`, `recommendation`)
+
+### `ISSUE_CREATED`
+
+Emitted when ISSUE_WRITER or related workflows create a GitHub issue.
+
+`data` object:
+- `issueId` (string)
+- `issueUrl` (string, optional)
+- `repoOwner` (string)
+- `repoName` (string)
 
 ### `CONFIRM_REQUEST`
 
