@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any, Dict
 
 import pytest
+from textual.widgets import Checkbox, Input, Select
 
 from brokk_code.app import BrokkApp, SettingsModalScreen
 
@@ -14,6 +15,7 @@ class StubExecutor:
 
     def __init__(self, tmp_path: Path):
         self._workspace_dir = tmp_path
+        self.last_saved_settings: Dict[str, Any] | None = None
 
     @property
     def workspace_dir(self) -> Path:
@@ -41,26 +43,28 @@ class StubExecutor:
     async def get_settings(self) -> Dict[str, Any]:
         return {
             "buildDetails": {
-                "lintCommand": "",
-                "testAllCommand": "",
-                "testSomeCommand": "",
-                "afterTaskListCommand": "",
-                "codeAgentTestScope": "ALL",
-                "runCommandTimeoutSeconds": 30,
-                "testCommandTimeoutSeconds": 60,
-                "lintCommandEnabled": True,
-                "testAllCommandEnabled": True,
-                "testSomeCommandEnabled": True,
+                "buildLintCommand": "make lint",
+                "buildLintEnabled": True,
+                "testAllCommand": "make test",
+                "testAllEnabled": True,
+                "testSomeCommand": "make test-some",
+                "testSomeEnabled": False,
+                "afterTaskListCommand": "make clean",
+                "exclusionPatterns": ["node_modules", "build"],
+                "modules": [],
             },
             "projectSettings": {
-                "exclusionPatterns": [],
-                "environmentVariables": {},
-                "autoUpdateLocalDependencies": False,
+                "codeAgentTestScope": "WORKSPACE",
+                "runCommandTimeoutSeconds": 120,
+                "testCommandTimeoutSeconds": 300,
+                "autoUpdateLocalDependencies": True,
                 "autoUpdateGitDependencies": False,
+                "commitMessageFormat": "feat: {msg}",
+                "dataRetentionPolicy": "MINIMAL",
             },
-            "shellConfig": {"executable": "/bin/sh", "args": "-c"},
+            "shellConfig": {"executable": "/bin/zsh", "args": ["-c"]},
             "issueProvider": {"type": "NONE"},
-            "dataRetentionPolicy": "UNSET",
+            "dataRetentionPolicy": "MINIMAL",
             "analyzerLanguages": {
                 "configured": ["JAVA"],
                 "detected": ["JAVA", "PYTHON"],
@@ -76,6 +80,7 @@ class StubExecutor:
         return {}
 
     async def update_all_settings(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        self.last_saved_settings = data
         return {"status": "updated"}
 
 
@@ -125,3 +130,60 @@ async def test_settings_modal_languages_section_exists(tmp_path: Path):
         screen = app.screen
         lang_scroll = screen.query_one("#settings-languages-scroll")
         assert lang_scroll is not None
+
+
+@pytest.mark.asyncio
+async def test_settings_modal_loads_data(tmp_path: Path):
+    """Verify form fields are populated from executor settings data."""
+    stub = StubExecutor(tmp_path)
+    app = SettingsTestApp(stub)
+    async with app.run_test(size=(120, 40)) as pilot:
+        app.push_screen(SettingsModalScreen())
+        await pilot.pause()
+        # Allow the async worker to load settings
+        await pilot.pause()
+
+        screen = app.screen
+
+        # Build details
+        assert screen.query_one("#settings-build-lint-command", Input).value == "make lint"
+        assert screen.query_one("#settings-build-lint-enabled", Checkbox).value is True
+        assert screen.query_one("#settings-test-all-command", Input).value == "make test"
+        assert screen.query_one("#settings-test-some-enabled", Checkbox).value is False
+        assert screen.query_one("#settings-after-tasklist-command", Input).value == "make clean"
+
+        # Project settings - timeout selects
+        assert screen.query_one("#settings-run-timeout", Select).value == "120"
+        assert screen.query_one("#settings-test-timeout", Select).value == "300"
+
+        # Shell config
+        assert screen.query_one("#settings-shell-executable", Input).value == "/bin/zsh"
+        assert screen.query_one("#settings-shell-args", Input).value == "-c"
+
+
+@pytest.mark.asyncio
+async def test_settings_modal_saves_data(tmp_path: Path):
+    """Verify save sends correct payload to executor."""
+    stub = StubExecutor(tmp_path)
+    app = SettingsTestApp(stub)
+    async with app.run_test(size=(120, 40)) as pilot:
+        app.push_screen(SettingsModalScreen())
+        await pilot.pause()
+        await pilot.pause()
+
+        screen = app.screen
+
+        # Change a value
+        screen.query_one("#settings-build-lint-command", Input).value = "npm run lint"
+
+        # Trigger save via button press
+        screen.query_one("#settings-save").press()
+        await pilot.pause()
+        await pilot.pause()
+
+        # Verify the save was called
+        assert stub.last_saved_settings is not None
+        build = stub.last_saved_settings["buildDetails"]
+        assert build["buildLintCommand"] == "npm run lint"
+        # Unchanged fields should still be present
+        assert build["testAllCommand"] == "make test"
