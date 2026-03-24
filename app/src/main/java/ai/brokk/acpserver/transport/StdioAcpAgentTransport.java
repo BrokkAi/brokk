@@ -212,7 +212,12 @@ public class StdioAcpAgentTransport implements AcpTransport {
                 writer.println(json);
                 writer.flush();
             }
-            logger.debug("Sent message: {}", json);
+            if (logger.isDebugEnabled()) {
+                logger.debug(
+                        "Sent message ({} chars): {}",
+                        json.length(),
+                        json.length() > 500 ? json.substring(0, 500) + "..." : json);
+            }
         } catch (JsonProcessingException e) {
             logger.error("Failed to serialize message", e);
             String fallback =

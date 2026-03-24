@@ -325,6 +325,7 @@ class AcpStdioExecutor:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=str(self.workspace_dir),
+                limit=10 * 1024 * 1024,  # 10MB buffer for large JSON-RPC responses (e.g. sessions/list)
             )
         except FileNotFoundError:
             binary = cmd[0]
@@ -364,7 +365,10 @@ class AcpStdioExecutor:
         while True:
             try:
                 line = await self._process.stdout.readline()
+            except asyncio.CancelledError:
+                break
             except Exception:
+                logger.warning("Reader stdout failed", exc_info=True)
                 break
             if not line:
                 break
@@ -382,6 +386,8 @@ class AcpStdioExecutor:
                     await self._notification_queue.put(msg)
             except json.JSONDecodeError:
                 logger.warning("Failed to parse JSON-RPC message: %s", line)
+            except Exception:
+                logger.warning("Error processing message: %s", line, exc_info=True)
 
         for future in self._response_futures.values():
             if not future.done():

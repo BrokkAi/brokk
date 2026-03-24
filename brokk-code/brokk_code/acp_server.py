@@ -894,12 +894,21 @@ class AcpStdioBridge:
         self._started = False
         self._ready_lock = asyncio.Lock()
 
+    @property
+    def is_alive(self) -> bool:
+        """Returns True if the bridge was started and the executor is still running."""
+        return self._started and self.executor.check_alive()
+
     async def ensure_ready(self, cwd: Optional[str] = None) -> None:
-        if self._started:
+        if self._started and self.executor.check_alive():
             return
         async with self._ready_lock:
-            if self._started:
+            if self._started and self.executor.check_alive():
                 return
+            if self._started:
+                logger.warning("ACP server process died, restarting")
+                self._started = False
+                await self.executor.stop()
             await self.executor.start()
             await self.executor.initialize()
             working_dir = cwd or str(self.executor.workspace_dir)
@@ -1775,15 +1784,20 @@ async def run_acp_server(
         class AcpStdioAgent(BaseAcpAgent):
             def __init__(self) -> None:
                 super().__init__(bridge=stdio_bridge)
+                self._replay_tasks: set[asyncio.Task[Any]] = set()
 
             async def _fetch_models_payload(self, session_id: str) -> dict[str, Any]:
                 await self._bridge.ensure_ready(self._cwd_by_session.get(session_id))
                 return await self._bridge.get_models()
 
             async def _fetch_sessions_payload(self, cwd: Optional[str]) -> Optional[dict[str, Any]]:
-                if not self._bridge._started:
+                if not self._bridge.is_alive:
                     return None
-                return await self._bridge.list_sessions()
+                try:
+                    return await self._bridge.list_sessions()
+                except Exception:
+                    logger.warning("list_sessions: failed to list sessions", exc_info=True)
+                    return None
 
             async def _do_load_session(self, session_id: str, cwd: str) -> bool:
                 await self._bridge.ensure_ready(cwd)
@@ -1801,6 +1815,55 @@ async def run_acp_server(
                     )
                     return False
                 return True
+
+            def _post_load_session(self, session_id: str) -> None:
+                self._schedule_replay_loaded_session(session_id)
+
+            async def _replay_loaded_session(self, session_id: str) -> None:
+                if not self.client:
+                    return
+                try:
+                    conversation_data = await self._bridge.executor.get_conversation()
+                except Exception:
+                    logger.warning(
+                        "Failed to fetch conversation replay for session %s",
+                        session_id,
+                        exc_info=True,
+                    )
+                    return
+
+                updates = conversation_payload_to_session_updates(
+                    conversation_data,
+                    update_user_message_text=update_user_message_text,
+                    update_agent_message_text=update_agent_message_text,
+                    update_agent_thought_text=update_agent_thought_text,
+                )
+                logger.info(
+                    "Replaying %s ACP chat updates for session %s", len(updates), session_id
+                )
+                for update in updates:
+                    await self.client.session_update(session_id, update)
+
+            def _schedule_replay_loaded_session(self, session_id: str) -> None:
+                async def _run() -> None:
+                    await asyncio.sleep(0)
+                    await self._replay_loaded_session(session_id)
+
+                task = asyncio.create_task(_run())
+                self._replay_tasks.add(task)
+
+                def _done_callback(done: asyncio.Task[Any]) -> None:
+                    self._replay_tasks.discard(done)
+                    try:
+                        done.result()
+                    except Exception:
+                        logger.warning(
+                            "Session replay task failed for session %s",
+                            session_id,
+                            exc_info=True,
+                        )
+
+                task.add_done_callback(_done_callback)
 
             async def _pre_prompt(self, session_id: str) -> None:
                 if session_id not in self._cwd_by_session:
