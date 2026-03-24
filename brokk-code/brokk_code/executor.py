@@ -325,7 +325,9 @@ class AcpStdioExecutor:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=str(self.workspace_dir),
-                limit=10 * 1024 * 1024,  # 10MB buffer for large JSON-RPC responses (e.g. sessions/list)
+                limit=10
+                * 1024
+                * 1024,  # 10MB buffer for large JSON-RPC responses (e.g. sessions/list)
             )
         except FileNotFoundError:
             binary = cmd[0]
