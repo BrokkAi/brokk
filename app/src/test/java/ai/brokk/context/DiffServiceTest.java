@@ -3,10 +3,10 @@ package ai.brokk.context;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.IContextManager;
-import ai.brokk.git.GitRepoData.FileDiff;
 import ai.brokk.analyzer.ExternalFile;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.concurrent.ComputedValue;
+import ai.brokk.git.GitRepoData.FileDiff;
 import ai.brokk.testutil.NoOpConsoleIO;
 import ai.brokk.testutil.TestContextManager;
 import java.awt.Color;
@@ -480,18 +480,10 @@ class DiffServiceTest {
 
         // 1. Setup FileDiffs
         // Text change: 2 lines added, 1 deleted
-        var txtDiff = new FileDiff(
-                txtFile, txtFile,
-                "line1\nline2",
-                "line1\nline3\nline4",
-                false);
+        var txtDiff = new FileDiff(txtFile, txtFile, "line1\nline2", "line1\nline3\nline4", false);
 
         // Binary change: represented as 1 added/1 deleted in cumulative calculation
-        var binDiff = new FileDiff(
-                binFile, binFile,
-                "[Binary file (old)]",
-                "[Binary file (new)]",
-                true);
+        var binDiff = new FileDiff(binFile, binFile, "[Binary file (old)]", "[Binary file (new)]", true);
 
         var fileDiffs = List.of(txtDiff, binDiff);
 

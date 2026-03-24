@@ -8,10 +8,7 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
 import org.eclipse.jgit.api.Git;
-import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.diff.DiffEntry;
-import org.eclipse.jgit.lib.AbbreviatedObjectId;
-import org.eclipse.jgit.lib.FileMode;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -37,8 +34,8 @@ class GitRepoDataTest {
             }
 
             @Override
-            /** Simulate a very large size (e.g., 1GB). */
             public Optional<Long> size() {
+                /** Simulate a very large size (e.g., 1GB). */
                 return Optional.of(1024L * 1024L * 1024L);
             }
         };
@@ -61,7 +58,7 @@ class GitRepoDataTest {
                     var constructor = DiffEntry.class.getDeclaredConstructor();
                     constructor.setAccessible(true);
                     DiffEntry entry = constructor.newInstance();
-                    
+
                     var oldPathField = DiffEntry.class.getDeclaredField("oldPath");
                     oldPathField.setAccessible(true);
                     oldPathField.set(entry, "large_binary.bin");

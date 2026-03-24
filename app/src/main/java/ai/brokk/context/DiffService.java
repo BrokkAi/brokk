@@ -434,8 +434,12 @@ public final class DiffService {
         public String toDiff() {
             return perFileChanges().stream()
                     .map(fd -> {
-                        String oldPath = fd.oldFile() == null ? "/dev/null" : "a/" + fd.oldFile().toString();
-                        String newPath = fd.newFile() == null ? "/dev/null" : "b/" + fd.newFile().toString();
+                        String oldPath = fd.oldFile() == null
+                                ? "/dev/null"
+                                : "a/" + fd.oldFile().toString();
+                        String newPath = fd.newFile() == null
+                                ? "/dev/null"
+                                : "b/" + fd.newFile().toString();
 
                         if (fd.isBinary()) {
                             return "Binary files %s and %s differ".formatted(oldPath, newPath);
@@ -443,8 +447,12 @@ public final class DiffService {
                         return ContentDiffUtils.computeDiffResult(
                                         fd.oldText(),
                                         fd.newText(),
-                                        fd.oldFile() == null ? null : fd.oldFile().toString(),
-                                        fd.newFile() == null ? null : fd.newFile().toString())
+                                        fd.oldFile() == null
+                                                ? null
+                                                : fd.oldFile().toString(),
+                                        fd.newFile() == null
+                                                ? null
+                                                : fd.newFile().toString())
                                 .diff();
                     })
                     .collect(Collectors.joining("\n\n"));
@@ -454,15 +462,21 @@ public final class DiffService {
         public String toReviewDiff(IAnalyzer analyzer) {
             return perFileChanges().stream()
                     .map(fd -> {
-                        String oldPath = fd.oldFile() == null ? "/dev/null" : "a/" + fd.oldFile().toString();
-                        String newPath = fd.newFile() == null ? "/dev/null" : "b/" + fd.newFile().toString();
+                        String oldPath = fd.oldFile() == null
+                                ? "/dev/null"
+                                : "a/" + fd.oldFile().toString();
+                        String newPath = fd.newFile() == null
+                                ? "/dev/null"
+                                : "b/" + fd.newFile().toString();
 
                         if (fd.isBinary()) {
                             return "Binary files %s and %s differ".formatted(oldPath, newPath);
                         }
 
-                        String oldName = fd.oldFile() == null ? null : fd.oldFile().toString();
-                        String newName = fd.newFile() == null ? null : fd.newFile().toString();
+                        String oldName =
+                                fd.oldFile() == null ? null : fd.oldFile().toString();
+                        String newName =
+                                fd.newFile() == null ? null : fd.newFile().toString();
                         return ContentDiffUtils.computeReviewDiffResult(
                                         analyzer, fd.newFile(), fd.oldText(), fd.newText(), oldName, newName)
                                 .diff();
