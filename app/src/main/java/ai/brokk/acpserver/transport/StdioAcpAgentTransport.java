@@ -114,7 +114,7 @@ public class StdioAcpAgentTransport implements AcpTransport {
             return;
         }
 
-        logger.debug("Received request: method={}, id={}", request.method(), request.id());
+        logger.trace("Received request: method={}, id={}", request.method(), request.id());
 
         if (request.isNotification()) {
             try {
@@ -212,8 +212,8 @@ public class StdioAcpAgentTransport implements AcpTransport {
                 writer.println(json);
                 writer.flush();
             }
-            if (logger.isDebugEnabled()) {
-                logger.debug(
+            if (logger.isTraceEnabled()) {
+                logger.trace(
                         "Sent message ({} chars): {}",
                         json.length(),
                         json.length() > 500 ? json.substring(0, 500) + "..." : json);

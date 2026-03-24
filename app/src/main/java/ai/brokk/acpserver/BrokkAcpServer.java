@@ -89,7 +89,7 @@ public class BrokkAcpServer {
     private void setState(SessionState newState) {
         var old = state;
         state = newState;
-        logger.info(
+        logger.debug(
                 "Session state: {} -> {}",
                 old.getClass().getSimpleName(),
                 newState.getClass().getSimpleName());
@@ -155,7 +155,7 @@ public class BrokkAcpServer {
     }
 
     private void handleCancel(CancelRequest req) {
-        logger.info("Received cancel request for session {}", req.sessionId());
+        logger.debug("Received cancel request for session {}", req.sessionId());
         var a = agent;
         if (a != null) {
             a.interruptPrompt();
@@ -221,7 +221,7 @@ public class BrokkAcpServer {
     private ContextManager requireSession() {
         var current = state;
         if (current instanceof SessionState.Initializing) {
-            logger.info("Waiting for project initialization to complete...");
+            logger.debug("Waiting for project initialization to complete...");
             long deadline = System.currentTimeMillis() + INIT_TIMEOUT_MS;
             while (state instanceof SessionState.Initializing && System.currentTimeMillis() < deadline) {
                 try {
@@ -250,7 +250,6 @@ public class BrokkAcpServer {
     }
 
     private InitializeResponse handleInitialize(InitializeRequest req) {
-        logger.debug("Received initialize request with protocol version {}", req.protocolVersion());
         if (req.protocolVersion() != 1) {
             throw new AcpProtocolException(
                     AcpProtocolException.INVALID_PARAMS,
@@ -293,7 +292,6 @@ public class BrokkAcpServer {
 
     private PromptResponse handlePrompt(PromptRequest req, SyncPromptContext ctx) {
         var activeCm = requireSession();
-        logger.debug("Received prompt request for session {}", req.sessionId());
 
         // Extract text from messages
         String instructions = req.messages().stream()
@@ -363,7 +361,6 @@ public class BrokkAcpServer {
     }
 
     private ModelsListResponse handleModelsList(ModelsListRequest req) {
-        logger.debug("Received models/list request");
         if (!(state instanceof SessionState.Ready ready)) {
             return new ModelsListResponse(List.of());
         }
@@ -375,7 +372,6 @@ public class BrokkAcpServer {
     }
 
     private ContextGetResponse handleContextGet(ContextGetRequest req) {
-        logger.debug("Received context/get request");
         var activeCm = requireSession();
         var context = activeCm.liveContext();
         var fragments = context.getAllFragmentsInDisplayOrder().stream()
@@ -386,9 +382,6 @@ public class BrokkAcpServer {
     }
 
     private ContextAddFilesResponse handleContextAddFiles(ContextAddFilesRequest req) {
-        logger.debug(
-                "Received context/add-files request with {} paths",
-                req.relativePaths().size());
         var activeCm = requireSession();
         var files = req.relativePaths().stream().map(activeCm::toFile).toList();
         activeCm.addFiles(files);
@@ -408,9 +401,6 @@ public class BrokkAcpServer {
     }
 
     private ContextDropResponse handleContextDrop(ContextDropRequest req) {
-        logger.debug(
-                "Received context/drop request with {} fragment IDs",
-                req.fragmentIds().size());
         var activeCm = requireSession();
         var droppedIds = new ArrayList<>(req.fragmentIds());
         activeCm.pushContext(ctx -> ctx.removeFragmentsByIds(req.fragmentIds()));
@@ -418,7 +408,6 @@ public class BrokkAcpServer {
     }
 
     private SessionsListResponse handleSessionsList(SessionsListRequest req) {
-        logger.debug("Received sessions/list request");
         if (!(state instanceof SessionState.Ready ready)) {
             return new SessionsListResponse(List.of());
         }
@@ -430,7 +419,6 @@ public class BrokkAcpServer {
     }
 
     private SessionSwitchResponse handleSwitchSession(SessionSwitchRequest req) {
-        logger.debug("Received session/switch request for {}", req.sessionId());
         var activeCm = requireSession();
 
         if (req.sessionId() == null || req.sessionId().isBlank()) {
@@ -461,7 +449,6 @@ public class BrokkAcpServer {
     }
 
     private GetConversationResponse handleGetConversation(GetConversationRequest req) {
-        logger.debug("Received context/get-conversation request");
         var activeCm = requireSession();
         var taskHistory = activeCm.liveContext().getTaskHistory();
         var entries = new ArrayList<ConversationEntry>();
