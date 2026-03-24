@@ -86,7 +86,8 @@ public interface MacroExpansionProvider extends CapabilityProvider {
                                 if (mm != null && isParentRequirementMet(macroName, mm, acc)) {
                                     handled = true;
                                     if (mm.options() instanceof MacroPolicy.TemplateConfig tc) {
-                                        expandTemplate(analyzer, rootNode, file, node, sourceContent, tc.template(), acc);
+                                        expandTemplate(
+                                                analyzer, rootNode, file, node, sourceContent, tc.template(), acc);
                                     }
                                 }
 
@@ -320,7 +321,7 @@ public interface MacroExpansionProvider extends CapabilityProvider {
     }
 
     private String toSnakeCase(String input) {
-        if (input == null || input.isEmpty()) return input;
+        if (input.isEmpty()) return input;
         StringBuilder result = new StringBuilder();
         for (int i = 0; i < input.length(); i++) {
             char c = input.charAt(i);

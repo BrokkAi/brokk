@@ -203,7 +203,12 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
 
         // If fileScopedPackageNames is not null, the PhpAnalyzer instance is (likely) fully initialized,
         // and we can use the caching mechanism.
-        return fileScopedPackageNames.computeIfAbsent(file, f -> computeFilePackageName(f, rootNode, sourceContent));
+        String pkg = fileScopedPackageNames.get(file);
+        if (pkg != null) return pkg;
+
+        pkg = computeFilePackageName(file, rootNode, sourceContent);
+        fileScopedPackageNames.put(file, pkg);
+        return pkg;
     }
 
     @Override

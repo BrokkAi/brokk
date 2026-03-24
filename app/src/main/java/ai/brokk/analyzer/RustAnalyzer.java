@@ -736,7 +736,7 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
         }
 
         IAnalyzer.Range range = ranges.getFirst();
-        if (rootNode == null || rootNode.isNull()) {
+        if (rootNode.isNull()) {
             log.warn("enrichChildContext: rootNode is null for {}", childCu.fqName());
             return;
         }

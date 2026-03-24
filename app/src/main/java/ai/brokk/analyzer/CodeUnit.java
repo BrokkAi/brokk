@@ -96,7 +96,11 @@ public class CodeUnit implements Comparable<CodeUnit> {
                 int lastSep = Math.max(lastDot, lastDollar);
                 yield lastSep >= 0 ? shortName.substring(lastSep + 1) : shortName;
             }
-            case MODULE -> shortName; // The module's own short name, e.g., "_module_"
+            case MODULE -> {
+                // For modules, if the shortName is a filename, we want to preserve it.
+                // Otherwise, it's a fixed placeholder like "_module_".
+                yield shortName;
+            }
             default -> { // FUNCTION or FIELD
                 // shortName format is "Class.member" or "simpleFunction"
                 int lastDot = shortName.lastIndexOf('.');

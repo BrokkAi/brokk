@@ -349,6 +349,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             String asyncKeywordNodeType,
             Set<String> modifierNodeTypes) {}
 
+    /**
+     * Mutable accumulator for per-file analysis state.
+     */
     private record FileAnalysisResult(
             List<CodeUnit> topLevelCUs,
             Map<CodeUnit, CodeUnitProperties> codeUnitState,
@@ -2396,12 +2399,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                             : currentPackage.substring(currentPackage.lastIndexOf('.') + 1);
 
                     CodeUnit fileModule = CodeUnit.module(file, currentPackage, moduleSimpleName);
-                    if (acc.getByFqName(fileModule.fqName()) == null) {
+                    if (acc.getByFqName(fileModule.fqName()) == null && acc.getByFqName(currentPackage) == null) {
                         acc.registerCodeUnit(fileModule);
-                        addTopLevelCodeUnit(fileModule, acc, file);
+                        // Do not add to topLevelCUs to avoid cluttering file skeletons,
+                        // but register it so macros/children can attach.
                         acc.addLookupKey(fileModule.fqName(), fileModule);
-                        acc.addSymbolIndex(fileModule.identifier(), fileModule);
-                        acc.addSymbolIndex(fileModule.shortName(), fileModule);
                     }
 
                     // Phase 3: Post-processing Hook (e.g., Macros)
@@ -3588,11 +3590,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         // Merge code unit state
         analysisResult.codeUnitState().forEach((cu, newState) -> {
             // For MODULE CodeUnits (e.g., Java packages), prefer merging using a canonical key
-            // so that children from multiple files aggregate under a single module entry.
+            // indexed by FQN to ensure cross-file aggregation.
             CodeUnit mergeKey = cu;
             if (cu.isModule()) {
                 CodeUnit existingKey = moduleKeyCache.getIfPresent(cu.fqName());
-                if (existingKey != null) {
+                if (existingKey != null && !existingKey.equals(cu)) {
                     mergeKey = existingKey;
                 }
             }
@@ -3628,8 +3630,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             });
 
             if (cu.isModule()) {
-                // Assignment is here to pass linting
-                var unused = moduleKeyCache.get(cu.fqName(), k -> finalMergeKey);
+                moduleKeyCache.put(cu.fqName(), finalMergeKey);
             }
         });
 

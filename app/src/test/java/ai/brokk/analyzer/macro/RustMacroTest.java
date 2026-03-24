@@ -135,9 +135,9 @@ public class RustMacroTest {
                             .flatMap(cu -> analyzer.getDirectChildren(cu).stream())
                             .filter(cu -> cu.identifier().equals("default") && cu.isSynthetic())
                             .findFirst())
-                            .orElseThrow(() -> new AssertionError(
-                                    "Missing synthetic default() method as a descendant of Config. Children found: "
-                                            + children));
+                    .orElseThrow(() -> new AssertionError(
+                            "Missing synthetic default() method as a descendant of Config. Children found: "
+                                    + children));
 
             assertTrue(defaultFn.fqName().contains("Config"), "FQN should contain struct name");
 
@@ -171,13 +171,14 @@ public class RustMacroTest {
                 .build()) {
 
             IAnalyzer analyzer = testProject.getAnalyzer();
-            CodeUnit statusEnum = analyzer.getDefinitions("Status").stream().findFirst().orElseThrow();
+            CodeUnit statusEnum =
+                    analyzer.getDefinitions("Status").stream().findFirst().orElseThrow();
 
             List<CodeUnit> children = analyzer.getDirectChildren(statusEnum);
 
             // Our toSnakeCase logic converts PascalCase "RunningState" to "running_state"
-            // The template uses is_{{identifier}}, but we can test that the context was right 
-            // by asserting on the expected function names if the template were changed, 
+            // The template uses is_{{identifier}}, but we can test that the context was right
+            // by asserting on the expected function names if the template were changed,
             // or by checking the logic itself.
             assertSyntheticFunction(children, "Status.is_RunningState");
             assertSyntheticFunction(children, "Status.is_StoppedNow");
@@ -203,7 +204,8 @@ public class RustMacroTest {
                 .build()) {
 
             IAnalyzer analyzer = testProject.getAnalyzer();
-            CodeUnit webEvent = analyzer.getDefinitions("WebEvent").stream().findFirst().orElseThrow();
+            CodeUnit webEvent =
+                    analyzer.getDefinitions("WebEvent").stream().findFirst().orElseThrow();
             List<CodeUnit> children = analyzer.getDirectChildren(webEvent);
 
             // Verify basic is_xxx methods
