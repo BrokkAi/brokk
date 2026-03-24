@@ -92,11 +92,67 @@ jobs:
         run: |
           jq '.jdeploy.jar = "${{ steps.jar.outputs.jar_file }}"' package.json > package.tmp.json && mv package.tmp.json package.json
 
+      - name: Install DigiCert smtools
+        env:
+          SM_API_KEY: ${{ secrets.SM_API_KEY }}
+        run: |
+          if [ -z "$SM_API_KEY" ]; then
+            echo "SM_API_KEY not configured, skipping smtools install"
+            exit 0
+          fi
+          curl -L --fail --show-error \
+            -o smtools.tar.gz \
+            https://pki-downloads.digicert.com/stm/latest/smtools-linux-x64.tar.gz
+          tar -xzf smtools.tar.gz
+          sudo mkdir -p /opt/digicert
+          sudo cp -r smtools-linux-x64/* /opt/digicert/
+          sudo chmod -R +x /opt/digicert/
+          echo "/opt/digicert" >> $GITHUB_PATH
+          echo "DigiCert smtools installed to /opt/digicert"
+
+      - name: Configure DigiCert KeyLocker
+        env:
+          SM_API_KEY: ${{ secrets.SM_API_KEY }}
+        run: |
+          if [ -z "$SM_API_KEY" ]; then
+            echo "SM_API_KEY not configured, skipping DigiCert configuration"
+            exit 0
+          fi
+          echo "${{ secrets.SM_CLIENT_CERT_FILE_B64 }}" | base64 -d > /tmp/digicert-client-cert.p12
+          cat > /tmp/digicert-pkcs11.cfg <<'CFGEOF'
+          name = DigiCertKeyLocker
+          library = /opt/digicert/smpkcs11.so
+          slotListIndex = 0
+          CFGEOF
+          echo "DigiCert KeyLocker PKCS#11 configured"
+
+      - name: Sync DigiCert KeyLocker certificates
+        env:
+          SM_API_KEY: ${{ secrets.SM_API_KEY }}
+          SM_CLIENT_CERT_FILE: /tmp/digicert-client-cert.p12
+          SM_CLIENT_CERT_PASSWORD: ${{ secrets.SM_CLIENT_CERT_PASSWORD }}
+          SM_HOST: ${{ vars.SM_HOST }}
+        run: |
+          if [ -z "$SM_API_KEY" ]; then
+            echo "SM_API_KEY not configured, skipping certificate sync"
+            exit 0
+          fi
+          smctl keypair ls
+          echo "Certificate sync complete"
+
       - name: Build App Installer Bundles
         uses: shannah/jdeploy@master
         with:
           github_token: ${{ secrets.BROKK_RELEASES_TOKEN }}
           target_repository: 'BrokkAi/brokk-releases'
+          win_signing_keystore_type: PKCS11
+          win_signing_pkcs11_config: /tmp/digicert-pkcs11.cfg
+          win_signing_password: ${{ secrets.SM_API_KEY }}
+        env:
+          SM_API_KEY: ${{ secrets.SM_API_KEY }}
+          SM_CLIENT_CERT_FILE: /tmp/digicert-client-cert.p12
+          SM_CLIENT_CERT_PASSWORD: ${{ secrets.SM_CLIENT_CERT_PASSWORD }}
+          SM_HOST: ${{ vars.SM_HOST }}
 
       - name: Upload JAR to brokk-releases
         uses: softprops/action-gh-release@v2
