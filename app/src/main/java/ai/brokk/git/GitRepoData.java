@@ -308,7 +308,7 @@ public class GitRepoData {
             String newText,
             boolean isBinary) {}
 
-    private List<DiffEntry> scanDiffs(String oldRef, String newRef) throws GitAPIException {
+    protected List<DiffEntry> scanDiffs(String oldRef, String newRef) throws GitAPIException {
         var oldTreeIter = prepareTreeParser(oldRef);
         if (oldTreeIter == null) return List.of();
 
