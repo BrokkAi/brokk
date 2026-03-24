@@ -6,8 +6,18 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import org.eclipse.jgit.api.errors.GitAPIException;
 
+import ai.brokk.analyzer.ProjectFile;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Optional;
+
 public class TestGitRepo extends GitRepo {
     private final Path nextWorktreePath;
+    private final Map<String, ProjectFile> fileMap = new HashMap<>();
+
+    public TestGitRepo(Path projectRoot) throws IOException {
+        this(projectRoot, projectRoot.resolve("next-worktree"));
+    }
 
     public TestGitRepo(Path projectRoot, Path nextWorktreePath) throws IOException {
         super(projectRoot);
@@ -32,4 +42,5 @@ public class TestGitRepo extends GitRepo {
     public void createBranch(String newBranchName, String sourceBranchName) throws GitAPIException {
         // no-op for tests
     }
+
 }

@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.testutil.TestGitRepo;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
@@ -24,7 +25,6 @@ class GitRepoDataTest {
         try (Git git = Git.init().setDirectory(tempDir.toFile()).call()) {
             // repo initialized
         }
-        var mockRepo = new TestGitRepo(tempDir);
 
         // Create a fake binary ProjectFile
         var binaryFile = new ProjectFile(tempDir, "large_binary.bin") {
@@ -40,8 +40,17 @@ class GitRepoDataTest {
             }
         };
 
-        // Inject the binary file into the mock repo's path resolution
-        mockRepo.setFileMapping("large_binary.bin", binaryFile);
+        // Local subclass of GitRepo in the same package as GitRepoData
+        // to handle path resolution for the test
+        var mockRepo = new GitRepo(tempDir) {
+            @Override
+            public Optional<ProjectFile> toProjectFile(String repoRelativePath) {
+                if ("large_binary.bin".equals(repoRelativePath)) {
+                    return Optional.of(binaryFile);
+                }
+                return Optional.empty();
+            }
+        };
 
         // Subclass GitRepoData to verify getRefContent is never called
         var gitRepoData = new GitRepoData(mockRepo) {
@@ -87,27 +96,5 @@ class GitRepoDataTest {
         assertTrue(diff.isBinary());
         assertEquals(GitRepoData.BINARY_FILE_MARKER + " (old)]", diff.oldText());
         assertEquals(GitRepoData.BINARY_FILE_MARKER + " (new)]", diff.newText());
-    }
-
-    /** Simple mock repo to satisfy GitRepoData constructor and toProjectFile calls. */
-    private static class TestGitRepo extends GitRepo {
-        private java.util.Map<String, ProjectFile> fileMap = new java.util.HashMap<>();
-
-        TestGitRepo(Path root) throws Exception {
-            super(root);
-        }
-
-        void setFileMapping(String path, ProjectFile file) {
-            fileMap.put(path, file);
-        }
-
-        @Override
-        public Optional<ProjectFile> toProjectFile(String repoRelativePath) {
-            return Optional.ofNullable(fileMap.get(repoRelativePath));
-        }
-
-        // Override other required GitRepo methods with no-ops if necessary
-        @Override
-        public void close() {}
     }
 }
