@@ -615,7 +615,7 @@ public final class IssueExecutor {
      * Formats issue details into a prompt for the LLM.
      * Used by both ISSUE_DIAGNOSE and ISSUE modes.
      */
-    public static String formatIssueDiagnosePrompt(IssueDetails details, int issueNumber) {
+    static String formatIssueDiagnosePrompt(IssueDetails details, int issueNumber) {
         var header = details.header();
         String title = header.title();
 
