@@ -240,7 +240,15 @@ public interface MacroExpansionProvider extends CapabilityProvider {
                     || snippetUnits.stream()
                             .noneMatch(pUnit -> snippetAcc.getChildren(pUnit).contains(orig));
             if (isSnippetRoot) {
-                acc.addChild(parentCu, rescoped);
+                // If the snippet root is a container (like an impl block) and the target is a class,
+                // we often want to flatten the children directly into the target.
+                if (rescoped.isClass() && parentCu.isClass() && rescoped.identifier().equals(parentCu.identifier())) {
+                    for (CodeUnit child : acc.getChildren(rescoped)) {
+                        acc.addChild(parentCu, child);
+                    }
+                } else {
+                    acc.addChild(parentCu, rescoped);
+                }
             }
         }
     }

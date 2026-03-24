@@ -119,17 +119,18 @@ public class RustMacroTest {
             CodeUnit configStruct =
                     analyzer.getDefinitions("Config").stream().findFirst().orElseThrow();
 
-            // Verify that the synthetic default() method was attached.
-            // When using an 'impl Default for Config' block, the methods are typically
-            // scoped under the trait name within the rescoped hierarchy.
+            // Verify that the synthetic default() method was attached directly as a child of the struct.
             List<CodeUnit> children = analyzer.getDirectChildren(configStruct);
 
-            // The synthetic function might be direct or nested depending on how the
-            // impl block is parsed. We'll search through all declarations in the file
-            CodeUnit defaultFn = analyzer.getDeclarations(configStruct.source()).stream()
-                    .filter(cu -> cu.fqName().endsWith(".default") && cu.isSynthetic())
+            CodeUnit defaultFn = children.stream()
+                    .filter(cu -> cu.identifier().equals("default") && cu.isSynthetic())
                     .findFirst()
-                    .orElseThrow(() -> new AssertionError("Missing synthetic default() method"));
+                    .or(() -> children.stream()
+                            .filter(cu -> cu.isClass() && cu.isSynthetic())
+                            .flatMap(cu -> analyzer.getDirectChildren(cu).stream())
+                            .filter(cu -> cu.identifier().equals("default") && cu.isSynthetic())
+                            .findFirst())
+                    .orElseThrow(() -> new AssertionError("Missing synthetic default() method as a descendant of Config. Children found: " + children));
 
             assertTrue(defaultFn.fqName().contains("Config"), "FQN should contain struct name");
 
