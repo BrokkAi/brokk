@@ -128,9 +128,9 @@ jobs:
 
           # Reuse existing update script (runs in brokk checkout for git tags)
           bash scripts/update-jbang-catalog.sh \
-            "$VERSION" \
-            /tmp/brokk-releases/jbang-catalog.json \
-            3
+            -v "$VERSION" \
+            -c /tmp/brokk-releases/jbang-catalog.json \
+            -m 3
 
           # Commit and push to brokk-releases
           cd /tmp/brokk-releases

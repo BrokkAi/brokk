@@ -14,6 +14,7 @@ import ai.brokk.executor.routers.CompletionsRouter;
 import ai.brokk.executor.routers.ContextRouter;
 import ai.brokk.executor.routers.DependenciesRouter;
 import ai.brokk.executor.routers.FavoritesRouter;
+import ai.brokk.executor.routers.GitHubAuthRouter;
 import ai.brokk.executor.routers.JobsRouter;
 import ai.brokk.executor.routers.ModelConfigRouter;
 import ai.brokk.executor.routers.ModelsRouter;
@@ -22,6 +23,7 @@ import ai.brokk.executor.routers.RepoRouter;
 import ai.brokk.executor.routers.ReviewRouter;
 import ai.brokk.executor.routers.RouterUtil;
 import ai.brokk.executor.routers.SessionsRouter;
+import ai.brokk.executor.routers.SettingsRouter;
 import ai.brokk.project.MainProject;
 import ai.brokk.project.ModelProperties;
 import com.google.common.base.Splitter;
@@ -307,11 +309,17 @@ public final class HeadlessExecutorMain {
         var openAiAuthRouter = new OpenAiAuthRouter();
         this.server.registerAuthenticatedContext("/v1/openai/oauth", openAiAuthRouter);
 
+        var gitHubAuthRouter = new GitHubAuthRouter(this.contextManager);
+        this.server.registerAuthenticatedContext("/v1/github/oauth", gitHubAuthRouter);
+
         var reviewRouter = new ReviewRouter(this.jobStore, this.jobRunner, this.jobReservation, this.headlessInit);
         this.server.registerAuthenticatedContext("/v1/review", reviewRouter);
 
         var dependenciesRouter = new DependenciesRouter(this.contextManager);
         this.server.registerAuthenticatedContext("/v1/dependencies", dependenciesRouter);
+
+        var settingsRouter = new SettingsRouter(this.contextManager);
+        this.server.registerAuthenticatedContext("/v1/settings", settingsRouter);
 
         logger.info("HeadlessExecutorMain initialized successfully");
     }
@@ -349,13 +357,21 @@ public final class HeadlessExecutorMain {
 
     private @Nullable String resolveReadySessionId() {
         try {
+            var sessions = contextManager.getProject().getSessionManager().listSessions();
+            if (sessions.isEmpty()) {
+                return null;
+            }
+
             var currentSessionId = contextManager.getCurrentSessionId();
-            var hasKnownActiveSession = contextManager.getProject().getSessionManager().listSessions().stream()
-                    .anyMatch(session -> session.id().equals(currentSessionId));
+            var hasKnownActiveSession =
+                    sessions.stream().anyMatch(session -> session.id().equals(currentSessionId));
             if (hasKnownActiveSession) {
                 return currentSessionId.toString();
             }
-            return null;
+
+            // Headless startup can still be reconciling the active session while session metadata
+            // already exists on disk. Report the newest known session instead of a transient null.
+            return sessions.getFirst().id().toString();
         } catch (Exception e) {
             logger.warn("Failed to resolve sessionId for /health/ready payload", e);
             return null;
@@ -640,6 +656,8 @@ public final class HeadlessExecutorMain {
             System.out.println("    GET  /v1/model-config             - current CODE/ARCHITECT model configs");
             System.out.println("    POST /v1/model-config             - update CODE/ARCHITECT model config");
             System.out.println("    GET  /v1/dependencies             - list all imported dependencies");
+            System.out.println("    GET  /v1/settings                 - get all project settings");
+            System.out.println("    POST /v1/settings                 - update all project settings");
             System.out.println();
 
             // Create and start executor

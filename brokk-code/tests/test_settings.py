@@ -13,6 +13,7 @@ def test_settings_default_load(tmp_path, monkeypatch):
     # New fields default to None
     assert settings.last_model is None
     assert settings.last_code_model is None
+    assert settings.show_full_welcome is False
     assert settings.last_reasoning_level is None
     assert settings.last_code_reasoning_level is None
     assert settings.last_auto_commit is None

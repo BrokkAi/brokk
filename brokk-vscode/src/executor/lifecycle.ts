@@ -152,21 +152,24 @@ export async function spawnExecutor(
   const authToken = randomUUID();
   const execId = randomUUID();
 
+  const args = [
+    "-Dbrokk.vscode=true",
+    "-cp",
+    jarPath,
+    "ai.brokk.executor.HeadlessExecutorMain",
+    "--listen-addr",
+    "127.0.0.1:0",
+    "--auth-token",
+    authToken,
+    "--workspace-dir",
+    workspaceDir,
+    "--exec-id",
+    execId,
+  ];
+
   const child = spawn(
     resolveJavaBinary(),
-    [
-      "-cp",
-      jarPath,
-      "ai.brokk.executor.HeadlessExecutorMain",
-      "--listen-addr",
-      "127.0.0.1:0",
-      "--auth-token",
-      authToken,
-      "--workspace-dir",
-      workspaceDir,
-      "--exec-id",
-      execId,
-    ],
+    args,
     {
       stdio: ["pipe", "pipe", "pipe"],
       cwd: workspaceDir,
@@ -303,6 +306,7 @@ export async function spawnJbang(workspaceDir: string, jbangBinary?: string): Pr
 
   const jbangArgs = [
     "--java", "21",
+    "--runtime-option=-Dbrokk.vscode=true",
     "--runtime-option=-Djava.awt.headless=true",
     "--runtime-option=-Dapple.awt.UIElement=true",
     "--runtime-option=--enable-native-access=ALL-UNNAMED",

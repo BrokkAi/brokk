@@ -19,7 +19,7 @@ from brokk_code.workspace import resolve_workspace_dir
 
 logger = logging.getLogger(__name__)
 
-BUNDLED_EXECUTOR_VERSION = "0.23.3.beta1"
+BUNDLED_EXECUTOR_VERSION = "0.23.3.beta3"
 _EXECUTOR_JAR_BASE_URL = "https://github.com/BrokkAi/brokk-releases/releases/download"
 _EXECUTOR_MAIN_CLASS = "ai.brokk.executor.HeadlessExecutorMain"
 _READY_SENTINEL = "Executor listening on http://"
@@ -588,6 +588,7 @@ class ExecutorManager:
         self.session_id: Optional[str] = None
         self.resolved_jar_path: Optional[Path] = None
         self.shutdown_context: Optional[str] = None
+        self.environment_type: str = "tui"
 
         self._process: Optional[asyncio.subprocess.Process] = None
         # The stdin stream for the subprocess (when created with PIPE).
@@ -598,6 +599,21 @@ class ExecutorManager:
     @property
     def _main_class(self) -> str:
         return _EXECUTOR_MAIN_CLASS
+
+    def set_environment_type(self, env_type: str) -> None:
+        """Set the environment type (tui, zed, or intellij)."""
+        if env_type not in ("tui", "zed", "intellij"):
+            raise ValueError(f"Invalid environment type: {env_type}")
+        self.environment_type = env_type
+
+    def _get_environment_flag(self) -> str:
+        """Return the appropriate environment JVM flag based on environment_type."""
+        if self.environment_type == "zed":
+            return "-Dbrokk.zed=true"
+        elif self.environment_type == "intellij":
+            return "-Dbrokk.intellij=true"
+        else:
+            return "-Dbrokk.tui=true"
 
     def _parse_port_from_line(self, line: str) -> Optional[int]:
         """Extract the port number from a startup log line, or return None."""
@@ -658,8 +674,10 @@ class ExecutorManager:
 
     def _get_direct_java_command(self, jar_path: Path, exec_id: str) -> List[str]:
         """Returns the command for Direct-Java mode (explicit JAR override)."""
+        env_flag = self._get_environment_flag()
         cmd = [
             "java",
+            env_flag,
             "-Djava.awt.headless=true",
             "-Dapple.awt.UIElement=true",
             "-cp",
@@ -675,14 +693,18 @@ class ExecutorManager:
 
         version = self.executor_version or BUNDLED_EXECUTOR_VERSION
         jar_url = f"{_EXECUTOR_JAR_BASE_URL}/{version}/brokk-{version}.jar"
+        env_flag = self._get_environment_flag()
         cmd = [
             jbang_bin,
             "--java",
             "21",
             "-R",
-            "-Djava.awt.headless=true "
-            + "-Dapple.awt.UIElement=true "
-            + "--enable-native-access=ALL-UNNAMED",
+            (
+                f"{env_flag} "
+                "-Djava.awt.headless=true "
+                "-Dapple.awt.UIElement=true "
+                "--enable-native-access=ALL-UNNAMED"
+            ),
             "--main",
             self._main_class,
             jar_url,
@@ -1505,6 +1527,45 @@ class ExecutorManager:
             await self._handle_http_error(e, "/v1/openai/oauth/status")
             raise  # Should not be reached
 
+    async def start_github_oauth(self) -> Dict[str, Any]:
+        """Initiates the GitHub OAuth flow (Device Flow)."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+
+        try:
+            resp = await self._http_client.post("/v1/github/oauth/start")
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            await self._handle_http_error(e, "/v1/github/oauth/start")
+            raise  # Should not be reached
+
+    async def get_github_oauth_status(self) -> Dict[str, Any]:
+        """Checks the connection status of GitHub OAuth."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+
+        try:
+            resp = await self._http_client.get("/v1/github/oauth/status")
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            await self._handle_http_error(e, "/v1/github/oauth/status")
+            raise  # Should not be reached
+
+    async def disconnect_github_oauth(self) -> Dict[str, Any]:
+        """Revokes the GitHub OAuth authorization."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+
+        try:
+            resp = await self._http_client.delete("/v1/github/oauth/authorization")
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            await self._handle_http_error(e, "/v1/github/oauth/authorization")
+            raise  # Should not be reached
+
     async def commit_context(self, message: Optional[str] = None) -> Dict[str, Any]:
         """Commits current changes with an optional message.
 
@@ -1736,6 +1797,30 @@ class ExecutorManager:
             return resp.json()
         except httpx.HTTPError as e:
             await self._handle_http_error(e, endpoint)
+            raise
+
+    async def get_settings(self) -> Dict[str, Any]:
+        """Returns the full project settings from the executor."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+        try:
+            resp = await self._http_client.get("/v1/settings")
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            await self._handle_http_error(e, "/v1/settings")
+            raise
+
+    async def update_all_settings(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Saves all settings atomically via a single POST."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+        try:
+            resp = await self._http_client.post("/v1/settings", json=data)
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            await self._handle_http_error(e, "/v1/settings")
             raise
 
     async def delete_dependency(self, name: str) -> Dict[str, Any]:

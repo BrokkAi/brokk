@@ -25,7 +25,7 @@ def get_braille_icon() -> str:
 
 
 def build_welcome_message(
-    commands: List[Dict[str, str]], latest_pypi_version: str | None = None
+    commands: List[Dict[str, str]], latest_pypi_version: str | None = None, full: bool = True
 ) -> str:
     """
     Constructs the branded welcome/onboarding message as a Markdown string.
@@ -33,6 +33,7 @@ def build_welcome_message(
     Args:
         commands: The list of supported slash commands from BrokkApp.get_slash_commands().
         latest_pypi_version: The latest version available on PyPI, if known.
+        full: Whether to show the full welcome or a compact startup version.
 
     Returns:
         A Markdown-formatted string for display in the ChatPanel.
@@ -41,17 +42,21 @@ def build_welcome_message(
     if latest_pypi_version and latest_pypi_version != __version__:
         version_info += f" (Latest: {latest_pypi_version})"
 
-    description = (
-        f"# Welcome to Brokk {version_info}\n\n"
-        "Brokk is a code intelligence agent designed for high-precision **context engineering**."
-    )
+    description = f"# Welcome to Brokk {version_info}"
+    if full:
+        description += (
+            "\n\nBrokk is a code intelligence agent designed for high-precision "
+            "**context engineering**."
+        )
 
-    context_eng = (
-        "### Context Engineering\n"
-        "In Brokk, your workspace is managed via a living context. "
-        "AI performance depends on exactly what code is visible to the model. "
-        "You can prune, pin, or focus specific files and methods to optimize results."
-    )
+    context_eng = ""
+    if full:
+        context_eng = (
+            "### Context Engineering\n"
+            "In Brokk, your workspace is managed via a living context. "
+            "AI performance depends on exactly what code is visible to the model. "
+            "You can prune, pin, or focus specific files and methods to optimize results.\n\n"
+        )
 
     workflows = (
         "### Key Workflows\n"
@@ -63,6 +68,8 @@ def build_welcome_message(
         "immediately attach that entity to your context."
     )
 
-    signup = "\n\nNeed a token? Go to https://brokk.ai/ to sign up and get one."
+    signup = ""
+    if full:
+        signup = "\n\nNeed a token? Go to https://brokk.ai/ to sign up and get one."
 
-    return f"{description}\n\n{context_eng}\n\n{workflows}{signup}"
+    return f"{description}\n\n{context_eng}{workflows}{signup}"

@@ -18,7 +18,15 @@ from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.css.query import NoMatches
 from textual.screen import ModalScreen
-from textual.widgets import Button, Input, ListItem, ListView, LoadingIndicator, Static, TextArea
+from textual.widgets import (
+    Button,
+    Input,
+    ListItem,
+    ListView,
+    LoadingIndicator,
+    Static,
+    TextArea,
+)
 
 from brokk_code.event_utils import is_failure_state, safe_data
 from brokk_code.executor import ExecutorError, ExecutorManager
@@ -32,6 +40,7 @@ from brokk_code.settings import (
     write_brokk_api_key,
     write_brokk_properties,
 )
+from brokk_code.settings_modal import SettingsModalScreen
 from brokk_code.welcome import build_welcome_message, get_braille_icon
 from brokk_code.widgets.chat_panel import ChatInput, ChatPanel
 from brokk_code.widgets.context_panel import ContextPanel
@@ -1259,6 +1268,7 @@ class BrokkApp(App):
         self._relaunch_lock = asyncio.Lock()
         self._reasoning_target: str = "planner"
         self.latest_pypi_version: Optional[str] = None
+        self._welcome_variant_full: bool = True
 
         # Accumulators for LLM usage costs (USD).
         # current_job_cost is per-job and resets at the start of each _run_job.
@@ -1321,7 +1331,9 @@ class BrokkApp(App):
         if not chat:
             return
 
-        msg = build_welcome_message(self.get_slash_commands(), self.latest_pypi_version)
+        msg = build_welcome_message(
+            self.get_slash_commands(), self.latest_pypi_version, full=self._welcome_variant_full
+        )
         try:
             if refresh:
                 chat.update_welcome(msg)
@@ -1466,20 +1478,33 @@ class BrokkApp(App):
             history = load_history(self.executor.workspace_dir)
             chat.set_history(history)
 
-            self._show_welcome_message()
-
         # Check for updates in background
         self.run_worker(self._check_for_updates())
 
         # Check for API key before starting executor
-        if not self.settings.get_brokk_api_key():
-
+        api_key = self.settings.get_brokk_api_key()
+        if not api_key:
+            # If no API key, do NOT show welcome message yet.
+            # The login screen will be the first thing the user sees.
             async def on_key_entered(key: str) -> bool:
                 try:
                     await asyncio.to_thread(write_brokk_api_key, key)
                     self.executor.brokk_api_key = key
-                    if chat:
-                        chat.add_system_message("API key saved. Starting Brokk executor...")
+
+                    # Ensure any persisted onboarding flag is cleared
+                    if self.settings.show_full_welcome:
+                        self.settings.show_full_welcome = False
+                        self.settings.save()
+
+                    # First time login in this session: show full welcome now
+                    self._welcome_variant_full = True
+
+                    _chat = self._maybe_chat()
+                    if _chat:
+                        _chat.add_system_message("API key saved. Starting Brokk executor...")
+                        # Ensure we show the full welcome immediately after login
+                        self._show_welcome_message(refresh=False)
+
                     self.run_worker(self._start_executor())
                     return True
                 except Exception as e:
@@ -1488,8 +1513,22 @@ class BrokkApp(App):
 
             self.push_screen(BrokkApiKeyModalScreen(on_submit=on_key_entered))
         else:
-            if chat:
-                chat.add_system_message("Starting Brokk executor...")
+            # Normal startup with key: decide between full or compact welcome
+            if self.settings.show_full_welcome:
+                self._welcome_variant_full = True
+                # One-shot consumption of the onboarding flag
+                self.settings.show_full_welcome = False
+                try:
+                    self.settings.save()
+                except Exception:
+                    logger.debug("Failed to clear show_full_welcome flag", exc_info=True)
+            else:
+                self._welcome_variant_full = False
+
+            _chat = self._maybe_chat()
+            if _chat:
+                self._show_welcome_message()
+                _chat.add_system_message("Starting Brokk executor...")
             self.run_worker(self._start_executor())
         self.run_worker(self._monitor_executor())
         self.run_worker(self._poll_tasklist())
@@ -2885,12 +2924,106 @@ class BrokkApp(App):
                     )
             else:
                 chat.add_system_message(
-                    "Opening browser for OpenAI authorization. After completing the login flow, "
-                    "Codex-gated models will become available."
+                    "Opening browser for OpenAI authorization. "
+                    "After completing the login flow, Codex-gated models will become available."
                 )
         except Exception as e:
             logger.exception("OpenAI OAuth login failed")
             chat.add_system_message(f"Failed to start OpenAI login: {e}", level="ERROR")
+
+    async def _login_github(self) -> None:
+        """Async helper to initiate GitHub OAuth device login flow."""
+        chat = self._maybe_chat()
+        if not chat:
+            return
+
+        if not self._executor_ready:
+            chat.add_system_message(
+                "Brokk executor is not yet ready. Please wait a moment and try again.",
+                level="WARNING",
+            )
+            return
+
+        try:
+            resp = await self.executor.start_github_oauth()
+            uri = resp.get("verificationUri")
+            code = resp.get("userCode")
+            interval = resp.get("interval", 5)
+            expires_in = resp.get("expiresIn", 900)
+
+            msg = (
+                f"To authorize Brokk with GitHub, open: [bold]{uri}[/]\n"
+                f"And enter the code: [bold]{code}[/]"
+            )
+            chat.add_system_message_markup(msg)
+
+            try:
+                await asyncio.to_thread(webbrowser.open, uri)
+            except Exception:
+                logger.debug("Failed to open browser for GitHub OAuth", exc_info=True)
+
+            deadline = asyncio.get_event_loop().time() + expires_in
+            while asyncio.get_event_loop().time() < deadline:
+                await asyncio.sleep(interval)
+                status = await self.executor.get_github_oauth_status()
+                state = status.get("state", "IDLE")
+
+                if state == "SUCCESS":
+                    user = status.get("username", "unknown user")
+                    chat.add_system_message(
+                        f"Successfully connected to GitHub as {user}.",
+                        level="SUCCESS",
+                    )
+                    return
+                if state in {"DENIED", "EXPIRED", "ERROR", "CANCELLED"}:
+                    fail_msg = status.get("message", "Authentication failed")
+                    chat.add_system_message(
+                        f"GitHub authentication failed: {fail_msg}",
+                        level="ERROR",
+                    )
+                    return
+
+            chat.add_system_message(
+                "GitHub authentication timed out or expired before completion.",
+                level="ERROR",
+            )
+        except Exception as e:
+            logger.exception("GitHub OAuth login failed")
+            chat.add_system_message(f"Failed to start GitHub login: {e}", level="ERROR")
+
+    async def _github_status(self) -> None:
+        """Reports the current GitHub connection status in chat."""
+        chat = self._maybe_chat()
+        if not chat:
+            return
+        if not self._executor_ready:
+            chat.add_system_message("Executor is not ready.", level="WARNING")
+            return
+
+        try:
+            status = await self.executor.get_github_oauth_status()
+            connected = status.get("connected", False)
+            if connected:
+                user = status.get("username", "unknown")
+                chat.add_system_message(f"GitHub: Connected as {user}")
+            else:
+                chat.add_system_message("GitHub: Not connected")
+        except Exception as e:
+            chat.add_system_message(f"Failed to get GitHub status: {e}", level="ERROR")
+
+    async def _logout_github(self) -> None:
+        """Disconnects GitHub account and clears stored token."""
+        chat = self._maybe_chat()
+        if not chat:
+            return
+
+        try:
+            await asyncio.to_thread(write_brokk_properties, {"githubToken": None})
+            if self._executor_ready:
+                await self.executor.disconnect_github_oauth()
+            chat.add_system_message("Logged out of GitHub and cleared stored token.")
+        except Exception as e:
+            chat.add_system_message(f"Logout failed: {e}", level="ERROR")
 
     async def _run_job(self, task_input: str) -> None:
         await self._execute_job_lifecycle(task_input, mode=self.current_mode)
@@ -3110,6 +3243,9 @@ class BrokkApp(App):
             {"command": "/logout", "description": "Clear saved Brokk API key and logout"},
             {"command": "/costs", "description": "Show session cost breakdown"},
             {"command": "/login-openai", "description": "Connect your OpenAI ChatGPT subscription"},
+            {"command": "/login-github", "description": "Connect your GitHub account"},
+            {"command": "/github-status", "description": "Show GitHub connection status"},
+            {"command": "/logout-github", "description": "Disconnect your GitHub account"},
             {"command": "/clear", "description": "Clear the chat transcript"},
             {"command": "/context", "description": "Toggle and focus context panel"},
             {"command": "/model", "description": "Change the planner LLM model"},
@@ -3187,8 +3323,9 @@ class BrokkApp(App):
                 )
         elif base == "/settings":
             if len(parts) > 1:
-                chat.add_system_message("Settings opens from /settings with no arguments.")
-            self.action_command_palette()
+                chat.add_system_message("Usage: /settings (opens settings modal)")
+                return
+            self.action_open_settings()
         elif base == "/info":
             self._render_info()
         elif base == "/clear":
@@ -3201,6 +3338,21 @@ class BrokkApp(App):
                 )
             else:
                 self.run_worker(self._login_openai())
+        elif base == "/login-github":
+            if len(parts) > 1:
+                chat.add_system_message("Usage: /login-github", level="WARNING")
+            else:
+                self.run_worker(self._login_github())
+        elif base == "/github-status":
+            if len(parts) > 1:
+                chat.add_system_message("Usage: /github-status", level="WARNING")
+            else:
+                self.run_worker(self._github_status())
+        elif base == "/logout-github":
+            if len(parts) > 1:
+                chat.add_system_message("Usage: /logout-github", level="WARNING")
+            else:
+                self.run_worker(self._logout_github())
         elif base in ("/login", "/api-key"):
             if len(parts) > 1:
                 chat.add_system_message(f"Usage: {base} (opens API key prompt)", level="WARNING")
@@ -3210,7 +3362,16 @@ class BrokkApp(App):
                 try:
                     await asyncio.to_thread(write_brokk_api_key, key)
                     self.executor.brokk_api_key = key
+                    # Manual login update also triggers a fresh (compact) welcome
+                    self._welcome_variant_full = False
+
+                    # Ensure any pending onboarding flag is cleared
+                    if self.settings.show_full_welcome:
+                        self.settings.show_full_welcome = False
+                        self.settings.save()
+
                     chat.add_system_message("API key updated. Relaunching executor...")
+                    self._show_welcome_message()
                     self.run_worker(self._relaunch_executor())
                     return True
                 except Exception as e:
@@ -3410,6 +3571,19 @@ class BrokkApp(App):
             return
 
         self.push_screen(DependenciesModalScreen())
+
+    def action_open_settings(self) -> None:
+        """Opens the settings modal screen."""
+        if isinstance(self.screen, SettingsModalScreen):
+            return
+        if not self._executor_ready:
+            chat = self._maybe_chat()
+            if chat:
+                chat.add_system_message(
+                    "Executor is not ready. Cannot open settings.", level="ERROR"
+                )
+            return
+        self.push_screen(SettingsModalScreen())
 
     async def _refresh_dependencies_panel(self) -> None:
         """Fetches latest dependencies and updates the panel."""

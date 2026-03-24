@@ -2,6 +2,7 @@ import argparse
 import asyncio
 import base64
 import contextlib
+import getpass
 import os
 import re
 import shlex
@@ -87,14 +88,14 @@ def _validate_github_params(
     if not re.match(REPO_COMPONENT_ALLOWLIST_REGEX, repo_owner):
         print(
             f"Error: Invalid --repo-owner '{repo_owner}'. "
-            + f"Repo owner must match {REPO_COMPONENT_ALLOWLIST_REGEX}",
+            f"Repo owner must match {REPO_COMPONENT_ALLOWLIST_REGEX}",
             file=sys.stderr,
         )
         sys.exit(1)
     if not re.match(REPO_COMPONENT_ALLOWLIST_REGEX, repo_name):
         print(
             f"Error: Invalid --repo-name '{repo_name}'. "
-            + f"Repo name must match {REPO_COMPONENT_ALLOWLIST_REGEX}",
+            f"Repo name must match {REPO_COMPONENT_ALLOWLIST_REGEX}",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -216,6 +217,53 @@ def _ensure_install_api_key() -> None:
     print(f"Saved Brokk API key to {get_brokk_properties_path()}")
 
 
+def _ensure_install_github_token(
+    workspace_dir: Path,
+    jar_path: Path | None,
+    executor_version: str | None,
+    executor_snapshot: bool,
+) -> None:
+    if Settings().get_github_token():
+        return
+
+    if not sys.stdin.isatty():
+        print(
+            "Note: GitHub token is not configured. "
+            "Run 'brokk github login' to enable GitHub features."
+        )
+        return
+
+    print("\nGitHub integration is not configured.")
+    print("This allows Brokk to create PRs and manage issues directly.")
+    print("1) Login via web browser (Device Flow)")
+    print("2) Enter Personal Access Token (PAT)")
+    print("3) Skip for now")
+
+    choice = input("Selection [1/2/3] (default: 1): ").strip()
+    if choice in {"", "1"}:
+        asyncio.run(
+            run_github_login(
+                workspace_dir=workspace_dir,
+                jar_path=jar_path,
+                executor_version=executor_version,
+                executor_snapshot=executor_snapshot,
+                method="device",
+            )
+        )
+    elif choice == "2":
+        asyncio.run(
+            run_github_login(
+                workspace_dir=workspace_dir,
+                jar_path=jar_path,
+                executor_version=executor_version,
+                executor_snapshot=executor_snapshot,
+                method="pat",
+            )
+        )
+    else:
+        print("Skipped GitHub setup.")
+
+
 def _looks_like_auth_failure(message: str) -> bool:
     text = message.lower()
     return (
@@ -280,6 +328,94 @@ async def _validate_brokk_api_key(
                     "message": "Validated with legacy model discovery path.",
                 }
             raise
+    finally:
+        await manager.stop()
+
+
+async def run_github_login(
+    *,
+    workspace_dir: Path,
+    jar_path: Path | None = None,
+    executor_version: str | None = None,
+    executor_snapshot: bool = True,
+    method: str = "device",
+    read_from_stdin: bool = False,
+    no_browser: bool = False,
+) -> None:
+    if method == "pat":
+        try:
+            if read_from_stdin or not sys.stdin.isatty():
+                if read_from_stdin and sys.stdin.isatty():
+                    print("Error: --stdin requires piped input on standard input.", file=sys.stderr)
+                    sys.exit(1)
+                token = sys.stdin.read().strip()
+            else:
+                token = getpass.getpass("GitHub Personal Access Token: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print("\nGitHub login cancelled.", file=sys.stderr)
+            sys.exit(1)
+
+        if not token:
+            print("Error: GitHub token cannot be empty.", file=sys.stderr)
+            sys.exit(1)
+
+        write_brokk_properties({"githubToken": token})
+        print(f"Saved GitHub token to {get_brokk_properties_path()}")
+        return
+
+    # Device flow
+    if read_from_stdin:
+        print("Error: --stdin is only supported with --method=pat", file=sys.stderr)
+        sys.exit(1)
+
+    from brokk_code.executor import ExecutorManager
+
+    manager = ExecutorManager(
+        workspace_dir=workspace_dir,
+        jar_path=jar_path,
+        executor_version=executor_version,
+        executor_snapshot=executor_snapshot,
+        exit_on_stdin_eof=True,
+    )
+
+    try:
+        await manager.start()
+        if not await manager.wait_live():
+            print("Error: executor failed to become live.", file=sys.stderr)
+            sys.exit(1)
+
+        resp = await manager.start_github_oauth()
+        uri = resp.get("verificationUri")
+        code = resp.get("userCode")
+        interval = resp.get("interval", 5)
+        expires_in = resp.get("expiresIn", 900)
+
+        print(f"\nTo authorize Brokk with GitHub, open this URL in your browser:\n\n  {uri}\n")
+        console = Console()
+        console.print(f"Enter the code: [bold]{code}[/]\n")
+
+        if not no_browser:
+            import webbrowser
+
+            webbrowser.open(uri)
+
+        deadline = asyncio.get_event_loop().time() + expires_in
+        while asyncio.get_event_loop().time() < deadline:
+            await asyncio.sleep(interval)
+            status = await manager.get_github_oauth_status()
+            state = status.get("state", "IDLE")
+
+            if state == "SUCCESS":
+                user = status.get("username", "unknown user")
+                print(f"Successfully connected to GitHub as {user}.")
+                return
+            if state in {"DENIED", "EXPIRED", "ERROR", "CANCELLED"}:
+                msg = status.get("message", "Authentication failed")
+                print(f"GitHub authentication failed: {msg}", file=sys.stderr)
+                sys.exit(1)
+
+        print("GitHub authentication timed out or expired before completion.", file=sys.stderr)
+        sys.exit(1)
     finally:
         await manager.stop()
 
@@ -525,9 +661,8 @@ def _add_common_runtime_args(parser: argparse.ArgumentParser) -> None:
         choices=["Default", "Anthropic", "Gemini", "OpenAI", "OpenAI - Codex"],
         default=None,
         help=(
-            "Set 'Other Models' vendor preference (affects "
-            + "internal roles like summarize/scan/commit). "
-            "Use 'Default' to clear overrides."
+            "Set 'Other Models' vendor preference (affects internal roles like "
+            "summarize/scan/commit). Use 'Default' to clear overrides."
         ),
     )
     parser.add_argument(
@@ -924,6 +1059,34 @@ def _build_parser() -> argparse.ArgumentParser:
     logout_parser = subparsers.add_parser("logout", help="Remove your saved Brokk API key")
     _add_common_runtime_args(logout_parser)
 
+    github_parser = subparsers.add_parser("github", help="Manage GitHub authentication")
+    github_subparsers = github_parser.add_subparsers(dest="github_command", required=True)
+
+    gh_login_parser = github_subparsers.add_parser("login", help="Log in to GitHub")
+    _add_common_runtime_args(gh_login_parser)
+    gh_login_parser.add_argument(
+        "--method",
+        choices=["pat", "device"],
+        default="device",
+        help="Authentication method: pat (Personal Access Token) or device (OAuth Flow)",
+    )
+    gh_login_parser.add_argument(
+        "--stdin",
+        action="store_true",
+        help="Read PAT from stdin (only for --method pat)",
+    )
+    gh_login_parser.add_argument(
+        "--no-browser",
+        action="store_true",
+        help="Do not attempt to open the browser (only for --method device)",
+    )
+
+    gh_status_parser = github_subparsers.add_parser("status", help="Show GitHub login status")
+    _add_common_runtime_args(gh_status_parser)
+
+    gh_logout_parser = github_subparsers.add_parser("logout", help="Log out of GitHub")
+    _add_common_runtime_args(gh_logout_parser)
+
     version_parser = subparsers.add_parser("version", help="Print version information")
     _add_common_runtime_args(version_parser)
 
@@ -1240,6 +1403,65 @@ async def run_pr_review_job(
         await manager.stop()
 
 
+async def run_github_status(
+    workspace_dir: Path,
+    jar_path: Path | None = None,
+    executor_version: str | None = None,
+    executor_snapshot: bool = True,
+) -> None:
+    from brokk_code.executor import ExecutorManager
+
+    manager = ExecutorManager(
+        workspace_dir=workspace_dir,
+        jar_path=jar_path,
+        executor_version=executor_version,
+        executor_snapshot=executor_snapshot,
+    )
+    try:
+        await manager.start()
+        if not await manager.wait_live():
+            print("Error: Executor failed to start.")
+            return
+
+        status = await manager.get_github_oauth_status()
+        if status.get("connected"):
+            print(f"Connected to GitHub as: {status.get('username')}")
+        else:
+            print("Not connected to GitHub.")
+    finally:
+        await manager.stop()
+
+
+async def run_github_logout(
+    workspace_dir: Path,
+    jar_path: Path | None = None,
+    executor_version: str | None = None,
+    executor_snapshot: bool = True,
+) -> None:
+    # Remove from properties
+    write_brokk_properties({"githubToken": None})
+
+    # Also notify executor to clear its instance/BackgroundAuth
+    from brokk_code.executor import ExecutorManager
+
+    manager = ExecutorManager(
+        workspace_dir=workspace_dir,
+        jar_path=jar_path,
+        executor_version=executor_version,
+        executor_snapshot=executor_snapshot,
+    )
+    try:
+        await manager.start()
+        if await manager.wait_live(timeout=5.0):
+            await manager.disconnect_github_oauth()
+    except Exception:
+        pass
+    finally:
+        await manager.stop()
+
+    print("Logged out of GitHub.")
+
+
 async def run_headless_job(
     workspace_dir: Path,
     task_input: str,
@@ -1495,6 +1717,10 @@ def main():
     if unknown and args.command != "mcp":
         parser.error(f"unrecognized arguments: {' '.join(unknown)}")
 
+    # Resolve paths early so they are available to all commands
+    workspace_path = Path(args.workspace).resolve()
+    jar_path = Path(args.jar).resolve() if args.jar else None
+
     if args.command == "install":
         # Fast-fail validation before prompting for API keys
         if args.plugin and args.target not in {"nvim", "neovim"}:
@@ -1511,6 +1737,12 @@ def main():
                 jbang_binary = "jbang"
             if args.target == "zed":
                 _ensure_install_api_key()
+                _ensure_install_github_token(
+                    workspace_dir=workspace_path,
+                    jar_path=jar_path,
+                    executor_version=args.executor_version,
+                    executor_snapshot=args.executor_snapshot,
+                )
                 settings_path = configure_zed_acp_settings(
                     force=args.force, uvx_command=uvx_command
                 )
@@ -1522,6 +1754,12 @@ def main():
                 messages = [f"Configured Zed ACP integration in {settings_path}"]
             elif args.target == "intellij":
                 _ensure_install_api_key()
+                _ensure_install_github_token(
+                    workspace_dir=workspace_path,
+                    jar_path=jar_path,
+                    executor_version=args.executor_version,
+                    executor_snapshot=args.executor_snapshot,
+                )
                 settings_path = configure_intellij_acp_settings(
                     force=args.force, uvx_command=uvx_command
                 )
@@ -1534,6 +1772,12 @@ def main():
             elif args.target in {"nvim", "neovim"}:
                 selected_plugin = _resolve_neovim_plugin(plugin=args.plugin)
                 _ensure_install_api_key()
+                _ensure_install_github_token(
+                    workspace_dir=workspace_path,
+                    jar_path=jar_path,
+                    executor_version=args.executor_version,
+                    executor_snapshot=args.executor_snapshot,
+                )
                 if selected_plugin == "codecompanion":
                     settings_path = configure_nvim_codecompanion_acp_settings(force=args.force)
                     patch_result = wire_nvim_plugin_setup(
@@ -1650,6 +1894,12 @@ def main():
                 )
             elif args.target == "mcp":
                 _ensure_install_api_key()
+                _ensure_install_github_token(
+                    workspace_dir=workspace_path,
+                    jar_path=jar_path,
+                    executor_version=args.executor_version,
+                    executor_snapshot=args.executor_snapshot,
+                )
                 claude_settings_path = configure_claude_code_mcp_settings(
                     force=args.force, uvx_command=uvx_command
                 )
@@ -1697,8 +1947,42 @@ def main():
         run_logout()
         return
 
-    workspace_path = Path(args.workspace).resolve()
-    jar_path = Path(args.jar).resolve() if args.jar else None
+    if args.command == "github":
+        if args.github_command == "login":
+            if not sys.stdin.isatty() and args.method == "device":
+                print("Error: Device flow requires an interactive terminal.", file=sys.stderr)
+                sys.exit(1)
+
+            asyncio.run(
+                run_github_login(
+                    workspace_dir=workspace_path,
+                    jar_path=jar_path,
+                    executor_version=args.executor_version,
+                    executor_snapshot=args.executor_snapshot,
+                    method=args.method,
+                    read_from_stdin=args.stdin,
+                    no_browser=args.no_browser,
+                )
+            )
+        elif args.github_command == "status":
+            asyncio.run(
+                run_github_status(
+                    workspace_dir=workspace_path,
+                    jar_path=jar_path,
+                    executor_version=args.executor_version,
+                    executor_snapshot=args.executor_snapshot,
+                )
+            )
+        elif args.github_command == "logout":
+            asyncio.run(
+                run_github_logout(
+                    workspace_dir=workspace_path,
+                    jar_path=jar_path,
+                    executor_version=args.executor_version,
+                    executor_snapshot=args.executor_snapshot,
+                )
+            )
+        return
 
     if args.command == "login":
         validation_workspace = workspace_path
@@ -1708,7 +1992,6 @@ def main():
                 f"Warning: Workspace path does not exist: {workspace_path}. "
                 f"Using {validation_workspace} for validation."
             )
-
         asyncio.run(
             run_login(
                 workspace_dir=validation_workspace,
