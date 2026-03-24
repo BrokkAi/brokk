@@ -741,8 +741,9 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
             return;
         }
 
-        // Use descendant for range which is more reliable for finding the node containing the definition
-        TSNode variantNode = rootNode.getDescendantForByteRange(range.startByte(), range.endByte());
+        // Use named descendant for range to avoid anonymous tokens (commas, parentheses)
+        // which can complicate parent climbing.
+        TSNode variantNode = rootNode.getNamedDescendantForByteRange(range.startByte(), range.endByte());
 
         if (variantNode == null || variantNode.isNull()) {
             log.debug(
@@ -769,7 +770,7 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
             }
         }
 
-        if (variantNode == null || variantNode.isNull()) {
+        if (variantNode == null || variantNode.isNull() || !ENUM_VARIANT.equals(variantNode.getType())) {
             return;
         }
 
