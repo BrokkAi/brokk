@@ -104,7 +104,10 @@ public class GitHubAuthRouter implements SimpleHttpServer.CheckedHttpHandler {
             }
         } catch (Exception e) {
             logger.error("Error handling GitHub auth request", e);
-            SimpleHttpServer.sendJsonResponse(exchange, 500, ErrorPayload.internalError(e.getMessage(), e));
+            SimpleHttpServer.sendJsonResponse(
+                    exchange,
+                    500,
+                    ErrorPayload.internalError("Failed to handle GitHub auth request", e));
         }
     }
 
