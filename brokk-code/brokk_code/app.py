@@ -2924,12 +2924,106 @@ class BrokkApp(App):
                     )
             else:
                 chat.add_system_message(
-                    "Opening browser for OpenAI authorization. After completing the login flow, "
-                    "Codex-gated models will become available."
+                    "Opening browser for OpenAI authorization. "
+                    "After completing the login flow, Codex-gated models will become available."
                 )
         except Exception as e:
             logger.exception("OpenAI OAuth login failed")
             chat.add_system_message(f"Failed to start OpenAI login: {e}", level="ERROR")
+
+    async def _login_github(self) -> None:
+        """Async helper to initiate GitHub OAuth device login flow."""
+        chat = self._maybe_chat()
+        if not chat:
+            return
+
+        if not self._executor_ready:
+            chat.add_system_message(
+                "Brokk executor is not yet ready. Please wait a moment and try again.",
+                level="WARNING",
+            )
+            return
+
+        try:
+            resp = await self.executor.start_github_oauth()
+            uri = resp.get("verificationUri")
+            code = resp.get("userCode")
+            interval = resp.get("interval", 5)
+            expires_in = resp.get("expiresIn", 900)
+
+            msg = (
+                f"To authorize Brokk with GitHub, open: [bold]{uri}[/]\n"
+                f"And enter the code: [bold]{code}[/]"
+            )
+            chat.add_system_message_markup(msg)
+
+            try:
+                await asyncio.to_thread(webbrowser.open, uri)
+            except Exception:
+                logger.debug("Failed to open browser for GitHub OAuth", exc_info=True)
+
+            deadline = asyncio.get_event_loop().time() + expires_in
+            while asyncio.get_event_loop().time() < deadline:
+                await asyncio.sleep(interval)
+                status = await self.executor.get_github_oauth_status()
+                state = status.get("state", "IDLE")
+
+                if state == "SUCCESS":
+                    user = status.get("username", "unknown user")
+                    chat.add_system_message(
+                        f"Successfully connected to GitHub as {user}.",
+                        level="SUCCESS",
+                    )
+                    return
+                if state in {"DENIED", "EXPIRED", "ERROR", "CANCELLED"}:
+                    fail_msg = status.get("message", "Authentication failed")
+                    chat.add_system_message(
+                        f"GitHub authentication failed: {fail_msg}",
+                        level="ERROR",
+                    )
+                    return
+
+            chat.add_system_message(
+                "GitHub authentication timed out or expired before completion.",
+                level="ERROR",
+            )
+        except Exception as e:
+            logger.exception("GitHub OAuth login failed")
+            chat.add_system_message(f"Failed to start GitHub login: {e}", level="ERROR")
+
+    async def _github_status(self) -> None:
+        """Reports the current GitHub connection status in chat."""
+        chat = self._maybe_chat()
+        if not chat:
+            return
+        if not self._executor_ready:
+            chat.add_system_message("Executor is not ready.", level="WARNING")
+            return
+
+        try:
+            status = await self.executor.get_github_oauth_status()
+            connected = status.get("connected", False)
+            if connected:
+                user = status.get("username", "unknown")
+                chat.add_system_message(f"GitHub: Connected as {user}")
+            else:
+                chat.add_system_message("GitHub: Not connected")
+        except Exception as e:
+            chat.add_system_message(f"Failed to get GitHub status: {e}", level="ERROR")
+
+    async def _logout_github(self) -> None:
+        """Disconnects GitHub account and clears stored token."""
+        chat = self._maybe_chat()
+        if not chat:
+            return
+
+        try:
+            await asyncio.to_thread(write_brokk_properties, {"githubToken": None})
+            if self._executor_ready:
+                await self.executor.disconnect_github_oauth()
+            chat.add_system_message("Logged out of GitHub and cleared stored token.")
+        except Exception as e:
+            chat.add_system_message(f"Logout failed: {e}", level="ERROR")
 
     async def _run_job(self, task_input: str) -> None:
         await self._execute_job_lifecycle(task_input, mode=self.current_mode)
@@ -3149,6 +3243,9 @@ class BrokkApp(App):
             {"command": "/logout", "description": "Clear saved Brokk API key and logout"},
             {"command": "/costs", "description": "Show session cost breakdown"},
             {"command": "/login-openai", "description": "Connect your OpenAI ChatGPT subscription"},
+            {"command": "/login-github", "description": "Connect your GitHub account"},
+            {"command": "/github-status", "description": "Show GitHub connection status"},
+            {"command": "/logout-github", "description": "Disconnect your GitHub account"},
             {"command": "/clear", "description": "Clear the chat transcript"},
             {"command": "/context", "description": "Toggle and focus context panel"},
             {"command": "/model", "description": "Change the planner LLM model"},
@@ -3241,6 +3338,21 @@ class BrokkApp(App):
                 )
             else:
                 self.run_worker(self._login_openai())
+        elif base == "/login-github":
+            if len(parts) > 1:
+                chat.add_system_message("Usage: /login-github", level="WARNING")
+            else:
+                self.run_worker(self._login_github())
+        elif base == "/github-status":
+            if len(parts) > 1:
+                chat.add_system_message("Usage: /github-status", level="WARNING")
+            else:
+                self.run_worker(self._github_status())
+        elif base == "/logout-github":
+            if len(parts) > 1:
+                chat.add_system_message("Usage: /logout-github", level="WARNING")
+            else:
+                self.run_worker(self._logout_github())
         elif base in ("/login", "/api-key"):
             if len(parts) > 1:
                 chat.add_system_message(f"Usage: {base} (opens API key prompt)", level="WARNING")

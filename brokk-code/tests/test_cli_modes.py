@@ -12,15 +12,18 @@ import brokk_code.__main__ as main_module
 import brokk_code.git_utils as git_utils_module
 
 
-def _stub_install_warmup(monkeypatch) -> None:
+def _stub_install_warmup(monkeypatch, stub_api_key: bool = True) -> None:
     monkeypatch.setattr(main_module, "ensure_uv_ready", lambda: "/usr/local/bin/uv")
     monkeypatch.setattr(main_module, "ensure_jbang_ready", lambda: "/usr/local/bin/jbang")
     monkeypatch.setattr(main_module, "_run_install_prefetch", lambda _commands: None)
+    monkeypatch.setattr(main_module, "_ensure_install_github_token", lambda *args, **kwargs: None)
     monkeypatch.setattr(
         main_module,
         "wire_nvim_plugin_setup",
         lambda **_kwargs: SimpleNamespace(status="unsupported", path=None, detail=None),
     )
+    if stub_api_key:
+        monkeypatch.setattr(main_module, "_ensure_install_api_key", lambda: None)
 
 
 def test_main_version_subcommand_prints_version(monkeypatch, capsys) -> None:
@@ -184,6 +187,42 @@ async def test_run_login_validation_unknown_user_exits_nonzero(monkeypatch, tmp_
         )
 
     assert exc.value.code == 1
+
+
+@pytest.mark.asyncio
+async def test_run_github_login_pat_interactive_uses_getpass_and_persists_token(
+    monkeypatch, tmp_path
+) -> None:
+    from brokk_code.settings import read_brokk_properties
+
+    class FakeTtyInput(StringIO):
+        def isatty(self) -> bool:
+            return True
+
+    monkeypatch.setattr(sys, "stdin", FakeTtyInput(""))
+
+    calls = {"getpass": 0, "input": 0}
+
+    def fake_getpass(prompt: str = "") -> str:
+        calls["getpass"] += 1
+        assert prompt == "GitHub Personal Access Token: "
+        return "ghp_secure_token"
+
+    def fail_input(*args, **kwargs):
+        calls["input"] += 1
+        pytest.fail("input() should not be used for interactive PAT entry")
+
+    monkeypatch.setattr(main_module.getpass, "getpass", fake_getpass)
+    monkeypatch.setattr("builtins.input", fail_input)
+
+    await main_module.run_github_login(
+        workspace_dir=tmp_path,
+        method="pat",
+    )
+
+    assert calls["getpass"] == 1
+    assert calls["input"] == 0
+    assert read_brokk_properties().get("githubToken") == "ghp_secure_token"
 
 
 def test_main_login_rejects_api_key_flag(monkeypatch) -> None:
@@ -1164,6 +1203,52 @@ def test_main_issue_create_verbose_routes_correctly(monkeypatch, tmp_path) -> No
     assert captured["checkout_kwargs"]["action_label"] == "Issue create"
     assert captured["kwargs"]["workspace_dir"] == temp_workspace
     assert captured["kwargs"]["verbose"] is True
+
+
+@pytest.mark.asyncio
+async def test_run_github_login_device_flow_expires_without_terminal_state(
+    monkeypatch, tmp_path, capsys
+) -> None:
+    class FakeExecutorManager:
+        def __init__(self, **kwargs: Any) -> None:
+            self.kwargs = kwargs
+
+        async def start(self) -> None:
+            return None
+
+        async def wait_live(self, timeout: float = 30.0) -> bool:
+            return True
+
+        async def start_github_oauth(self) -> dict[str, Any]:
+            return {
+                "verificationUri": "https://github.com/login/device",
+                "userCode": "ABCD-EFGH",
+                "interval": 1,
+                "expiresIn": 0,
+            }
+
+        async def get_github_oauth_status(self) -> dict[str, Any]:
+            return {"state": "IDLE"}
+
+        async def stop(self) -> None:
+            return None
+
+    fake_executor_module = ModuleType("brokk_code.executor")
+    fake_executor_module.ExecutorManager = FakeExecutorManager
+    monkeypatch.setitem(sys.modules, "brokk_code.executor", fake_executor_module)
+
+    with pytest.raises(SystemExit) as exc:
+        await main_module.run_github_login(
+            workspace_dir=tmp_path,
+            method="device",
+            no_browser=True,
+        )
+
+    assert exc.value.code == 1
+    assert (
+        "timed out" in capsys.readouterr().err.lower()
+        or "expired" in capsys.readouterr().err.lower()
+    )
 
 
 @pytest.mark.asyncio
@@ -3003,7 +3088,7 @@ def test_install_zed_with_missing_key_interactive_persists_key(
 
     monkeypatch.setattr(sys, "stdin", FakeTtyInput(""))
     monkeypatch.setattr(main_module, "_read_api_key_interactive", lambda: "new-interactive-key")
-    _stub_install_warmup(monkeypatch)
+    _stub_install_warmup(monkeypatch, stub_api_key=False)
 
     def fake_configure_zed(*args, **kwargs):
         return tmp_path / "zed.json"
@@ -3032,7 +3117,7 @@ def test_install_intellij_with_missing_key_piped_persists_key(
     # Ensure it's not detected as TTY
     monkeypatch.setattr(sys.stdin, "isatty", lambda: False)
 
-    _stub_install_warmup(monkeypatch)
+    _stub_install_warmup(monkeypatch, stub_api_key=False)
 
     def fake_configure_intellij(*args, **kwargs):
         return tmp_path / "intellij"
@@ -3060,7 +3145,7 @@ def test_install_mcp_with_missing_key_piped_persists_key(
     monkeypatch.setattr(sys, "stdin", StringIO("mcp-piped-key\n"))
     monkeypatch.setattr(sys.stdin, "isatty", lambda: False)
 
-    _stub_install_warmup(monkeypatch)
+    _stub_install_warmup(monkeypatch, stub_api_key=False)
     monkeypatch.setattr(
         main_module,
         "configure_claude_code_mcp_settings",
