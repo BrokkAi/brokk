@@ -1573,6 +1573,58 @@ async def test_run_headless_job_prints_issue_created_link_from_structured_issue_
     assert "Issue created: https://github.com/brokkai/brokk/issues/987" in captured.out
 
 
+def test_main_issue_diagnose_routes_correctly(monkeypatch, tmp_path) -> None:
+    captured: dict[str, Any] = {"ran": False}
+    temp_workspace = tmp_path / "temp-diagnose"
+    temp_workspace.mkdir()
+
+    async def fake_run_headless_job(**kwargs: Any) -> None:
+        captured["kwargs"] = kwargs
+        captured["ran"] = True
+
+    @contextmanager
+    def fake_temp_workspace(**kwargs: Any):
+        captured["temp_workspace_input"] = kwargs
+        yield temp_workspace
+
+    monkeypatch.setattr(main_module, "run_headless_job", fake_run_headless_job)
+    monkeypatch.setattr(main_module, "_temporary_issue_repo_checkout", fake_temp_workspace)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "brokk",
+            "issue",
+            "diagnose",
+            "--issue-number",
+            "456",
+            "--workspace",
+            str(tmp_path),
+            "--github-token",
+            "ghp_diagnose",
+            "--repo-owner",
+            "acme",
+            "--repo-name",
+            "widgets",
+        ],
+    )
+
+    main_module.main()
+
+    assert captured["ran"] is True
+    assert captured["temp_workspace_input"]["repo_owner"] == "acme"
+    assert captured["temp_workspace_input"]["repo_name"] == "widgets"
+    assert captured["temp_workspace_input"]["github_token"] == "ghp_diagnose"
+    assert captured["temp_workspace_input"]["action_label"] == "Issue diagnose"
+    assert captured["kwargs"]["mode"] == "ISSUE_DIAGNOSE"
+    assert captured["kwargs"]["workspace_dir"] == temp_workspace
+    assert captured["kwargs"]["task_input"] == "Diagnose GitHub Issue #456"
+    assert captured["kwargs"]["tags"]["issue_number"] == "456"
+    assert captured["kwargs"]["tags"]["github_token"] == "ghp_diagnose"
+    assert captured["kwargs"]["tags"]["repo_owner"] == "acme"
+    assert captured["kwargs"]["tags"]["repo_name"] == "widgets"
+
+
 def test_main_issue_solve_routes_correctly(monkeypatch, tmp_path) -> None:
     captured: dict[str, Any] = {"ran": False}
     temp_workspace = tmp_path / "temp-copy"
