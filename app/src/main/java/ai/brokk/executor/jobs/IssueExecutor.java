@@ -181,9 +181,14 @@ public final class IssueExecutor {
 
                 ---
 
-                **Next steps:** Reply with `@BrokkBot solve` to proceed with the fix, or add comments to provide additional guidance.
+                **Next steps:** To fix this issue, run: `brokk issue solve --issue-number %d --repo-owner %s --repo-name %s`
                 """
-                        .formatted(timestamp, analysisResult.bodyMarkdown());
+                        .formatted(
+                                timestamp,
+                                analysisResult.bodyMarkdown(),
+                                prepared.issueNumber(),
+                                prepared.ghRepo().getOwnerName(),
+                                prepared.ghRepo().getName());
 
         IssueService.postIssueComment(prepared.ghRepo(), prepared.issueNumber(), diagnosisComment);
 
