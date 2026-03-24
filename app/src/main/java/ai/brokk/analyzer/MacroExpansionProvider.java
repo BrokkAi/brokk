@@ -38,11 +38,23 @@ public interface MacroExpansionProvider extends CapabilityProvider {
             FileAnalysisAccumulator acc) {
 
         Language lang = analyzer.languages().iterator().next();
-        MacroPolicy policy = analyzer.getProject().getMacroPolicies().get(lang);
-        Map<String, MacroPolicy.MacroMatch> policyMap = policy == null
-                ? Collections.emptyMap()
-                : policy.macros().stream()
-                        .collect(Collectors.toMap(MacroPolicy.MacroMatch::name, mm -> mm, (a, b) -> a));
+
+        Map<String, MacroPolicy.MacroMatch> policyMap = new HashMap<>();
+
+        // 1. Add default policies
+        for (MacroPolicy defaultPolicy : lang.getDefaultMacroPolicies()) {
+            for (MacroPolicy.MacroMatch mm : defaultPolicy.macros()) {
+                policyMap.put(mm.name(), mm);
+            }
+        }
+
+        // 2. Overwrite with project-specific policies
+        MacroPolicy projectPolicy = analyzer.getProject().getMacroPolicies().get(lang);
+        if (projectPolicy != null) {
+            for (MacroPolicy.MacroMatch mm : projectPolicy.macros()) {
+                policyMap.put(mm.name(), mm);
+            }
+        }
 
         analyzer.withCachedQuery(
                 TreeSitterAnalyzer.QueryType.MACROS,
