@@ -7,8 +7,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import org.jetbrains.annotations.Nullable;
 import org.jspecify.annotations.NullMarked;
 import org.slf4j.Logger;
@@ -18,16 +16,12 @@ import org.treesitter.TSQueryCapture;
 import org.treesitter.TSQueryCursor;
 import org.treesitter.TSQueryMatch;
 
-/**
- * Interface for analyzers that support macro expansion discovery and handling.
- */
+/** Interface for analyzers that support macro expansion discovery and handling. */
 @NullMarked
 public interface MacroExpansionProvider extends CapabilityProvider {
     Logger log = LoggerFactory.getLogger(MacroExpansionProvider.class);
 
-    /**
-     * Discovers macro invocations in the given tree using the analyzer's MACROS query.
-     */
+    /** Discovers macro invocations in the given tree using the analyzer's MACROS query. */
     default void discoverMacros(
             TreeSitterAnalyzer analyzer,
             TSNode rootNode,
@@ -78,8 +72,7 @@ public interface MacroExpansionProvider extends CapabilityProvider {
                                     continue;
                                 }
 
-                                String macroName =
-                                        sourceContent.substringFrom(node).strip();
+                                String macroName = sourceContent.substringFrom(node).strip();
 
                                 boolean handled = false;
                                 MacroPolicy.MacroMatch mm = policyMap.get(macroName);
@@ -107,8 +100,8 @@ public interface MacroExpansionProvider extends CapabilityProvider {
     }
 
     /**
-     * Hook to allow subclasses to implement language-specific macro policy matching.
-     * For example, Rust macro policies might need to check both underscores and hyphens in crate names.
+     * Hook to allow subclasses to implement language-specific macro policy matching. For example, Rust macro policies
+     * might need to check both underscores and hyphens in crate names.
      */
     default boolean isMacroPolicyMatch(String macroName, MacroPolicy.MacroMatch mm, FileAnalysisAccumulator acc) {
         String parent = mm.parent();
@@ -170,8 +163,7 @@ public interface MacroExpansionProvider extends CapabilityProvider {
     private void mergeSyntheticUnits(
             CodeUnit parentCu, FileAnalysisAccumulator snippetAcc, FileAnalysisAccumulator acc, TSNode node) {
 
-        List<CodeUnit> snippetUnits =
-                snippetAcc.cuByFqName().values().stream().distinct().toList();
+        List<CodeUnit> snippetUnits = snippetAcc.cuByFqName().values().stream().distinct().toList();
         Map<CodeUnit, CodeUnit> rescopedMap = new HashMap<>();
 
         // Phase 1: Create rescoped versions
@@ -185,13 +177,14 @@ public interface MacroExpansionProvider extends CapabilityProvider {
             boolean needsPrefix = parentCu.isClass() && !syntheticShortName.startsWith(parentShortName + ".");
             String newShortName = needsPrefix ? parentShortName + "." + syntheticShortName : syntheticShortName;
 
-            CodeUnit rescopedCu = new CodeUnit(
-                    parentCu.source(),
-                    syntheticCu.kind(),
-                    parentCu.packageName(),
-                    newShortName,
-                    syntheticCu.signature(),
-                    true);
+            CodeUnit rescopedCu =
+                    new CodeUnit(
+                            parentCu.source(),
+                            syntheticCu.kind(),
+                            parentCu.packageName(),
+                            newShortName,
+                            syntheticCu.signature(),
+                            true);
             rescopedMap.put(syntheticCu, rescopedCu);
         }
 
@@ -228,9 +221,10 @@ public interface MacroExpansionProvider extends CapabilityProvider {
             }
 
             // Attach roots of snippet to parent
-            boolean isSnippetRoot = snippetAcc.topLevelCUs().contains(orig)
-                    || snippetUnits.stream()
-                            .noneMatch(pUnit -> snippetAcc.getChildren(pUnit).contains(orig));
+            boolean isSnippetRoot =
+                    snippetAcc.topLevelCUs().contains(orig)
+                            || snippetUnits.stream()
+                                    .noneMatch(pUnit -> snippetAcc.getChildren(pUnit).contains(orig));
             if (isSnippetRoot) {
                 // If the snippet root is a container (like an impl block) and the target is a class,
                 // we often want to flatten its children directly into the target.
@@ -243,9 +237,10 @@ public interface MacroExpansionProvider extends CapabilityProvider {
                 } else {
                     // Attach to the same parent as the target code unit (parentCu)
                     // If parentCu has a parent in the accumulator, we use that.
-                    Optional<CodeUnit> targetParent = acc.cuByFqName().values().stream()
-                            .filter(pUnit -> acc.getChildren(pUnit).contains(parentCu))
-                            .findFirst();
+                    Optional<CodeUnit> targetParent =
+                            acc.cuByFqName().values().stream()
+                                    .filter(pUnit -> acc.getChildren(pUnit).contains(parentCu))
+                                    .findFirst();
 
                     if (targetParent.isPresent()) {
                         acc.addChild(targetParent.get(), rescoped);
@@ -257,9 +252,7 @@ public interface MacroExpansionProvider extends CapabilityProvider {
         }
     }
 
-    /**
-     * Builds the context map for macro template expansion.
-     */
+    /** Builds the context map for macro template expansion. */
     default Map<String, Object> buildMacroContext(
             TreeSitterAnalyzer analyzer,
             CodeUnit targetCu,
@@ -271,27 +264,28 @@ public interface MacroExpansionProvider extends CapabilityProvider {
         Map<String, Object> context = new HashMap<>();
         context.put("code_unit", targetCu);
 
-        List<Map<String, Object>> childContexts = acc.getChildren(targetCu).stream()
-                .map(childCu -> {
-                    Map<String, Object> childMap = new HashMap<>();
-                    String identifier = childCu.identifier();
-                    childMap.put("code_unit", childCu);
-                    childMap.put("identifier", identifier);
-                    childMap.put("snake_case_name", toSnakeCase(identifier));
+        List<Map<String, Object>> childContexts =
+                acc.getChildren(targetCu).stream()
+                        .map(
+                                childCu -> {
+                                    Map<String, Object> childMap = new HashMap<>();
+                                    String identifier = childCu.identifier();
+                                    childMap.put("code_unit", childCu);
+                                    childMap.put("identifier", identifier);
+                                    childMap.put("snake_case_name", toSnakeCase(identifier));
 
-                    enrichChildContext(analyzer, targetCu, childCu, childMap, acc, sourceContent, rootNode);
-                    return childMap;
-                })
-                .toList();
+                                    enrichChildContext(
+                                            analyzer, targetCu, childCu, childMap, acc, sourceContent, rootNode);
+                                    return childMap;
+                                })
+                        .toList();
 
         context.put("children", childContexts);
 
         return context;
     }
 
-    /**
-     * Hook to allow subclasses to add language-specific variables to the root macro context.
-     */
+    /** Hook to allow subclasses to add language-specific variables to the root macro context. */
     default void enrichMacroContext(
             TreeSitterAnalyzer analyzer,
             CodeUnit targetCu,
@@ -303,9 +297,7 @@ public interface MacroExpansionProvider extends CapabilityProvider {
         // Default no-op
     }
 
-    /**
-     * Hook to allow subclasses to add language-specific variables to a child's macro context.
-     */
+    /** Hook to allow subclasses to add language-specific variables to a child's macro context. */
     default void enrichChildContext(
             TreeSitterAnalyzer analyzer,
             CodeUnit targetCu,
@@ -332,7 +324,8 @@ public interface MacroExpansionProvider extends CapabilityProvider {
         return result.toString();
     }
 
-    private @Nullable CodeUnit findTargetCodeUnit(TSNode node, ProjectFile file, FileAnalysisAccumulator acc) {
+    private @Nullable CodeUnit findTargetCodeUnit(
+            TSNode node, ProjectFile file, FileAnalysisAccumulator acc) {
         // For attribute macros like #[derive(Is)], the node is the identifier inside the attribute.
         // We need to find the declaration that this attribute decorates.
         TSNode attributeItem = node;
@@ -362,9 +355,11 @@ public interface MacroExpansionProvider extends CapabilityProvider {
         List<CodeUnit> allCus = acc.cuByFqName().values().stream().distinct().toList();
         for (CodeUnit cu : allCus) {
             for (IAnalyzer.Range range : acc.getRanges(cu)) {
-                boolean containsAttr = range.startByte() <= attrStartByte && range.endByte() >= attrEndByte;
+                boolean containsAttr =
+                        range.startByte() <= attrStartByte && range.endByte() >= attrEndByte;
                 boolean matchesSibling = sibStart != -1 && range.startByte() == sibStart;
-                boolean startsAfterAttr = range.startByte() >= attrEndByte && range.startByte() <= attrEndByte + 20;
+                boolean startsAfterAttr =
+                        range.startByte() >= attrEndByte && range.startByte() <= attrEndByte + 20;
 
                 if (containsAttr || matchesSibling || startsAfterAttr) {
                     int len = range.endByte() - range.startByte();
