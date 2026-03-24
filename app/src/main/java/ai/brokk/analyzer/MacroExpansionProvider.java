@@ -86,7 +86,7 @@ public interface MacroExpansionProvider extends CapabilityProvider {
                                 if (mm != null && isParentRequirementMet(macroName, mm, acc)) {
                                     handled = true;
                                     if (mm.options() instanceof MacroPolicy.TemplateConfig tc) {
-                                        expandTemplate(analyzer, file, node, sourceContent, tc.template(), acc);
+                                        expandTemplate(analyzer, rootNode, file, node, sourceContent, tc.template(), acc);
                                     }
                                 }
 
@@ -134,6 +134,7 @@ public interface MacroExpansionProvider extends CapabilityProvider {
 
     private void expandTemplate(
             TreeSitterAnalyzer analyzer,
+            TSNode rootNode,
             ProjectFile file,
             TSNode node,
             SourceContent sourceContent,
@@ -150,33 +151,7 @@ public interface MacroExpansionProvider extends CapabilityProvider {
             return;
         }
 
-        Map<String, Object> context = new HashMap<>();
-        context.put("code_unit", parentCu);
-        context.put("children", acc.getChildren(parentCu));
-
-        // Basic variable extraction for bang macros like lazy_static!
-        // We look at the parent to get the full macro_invocation text
-        TSNode targetNode = node;
-        TSNode p = node.getParent();
-        while (p != null
-                && !p.isNull()
-                && !p.getType().contains("item")
-                && !p.getType().contains("declaration")) {
-            targetNode = p;
-            if (p.getType().equals("macro_invocation")) break;
-            p = p.getParent();
-        }
-
-        String nodeText = sourceContent.substringFrom(targetNode);
-        if (nodeText.contains("static")) {
-            // Primitive extraction for lazy_static! { [pub] static [ref] NAME: TYPE = ... }
-            Pattern pattern = Pattern.compile("static\\s+(?:ref\\s+)?([\\w_]+)\\s*:\\s*([^=;{]+)");
-            Matcher m = pattern.matcher(nodeText);
-            if (m.find()) {
-                context.put("name", m.group(1).strip());
-                context.put("type", m.group(2).strip());
-            }
-        }
+        Map<String, Object> context = buildMacroContext(analyzer, parentCu, acc, node, sourceContent, rootNode);
 
         String expanded = MacroTemplateExpander.expand(template, context);
 
@@ -274,6 +249,89 @@ public interface MacroExpansionProvider extends CapabilityProvider {
                 }
             }
         }
+    }
+
+    /**
+     * Builds the context map for macro template expansion.
+     */
+    default Map<String, Object> buildMacroContext(
+            TreeSitterAnalyzer analyzer,
+            CodeUnit targetCu,
+            FileAnalysisAccumulator acc,
+            TSNode macroNode,
+            SourceContent sourceContent,
+            TSNode rootNode) {
+
+        Map<String, Object> context = new HashMap<>();
+        context.put("code_unit", targetCu);
+
+        List<Map<String, Object>> childContexts = acc.getChildren(targetCu).stream()
+                .map(childCu -> {
+                    Map<String, Object> childMap = new HashMap<>();
+                    String identifier = childCu.identifier();
+                    childMap.put("code_unit", childCu);
+                    childMap.put("identifier", identifier);
+                    childMap.put("snake_case_name", toSnakeCase(identifier));
+
+                    enrichChildContext(analyzer, targetCu, childCu, childMap, acc, sourceContent, rootNode);
+                    return childMap;
+                })
+                .toList();
+
+        context.put("children", childContexts);
+
+        // Basic variable extraction for bang macros like lazy_static!
+        TSNode targetNode = macroNode;
+        TSNode p = macroNode.getParent();
+        while (p != null
+                && !p.isNull()
+                && !p.getType().contains("item")
+                && !p.getType().contains("declaration")) {
+            targetNode = p;
+            if (p.getType().equals("macro_invocation")) break;
+            p = p.getParent();
+        }
+
+        String nodeText = sourceContent.substringFrom(targetNode);
+        if (nodeText.contains("static")) {
+            Pattern pattern = Pattern.compile("static\\s+(?:ref\\s+)?([\\w_]+)\\s*:\\s*([^=;{]+)");
+            Matcher m = pattern.matcher(nodeText);
+            if (m.find()) {
+                context.put("name", m.group(1).strip());
+                context.put("type", m.group(2).strip());
+            }
+        }
+
+        return context;
+    }
+
+    /**
+     * Hook to allow subclasses to add language-specific variables to a child's macro context.
+     */
+    default void enrichChildContext(
+            TreeSitterAnalyzer analyzer,
+            CodeUnit targetCu,
+            CodeUnit childCu,
+            Map<String, Object> childMap,
+            FileAnalysisAccumulator acc,
+            SourceContent sourceContent,
+            TSNode rootNode) {
+        // Default no-op
+    }
+
+    private String toSnakeCase(String input) {
+        if (input == null || input.isEmpty()) return input;
+        StringBuilder result = new StringBuilder();
+        for (int i = 0; i < input.length(); i++) {
+            char c = input.charAt(i);
+            if (Character.isUpperCase(c)) {
+                if (i > 0) result.append('_');
+                result.append(Character.toLowerCase(c));
+            } else {
+                result.append(c);
+            }
+        }
+        return result.toString();
     }
 
     private @Nullable CodeUnit findTargetCodeUnit(TSNode node, ProjectFile file, FileAnalysisAccumulator acc) {
