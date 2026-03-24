@@ -1481,17 +1481,20 @@ class BrokkApp(App):
                 try:
                     await asyncio.to_thread(write_brokk_api_key, key)
                     self.executor.brokk_api_key = key
-                    # First time login: show full welcome now
+
+                    # Ensure any persisted onboarding flag is cleared
+                    if self.settings.show_full_welcome:
+                        self.settings.show_full_welcome = False
+                        self.settings.save()
+
+                    # First time login in this session: show full welcome now
                     self._welcome_variant_full = True
 
                     _chat = self._maybe_chat()
                     if _chat:
                         _chat.add_system_message("API key saved. Starting Brokk executor...")
-                        self._show_welcome_message()
-
-                    # Ensure the persisted flag is False so next startup is compact
-                    self.settings.show_full_welcome = False
-                    self.settings.save()
+                        # Ensure we show the full welcome immediately after login
+                        self._show_welcome_message(refresh=False)
 
                     self.run_worker(self._start_executor())
                     return True
@@ -1504,9 +1507,12 @@ class BrokkApp(App):
             # Normal startup with key: decide between full or compact welcome
             if self.settings.show_full_welcome:
                 self._welcome_variant_full = True
-                # Clear the flag now that we are showing it
+                # One-shot consumption of the onboarding flag
                 self.settings.show_full_welcome = False
-                self.settings.save()
+                try:
+                    self.settings.save()
+                except Exception:
+                    logger.debug("Failed to clear show_full_welcome flag", exc_info=True)
             else:
                 self._welcome_variant_full = False
 
@@ -3234,7 +3240,16 @@ class BrokkApp(App):
                 try:
                     await asyncio.to_thread(write_brokk_api_key, key)
                     self.executor.brokk_api_key = key
+                    # Manual login update also triggers a fresh (compact) welcome
+                    self._welcome_variant_full = False
+
+                    # Ensure any pending onboarding flag is cleared
+                    if self.settings.show_full_welcome:
+                        self.settings.show_full_welcome = False
+                        self.settings.save()
+
                     chat.add_system_message("API key updated. Relaunching executor...")
+                    self._show_welcome_message()
                     self.run_worker(self._relaunch_executor())
                     return True
                 except Exception as e:

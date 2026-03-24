@@ -3,6 +3,15 @@ set -eu
 # This shim ensures that calls to 'pytest' in the brokk-code directory 
 # are routed through 'uv run' as required by the project standards.
 if command -v uv >/dev/null 2>&1; then
-  exec uv run pytest "$@"
+  # If we are inside the brokk-code dir and args start with 'brokk-code/',
+  # strip that prefix so pytest finds the files.
+  ARGS=""
+  for arg in "$@"; do
+    case "$arg" in
+      brokk-code/*) ARGS="$ARGS ${arg#brokk-code/}" ;;
+      *) ARGS="$ARGS $arg" ;;
+    esac
+  done
+  exec uv run pytest $ARGS
 fi
 exec python3 -m pytest "$@"
