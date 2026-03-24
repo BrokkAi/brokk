@@ -2407,11 +2407,23 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                             : currentPackage.substring(currentPackage.lastIndexOf('.') + 1);
 
                     CodeUnit fileModule = CodeUnit.module(file, currentPackage, moduleSimpleName);
-                    if (acc.getByFqName(fileModule.fqName()) == null && acc.getByFqName(currentPackage) == null) {
+                    CodeUnit existingModule = acc.getByFqName(fileModule.fqName());
+                    if (existingModule == null) {
+                        existingModule = acc.getByFqName(currentPackage);
+                    }
+
+                    if (existingModule == null) {
                         acc.registerCodeUnit(fileModule);
                         // Do not add to topLevelCUs to avoid cluttering file skeletons,
                         // but register it so macros/children can attach.
                         acc.addLookupKey(fileModule.fqName(), fileModule);
+                    } else {
+                        // Ensure that even if the module was registered with different metadata,
+                        // it's accessible via both names for macro/child attachment.
+                        acc.addLookupKey(fileModule.fqName(), existingModule);
+                        if (!currentPackage.isEmpty()) {
+                            acc.addLookupKey(currentPackage, existingModule);
+                        }
                     }
 
                     // Phase 3: Post-processing Hook (e.g., Macros)
