@@ -25,6 +25,7 @@ import ai.brokk.acpserver.transport.AcpTransport;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.Map;
 import java.util.function.BiFunction;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -139,7 +140,7 @@ public class AcpSyncAgent {
             case "session/cancel" -> {
                 var req = params != null ? parseAs(params, CancelRequest.class) : new CancelRequest(null);
                 cancelHandler.accept(req);
-                yield null;
+                yield Map.of();
             }
             case "models/list" -> {
                 var req = params != null ? parseAs(params, ModelsListRequest.class) : new ModelsListRequest();

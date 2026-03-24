@@ -71,15 +71,7 @@ public class AcpProgressConsole extends MemoryConsole implements AutoCloseable {
 
     public void shutdown() {
         flushTokenBuffer();
-        flushScheduler.shutdown();
-        try {
-            if (!flushScheduler.awaitTermination(2, TimeUnit.SECONDS)) {
-                flushScheduler.shutdownNow();
-            }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            flushScheduler.shutdownNow();
-        }
+        flushScheduler.shutdownNow();
     }
 
     @Override
