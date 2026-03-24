@@ -19,7 +19,7 @@ from brokk_code.workspace import resolve_workspace_dir
 
 logger = logging.getLogger(__name__)
 
-BUNDLED_EXECUTOR_VERSION = "0.23.3.beta1"
+BUNDLED_EXECUTOR_VERSION = "0.23.3.beta2"
 _EXECUTOR_JAR_BASE_URL = "https://github.com/BrokkAi/brokk-releases/releases/download"
 _EXECUTOR_MAIN_CLASS = "ai.brokk.executor.HeadlessExecutorMain"
 _READY_SENTINEL = "Executor listening on http://"
@@ -357,10 +357,10 @@ class ExecutorManager:
             "-R",
             (
                 f"{env_flag} "
-            "-Djava.awt.headless=true "
-            "-Dapple.awt.UIElement=true "
-            "--enable-native-access=ALL-UNNAMED"
-        ),
+                "-Djava.awt.headless=true "
+                "-Dapple.awt.UIElement=true "
+                "--enable-native-access=ALL-UNNAMED"
+            ),
             "--main",
             self._main_class,
             jar_url,
