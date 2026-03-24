@@ -98,6 +98,7 @@ public class ProjectFile implements BrokkFile {
         return relPath.hashCode();
     }
 
+    @JsonIgnore
     public Optional<Long> size() {
         return exists() ? Optional.of(absPath().toFile().length()) : Optional.empty();
     }
