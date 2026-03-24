@@ -137,6 +137,7 @@ class Settings:
     last_reasoning_level: Optional[str] = None
     last_code_reasoning_level: Optional[str] = None
     last_auto_commit: Optional[bool] = None
+    show_full_welcome: bool = False
 
     @classmethod
     def load(cls) -> "Settings":

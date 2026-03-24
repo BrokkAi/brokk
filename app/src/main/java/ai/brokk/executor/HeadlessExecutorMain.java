@@ -353,13 +353,21 @@ public final class HeadlessExecutorMain {
 
     private @Nullable String resolveReadySessionId() {
         try {
+            var sessions = contextManager.getProject().getSessionManager().listSessions();
+            if (sessions.isEmpty()) {
+                return null;
+            }
+
             var currentSessionId = contextManager.getCurrentSessionId();
-            var hasKnownActiveSession = contextManager.getProject().getSessionManager().listSessions().stream()
-                    .anyMatch(session -> session.id().equals(currentSessionId));
+            var hasKnownActiveSession =
+                    sessions.stream().anyMatch(session -> session.id().equals(currentSessionId));
             if (hasKnownActiveSession) {
                 return currentSessionId.toString();
             }
-            return null;
+
+            // Headless startup can still be reconciling the active session while session metadata
+            // already exists on disk. Report the newest known session instead of a transient null.
+            return sessions.getFirst().id().toString();
         } catch (Exception e) {
             logger.warn("Failed to resolve sessionId for /health/ready payload", e);
             return null;
