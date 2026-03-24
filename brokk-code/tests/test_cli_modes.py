@@ -1973,6 +1973,98 @@ def test_main_issue_create_invalid_repo_name_exits_nonzero(monkeypatch) -> None:
     assert exc.value.code != 0
 
 
+def test_main_issue_diagnose_missing_github_token_exits_nonzero(monkeypatch) -> None:
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "brokk",
+            "issue",
+            "diagnose",
+            "--issue-number",
+            "123",
+            "--repo-owner",
+            "acme",
+            "--repo-name",
+            "tools",
+        ],
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        main_module.main()
+
+    assert exc.value.code != 0
+
+
+def test_main_issue_diagnose_missing_repo_owner_exits_nonzero(monkeypatch) -> None:
+    monkeypatch.setenv("GITHUB_TOKEN", "token")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "brokk",
+            "issue",
+            "diagnose",
+            "--issue-number",
+            "123",
+            "--repo-name",
+            "tools",
+        ],
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        main_module.main()
+
+    assert exc.value.code != 0
+
+
+def test_main_issue_diagnose_missing_repo_name_exits_nonzero(monkeypatch) -> None:
+    monkeypatch.setenv("GITHUB_TOKEN", "token")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "brokk",
+            "issue",
+            "diagnose",
+            "--issue-number",
+            "123",
+            "--repo-owner",
+            "acme",
+        ],
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        main_module.main()
+
+    assert exc.value.code != 0
+
+
+def test_main_issue_diagnose_invalid_repo_owner_exits_nonzero(monkeypatch) -> None:
+    monkeypatch.setenv("GITHUB_TOKEN", "token")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "brokk",
+            "issue",
+            "diagnose",
+            "--issue-number",
+            "123",
+            "--repo-owner",
+            "invalid/owner",
+            "--repo-name",
+            "tools",
+        ],
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        main_module.main()
+
+    assert exc.value.code != 0
+
+
 def test_main_pr_create_routes_correctly(monkeypatch, tmp_path) -> None:
     captured: dict[str, Any] = {"ran": False}
 
