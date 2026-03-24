@@ -198,6 +198,24 @@ def _read_api_key_interactive() -> str:
     return _read_masked_input("Brokk API key: ").strip()
 
 
+def _ensure_install_api_key() -> None:
+    key = (Settings().get_brokk_api_key() or "").strip()
+    if key:
+        return
+
+    if sys.stdin.isatty():
+        key = _read_api_key_interactive()
+    else:
+        key = _read_api_key_from_stdin()
+
+    key = key.strip()
+    if not key:
+        raise ValueError("API key cannot be empty.")
+
+    write_brokk_api_key(key)
+    print(f"Saved Brokk API key to {get_brokk_properties_path()}")
+
+
 def _looks_like_auth_failure(message: str) -> bool:
     text = message.lower()
     return (
@@ -215,6 +233,7 @@ def _validation_not_possible(message: str) -> bool:
         "jbang executable not found" in text
         or "java executable not found" in text
         or "failed to extract port from executor output" in text
+        or "executor failed to become live" in text
         or "executor failed to become ready" in text
     )
 
@@ -246,8 +265,8 @@ async def _validate_brokk_api_key(
     )
     try:
         await manager.start()
-        if not await manager.wait_ready(timeout=20.0):
-            raise ExecutorError("Executor failed to become ready for API key validation.")
+        if not await manager.wait_live(timeout=20.0):
+            raise ExecutorError("Executor failed to become live for API key validation.")
         try:
             return await manager.validate_brokk_auth()
         except ExecutorError as exc:
@@ -933,9 +952,8 @@ async def run_commit(
 
     try:
         await manager.start()
-        await manager.create_session(name="Headless commit")
-        if not await manager.wait_ready():
-            print("Error: executor failed to become ready.", file=sys.stderr)
+        if not await manager.wait_live():
+            print("Error: executor failed to become live.", file=sys.stderr)
             sys.exit(1)
 
         result = await manager.commit_context(message)
@@ -987,9 +1005,8 @@ async def run_pr_create(
 
     try:
         await manager.start()
-        await manager.create_session(name="Headless PR create")
-        if not await manager.wait_ready():
-            print("Error: executor failed to become ready.", file=sys.stderr)
+        if not await manager.wait_live():
+            print("Error: executor failed to become live.", file=sys.stderr)
             sys.exit(1)
 
         # If title or body is missing, suggest them first
@@ -1123,15 +1140,11 @@ async def run_pr_review_job(
         _update_shutdown_context()
         await manager.start()
 
-        stage = "creating executor session"
+        stage = "waiting for executor liveness"
         _update_shutdown_context()
-        await manager.create_session(name=f"PR Review #{pr_number}")
-
-        stage = "waiting for executor readiness"
-        _update_shutdown_context()
-        if not await manager.wait_ready():
+        if not await manager.wait_live():
             print(
-                f"Error during PR review job ({stage}): executor failed to become ready.",
+                f"Error during PR review job ({stage}): executor failed to become live.",
                 file=sys.stderr,
             )
             sys.exit(1)
@@ -1346,16 +1359,11 @@ async def run_headless_job(
         _update_shutdown_context()
         await manager.start()
 
-        # Create session before wait_ready to satisfy Java-side readiness requirements
-        stage = "creating executor session"
+        stage = "waiting for executor liveness"
         _update_shutdown_context()
-        await manager.create_session(name=f"Headless {mode}")
-
-        stage = "waiting for executor readiness"
-        _update_shutdown_context()
-        if not await manager.wait_ready():
+        if not await manager.wait_live():
             print(
-                f"Error during {mode} job ({stage}): executor failed to become ready.",
+                f"Error during {mode} job ({stage}): executor failed to become live.",
                 file=sys.stderr,
             )
             sys.exit(1)
@@ -1488,17 +1496,21 @@ def main():
         parser.error(f"unrecognized arguments: {' '.join(unknown)}")
 
     if args.command == "install":
+        # Fast-fail validation before prompting for API keys
+        if args.plugin and args.target not in {"nvim", "neovim"}:
+            print("Error: --plugin is only valid for install targets nvim/neovim", file=sys.stderr)
+            sys.exit(1)
+
         messages: list[str] = []
         prefetch_commands: list[tuple[str, list[str]]] = []
         try:
-            if args.plugin and args.target not in {"nvim", "neovim"}:
-                raise ValueError("--plugin is only valid for install targets nvim/neovim")
             uv_binary = ensure_uv_ready()
             uvx_command = str(Path(uv_binary).parent / "uvx")
             jbang_binary = resolve_jbang_binary() if args.verbose else ensure_jbang_ready()
             if args.verbose and not jbang_binary:
                 jbang_binary = "jbang"
             if args.target == "zed":
+                _ensure_install_api_key()
                 settings_path = configure_zed_acp_settings(
                     force=args.force, uvx_command=uvx_command
                 )
@@ -1509,6 +1521,7 @@ def main():
                 )
                 messages = [f"Configured Zed ACP integration in {settings_path}"]
             elif args.target == "intellij":
+                _ensure_install_api_key()
                 settings_path = configure_intellij_acp_settings(
                     force=args.force, uvx_command=uvx_command
                 )
@@ -1520,6 +1533,7 @@ def main():
                 messages = [f"Configured IntelliJ ACP integration in {settings_path}"]
             elif args.target in {"nvim", "neovim"}:
                 selected_plugin = _resolve_neovim_plugin(plugin=args.plugin)
+                _ensure_install_api_key()
                 if selected_plugin == "codecompanion":
                     settings_path = configure_nvim_codecompanion_acp_settings(force=args.force)
                     patch_result = wire_nvim_plugin_setup(
@@ -1635,6 +1649,7 @@ def main():
                     executor_version=args.executor_version,
                 )
             elif args.target == "mcp":
+                _ensure_install_api_key()
                 claude_settings_path = configure_claude_code_mcp_settings(
                     force=args.force, uvx_command=uvx_command
                 )

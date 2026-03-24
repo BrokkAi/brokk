@@ -105,21 +105,19 @@ class HeadlessExecutorMainIntegrationTest {
         var conn = (HttpURLConnection) url.openConnection();
         conn.setRequestMethod("GET");
 
-        assertEquals(503, conn.getResponseCode());
+        assertEquals(200, conn.getResponseCode());
+        assertEquals("true", conn.getHeaderField("Deprecation"));
+        var warning = conn.getHeaderField("Warning");
+        assertNotNull(warning);
+        assertTrue(warning.contains("Deprecated endpoint"), warning);
 
-        // Verify ErrorPayload JSON structure
-        InputStream stream = conn.getErrorStream();
-        if (stream == null) {
-            stream = conn.getInputStream();
-        }
-        assertNotNull(stream, "Expected error response body");
-        try (InputStream is = stream) {
+        try (InputStream is = conn.getInputStream()) {
             var response = new String(is.readAllBytes(), StandardCharsets.UTF_8);
-            assertTrue(response.contains("\"code\""), "Response should contain 'code' field: " + response);
-            assertTrue(response.contains("NOT_READY"), "Response should contain 'NOT_READY' code: " + response);
-            assertTrue(response.contains("\"message\""), "Response should contain 'message' field: " + response);
-            assertTrue(
-                    response.contains("No session loaded"), "Response should contain appropriate message: " + response);
+            assertTrue(response.contains("status"));
+            assertTrue(response.contains("ready"));
+            assertTrue(response.contains("sessionId"));
+            assertTrue(response.contains("execId"));
+            assertTrue(response.contains("protocolVersion"));
         }
         conn.disconnect();
     }

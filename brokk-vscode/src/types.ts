@@ -6,11 +6,6 @@ export interface LiveResponse {
   protocolVersion: number;
 }
 
-export interface ReadyResponse {
-  status: string;
-  sessionId: string;
-}
-
 // ── Sessions ───────────────────────────────────────────
 
 export interface CreateSessionResponse {

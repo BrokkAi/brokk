@@ -1,7 +1,6 @@
 import { randomUUID } from "crypto";
 import type {
   LiveResponse,
-  ReadyResponse,
   CreateSessionResponse,
   SessionListResponse,
   SessionInfo,
@@ -81,10 +80,6 @@ export class BrokkClient {
 
   async checkLive(): Promise<LiveResponse> {
     return this.request<LiveResponse>("/health/live", {}, false);
-  }
-
-  async checkReady(): Promise<ReadyResponse> {
-    return this.request<ReadyResponse>("/health/ready", {}, false);
   }
 
   // ── Sessions ───────────────────────────────────────

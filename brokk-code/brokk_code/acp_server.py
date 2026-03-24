@@ -676,9 +676,9 @@ class BrokkAcpBridge:
         self._started = True
 
     async def _wait_until_ready(self) -> None:
-        ready = await self.executor.wait_ready()
+        ready = await self.executor.wait_live()
         if not ready:
-            raise ExecutorError("Brokk executor failed readiness check")
+            raise ExecutorError("Brokk executor failed liveness check")
 
     async def start_and_create_session(self, name: str, cwd: Optional[str] = None) -> str:
         """Starts the executor on-demand and creates the session requested by the client."""

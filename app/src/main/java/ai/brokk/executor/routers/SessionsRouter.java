@@ -16,7 +16,6 @@ import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
-import java.util.function.Consumer;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jspecify.annotations.NullMarked;
@@ -30,13 +29,10 @@ public final class SessionsRouter implements SimpleHttpServer.CheckedHttpHandler
 
     private final ContextManager contextManager;
     private final SessionManager sessionManager;
-    private final Consumer<Boolean> sessionLoadedSetter;
 
-    public SessionsRouter(
-            ContextManager contextManager, SessionManager sessionManager, Consumer<Boolean> sessionLoadedSetter) {
+    public SessionsRouter(ContextManager contextManager, SessionManager sessionManager) {
         this.contextManager = contextManager;
         this.sessionManager = sessionManager;
-        this.sessionLoadedSetter = sessionLoadedSetter;
     }
 
     @Override
@@ -266,7 +262,6 @@ public final class SessionsRouter implements SimpleHttpServer.CheckedHttpHandler
         try {
             contextManager.switchSessionAsync(sessionId).get(30, TimeUnit.SECONDS);
             logger.info("Switched to session: {}", sessionId);
-            sessionLoadedSetter.accept(true);
 
             var response = Map.of("status", "ok", "sessionId", sessionId.toString());
             SimpleHttpServer.sendJsonResponse(exchange, response);
@@ -309,8 +304,6 @@ public final class SessionsRouter implements SimpleHttpServer.CheckedHttpHandler
 
             var sessionId = contextManager.getCurrentSessionId();
             logger.info("Created new session: {} ({})", sessionName, sessionId);
-
-            sessionLoadedSetter.accept(true);
 
             var response = Map.of("sessionId", sessionId.toString(), "name", sessionName);
             SimpleHttpServer.sendJsonResponse(exchange, 201, response);
@@ -403,8 +396,6 @@ public final class SessionsRouter implements SimpleHttpServer.CheckedHttpHandler
         } catch (TimeoutException e) {
             throw new IOException("Timed out switching to session " + sessionId + " after 30 seconds", e);
         }
-
-        sessionLoadedSetter.accept(true);
     }
 
     private record CreateSessionRequest(String name) {}

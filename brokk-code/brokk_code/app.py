@@ -30,6 +30,7 @@ from brokk_code.settings import (
     Settings,
     normalize_theme_name,
     write_brokk_api_key,
+    write_brokk_properties,
 )
 from brokk_code.welcome import build_welcome_message, get_braille_icon
 from brokk_code.widgets.chat_panel import ChatInput, ChatPanel
@@ -1567,7 +1568,7 @@ class BrokkApp(App):
             if self.executor.session_id:
                 save_last_session_id(self.executor.workspace_dir, self.executor.session_id)
 
-            if await self.executor.wait_ready():
+            if await self.executor.wait_live():
                 self._executor_ready = True
                 await self._sync_model_roles_from_executor()
                 # Initial context load
@@ -3105,7 +3106,8 @@ class BrokkApp(App):
     def get_slash_commands() -> List[Dict[str, str]]:
         """Returns the structured catalog of supported slash commands."""
         return [
-            {"command": "/api-key", "description": "Update your Brokk API key"},
+            {"command": "/login", "description": "Login or update your Brokk API key"},
+            {"command": "/logout", "description": "Clear saved Brokk API key and logout"},
             {"command": "/costs", "description": "Show session cost breakdown"},
             {"command": "/login-openai", "description": "Connect your OpenAI ChatGPT subscription"},
             {"command": "/clear", "description": "Clear the chat transcript"},
@@ -3199,7 +3201,10 @@ class BrokkApp(App):
                 )
             else:
                 self.run_worker(self._login_openai())
-        elif base == "/api-key":
+        elif base in ("/login", "/api-key"):
+            if len(parts) > 1:
+                chat.add_system_message(f"Usage: {base} (opens API key prompt)", level="WARNING")
+                return
 
             async def on_key_entered(key: str) -> bool:
                 try:
@@ -3216,6 +3221,22 @@ class BrokkApp(App):
             self.push_screen(
                 BrokkApiKeyModalScreen(on_key_entered, "Update Brokk API Key", is_update=True)
             )
+        elif base == "/logout":
+            if len(parts) > 1:
+                chat.add_system_message("Usage: /logout", level="WARNING")
+                return
+
+            async def do_logout():
+                try:
+                    await asyncio.to_thread(write_brokk_properties, {"brokkApiKey": None})
+                    self.executor.brokk_api_key = None
+                    chat.add_system_message("Logged out. Clearing API key and relaunching...")
+                    await self._relaunch_executor()
+                except Exception as e:
+                    logger.exception("Logout failed")
+                    chat.add_system_message(f"Logout failed: {e}", level="ERROR")
+
+            self.run_worker(do_logout())
         elif base == "/context":
             self.action_toggle_context()
         elif base == "/task":
@@ -4333,8 +4354,7 @@ class BrokkApp(App):
                 await self.executor.start()
                 self._executor_started = True
 
-                # 4. Restore session state OR create new session BEFORE waiting for readiness.
-                # Java /health/ready requires a session to be loaded.
+                # 4. Restore session state or create a new session for continuity.
                 restored = False
                 if session_zip and current_sid:
                     try:
@@ -4351,9 +4371,9 @@ class BrokkApp(App):
                             level="WARNING",
                         )
 
-                # 5. Wait for readiness now that a session is loaded
-                if not await self.executor.wait_ready():
-                    raise ExecutorError("New executor failed to become ready.")
+                # 5. Wait for liveness before resuming traffic
+                if not await self.executor.wait_live():
+                    raise ExecutorError("New executor failed to become live.")
 
                 self._executor_ready = True
                 await self._sync_model_roles_from_executor()

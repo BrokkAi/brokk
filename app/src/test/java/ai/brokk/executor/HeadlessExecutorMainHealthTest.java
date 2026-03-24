@@ -28,8 +28,8 @@ import org.junit.jupiter.api.io.TempDir;
  * Integration-style health readiness test for HeadlessExecutorMain.
  *
  * Verifies that:
- *  - /health/ready returns 503 before any session exists
- *  - After creating a session, /health/ready returns 200 and includes the current session id
+ *  - /health/ready remains available as a deprecated compatibility endpoint
+ *  - /health/ready mirrors liveness and includes session metadata
  */
 @Disabled("Does not play nicely with async ContextFragments")
 class HeadlessExecutorMainHealthTest {
@@ -78,21 +78,20 @@ class HeadlessExecutorMainHealthTest {
 
     @Test
     void healthReady_beforeAndAfterSessionImport() throws Exception {
-        // 1) Before any session exists -> expect 503
+        // 1) Before any session exists -> expect 200 (compat alias of /health/live)
         {
             var url = URI.create(baseUrl + "/health/ready").toURL();
             var conn = withTimeouts((HttpURLConnection) url.openConnection());
             conn.setRequestMethod("GET");
             try {
-                assertEquals(503, conn.getResponseCode());
-                // Body format may vary (error payload or status marker); not asserted here.
+                assertEquals(200, conn.getResponseCode());
+                assertEquals("true", conn.getHeaderField("Deprecation"));
             } finally {
                 conn.disconnect();
             }
         }
 
         // 2) Create a session via HTTP API
-        String createdSessionId;
         {
             var url = URI.create(baseUrl + "/v1/sessions").toURL();
             var conn = withTimeouts((HttpURLConnection) url.openConnection());
@@ -108,8 +107,7 @@ class HeadlessExecutorMainHealthTest {
 
             assertEquals(201, conn.getResponseCode());
             try (InputStream is = conn.getInputStream()) {
-                var map = OBJECT_MAPPER.readValue(is, new TypeReference<Map<String, Object>>() {});
-                createdSessionId = (String) map.get("sessionId");
+                OBJECT_MAPPER.readValue(is, new TypeReference<Map<String, Object>>() {});
             } finally {
                 conn.disconnect();
             }
@@ -125,7 +123,7 @@ class HeadlessExecutorMainHealthTest {
                 try (InputStream is = conn.getInputStream()) {
                     var map = OBJECT_MAPPER.readValue(is, new TypeReference<Map<String, Object>>() {});
                     assertEquals("ready", map.get("status"));
-                    assertEquals(createdSessionId, map.get("sessionId"));
+                    assertNotNull(map.get("sessionId"));
                 }
             } finally {
                 conn.disconnect();

@@ -298,7 +298,7 @@ export async function spawnJbang(workspaceDir: string, jbangBinary?: string): Pr
   const authToken = randomUUID();
   const execId = randomUUID();
 
-  const version = "0.23.2.beta1";
+  const version = "0.23.3.beta1";
   const jarUrl = `https://github.com/BrokkAi/brokk-releases/releases/download/${version}/brokk-${version}.jar`;
 
   const jbangArgs = [
@@ -408,9 +408,7 @@ function extractPort(line: string): number | null {
 }
 
 /**
- * Poll /health/live, create a session via POST /v1/sessions, then poll /health/ready.
- * The sessionLoaded flag in the executor is only set by SessionsRouter,
- * so we must create a session before readiness will resolve.
+ * Poll /health/live and return the best-effort current session ID.
  */
 export async function waitForReady(
   port: number,
@@ -430,32 +428,23 @@ export async function waitForReady(
     cancelToken
   );
 
-  // Create a session — this sets sessionLoaded=true in the executor
-  await fetch(`${baseUrl}/v1/sessions`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${authToken}`,
-    },
-    body: JSON.stringify({ name: "New Session" }),
-  });
-
-  // Wait for readiness
-  let sessionId = "";
-  await poll(
-    async () => {
-      const res = await fetch(`${baseUrl}/health/ready`);
-      if (!res.ok) return false;
-      const data = (await res.json()) as { status: string; sessionId: string };
-      sessionId = data.sessionId;
-      return true;
-    },
-    500,
-    60_000,
-    cancelToken
-  );
-
-  return sessionId;
+  // Best-effort session label for status tooltip.
+  try {
+    const res = await fetch(`${baseUrl}/v1/sessions/current`, {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${authToken}`,
+      },
+    });
+    if (!res.ok) {
+      return "unknown";
+    }
+    const data = (await res.json()) as { id?: string; sessionId?: string };
+    return data.id ?? data.sessionId ?? "unknown";
+  } catch {
+    return "unknown";
+  }
 }
 
 async function poll(
