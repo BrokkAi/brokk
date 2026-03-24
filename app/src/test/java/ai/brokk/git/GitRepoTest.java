@@ -2364,6 +2364,31 @@ public class GitRepoTest {
     }
 
     @Test
+    void testGetFileDiffs_BinaryFiles() throws Exception {
+        Path binaryFile = projectRoot.resolve("test.bin");
+        byte[] content1 = new byte[] {0, 1, 2, 3};
+        Files.write(binaryFile, content1);
+        repo.getGit().add().addFilepattern("test.bin").call();
+        repo.getGit().commit().setMessage("Add binary").setSign(false).call();
+        String firstCommit = repo.getCurrentCommitId();
+
+        byte[] content2 = new byte[] {0, 5, 6, 7};
+        Files.write(binaryFile, content2);
+        repo.getGit().add().addFilepattern("test.bin").call();
+        repo.getGit().commit().setMessage("Update binary").setSign(false).call();
+        String secondCommit = repo.getCurrentCommitId();
+
+        var diffs = repo.data().getFileDiffs(firstCommit, secondCommit);
+
+        assertEquals(1, diffs.size());
+        var diff = diffs.get(0);
+        assertTrue(diff.isBinary());
+        assertTrue(diff.oldText().contains(GitRepoData.BINARY_FILE_MARKER));
+        assertTrue(diff.newText().contains(GitRepoData.BINARY_FILE_MARKER));
+        assertNotEquals(diff.oldText(), diff.newText());
+    }
+
+    @Test
     void testGetFileDiffs_FileNotFoundAtRef() throws Exception {
         createCommit("file1.txt", "content", "Initial");
         String head = repo.getCurrentCommitId();

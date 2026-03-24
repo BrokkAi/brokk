@@ -1080,7 +1080,7 @@ class ReviewParserTest {
     void testMatchExcerptInFile() {
         Path root = Path.of(".").toAbsolutePath().normalize();
         ProjectFile file = new ProjectFile(root, "test.java");
-        var diff = new FileDiff(file, file, "line1\nline2\nline3", "line1\nline2-new\nline3");
+        var diff = new FileDiff(file, file, "line1\nline2\nline3", "line1\nline2-new\nline3", false);
 
         // Match in NEW
         var excerptNew = new ReviewParser.RawExcerpt("test.java", 2, "line2-new");
@@ -1108,7 +1108,7 @@ class ReviewParserTest {
 
         // Multi-line match
         ProjectFile multiFile = new ProjectFile(root, "multi.java");
-        var multiDiff = new FileDiff(multiFile, multiFile, "a\nb\nc\nd\ne", "a\nb\nc\nd\ne");
+        var multiDiff = new FileDiff(multiFile, multiFile, "a\nb\nc\nd\ne", "a\nb\nc\nd\ne", false);
         var multiExcerpt = new ReviewParser.RawExcerpt("multi.java", 3, "b\nc\nd");
         ReviewParser.ExcerptMatch multiMatch = ReviewParser.matchExcerptInFile(multiExcerpt, multiDiff);
         assertNotNull(multiMatch);
@@ -1120,7 +1120,7 @@ class ReviewParserTest {
     void testMatchExcerptInFile_emptyAndFull() {
         Path root = Path.of(".").toAbsolutePath().normalize();
         ProjectFile file = new ProjectFile(root, "empty.java");
-        var diff = new FileDiff(file, file, "", "");
+        var diff = new FileDiff(file, file, "", "", false);
         var excerpt = new ReviewParser.RawExcerpt("empty.java", 1, "content");
 
         assertNull(ReviewParser.matchExcerptInFile(excerpt, diff));
@@ -1128,7 +1128,7 @@ class ReviewParserTest {
         // Excerpt spans entire file
         var content = "line1\nline2";
         ProjectFile fullFile = new ProjectFile(root, "full.java");
-        var fullDiff = new FileDiff(fullFile, fullFile, content, content);
+        var fullDiff = new FileDiff(fullFile, fullFile, content, content, false);
         var fullExcerpt = new ReviewParser.RawExcerpt("full.java", 1, content);
 
         ReviewParser.ExcerptMatch match = ReviewParser.matchExcerptInFile(fullExcerpt, fullDiff);

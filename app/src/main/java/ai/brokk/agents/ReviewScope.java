@@ -237,7 +237,8 @@ public record ReviewScope(DiffService.CumulativeChanges changes, ReviewScope.Met
                         "Failed to load content for " + (newPathStr != null ? newPathStr : oldPathStr), e);
             }
 
-            fileDiffs.add(new FileDiff(oldFile, newFile, oldText, newText));
+            boolean isBinary = (oldFile != null && oldFile.isBinary()) || (newFile != null && newFile.isBinary());
+            fileDiffs.add(new FileDiff(oldFile, newFile, oldText, newText, isBinary));
         }
 
         var cumulativeChanges = new DiffService.CumulativeChanges(

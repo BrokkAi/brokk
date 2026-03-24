@@ -3,6 +3,7 @@ package ai.brokk.context;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.IContextManager;
+import ai.brokk.git.GitRepoData.FileDiff;
 import ai.brokk.analyzer.ExternalFile;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.concurrent.ComputedValue;
@@ -446,5 +447,24 @@ class DiffServiceTest {
         var results2 = ds.diff(ctx2).join();
         assertEquals(results, results2, "Recomputed results should match original results");
         assertTrue(ds.peek(ctx2).isPresent(), "Cache should be populated again after re-computation");
+    }
+
+    @Test
+    void cumulativeDiff_handles_mixed_text_and_binary() throws Exception {
+        var txtFile = new ProjectFile(tempDir, "test.txt");
+        Files.writeString(txtFile.absPath(), "text v1");
+
+        var binFile = new ProjectFile(tempDir, "test.bin");
+        Files.write(binFile.absPath(), new byte[] {0, 1, 2});
+
+        var oldDiffs = List.of(
+                new FileDiff(null, txtFile, "", "text v1", false),
+                new FileDiff(null, binFile, "", "[Binary file (new)]", true));
+
+        var changes = new DiffService.CumulativeChanges(2, 2, 0, oldDiffs, List.of());
+        String diff = changes.toDiff();
+
+        assertTrue(diff.contains("test.txt"));
+        assertTrue(diff.contains("Binary files /dev/null and b/test.bin differ"));
     }
 }

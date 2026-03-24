@@ -40,6 +40,8 @@ import org.jetbrains.annotations.Nullable;
 public class GitRepoData {
     private static final Logger logger = LogManager.getLogger(GitRepoData.class);
 
+    public static final String BINARY_FILE_MARKER = "[Binary file";
+
     private final GitRepo repo;
     private final Repository repository;
     private final Git git;
@@ -300,7 +302,11 @@ public class GitRepoData {
     }
 
     public record FileDiff(
-            @Nullable ProjectFile oldFile, @Nullable ProjectFile newFile, String oldText, String newText) {}
+            @Nullable ProjectFile oldFile,
+            @Nullable ProjectFile newFile,
+            String oldText,
+            String newText,
+            boolean isBinary) {}
 
     private List<DiffEntry> scanDiffs(String oldRef, String newRef) throws GitAPIException {
         var oldTreeIter = prepareTreeParser(oldRef);
@@ -405,11 +411,13 @@ public class GitRepoData {
                     ? null
                     : repo.toProjectFile(newPath).orElse(null);
 
+            boolean isBinary = (oldFile != null && oldFile.isBinary()) || (newFile != null && newFile.isBinary());
+
             String oldText;
             if (oldFile == null) {
                 oldText = "";
             } else if (oldFile.isBinary()) {
-                oldText = "[Binary file (old)]";
+                oldText = BINARY_FILE_MARKER + " (old)]";
             } else {
                 oldText = getRefContent(oldRef, oldFile);
             }
@@ -418,12 +426,12 @@ public class GitRepoData {
             if (newFile == null) {
                 newText = "";
             } else if (newFile.isBinary()) {
-                newText = "[Binary file (new)]";
+                newText = BINARY_FILE_MARKER + " (new)]";
             } else {
                 newText = getRefContent(newRef, newFile);
             }
 
-            result.add(new FileDiff(oldFile, newFile, oldText, newText));
+            result.add(new FileDiff(oldFile, newFile, oldText, newText, isBinary));
         }
         return result;
     }

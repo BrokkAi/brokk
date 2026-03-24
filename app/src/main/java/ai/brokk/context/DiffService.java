@@ -340,7 +340,7 @@ public final class DiffService {
         int totalAdded = 0;
         int totalDeleted = 0;
         for (var fd : fileDiffs) {
-            if (fd.oldText().startsWith("[Binary file") || fd.newText().startsWith("[Binary file")) {
+            if (fd.isBinary()) {
                 // For binary files, we just treat it as a 1-line change if they differ
                 if (!fd.oldText().equals(fd.newText())) {
                     totalAdded++;
@@ -434,20 +434,17 @@ public final class DiffService {
         public String toDiff() {
             return perFileChanges().stream()
                     .map(fd -> {
-                        String oldName =
-                                fd.oldFile() == null ? null : fd.oldFile().toString();
-                        String newName =
-                                fd.newFile() == null ? null : fd.newFile().toString();
-                        if (fd.oldText().startsWith("[Binary file")
-                                || fd.newText().startsWith("[Binary file")) {
-                            return "--- %s\n+++ %s\n@@ -0,0 +1,1 @@\n-%s\n+%s"
-                                    .formatted(
-                                            oldName != null ? oldName : "/dev/null",
-                                            newName != null ? newName : "/dev/null",
-                                            fd.oldText(),
-                                            fd.newText());
+                        String oldPath = fd.oldFile() == null ? "/dev/null" : "a/" + fd.oldFile().toString();
+                        String newPath = fd.newFile() == null ? "/dev/null" : "b/" + fd.newFile().toString();
+
+                        if (fd.isBinary()) {
+                            return "Binary files %s and %s differ".formatted(oldPath, newPath);
                         }
-                        return ContentDiffUtils.computeDiffResult(fd.oldText(), fd.newText(), oldName, newName)
+                        return ContentDiffUtils.computeDiffResult(
+                                        fd.oldText(),
+                                        fd.newText(),
+                                        fd.oldFile() == null ? null : fd.oldFile().toString(),
+                                        fd.newFile() == null ? null : fd.newFile().toString())
                                 .diff();
                     })
                     .collect(Collectors.joining("\n\n"));
