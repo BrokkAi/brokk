@@ -195,9 +195,8 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
     @Override
     protected String determinePackageName(
             ProjectFile file, TSNode definitionNode, TSNode rootNode, SourceContent sourceContent) {
-        // definitionNode is not used here as package is file-scoped.
-        AnalyzerCache cache = getCache();
-        if (cache instanceof PhpAnalyzerCache phpCache) {
+        AnalyzerCache currentCache = getCache();
+        if (currentCache instanceof PhpAnalyzerCache phpCache) {
             return phpCache.fileScopedPackageNamesCache()
                     .get(file, f -> computeFilePackageName(f, rootNode, sourceContent));
         }
