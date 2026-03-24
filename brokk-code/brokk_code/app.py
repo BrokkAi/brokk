@@ -18,7 +18,15 @@ from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.css.query import NoMatches
 from textual.screen import ModalScreen
-from textual.widgets import Button, Input, ListItem, ListView, LoadingIndicator, Static, TextArea
+from textual.widgets import (
+    Button,
+    Input,
+    ListItem,
+    ListView,
+    LoadingIndicator,
+    Static,
+    TextArea,
+)
 
 from brokk_code.event_utils import is_failure_state, safe_data
 from brokk_code.executor import ExecutorError, ExecutorManager
@@ -32,6 +40,7 @@ from brokk_code.settings import (
     write_brokk_api_key,
     write_brokk_properties,
 )
+from brokk_code.settings_modal import SettingsModalScreen
 from brokk_code.welcome import build_welcome_message, get_braille_icon
 from brokk_code.widgets.chat_panel import ChatInput, ChatPanel
 from brokk_code.widgets.context_panel import ContextPanel
@@ -3187,8 +3196,9 @@ class BrokkApp(App):
                 )
         elif base == "/settings":
             if len(parts) > 1:
-                chat.add_system_message("Settings opens from /settings with no arguments.")
-            self.action_command_palette()
+                chat.add_system_message("Usage: /settings (opens settings modal)")
+                return
+            self.action_open_settings()
         elif base == "/info":
             self._render_info()
         elif base == "/clear":
@@ -3410,6 +3420,19 @@ class BrokkApp(App):
             return
 
         self.push_screen(DependenciesModalScreen())
+
+    def action_open_settings(self) -> None:
+        """Opens the settings modal screen."""
+        if isinstance(self.screen, SettingsModalScreen):
+            return
+        if not self._executor_ready:
+            chat = self._maybe_chat()
+            if chat:
+                chat.add_system_message(
+                    "Executor is not ready. Cannot open settings.", level="ERROR"
+                )
+            return
+        self.push_screen(SettingsModalScreen())
 
     async def _refresh_dependencies_panel(self) -> None:
         """Fetches latest dependencies and updates the panel."""

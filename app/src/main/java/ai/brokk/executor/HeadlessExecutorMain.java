@@ -22,6 +22,7 @@ import ai.brokk.executor.routers.RepoRouter;
 import ai.brokk.executor.routers.ReviewRouter;
 import ai.brokk.executor.routers.RouterUtil;
 import ai.brokk.executor.routers.SessionsRouter;
+import ai.brokk.executor.routers.SettingsRouter;
 import ai.brokk.project.MainProject;
 import ai.brokk.project.ModelProperties;
 import com.google.common.base.Splitter;
@@ -312,6 +313,9 @@ public final class HeadlessExecutorMain {
 
         var dependenciesRouter = new DependenciesRouter(this.contextManager);
         this.server.registerAuthenticatedContext("/v1/dependencies", dependenciesRouter);
+
+        var settingsRouter = new SettingsRouter(this.contextManager);
+        this.server.registerAuthenticatedContext("/v1/settings", settingsRouter);
 
         logger.info("HeadlessExecutorMain initialized successfully");
     }
@@ -640,6 +644,8 @@ public final class HeadlessExecutorMain {
             System.out.println("    GET  /v1/model-config             - current CODE/ARCHITECT model configs");
             System.out.println("    POST /v1/model-config             - update CODE/ARCHITECT model config");
             System.out.println("    GET  /v1/dependencies             - list all imported dependencies");
+            System.out.println("    GET  /v1/settings                 - get all project settings");
+            System.out.println("    POST /v1/settings                 - update all project settings");
             System.out.println();
 
             // Create and start executor
