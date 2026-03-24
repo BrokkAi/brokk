@@ -813,29 +813,13 @@ class SettingsModalScreen(ModalScreen[None]):
                     error_label.update("[bold red]Test timeout must be a number[/]")
                     return
 
-            # Save via executor
-            await self.app.executor.update_build_settings(build_data)
-            await self.app.executor.update_project_settings(project_data)
-
-            # Save data retention policy
-            retention_improve = self.query_one("#settings-retention-improve", RadioButton).value
-            retention_policy = "IMPROVE_BROKK" if retention_improve else "MINIMAL"
-            await self.app.executor.update_data_retention(retention_policy)
-
-            # Save shell configuration
+            # Build shell configuration
             shell_executable = self.query_one("#settings-shell-executable", Input).value.strip()
             shell_args_str = self.query_one("#settings-shell-args", Input).value.strip()
             shell_args = shell_args_str.split() if shell_args_str else []
-            await self.app.executor.update_shell_config(
-                {
-                    "executable": shell_executable,
-                    "args": shell_args,
-                }
-            )
 
-            # Save issue provider configuration
+            # Build issue provider configuration
             issue_provider_data: Dict[str, Any] = {"type": self._issue_provider_type}
-
             if self._issue_provider_type == "GITHUB":
                 if self._github_override:
                     issue_provider_data["config"] = {
@@ -854,9 +838,11 @@ class SettingsModalScreen(ModalScreen[None]):
             else:
                 issue_provider_data["config"] = {}
 
-            await self.app.executor.update_issue_provider(issue_provider_data)
+            # Build data retention policy
+            retention_improve = self.query_one("#settings-retention-improve", RadioButton).value
+            retention_policy = "IMPROVE_BROKK" if retention_improve else "MINIMAL"
 
-            # Save analyzer languages
+            # Build analyzer languages
             selected_languages = []
             for lang in self._analyzer_languages:
                 internal = lang.get("internalName", "")
@@ -867,8 +853,18 @@ class SettingsModalScreen(ModalScreen[None]):
                 except Exception:
                     pass
 
+            # Save all settings atomically
+            payload: Dict[str, Any] = {
+                "buildDetails": build_data,
+                "projectSettings": project_data,
+                "shellConfig": {"executable": shell_executable, "args": shell_args},
+                "issueProvider": issue_provider_data,
+                "dataRetentionPolicy": retention_policy,
+            }
             if self._analyzer_languages:
-                await self.app.executor.update_analyzer_languages(selected_languages)
+                payload["analyzerLanguages"] = {"languages": selected_languages}
+
+            await self.app.executor.update_all_settings(payload)
 
             # Show success message in chat
             chat = self.app._maybe_chat()

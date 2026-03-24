@@ -1059,10 +1059,4 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         saveProperties(propertiesFile, projectProps, "Brokk project configuration");
     }
 
-    @Override
-    public void reloadBuildDetailsFromDisk() {
-        initializeProjectProperties();
-        var bdOpt = loadBuildDetails();
-        bdOpt.ifPresent(this::setBuildDetails);
-    }
 }

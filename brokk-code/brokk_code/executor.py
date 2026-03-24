@@ -1406,6 +1406,18 @@ class ExecutorManager:
             await self._handle_http_error(e, "/v1/settings")
             raise
 
+    async def update_all_settings(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Saves all settings atomically via a single POST."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+        try:
+            resp = await self._http_client.post("/v1/settings", json=data)
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            await self._handle_http_error(e, "/v1/settings")
+            raise
+
     async def update_build_settings(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Updates build settings in the executor."""
         if not self._http_client:

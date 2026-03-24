@@ -196,10 +196,6 @@ public interface IProject extends AutoCloseable {
         throw new UnsupportedOperationException();
     }
 
-    default void reloadBuildDetailsFromDisk() {
-        throw new UnsupportedOperationException();
-    }
-
     default void setRepo(IGitRepo repo) {
         throw new UnsupportedOperationException();
     }

@@ -54,6 +54,8 @@ public final class SettingsRouter implements SimpleHttpServer.CheckedHttpHandler
         if (normalizedPath.equals("/v1/settings")) {
             if ("GET".equals(method)) {
                 handleGetSettings(exchange);
+            } else if ("POST".equals(method)) {
+                handlePostSettings(exchange);
             } else {
                 RouterUtil.sendMethodNotAllowed(exchange);
             }
@@ -253,68 +255,11 @@ public final class SettingsRouter implements SimpleHttpServer.CheckedHttpHandler
     private void handlePostBuild(HttpExchange exchange) throws IOException {
         var request = RouterUtil.parseJsonOr400(exchange, UpdateBuildRequest.class, "/v1/settings/build");
         if (request == null) return;
-
         try {
-            var project = contextManager.getProject();
-            var current = project.awaitBuildDetails();
-
-            // Merge only provided fields
-            String buildLintCommand =
-                    request.buildLintCommand() != null ? request.buildLintCommand() : current.buildLintCommand();
-            boolean buildLintEnabled =
-                    request.buildLintEnabled() != null ? request.buildLintEnabled() : current.buildLintEnabled();
-            String testAllCommand =
-                    request.testAllCommand() != null ? request.testAllCommand() : current.testAllCommand();
-            boolean testAllEnabled =
-                    request.testAllEnabled() != null ? request.testAllEnabled() : current.testAllEnabled();
-            String testSomeCommand =
-                    request.testSomeCommand() != null ? request.testSomeCommand() : current.testSomeCommand();
-            boolean testSomeEnabled =
-                    request.testSomeEnabled() != null ? request.testSomeEnabled() : current.testSomeEnabled();
-            Set<String> exclusionPatterns = request.exclusionPatterns() != null
-                    ? new LinkedHashSet<>(request.exclusionPatterns())
-                    : current.exclusionPatterns();
-            Map<String, String> environmentVariables = request.environmentVariables() != null
-                    ? new LinkedHashMap<>(request.environmentVariables())
-                    : current.environmentVariables();
-            Integer maxBuildAttempts =
-                    request.maxBuildAttempts() != null ? request.maxBuildAttempts() : current.maxBuildAttempts();
-            String afterTaskListCommand = request.afterTaskListCommand() != null
-                    ? request.afterTaskListCommand()
-                    : current.afterTaskListCommand();
-
-            List<ModuleBuildEntry> modules;
-            if (request.modules() != null) {
-                modules = new ArrayList<>();
-                for (var m : request.modules()) {
-                    modules.add(new ModuleBuildEntry(
-                            m.alias(),
-                            m.relativePath(),
-                            m.buildLintCommand(),
-                            m.testAllCommand(),
-                            m.testSomeCommand(),
-                            m.language()));
-                }
-            } else {
-                modules = current.modules();
-            }
-
-            var newDetails = new BuildDetails(
-                    buildLintCommand,
-                    buildLintEnabled,
-                    testAllCommand,
-                    testAllEnabled,
-                    testSomeCommand,
-                    testSomeEnabled,
-                    exclusionPatterns,
-                    environmentVariables,
-                    maxBuildAttempts,
-                    afterTaskListCommand,
-                    modules);
-
-            project.saveBuildDetails(newDetails);
-
+            applyBuildSettings(contextManager.getProject(), request);
             SimpleHttpServer.sendJsonResponse(exchange, Map.of("status", "updated"));
+        } catch (IllegalArgumentException e) {
+            RouterUtil.sendValidationError(exchange, e.getMessage());
         } catch (Exception e) {
             logger.error("Error handling POST /v1/settings/build", e);
             SimpleHttpServer.sendJsonResponse(
@@ -325,37 +270,8 @@ public final class SettingsRouter implements SimpleHttpServer.CheckedHttpHandler
     private void handlePostProject(HttpExchange exchange) throws IOException {
         var request = RouterUtil.parseJsonOr400(exchange, UpdateProjectRequest.class, "/v1/settings/project");
         if (request == null) return;
-
         try {
-            var project = contextManager.getProject();
-            var mainProject = project.getMainProject();
-
-            if (request.commitMessageFormat() != null) {
-                project.setCommitMessageFormat(request.commitMessageFormat());
-            }
-
-            if (request.codeAgentTestScope() != null) {
-                var scope =
-                        CodeAgentTestScope.fromString(request.codeAgentTestScope(), project.getCodeAgentTestScope());
-                project.setCodeAgentTestScope(scope);
-            }
-
-            if (request.runCommandTimeoutSeconds() != null) {
-                mainProject.setRunCommandTimeoutSeconds(request.runCommandTimeoutSeconds());
-            }
-
-            if (request.testCommandTimeoutSeconds() != null) {
-                mainProject.setTestCommandTimeoutSeconds(request.testCommandTimeoutSeconds());
-            }
-
-            if (request.autoUpdateLocalDependencies() != null) {
-                project.setAutoUpdateLocalDependencies(request.autoUpdateLocalDependencies());
-            }
-
-            if (request.autoUpdateGitDependencies() != null) {
-                project.setAutoUpdateGitDependencies(request.autoUpdateGitDependencies());
-            }
-
+            applyProjectSettings(contextManager.getProject(), request);
             SimpleHttpServer.sendJsonResponse(exchange, Map.of("status", "updated"));
         } catch (Exception e) {
             logger.error("Error handling POST /v1/settings/project", e);
@@ -367,19 +283,11 @@ public final class SettingsRouter implements SimpleHttpServer.CheckedHttpHandler
     private void handlePostShell(HttpExchange exchange) throws IOException {
         var request = RouterUtil.parseJsonOr400(exchange, UpdateShellRequest.class, "/v1/settings/shell");
         if (request == null) return;
-
-        if (request.executable() == null || request.executable().isBlank()) {
-            RouterUtil.sendValidationError(exchange, "executable is required");
-            return;
-        }
-
         try {
-            var project = contextManager.getProject();
-            List<String> args = request.args() != null ? request.args() : List.of();
-            var config = new ShellConfig(request.executable(), args);
-            project.setShellConfig(config);
-
+            applyShellConfig(contextManager.getProject(), request);
             SimpleHttpServer.sendJsonResponse(exchange, Map.of("status", "updated"));
+        } catch (IllegalArgumentException e) {
+            RouterUtil.sendValidationError(exchange, e.getMessage());
         } catch (Exception e) {
             logger.error("Error handling POST /v1/settings/shell", e);
             SimpleHttpServer.sendJsonResponse(
@@ -395,71 +303,11 @@ public final class SettingsRouter implements SimpleHttpServer.CheckedHttpHandler
             RouterUtil.sendValidationError(exchange, "Invalid JSON");
             return;
         }
-
-        if (requestNode == null || !requestNode.has("type")) {
-            RouterUtil.sendValidationError(exchange, "type is required");
-            return;
-        }
-
-        String typeStr = requestNode.get("type").asText();
-        IssueProviderType type;
         try {
-            type = IssueProviderType.valueOf(typeStr.toUpperCase(Locale.ROOT));
-        } catch (IllegalArgumentException e) {
-            RouterUtil.sendValidationError(exchange, "Invalid type: " + typeStr + ". Must be NONE, GITHUB, or JIRA");
-            return;
-        }
-
-        // Validate JIRA config requirement before entering try block
-        if (type == IssueProviderType.JIRA) {
-            var configNode = requestNode.get("config");
-            if (configNode == null) {
-                RouterUtil.sendValidationError(exchange, "config is required for JIRA");
-                return;
-            }
-        }
-
-        try {
-            var project = contextManager.getProject();
-            IssueProvider provider =
-                    switch (type) {
-                        case NONE -> IssueProvider.none();
-                        case GITHUB -> {
-                            var configNode = requestNode.get("config");
-                            if (configNode == null) {
-                                yield IssueProvider.github();
-                            } else {
-                                String owner = configNode.has("owner")
-                                        ? configNode.get("owner").asText("")
-                                        : "";
-                                String repo = configNode.has("repo")
-                                        ? configNode.get("repo").asText("")
-                                        : "";
-                                String host = configNode.has("host")
-                                        ? configNode.get("host").asText("")
-                                        : "";
-                                yield IssueProvider.github(owner, repo, host);
-                            }
-                        }
-                        case JIRA -> {
-                            var configNode = requestNode.get("config");
-                            // configNode is guaranteed non-null here due to validation above
-                            String baseUrl = configNode.has("baseUrl")
-                                    ? configNode.get("baseUrl").asText("")
-                                    : "";
-                            String apiToken = configNode.has("apiToken")
-                                    ? configNode.get("apiToken").asText("")
-                                    : "";
-                            String projectKey = configNode.has("projectKey")
-                                    ? configNode.get("projectKey").asText("")
-                                    : "";
-                            yield IssueProvider.jira(baseUrl, apiToken, projectKey);
-                        }
-                    };
-
-            project.setIssuesProvider(provider);
-
+            applyIssueProvider(contextManager.getProject(), requestNode);
             SimpleHttpServer.sendJsonResponse(exchange, Map.of("status", "updated"));
+        } catch (IllegalArgumentException e) {
+            RouterUtil.sendValidationError(exchange, e.getMessage());
         } catch (Exception e) {
             logger.error("Error handling POST /v1/settings/issues", e);
             SimpleHttpServer.sendJsonResponse(
@@ -471,31 +319,15 @@ public final class SettingsRouter implements SimpleHttpServer.CheckedHttpHandler
         var request =
                 RouterUtil.parseJsonOr400(exchange, UpdateDataRetentionRequest.class, "/v1/settings/data-retention");
         if (request == null) return;
-
         if (request.policy() == null || request.policy().isBlank()) {
             RouterUtil.sendValidationError(exchange, "policy is required");
             return;
         }
-
-        DataRetentionPolicy policy;
         try {
-            policy = DataRetentionPolicy.valueOf(request.policy().toUpperCase(Locale.ROOT));
-        } catch (IllegalArgumentException e) {
-            RouterUtil.sendValidationError(
-                    exchange, "Invalid policy: " + request.policy() + ". Must be IMPROVE_BROKK or MINIMAL");
-            return;
-        }
-
-        if (policy == DataRetentionPolicy.UNSET) {
-            RouterUtil.sendValidationError(exchange, "Cannot set policy to UNSET");
-            return;
-        }
-
-        try {
-            var project = contextManager.getProject();
-            project.setDataRetentionPolicy(policy);
-
+            applyDataRetention(contextManager.getProject(), request.policy());
             SimpleHttpServer.sendJsonResponse(exchange, Map.of("status", "updated"));
+        } catch (IllegalArgumentException e) {
+            RouterUtil.sendValidationError(exchange, e.getMessage());
         } catch (Exception e) {
             logger.error("Error handling POST /v1/settings/data-retention", e);
             SimpleHttpServer.sendJsonResponse(
@@ -503,7 +335,213 @@ public final class SettingsRouter implements SimpleHttpServer.CheckedHttpHandler
         }
     }
 
+    private void handlePostSettings(HttpExchange exchange) throws IOException {
+        var request = RouterUtil.parseJsonOr400(exchange, UpdateAllSettingsRequest.class, "/v1/settings");
+        if (request == null) return;
+
+        try {
+            var project = contextManager.getProject();
+
+            if (request.buildDetails() != null) {
+                applyBuildSettings(project, request.buildDetails());
+            }
+            if (request.projectSettings() != null) {
+                applyProjectSettings(project, request.projectSettings());
+            }
+            if (request.shellConfig() != null) {
+                applyShellConfig(project, request.shellConfig());
+            }
+            if (request.issueProvider() != null) {
+                applyIssueProvider(project, request.issueProvider());
+            }
+            if (request.dataRetentionPolicy() != null) {
+                applyDataRetention(project, request.dataRetentionPolicy());
+            }
+            if (request.analyzerLanguages() != null) {
+                applyLanguages(project, request.analyzerLanguages());
+            }
+
+            SimpleHttpServer.sendJsonResponse(exchange, Map.of("status", "updated"));
+        } catch (IllegalArgumentException e) {
+            RouterUtil.sendValidationError(exchange, e.getMessage());
+        } catch (Exception e) {
+            logger.error("Error handling POST /v1/settings", e);
+            SimpleHttpServer.sendJsonResponse(
+                    exchange, 500, ErrorPayload.internalError("Failed to update settings", e));
+        }
+    }
+
+    private void applyBuildSettings(IProject project, UpdateBuildRequest request) {
+        var current = project.awaitBuildDetails();
+
+        String buildLintCommand =
+                request.buildLintCommand() != null ? request.buildLintCommand() : current.buildLintCommand();
+        boolean buildLintEnabled =
+                request.buildLintEnabled() != null ? request.buildLintEnabled() : current.buildLintEnabled();
+        String testAllCommand =
+                request.testAllCommand() != null ? request.testAllCommand() : current.testAllCommand();
+        boolean testAllEnabled =
+                request.testAllEnabled() != null ? request.testAllEnabled() : current.testAllEnabled();
+        String testSomeCommand =
+                request.testSomeCommand() != null ? request.testSomeCommand() : current.testSomeCommand();
+        boolean testSomeEnabled =
+                request.testSomeEnabled() != null ? request.testSomeEnabled() : current.testSomeEnabled();
+        Set<String> exclusionPatterns = request.exclusionPatterns() != null
+                ? new LinkedHashSet<>(request.exclusionPatterns())
+                : current.exclusionPatterns();
+        Map<String, String> environmentVariables = request.environmentVariables() != null
+                ? new LinkedHashMap<>(request.environmentVariables())
+                : current.environmentVariables();
+        Integer maxBuildAttempts =
+                request.maxBuildAttempts() != null ? request.maxBuildAttempts() : current.maxBuildAttempts();
+        String afterTaskListCommand = request.afterTaskListCommand() != null
+                ? request.afterTaskListCommand()
+                : current.afterTaskListCommand();
+
+        List<ModuleBuildEntry> modules;
+        if (request.modules() != null) {
+            modules = new ArrayList<>();
+            for (var m : request.modules()) {
+                modules.add(new ModuleBuildEntry(
+                        m.alias(),
+                        m.relativePath(),
+                        m.buildLintCommand(),
+                        m.testAllCommand(),
+                        m.testSomeCommand(),
+                        m.language()));
+            }
+        } else {
+            modules = current.modules();
+        }
+
+        var newDetails = new BuildDetails(buildLintCommand, buildLintEnabled,
+                                          testAllCommand, testAllEnabled,
+                                          testSomeCommand, testSomeEnabled,
+                                          exclusionPatterns, environmentVariables,
+                                          maxBuildAttempts, afterTaskListCommand,
+                                          modules);
+        project.saveBuildDetails(newDetails);
+    }
+
+    private void applyProjectSettings(IProject project, UpdateProjectRequest request) {
+        var mainProject = project.getMainProject();
+
+        if (request.commitMessageFormat() != null) {
+            project.setCommitMessageFormat(request.commitMessageFormat());
+        }
+        if (request.codeAgentTestScope() != null) {
+            var scope = CodeAgentTestScope.fromString(request.codeAgentTestScope(), project.getCodeAgentTestScope());
+            project.setCodeAgentTestScope(scope);
+        }
+        if (request.runCommandTimeoutSeconds() != null) {
+            mainProject.setRunCommandTimeoutSeconds(request.runCommandTimeoutSeconds());
+        }
+        if (request.testCommandTimeoutSeconds() != null) {
+            mainProject.setTestCommandTimeoutSeconds(request.testCommandTimeoutSeconds());
+        }
+        if (request.autoUpdateLocalDependencies() != null) {
+            project.setAutoUpdateLocalDependencies(request.autoUpdateLocalDependencies());
+        }
+        if (request.autoUpdateGitDependencies() != null) {
+            project.setAutoUpdateGitDependencies(request.autoUpdateGitDependencies());
+        }
+    }
+
+    private void applyShellConfig(IProject project, UpdateShellRequest request) {
+        if (request.executable() == null || request.executable().isBlank()) {
+            throw new IllegalArgumentException("executable is required");
+        }
+        List<String> args = request.args() != null ? request.args() : List.of();
+        project.setShellConfig(new ShellConfig(request.executable(), args));
+    }
+
+    private void applyIssueProvider(IProject project, JsonNode requestNode) {
+        if (requestNode == null || !requestNode.has("type")) {
+            throw new IllegalArgumentException("type is required");
+        }
+
+        String typeStr = requestNode.get("type").asText();
+        IssueProviderType type;
+        try {
+            type = IssueProviderType.valueOf(typeStr.toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException("Invalid type: " + typeStr + ". Must be NONE, GITHUB, or JIRA");
+        }
+
+        if (type == IssueProviderType.JIRA) {
+            var configNode = requestNode.get("config");
+            if (configNode == null) {
+                throw new IllegalArgumentException("config is required for JIRA");
+            }
+        }
+
+        IssueProvider provider =
+                switch (type) {
+                    case NONE -> IssueProvider.none();
+                    case GITHUB -> {
+                        var configNode = requestNode.get("config");
+                        if (configNode == null) {
+                            yield IssueProvider.github();
+                        } else {
+                            String owner = configNode.has("owner") ? configNode.get("owner").asText("") : "";
+                            String repo = configNode.has("repo") ? configNode.get("repo").asText("") : "";
+                            String host = configNode.has("host") ? configNode.get("host").asText("") : "";
+                            yield IssueProvider.github(owner, repo, host);
+                        }
+                    }
+                    case JIRA -> {
+                        var configNode = requestNode.get("config");
+                        String baseUrl = configNode.has("baseUrl") ? configNode.get("baseUrl").asText("") : "";
+                        String apiToken = configNode.has("apiToken") ? configNode.get("apiToken").asText("") : "";
+                        String projectKey =
+                                configNode.has("projectKey") ? configNode.get("projectKey").asText("") : "";
+                        yield IssueProvider.jira(baseUrl, apiToken, projectKey);
+                    }
+                };
+
+        project.setIssuesProvider(provider);
+    }
+
+    private void applyDataRetention(IProject project, String policyStr) {
+        DataRetentionPolicy policy;
+        try {
+            policy = DataRetentionPolicy.valueOf(policyStr.toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException("Invalid policy: " + policyStr + ". Must be IMPROVE_BROKK or MINIMAL");
+        }
+        if (policy == DataRetentionPolicy.UNSET) {
+            throw new IllegalArgumentException("Cannot set policy to UNSET");
+        }
+        project.setDataRetentionPolicy(policy);
+    }
+
+    private void applyLanguages(IProject project, UpdateLanguagesRequest request) {
+        if (request.languages() == null) {
+            throw new IllegalArgumentException("languages is required");
+        }
+        var convertedSet = new LinkedHashSet<Language>();
+        for (var name : request.languages()) {
+            try {
+                var lang = Languages.valueOf(name);
+                if (lang != Languages.NONE) {
+                    convertedSet.add(lang);
+                }
+            } catch (IllegalArgumentException e) {
+                throw new IllegalArgumentException("Invalid language: " + name);
+            }
+        }
+        project.setAnalyzerLanguages(convertedSet);
+    }
+
     // Request DTOs
+
+    private record UpdateAllSettingsRequest(
+            @Nullable UpdateBuildRequest buildDetails,
+            @Nullable UpdateProjectRequest projectSettings,
+            @Nullable UpdateShellRequest shellConfig,
+            @Nullable JsonNode issueProvider,
+            @Nullable String dataRetentionPolicy,
+            @Nullable UpdateLanguagesRequest analyzerLanguages) {}
 
     private record UpdateBuildRequest(
             @Nullable String buildLintCommand,
@@ -543,31 +581,11 @@ public final class SettingsRouter implements SimpleHttpServer.CheckedHttpHandler
     private void handlePostLanguages(HttpExchange exchange) throws IOException {
         var request = RouterUtil.parseJsonOr400(exchange, UpdateLanguagesRequest.class, "/v1/settings/languages");
         if (request == null) return;
-
-        if (request.languages() == null) {
-            RouterUtil.sendValidationError(exchange, "languages is required");
-            return;
-        }
-
         try {
-            var project = contextManager.getProject();
-            var convertedSet = new LinkedHashSet<Language>();
-
-            for (var name : request.languages()) {
-                try {
-                    var lang = Languages.valueOf(name);
-                    if (lang != Languages.NONE) {
-                        convertedSet.add(lang);
-                    }
-                } catch (IllegalArgumentException e) {
-                    RouterUtil.sendValidationError(exchange, "Invalid language: " + name);
-                    return;
-                }
-            }
-
-            project.setAnalyzerLanguages(convertedSet);
-
+            applyLanguages(contextManager.getProject(), request);
             SimpleHttpServer.sendJsonResponse(exchange, Map.of("status", "updated"));
+        } catch (IllegalArgumentException e) {
+            RouterUtil.sendValidationError(exchange, e.getMessage());
         } catch (Exception e) {
             logger.error("Error handling POST /v1/settings/languages", e);
             SimpleHttpServer.sendJsonResponse(
