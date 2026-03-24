@@ -893,6 +893,16 @@ class AcpStdioBridge:
         self._session_id: Optional[str] = None
         self._started = False
         self._ready_lock = asyncio.Lock()
+        self._active_workspace_dir: Optional[Path] = getattr(executor, "workspace_dir", None)
+
+    def _resolved_workspace_dir(self, cwd: Optional[str] = None) -> Path:
+        requested = (cwd or "").strip()
+        if requested:
+            return resolve_workspace_dir(Path(requested))
+        current = getattr(self.executor, "workspace_dir", None)
+        if isinstance(current, Path):
+            return resolve_workspace_dir(current)
+        return resolve_workspace_dir(Path.cwd())
 
     @property
     def is_alive(self) -> bool:
@@ -900,19 +910,32 @@ class AcpStdioBridge:
         return self._started and self.executor.check_alive()
 
     async def ensure_ready(self, cwd: Optional[str] = None) -> None:
-        if self._started and self.executor.check_alive():
+        target = self._resolved_workspace_dir(cwd)
+        if self._started and self.executor.check_alive() and self._active_workspace_dir == target:
             return
         async with self._ready_lock:
-            if self._started and self.executor.check_alive():
+            if (
+                self._started
+                and self.executor.check_alive()
+                and self._active_workspace_dir == target
+            ):
                 return
             if self._started:
-                logger.warning("ACP server process died, restarting")
+                if not self.executor.check_alive():
+                    logger.warning("ACP server process died, restarting")
+                else:
+                    logger.info(
+                        "ACP cwd changed from %s to %s; restarting",
+                        self._active_workspace_dir,
+                        target,
+                    )
                 self._started = False
                 await self.executor.stop()
+            self.executor.workspace_dir = target
+            self._active_workspace_dir = target
             await self.executor.start()
             await self.executor.initialize()
-            working_dir = cwd or str(self.executor.workspace_dir)
-            self._session_id = await self.executor.new_session(working_dir)
+            self._session_id = await self.executor.new_session(str(target))
             self._started = True
 
     async def start_and_create_session(self, name: str, cwd: Optional[str] = None) -> str:
