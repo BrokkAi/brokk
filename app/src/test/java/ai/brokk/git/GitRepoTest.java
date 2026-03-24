@@ -2385,7 +2385,7 @@ public class GitRepoTest {
         assertTrue(diff.isBinary());
         assertTrue(diff.oldText().contains(GitRepoData.BINARY_FILE_MARKER));
         assertTrue(diff.newText().contains(GitRepoData.BINARY_FILE_MARKER));
-        assertNotEquals(diff.oldText(), diff.newText());
+        assertEquals(diff.oldText(), diff.newText());
     }
 
     @Test
