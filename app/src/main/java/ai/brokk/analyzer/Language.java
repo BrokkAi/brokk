@@ -1,5 +1,6 @@
 package ai.brokk.analyzer;
 
+import ai.brokk.analyzer.macro.MacroPolicy;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.dependencies.DependenciesPanel;
 import ai.brokk.project.AbstractProject;
@@ -186,11 +187,18 @@ public interface Language {
     }
 
     /**
+     * Returns the built-in macro policies for this language.
+     */
+    default List<MacroPolicy> getDefaultMacroPolicies() {
+        return List.of();
+    }
+
+    /**
      * A composite {@link Language} implementation that delegates all operations to the wrapped set of concrete
      * languages and combines the results.
      *
      * <p>Only the operations that make sense for a multi‑language view are implemented. Methods tied to a
-     * single‐language identity ‑ such as {@link #internalName()} or {@link #getStoragePath(IProject)} ‑ throw
+     * single‑language identity ‑ such as {@link #internalName()} or {@link #getStoragePath(IProject)} ‑ throw
      * {@link UnsupportedOperationException}.
      */
     class MultiLanguage implements Language {
