@@ -32,7 +32,7 @@ import org.jetbrains.annotations.Nullable;
 /**
  * Concrete service that performs HTTP operations and initializes models.
  */
-public class Service extends AbstractService implements ExceptionReporter.ReportingService {
+public class Service extends AbstractService {
 
     private static final Logger log = LogManager.getLogger(Service.class);
 
@@ -101,6 +101,110 @@ public class Service extends AbstractService implements ExceptionReporter.Report
         return getUserBalance(MainProject.getBrokkKey());
     }
 
+    @Override
+    public Optional<PreviewAutocompleteResult> previewAutocomplete(PreviewAutocompleteRequest request)
+            throws IOException {
+        var modelName = previewAutocompleteModelName();
+        if (modelName == null || request.prefix().isBlank()) {
+            return Optional.empty();
+        }
+
+        var payload = objectMapper.createObjectNode();
+        payload.put("model", modelName);
+        payload.put("prompt", request.prefix());
+        payload.put("suffix", request.suffix());
+        payload.put("max_tokens", request.maxTokens());
+        payload.put("stream", false);
+
+        var brokkKey = MainProject.getBrokkKey();
+        if (!brokkKey.isBlank() && brokkKey.contains("+")) {
+            var kp = parseKey(brokkKey);
+            payload.put("user", kp.userId().toString());
+            payload.put("user_id", kp.userId().toString()); // Add both just in case
+        }
+
+        if (request.temperature() != null && supportsTemperature(modelName)) {
+            payload.put("temperature", request.temperature());
+        }
+
+        var requestBody = RequestBody.create(payload.toString(), MediaType.parse("application/json"));
+        // Use the standard completions endpoint; FIM-capable models honor the suffix field here.
+        var endpoint = MainProject.getProxyUrl() + "/completions";
+        log.debug("Sending FIM request to model {} at {}", modelName, endpoint);
+        var httpRequest =
+                BrokkHttp.proxyRequest().url(endpoint).post(requestBody).build();
+
+        try (Response response = BrokkHttp.execute(httpRequest)) {
+            String responseBody = response.body() != null ? response.body().string() : "";
+            if (!response.isSuccessful()) {
+                log.warn(
+                        "Preview autocomplete request failed for model {} with HTTP {}: {}",
+                        modelName,
+                        response.code(),
+                        responseBody);
+                return Optional.empty();
+            }
+
+            return parsePreviewAutocompleteResponse(modelName, responseBody);
+        }
+    }
+
+    static Optional<PreviewAutocompleteResult> parsePreviewAutocompleteResponse(String modelName, String responseBody) {
+        log.debug("Preview autocomplete response received from model {}: {}", modelName, responseBody);
+        try {
+            var completion = extractFimCompletionText(new ObjectMapper().readTree(responseBody));
+            if (completion == null || completion.isBlank()) {
+                return Optional.empty();
+            }
+            return Optional.of(new PreviewAutocompleteResult(completion, modelName));
+        } catch (IOException e) {
+            log.warn(
+                    "Failed to parse or process preview autocomplete response for model {}: {}",
+                    modelName,
+                    e.getMessage());
+            return Optional.empty();
+        }
+    }
+
+    static @Nullable String extractFimCompletionText(JsonNode responseBody) {
+        var choices = responseBody.path("choices");
+        if (!choices.isArray() || choices.isEmpty()) {
+            return null;
+        }
+
+        var firstChoice = choices.get(0);
+        if (firstChoice == null || firstChoice.isNull()) {
+            return null;
+        }
+
+        var textNode = firstChoice.get("text");
+        if (textNode != null && textNode.isTextual()) {
+            return textNode.asText();
+        }
+
+        var messageContent = firstChoice.path("message").path("content");
+        if (messageContent.isTextual()) {
+            return messageContent.asText();
+        }
+        if (messageContent.isArray()) {
+            var content = new StringBuilder();
+            for (var item : messageContent) {
+                if (item.isTextual()) {
+                    content.append(item.asText());
+                    continue;
+                }
+
+                var text = item.path("text");
+                if (text.isTextual()) {
+                    content.append(text.asText());
+                }
+            }
+            return content.isEmpty() ? null : content.toString();
+        }
+
+        return null;
+    }
+
     /**
      * Fetches the user's balance and subscription status for the given Brokk API key.
      * This is the preferred method when you need both balance and subscription info,
@@ -127,7 +231,13 @@ public class Service extends AbstractService implements ExceptionReporter.Report
             }
             String responseBody = response.body() != null ? response.body().string() : "";
             var objectMapper = new ObjectMapper();
-            JsonNode rootNode = objectMapper.readTree(responseBody);
+            JsonNode rootNode;
+            try {
+                rootNode = objectMapper.readTree(responseBody);
+            } catch (JsonProcessingException e) {
+                log.warn("Failed to parse balance response: {}", e.getMessage());
+                throw new IOException("Invalid JSON in balance response", e);
+            }
 
             float balance;
             if (rootNode.has("available_balance")
@@ -381,7 +491,6 @@ public class Service extends AbstractService implements ExceptionReporter.Report
                 if (!modelName.isBlank() && !modelLocation.isBlank()) {
                     Map<String, Object> modelInfo = new HashMap<>();
                     if (modelInfoData.isObject()) {
-                        @SuppressWarnings("deprecation")
                         Iterator<Map.Entry<String, JsonNode>> fields = modelInfoData.fields();
                         while (fields.hasNext()) {
                             Map.Entry<String, JsonNode> field = fields.next();

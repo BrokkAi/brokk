@@ -8,6 +8,7 @@ import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.CodeUnitType;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.gui.Chrome;
@@ -36,19 +37,26 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.*;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import javax.swing.border.TitledBorder;
+import javax.swing.event.CaretListener;
+import javax.swing.event.ChangeListener;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import javax.swing.event.PopupMenuEvent;
 import javax.swing.event.PopupMenuListener;
 import javax.swing.text.BadLocationException;
+import javax.swing.text.Document;
+import javax.swing.text.JTextComponent;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
@@ -65,6 +73,12 @@ import org.jetbrains.annotations.Nullable;
  */
 public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSizeControl, FontSizeAware {
     private static final Logger logger = LogManager.getLogger(PreviewTextPanel.class);
+    private static final int PREVIEW_AUTOCOMPLETE_DEBOUNCE_MS = 350;
+    private static final int PREVIEW_AUTOCOMPLETE_CONTEXT_CHARS = 4000;
+    private static final int PREVIEW_AUTOCOMPLETE_MAX_TOKENS = 128;
+    private static final int PREVIEW_AUTOCOMPLETE_MIN_PREFIX_CHARS = 2;
+    private static final Color PREVIEW_AUTOCOMPLETE_GHOST_COLOR =
+            new Color(255, 255, 255, 96); // light, semi-transparent overlay
     private final PreviewTextArea textArea;
     private final GenericSearchBar searchBar;
     private final RTextScrollPane scrollPane;
@@ -102,6 +116,9 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
 
     @Nullable
     private Future<Set<String>> symbolsFuture;
+
+    @Nullable
+    private final PreviewAutocompleteController previewAutocompleteController;
 
     private final List<JComponent> dynamicMenuItems = new ArrayList<>(); // For usage capture items
 
@@ -313,6 +330,9 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
         add(topPanel, BorderLayout.NORTH);
         add(layeredPane, BorderLayout.CENTER);
 
+        // Initialize autocomplete controller only after scrollPane and layeredPane are ready
+        previewAutocompleteController = shouldEnablePreviewAutocomplete() ? new PreviewAutocompleteController() : null;
+
         // Register global shortcuts for the search bar
         searchBar.registerGlobalShortcuts(this);
 
@@ -326,6 +346,8 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
         registerSaveKey();
         // Setup custom window close handler
         setupWindowCloseHandler();
+        // Setup cleanup on removal
+        setupHierarchyCleanup();
 
         // Fetch declarations in the background if it's a project file
         if (file != null) {
@@ -375,6 +397,394 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
         layeredPane.repaint();
     }
 
+    static boolean shouldEnablePreviewAutocomplete(@Nullable ProjectFile file, boolean isEditable) {
+        return file != null && isEditable;
+    }
+
+    private boolean shouldEnablePreviewAutocomplete() {
+        return shouldEnablePreviewAutocomplete(file, textArea.isEditable());
+    }
+
+    static @Nullable AbstractService.PreviewAutocompleteRequest buildPreviewAutocompleteRequest(
+            @Nullable Document doc, int caretPosition, @Nullable String selectedText) {
+        if (doc == null || (selectedText != null && !selectedText.isEmpty())) {
+            return null;
+        }
+
+        int docLen = doc.getLength();
+        if (caretPosition <= 0 || caretPosition > docLen) {
+            return null;
+        }
+
+        try {
+            // Special-case "Loading..." suppression for small documents
+            if (docLen < 20 && "Loading...".equals(doc.getText(0, docLen))) {
+                return null;
+            }
+
+            int prefixLen = Math.min(caretPosition, PREVIEW_AUTOCOMPLETE_CONTEXT_CHARS);
+            int prefixStart = caretPosition - prefixLen;
+            String prefix = doc.getText(prefixStart, prefixLen);
+
+            if (prefix.isBlank()) {
+                return null;
+            }
+
+            long nonWhitespacePrefixChars =
+                    prefix.chars().filter(ch -> !Character.isWhitespace(ch)).count();
+            if (nonWhitespacePrefixChars < PREVIEW_AUTOCOMPLETE_MIN_PREFIX_CHARS) {
+                return null;
+            }
+
+            int suffixLen = Math.min(docLen - caretPosition, PREVIEW_AUTOCOMPLETE_CONTEXT_CHARS);
+            String suffix = doc.getText(caretPosition, suffixLen);
+
+            return new AbstractService.PreviewAutocompleteRequest(prefix, suffix, PREVIEW_AUTOCOMPLETE_MAX_TOKENS, 0.1);
+        } catch (BadLocationException e) {
+            return null;
+        }
+    }
+
+    static @Nullable AbstractService.PreviewAutocompleteRequest buildPreviewAutocompleteRequest(
+            String text, int caretPosition, @Nullable String selectedText) {
+        if (text.isBlank() || "Loading...".equals(text)) {
+            return null;
+        }
+        if (selectedText != null && !selectedText.isEmpty()) {
+            return null;
+        }
+        if (caretPosition <= 0 || caretPosition > text.length()) {
+            return null;
+        }
+
+        int prefixStart = Math.max(0, caretPosition - PREVIEW_AUTOCOMPLETE_CONTEXT_CHARS);
+        int suffixEnd = Math.min(text.length(), caretPosition + PREVIEW_AUTOCOMPLETE_CONTEXT_CHARS);
+        String prefix = text.substring(prefixStart, caretPosition);
+        String suffix = text.substring(caretPosition, suffixEnd);
+        long nonWhitespacePrefixChars =
+                prefix.chars().filter(ch -> !Character.isWhitespace(ch)).count();
+        if (nonWhitespacePrefixChars < PREVIEW_AUTOCOMPLETE_MIN_PREFIX_CHARS) {
+            return null;
+        }
+
+        return new AbstractService.PreviewAutocompleteRequest(prefix, suffix, PREVIEW_AUTOCOMPLETE_MAX_TOKENS, 0.1);
+    }
+
+    boolean hasPreviewAutocomplete() {
+        return previewAutocompleteController != null;
+    }
+
+    private final class PreviewAutocompleteController {
+        private final javax.swing.Timer debounceTimer;
+        private final AtomicInteger requestGeneration = new AtomicInteger();
+        private final DocumentListener documentListener;
+        private final CaretListener caretListener;
+        private final ChangeListener viewportChangeListener;
+        private final FocusListener focusListener;
+        private final ComponentListener textAreaComponentListener;
+        private final ComponentListener scrollPaneComponentListener;
+
+        private final AtomicReference<CompletableFuture<Optional<AbstractService.PreviewAutocompleteResult>>>
+                pendingRequest = new AtomicReference<>();
+
+        @Nullable
+        private CachedSuggestion activeSuggestion;
+
+        private PreviewAutocompleteController() {
+            this.viewportChangeListener = e -> clearSuggestion();
+            this.focusListener = new FocusAdapter() {
+                @Override
+                public void focusLost(FocusEvent e) {
+                    clearSuggestion();
+                }
+            };
+            this.textAreaComponentListener = new ComponentAdapter() {
+                @Override
+                public void componentHidden(ComponentEvent e) {
+                    clearSuggestion();
+                }
+
+                @Override
+                public void componentMoved(ComponentEvent e) {
+                    clearSuggestion();
+                }
+
+                @Override
+                public void componentResized(ComponentEvent e) {
+                    clearSuggestion();
+                }
+            };
+            this.scrollPaneComponentListener = new ComponentAdapter() {
+                @Override
+                public void componentResized(ComponentEvent e) {
+                    clearSuggestion();
+                }
+            };
+
+            bindAcceptanceKeys();
+            installDismissListeners();
+
+            debounceTimer = new javax.swing.Timer(PREVIEW_AUTOCOMPLETE_DEBOUNCE_MS, e -> requestSuggestion());
+            debounceTimer.setRepeats(false);
+
+            this.documentListener = new DocumentListener() {
+                @Override
+                public void insertUpdate(DocumentEvent e) {
+                    scheduleRefresh();
+                }
+
+                @Override
+                public void removeUpdate(DocumentEvent e) {
+                    scheduleRefresh();
+                }
+
+                @Override
+                public void changedUpdate(DocumentEvent e) {
+                    scheduleRefresh();
+                }
+            };
+            textArea.getDocument().addDocumentListener(documentListener);
+
+            this.caretListener = e -> scheduleRefresh();
+            textArea.addCaretListener(caretListener);
+        }
+
+        private void installDismissListeners() {
+            scrollPane.getViewport().addChangeListener(viewportChangeListener);
+            textArea.addFocusListener(focusListener);
+            textArea.addComponentListener(textAreaComponentListener);
+            scrollPane.addComponentListener(scrollPaneComponentListener);
+        }
+
+        private void bindAcceptanceKeys() {
+            // Tab: accept ghost text if present, else default Tab behavior
+            KeyStroke tab = KeyStroke.getKeyStroke(KeyEvent.VK_TAB, 0);
+            var inputMap = textArea.getInputMap(JComponent.WHEN_FOCUSED);
+            var previousKey = inputMap.get(tab);
+            Action previousTabAction =
+                    previousKey == null ? null : textArea.getActionMap().get(previousKey);
+
+            inputMap.put(tab, "previewAutocompleteAcceptOrTab");
+            textArea.getActionMap().put("previewAutocompleteAcceptOrTab", new AbstractAction() {
+                @Override
+                public void actionPerformed(ActionEvent e) {
+                    if (activeSuggestion != null && activeSuggestion.matches(textArea)) {
+                        applyGhostSuggestion();
+                        return;
+                    }
+
+                    if (previousTabAction != null) {
+                        previousTabAction.actionPerformed(e);
+                    } else {
+                        textArea.replaceSelection("\t");
+                    }
+                }
+            });
+
+            // Esc: clear ghost suggestion, otherwise fall back
+            KeyStroke esc = KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0);
+            var escPrevKey = inputMap.get(esc);
+            Action previousEscAction =
+                    escPrevKey == null ? null : textArea.getActionMap().get(escPrevKey);
+            inputMap.put(esc, "previewAutocompleteDismiss");
+            textArea.getActionMap().put("previewAutocompleteDismiss", new AbstractAction() {
+                @Override
+                public void actionPerformed(ActionEvent e) {
+                    if (activeSuggestion != null) {
+                        clearSuggestion();
+                        return;
+                    }
+                    if (previousEscAction != null) {
+                        previousEscAction.actionPerformed(e);
+                    }
+                }
+            });
+        }
+
+        private void scheduleRefresh() {
+            requestGeneration.incrementAndGet();
+            clearSuggestion();
+            var previous = pendingRequest.getAndSet(null);
+            if (previous != null) {
+                previous.cancel(true);
+            }
+            debounceTimer.stop();
+
+            if (!shouldRequestAutocomplete()) {
+                return;
+            }
+
+            debounceTimer.restart();
+        }
+
+        private boolean shouldRequestAutocomplete() {
+            return textArea.isEditable() && textArea.isFocusOwner() && textArea.isShowing();
+        }
+
+        private void requestSuggestion() {
+            int caretPosition = textArea.getCaretPosition();
+            var request =
+                    buildPreviewAutocompleteRequest(textArea.getDocument(), caretPosition, textArea.getSelectedText());
+            if (request == null) {
+                return;
+            }
+
+            int generation = requestGeneration.get();
+            String prefixTail =
+                    request.prefix().substring(Math.max(0, request.prefix().length() - 50));
+
+            var future = LoggingFuture.supplyCallableAsync(
+                    () -> {
+                        logger.debug(
+                                "Requesting FIM suggestion for prefix length: {}, suffix length: {}, caret: {}",
+                                request.prefix().length(),
+                                request.suffix().length(),
+                                caretPosition);
+                        logger.debug("Prefix: '{}'", prefixTail);
+                        return cm.getService().previewAutocomplete(request);
+                    },
+                    cm.getBackgroundTasks());
+
+            var previous = pendingRequest.getAndSet(future);
+            if (previous != null) {
+                previous.cancel(true);
+            }
+
+            future.thenAccept(
+                    result -> SwingUtilities.invokeLater(() -> applySuggestion(generation, future, request, result)));
+        }
+
+        private void applySuggestion(
+                int generation,
+                CompletableFuture<Optional<AbstractService.PreviewAutocompleteResult>> future,
+                AbstractService.PreviewAutocompleteRequest request,
+                Optional<AbstractService.PreviewAutocompleteResult> result) {
+            if (future.isCancelled() || pendingRequest.get() != future || generation != requestGeneration.get()) {
+                logger.debug("Ignoring stale or cancelled suggestion result");
+                return;
+            }
+            pendingRequest.compareAndSet(future, null);
+            if (result.isEmpty()) {
+                logger.debug("FIM suggestion result is empty");
+                return;
+            }
+            if (!shouldRequestAutocomplete()) {
+                logger.debug("Autocomplete no longer requested (focus lost or not editable)");
+                return;
+            }
+
+            var normalized = normalizeCompletion(result.get().completion());
+            if (normalized == null) {
+                return;
+            }
+
+            var suggestion = CachedSuggestion.from(
+                    request,
+                    textArea.getCaretPosition(),
+                    new AbstractService.PreviewAutocompleteResult(
+                            normalized, result.get().modelName()));
+
+            if (!suggestion.matches(textArea)) {
+                logger.debug("FIM suggestion does not match current editor state");
+                return;
+            }
+
+            logger.debug("Applying FIM suggestion from model {}: {}", suggestion.modelName(), suggestion.displayText());
+            activeSuggestion = suggestion;
+            textArea.repaint();
+        }
+
+        private void clearSuggestion() {
+            if (activeSuggestion != null) {
+                activeSuggestion = null;
+                textArea.repaint();
+            }
+        }
+
+        private void applyGhostSuggestion() {
+            CachedSuggestion suggestion = activeSuggestion;
+            if (suggestion == null || !suggestion.matches(textArea)) {
+                return;
+            }
+            try {
+                int caretPos = textArea.getCaretPosition();
+                textArea.getDocument().insertString(caretPos, suggestion.completion(), null);
+            } catch (BadLocationException e) {
+                logger.debug("Failed to apply ghost suggestion", e);
+            } finally {
+                clearSuggestion();
+            }
+        }
+
+        @Nullable
+        private CachedSuggestion getActiveSuggestion() {
+            if (activeSuggestion != null && !activeSuggestion.matches(textArea)) {
+                activeSuggestion = null;
+            }
+            return activeSuggestion;
+        }
+
+        public void dispose() {
+            debounceTimer.stop();
+            var previous = pendingRequest.getAndSet(null);
+            if (previous != null) {
+                previous.cancel(true);
+            }
+            textArea.getDocument().removeDocumentListener(documentListener);
+            textArea.removeCaretListener(caretListener);
+
+            scrollPane.getViewport().removeChangeListener(viewportChangeListener);
+            textArea.removeFocusListener(focusListener);
+            textArea.removeComponentListener(textAreaComponentListener);
+            scrollPane.removeComponentListener(scrollPaneComponentListener);
+
+            clearSuggestion();
+        }
+    }
+
+    static @Nullable String normalizeCompletion(String completion) {
+        String normalized = completion.replace("\r\n", "\n").replace('\r', '\n');
+        int firstNewline = normalized.indexOf('\n');
+        if (firstNewline != -1) {
+            normalized = normalized.substring(0, firstNewline);
+        }
+        return normalized.isBlank() ? null : normalized;
+    }
+
+    private record CachedSuggestion(
+            String prefix, String suffix, int caretPosition, String completion, String modelName) {
+        private static CachedSuggestion from(
+                AbstractService.PreviewAutocompleteRequest request,
+                int caretPosition,
+                AbstractService.PreviewAutocompleteResult result) {
+            return new CachedSuggestion(
+                    request.prefix(), request.suffix(), caretPosition, result.completion(), result.modelName());
+        }
+
+        private boolean matches(JTextComponent component) {
+            int currentCaret = component.getCaretPosition();
+            if (currentCaret != caretPosition) {
+                return false;
+            }
+
+            var request =
+                    buildPreviewAutocompleteRequest(component.getDocument(), currentCaret, component.getSelectedText());
+            return request != null && prefix.equals(request.prefix()) && suffix.equals(request.suffix());
+        }
+
+        private String displayText() {
+            var compact = popupText().replace("\n", "\\n");
+            if (compact.length() <= 80) {
+                return compact;
+            }
+            return compact.substring(0, 77) + "...";
+        }
+
+        private String popupText() {
+            return completion.replace("\r\n", "\n").replace('\r', '\n').replace("\t", "    ");
+        }
+    }
+
     /** Custom RSyntaxTextArea implementation for preview panels with custom popup menu */
     public class PreviewTextArea extends RSyntaxTextArea implements FontSizeAware, ThemeAware {
         public PreviewTextArea(String content, @Nullable String syntaxStyle, boolean isEditable) {
@@ -410,6 +820,44 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
                 guiTheme.applyThemePreservingFont(this);
             } else {
                 guiTheme.applyCurrentThemeToComponent(this);
+            }
+        }
+
+        @Override
+        protected void paintComponent(Graphics g) {
+            super.paintComponent(g);
+
+            if (!isEditable() || previewAutocompleteController == null) {
+                return;
+            }
+
+            var suggestion = previewAutocompleteController.getActiveSuggestion();
+            if (suggestion == null) {
+                return;
+            }
+
+            try {
+                int caretPos = getCaretPosition();
+                var rect = modelToView2D(caretPos);
+                if (rect == null) {
+                    return;
+                }
+
+                Graphics2D gGhost = (Graphics2D) g.create();
+                try {
+                    gGhost.setFont(getFont());
+                    gGhost.setColor(PREVIEW_AUTOCOMPLETE_GHOST_COLOR);
+                    FontMetrics fm = gGhost.getFontMetrics();
+
+                    // Draw single-line ghost text immediately following the caret
+                    float x = (float) rect.getX();
+                    float y = (float) rect.getY() + fm.getAscent();
+                    gGhost.drawString(suggestion.popupText(), x, y);
+                } finally {
+                    gGhost.dispose();
+                }
+            } catch (BadLocationException e) {
+                // Ignore
             }
         }
 
@@ -1121,6 +1569,19 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
         return new QuickEditResult(snippet, null);
     }
 
+    /** Ensures resources are cleaned up when the panel is removed from the UI hierarchy. */
+    private void setupHierarchyCleanup() {
+        addHierarchyListener(new HierarchyListener() {
+            @Override
+            public void hierarchyChanged(HierarchyEvent e) {
+                if ((e.getChangeFlags() & HierarchyEvent.PARENT_CHANGED) != 0 && getParent() == null) {
+                    dispose();
+                    removeHierarchyListener(this);
+                }
+            }
+        });
+    }
+
     /** Sets up a handler for the window's close button ("X") to ensure `confirmClose` is called. */
     private void setupWindowCloseHandler() {
         var listener = new HierarchyListener() {
@@ -1199,12 +1660,23 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
             };
         }
 
-        // Clean up background tasks if closing
-        if (shouldClose && symbolsFuture != null) {
-            symbolsFuture.cancel(true);
+        if (shouldClose) {
+            dispose();
         }
 
         return shouldClose;
+    }
+
+    /**
+     * Releases resources and removes listeners.
+     */
+    public void dispose() {
+        if (symbolsFuture != null) {
+            symbolsFuture.cancel(true);
+        }
+        if (previewAutocompleteController != null) {
+            previewAutocompleteController.dispose();
+        }
     }
 
     /** Registers the Ctrl+S (or Cmd+S on Mac) keyboard shortcut to trigger the save action. */
@@ -1256,16 +1728,6 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
                                         // TODO distinguish human edits from AI Quick Edits
                                         cm.getService().quickEditModel(),
                                         actionDescription);
-
-                        // Determine TaskMeta only if there was LLM activity in quick edits.
-                        TaskResult.TaskMeta meta = null;
-                        boolean llmInvolved = quickEditMessages.stream().anyMatch(m -> m instanceof AiMessage);
-                        if (llmInvolved) {
-                            var svc = cm.getService();
-                            var model = svc.quickEditModel();
-                            var modelConfig = Service.ModelConfig.from(model, svc);
-                            meta = new TaskResult.TaskMeta(TaskResult.Type.CODE, modelConfig);
-                        }
 
                         var saveResult = TaskResult.from(ctx, TaskResult.StopReason.SUCCESS);
                         try (var scope = cm.beginTaskUngrouped("File changed saved")) {

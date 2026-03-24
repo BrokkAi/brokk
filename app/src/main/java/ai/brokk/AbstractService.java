@@ -258,6 +258,21 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
     /** Represents a user-defined favorite model alias. */
     public record FavoriteModel(String alias, ModelConfig config) {}
 
+    /** Lightweight request payload for Preview autocomplete. */
+    public record PreviewAutocompleteRequest(
+            String prefix, String suffix, int maxTokens, @Nullable Double temperature) {
+        public PreviewAutocompleteRequest {
+            assert maxTokens > 0 : "maxTokens must be positive";
+        }
+
+        public PreviewAutocompleteRequest(String prefix, String suffix, int maxTokens) {
+            this(prefix, suffix, maxTokens, null);
+        }
+    }
+
+    /** Represents a single model-backed Preview autocomplete suggestion. */
+    public record PreviewAutocompleteResult(String completion, String modelName) {}
+
     /**
      * Parses a Brokk API key of the form 'brk+<userId>+<token>'. The userId must be a valid UUID.
      * The `sk-` prefix is added implicitly to tokens.
@@ -386,6 +401,61 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
                 .filter(name -> !ModelProperties.SYSTEM_ONLY_MODELS.contains(name))
                 .filter(name -> codexConnected || !isCodexModel(name))
                 .collect(Collectors.toMap(name -> name, name -> modelLocations.getOrDefault(name, name)));
+    }
+
+    /**
+     * Returns the model name to use for Preview autocomplete, preferring known FIM-capable code models and falling
+     * back to the configured code model when necessary.
+     */
+    public @Nullable String previewAutocompleteModelName() {
+        var configuredCodeModel = project.getModelConfig(ModelType.CODE).name();
+        var modelNames = List.copyOf(modelInfoMap.keySet());
+
+        var preferredModel = modelNames.stream()
+                .filter(name -> !UNAVAILABLE.equals(name))
+                .filter(name -> previewAutocompleteModelRank(name) < 100)
+                .min(Comparator.comparingInt(AbstractService::previewAutocompleteModelRank)
+                        .thenComparing(String::compareToIgnoreCase));
+        if (preferredModel.isPresent()) {
+            return preferredModel.get();
+        }
+
+        if (!getModelInfo(configuredCodeModel).isEmpty()) {
+            return configuredCodeModel;
+        }
+
+        return modelNames.stream()
+                .filter(name -> !UNAVAILABLE.equals(name))
+                .filter(name -> name.toLowerCase(Locale.ROOT).contains("code"))
+                .min(String::compareToIgnoreCase)
+                .orElse(null);
+    }
+
+    private static int previewAutocompleteModelRank(String modelName) {
+        var lower = modelName.toLowerCase(Locale.ROOT);
+        if (lower.contains("mistral") && (lower.contains("fitm") || lower.contains("fim"))) {
+            // If the proxy exposes an explicit Mistral FIM/FiTM model, prefer it over Codestral.
+            return -10;
+        }
+        if (lower.contains("codestral")) {
+            return 0;
+        }
+        if (lower.contains("qwen") && lower.contains("coder")) {
+            return 10;
+        }
+        if (lower.contains("starcoder")) {
+            return 20;
+        }
+        if (lower.contains("deepseek") && lower.contains("coder")) {
+            return 30;
+        }
+        if (lower.contains("codex")) {
+            return 40;
+        }
+        if (lower.contains("coder") || lower.contains("code")) {
+            return 50;
+        }
+        return 100;
     }
 
     /**
@@ -613,10 +683,24 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
         }
         // Fallback: some callers might pass the location instead of the name in legacy tests
         // or if modelInfoMap is keyed by location and we haven't reached Service.java yet.
-        return modelInfoMap.values().stream()
+        var fallback = modelInfoMap.values().stream()
                 .filter(m -> modelName.equals(m.get("model_location")))
                 .findFirst()
-                .orElse(Map.of());
+                .orElse(null);
+
+        if (fallback != null) {
+            logger.debug("Model info found for '{}' via model_location fallback", modelName);
+            return fallback;
+        }
+
+        logger.warn(
+                "Model info lookup failed for '{}'. Available keys (canonical names): {}. Available locations: {}",
+                modelName,
+                modelInfoMap.keySet(),
+                modelInfoMap.values().stream()
+                        .map(m -> String.valueOf(m.get("model_location")))
+                        .collect(Collectors.toSet()));
+        return Map.of();
     }
 
     public boolean supportsParallelCalls(StreamingChatModel model) {
@@ -637,7 +721,7 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
     public boolean supportsTemperature(String modelName) {
         var info = getModelInfo(modelName);
         if (info.isEmpty()) {
-            logger.warn("Model info not found for name {}, assuming no temperature support.", modelName);
+            // getModelInfo already logged a warning about the missing info
             return false;
         }
 
@@ -646,6 +730,10 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
             return list.stream().map(Object::toString).anyMatch("temperature"::equals);
         }
 
+        logger.warn(
+                "Model info for '{}' missing 'supported_openai_params' or invalid type (found: {}). Defaulting supportsTemperature to false.",
+                modelName,
+                params == null ? "null" : params.getClass().getSimpleName());
         return false;
     }
 
@@ -732,6 +820,15 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
 
     public boolean isFreeTier(StreamingChatModel model) {
         return isFreeTier(nameOf(model));
+    }
+
+    /**
+     * Requests a Preview autocomplete suggestion from the backing service. Services that do not implement a dedicated
+     * completion endpoint return an empty result.
+     */
+    public Optional<PreviewAutocompleteResult> previewAutocomplete(PreviewAutocompleteRequest request)
+            throws IOException {
+        return Optional.empty();
     }
 
     public StreamingChatModel quickestModel() {
