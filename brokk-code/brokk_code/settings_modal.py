@@ -16,11 +16,24 @@ from textual.widgets import (
     ListView,
     RadioButton,
     RadioSet,
+    Select,
     Static,
     TabbedContent,
     TabPane,
     TextArea,
 )
+
+TIMEOUT_OPTIONS: list[tuple[str, str]] = [
+    ("No timeout", "-1"),
+    ("30", "30"),
+    ("60", "60"),
+    ("120", "120"),
+    ("300", "300"),
+    ("600", "600"),
+    ("1800", "1800"),
+    ("3600", "3600"),
+    ("10800", "10800"),
+]
 
 # Lazy import to avoid circular dependency
 # TaskTitleModalScreen is defined in app.py and used by SettingsModalScreen
@@ -210,16 +223,20 @@ class SettingsModalScreen(ModalScreen[None]):
 
                         with Horizontal(classes="settings-row"):
                             yield Static("Run Command Timeout (sec):", classes="settings-label")
-                            yield Input(
-                                placeholder="-1 for no timeout",
+                            yield Select(
+                                TIMEOUT_OPTIONS,
                                 id="settings-run-timeout",
+                                allow_blank=False,
+                                value="-1",
                             )
 
                         with Horizontal(classes="settings-row"):
                             yield Static("Test Command Timeout (sec):", classes="settings-label")
-                            yield Input(
-                                placeholder="-1 for no timeout",
+                            yield Select(
+                                TIMEOUT_OPTIONS,
                                 id="settings-test-timeout",
+                                allow_blank=False,
+                                value="-1",
                             )
 
                         # Modules Section
@@ -447,13 +464,13 @@ class SettingsModalScreen(ModalScreen[None]):
 
         # Run Command Timeout
         run_timeout = project_settings.get("runCommandTimeoutSeconds")
-        self.query_one("#settings-run-timeout", Input).value = (
+        self.query_one("#settings-run-timeout", Select).value = (
             str(run_timeout) if run_timeout is not None else "-1"
         )
 
         # Test Command Timeout
         test_timeout = project_settings.get("testCommandTimeoutSeconds")
-        self.query_one("#settings-test-timeout", Input).value = (
+        self.query_one("#settings-test-timeout", Select).value = (
             str(test_timeout) if test_timeout is not None else "-1"
         )
 
@@ -767,8 +784,8 @@ class SettingsModalScreen(ModalScreen[None]):
             scope_all = self.query_one("#settings-scope-all", RadioButton).value
             test_scope = "ALL" if scope_all else "WORKSPACE"
 
-            run_timeout_str = self.query_one("#settings-run-timeout", Input).value.strip()
-            test_timeout_str = self.query_one("#settings-test-timeout", Input).value.strip()
+            run_timeout_str = str(self.query_one("#settings-run-timeout", Select).value)
+            test_timeout_str = str(self.query_one("#settings-test-timeout", Select).value)
 
             project_data: Dict[str, Any] = {
                 "codeAgentTestScope": test_scope,
