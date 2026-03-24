@@ -1141,670 +1141,7 @@ async def run_acp_server(
 
     logging.basicConfig(stream=sys.stderr, level=logging.INFO)
 
-    if use_acp_server:
-        logger.info("Using ACP stdio server mode (BROKK_USE_ACP_SERVER=true)")
-        stdio_executor = AcpStdioExecutor(
-            workspace_dir=workspace_dir,
-            jar_path=jar_path,
-            executor_version=executor_version,
-            executor_snapshot=executor_snapshot,
-            vendor=vendor,
-        )
-        stdio_bridge = AcpStdioBridge(stdio_executor)
-
-        def _patch_acp_router_for_session_config_option_stdio() -> None:
-            if getattr(acp_agent_router, "_brokk_session_config_patch", False):
-                return
-            original_build_agent_router = acp_agent_router.build_agent_router
-
-            def patched_build_agent_router(agent: Any, use_unstable_protocol: bool = False) -> Any:
-                router = original_build_agent_router(
-                    agent, use_unstable_protocol=use_unstable_protocol
-                )
-                router.route_request(
-                    AGENT_METHODS["session_set_config_option"],
-                    SetSessionConfigOptionRequest,
-                    agent,
-                    "set_session_config_option",
-                    adapt_result=normalize_result,
-                    unstable=True,
-                )
-                return router
-
-            acp_agent_router.build_agent_router = patched_build_agent_router
-            acp_agent_connection.build_agent_router = patched_build_agent_router
-            acp_agent_router._brokk_session_config_patch = True
-
-        _patch_acp_router_for_session_config_option_stdio()
-
-        class AcpStdioAgent(Agent):
-            def __init__(self) -> None:
-                self.client: Optional[Any] = None
-                self._mode_by_session: dict[str, str] = {}
-                self._model_by_session: dict[str, str] = {}
-                self._reasoning_by_session: dict[str, str] = {}
-                self._cwd_by_session: dict[str, str] = {}
-                self._model_catalog_by_session: dict[str, list[dict[str, Any]]] = {}
-                self._catalog_is_fallback_by_session: dict[str, bool] = {}
-                self._profile = resolve_client_profile(None, None)
-                self._commands_tasks: set[asyncio.Task[Any]] = set()
-
-                acp_defaults = load_acp_defaults()
-                self._default_model_id: str = acp_defaults.default_model or DEFAULT_MODEL_SELECTION
-                self._default_reasoning_level: str = (
-                    acp_defaults.default_reasoning or DEFAULT_REASONING_LEVEL
-                )
-
-            async def _refresh_model_catalog(
-                self,
-                session_id: str,
-                attempts: int = MODEL_DISCOVERY_INITIAL_ATTEMPTS,
-            ) -> None:
-                async def fetch_payload() -> dict[str, Any]:
-                    await stdio_bridge.ensure_ready(self._cwd_by_session.get(session_id))
-                    return await stdio_bridge.get_models()
-
-                normalized = await _fetch_normalized_catalog_with_retries(
-                    fetch_payload,
-                    attempts=attempts,
-                )
-                if normalized:
-                    self._model_catalog_by_session[session_id] = normalized
-                    self._catalog_is_fallback_by_session[session_id] = False
-                    return
-
-                existing = self._model_catalog_by_session.get(session_id)
-                if existing and not self._catalog_is_fallback_by_session.get(session_id, True):
-                    logger.info(
-                        "Model discovery unavailable; keeping previously discovered model catalog "
-                        "for session %s",
-                        session_id,
-                    )
-                    return
-
-                logger.info("Model discovery unavailable; using fallback catalog")
-                self._model_catalog_by_session[session_id] = _fallback_model_catalog()
-                self._catalog_is_fallback_by_session[session_id] = True
-
-            async def _refresh_model_catalog_if_fallback(self, session_id: str) -> None:
-                if not self._catalog_is_fallback_by_session.get(session_id, False):
-                    return
-                await self._refresh_model_catalog(
-                    session_id,
-                    attempts=MODEL_DISCOVERY_RECOVERY_ATTEMPTS,
-                )
-
-            def _catalog_for_session(self, session_id: str) -> list[dict[str, Any]]:
-                return self._model_catalog_by_session.get(session_id, _fallback_model_catalog())
-
-            def _current_model_selection(self, session_id: str) -> str:
-                catalog = self._catalog_for_session(session_id)
-                model_names = _available_model_names(catalog)
-                current_model = self._model_by_session.get(session_id, DEFAULT_MODEL_SELECTION)
-                if current_model not in model_names and model_names:
-                    current_model = model_names[0]
-                    self._model_by_session[session_id] = current_model
-                current_reasoning = self._reasoning_by_session.get(
-                    session_id, DEFAULT_REASONING_LEVEL
-                )
-                reasoning_options = _reasoning_options_for_model(current_model, catalog)
-                if current_reasoning not in reasoning_options:
-                    current_reasoning = "default"
-                    self._reasoning_by_session[session_id] = current_reasoning
-                model_options = _model_options(catalog)
-                option_values = {value for value, _ in model_options}
-                if current_model not in option_values and model_options:
-                    current_model = model_options[0][0]
-                    self._model_by_session[session_id] = current_model
-                return current_model
-
-            def _model_state_for_session(self, session_id: str) -> SessionModelState:
-                catalog = self._catalog_for_session(session_id)
-                current_model = self._current_model_selection(session_id)
-                if self._profile.is_zed:
-                    variants = _model_options(catalog)
-                    if not variants:
-                        variants = [(DEFAULT_MODEL_SELECTION, DEFAULT_MODEL_SELECTION)]
-                    current_model_id = current_model
-                else:
-                    variants = _build_available_models(catalog)
-                    if not variants:
-                        variants = [(DEFAULT_MODEL_SELECTION, DEFAULT_MODEL_SELECTION)]
-                    current_reasoning = self._reasoning_by_session.get(
-                        session_id, DEFAULT_REASONING_LEVEL
-                    )
-                    current_model_id = _format_model_id_with_variant(
-                        current_model,
-                        current_reasoning,
-                        _model_variants_for_model(current_model, catalog),
-                    )
-                return SessionModelState(
-                    available_models=[
-                        ModelInfo(model_id=value, name=label) for value, label in variants
-                    ],
-                    current_model_id=current_model_id,
-                )
-
-            def _config_options_for_session(self, session_id: str) -> list[Any]:
-                current_mode = self._mode_by_session.get(session_id, "LUTZ")
-                options: list[Any] = [
-                    SessionConfigOption.model_validate(
-                        {
-                            "type": "select",
-                            "id": "mode",
-                            "name": "Mode",
-                            "description": "Choose Brokk operating mode",
-                            "category": "session",
-                            "currentValue": current_mode,
-                            "options": [
-                                SessionConfigSelectOption(value=mode, name=mode)
-                                for mode in MODE_OPTIONS
-                            ],
-                        }
-                    ),
-                ]
-                if self._profile.is_zed:
-                    current_model = self._model_by_session.get(session_id, DEFAULT_MODEL_SELECTION)
-                    current_reasoning = self._reasoning_by_session.get(
-                        session_id, DEFAULT_REASONING_LEVEL
-                    )
-                    model_opts = _model_options(self._catalog_for_session(session_id))
-                    options.append(
-                        SessionConfigOption.model_validate(
-                            {
-                                "type": "select",
-                                "id": "model",
-                                "name": "Model",
-                                "description": "Choose model",
-                                "category": "model",
-                                "currentValue": current_model,
-                                "options": [
-                                    SessionConfigSelectOption(value=model_id, name=model_name)
-                                    for model_id, model_name in model_opts
-                                ],
-                            }
-                        )
-                    )
-                    reasoning_options = _reasoning_options_for_model(
-                        current_model, self._catalog_for_session(session_id)
-                    )
-                    options.append(
-                        SessionConfigOption.model_validate(
-                            {
-                                "type": "select",
-                                "id": "reasoning",
-                                "name": "Reasoning",
-                                "description": "Choose reasoning level",
-                                "category": "model",
-                                "currentValue": (
-                                    current_reasoning
-                                    if current_reasoning in reasoning_options
-                                    else "default"
-                                ),
-                                "options": [
-                                    SessionConfigSelectOption(value=level, name=level)
-                                    for level in reasoning_options
-                                ],
-                            }
-                        )
-                    )
-                return options
-
-            def _variant_meta_for_session(self, session_id: str) -> dict[str, Any]:
-                model_id = self._model_by_session.get(session_id, DEFAULT_MODEL_SELECTION)
-                variant = self._reasoning_by_session.get(session_id, DEFAULT_REASONING_LEVEL)
-                if variant == DEFAULT_VARIANT_VALUE:
-                    variant = None
-                available_variants = _model_variants_for_model(
-                    model_id, self._catalog_for_session(session_id)
-                )
-                return {
-                    "brokk": {
-                        "modelId": model_id,
-                        "variant": variant,
-                        "availableVariants": available_variants,
-                    }
-                }
-
-            def _schedule_available_commands_update(self, session_id: str) -> None:
-                async def _run() -> None:
-                    await asyncio.sleep(0)
-                    if not self.client:
-                        return
-                    commands = [
-                        AvailableCommand(name=cmd["name"], description=cmd["description"])
-                        for cmd in acp_slash_commands()
-                    ]
-                    await self.client.session_update(
-                        session_id, update_available_commands(commands)
-                    )
-
-                task = asyncio.create_task(_run())
-                self._commands_tasks.add(task)
-
-                def _done_callback(done: asyncio.Task[Any]) -> None:
-                    self._commands_tasks.discard(done)
-                    try:
-                        done.result()
-                    except Exception:
-                        logger.warning(
-                            "Command advertisement task failed for session %s",
-                            session_id,
-                            exc_info=True,
-                        )
-
-                task.add_done_callback(_done_callback)
-
-            def _ensure_session_defaults(self, session_id: str, cwd: Optional[str] = None) -> None:
-                if session_id not in self._mode_by_session:
-                    self._mode_by_session[session_id] = "LUTZ"
-                if session_id not in self._model_by_session:
-                    self._model_by_session[session_id] = (
-                        self._default_model_id or DEFAULT_MODEL_SELECTION
-                    )
-                if session_id not in self._reasoning_by_session:
-                    self._reasoning_by_session[session_id] = (
-                        self._default_reasoning_level or DEFAULT_REASONING_LEVEL
-                    )
-                if cwd is not None:
-                    self._cwd_by_session[session_id] = cwd
-                elif session_id not in self._cwd_by_session:
-                    self._cwd_by_session[session_id] = str(workspace_dir)
-
-            def on_connect(self, client: Any) -> None:
-                self.client = client
-
-            async def initialize(
-                self,
-                protocol_version: int,
-                client_capabilities: Any = None,
-                client_info: Any = None,
-                **kwargs: Any,
-            ) -> InitializeResponse:
-                self._profile = resolve_client_profile(client_capabilities, client_info)
-                logger.info("ACP Client Profile resolved: %s", self._profile)
-
-                return InitializeResponse(
-                    protocol_version=protocol_version,
-                    agent_info=Implementation(name="brokk", version=__version__),
-                    agent_capabilities=AgentCapabilities(
-                        load_session=True,
-                        prompt_capabilities=PromptCapabilities(embedded_context=True),
-                        session_capabilities=SessionCapabilities(
-                            list=SessionListCapabilities(),
-                            resume=SessionResumeCapabilities(),
-                        ),
-                    ),
-                )
-
-            async def new_session(
-                self,
-                cwd: str,
-                mcp_servers: Optional[list[Any]] = None,
-                **kwargs: Any,
-            ) -> NewSessionResponse:
-                del mcp_servers
-                requested_name = str(
-                    kwargs.get("title") or kwargs.get("name") or "ACP Session"
-                ).strip()
-                session_name = requested_name or "ACP Session"
-                session_id = await stdio_bridge.start_and_create_session(name=session_name, cwd=cwd)
-                self._ensure_session_defaults(session_id, cwd)
-                await self._refresh_model_catalog(session_id)
-
-                catalog = self._catalog_for_session(session_id)
-                available_models = _available_model_names(catalog)
-                available_set = set(available_models)
-                if self._model_by_session[session_id] not in available_set and available_models:
-                    fallback = available_models[0]
-                    logger.info(
-                        "Persisted ACP default model %s not available; falling back to %s",
-                        self._model_by_session[session_id],
-                        fallback,
-                    )
-                    self._model_by_session[session_id] = fallback
-                    self._default_model_id = fallback
-                    save_acp_defaults(
-                        AcpDefaults(
-                            default_model=self._default_model_id,
-                            default_reasoning=self._default_reasoning_level,
-                        )
-                    )
-
-                sanitized = _sanitize_reasoning_level_for_model(
-                    self._model_by_session[session_id],
-                    self._reasoning_by_session[session_id],
-                    catalog,
-                )
-                if sanitized != self._reasoning_by_session[session_id]:
-                    logger.info(
-                        "Persisted ACP reasoning %s invalid for model %s; falling back to %s",
-                        self._reasoning_by_session[session_id],
-                        self._model_by_session[session_id],
-                        sanitized,
-                    )
-                    self._reasoning_by_session[session_id] = sanitized
-                    self._default_reasoning_level = sanitized
-                    save_acp_defaults(
-                        AcpDefaults(
-                            default_model=self._default_model_id,
-                            default_reasoning=self._default_reasoning_level,
-                        )
-                    )
-
-                model_state = self._model_state_for_session(session_id)
-                self._schedule_available_commands_update(session_id)
-                return NewSessionResponse(
-                    session_id=session_id,
-                    modes=SessionModeState(
-                        available_modes=[
-                            SessionMode(id="LUTZ", name="LUTZ"),
-                            SessionMode(id="CODE", name="CODE"),
-                            SessionMode(id="ASK", name="ASK"),
-                            SessionMode(id="PLAN", name="PLAN"),
-                        ],
-                        current_mode_id="LUTZ",
-                    ),
-                    models=model_state,
-                    config_options=self._config_options_for_session(session_id),
-                    _meta=self._variant_meta_for_session(session_id),
-                )
-
-            async def list_sessions(
-                self,
-                cursor: Optional[str] = None,
-                cwd: Optional[str] = None,
-                **kwargs: Any,
-            ) -> ListSessionsResponse:
-                del cursor, kwargs
-                await stdio_bridge.ensure_ready(cwd)
-                sessions_payload = await stdio_bridge.list_sessions()
-                executor_sessions = sessions_payload.get("sessions", [])
-                sessions = []
-                for entry in executor_sessions:
-                    session_id = _session_id_from_entry(entry)
-                    if not session_id:
-                        continue
-                    self._ensure_session_defaults(session_id)
-                    title = None
-                    if isinstance(entry, dict):
-                        title = entry.get("name") or entry.get("title") or entry.get("sessionName")
-                    title = str(title).strip() if title is not None else None
-                    updated_at = None
-                    session_cwd = None
-                    if isinstance(entry, dict):
-                        updated_at = _to_iso8601_utc(
-                            entry.get("modified")
-                            or entry.get("updatedAt")
-                            or entry.get("updated_at")
-                        )
-                        session_cwd = entry.get("cwd")
-                    if isinstance(session_cwd, str) and session_cwd.strip():
-                        self._cwd_by_session[session_id] = session_cwd
-                    effective_cwd = self._cwd_by_session.get(session_id, cwd or str(workspace_dir))
-                    if cwd and effective_cwd != cwd:
-                        continue
-                    sessions.append(
-                        SessionInfo(
-                            session_id=session_id,
-                            cwd=effective_cwd,
-                            title=title or None,
-                            updated_at=updated_at,
-                        )
-                    )
-                return ListSessionsResponse(sessions=sessions, next_cursor=None)
-
-            async def load_session(
-                self,
-                cwd: str,
-                session_id: str,
-                mcp_servers: Optional[list[Any]] = None,
-                **kwargs: Any,
-            ) -> Optional[LoadSessionResponse]:
-                del mcp_servers, kwargs
-                await stdio_bridge.ensure_ready(cwd)
-                sessions_payload = await stdio_bridge.list_sessions()
-                known_session_ids = _known_session_ids(sessions_payload.get("sessions", []))
-                if session_id not in known_session_ids:
-                    return None
-                self._ensure_session_defaults(session_id, cwd)
-                await self._refresh_model_catalog(session_id)
-                self._schedule_available_commands_update(session_id)
-                model_state = self._model_state_for_session(session_id)
-                return LoadSessionResponse(
-                    modes=SessionModeState(
-                        available_modes=[
-                            SessionMode(id="LUTZ", name="LUTZ"),
-                            SessionMode(id="CODE", name="CODE"),
-                            SessionMode(id="ASK", name="ASK"),
-                            SessionMode(id="PLAN", name="PLAN"),
-                        ],
-                        current_mode_id=self._mode_by_session.get(session_id, "LUTZ"),
-                    ),
-                    models=model_state,
-                    config_options=self._config_options_for_session(session_id),
-                    _meta=self._variant_meta_for_session(session_id),
-                )
-
-            async def resume_session(
-                self,
-                cwd: str,
-                session_id: str,
-                mcp_servers: Optional[list[Any]] = None,
-                **kwargs: Any,
-            ) -> ResumeSessionResponse:
-                resumed = await self.load_session(
-                    cwd=cwd,
-                    session_id=session_id,
-                    mcp_servers=mcp_servers,
-                    **kwargs,
-                )
-                if resumed is None:
-                    raise ExecutorError(f"Session not found: {session_id}")
-                return ResumeSessionResponse(
-                    modes=resumed.modes,
-                    models=resumed.models,
-                    config_options=resumed.config_options,
-                    _meta=resumed.field_meta,
-                )
-
-            async def set_session_mode(
-                self,
-                mode_id: str,
-                session_id: str,
-                **kwargs: Any,
-            ) -> SetSessionModeResponse:
-                del kwargs
-                self._mode_by_session[session_id] = normalize_mode(mode_id)
-                return SetSessionModeResponse()
-
-            async def set_session_model(
-                self,
-                model_id: str,
-                session_id: str,
-                **kwargs: Any,
-            ) -> SetSessionModelResponse:
-                del kwargs
-                await self._refresh_model_catalog_if_fallback(session_id)
-                catalog = self._catalog_for_session(session_id)
-                selected_model, selected_reasoning = _parse_model_selection(model_id, catalog)
-                if selected_model is None and selected_reasoning is None:
-                    selected_model, selected_reasoning = resolve_model_selection(model_id)
-                available = _available_model_names(catalog)
-                available_set = set(available)
-                fallback_model = available[0] if available else DEFAULT_MODEL_SELECTION
-                chosen_model = selected_model if selected_model in available_set else fallback_model
-                self._model_by_session[session_id] = chosen_model
-
-                try:
-                    self._default_model_id = chosen_model
-                    save_acp_defaults(
-                        AcpDefaults(
-                            default_model=self._default_model_id,
-                            default_reasoning=self._default_reasoning_level,
-                        )
-                    )
-                except Exception:
-                    logger.exception("Failed to persist ACP default model change")
-
-                if selected_reasoning:
-                    self._reasoning_by_session[session_id] = selected_reasoning
-                elif not self._profile.is_zed:
-                    self._reasoning_by_session[session_id] = DEFAULT_VARIANT_VALUE
-                return SetSessionModelResponse(_meta=self._variant_meta_for_session(session_id))
-
-            async def set_session_config_option(
-                self,
-                config_id: str,
-                session_id: str,
-                value: str,
-                **kwargs: Any,
-            ) -> SetSessionConfigOptionResponse:
-                del kwargs
-                if config_id == "mode" and value:
-                    self._mode_by_session[session_id] = normalize_mode(value)
-                elif config_id == "model" and value:
-                    await self._refresh_model_catalog_if_fallback(session_id)
-                    selected_model, selected_reasoning = resolve_model_selection(value)
-                    catalog = self._catalog_for_session(session_id)
-                    available = _available_model_names(catalog)
-                    available_set = set(available)
-                    fallback_model = available[0] if available else DEFAULT_MODEL_SELECTION
-                    chosen_model = (
-                        selected_model if selected_model in available_set else fallback_model
-                    )
-                    self._model_by_session[session_id] = chosen_model
-                    try:
-                        self._default_model_id = chosen_model
-                        save_acp_defaults(
-                            AcpDefaults(
-                                default_model=self._default_model_id,
-                                default_reasoning=self._default_reasoning_level,
-                            )
-                        )
-                    except Exception:
-                        logger.exception("Failed to persist ACP default model change")
-                    if selected_reasoning:
-                        self._reasoning_by_session[session_id] = selected_reasoning
-                elif (
-                    config_id in {THOUGHT_LEVEL_CONFIG_ID, "reasoning_effort", "reasoning"}
-                    and value in REASONING_LEVEL_IDS
-                ):
-                    catalog = self._catalog_for_session(session_id)
-                    model = self._model_by_session.get(session_id, self._default_model_id)
-                    sanitized = _sanitize_reasoning_level_for_model(model, value, catalog)
-                    self._reasoning_by_session[session_id] = sanitized
-                    try:
-                        self._default_reasoning_level = sanitized
-                        save_acp_defaults(
-                            AcpDefaults(
-                                default_model=self._default_model_id,
-                                default_reasoning=self._default_reasoning_level,
-                            )
-                        )
-                    except Exception:
-                        logger.exception("Failed to persist ACP default reasoning change")
-                options = self._config_options_for_session(session_id)
-                return SetSessionConfigOptionResponse(config_options=options)
-
-            async def prompt(self, prompt: Any, session_id: str, **kwargs: Any) -> Any:
-                # If session_id is unknown (e.g. Zed restarted and reuses old ID),
-                # bootstrap session defaults from the workspace directory.
-                # Do NOT call ensure_ready here — only new_session should start the server
-                # (it receives the correct cwd from Zed).
-                if session_id not in self._cwd_by_session:
-                    effective_cwd = str(workspace_dir)
-                    self._ensure_session_defaults(session_id, effective_cwd)
-                logger.debug(
-                    "prompt session_id=%r, known_sessions=%r",
-                    session_id,
-                    list(self._cwd_by_session.keys()),
-                )
-                await self._refresh_model_catalog_if_fallback(session_id)
-                mode = normalize_mode(kwargs.get("mode") or self._mode_by_session.get(session_id))
-                planner_model = (
-                    kwargs.get("planner_model")
-                    or kwargs.get("plannerModel")
-                    or self._model_by_session.get(session_id)
-                    or DEFAULT_MODEL_SELECTION
-                )
-                catalog = self._catalog_for_session(session_id)
-                parsed_model, parsed_reasoning = _parse_model_selection(str(planner_model), catalog)
-                if parsed_model:
-                    planner_model = parsed_model
-                planner_model_id, selected_reasoning_level = resolve_model_selection(planner_model)
-                available_models = _available_model_names(catalog)
-                available_set = set(available_models)
-                if planner_model_id not in available_set:
-                    planner_model_id = (
-                        available_models[0] if available_models else DEFAULT_MODEL_SELECTION
-                    )
-                code_model = (
-                    kwargs.get("code_model") or kwargs.get("codeModel") or "gemini-3-flash-preview"
-                )
-                reasoning_level = (
-                    kwargs.get("reasoning_level")
-                    or kwargs.get("reasoningLevel")
-                    or parsed_reasoning
-                    or selected_reasoning_level
-                    or self._reasoning_by_session.get(session_id)
-                    or "low"
-                )
-                reasoning_level = _sanitize_reasoning_level_for_model(
-                    planner_model_id, str(reasoning_level), catalog
-                )
-                reasoning_level_code = (
-                    kwargs.get("reasoning_level_code")
-                    or kwargs.get("reasoningLevelCode")
-                    or "disable"
-                )
-                if not self.client:
-                    raise ExecutorError("ACP client connection not established.")
-
-                await stdio_bridge.prompt(
-                    prompt=prompt,
-                    session_id=session_id,
-                    cwd=self._cwd_by_session.get(session_id, ""),
-                    mode=mode,
-                    planner_model=planner_model_id,
-                    code_model=code_model,
-                    reasoning_level=reasoning_level,
-                    reasoning_level_code=reasoning_level_code,
-                    send_update=self.client.session_update,
-                    update_agent_message_text=update_agent_message_text,
-                )
-                return PromptResponse(stop_reason="end_turn")
-
-            async def cancel(self, *args: Any, **kwargs: Any) -> None:
-                await stdio_bridge.cancel(*args, **kwargs)
-
-        try:
-            await run_agent(AcpStdioAgent(), use_unstable_protocol=True)
-        finally:
-            await stdio_executor.stop()
-        return
-
-    # Non-stdio mode - use ExecutorManager with HTTP
-    logger.info("Starting ACP server")
-
-    # Note: The ExecutorManager launches the Java HeadlessExecutorMain with a dedicated
-    # stdin pipe. HeadlessExecutorMain monitors System.in for EOF and will initiate a
-    # controlled shutdown if the ACP Python process (the parent) exits or its stdin is
-    # closed by the IDE (for example, when IntelliJ terminates/restarts the run profile).
-    # This stdin-based parent-death signal prevents orphaned Java executor processes in
-    # cases where Python's finally blocks may not run (e.g., abrupt IDE lifecycle events).
-    settings = Settings.load()
-    executor = ExecutorManager(
-        workspace_dir=workspace_dir,
-        jar_path=jar_path,
-        executor_version=executor_version,
-        executor_snapshot=executor_snapshot,
-        vendor=vendor,
-        exit_on_stdin_eof=True,
-        brokk_api_key=settings.get_brokk_api_key(),
-    )
-    bridge = BrokkAcpBridge(executor)
-
+    # Patch ACP SDK router to support session config options (applied once)
     def _patch_acp_router_for_session_config_option() -> None:
         if getattr(acp_agent_router, "_brokk_session_config_patch", False):
             return
@@ -1823,14 +1160,16 @@ async def run_acp_server(
             return router
 
         acp_agent_router.build_agent_router = patched_build_agent_router
-        # AgentSideConnection captured a module-level symbol; patch it too.
         acp_agent_connection.build_agent_router = patched_build_agent_router
         acp_agent_router._brokk_session_config_patch = True
 
     _patch_acp_router_for_session_config_option()
 
-    class BrokkAcpAgent(Agent):
-        def __init__(self) -> None:
+    class BaseAcpAgent(Agent):
+        """Shared ACP agent logic for both stdio and HTTP bridges."""
+
+        def __init__(self, bridge: Any) -> None:
+            self._bridge = bridge
             self.client: Optional[Any] = None
             self._mode_by_session: dict[str, str] = {}
             self._model_by_session: dict[str, str] = {}
@@ -1839,15 +1178,28 @@ async def run_acp_server(
             self._model_catalog_by_session: dict[str, list[dict[str, Any]]] = {}
             self._catalog_is_fallback_by_session: dict[str, bool] = {}
             self._profile = resolve_client_profile(None, None)
-            self._replay_tasks: set[asyncio.Task[Any]] = set()
             self._commands_tasks: set[asyncio.Task[Any]] = set()
 
-            # Load ACP defaults once on agent init
             acp_defaults = load_acp_defaults()
             self._default_model_id: str = acp_defaults.default_model or DEFAULT_MODEL_SELECTION
             self._default_reasoning_level: str = (
                 acp_defaults.default_reasoning or DEFAULT_REASONING_LEVEL
             )
+
+        async def _fetch_models_payload(self, session_id: str) -> dict[str, Any]:
+            raise NotImplementedError
+
+        async def _fetch_sessions_payload(self, cwd: Optional[str]) -> Optional[dict[str, Any]]:
+            raise NotImplementedError
+
+        async def _do_load_session(self, session_id: str, cwd: str) -> bool:
+            raise NotImplementedError
+
+        async def _pre_prompt(self, session_id: str) -> None:
+            pass
+
+        def _post_load_session(self, session_id: str) -> None:
+            pass
 
         async def _refresh_model_catalog(
             self,
@@ -1855,8 +1207,7 @@ async def run_acp_server(
             attempts: int = MODEL_DISCOVERY_INITIAL_ATTEMPTS,
         ) -> None:
             async def fetch_payload() -> dict[str, Any]:
-                await bridge.ensure_ready(self._cwd_by_session.get(session_id))
-                return await bridge.executor.get_models()
+                return await self._fetch_models_payload(session_id)
 
             normalized = await _fetch_normalized_catalog_with_retries(
                 fetch_payload,
@@ -1939,7 +1290,7 @@ async def run_acp_server(
 
         def _config_options_for_session(self, session_id: str) -> list[Any]:
             current_mode = self._mode_by_session.get(session_id, "LUTZ")
-            options = [
+            options: list[Any] = [
                 SessionConfigOption.model_validate(
                     {
                         "type": "select",
@@ -1960,7 +1311,7 @@ async def run_acp_server(
                 current_reasoning = self._reasoning_by_session.get(
                     session_id, DEFAULT_REASONING_LEVEL
                 )
-                model_options = _model_options(self._catalog_for_session(session_id))
+                model_opts = _model_options(self._catalog_for_session(session_id))
                 options.append(
                     SessionConfigOption.model_validate(
                         {
@@ -1972,7 +1323,7 @@ async def run_acp_server(
                             "currentValue": current_model,
                             "options": [
                                 SessionConfigSelectOption(value=model_id, name=model_name)
-                                for model_id, model_name in model_options
+                                for model_id, model_name in model_opts
                             ],
                         }
                     )
@@ -2018,54 +1369,8 @@ async def run_acp_server(
                 }
             }
 
-        async def _replay_loaded_session(self, session_id: str) -> None:
-            if not self.client:
-                return
-            try:
-                conversation_data = await bridge.executor.get_conversation()
-            except Exception:
-                logger.warning(
-                    "Failed to fetch conversation replay for session %s",
-                    session_id,
-                    exc_info=True,
-                )
-                return
-
-            updates = conversation_payload_to_session_updates(
-                conversation_data,
-                update_user_message_text=update_user_message_text,
-                update_agent_message_text=update_agent_message_text,
-                update_agent_thought_text=update_agent_thought_text,
-            )
-            logger.info("Replaying %s ACP chat updates for session %s", len(updates), session_id)
-            for update in updates:
-                await self.client.session_update(session_id, update)
-
-        def _schedule_replay_loaded_session(self, session_id: str) -> None:
-            async def _run() -> None:
-                # Yield so the load/resume response can be delivered first.
-                await asyncio.sleep(0)
-                await self._replay_loaded_session(session_id)
-
-            task = asyncio.create_task(_run())
-            self._replay_tasks.add(task)
-
-            def _done_callback(done: asyncio.Task[Any]) -> None:
-                self._replay_tasks.discard(done)
-                try:
-                    done.result()
-                except Exception:
-                    logger.warning(
-                        "Session replay task failed for session %s",
-                        session_id,
-                        exc_info=True,
-                    )
-
-            task.add_done_callback(_done_callback)
-
         def _schedule_available_commands_update(self, session_id: str) -> None:
             async def _run() -> None:
-                # Yield so the session response can be delivered first.
                 await asyncio.sleep(0)
                 if not self.client:
                     return
@@ -2142,17 +1447,14 @@ async def run_acp_server(
             del mcp_servers
             requested_name = str(kwargs.get("title") or kwargs.get("name") or "ACP Session").strip()
             session_name = requested_name or "ACP Session"
-            session_id = await bridge.start_and_create_session(name=session_name, cwd=cwd)
+            session_id = await self._bridge.start_and_create_session(name=session_name, cwd=cwd)
             self._ensure_session_defaults(session_id, cwd)
             await self._refresh_model_catalog(session_id)
 
-            # After refreshing catalog, ensure persisted defaults are valid for this catalog.
             catalog = self._catalog_for_session(session_id)
             available_models = _available_model_names(catalog)
             available_set = set(available_models)
-            # Validate model default
             if self._model_by_session[session_id] not in available_set and available_models:
-                # fallback to first available model and persist that choice
                 fallback = available_models[0]
                 logger.info(
                     "Persisted ACP default model %s not available; falling back to %s",
@@ -2168,7 +1470,6 @@ async def run_acp_server(
                     )
                 )
 
-            # Validate reasoning default against model capabilities
             sanitized = _sanitize_reasoning_level_for_model(
                 self._model_by_session[session_id],
                 self._reasoning_by_session[session_id],
@@ -2216,26 +1517,13 @@ async def run_acp_server(
             **kwargs: Any,
         ) -> Optional[LoadSessionResponse]:
             del mcp_servers, kwargs
-            await bridge.ensure_ready(cwd)
-            requested_session_id = session_id
-            sessions_payload = await bridge.executor.list_sessions()
-            known_session_ids = _known_session_ids(sessions_payload.get("sessions", []))
-            if requested_session_id not in known_session_ids:
+            if not await self._do_load_session(session_id, cwd):
                 return None
-            try:
-                await bridge.executor.switch_session(requested_session_id)
-            except Exception:
-                logger.warning(
-                    "load_session: switch_session failed for %r",
-                    requested_session_id,
-                    exc_info=True,
-                )
-                return None
-            self._ensure_session_defaults(requested_session_id, cwd)
-            await self._refresh_model_catalog(requested_session_id)
-            self._schedule_replay_loaded_session(requested_session_id)
-            self._schedule_available_commands_update(requested_session_id)
-            model_state = self._model_state_for_session(requested_session_id)
+            self._ensure_session_defaults(session_id, cwd)
+            await self._refresh_model_catalog(session_id)
+            self._schedule_available_commands_update(session_id)
+            self._post_load_session(session_id)
+            model_state = self._model_state_for_session(session_id)
             return LoadSessionResponse(
                 modes=SessionModeState(
                     available_modes=[
@@ -2244,11 +1532,11 @@ async def run_acp_server(
                         SessionMode(id="ASK", name="ASK"),
                         SessionMode(id="PLAN", name="PLAN"),
                     ],
-                    current_mode_id=self._mode_by_session.get(requested_session_id, "LUTZ"),
+                    current_mode_id=self._mode_by_session.get(session_id, "LUTZ"),
                 ),
                 models=model_state,
-                config_options=self._config_options_for_session(requested_session_id),
-                _meta=self._variant_meta_for_session(requested_session_id),
+                config_options=self._config_options_for_session(session_id),
+                _meta=self._variant_meta_for_session(session_id),
             )
 
         async def resume_session(
@@ -2280,12 +1568,8 @@ async def run_acp_server(
             **kwargs: Any,
         ) -> ListSessionsResponse:
             del cursor, kwargs
-            if not bridge._started:
-                return ListSessionsResponse(sessions=[])
-            try:
-                sessions_payload = await bridge.executor.list_sessions()
-            except Exception:
-                logger.warning("list_sessions: failed to list sessions", exc_info=True)
+            sessions_payload = await self._fetch_sessions_payload(cwd)
+            if sessions_payload is None:
                 return ListSessionsResponse(sessions=[])
             executor_sessions = sessions_payload.get("sessions", [])
             sessions = []
@@ -2348,7 +1632,6 @@ async def run_acp_server(
             chosen_model = selected_model if selected_model in available_set else fallback_model
             self._model_by_session[session_id] = chosen_model
 
-            # Update persisted default model to the newly selected valid model
             try:
                 self._default_model_id = chosen_model
                 save_acp_defaults(
@@ -2379,14 +1662,12 @@ async def run_acp_server(
             elif config_id == "model" and value:
                 await self._refresh_model_catalog_if_fallback(session_id)
                 selected_model, selected_reasoning = resolve_model_selection(value)
-                # Validate against catalog
                 catalog = self._catalog_for_session(session_id)
                 available = _available_model_names(catalog)
                 available_set = set(available)
                 fallback_model = available[0] if available else DEFAULT_MODEL_SELECTION
                 chosen_model = selected_model if selected_model in available_set else fallback_model
                 self._model_by_session[session_id] = chosen_model
-                # Persist model change
                 try:
                     self._default_model_id = chosen_model
                     save_acp_defaults(
@@ -2403,12 +1684,10 @@ async def run_acp_server(
                 config_id in {THOUGHT_LEVEL_CONFIG_ID, "reasoning_effort", "reasoning"}
                 and value in REASONING_LEVEL_IDS
             ):
-                # Sanitize for model capabilities
                 catalog = self._catalog_for_session(session_id)
                 model = self._model_by_session.get(session_id, self._default_model_id)
                 sanitized = _sanitize_reasoning_level_for_model(model, value, catalog)
                 self._reasoning_by_session[session_id] = sanitized
-                # Persist reasoning change
                 try:
                     self._default_reasoning_level = sanitized
                     save_acp_defaults(
@@ -2423,6 +1702,7 @@ async def run_acp_server(
             return SetSessionConfigOptionResponse(config_options=options)
 
         async def prompt(self, prompt: Any, session_id: str, **kwargs: Any) -> Any:
+            await self._pre_prompt(session_id)
             await self._refresh_model_catalog_if_fallback(session_id)
             mode = normalize_mode(kwargs.get("mode") or self._mode_by_session.get(session_id))
             planner_model = (
@@ -2462,7 +1742,7 @@ async def run_acp_server(
             if not self.client:
                 raise ExecutorError("ACP client connection not established.")
 
-            await bridge.prompt(
+            await self._bridge.prompt(
                 prompt=prompt,
                 session_id=session_id,
                 cwd=self._cwd_by_session.get(session_id, ""),
@@ -2477,7 +1757,157 @@ async def run_acp_server(
             return PromptResponse(stop_reason="end_turn")
 
         async def cancel(self, *args: Any, **kwargs: Any) -> None:
-            await bridge.cancel(*args, **kwargs)
+            await self._bridge.cancel(*args, **kwargs)
+
+    # ---- Stdio mode (default) ----
+
+    if use_acp_server:
+        logger.info("Using ACP stdio server mode (BROKK_USE_ACP_SERVER=true)")
+        stdio_executor = AcpStdioExecutor(
+            workspace_dir=workspace_dir,
+            jar_path=jar_path,
+            executor_version=executor_version,
+            executor_snapshot=executor_snapshot,
+            vendor=vendor,
+        )
+        stdio_bridge = AcpStdioBridge(stdio_executor)
+
+        class AcpStdioAgent(BaseAcpAgent):
+            def __init__(self) -> None:
+                super().__init__(bridge=stdio_bridge)
+
+            async def _fetch_models_payload(self, session_id: str) -> dict[str, Any]:
+                await self._bridge.ensure_ready(self._cwd_by_session.get(session_id))
+                return await self._bridge.get_models()
+
+            async def _fetch_sessions_payload(self, cwd: Optional[str]) -> Optional[dict[str, Any]]:
+                await self._bridge.ensure_ready(cwd)
+                return await self._bridge.list_sessions()
+
+            async def _do_load_session(self, session_id: str, cwd: str) -> bool:
+                await self._bridge.ensure_ready(cwd)
+                sessions_payload = await self._bridge.list_sessions()
+                known = _known_session_ids(sessions_payload.get("sessions", []))
+                return session_id in known
+
+            async def _pre_prompt(self, session_id: str) -> None:
+                if session_id not in self._cwd_by_session:
+                    self._ensure_session_defaults(session_id, str(workspace_dir))
+                logger.debug(
+                    "prompt session_id=%r, known_sessions=%r",
+                    session_id,
+                    list(self._cwd_by_session.keys()),
+                )
+
+        try:
+            await run_agent(AcpStdioAgent(), use_unstable_protocol=True)
+        finally:
+            await stdio_executor.stop()
+        return
+
+    # ---- Non-stdio mode (legacy HTTP) ----
+
+    logger.info("Starting ACP server")
+
+    # Note: The ExecutorManager launches the Java HeadlessExecutorMain with a dedicated
+    # stdin pipe. HeadlessExecutorMain monitors System.in for EOF and will initiate a
+    # controlled shutdown if the ACP Python process (the parent) exits or its stdin is
+    # closed by the IDE (for example, when IntelliJ terminates/restarts the run profile).
+    # This stdin-based parent-death signal prevents orphaned Java executor processes in
+    # cases where Python's finally blocks may not run (e.g., abrupt IDE lifecycle events).
+    settings = Settings.load()
+    executor = ExecutorManager(
+        workspace_dir=workspace_dir,
+        jar_path=jar_path,
+        executor_version=executor_version,
+        executor_snapshot=executor_snapshot,
+        vendor=vendor,
+        exit_on_stdin_eof=True,
+        brokk_api_key=settings.get_brokk_api_key(),
+    )
+    bridge = BrokkAcpBridge(executor)
+
+    class BrokkAcpAgent(BaseAcpAgent):
+        def __init__(self) -> None:
+            super().__init__(bridge=bridge)
+            self._replay_tasks: set[asyncio.Task[Any]] = set()
+
+        async def _fetch_models_payload(self, session_id: str) -> dict[str, Any]:
+            await self._bridge.ensure_ready(self._cwd_by_session.get(session_id))
+            return await self._bridge.executor.get_models()
+
+        async def _fetch_sessions_payload(self, cwd: Optional[str]) -> Optional[dict[str, Any]]:
+            if not self._bridge._started:
+                return None
+            try:
+                return await self._bridge.executor.list_sessions()
+            except Exception:
+                logger.warning("list_sessions: failed to list sessions", exc_info=True)
+                return None
+
+        async def _do_load_session(self, session_id: str, cwd: str) -> bool:
+            await self._bridge.ensure_ready(cwd)
+            sessions_payload = await self._bridge.executor.list_sessions()
+            known = _known_session_ids(sessions_payload.get("sessions", []))
+            if session_id not in known:
+                return False
+            try:
+                await self._bridge.executor.switch_session(session_id)
+            except Exception:
+                logger.warning(
+                    "load_session: switch_session failed for %r",
+                    session_id,
+                    exc_info=True,
+                )
+                return False
+            return True
+
+        def _post_load_session(self, session_id: str) -> None:
+            self._schedule_replay_loaded_session(session_id)
+
+        async def _replay_loaded_session(self, session_id: str) -> None:
+            if not self.client:
+                return
+            try:
+                conversation_data = await self._bridge.executor.get_conversation()
+            except Exception:
+                logger.warning(
+                    "Failed to fetch conversation replay for session %s",
+                    session_id,
+                    exc_info=True,
+                )
+                return
+
+            updates = conversation_payload_to_session_updates(
+                conversation_data,
+                update_user_message_text=update_user_message_text,
+                update_agent_message_text=update_agent_message_text,
+                update_agent_thought_text=update_agent_thought_text,
+            )
+            logger.info("Replaying %s ACP chat updates for session %s", len(updates), session_id)
+            for update in updates:
+                await self.client.session_update(session_id, update)
+
+        def _schedule_replay_loaded_session(self, session_id: str) -> None:
+            async def _run() -> None:
+                await asyncio.sleep(0)
+                await self._replay_loaded_session(session_id)
+
+            task = asyncio.create_task(_run())
+            self._replay_tasks.add(task)
+
+            def _done_callback(done: asyncio.Task[Any]) -> None:
+                self._replay_tasks.discard(done)
+                try:
+                    done.result()
+                except Exception:
+                    logger.warning(
+                        "Session replay task failed for session %s",
+                        session_id,
+                        exc_info=True,
+                    )
+
+            task.add_done_callback(_done_callback)
 
     try:
         await run_agent(BrokkAcpAgent(), use_unstable_protocol=True)
