@@ -645,11 +645,7 @@ public final class HeadlessExecutorMain {
             System.out.println("    POST /v1/model-config             - update CODE/ARCHITECT model config");
             System.out.println("    GET  /v1/dependencies             - list all imported dependencies");
             System.out.println("    GET  /v1/settings                 - get all project settings");
-            System.out.println("    POST /v1/settings/build           - update build configuration");
-            System.out.println("    POST /v1/settings/project         - update project settings");
-            System.out.println("    POST /v1/settings/shell           - update shell executor config");
-            System.out.println("    POST /v1/settings/issues          - update issue provider config");
-            System.out.println("    POST /v1/settings/data-retention  - update data retention policy");
+            System.out.println("    POST /v1/settings                 - update all project settings");
             System.out.println();
 
             // Create and start executor

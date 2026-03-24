@@ -2,7 +2,7 @@
 """Tests for SettingsModalScreen."""
 
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict
 
 import pytest
 
@@ -75,22 +75,7 @@ class StubExecutor:
     async def get_model_config(self) -> Dict[str, Any]:
         return {}
 
-    async def update_build_settings(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        return data
-
-    async def update_project_settings(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        return data
-
-    async def update_shell_config(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        return data
-
-    async def update_issue_provider(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        return data
-
-    async def update_data_retention(self, policy: str) -> Dict[str, Any]:
-        return {"policy": policy}
-
-    async def update_analyzer_languages(self, languages: List[str]) -> Dict[str, Any]:
+    async def update_all_settings(self, data: Dict[str, Any]) -> Dict[str, Any]:
         return {"status": "updated"}
 
 

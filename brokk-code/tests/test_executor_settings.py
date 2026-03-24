@@ -47,148 +47,34 @@ async def test_get_settings_raises_when_not_started(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_update_build_settings_makes_correct_request(manager):
-    """Verify update_build_settings calls POST /v1/settings/build with payload."""
+async def test_update_all_settings_makes_correct_request(manager):
+    """Verify update_all_settings calls POST /v1/settings with payload."""
     payload = {
-        "buildLintCommand": "npm run lint",
-        "buildLintEnabled": True,
+        "buildDetails": {"buildLintCommand": "npm run lint"},
+        "projectSettings": {"codeAgentTestScope": "WORKSPACE"},
+        "shellConfig": {"executable": "/bin/zsh", "args": ["-c"]},
+        "issueProvider": {"type": "NONE", "config": {}},
+        "dataRetentionPolicy": "MINIMAL",
+        "analyzerLanguages": {"languages": ["JAVA", "PYTHON"]},
     }
-    expected_response = {"status": "ok", **payload}
+    expected_response = {"status": "updated"}
 
     mock_response = MagicMock()
     mock_response.raise_for_status = MagicMock()
     mock_response.json.return_value = expected_response
     manager._http_client.post = AsyncMock(return_value=mock_response)
 
-    result = await manager.update_build_settings(payload)
+    result = await manager.update_all_settings(payload)
 
-    manager._http_client.post.assert_called_once_with("/v1/settings/build", json=payload)
+    manager._http_client.post.assert_called_once_with("/v1/settings", json=payload)
     mock_response.raise_for_status.assert_called_once()
     assert result == expected_response
 
 
 @pytest.mark.asyncio
-async def test_update_build_settings_raises_when_not_started(tmp_path):
-    """Verify update_build_settings raises ExecutorError when executor not started."""
+async def test_update_all_settings_raises_when_not_started(tmp_path):
+    """Verify update_all_settings raises ExecutorError when executor not started."""
     manager = ExecutorManager(workspace_dir=tmp_path)
 
     with pytest.raises(ExecutorError, match="Executor not started"):
-        await manager.update_build_settings({"buildLintCommand": "make"})
-
-
-@pytest.mark.asyncio
-async def test_update_project_settings_makes_correct_request(manager):
-    """Verify update_project_settings calls POST /v1/settings/project with payload."""
-    payload = {
-        "codeAgentTestScope": "WORKSPACE",
-        "commitMessageFormat": "feat: {message}",
-    }
-    expected_response = {"status": "ok", **payload}
-
-    mock_response = MagicMock()
-    mock_response.raise_for_status = MagicMock()
-    mock_response.json.return_value = expected_response
-    manager._http_client.post = AsyncMock(return_value=mock_response)
-
-    result = await manager.update_project_settings(payload)
-
-    manager._http_client.post.assert_called_once_with("/v1/settings/project", json=payload)
-    mock_response.raise_for_status.assert_called_once()
-    assert result == expected_response
-
-
-@pytest.mark.asyncio
-async def test_update_project_settings_raises_when_not_started(tmp_path):
-    """Verify update_project_settings raises ExecutorError when executor not started."""
-    manager = ExecutorManager(workspace_dir=tmp_path)
-
-    with pytest.raises(ExecutorError, match="Executor not started"):
-        await manager.update_project_settings({"codeAgentTestScope": "ALL"})
-
-
-@pytest.mark.asyncio
-async def test_update_shell_config_makes_correct_request(manager):
-    """Verify update_shell_config calls POST /v1/settings/shell with payload."""
-    payload = {
-        "executable": "/usr/bin/zsh",
-        "args": ["-c"],
-    }
-    expected_response = {"status": "ok", **payload}
-
-    mock_response = MagicMock()
-    mock_response.raise_for_status = MagicMock()
-    mock_response.json.return_value = expected_response
-    manager._http_client.post = AsyncMock(return_value=mock_response)
-
-    result = await manager.update_shell_config(payload)
-
-    manager._http_client.post.assert_called_once_with("/v1/settings/shell", json=payload)
-    mock_response.raise_for_status.assert_called_once()
-    assert result == expected_response
-
-
-@pytest.mark.asyncio
-async def test_update_shell_config_raises_when_not_started(tmp_path):
-    """Verify update_shell_config raises ExecutorError when executor not started."""
-    manager = ExecutorManager(workspace_dir=tmp_path)
-
-    with pytest.raises(ExecutorError, match="Executor not started"):
-        await manager.update_shell_config({"executable": "/bin/sh"})
-
-
-@pytest.mark.asyncio
-async def test_update_issue_provider_makes_correct_request(manager):
-    """Verify update_issue_provider calls POST /v1/settings/issues with payload."""
-    payload = {
-        "type": "GITHUB",
-        "config": {"owner": "acme", "repo": "project"},
-    }
-    expected_response = {"status": "ok", **payload}
-
-    mock_response = MagicMock()
-    mock_response.raise_for_status = MagicMock()
-    mock_response.json.return_value = expected_response
-    manager._http_client.post = AsyncMock(return_value=mock_response)
-
-    result = await manager.update_issue_provider(payload)
-
-    manager._http_client.post.assert_called_once_with("/v1/settings/issues", json=payload)
-    mock_response.raise_for_status.assert_called_once()
-    assert result == expected_response
-
-
-@pytest.mark.asyncio
-async def test_update_issue_provider_raises_when_not_started(tmp_path):
-    """Verify update_issue_provider raises ExecutorError when executor not started."""
-    manager = ExecutorManager(workspace_dir=tmp_path)
-
-    with pytest.raises(ExecutorError, match="Executor not started"):
-        await manager.update_issue_provider({"type": "NONE"})
-
-
-@pytest.mark.asyncio
-async def test_update_data_retention_makes_correct_request(manager):
-    """Verify update_data_retention calls POST /v1/settings/data-retention with policy."""
-    expected_response = {"policy": "MINIMAL"}
-
-    mock_response = MagicMock()
-    mock_response.raise_for_status = MagicMock()
-    mock_response.json.return_value = expected_response
-    manager._http_client.post = AsyncMock(return_value=mock_response)
-
-    result = await manager.update_data_retention("MINIMAL")
-
-    manager._http_client.post.assert_called_once_with(
-        "/v1/settings/data-retention", json={"policy": "MINIMAL"}
-    )
-    mock_response.raise_for_status.assert_called_once()
-    assert result == expected_response
-
-
-@pytest.mark.asyncio
-async def test_update_data_retention_raises_when_not_started(tmp_path):
-    """Verify update_data_retention raises ExecutorError when executor not started."""
-    manager = ExecutorManager(workspace_dir=tmp_path)
-
-    with pytest.raises(ExecutorError, match="Executor not started"):
-        await manager.update_data_retention("IMPROVE_BROKK")
+        await manager.update_all_settings({"buildDetails": {}})

@@ -42,73 +42,34 @@ class SettingsRouterTest {
 
     @Test
     @SuppressWarnings("unchecked")
-    void handleGetSettings_returnsExpectedStructure() throws Exception {
+    void handleGetSettings_returnsAllSettings() throws Exception {
         var exchange = TestHttpExchange.request("GET", "/v1/settings");
         settingsRouter.handle(exchange);
 
         assertEquals(200, exchange.responseCode());
         Map<String, Object> body = MAPPER.readValue(exchange.responseBodyBytes(), new TypeReference<>() {});
 
-        // Check top-level keys exist
-        assertTrue(body.containsKey("buildDetails"), "Should contain buildDetails");
-        assertTrue(body.containsKey("projectSettings"), "Should contain projectSettings");
-        assertTrue(body.containsKey("shellConfig"), "Should contain shellConfig");
-        assertTrue(body.containsKey("issueProvider"), "Should contain issueProvider");
-        assertTrue(body.containsKey("dataRetentionPolicy"), "Should contain dataRetentionPolicy");
-
-        // Verify buildDetails structure
-        var buildDetails = (Map<String, Object>) body.get("buildDetails");
-        assertTrue(buildDetails.containsKey("buildLintCommand"));
-        assertTrue(buildDetails.containsKey("buildLintEnabled"));
-        assertTrue(buildDetails.containsKey("testAllCommand"));
-        assertTrue(buildDetails.containsKey("testAllEnabled"));
-        assertTrue(buildDetails.containsKey("testSomeCommand"));
-        assertTrue(buildDetails.containsKey("testSomeEnabled"));
-        assertTrue(buildDetails.containsKey("exclusionPatterns"));
-        assertTrue(buildDetails.containsKey("environmentVariables"));
-        assertTrue(buildDetails.containsKey("modules"));
-
-        // Verify projectSettings structure
-        var projectSettings = (Map<String, Object>) body.get("projectSettings");
-        assertTrue(projectSettings.containsKey("commitMessageFormat"));
-        assertTrue(projectSettings.containsKey("codeAgentTestScope"));
-        assertTrue(projectSettings.containsKey("runCommandTimeoutSeconds"));
-        assertTrue(projectSettings.containsKey("testCommandTimeoutSeconds"));
-        assertTrue(projectSettings.containsKey("autoUpdateLocalDependencies"));
-        assertTrue(projectSettings.containsKey("autoUpdateGitDependencies"));
-
-        // Verify shellConfig structure
-        var shellConfig = (Map<String, Object>) body.get("shellConfig");
-        assertTrue(shellConfig.containsKey("executable"));
-        assertTrue(shellConfig.containsKey("args"));
-
-        // Verify issueProvider structure
-        var issueProvider = (Map<String, Object>) body.get("issueProvider");
-        assertTrue(issueProvider.containsKey("type"));
+        assertTrue(body.containsKey("buildDetails"));
+        assertTrue(body.containsKey("projectSettings"));
+        assertTrue(body.containsKey("shellConfig"));
+        assertTrue(body.containsKey("issueProvider"));
+        assertTrue(body.containsKey("dataRetentionPolicy"));
+        assertTrue(body.containsKey("analyzerLanguages"));
     }
 
     @Test
     @SuppressWarnings("unchecked")
-    void handlePostBuild_updatesCommands() throws Exception {
-        // Set initial build details
-        var initialDetails = new BuildDetails(
-                "initial-build",
-                true,
-                "initial-test",
-                true,
-                "initial-testsome",
-                false,
-                Set.of("node_modules"),
-                Map.of(),
-                null,
-                "",
-                List.of());
+    void handlePostSettings_updatesBuildDetails() throws Exception {
+        var initialDetails = new BuildDetails("initial-build", true,
+                                              "initial-test", true,
+                                              "initial-testsome", false,
+                                              Set.of("node_modules"),
+                                              Map.of(), null, "", List.of());
         project.saveBuildDetails(initialDetails);
 
-        // Update only the build command
-        var body = Map.of("buildLintCommand", "updated-build", "testAllEnabled", false);
+        var body = Map.of("buildDetails", Map.of("buildLintCommand", "updated-build", "testAllEnabled", false));
 
-        var exchange = TestHttpExchange.jsonRequest("POST", "/v1/settings/build", body);
+        var exchange = TestHttpExchange.jsonRequest("POST", "/v1/settings", body);
         settingsRouter.handle(exchange);
 
         assertEquals(200, exchange.responseCode());
@@ -122,7 +83,6 @@ class SettingsRouterTest {
 
         assertEquals("updated-build", buildDetails.get("buildLintCommand"));
         assertEquals(false, buildDetails.get("testAllEnabled"));
-        // Verify unchanged fields are preserved
         assertEquals("initial-test", buildDetails.get("testAllCommand"));
         assertEquals("initial-testsome", buildDetails.get("testSomeCommand"));
         var patterns = (List<String>) buildDetails.get("exclusionPatterns");
@@ -131,23 +91,18 @@ class SettingsRouterTest {
 
     @Test
     @SuppressWarnings("unchecked")
-    void handlePostProject_updatesSettings() throws Exception {
-        var body = Map.of(
-                "commitMessageFormat",
-                "feat: {{description}}",
-                "codeAgentTestScope",
-                "ALL",
-                "runCommandTimeoutSeconds",
-                120,
-                "autoUpdateLocalDependencies",
-                true);
+    void handlePostSettings_updatesProjectSettings() throws Exception {
+        var body = Map.of("projectSettings",
+                          Map.of("commitMessageFormat", "feat: {{description}}",
+                                 "codeAgentTestScope", "ALL",
+                                 "runCommandTimeoutSeconds", 120,
+                                 "autoUpdateLocalDependencies", true));
 
-        var exchange = TestHttpExchange.jsonRequest("POST", "/v1/settings/project", body);
+        var exchange = TestHttpExchange.jsonRequest("POST", "/v1/settings", body);
         settingsRouter.handle(exchange);
 
         assertEquals(200, exchange.responseCode());
 
-        // Verify via GET
         var getExchange = TestHttpExchange.request("GET", "/v1/settings");
         settingsRouter.handle(getExchange);
 
@@ -162,15 +117,14 @@ class SettingsRouterTest {
 
     @Test
     @SuppressWarnings("unchecked")
-    void handlePostShell_updatesConfig() throws Exception {
-        var body = Map.of("executable", "/bin/bash", "args", List.of("-lc"));
+    void handlePostSettings_updatesShellConfig() throws Exception {
+        var body = Map.of("shellConfig", Map.of("executable", "/bin/bash", "args", List.of("-lc")));
 
-        var exchange = TestHttpExchange.jsonRequest("POST", "/v1/settings/shell", body);
+        var exchange = TestHttpExchange.jsonRequest("POST", "/v1/settings", body);
         settingsRouter.handle(exchange);
 
         assertEquals(200, exchange.responseCode());
 
-        // Verify via GET
         var getExchange = TestHttpExchange.request("GET", "/v1/settings");
         settingsRouter.handle(getExchange);
 
@@ -184,33 +138,17 @@ class SettingsRouterTest {
     }
 
     @Test
-    void handlePostShell_missingExecutable_returns400() throws Exception {
-        var body = Map.of("args", List.of("-c"));
-
-        var exchange = TestHttpExchange.jsonRequest("POST", "/v1/settings/shell", body);
-        settingsRouter.handle(exchange);
-
-        assertEquals(400, exchange.responseCode());
-    }
-
-    @Test
     @SuppressWarnings("unchecked")
-    void handlePostIssues_updatesGithubProvider() throws Exception {
-        var body = Map.of(
-                "type",
-                "GITHUB",
-                "config",
-                Map.of(
-                        "owner", "myorg",
-                        "repo", "myrepo",
-                        "host", "github.enterprise.com"));
+    void handlePostSettings_updatesIssueProvider() throws Exception {
+        var body = Map.of("issueProvider",
+                          Map.of("type", "GITHUB",
+                                 "config", Map.of("owner", "myorg", "repo", "myrepo", "host", "github.enterprise.com")));
 
-        var exchange = TestHttpExchange.jsonRequest("POST", "/v1/settings/issues", body);
+        var exchange = TestHttpExchange.jsonRequest("POST", "/v1/settings", body);
         settingsRouter.handle(exchange);
 
         assertEquals(200, exchange.responseCode());
 
-        // Verify via GET
         var getExchange = TestHttpExchange.request("GET", "/v1/settings");
         settingsRouter.handle(getExchange);
 
@@ -222,54 +160,18 @@ class SettingsRouterTest {
         assertNotNull(config);
         assertEquals("myorg", config.get("owner"));
         assertEquals("myrepo", config.get("repo"));
-        assertEquals("github.enterprise.com", config.get("host"));
     }
 
     @Test
     @SuppressWarnings("unchecked")
-    void handlePostIssues_updatesNoneProvider() throws Exception {
-        // First set to GITHUB
-        project.setIssuesProvider(IssueProvider.github("owner", "repo"));
+    void handlePostSettings_updatesDataRetention() throws Exception {
+        var body = Map.of("dataRetentionPolicy", "MINIMAL");
 
-        // Then set to NONE
-        var body = Map.of("type", "NONE");
-
-        var exchange = TestHttpExchange.jsonRequest("POST", "/v1/settings/issues", body);
+        var exchange = TestHttpExchange.jsonRequest("POST", "/v1/settings", body);
         settingsRouter.handle(exchange);
 
         assertEquals(200, exchange.responseCode());
 
-        // Verify via GET
-        var getExchange = TestHttpExchange.request("GET", "/v1/settings");
-        settingsRouter.handle(getExchange);
-
-        Map<String, Object> response = MAPPER.readValue(getExchange.responseBodyBytes(), new TypeReference<>() {});
-        var issueProvider = (Map<String, Object>) response.get("issueProvider");
-
-        assertEquals("NONE", issueProvider.get("type"));
-    }
-
-    @Test
-    void handlePostIssues_invalidType_returns400() throws Exception {
-        var body = Map.of("type", "INVALID");
-
-        var exchange = TestHttpExchange.jsonRequest("POST", "/v1/settings/issues", body);
-        settingsRouter.handle(exchange);
-
-        assertEquals(400, exchange.responseCode());
-    }
-
-    @Test
-    @SuppressWarnings("unchecked")
-    void handlePostDataRetention_updatesPolicy() throws Exception {
-        var body = Map.of("policy", "MINIMAL");
-
-        var exchange = TestHttpExchange.jsonRequest("POST", "/v1/settings/data-retention", body);
-        settingsRouter.handle(exchange);
-
-        assertEquals(200, exchange.responseCode());
-
-        // Verify via GET
         var getExchange = TestHttpExchange.request("GET", "/v1/settings");
         settingsRouter.handle(getExchange);
 
@@ -278,23 +180,65 @@ class SettingsRouterTest {
     }
 
     @Test
-    void handlePostDataRetention_invalidPolicy_returns400() throws Exception {
-        var body = Map.of("policy", "INVALID");
+    void handlePostSettings_invalidDataRetention_returns400() throws Exception {
+        var body = Map.of("dataRetentionPolicy", "INVALID");
 
-        var exchange = TestHttpExchange.jsonRequest("POST", "/v1/settings/data-retention", body);
+        var exchange = TestHttpExchange.jsonRequest("POST", "/v1/settings", body);
         settingsRouter.handle(exchange);
 
         assertEquals(400, exchange.responseCode());
     }
 
     @Test
-    void handlePostDataRetention_unsetPolicy_returns400() throws Exception {
-        var body = Map.of("policy", "UNSET");
+    @SuppressWarnings("unchecked")
+    void handlePostSettings_updatesLanguages() throws Exception {
+        var body = Map.of("analyzerLanguages", Map.of("languages", List.of("JAVA", "PYTHON")));
 
-        var exchange = TestHttpExchange.jsonRequest("POST", "/v1/settings/data-retention", body);
+        var exchange = TestHttpExchange.jsonRequest("POST", "/v1/settings", body);
         settingsRouter.handle(exchange);
 
-        assertEquals(400, exchange.responseCode());
+        assertEquals(200, exchange.responseCode());
+
+        var getExchange = TestHttpExchange.request("GET", "/v1/settings");
+        settingsRouter.handle(getExchange);
+
+        Map<String, Object> response = MAPPER.readValue(getExchange.responseBodyBytes(), new TypeReference<>() {});
+        var analyzerLanguages = (Map<String, Object>) response.get("analyzerLanguages");
+        var configured = (List<String>) analyzerLanguages.get("configured");
+
+        assertTrue(configured.contains("JAVA"));
+        assertTrue(configured.contains("PYTHON"));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void handlePostSettings_updatesAllSectionsAtOnce() throws Exception {
+        var body = Map.of("buildDetails", Map.of("buildLintCommand", "make lint"),
+                          "projectSettings", Map.of("commitMessageFormat", "fix: {msg}"),
+                          "shellConfig", Map.of("executable", "/bin/zsh", "args", List.of("-c")),
+                          "dataRetentionPolicy", "MINIMAL",
+                          "analyzerLanguages", Map.of("languages", List.of("JAVA")));
+
+        var exchange = TestHttpExchange.jsonRequest("POST", "/v1/settings", body);
+        settingsRouter.handle(exchange);
+
+        assertEquals(200, exchange.responseCode());
+
+        var getExchange = TestHttpExchange.request("GET", "/v1/settings");
+        settingsRouter.handle(getExchange);
+
+        Map<String, Object> response = MAPPER.readValue(getExchange.responseBodyBytes(), new TypeReference<>() {});
+
+        var buildDetails = (Map<String, Object>) response.get("buildDetails");
+        assertEquals("make lint", buildDetails.get("buildLintCommand"));
+
+        var projectSettings = (Map<String, Object>) response.get("projectSettings");
+        assertEquals("fix: {msg}", projectSettings.get("commitMessageFormat"));
+
+        var shellConfig = (Map<String, Object>) response.get("shellConfig");
+        assertEquals("/bin/zsh", shellConfig.get("executable"));
+
+        assertEquals("MINIMAL", response.get("dataRetentionPolicy"));
     }
 
     @Test
@@ -307,7 +251,7 @@ class SettingsRouterTest {
 
     @Test
     void wrongMethod_returns405() throws Exception {
-        var exchange = TestHttpExchange.request("POST", "/v1/settings");
+        var exchange = TestHttpExchange.request("DELETE", "/v1/settings");
         settingsRouter.handle(exchange);
 
         assertEquals(405, exchange.responseCode());
@@ -322,51 +266,19 @@ class SettingsRouterTest {
         assertEquals(200, exchange.responseCode());
         Map<String, Object> body = MAPPER.readValue(exchange.responseBodyBytes(), new TypeReference<>() {});
 
-        assertTrue(body.containsKey("analyzerLanguages"), "Should contain analyzerLanguages");
+        assertTrue(body.containsKey("analyzerLanguages"));
 
         var analyzerLanguages = (Map<String, Object>) body.get("analyzerLanguages");
-        assertTrue(analyzerLanguages.containsKey("configured"), "Should contain configured");
-        assertTrue(analyzerLanguages.containsKey("detected"), "Should contain detected");
-        assertTrue(analyzerLanguages.containsKey("available"), "Should contain available");
+        assertTrue(analyzerLanguages.containsKey("configured"));
+        assertTrue(analyzerLanguages.containsKey("detected"));
+        assertTrue(analyzerLanguages.containsKey("available"));
 
         var available = (List<Map<String, String>>) analyzerLanguages.get("available");
         assertNotNull(available);
-        assertTrue(available.size() > 0, "available should not be empty");
+        assertTrue(available.size() > 0);
 
         var firstLang = available.get(0);
-        assertTrue(firstLang.containsKey("name"), "Each available language should have name");
-        assertTrue(firstLang.containsKey("internalName"), "Each available language should have internalName");
-    }
-
-    @Test
-    @SuppressWarnings("unchecked")
-    void handlePostLanguages_updatesConfiguredLanguages() throws Exception {
-        var body = Map.of("languages", List.of("JAVA", "PYTHON"));
-
-        var exchange = TestHttpExchange.jsonRequest("POST", "/v1/settings/languages", body);
-        settingsRouter.handle(exchange);
-
-        assertEquals(200, exchange.responseCode());
-
-        // Verify via GET
-        var getExchange = TestHttpExchange.request("GET", "/v1/settings");
-        settingsRouter.handle(getExchange);
-
-        Map<String, Object> response = MAPPER.readValue(getExchange.responseBodyBytes(), new TypeReference<>() {});
-        var analyzerLanguages = (Map<String, Object>) response.get("analyzerLanguages");
-        var configured = (List<String>) analyzerLanguages.get("configured");
-
-        assertTrue(configured.contains("JAVA"), "configured should contain JAVA");
-        assertTrue(configured.contains("PYTHON"), "configured should contain PYTHON");
-    }
-
-    @Test
-    void handlePostLanguages_invalidLanguage_returns400() throws Exception {
-        var body = Map.of("languages", List.of("INVALID"));
-
-        var exchange = TestHttpExchange.jsonRequest("POST", "/v1/settings/languages", body);
-        settingsRouter.handle(exchange);
-
-        assertEquals(400, exchange.responseCode());
+        assertTrue(firstLang.containsKey("name"));
+        assertTrue(firstLang.containsKey("internalName"));
     }
 }

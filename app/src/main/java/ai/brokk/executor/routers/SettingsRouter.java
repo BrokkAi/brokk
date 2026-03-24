@@ -62,60 +62,6 @@ public final class SettingsRouter implements SimpleHttpServer.CheckedHttpHandler
             return;
         }
 
-        if (normalizedPath.equals("/v1/settings/build")) {
-            if ("POST".equals(method)) {
-                handlePostBuild(exchange);
-            } else {
-                RouterUtil.sendMethodNotAllowed(exchange);
-            }
-            return;
-        }
-
-        if (normalizedPath.equals("/v1/settings/project")) {
-            if ("POST".equals(method)) {
-                handlePostProject(exchange);
-            } else {
-                RouterUtil.sendMethodNotAllowed(exchange);
-            }
-            return;
-        }
-
-        if (normalizedPath.equals("/v1/settings/shell")) {
-            if ("POST".equals(method)) {
-                handlePostShell(exchange);
-            } else {
-                RouterUtil.sendMethodNotAllowed(exchange);
-            }
-            return;
-        }
-
-        if (normalizedPath.equals("/v1/settings/issues")) {
-            if ("POST".equals(method)) {
-                handlePostIssues(exchange);
-            } else {
-                RouterUtil.sendMethodNotAllowed(exchange);
-            }
-            return;
-        }
-
-        if (normalizedPath.equals("/v1/settings/data-retention")) {
-            if ("POST".equals(method)) {
-                handlePostDataRetention(exchange);
-            } else {
-                RouterUtil.sendMethodNotAllowed(exchange);
-            }
-            return;
-        }
-
-        if (normalizedPath.equals("/v1/settings/languages")) {
-            if ("POST".equals(method)) {
-                handlePostLanguages(exchange);
-            } else {
-                RouterUtil.sendMethodNotAllowed(exchange);
-            }
-            return;
-        }
-
         SimpleHttpServer.sendJsonResponse(exchange, 404, ErrorPayload.of(ErrorPayload.Code.NOT_FOUND, "Not found"));
     }
 
@@ -252,89 +198,6 @@ public final class SettingsRouter implements SimpleHttpServer.CheckedHttpHandler
         return map;
     }
 
-    private void handlePostBuild(HttpExchange exchange) throws IOException {
-        var request = RouterUtil.parseJsonOr400(exchange, UpdateBuildRequest.class, "/v1/settings/build");
-        if (request == null) return;
-        try {
-            applyBuildSettings(contextManager.getProject(), request);
-            SimpleHttpServer.sendJsonResponse(exchange, Map.of("status", "updated"));
-        } catch (IllegalArgumentException e) {
-            RouterUtil.sendValidationError(exchange, e.getMessage());
-        } catch (Exception e) {
-            logger.error("Error handling POST /v1/settings/build", e);
-            SimpleHttpServer.sendJsonResponse(
-                    exchange, 500, ErrorPayload.internalError("Failed to update build settings", e));
-        }
-    }
-
-    private void handlePostProject(HttpExchange exchange) throws IOException {
-        var request = RouterUtil.parseJsonOr400(exchange, UpdateProjectRequest.class, "/v1/settings/project");
-        if (request == null) return;
-        try {
-            applyProjectSettings(contextManager.getProject(), request);
-            SimpleHttpServer.sendJsonResponse(exchange, Map.of("status", "updated"));
-        } catch (Exception e) {
-            logger.error("Error handling POST /v1/settings/project", e);
-            SimpleHttpServer.sendJsonResponse(
-                    exchange, 500, ErrorPayload.internalError("Failed to update project settings", e));
-        }
-    }
-
-    private void handlePostShell(HttpExchange exchange) throws IOException {
-        var request = RouterUtil.parseJsonOr400(exchange, UpdateShellRequest.class, "/v1/settings/shell");
-        if (request == null) return;
-        try {
-            applyShellConfig(contextManager.getProject(), request);
-            SimpleHttpServer.sendJsonResponse(exchange, Map.of("status", "updated"));
-        } catch (IllegalArgumentException e) {
-            RouterUtil.sendValidationError(exchange, e.getMessage());
-        } catch (Exception e) {
-            logger.error("Error handling POST /v1/settings/shell", e);
-            SimpleHttpServer.sendJsonResponse(
-                    exchange, 500, ErrorPayload.internalError("Failed to update shell config", e));
-        }
-    }
-
-    private void handlePostIssues(HttpExchange exchange) throws IOException {
-        JsonNode requestNode;
-        try (var is = exchange.getRequestBody()) {
-            requestNode = objectMapper.readTree(is);
-        } catch (Exception e) {
-            RouterUtil.sendValidationError(exchange, "Invalid JSON");
-            return;
-        }
-        try {
-            applyIssueProvider(contextManager.getProject(), requestNode);
-            SimpleHttpServer.sendJsonResponse(exchange, Map.of("status", "updated"));
-        } catch (IllegalArgumentException e) {
-            RouterUtil.sendValidationError(exchange, e.getMessage());
-        } catch (Exception e) {
-            logger.error("Error handling POST /v1/settings/issues", e);
-            SimpleHttpServer.sendJsonResponse(
-                    exchange, 500, ErrorPayload.internalError("Failed to update issue provider", e));
-        }
-    }
-
-    private void handlePostDataRetention(HttpExchange exchange) throws IOException {
-        var request =
-                RouterUtil.parseJsonOr400(exchange, UpdateDataRetentionRequest.class, "/v1/settings/data-retention");
-        if (request == null) return;
-        if (request.policy() == null || request.policy().isBlank()) {
-            RouterUtil.sendValidationError(exchange, "policy is required");
-            return;
-        }
-        try {
-            applyDataRetention(contextManager.getProject(), request.policy());
-            SimpleHttpServer.sendJsonResponse(exchange, Map.of("status", "updated"));
-        } catch (IllegalArgumentException e) {
-            RouterUtil.sendValidationError(exchange, e.getMessage());
-        } catch (Exception e) {
-            logger.error("Error handling POST /v1/settings/data-retention", e);
-            SimpleHttpServer.sendJsonResponse(
-                    exchange, 500, ErrorPayload.internalError("Failed to update data retention policy", e));
-        }
-    }
-
     private void handlePostSettings(HttpExchange exchange) throws IOException {
         var request = RouterUtil.parseJsonOr400(exchange, UpdateAllSettingsRequest.class, "/v1/settings");
         if (request == null) return;
@@ -378,10 +241,8 @@ public final class SettingsRouter implements SimpleHttpServer.CheckedHttpHandler
                 request.buildLintCommand() != null ? request.buildLintCommand() : current.buildLintCommand();
         boolean buildLintEnabled =
                 request.buildLintEnabled() != null ? request.buildLintEnabled() : current.buildLintEnabled();
-        String testAllCommand =
-                request.testAllCommand() != null ? request.testAllCommand() : current.testAllCommand();
-        boolean testAllEnabled =
-                request.testAllEnabled() != null ? request.testAllEnabled() : current.testAllEnabled();
+        String testAllCommand = request.testAllCommand() != null ? request.testAllCommand() : current.testAllCommand();
+        boolean testAllEnabled = request.testAllEnabled() != null ? request.testAllEnabled() : current.testAllEnabled();
         String testSomeCommand =
                 request.testSomeCommand() != null ? request.testSomeCommand() : current.testSomeCommand();
         boolean testSomeEnabled =
@@ -414,12 +275,18 @@ public final class SettingsRouter implements SimpleHttpServer.CheckedHttpHandler
             modules = current.modules();
         }
 
-        var newDetails = new BuildDetails(buildLintCommand, buildLintEnabled,
-                                          testAllCommand, testAllEnabled,
-                                          testSomeCommand, testSomeEnabled,
-                                          exclusionPatterns, environmentVariables,
-                                          maxBuildAttempts, afterTaskListCommand,
-                                          modules);
+        var newDetails = new BuildDetails(
+                buildLintCommand,
+                buildLintEnabled,
+                testAllCommand,
+                testAllEnabled,
+                testSomeCommand,
+                testSomeEnabled,
+                exclusionPatterns,
+                environmentVariables,
+                maxBuildAttempts,
+                afterTaskListCommand,
+                modules);
         project.saveBuildDetails(newDetails);
     }
 
@@ -483,18 +350,29 @@ public final class SettingsRouter implements SimpleHttpServer.CheckedHttpHandler
                         if (configNode == null) {
                             yield IssueProvider.github();
                         } else {
-                            String owner = configNode.has("owner") ? configNode.get("owner").asText("") : "";
-                            String repo = configNode.has("repo") ? configNode.get("repo").asText("") : "";
-                            String host = configNode.has("host") ? configNode.get("host").asText("") : "";
+                            String owner = configNode.has("owner")
+                                    ? configNode.get("owner").asText("")
+                                    : "";
+                            String repo = configNode.has("repo")
+                                    ? configNode.get("repo").asText("")
+                                    : "";
+                            String host = configNode.has("host")
+                                    ? configNode.get("host").asText("")
+                                    : "";
                             yield IssueProvider.github(owner, repo, host);
                         }
                     }
                     case JIRA -> {
                         var configNode = requestNode.get("config");
-                        String baseUrl = configNode.has("baseUrl") ? configNode.get("baseUrl").asText("") : "";
-                        String apiToken = configNode.has("apiToken") ? configNode.get("apiToken").asText("") : "";
-                        String projectKey =
-                                configNode.has("projectKey") ? configNode.get("projectKey").asText("") : "";
+                        String baseUrl = configNode.has("baseUrl")
+                                ? configNode.get("baseUrl").asText("")
+                                : "";
+                        String apiToken = configNode.has("apiToken")
+                                ? configNode.get("apiToken").asText("")
+                                : "";
+                        String projectKey = configNode.has("projectKey")
+                                ? configNode.get("projectKey").asText("")
+                                : "";
                         yield IssueProvider.jira(baseUrl, apiToken, projectKey);
                     }
                 };
@@ -578,18 +456,4 @@ public final class SettingsRouter implements SimpleHttpServer.CheckedHttpHandler
 
     private record UpdateLanguagesRequest(@Nullable List<String> languages) {}
 
-    private void handlePostLanguages(HttpExchange exchange) throws IOException {
-        var request = RouterUtil.parseJsonOr400(exchange, UpdateLanguagesRequest.class, "/v1/settings/languages");
-        if (request == null) return;
-        try {
-            applyLanguages(contextManager.getProject(), request);
-            SimpleHttpServer.sendJsonResponse(exchange, Map.of("status", "updated"));
-        } catch (IllegalArgumentException e) {
-            RouterUtil.sendValidationError(exchange, e.getMessage());
-        } catch (Exception e) {
-            logger.error("Error handling POST /v1/settings/languages", e);
-            SimpleHttpServer.sendJsonResponse(
-                    exchange, 500, ErrorPayload.internalError("Failed to update languages", e));
-        }
-    }
 }

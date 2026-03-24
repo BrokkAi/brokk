@@ -1058,5 +1058,4 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     private void saveProjectProperties() {
         saveProperties(propertiesFile, projectProps, "Brokk project configuration");
     }
-
 }
