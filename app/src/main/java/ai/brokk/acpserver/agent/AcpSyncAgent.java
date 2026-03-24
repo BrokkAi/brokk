@@ -22,6 +22,7 @@ import ai.brokk.acpserver.spec.AcpSchema.SessionSwitchResponse;
 import ai.brokk.acpserver.spec.AcpSchema.SessionsListRequest;
 import ai.brokk.acpserver.spec.AcpSchema.SessionsListResponse;
 import ai.brokk.acpserver.transport.AcpTransport;
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.function.BiFunction;
@@ -41,8 +42,7 @@ import org.jetbrains.annotations.Nullable;
 public class AcpSyncAgent {
 
     private static final Logger logger = LogManager.getLogger(AcpSyncAgent.class);
-    private final ObjectMapper mapper =
-            new ObjectMapper().disable(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
+    private final ObjectMapper mapper = new ObjectMapper().disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
     private final AcpTransport transport;
     private final Function<InitializeRequest, InitializeResponse> initializeHandler;
     private final Function<NewSessionRequest, NewSessionResponse> newSessionHandler;

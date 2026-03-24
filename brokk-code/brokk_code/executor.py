@@ -513,7 +513,8 @@ class AcpStdioExecutor:
                 except (asyncio.CancelledError, Exception):
                     pass
 
-        await prompt_task
+        if prompt_task.done() and not prompt_task.cancelled():
+            prompt_task.result()
 
     async def cancel(self, session_id: Optional[str] = None) -> None:
         """Sends a cancel notification to the ACP server."""
