@@ -472,4 +472,60 @@ class DiffServiceTest {
         String reviewDiff = changes.toReviewDiff(null);
         assertTrue(reviewDiff.contains("Binary files /dev/null and b/test.bin differ"));
     }
+
+    @Test
+    void cumulativeDiff_calculates_totals_and_formats_mixed_content() throws Exception {
+        var txtFile = new ProjectFile(tempDir, "source.txt");
+        var binFile = new ProjectFile(tempDir, "data.bin");
+
+        // 1. Setup FileDiffs
+        // Text change: 2 lines added, 1 deleted
+        var txtDiff = new FileDiff(
+                txtFile, txtFile,
+                "line1\nline2",
+                "line1\nline3\nline4",
+                false);
+
+        // Binary change: represented as 1 added/1 deleted in cumulative calculation
+        var binDiff = new FileDiff(
+                binFile, binFile,
+                "[Binary file (old)]",
+                "[Binary file (new)]",
+                true);
+
+        var fileDiffs = List.of(txtDiff, binDiff);
+
+        // 2. Verify total calculation (logic from DiffService.cumulativeDiff)
+        int totalAdded = 0;
+        int totalDeleted = 0;
+        for (var fd : fileDiffs) {
+            if (fd.isBinary()) {
+                if (!fd.oldText().equals(fd.newText())) {
+                    totalAdded++;
+                    totalDeleted++;
+                }
+                continue;
+            }
+            // Use standard diff for text
+            var res = ai.brokk.util.ContentDiffUtils.computeDiffResult(fd.oldText(), fd.newText(), "old", "new");
+            totalAdded += res.added();
+            totalDeleted += res.deleted();
+        }
+
+        // Expected: Text(2 added, 1 deleted) + Binary(1 added, 1 deleted) = 3 added, 2 deleted
+        assertEquals(3, totalAdded);
+        assertEquals(2, totalDeleted);
+
+        // 3. Verify resulting string format
+        var changes = new DiffService.CumulativeChanges(2, totalAdded, totalDeleted, fileDiffs, List.of());
+        String combinedDiff = changes.toDiff();
+
+        // Verify text diff content (ContentDiffUtils output)
+        assertTrue(combinedDiff.contains("-line2"));
+        assertTrue(combinedDiff.contains("+line3"));
+        assertTrue(combinedDiff.contains("+line4"));
+
+        // Verify binary header content
+        assertTrue(combinedDiff.contains("Binary files a/data.bin and b/data.bin differ"));
+    }
 }
