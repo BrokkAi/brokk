@@ -13,12 +13,22 @@ def test_resolve_profile_zed_by_name() -> None:
     profile = resolve_client_profile(client_capabilities={}, client_info=client_info)
 
     assert profile.is_zed is True
+    assert profile.is_intellij is False
 
 
 def test_resolve_profile_zed_by_dict_name() -> None:
     client_info = {"name": "zed-preview"}
     profile = resolve_client_profile(client_capabilities={}, client_info=client_info)
     assert profile.is_zed is True
+    assert profile.is_intellij is False
+
+
+def test_resolve_profile_intellij_by_name() -> None:
+    client_info = SimpleNamespace(name="IntelliJ IDEA", version="2023.3")
+    profile = resolve_client_profile(client_capabilities={}, client_info=client_info)
+
+    assert profile.is_zed is False
+    assert profile.is_intellij is True
 
 
 def test_resolve_profile_unknown_falls_back_to_intellij_behavior() -> None:
@@ -26,6 +36,7 @@ def test_resolve_profile_unknown_falls_back_to_intellij_behavior() -> None:
     profile = resolve_client_profile(client_capabilities={}, client_info=None)
 
     assert profile.is_zed is False
+    assert profile.is_intellij is False
 
 
 def test_resolve_profile_respects_terminal_capability() -> None:

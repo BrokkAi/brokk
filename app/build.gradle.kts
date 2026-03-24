@@ -740,6 +740,14 @@ tasks.register<JavaExec>("runCli") {
     }
 }
 
+tasks.register<JavaExec>("runTui") {
+    group = "application"
+    description = "Runs Brokk in TUI (Terminal User Interface) mode"
+    mainClass.set("ai.brokk.Brokk")
+    classpath = sourceSets.main.get().runtimeClasspath
+    systemProperty("brokk.tui", "true")
+}
+
 tasks.register<JavaExec>("runHeadlessExecutor") {
     group = "application"
     description = "Runs the Brokk Headless Executor"
@@ -749,6 +757,7 @@ tasks.register<JavaExec>("runHeadlessExecutor") {
     // Configuration via environment variables:
     // EXEC_ID, LISTEN_ADDR, AUTH_TOKEN, WORKSPACE_DIR, SESSIONS_DIR (optional)
     systemProperty("brokk.devmode", "false")
+    systemProperty("java.awt.headless", "true")
 }
 
 tasks.register<JavaExec>("runHeadlessCli") {

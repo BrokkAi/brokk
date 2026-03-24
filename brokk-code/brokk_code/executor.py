@@ -244,6 +244,7 @@ class ExecutorManager:
         self.session_id: Optional[str] = None
         self.resolved_jar_path: Optional[Path] = None
         self.shutdown_context: Optional[str] = None
+        self.environment_type: str = "tui"
 
         self._process: Optional[asyncio.subprocess.Process] = None
         # The stdin stream for the subprocess (when created with PIPE).
@@ -254,6 +255,21 @@ class ExecutorManager:
     @property
     def _main_class(self) -> str:
         return _EXECUTOR_MAIN_CLASS
+
+    def set_environment_type(self, env_type: str) -> None:
+        """Set the environment type (tui, zed, or intellij)."""
+        if env_type not in ("tui", "zed", "intellij"):
+            raise ValueError(f"Invalid environment type: {env_type}")
+        self.environment_type = env_type
+
+    def _get_environment_flag(self) -> str:
+        """Return the appropriate environment JVM flag based on environment_type."""
+        if self.environment_type == "zed":
+            return "-Dbrokk.zed=true"
+        elif self.environment_type == "intellij":
+            return "-Dbrokk.intellij=true"
+        else:
+            return "-Dbrokk.tui=true"
 
     def _parse_port_from_line(self, line: str) -> Optional[int]:
         """Extract the port number from a startup log line, or return None."""
@@ -314,8 +330,10 @@ class ExecutorManager:
 
     def _get_direct_java_command(self, jar_path: Path, exec_id: str) -> List[str]:
         """Returns the command for Direct-Java mode (explicit JAR override)."""
+        env_flag = self._get_environment_flag()
         cmd = [
             "java",
+            env_flag,
             "-Djava.awt.headless=true",
             "-Dapple.awt.UIElement=true",
             "-cp",
@@ -331,14 +349,18 @@ class ExecutorManager:
 
         version = self.executor_version or BUNDLED_EXECUTOR_VERSION
         jar_url = f"{_EXECUTOR_JAR_BASE_URL}/{version}/brokk-{version}.jar"
+        env_flag = self._get_environment_flag()
         cmd = [
             jbang_bin,
             "--java",
             "21",
             "-R",
+            (
+                f"{env_flag} "
             "-Djava.awt.headless=true "
-            + "-Dapple.awt.UIElement=true "
-            + "--enable-native-access=ALL-UNNAMED",
+            "-Dapple.awt.UIElement=true "
+            "--enable-native-access=ALL-UNNAMED"
+        ),
             "--main",
             self._main_class,
             jar_url,

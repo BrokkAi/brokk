@@ -103,8 +103,6 @@ public class Service extends AbstractService implements ExceptionReporter.Report
 
     /**
      * Fetches the user's balance and subscription status for the given Brokk API key.
-     * This is the preferred method when you need both balance and subscription info,
-     * as it avoids duplicate network calls.
      *
      * @param key the Brokk API key
      * @return BalanceInfo containing balance and subscription status
@@ -113,21 +111,37 @@ public class Service extends AbstractService implements ExceptionReporter.Report
      */
     @Blocking
     public static BalanceInfo getBalanceInfo(String key) throws IOException {
-        parseKey(key); // Throws IllegalArgumentException if key is malformed
+        parseKey(key);
 
-        String url = MainProject.getServiceUrl() + "/api/payments/balance-lookup/" + key;
-        Request request = new Request.Builder().url(url).get().build();
+        var url = MainProject.getServiceUrl() + "/api/telemetry";
+
+        var telemetryRequest = new TelemetryRequest(
+                BuildInfo.version,
+                System.getProperty("os.name"),
+                System.getProperty("os.arch"),
+                System.getProperty("java.version"),
+                Map.of("client_type", Environment.getClientType()));
+
+        var mapper = new ObjectMapper();
+        var jsonBody = mapper.writeValueAsString(telemetryRequest);
+        var body = RequestBody.create(jsonBody, MediaType.parse("application/json"));
+        var request = new Request.Builder()
+                .url(url)
+                .header("Authorization", "Bearer " + key)
+                .post(body)
+                .build();
+
         try (Response response = BrokkHttp.execute(request)) {
             if (!response.isSuccessful()) {
-                String errorBody = response.body() != null ? response.body().string() : "(no body)";
+                var errorBody = response.body() != null ? response.body().string() : "(no body)";
                 if (response.code() == 401) {
                     throw new IllegalArgumentException("Invalid Brokk Key (Unauthorized from server): " + errorBody);
                 }
                 throw new ServiceHttpException(response.code(), errorBody, "Failed to fetch user balance");
             }
-            String responseBody = response.body() != null ? response.body().string() : "";
-            var objectMapper = new ObjectMapper();
-            JsonNode rootNode = objectMapper.readTree(responseBody);
+
+            String responseBody = response.body() != null ? response.body().string() : "{}";
+            JsonNode rootNode = mapper.readTree(responseBody);
 
             float balance;
             if (rootNode.has("available_balance")
@@ -136,10 +150,14 @@ public class Service extends AbstractService implements ExceptionReporter.Report
             } else if (rootNode.isNumber()) {
                 balance = rootNode.floatValue();
             } else {
-                throw new IOException("Unexpected balance response format: " + responseBody);
+                try {
+                    var balanceResponse = mapper.readValue(responseBody, BalanceResponse.class);
+                    balance = balanceResponse.availableBalance();
+                } catch (Exception e) {
+                    throw new IOException("Unexpected balance response format: " + responseBody, e);
+                }
             }
 
-            // Extract is_subscribed; default to false if missing or not a boolean
             boolean isSubscribed = false;
             if (rootNode.has("is_subscribed") && rootNode.get("is_subscribed").isBoolean()) {
                 isSubscribed = rootNode.get("is_subscribed").asBoolean();
@@ -150,7 +168,7 @@ public class Service extends AbstractService implements ExceptionReporter.Report
     }
 
     /**
-     * Fetches the user's balance for the given Brokk API key.
+     * Fetches only the user's balance for the given Brokk API key.
      */
     public static float getUserBalance(String key) throws IOException {
         return getBalanceInfo(key).balance();
@@ -168,13 +186,16 @@ public class Service extends AbstractService implements ExceptionReporter.Report
             return true;
         }
 
-        String encodedKey = URLEncoder.encode(key, StandardCharsets.UTF_8);
-        String url = MainProject.getServiceUrl() + "/api/users/check-data-sharing?brokk_key=" + encodedKey;
-        Request request = new Request.Builder().url(url).get().build();
+        var url = MainProject.getServiceUrl() + "/api/users/check-data-sharing";
+        var request = new Request.Builder()
+                .url(url)
+                .header("Authorization", "Bearer " + key)
+                .get()
+                .build();
 
         try (Response response = BrokkHttp.execute(request)) {
             if (!response.isSuccessful()) {
-                String errorBody = response.body() != null ? response.body().string() : "(no body)";
+                var errorBody = response.body() != null ? response.body().string() : "(no body)";
                 LogManager.getLogger(Service.class)
                         .warn(
                                 "Failed to fetch data sharing status (HTTP {}): {}. Assuming allowed.",
@@ -769,6 +790,23 @@ public class Service extends AbstractService implements ExceptionReporter.Report
             }
         }
     }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record TelemetryRequest(
+            @JsonProperty("app_version") String appVersion,
+            String os,
+            String platform,
+            @JsonProperty("java_runtime") String javaRuntime,
+            Map<String, Object> properties) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record BalanceResponse(
+            @JsonProperty("available_balance") float availableBalance,
+            @JsonProperty("max_budget") float maxBudget,
+            @JsonProperty("spend") float spend,
+            String currency,
+            @JsonProperty("monthly_credit_available") float monthlyCreditAvailable,
+            @JsonProperty("is_subscribed") boolean isSubscribed) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record RemoteSessionMeta(

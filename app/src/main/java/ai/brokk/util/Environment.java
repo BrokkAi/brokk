@@ -820,6 +820,39 @@ public class Environment {
         }
     }
 
+    /**
+     * Determines the client type of the current Brokk application instance. This is used for telemetry
+     * to distinguish between different environments.
+     */
+    public static String getClientType() {
+        if (Boolean.getBoolean("brokk.vscode") || "vscode".equals(System.getenv("TERM_PROGRAM"))) {
+            logger.info("Detected client type: vscode");
+            return "vscode";
+        }
+        if (Boolean.getBoolean("brokk.intellij")) {
+            logger.info("Detected client type: IntelliJ plugin");
+            return "IntelliJ plugin";
+        }
+        if (Boolean.getBoolean("brokk.zed")) {
+            logger.info("Detected client type: Zed plugin");
+            return "Zed plugin";
+        }
+        if (Boolean.getBoolean("brokk.tui")) {
+            logger.info("Detected client type: TUI");
+            return "TUI";
+        }
+        if ("true".equalsIgnoreCase(System.getenv("CI"))) {
+            logger.info("Detected client type: CI");
+            return "CI";
+        }
+        if (Boolean.getBoolean("java.awt.headless")) {
+            logger.info("Detected client type: headless executor");
+            return "headless exec";
+        }
+        logger.info("Detected client type: desktop");
+        return "desktop";
+    }
+
     private static void showBrowserOpenFailureDialog(
             @Nullable Window ancestor, boolean headless, String url, String message, String title, int messageType) {
         if (headless) {

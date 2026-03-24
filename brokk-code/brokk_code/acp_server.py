@@ -35,6 +35,7 @@ class ClientProfile:
     """Runtime configuration derived from ACP client capabilities and info."""
 
     is_zed: bool = False
+    is_intellij: bool = False
     supports_terminal: bool = False
 
 
@@ -48,6 +49,7 @@ def resolve_client_profile(client_capabilities: Any, client_info: Any) -> Client
 
     # Identify Zed specifically for its unique Markdown/Rich rendering capabilities.
     is_zed = "zed" in client_name
+    is_intellij = "intellij" in client_name
 
     # Determine terminal support from capabilities.
     supports_terminal = False
@@ -65,6 +67,7 @@ def resolve_client_profile(client_capabilities: Any, client_info: Any) -> Client
     # Default/IntelliJ-like behavior: conservative rendering.
     return ClientProfile(
         is_zed=False,
+        is_intellij=is_intellij,
         supports_terminal=supports_terminal,
     )
 
@@ -1271,6 +1274,13 @@ async def run_acp_server(
         ) -> InitializeResponse:
             self._profile = resolve_client_profile(client_capabilities, client_info)
             logger.info("ACP Client Profile resolved: %s", self._profile)
+
+            if self._profile.is_zed:
+                bridge.executor.set_environment_type("zed")
+            elif self._profile.is_intellij:
+                bridge.executor.set_environment_type("intellij")
+            else:
+                bridge.executor.set_environment_type("tui")
 
             return InitializeResponse(
                 protocol_version=protocol_version,
