@@ -22,7 +22,9 @@ import org.eclipse.jgit.diff.DiffEntry;
 import org.eclipse.jgit.diff.DiffFormatter;
 import org.eclipse.jgit.lib.Repository;
 import org.eclipse.jgit.revwalk.RevWalk;
+import org.eclipse.jgit.treewalk.AbstractTreeIterator;
 import org.eclipse.jgit.treewalk.CanonicalTreeParser;
+import org.eclipse.jgit.treewalk.EmptyTreeIterator;
 import org.eclipse.jgit.treewalk.FileTreeIterator;
 import org.eclipse.jgit.treewalk.TreeWalk;
 import org.eclipse.jgit.treewalk.filter.PathFilter;
@@ -156,19 +158,30 @@ public class GitRepoData {
 
     /** Show diff for a specific file between two commits. */
     public String getDiff(ProjectFile file, String oldRev, String newRev) throws GitAPIException {
+        var oldTreeIter = prepareTreeParser(oldRev);
+        if (oldTreeIter == null) {
+            logger.warn("Old commit/tree {} not found. Returning empty diff.", oldRev);
+            return "";
+        }
+
         try (var out = new ByteArrayOutputStream()) {
             var pathFilter = PathFilter.create(repo.toRepoRelativePath(file));
-            if ("WORKING".equals(newRev)) {
+            if (GitRefs.WORKING.equals(newRev)) {
                 git.diff()
-                        .setOldTree(prepareTreeParser(oldRev))
+                        .setOldTree(oldTreeIter)
                         .setNewTree(null) // Working tree
                         .setPathFilter(pathFilter)
                         .setOutputStream(out)
                         .call();
             } else {
+                var newTreeIter = prepareTreeParser(newRev);
+                if (newTreeIter == null) {
+                    logger.warn("New commit/tree {} not found. Returning empty diff.", newRev);
+                    return "";
+                }
                 git.diff()
-                        .setOldTree(prepareTreeParser(oldRev))
-                        .setNewTree(prepareTreeParser(newRev))
+                        .setOldTree(oldTreeIter)
+                        .setNewTree(newTreeIter)
                         .setPathFilter(pathFilter)
                         .setOutputStream(out)
                         .call();
@@ -267,7 +280,7 @@ public class GitRepoData {
      * of renames and file status tracking.
      */
     public List<ModifiedFile> listFilesChangedInCommit(String commitId) throws GitAPIException {
-        if ("WORKING".equals(commitId)) {
+        if (GitRefs.WORKING.equals(commitId)) {
             return listFilesChangedBetweenCommits("HEAD", "WORKING");
         }
 
@@ -306,7 +319,7 @@ public class GitRepoData {
         var oldTreeIter = prepareTreeParser(oldRef);
         if (oldTreeIter == null) return List.of();
 
-        if (!"WORKING".equals(newRef)) {
+        if (!GitRefs.WORKING.equals(newRef)) {
             try (var diffFormatter = new DiffFormatter(DisabledOutputStream.INSTANCE)) {
                 diffFormatter.setRepository(repository);
                 diffFormatter.setDetectRenames(true);
@@ -414,7 +427,7 @@ public class GitRepoData {
     }
 
     public String getRefContent(String ref, ProjectFile file) throws GitAPIException {
-        if ("WORKING".equals(ref)) {
+        if (GitRefs.WORKING.equals(ref)) {
             return file.read().orElse("");
         }
         try {
@@ -426,10 +439,15 @@ public class GitRepoData {
     }
 
     /** Prepares an AbstractTreeIterator for the given commit-ish string. */
-    public @Nullable CanonicalTreeParser prepareTreeParser(String objectId) throws GitAPIException {
+    public @Nullable AbstractTreeIterator prepareTreeParser(String objectId) throws GitAPIException {
         if (objectId.isBlank()) {
             logger.warn("prepareTreeParser called with blank ref. Returning null iterator.");
             return null;
+        }
+
+        // Handle the special empty tree ID (used when diffing root commits)
+        if (GitRefs.EMPTY_TREE.equals(objectId)) {
+            return new EmptyTreeIterator();
         }
 
         var objId = repo.resolveToCommit(objectId);

@@ -3,6 +3,7 @@ package ai.brokk.tools;
 import ai.brokk.IContextManager;
 import ai.brokk.Llm;
 import ai.brokk.TaskResult;
+import ai.brokk.git.GitRefs;
 import ai.brokk.git.GitRepo;
 import ai.brokk.prompts.CommitPrompts;
 import ai.brokk.prompts.MergePrompts;
@@ -15,7 +16,6 @@ import dev.langchain4j.model.chat.StreamingChatModel;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
-import org.eclipse.jgit.lib.Constants;
 import org.jetbrains.annotations.Nullable;
 
 public class GitTools {
@@ -139,7 +139,7 @@ public class GitTools {
             return repo.getDiff(parentRev, revision);
         } catch (GitAPIException e) {
             // If resolving parent fails, it's likely a root commit or invalid revision
-            return repo.getDiff(Constants.EMPTY_TREE_ID.getName(), revision);
+            return repo.getDiff(GitRefs.EMPTY_TREE, revision);
         }
     }
 }
