@@ -12,15 +12,18 @@ import brokk_code.__main__ as main_module
 import brokk_code.git_utils as git_utils_module
 
 
-def _stub_install_warmup(monkeypatch) -> None:
+def _stub_install_warmup(monkeypatch, stub_api_key: bool = True) -> None:
     monkeypatch.setattr(main_module, "ensure_uv_ready", lambda: "/usr/local/bin/uv")
     monkeypatch.setattr(main_module, "ensure_jbang_ready", lambda: "/usr/local/bin/jbang")
     monkeypatch.setattr(main_module, "_run_install_prefetch", lambda _commands: None)
+    monkeypatch.setattr(main_module, "_ensure_install_github_token", lambda *args, **kwargs: None)
     monkeypatch.setattr(
         main_module,
         "wire_nvim_plugin_setup",
         lambda **_kwargs: SimpleNamespace(status="unsupported", path=None, detail=None),
     )
+    if stub_api_key:
+        monkeypatch.setattr(main_module, "_ensure_install_api_key", lambda: None)
 
 
 def test_main_version_subcommand_prints_version(monkeypatch, capsys) -> None:
@@ -3003,7 +3006,7 @@ def test_install_zed_with_missing_key_interactive_persists_key(
 
     monkeypatch.setattr(sys, "stdin", FakeTtyInput(""))
     monkeypatch.setattr(main_module, "_read_api_key_interactive", lambda: "new-interactive-key")
-    _stub_install_warmup(monkeypatch)
+    _stub_install_warmup(monkeypatch, stub_api_key=False)
 
     def fake_configure_zed(*args, **kwargs):
         return tmp_path / "zed.json"
@@ -3032,7 +3035,7 @@ def test_install_intellij_with_missing_key_piped_persists_key(
     # Ensure it's not detected as TTY
     monkeypatch.setattr(sys.stdin, "isatty", lambda: False)
 
-    _stub_install_warmup(monkeypatch)
+    _stub_install_warmup(monkeypatch, stub_api_key=False)
 
     def fake_configure_intellij(*args, **kwargs):
         return tmp_path / "intellij"
@@ -3060,7 +3063,7 @@ def test_install_mcp_with_missing_key_piped_persists_key(
     monkeypatch.setattr(sys, "stdin", StringIO("mcp-piped-key\n"))
     monkeypatch.setattr(sys.stdin, "isatty", lambda: False)
 
-    _stub_install_warmup(monkeypatch)
+    _stub_install_warmup(monkeypatch, stub_api_key=False)
     monkeypatch.setattr(
         main_module,
         "configure_claude_code_mcp_settings",

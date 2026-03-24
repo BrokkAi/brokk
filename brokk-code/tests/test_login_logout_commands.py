@@ -13,6 +13,9 @@ async def test_slash_commands_catalog():
 
     assert "/login" in cmd_names
     assert "/logout" in cmd_names
+    assert "/login-github" in cmd_names
+    assert "/github-status" in cmd_names
+    assert "/logout-github" in cmd_names
     assert "/api-key" not in cmd_names
 
 
@@ -85,3 +88,25 @@ async def test_handle_logout_command_with_args_shows_usage():
         app._handle_command("/logout extra-arg")
         chat_panel.add_system_message.assert_called_with("Usage: /logout", level="WARNING")
         app.run_worker.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_handle_github_commands_usage_validation():
+    app = BrokkApp()
+    app.run_worker = MagicMock()
+    chat_panel = MagicMock()
+
+    with patch.object(app, "query_one", return_value=chat_panel):
+        # /login-github with args
+        app._handle_command("/login-github some-arg")
+        chat_panel.add_system_message.assert_called_with("Usage: /login-github", level="WARNING")
+
+        # /github-status with args
+        app._handle_command("/github-status some-arg")
+        chat_panel.add_system_message.assert_called_with("Usage: /github-status", level="WARNING")
+
+        # /logout-github with args
+        app._handle_command("/logout-github some-arg")
+        chat_panel.add_system_message.assert_called_with("Usage: /logout-github", level="WARNING")
+
+        assert app.run_worker.call_count == 0

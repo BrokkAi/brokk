@@ -14,6 +14,7 @@ import ai.brokk.executor.routers.CompletionsRouter;
 import ai.brokk.executor.routers.ContextRouter;
 import ai.brokk.executor.routers.DependenciesRouter;
 import ai.brokk.executor.routers.FavoritesRouter;
+import ai.brokk.executor.routers.GitHubAuthRouter;
 import ai.brokk.executor.routers.JobsRouter;
 import ai.brokk.executor.routers.ModelConfigRouter;
 import ai.brokk.executor.routers.ModelsRouter;
@@ -306,6 +307,9 @@ public final class HeadlessExecutorMain {
 
         var openAiAuthRouter = new OpenAiAuthRouter();
         this.server.registerAuthenticatedContext("/v1/openai/oauth", openAiAuthRouter);
+
+        var gitHubAuthRouter = new GitHubAuthRouter(this.contextManager);
+        this.server.registerAuthenticatedContext("/v1/github/oauth", gitHubAuthRouter);
 
         var reviewRouter = new ReviewRouter(this.jobStore, this.jobRunner, this.jobReservation, this.headlessInit);
         this.server.registerAuthenticatedContext("/v1/review", reviewRouter);

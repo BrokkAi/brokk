@@ -1161,6 +1161,45 @@ class ExecutorManager:
             await self._handle_http_error(e, "/v1/openai/oauth/status")
             raise  # Should not be reached
 
+    async def start_github_oauth(self) -> Dict[str, Any]:
+        """Initiates the GitHub OAuth flow (Device Flow)."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+
+        try:
+            resp = await self._http_client.post("/v1/github/oauth/start")
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            await self._handle_http_error(e, "/v1/github/oauth/start")
+            raise  # Should not be reached
+
+    async def get_github_oauth_status(self) -> Dict[str, Any]:
+        """Checks the connection status of GitHub OAuth."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+
+        try:
+            resp = await self._http_client.get("/v1/github/oauth/status")
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            await self._handle_http_error(e, "/v1/github/oauth/status")
+            raise  # Should not be reached
+
+    async def disconnect_github_oauth(self) -> Dict[str, Any]:
+        """Revokes the GitHub OAuth authorization."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+
+        try:
+            resp = await self._http_client.delete("/v1/github/oauth/authorization")
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            await self._handle_http_error(e, "/v1/github/oauth/authorization")
+            raise  # Should not be reached
+
     async def commit_context(self, message: Optional[str] = None) -> Dict[str, Any]:
         """Commits current changes with an optional message.
 
