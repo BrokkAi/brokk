@@ -30,7 +30,6 @@ public interface MacroExpansionProvider extends CapabilityProvider {
             FileAnalysisAccumulator acc) {
 
         Language lang = analyzer.languages().iterator().next();
-
         Map<String, MacroPolicy.MacroMatch> policyMap = new HashMap<>();
 
         // 1. Add default policies
@@ -62,9 +61,6 @@ public interface MacroExpansionProvider extends CapabilityProvider {
                                     continue;
                                 }
                                 // Only process captures that identify macro names
-                                // .name = regular macro invocation
-                                // .derive.name = derive macro argument (e.g., Is from #[derive(Is)])
-                                // .attribute.name = other attribute macro
                                 boolean isMacroNameCapture = captureName.endsWith(".name")
                                         || captureName.endsWith(".derive.name")
                                         || captureName.endsWith(".attribute.name");
@@ -72,8 +68,8 @@ public interface MacroExpansionProvider extends CapabilityProvider {
                                     continue;
                                 }
 
-                                String macroName = sourceContent.substringFrom(node).strip();
-
+                                String macroName =
+                                        sourceContent.substringFrom(node).strip();
                                 boolean handled = false;
                                 MacroPolicy.MacroMatch mm = policyMap.get(macroName);
                                 if (mm != null && isMacroPolicyMatch(macroName, mm, acc)) {
@@ -100,8 +96,7 @@ public interface MacroExpansionProvider extends CapabilityProvider {
     }
 
     /**
-     * Hook to allow subclasses to implement language-specific macro policy matching. For example, Rust macro policies
-     * might need to check both underscores and hyphens in crate names.
+     * Hook to allow subclasses to implement language-specific macro policy matching.
      */
     default boolean isMacroPolicyMatch(String macroName, MacroPolicy.MacroMatch mm, FileAnalysisAccumulator acc) {
         String parent = mm.parent();
@@ -117,8 +112,6 @@ public interface MacroExpansionProvider extends CapabilityProvider {
                 .findFirst();
 
         if (explicitImport.isPresent()) {
-            // If explicitly imported, it MUST match the parent requirement.
-            // Shadowing means we don't look at wildcards if an explicit match exists.
             String snippet = explicitImport.get().rawSnippet();
             return snippet.contains(parent);
         }
@@ -163,7 +156,8 @@ public interface MacroExpansionProvider extends CapabilityProvider {
     private void mergeSyntheticUnits(
             CodeUnit parentCu, FileAnalysisAccumulator snippetAcc, FileAnalysisAccumulator acc, TSNode node) {
 
-        List<CodeUnit> snippetUnits = snippetAcc.cuByFqName().values().stream().distinct().toList();
+        List<CodeUnit> snippetUnits =
+                snippetAcc.cuByFqName().values().stream().distinct().toList();
         Map<CodeUnit, CodeUnit> rescopedMap = new HashMap<>();
 
         // Phase 1: Create rescoped versions
@@ -177,14 +171,13 @@ public interface MacroExpansionProvider extends CapabilityProvider {
             boolean needsPrefix = parentCu.isClass() && !syntheticShortName.startsWith(parentShortName + ".");
             String newShortName = needsPrefix ? parentShortName + "." + syntheticShortName : syntheticShortName;
 
-            CodeUnit rescopedCu =
-                    new CodeUnit(
-                            parentCu.source(),
-                            syntheticCu.kind(),
-                            parentCu.packageName(),
-                            newShortName,
-                            syntheticCu.signature(),
-                            true);
+            CodeUnit rescopedCu = new CodeUnit(
+                    parentCu.source(),
+                    syntheticCu.kind(),
+                    parentCu.packageName(),
+                    newShortName,
+                    syntheticCu.signature(),
+                    true);
             rescopedMap.put(syntheticCu, rescopedCu);
         }
 
@@ -221,13 +214,10 @@ public interface MacroExpansionProvider extends CapabilityProvider {
             }
 
             // Attach roots of snippet to parent
-            boolean isSnippetRoot =
-                    snippetAcc.topLevelCUs().contains(orig)
-                            || snippetUnits.stream()
-                                    .noneMatch(pUnit -> snippetAcc.getChildren(pUnit).contains(orig));
+            boolean isSnippetRoot = snippetAcc.topLevelCUs().contains(orig)
+                    || snippetUnits.stream()
+                            .noneMatch(pUnit -> snippetAcc.getChildren(pUnit).contains(orig));
             if (isSnippetRoot) {
-                // If the snippet root is a container (like an impl block) and the target is a class,
-                // we often want to flatten its children directly into the target.
                 if (rescoped.isClass()
                         && parentCu.isClass()
                         && rescoped.identifier().equals(parentCu.identifier())) {
@@ -235,12 +225,9 @@ public interface MacroExpansionProvider extends CapabilityProvider {
                         acc.addChild(parentCu, child);
                     }
                 } else {
-                    // Attach to the same parent as the target code unit (parentCu)
-                    // If parentCu has a parent in the accumulator, we use that.
-                    Optional<CodeUnit> targetParent =
-                            acc.cuByFqName().values().stream()
-                                    .filter(pUnit -> acc.getChildren(pUnit).contains(parentCu))
-                                    .findFirst();
+                    Optional<CodeUnit> targetParent = acc.cuByFqName().values().stream()
+                            .filter(pUnit -> acc.getChildren(pUnit).contains(parentCu))
+                            .findFirst();
 
                     if (targetParent.isPresent()) {
                         acc.addChild(targetParent.get(), rescoped);
@@ -260,28 +247,23 @@ public interface MacroExpansionProvider extends CapabilityProvider {
             TSNode macroNode,
             SourceContent sourceContent,
             TSNode rootNode) {
-
         Map<String, Object> context = new HashMap<>();
         context.put("code_unit", targetCu);
 
-        List<Map<String, Object>> childContexts =
-                acc.getChildren(targetCu).stream()
-                        .map(
-                                childCu -> {
-                                    Map<String, Object> childMap = new HashMap<>();
-                                    String identifier = childCu.identifier();
-                                    childMap.put("code_unit", childCu);
-                                    childMap.put("identifier", identifier);
-                                    childMap.put("snake_case_name", toSnakeCase(identifier));
+        List<Map<String, Object>> childContexts = acc.getChildren(targetCu).stream()
+                .map(childCu -> {
+                    Map<String, Object> childMap = new HashMap<>();
+                    String identifier = childCu.identifier();
+                    childMap.put("code_unit", childCu);
+                    childMap.put("identifier", identifier);
+                    childMap.put("snake_case_name", toSnakeCase(identifier));
 
-                                    enrichChildContext(
-                                            analyzer, targetCu, childCu, childMap, acc, sourceContent, rootNode);
-                                    return childMap;
-                                })
-                        .toList();
+                    enrichChildContext(analyzer, targetCu, childCu, childMap, acc, sourceContent, rootNode);
+                    return childMap;
+                })
+                .toList();
 
         context.put("children", childContexts);
-
         return context;
     }
 
@@ -324,21 +306,16 @@ public interface MacroExpansionProvider extends CapabilityProvider {
         return result.toString();
     }
 
-    private @Nullable CodeUnit findTargetCodeUnit(
-            TSNode node, ProjectFile file, FileAnalysisAccumulator acc) {
-        // For attribute macros like #[derive(Is)], the node is the identifier inside the attribute.
-        // We need to find the declaration that this attribute decorates.
+    private @Nullable CodeUnit findTargetCodeUnit(TSNode node, ProjectFile file, FileAnalysisAccumulator acc) {
         TSNode attributeItem = node;
         TSNode p = node.getParent();
         while (p != null && !p.isNull()) {
-            // Note: Rust top-level bang macros like lazy_static! are often wrapped in macro_invocation
             if (p.getType().contains("attribute") || p.getType().contains("macro_invocation")) {
                 attributeItem = p;
             }
             p = p.getParent();
         }
 
-        // Find next sibling that isn't an attribute or comment
         TSNode sibling = attributeItem.getNextSibling();
         while (sibling != null
                 && !sibling.isNull()
@@ -355,11 +332,9 @@ public interface MacroExpansionProvider extends CapabilityProvider {
         List<CodeUnit> allCus = acc.cuByFqName().values().stream().distinct().toList();
         for (CodeUnit cu : allCus) {
             for (IAnalyzer.Range range : acc.getRanges(cu)) {
-                boolean containsAttr =
-                        range.startByte() <= attrStartByte && range.endByte() >= attrEndByte;
+                boolean containsAttr = range.startByte() <= attrStartByte && range.endByte() >= attrEndByte;
                 boolean matchesSibling = sibStart != -1 && range.startByte() == sibStart;
-                boolean startsAfterAttr =
-                        range.startByte() >= attrEndByte && range.startByte() <= attrEndByte + 20;
+                boolean startsAfterAttr = range.startByte() >= attrEndByte && range.startByte() <= attrEndByte + 20;
 
                 if (containsAttr || matchesSibling || startsAfterAttr) {
                     int len = range.endByte() - range.startByte();
@@ -371,8 +346,6 @@ public interface MacroExpansionProvider extends CapabilityProvider {
             }
         }
 
-        // Fallback: If no specific CodeUnit was found (e.g. top-level bang macro),
-        // target the Module CodeUnit for this file.
         if (bestCu == null) {
             return allCus.stream()
                     .filter(cu -> cu.isModule() && Objects.equals(cu.source(), file))
