@@ -121,6 +121,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
     private Action copyDescriptionAction;
     private Action openInBrowserAction;
     private Action captureAction;
+    private Action diagnoseAction;
 
     private List<IssueHeader> allIssuesFromApi = new ArrayList<>();
     private List<IssueHeader> displayedIssues = new ArrayList<>();
@@ -509,12 +510,23 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
         captureAction.putValue(Action.SHORT_DESCRIPTION, "Capture details of the selected issue");
         captureAction.setEnabled(false);
 
+        diagnoseAction = new AbstractAction("Diagnose") {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                diagnoseSelectedIssue();
+            }
+        };
+        diagnoseAction.putValue(Action.SHORT_DESCRIPTION, "Diagnose the selected issue and post findings as a comment");
+        diagnoseAction.setEnabled(false);
+
         copyIssueDescriptionButton = new MaterialButton();
         copyIssueDescriptionButton.setAction(copyDescriptionAction);
         openInBrowserButton = new MaterialButton();
         openInBrowserButton.setAction(openInBrowserAction);
         captureButton = new MaterialButton();
         captureButton.setAction(captureAction);
+        MaterialButton diagnoseButton = new MaterialButton();
+        diagnoseButton.setAction(diagnoseAction);
 
         // ── compact icon-style buttons ───────────────────────────────────────
         final Icon copyIcon = Icons.CONTENT_COPY;
@@ -531,6 +543,9 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
         captureButton.setIcon(captureIcon);
         captureButton.setText("");
         captureButton.setMargin(new Insets(2, 2, 2, 2));
+
+        // Use text label for diagnose button since no specific icon exists
+        diagnoseButton.setText("Diagnose");
 
         filtersAndTablePanel.add(issueTableAndButtonsPanel, BorderLayout.CENTER);
         mainIssueAreaPanel.add(filtersAndTablePanel, BorderLayout.CENTER);
@@ -550,8 +565,10 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
         JPanel issueActionPanel = new JPanel();
         issueActionPanel.setLayout(new BoxLayout(issueActionPanel, BoxLayout.X_AXIS));
         issueActionPanel.setBorder(BorderFactory.createEmptyBorder(0, 0, Constants.V_GAP, 0));
-        // Capture on the left, Copy/Open on the right
+        // Capture and Diagnose on the left, Copy/Open on the right
         issueActionPanel.add(captureButton);
+        issueActionPanel.add(Box.createHorizontalStrut(Constants.H_GAP));
+        issueActionPanel.add(diagnoseButton);
         issueActionPanel.add(Box.createHorizontalGlue());
         issueActionPanel.add(copyIssueDescriptionButton);
         issueActionPanel.add(Box.createHorizontalStrut(Constants.H_GAP));
@@ -576,6 +593,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
         issueContextMenu.add(new JMenuItem(copyDescriptionAction));
         issueContextMenu.add(new JMenuItem(openInBrowserAction));
         issueContextMenu.add(new JMenuItem(captureAction));
+        issueContextMenu.add(new JMenuItem(diagnoseAction));
 
         // Add mouse listener for context menu on issue table
         issueTable.addMouseListener(new MouseAdapter() {
@@ -623,6 +641,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
                 copyDescriptionAction.setEnabled(true);
                 openInBrowserAction.setEnabled(true);
                 captureAction.setEnabled(true);
+                diagnoseAction.setEnabled(true);
                 issueDetailPanel.setVisible(true);
                 tableDetailsSplitPane.setDividerLocation(0.75); // reveal details (~25 % height)
 
@@ -765,6 +784,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
         copyDescriptionAction.setEnabled(false);
         openInBrowserAction.setEnabled(false);
         captureAction.setEnabled(false);
+        diagnoseAction.setEnabled(false);
         issueBodyTextPane.setContentType("text/html");
         issueBodyTextPane.setText("");
         issueDetailPanel.setVisible(false);
@@ -1217,6 +1237,19 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
         copyDescriptionAction.setEnabled(false);
         openInBrowserAction.setEnabled(false);
         captureAction.setEnabled(false);
+        diagnoseAction.setEnabled(false);
+    }
+
+    private void diagnoseSelectedIssue() {
+        int selectedRow = issueTable.getSelectedRow();
+        if (selectedRow == -1 || selectedRow >= displayedIssues.size()) {
+            return;
+        }
+        IssueHeader header = displayedIssues.get(selectedRow);
+        // TODO: Implement diagnosis logic - capture issue, run diagnosis, post comment
+        chrome.showNotification(
+                IConsoleIO.NotificationRole.INFO,
+                "Diagnose action triggered for issue " + header.id() + " (not yet implemented)");
     }
 
     private void captureSelectedIssue() {
