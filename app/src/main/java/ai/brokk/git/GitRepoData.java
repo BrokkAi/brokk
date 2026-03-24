@@ -417,7 +417,7 @@ public class GitRepoData {
             if (oldFile == null) {
                 oldText = "";
             } else if (oldFile.isBinary()) {
-                oldText = BINARY_FILE_MARKER + " (old)]";
+                oldText = BINARY_FILE_MARKER;
             } else {
                 oldText = getRefContent(oldRef, oldFile);
             }
@@ -426,7 +426,7 @@ public class GitRepoData {
             if (newFile == null) {
                 newText = "";
             } else if (newFile.isBinary()) {
-                newText = BINARY_FILE_MARKER + " (new)]";
+                newText = BINARY_FILE_MARKER;
             } else {
                 newText = getRefContent(newRef, newFile);
             }

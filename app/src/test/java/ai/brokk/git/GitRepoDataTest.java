@@ -94,7 +94,7 @@ class GitRepoDataTest {
         assertEquals(1, diffs.size());
         var diff = diffs.getFirst();
         assertTrue(diff.isBinary());
-        assertEquals(GitRepoData.BINARY_FILE_MARKER + " (old)]", diff.oldText());
-        assertEquals(GitRepoData.BINARY_FILE_MARKER + " (new)]", diff.newText());
+        assertEquals(GitRepoData.BINARY_FILE_MARKER, diff.oldText());
+        assertEquals(GitRepoData.BINARY_FILE_MARKER, diff.newText());
     }
 }

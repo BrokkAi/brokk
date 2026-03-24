@@ -228,7 +228,7 @@ public record ReviewScope(DiffService.CumulativeChanges changes, ReviewScope.Met
                 if (oldFile == null) {
                     oldText = "";
                 } else if (isBinary) {
-                    oldText = GitRepoData.BINARY_FILE_MARKER + " (old)]";
+                    oldText = GitRepoData.BINARY_FILE_MARKER;
                 } else {
                     oldText = repo.data().getRefContent(metadata.fromRef(), oldFile);
                 }
@@ -236,7 +236,7 @@ public record ReviewScope(DiffService.CumulativeChanges changes, ReviewScope.Met
                 if (newFile == null) {
                     newText = "";
                 } else if (isBinary) {
-                    newText = GitRepoData.BINARY_FILE_MARKER + " (new)]";
+                    newText = GitRepoData.BINARY_FILE_MARKER;
                 } else {
                     newText = repo.data().getRefContent(metadata.toRef(), newFile);
                 }

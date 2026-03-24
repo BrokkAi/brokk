@@ -459,7 +459,7 @@ class DiffServiceTest {
 
         var oldDiffs = List.of(
                 new FileDiff(null, txtFile, "", "text v1", false),
-                new FileDiff(null, binFile, "", "[Binary file (new)]", true));
+                new FileDiff(null, binFile, "", "[Binary file", true));
 
         var changes = new DiffService.CumulativeChanges(2, 2, 0, oldDiffs, List.of());
 
@@ -483,7 +483,7 @@ class DiffServiceTest {
         var txtDiff = new FileDiff(txtFile, txtFile, "line1\nline2", "line1\nline3\nline4", false);
 
         // Binary change: represented as 1 added/1 deleted in cumulative calculation
-        var binDiff = new FileDiff(binFile, binFile, "[Binary file (old)]", "[Binary file (new)]", true);
+        var binDiff = new FileDiff(binFile, binFile, "[Binary file", "[Binary file (changed)]", true);
 
         var fileDiffs = List.of(txtDiff, binDiff);
 
