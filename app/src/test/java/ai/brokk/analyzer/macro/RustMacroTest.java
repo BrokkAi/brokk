@@ -2,7 +2,9 @@ package ai.brokk.analyzer.macro;
 
 import static ai.brokk.testutil.AssertionHelperUtil.assertCodeContains;
 import static ai.brokk.testutil.AssertionHelperUtil.assertCodeEquals;
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
@@ -78,7 +80,7 @@ public class RustMacroTest {
     }
 
     @Test
-    void testLazyStaticMacroBypass() {
+    void testLazyStaticMacroExpansion() {
         String rustSource =
                 """
                 use lazy_static::lazy_static;
@@ -95,10 +97,16 @@ public class RustMacroTest {
             IAnalyzer analyzer = testProject.getAnalyzer();
             assertNotNull(analyzer);
 
-            // With BYPASS, SETTINGS should not be expanded/found as a CodeUnit
             List<CodeUnit> definitions =
-                    analyzer.getDefinitions("SETTINGS").stream().toList();
-            assertEquals(0, definitions.size(), "Should not find expanded static for bypassed macro");
+                    analyzer.getDefinitions("_module_.SETTINGS").stream().toList();
+            assertEquals(1, definitions.size(), "Should find synthetic SETTINGS static");
+            CodeUnit settings = definitions.getFirst();
+            assertTrue(settings.isSynthetic(), "SETTINGS should be marked as synthetic");
+            assertTrue(settings.isField(), "SETTINGS should be a field");
+
+            Optional<String> skeleton = analyzer.getSkeleton(settings);
+            assertTrue(skeleton.isPresent(), "Skeleton should be present for synthetic SETTINGS");
+            assertCodeContains(skeleton.get(), "pub static SETTINGS: HashMap<String, String>;");
         }
     }
 

@@ -3,6 +3,7 @@ package ai.brokk.analyzer.macro;
 import com.github.mustachejava.DefaultMustacheFactory;
 import com.github.mustachejava.Mustache;
 import com.github.mustachejava.MustacheFactory;
+import com.github.mustachejava.reflect.ReflectionObjectHandler;
 import java.io.StringReader;
 import java.io.StringWriter;
 import java.util.Map;
@@ -11,7 +12,14 @@ import java.util.Map;
  * Expands Mustache templates using a provided context map.
  */
 public final class MacroTemplateExpander {
-    private static final MustacheFactory MUSTACHE_FACTORY = new DefaultMustacheFactory();
+    private static final MustacheFactory MUSTACHE_FACTORY;
+
+    static {
+        DefaultMustacheFactory mf = new DefaultMustacheFactory();
+        // Disable HTML escaping for code templates
+        mf.setObjectHandler(new ReflectionObjectHandler());
+        MUSTACHE_FACTORY = mf;
+    }
 
     private MacroTemplateExpander() {}
 

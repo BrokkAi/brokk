@@ -3,6 +3,7 @@ package ai.brokk.analyzer;
 import static ai.brokk.analyzer.rust.RustTreeSitterNodeTypes.*;
 
 import ai.brokk.analyzer.cache.AnalyzerCache;
+import ai.brokk.analyzer.macro.MacroPolicy;
 import ai.brokk.project.IProject;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -11,9 +12,11 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
@@ -715,6 +718,67 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
     protected void postProcessAnalysis(
             TSNode rootNode, ProjectFile file, SourceContent sourceContent, FileAnalysisAccumulator acc) {
         discoverMacros(this, rootNode, file, sourceContent, acc);
+    }
+
+    private static final Pattern LAZY_STATIC_PATTERN =
+            Pattern.compile("static\\s+(?:ref\\s+)?([\\w_]+)\\s*:\\s*([^=;{]+)");
+
+    @Override
+    public boolean isMacroPolicyMatch(String macroName, MacroPolicy.MacroMatch mm, FileAnalysisAccumulator acc) {
+        String parent = mm.parent();
+        if (parent == null || parent.isBlank()) {
+            return true;
+        }
+
+        List<ImportInfo> infos = acc.importInfos();
+        String parentHyphen = parent.replace("_", "-");
+
+        // 1. Direct/Explicit Import Check
+        var explicitImport = infos.stream()
+                .filter(info -> !info.isWildcard() && Objects.equals(info.identifier(), macroName))
+                .findFirst();
+
+        if (explicitImport.isPresent()) {
+            String snippet = explicitImport.get().rawSnippet();
+            return snippet.contains(parent) || snippet.contains(parentHyphen);
+        }
+
+        // 2. Fallback: If no explicit import, check if ANY wildcard imports the parent.
+        return infos.stream().anyMatch(info -> {
+            String snippet = info.rawSnippet();
+            return info.isWildcard() && (snippet.contains(parent) || snippet.contains(parentHyphen));
+        });
+    }
+
+    @Override
+    public void enrichMacroContext(
+            TreeSitterAnalyzer analyzer,
+            CodeUnit targetCu,
+            Map<String, Object> context,
+            FileAnalysisAccumulator acc,
+            TSNode macroNode,
+            SourceContent sourceContent,
+            TSNode rootNode) {
+        // Re-implement the lazy_static extraction logic here
+        TSNode targetNode = macroNode;
+        TSNode p = macroNode.getParent();
+        while (p != null
+                && !p.isNull()
+                && !p.getType().contains("item")
+                && !p.getType().contains("declaration")) {
+            targetNode = p;
+            if (p.getType().equals("macro_invocation")) break;
+            p = p.getParent();
+        }
+
+        String nodeText = sourceContent.substringFrom(targetNode);
+        if (nodeText.contains("static")) {
+            Matcher m = LAZY_STATIC_PATTERN.matcher(nodeText);
+            if (m.find()) {
+                context.put("name", m.group(1).strip());
+                context.put("type", m.group(2).strip());
+            }
+        }
     }
 
     @Override

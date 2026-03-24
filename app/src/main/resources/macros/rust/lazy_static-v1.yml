@@ -2,5 +2,6 @@ version: "1"
 language: "rust"
 macros:
   - name: "lazy_static"
-    strategy: "BYPASS"
-    options: {}
+    strategy: "TEMPLATE"
+    options:
+      template: "pub static {{name}}: {{{type}}};"

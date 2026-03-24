@@ -83,7 +83,7 @@ public interface MacroExpansionProvider extends CapabilityProvider {
 
                                 boolean handled = false;
                                 MacroPolicy.MacroMatch mm = policyMap.get(macroName);
-                                if (mm != null && isParentRequirementMet(macroName, mm, acc)) {
+                                if (mm != null && isMacroPolicyMatch(macroName, mm, acc)) {
                                     handled = true;
                                     if (mm.options() instanceof MacroPolicy.TemplateConfig tc) {
                                         expandTemplate(
@@ -106,7 +106,11 @@ public interface MacroExpansionProvider extends CapabilityProvider {
                 false);
     }
 
-    private boolean isParentRequirementMet(String macroName, MacroPolicy.MacroMatch mm, FileAnalysisAccumulator acc) {
+    /**
+     * Hook to allow subclasses to implement language-specific macro policy matching.
+     * For example, Rust macro policies might need to check both underscores and hyphens in crate names.
+     */
+    default boolean isMacroPolicyMatch(String macroName, MacroPolicy.MacroMatch mm, FileAnalysisAccumulator acc) {
         String parent = mm.parent();
         if (parent == null || parent.isBlank()) {
             return true;
@@ -123,13 +127,13 @@ public interface MacroExpansionProvider extends CapabilityProvider {
             // If explicitly imported, it MUST match the parent requirement.
             // Shadowing means we don't look at wildcards if an explicit match exists.
             String snippet = explicitImport.get().rawSnippet();
-            return snippet.contains(parent) || snippet.contains(parent.replace("_", "-"));
+            return snippet.contains(parent);
         }
 
         // 2. Fallback: If no explicit import, check if ANY wildcard imports the parent.
         return infos.stream().anyMatch(info -> {
             String snippet = info.rawSnippet();
-            return info.isWildcard() && (snippet.contains(parent) || snippet.contains(parent.replace("_", "-")));
+            return info.isWildcard() && snippet.contains(parent);
         });
     }
 
@@ -153,6 +157,7 @@ public interface MacroExpansionProvider extends CapabilityProvider {
         }
 
         Map<String, Object> context = buildMacroContext(analyzer, parentCu, acc, node, sourceContent, rootNode);
+        enrichMacroContext(analyzer, parentCu, context, acc, node, sourceContent, rootNode);
 
         String expanded = MacroTemplateExpander.expand(template, context);
 
@@ -281,29 +286,21 @@ public interface MacroExpansionProvider extends CapabilityProvider {
 
         context.put("children", childContexts);
 
-        // Basic variable extraction for bang macros like lazy_static!
-        TSNode targetNode = macroNode;
-        TSNode p = macroNode.getParent();
-        while (p != null
-                && !p.isNull()
-                && !p.getType().contains("item")
-                && !p.getType().contains("declaration")) {
-            targetNode = p;
-            if (p.getType().equals("macro_invocation")) break;
-            p = p.getParent();
-        }
-
-        String nodeText = sourceContent.substringFrom(targetNode);
-        if (nodeText.contains("static")) {
-            Pattern pattern = Pattern.compile("static\\s+(?:ref\\s+)?([\\w_]+)\\s*:\\s*([^=;{]+)");
-            Matcher m = pattern.matcher(nodeText);
-            if (m.find()) {
-                context.put("name", m.group(1).strip());
-                context.put("type", m.group(2).strip());
-            }
-        }
-
         return context;
+    }
+
+    /**
+     * Hook to allow subclasses to add language-specific variables to the root macro context.
+     */
+    default void enrichMacroContext(
+            TreeSitterAnalyzer analyzer,
+            CodeUnit targetCu,
+            Map<String, Object> context,
+            FileAnalysisAccumulator acc,
+            TSNode macroNode,
+            SourceContent sourceContent,
+            TSNode rootNode) {
+        // Default no-op
     }
 
     /**
