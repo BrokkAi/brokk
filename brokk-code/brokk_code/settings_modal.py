@@ -1,6 +1,7 @@
 """Settings modal screens for the Brokk TUI."""
 
 import logging
+import shlex
 from typing import Any, Dict, List, Optional
 
 from textual.app import ComposeResult
@@ -816,7 +817,7 @@ class SettingsModalScreen(ModalScreen[None]):
             # Build shell configuration
             shell_executable = self.query_one("#settings-shell-executable", Input).value.strip()
             shell_args_str = self.query_one("#settings-shell-args", Input).value.strip()
-            shell_args = shell_args_str.split() if shell_args_str else []
+            shell_args = shlex.split(shell_args_str) if shell_args_str else []
 
             # Build issue provider configuration
             issue_provider_data: Dict[str, Any] = {"type": self._issue_provider_type}
