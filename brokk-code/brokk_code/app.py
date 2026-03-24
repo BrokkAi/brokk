@@ -1481,15 +1481,18 @@ class BrokkApp(App):
                 try:
                     await asyncio.to_thread(write_brokk_api_key, key)
                     self.executor.brokk_api_key = key
-                    # First time login: show full welcome
+                    # First time login: show full welcome now
                     self._welcome_variant_full = True
-                    # Persist flag so if they crash/close now, next start is also full.
-                    self.settings.show_full_welcome = True
+
+                    _chat = self._maybe_chat()
+                    if _chat:
+                        _chat.add_system_message("API key saved. Starting Brokk executor...")
+                        self._show_welcome_message()
+
+                    # Ensure the persisted flag is False so next startup is compact
+                    self.settings.show_full_welcome = False
                     self.settings.save()
 
-                    if chat:
-                        chat.add_system_message("API key saved. Starting Brokk executor...")
-                        self._show_welcome_message()
                     self.run_worker(self._start_executor())
                     return True
                 except Exception as e:
@@ -1507,9 +1510,10 @@ class BrokkApp(App):
             else:
                 self._welcome_variant_full = False
 
-            if chat:
+            _chat = self._maybe_chat()
+            if _chat:
                 self._show_welcome_message()
-                chat.add_system_message("Starting Brokk executor...")
+                _chat.add_system_message("Starting Brokk executor...")
             self.run_worker(self._start_executor())
         self.run_worker(self._monitor_executor())
         self.run_worker(self._poll_tasklist())

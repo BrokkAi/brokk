@@ -177,3 +177,78 @@ async def test_show_welcome_message_handles_nomatches_gracefully(tmp_path: Path)
 
     mock_chat.add_welcome.assert_called_once()
     mock_chat.update_welcome.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_login_flow_shows_full_welcome_once_only(tmp_path: Path):
+    """Verify first-time login shows full welcome, but next startup is compact."""
+    from brokk_code.settings import Settings
+
+    mock_executor = MagicMock()
+    mock_executor.workspace_dir = tmp_path
+    mock_executor.start = AsyncMock()
+    mock_executor.wait_live = AsyncMock(return_value=True)
+    mock_executor.get_health_live = AsyncMock(return_value={})
+    mock_executor.get_model_config = AsyncMock(return_value={})
+    mock_executor.get_context = AsyncMock(return_value={"usedTokens": 0})
+    mock_executor.get_tasklist = AsyncMock(return_value={"tasks": []})
+
+    settings_inst = Settings(show_full_welcome=False)
+
+    # 1. Simulate startup with NO API key
+    with (
+        patch("brokk_code.settings.Settings.load", return_value=settings_inst),
+        patch("brokk_code.settings.Settings.save"),
+        patch("brokk_code.settings.Settings.get_brokk_api_key", return_value=None),
+        patch("brokk_code.app.write_brokk_api_key") as mock_write_key,
+        patch("brokk_code.app.BrokkApiKeyModalScreen") as mock_modal_cls,
+    ):
+        app = BrokkApp(executor=mock_executor)
+
+        # Capture the on_submit callback passed to the modal
+        on_submit_cb = None
+
+        def capture_modal_init(*args, **kwargs):
+            nonlocal on_submit_cb
+            on_submit_cb = kwargs.get("on_submit")
+            if on_submit_cb is None and args:
+                on_submit_cb = args[0]
+            return MagicMock()
+
+        mock_modal_cls.side_effect = capture_modal_init
+
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            assert on_submit_cb is not None
+
+            # Invoke the login callback manually
+            res = on_submit_cb("sk-new-key")
+            if asyncio.iscoroutine(res):
+                await res
+
+            chat_log = app.query_one("#chat-log")
+            content = "".join(str(line) for line in chat_log.lines)
+
+            # Should show FULL welcome after login
+            assert "Welcome to Brokk" in content
+            assert "Context Engineering" in content
+
+            # Verify settings.show_full_welcome is NOT True (which would cause double welcome)
+            assert settings_inst.show_full_welcome is False
+            mock_write_key.assert_called_once_with("sk-new-key")
+
+    # 2. Simulate next startup WITH API key
+    with (
+        patch("brokk_code.settings.Settings.load", return_value=settings_inst),
+        patch("brokk_code.settings.Settings.save"),
+        patch("brokk_code.settings.Settings.get_brokk_api_key", return_value="sk-new-key"),
+    ):
+        app_next = BrokkApp(executor=mock_executor)
+        async with app_next.run_test() as pilot:
+            await pilot.pause()
+            chat_log = app_next.query_one("#chat-log")
+            content = "".join(str(line) for line in chat_log.lines)
+
+            # Should show COMPACT welcome on second startup
+            assert "Welcome to Brokk" in content
+            assert "Context Engineering" not in content
