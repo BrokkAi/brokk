@@ -390,7 +390,8 @@ async def run_github_login(
         expires_in = resp.get("expiresIn", 900)
 
         print(f"\nTo authorize Brokk with GitHub, open this URL in your browser:\n\n  {uri}\n")
-        print(f"Enter the code: [bold]{code}[/]\n", flush=True)
+        console = Console()
+        console.print(f"Enter the code: [bold]{code}[/]\n")
 
         if not no_browser:
             import webbrowser
