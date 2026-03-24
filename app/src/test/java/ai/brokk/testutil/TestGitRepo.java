@@ -1,15 +1,13 @@
 package ai.brokk.testutil;
 
+import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.GitRepo;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import org.eclipse.jgit.api.errors.GitAPIException;
-
-import ai.brokk.analyzer.ProjectFile;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Optional;
+import org.eclipse.jgit.api.errors.GitAPIException;
 
 public class TestGitRepo extends GitRepo {
     private final Path nextWorktreePath;
@@ -42,5 +40,4 @@ public class TestGitRepo extends GitRepo {
     public void createBranch(String newBranchName, String sourceBranchName) throws GitAPIException {
         // no-op for tests
     }
-
 }

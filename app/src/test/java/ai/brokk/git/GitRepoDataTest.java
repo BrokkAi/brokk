@@ -4,7 +4,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.testutil.TestGitRepo;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
