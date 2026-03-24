@@ -3,7 +3,9 @@ package ai.brokk.gui.git;
 import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
 import ai.brokk.SettingsChangeListener;
+import ai.brokk.agents.IssueRewriterAgent;
 import ai.brokk.context.ContextFragments;
+import ai.brokk.executor.jobs.IssueExecutor;
 import ai.brokk.gui.AutoScalingHtmlPane;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.Constants;
@@ -45,6 +47,7 @@ import java.net.ConnectException;
 import java.net.SocketTimeoutException;
 import java.net.URI;
 import java.net.UnknownHostException;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.*;
@@ -1246,10 +1249,81 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
             return;
         }
         IssueHeader header = displayedIssues.get(selectedRow);
-        // TODO: Implement diagnosis logic - capture issue, run diagnosis, post comment
+
         chrome.showNotification(
-                IConsoleIO.NotificationRole.INFO,
-                "Diagnose action triggered for issue " + header.id() + " (not yet implemented)");
+                IConsoleIO.NotificationRole.INFO, "Starting diagnosis for issue " + header.id() + "...");
+
+        var future = contextManager.submitBackgroundTask("Diagnosing issue " + header.id(), () -> {
+            try {
+                if (!(issueService instanceof GitHubIssueService)) {
+                    SwingUtilities.invokeLater(() -> {
+                        chrome.toolError("Diagnose is only supported for GitHub issues.", "Unsupported Operation");
+                    });
+                    return null;
+                }
+
+                var model = contextManager.getCodeModel();
+                IssueDetails details = issueService.loadDetails(header.id());
+                int issueNumber = parseIssueNumber(header.id());
+
+                var context = contextManager.liveContext();
+                var writerAgent = new IssueRewriterAgent(
+                        context, model, IssueExecutor.formatIssueDiagnosePrompt(details, issueNumber));
+                var analysisResult = writerAgent.execute();
+
+                contextManager.pushContext(ctx -> analysisResult.context());
+
+                String timestamp = Instant.now().toString();
+                String diagnosisComment =
+                        """
+                        <!-- brokk:diagnosis:v1 timestamp="%s" -->
+
+                        ## Issue Analysis
+
+                        %s
+
+                        ---
+
+                        **Next steps:** Reply with `@BrokkBot solve` to proceed with the fix, or add comments to provide additional guidance.
+                        """
+                                .formatted(timestamp, analysisResult.bodyMarkdown());
+
+                ((GitHubIssueService) issueService).postComment(header.id(), diagnosisComment);
+
+                SwingUtilities.invokeLater(() -> {
+                    chrome.showNotification(
+                            IConsoleIO.NotificationRole.INFO, "Diagnosis posted to issue " + header.id());
+                    updateIssueList();
+                });
+
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                logger.debug("Diagnosis cancelled for issue {}", header.id());
+            } catch (Exception e) {
+                logger.error("Failed to diagnose issue {}: {}", header.id(), e.getMessage(), e);
+                SwingUtilities.invokeLater(() -> {
+                    chrome.toolError(
+                            "Failed to diagnose issue " + header.id() + ": " + e.getMessage(), "Diagnosis Error");
+                });
+            }
+            return null;
+        });
+        trackCancellableFuture(future);
+    }
+
+    /**
+     * Parses the issue number from an issue ID string like "#123" or "FOO-456".
+     */
+    private int parseIssueNumber(String issueId) {
+        if (issueId.startsWith("#")) {
+            return Integer.parseInt(issueId.substring(1));
+        }
+        // For Jira-style IDs like "FOO-456", extract the number part
+        int dashIndex = issueId.lastIndexOf('-');
+        if (dashIndex >= 0 && dashIndex < issueId.length() - 1) {
+            return Integer.parseInt(issueId.substring(dashIndex + 1));
+        }
+        return Integer.parseInt(issueId);
     }
 
     private void captureSelectedIssue() {

@@ -58,7 +58,7 @@ public class GitHubIssueService implements IssueService {
         this.injectedAuth = auth;
     }
 
-    protected GitHubAuth getAuth() throws IOException {
+    public GitHubAuth getAuth() throws IOException {
         GitHubAuth auth = injectedAuth;
         if (auth != null) {
             return auth;
@@ -69,6 +69,11 @@ public class GitHubIssueService implements IssueService {
     @Override
     public OkHttpClient httpClient() throws IOException {
         return getAuth().authenticatedClient();
+    }
+
+    public void postComment(String issueId, String body) throws IOException {
+        int issueNumber = Integer.parseInt(issueId.replace("#", ""));
+        getAuth().getGhRepository().getIssue(issueNumber).comment(body);
     }
 
     @Override
