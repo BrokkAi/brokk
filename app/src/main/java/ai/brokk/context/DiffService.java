@@ -454,10 +454,15 @@ public final class DiffService {
         public String toReviewDiff(IAnalyzer analyzer) {
             return perFileChanges().stream()
                     .map(fd -> {
-                        String oldName =
-                                fd.oldFile() == null ? null : fd.oldFile().toString();
-                        String newName =
-                                fd.newFile() == null ? null : fd.newFile().toString();
+                        String oldPath = fd.oldFile() == null ? "/dev/null" : "a/" + fd.oldFile().toString();
+                        String newPath = fd.newFile() == null ? "/dev/null" : "b/" + fd.newFile().toString();
+
+                        if (fd.isBinary()) {
+                            return "Binary files %s and %s differ".formatted(oldPath, newPath);
+                        }
+
+                        String oldName = fd.oldFile() == null ? null : fd.oldFile().toString();
+                        String newName = fd.newFile() == null ? null : fd.newFile().toString();
                         return ContentDiffUtils.computeReviewDiffResult(
                                         analyzer, fd.newFile(), fd.oldText(), fd.newText(), oldName, newName)
                                 .diff();

@@ -462,9 +462,14 @@ class DiffServiceTest {
                 new FileDiff(null, binFile, "", "[Binary file (new)]", true));
 
         var changes = new DiffService.CumulativeChanges(2, 2, 0, oldDiffs, List.of());
-        String diff = changes.toDiff();
 
+        // Check toDiff
+        String diff = changes.toDiff();
         assertTrue(diff.contains("test.txt"));
         assertTrue(diff.contains("Binary files /dev/null and b/test.bin differ"));
+
+        // Check toReviewDiff (should also use binary notification)
+        String reviewDiff = changes.toReviewDiff(null);
+        assertTrue(reviewDiff.contains("Binary files /dev/null and b/test.bin differ"));
     }
 }
