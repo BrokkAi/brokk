@@ -2,6 +2,7 @@ import argparse
 import asyncio
 import base64
 import contextlib
+import getpass
 import os
 import re
 import shlex
@@ -349,7 +350,7 @@ async def run_github_login(
                     sys.exit(1)
                 token = sys.stdin.read().strip()
             else:
-                token = input("GitHub Personal Access Token: ").strip()
+                token = getpass.getpass("GitHub Personal Access Token: ").strip()
         except (EOFError, KeyboardInterrupt):
             print("\nGitHub login cancelled.", file=sys.stderr)
             sys.exit(1)
@@ -412,6 +413,9 @@ async def run_github_login(
                 msg = status.get("message", "Authentication failed")
                 print(f"GitHub authentication failed: {msg}", file=sys.stderr)
                 sys.exit(1)
+
+        print("GitHub authentication timed out or expired before completion.", file=sys.stderr)
+        sys.exit(1)
     finally:
         await manager.stop()
 

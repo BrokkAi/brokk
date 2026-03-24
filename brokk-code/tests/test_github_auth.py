@@ -130,3 +130,30 @@ async def test_login_github_failure_flow():
         chat_panel.add_system_message.assert_called_with(
             "GitHub authentication failed: User said no", level="ERROR"
         )
+
+
+@pytest.mark.asyncio
+async def test_login_github_timeout_flow():
+    app = BrokkApp()
+    app._executor_ready = True
+    app.executor = MagicMock()
+
+    app.executor.start_github_oauth = AsyncMock(
+        return_value={
+            "verificationUri": "https://github.com/login/device",
+            "userCode": "TIME-OUT",
+            "interval": 1,
+            "expiresIn": 0,
+        }
+    )
+    app.executor.get_github_oauth_status = AsyncMock(return_value={"state": "IDLE"})
+
+    chat_panel = MagicMock()
+
+    with patch.object(app, "query_one", return_value=chat_panel), patch("asyncio.to_thread"):
+        await app._login_github()
+
+    chat_panel.add_system_message.assert_any_call(
+        "GitHub authentication timed out or expired before completion.",
+        level="ERROR",
+    )

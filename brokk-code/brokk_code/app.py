@@ -2943,6 +2943,11 @@ class BrokkApp(App):
                         level="ERROR",
                     )
                     return
+
+            chat.add_system_message(
+                "GitHub authentication timed out or expired before completion.",
+                level="ERROR",
+            )
         except Exception as e:
             logger.exception("GitHub OAuth login failed")
             chat.add_system_message(f"Failed to start GitHub login: {e}", level="ERROR")
