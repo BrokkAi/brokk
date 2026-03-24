@@ -1781,14 +1781,26 @@ async def run_acp_server(
                 return await self._bridge.get_models()
 
             async def _fetch_sessions_payload(self, cwd: Optional[str]) -> Optional[dict[str, Any]]:
-                await self._bridge.ensure_ready(cwd)
+                if not self._bridge._started:
+                    return None
                 return await self._bridge.list_sessions()
 
             async def _do_load_session(self, session_id: str, cwd: str) -> bool:
                 await self._bridge.ensure_ready(cwd)
                 sessions_payload = await self._bridge.list_sessions()
                 known = _known_session_ids(sessions_payload.get("sessions", []))
-                return session_id in known
+                if session_id not in known:
+                    return False
+                try:
+                    await self._bridge.executor.switch_session(session_id)
+                except Exception:
+                    logger.warning(
+                        "load_session: switch_session failed for %r",
+                        session_id,
+                        exc_info=True,
+                    )
+                    return False
+                return True
 
             async def _pre_prompt(self, session_id: str) -> None:
                 if session_id not in self._cwd_by_session:
