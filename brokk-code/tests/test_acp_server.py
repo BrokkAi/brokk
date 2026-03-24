@@ -9,7 +9,6 @@ from brokk_code.acp_server import (
     DEFAULT_REASONING_LEVEL,
     REASONING_LEVEL_IDS,
     AcpStdioBridge,
-    BrokkAcpBridge,
     _available_model_names,
     _build_available_models,
     _extract_session_id_for_cancel,
@@ -29,7 +28,6 @@ from brokk_code.acp_server import (
     normalize_mode,
     resolve_model_selection,
 )
-from brokk_code.workspace import resolve_workspace_dir
 
 
 def _text_block(value: str) -> dict[str, str]:
@@ -578,247 +576,6 @@ async def test_acp_stdio_executor_list_sessions() -> None:
     assert result == {"sessions": [{"id": "uuid-1", "name": "Session 1"}]}
 
 
-async def test_ensure_ready_bootstraps_session_before_wait_live() -> None:
-    calls: list[str] = []
-
-    class StubExecutor:
-        def __init__(self) -> None:
-            self.workspace_dir = Path("/initial")
-
-        async def start(self) -> None:
-            calls.append("start")
-
-    bridge = BrokkAcpBridge(StubExecutor())  # type: ignore[arg-type]
-    await bridge.ensure_ready("/tmp/project")
-
-    assert calls == ["start"]
-    assert bridge.executor.workspace_dir == resolve_workspace_dir(Path("/tmp/project"))
-
-
-async def test_start_and_create_session_avoids_bootstrap_on_first_call() -> None:
-    calls: list[str] = []
-
-    class StubExecutor:
-        def __init__(self) -> None:
-            self.workspace_dir = Path("/initial")
-
-        async def start(self) -> None:
-            calls.append("start")
-
-        async def create_session(self, name: str = "ignored") -> str:
-            calls.append(f"create_session:{name}")
-            return "session-real"
-
-        async def wait_live(self) -> bool:
-            calls.append("wait_live")
-            return True
-
-    bridge = BrokkAcpBridge(StubExecutor())  # type: ignore[arg-type]
-    session_id = await bridge.start_and_create_session(name="Requested Session")
-
-    assert session_id == "session-real"
-    assert calls == ["start", "create_session:Requested Session", "wait_live"]
-
-
-async def test_ensure_ready_noops_when_workspace_is_unchanged(tmp_path: Path) -> None:
-    calls: list[str] = []
-
-    class StubExecutor:
-        def __init__(self, workspace_dir: Path) -> None:
-            self.workspace_dir = workspace_dir
-
-        async def start(self) -> None:
-            calls.append("start")
-
-    bridge = BrokkAcpBridge(StubExecutor(tmp_path))  # type: ignore[arg-type]
-
-    await bridge.ensure_ready(str(tmp_path))
-    await bridge.ensure_ready(str(tmp_path))
-
-    assert calls == ["start"]
-
-
-async def test_ensure_ready_restarts_executor_when_workspace_changes(tmp_path: Path) -> None:
-    calls: list[str] = []
-    first = tmp_path / "first"
-    second = tmp_path / "second"
-    first.mkdir()
-    second.mkdir()
-
-    class StubExecutor:
-        def __init__(self, workspace_dir: Path) -> None:
-            self.workspace_dir = workspace_dir
-            self.session_id = "session-1"
-            self.base_url = "http://127.0.0.1:9999"
-
-        async def start(self) -> None:
-            calls.append(f"start:{self.workspace_dir}")
-
-        async def stop(self) -> None:
-            calls.append("stop")
-
-        async def cancel_job(self, job_id: str) -> None:
-            calls.append(f"cancel_job:{job_id}")
-
-    bridge = BrokkAcpBridge(StubExecutor(first))  # type: ignore[arg-type]
-    bridge._active_job_by_session["acp-1"] = "job-1"
-
-    await bridge.ensure_ready(str(first))
-    await bridge.ensure_ready(str(second))
-
-    assert calls == [
-        f"start:{first.resolve()}",
-        "cancel_job:job-1",
-        "stop",
-        f"start:{second.resolve()}",
-    ]
-    assert bridge.executor.workspace_dir == second.resolve()
-    assert bridge.executor.session_id is None
-    assert bridge.executor.base_url is None
-
-
-async def test_prompt_standard_flow_calls_submit_job_and_streams_tokens(tmp_path: Path) -> None:
-    updates: list[tuple[str, dict[str, str]]] = []
-    job_submitted = False
-
-    class StubExecutor:
-        def __init__(self, workspace_dir: Path):
-            self.workspace_dir = workspace_dir
-
-        async def start(self) -> None:
-            pass
-
-        async def create_session(self, name: str = "ignored") -> str:
-            return "session-1"
-
-        async def wait_live(self) -> bool:
-            return True
-
-        async def switch_session(self, sid: str) -> bool:
-            return True
-
-        async def submit_job(
-            self,
-            task_input: str,
-            planner_model: str,
-            code_model: str | None = None,
-            reasoning_level: str | None = None,
-            reasoning_level_code: str | None = None,
-            mode: str = "LUTZ",
-            session_id: str | None = None,
-            **kwargs: Any,
-        ) -> str:
-            nonlocal job_submitted
-            job_submitted = True
-            assert task_input == "hello"
-            assert session_id == "acp-session-1"
-            return "job-1"
-
-        async def stream_events(self, job_id: str):
-            yield {"type": "LLM_TOKEN", "data": {"token": "abc"}}
-
-    async def send_update(session_id: str, update: dict[str, str]) -> None:
-        updates.append((session_id, update))
-
-    def update_agent_message_text(text: str) -> dict[str, str]:
-        return {"sessionUpdate": "agent_message_chunk", "text": text}
-
-    bridge = BrokkAcpBridge(StubExecutor(tmp_path))  # type: ignore[arg-type]
-    await bridge.prompt(
-        prompt=[{"type": "text", "text": "hello"}],
-        session_id="acp-session-1",
-        mode="LUTZ",
-        planner_model="gpt-5.3-codex",
-        code_model="gemini-3-flash-preview",
-        reasoning_level="low",
-        reasoning_level_code="disable",
-        send_update=send_update,
-        update_agent_message_text=update_agent_message_text,
-    )
-
-    assert job_submitted
-    # Only one update for the token "abc"
-    assert len(updates) == 1
-    assert updates[0][1]["text"] == "abc"
-
-
-async def test_prompt_context_command_renders_snapshot_without_job(tmp_path: Path) -> None:
-    updates: list[tuple[str, dict[str, Any]]] = []
-    job_submitted = False
-
-    class StubExecutor:
-        async def start(self) -> None:
-            pass
-
-        async def create_session(self, name: str) -> str:
-            return "session-1"
-
-        async def wait_live(self) -> bool:
-            return True
-
-        async def switch_session(self, sid: str) -> bool:
-            return True
-
-        async def get_context(self) -> dict[str, Any]:
-            return {
-                "fragments": [
-                    {"shortDescription": "file.py", "tokens": 1500, "pinned": True},
-                    {"shortDescription": "other.txt", "tokens": 500, "readonly": True},
-                    {"shortDescription": "a.md", "tokens": 400},
-                    {"shortDescription": "b.md", "tokens": 300},
-                    {"shortDescription": "c.md", "tokens": 200},
-                    {"shortDescription": "d.md", "tokens": 100},
-                ],
-                "usedTokens": 1234,
-                "maxTokens": 200000,
-                "branch": "main",
-                "totalCost": 0.0567,
-            }
-
-        async def submit_job(self, **kwargs: Any) -> str:
-            nonlocal job_submitted
-            job_submitted = True
-            return "job-1"
-
-    async def send_update(session_id: str, update: dict[str, Any]) -> None:
-        updates.append((session_id, update))
-
-    def update_agent_message_text(text: str) -> dict[str, str]:
-        return {"sessionUpdate": "agent_message_chunk", "text": text}
-
-    bridge = BrokkAcpBridge(StubExecutor())  # type: ignore[arg-type]
-    # In ACP mode, do NOT emit context snapshots after prompt completion via automatic means.
-    # The /context command explicitly generates one.
-    await bridge.prompt(
-        prompt="/context",
-        session_id="acp-1",
-        mode="LUTZ",
-        planner_model="gpt-5.3-codex",
-        code_model=None,
-        reasoning_level=None,
-        reasoning_level_code=None,
-        send_update=send_update,
-        update_agent_message_text=update_agent_message_text,
-    )
-
-    assert not job_submitted
-    assert len(updates) == 1
-    assert updates[0][1]["sessionUpdate"] == "agent_message_chunk"
-    table = updates[0][1]["text"]
-    assert "| Fragment | Tokens | % Context |" in table
-    assert "|---|---:|---:|" in table
-    assert "| file.py | 1,500 | 0.75% |" in table
-    assert "| other.txt | 500 | 0.25% |" in table
-    assert "| a.md | 400 | 0.20% |" in table
-    assert "| b.md | 300 | 0.15% |" in table
-    assert "| (other) | 300 | 0.15% |" in table
-    assert "| c.md |" not in table
-    assert "| d.md |" not in table
-    assert table.index("| file.py |") < table.index("| other.txt |")
-    assert "**Total Tokens:** 1,234 / 200,000" in table
-    assert "![Token usage](data:image/png;base64," in table
-
-
 # ── AcpStdioBridge tests ──────────────────────────────────────────────
 
 
@@ -830,8 +587,14 @@ class StubStdioExecutor:
         self.session_id: str | None = None
         self.calls: list[str] = []
 
+    def check_alive(self) -> bool:
+        return True
+
     async def start(self) -> None:
         self.calls.append("start")
+
+    async def stop(self) -> None:
+        self.calls.append("stop")
 
     async def initialize(self) -> dict[str, Any]:
         self.calls.append("initialize")
@@ -860,7 +623,7 @@ async def test_stdio_bridge_ensure_ready_starts_once() -> None:
     bridge = AcpStdioBridge(executor)  # type: ignore[arg-type]
 
     await bridge.ensure_ready("/project/a")
-    await bridge.ensure_ready("/project/b")
+    await bridge.ensure_ready("/project/a")
 
     assert bridge._started is True
     assert executor.calls == [
@@ -879,8 +642,8 @@ async def test_stdio_bridge_ensure_ready_concurrent_calls_start_once() -> None:
 
     await asyncio.gather(
         bridge.ensure_ready("/project/a"),
-        bridge.ensure_ready("/project/b"),
-        bridge.ensure_ready("/project/c"),
+        bridge.ensure_ready("/project/a"),
+        bridge.ensure_ready("/project/a"),
     )
 
     assert bridge._started is True

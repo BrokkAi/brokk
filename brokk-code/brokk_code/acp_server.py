@@ -1,7 +1,6 @@
 import asyncio
 import json
 import logging
-import os
 import sys
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -11,8 +10,7 @@ from urllib.parse import unquote, urlparse
 
 from brokk_code import __version__
 from brokk_code.event_utils import safe_data
-from brokk_code.executor import AcpStdioExecutor, ExecutorError, ExecutorManager
-from brokk_code.settings import Settings
+from brokk_code.executor import AcpStdioExecutor, ExecutorError
 from brokk_code.widgets.token_bar import get_token_bar_markdown
 from brokk_code.workspace import resolve_workspace_dir
 
@@ -623,268 +621,6 @@ def _known_session_ids(entries: Any) -> set[str]:
     return ids
 
 
-class BrokkAcpBridge:
-    def __init__(self, executor: ExecutorManager):
-        self.executor = executor
-        self._acp_to_brokk_session: dict[str, str] = {}
-        self._active_job_by_session: dict[str, str] = {}
-        self._started = False
-        self._active_workspace_dir = getattr(executor, "workspace_dir", None)
-
-    def _resolved_workspace_dir(self, cwd: Optional[str] = None) -> Path:
-        requested = (cwd or "").strip()
-        if requested:
-            return resolve_workspace_dir(Path(requested))
-
-        current = getattr(self.executor, "workspace_dir", None)
-        if isinstance(current, Path):
-            return resolve_workspace_dir(current)
-
-        return resolve_workspace_dir(Path.cwd())
-
-    async def _cancel_current_work(self) -> None:
-        for job_id in set(self._active_job_by_session.values()):
-            await self.executor.cancel_job(job_id)
-        self._active_job_by_session.clear()
-
-    def _reset_executor_session_state(self) -> None:
-        self._acp_to_brokk_session.clear()
-        if hasattr(self.executor, "session_id"):
-            self.executor.session_id = None
-        if hasattr(self.executor, "base_url"):
-            self.executor.base_url = None
-
-    async def ensure_ready(self, cwd: Optional[str] = None) -> None:
-        target_workspace_dir = self._resolved_workspace_dir(cwd)
-        if self._started and self._active_workspace_dir == target_workspace_dir:
-            return
-
-        if self._started:
-            logger.info(
-                "ACP cwd changed from %s to %s; restarting executor",
-                self._active_workspace_dir,
-                target_workspace_dir,
-            )
-            await self._cancel_current_work()
-            await self.executor.stop()
-            self._started = False
-            self._reset_executor_session_state()
-
-        self.executor.workspace_dir = target_workspace_dir
-        self._active_workspace_dir = target_workspace_dir
-        await self.executor.start()
-        self._started = True
-
-    async def _wait_until_ready(self) -> None:
-        ready = await self.executor.wait_live()
-        if not ready:
-            raise ExecutorError("Brokk executor failed liveness check")
-
-    async def start_and_create_session(self, name: str, cwd: Optional[str] = None) -> str:
-        """Starts the executor on-demand and creates the session requested by the client."""
-        await self.ensure_ready(cwd)
-        session_id = await self.executor.create_session(name=name)
-        await self._wait_until_ready()
-        return session_id
-
-    async def _ensure_session(self, acp_session_id: str) -> str:
-        existing = self._acp_to_brokk_session.get(acp_session_id)
-        if existing:
-            await self._switch_executor_session(existing)
-            return existing
-        if await self._switch_executor_session(acp_session_id):
-            self._acp_to_brokk_session[acp_session_id] = acp_session_id
-            return acp_session_id
-        session_id = await self.executor.create_session(name=f"ACP Session {acp_session_id}")
-        await self._wait_until_ready()
-        self._acp_to_brokk_session[acp_session_id] = session_id
-        return session_id
-
-    async def _switch_executor_session(self, session_id: str) -> bool:
-        switch_session = getattr(self.executor, "switch_session", None)
-        if not callable(switch_session):
-            return False
-        try:
-            await switch_session(session_id)
-            return True
-        except Exception:
-            logger.debug("Failed to switch executor session %s", session_id, exc_info=True)
-            return False
-
-    async def prompt(
-        self,
-        prompt: Any,
-        session_id: str,
-        mode: str,
-        planner_model: str,
-        code_model: Optional[str],
-        reasoning_level: Optional[str],
-        reasoning_level_code: Optional[str],
-        send_update: Callable[[str, Any], Awaitable[Any]],
-        update_agent_message_text: Callable[[str], Any],
-        cwd: str = "",
-    ) -> None:
-        await self.ensure_ready(cwd)
-        executor_session_id = await self._ensure_session(session_id)
-        await self._switch_executor_session(executor_session_id)
-
-        prompt_text = extract_prompt_text(prompt)
-        if not prompt_text:
-            raise ExecutorError("Prompt must contain at least one non-empty text block.")
-
-        command = get_slash_command(prompt_text)
-        if command:
-            await self._handle_command(
-                command,
-                session_id,
-                send_update=send_update,
-                update_agent_message_text=update_agent_message_text,
-            )
-            return
-
-        await self._handle_model_job(
-            prompt=prompt,
-            prompt_text=prompt_text,
-            session_id=session_id,
-            executor_session_id=executor_session_id,
-            mode=mode,
-            planner_model=planner_model,
-            code_model=code_model,
-            reasoning_level=reasoning_level,
-            reasoning_level_code=reasoning_level_code,
-            send_update=send_update,
-            update_agent_message_text=update_agent_message_text,
-            cwd=cwd,
-        )
-
-    async def _handle_command(
-        self,
-        command: str,
-        session_id: str,
-        send_update: Callable[[str, Any], Awaitable[Any]],
-        update_agent_message_text: Callable[[str], Any],
-    ) -> None:
-        if command == "/context":
-            ctx = await self.executor.get_context()
-            fragments = ctx.get("fragments", [])
-            used_tokens = int(ctx.get("usedTokens", 0) or 0)
-            max_tokens = ctx.get("maxTokens", 0)
-            fragment_list = fragments if isinstance(fragments, list) else []
-            base_tokens = int(max_tokens or 0)
-            if base_tokens <= 0:
-                base_tokens = sum(int(f.get("tokens", 0) or 0) for f in fragment_list)
-            if base_tokens <= 0:
-                base_tokens = 1
-
-            def _fragment_row(fragment: Any) -> tuple[str, int, float]:
-                if not isinstance(fragment, dict):
-                    return ("Unknown", 0, 0.0)
-                name = str(fragment.get("shortDescription") or fragment.get("id") or "Unknown")
-                tokens = int(fragment.get("tokens", 0) or 0)
-                pct = (tokens / base_tokens) * 100
-                return (name, tokens, pct)
-
-            rows = [_fragment_row(f) for f in fragment_list]
-            rows.sort(key=lambda row: row[2], reverse=True)
-            top_rows = rows[:4]
-            remainder = rows[4:]
-            if remainder:
-                other_tokens = sum(tokens for _name, tokens, _pct in remainder)
-                other_pct = sum(pct for _name, _tokens, pct in remainder)
-                top_rows.append(("(other)", other_tokens, other_pct))
-
-            lines = [
-                "| Fragment | Tokens | % Context |",
-                "|---|---:|---:|",
-            ]
-            lines.extend(f"| {name} | {tokens:,} | {pct:.2f}% |" for name, tokens, pct in top_rows)
-            if not top_rows:
-                lines.append("| (none) | 0 | 0.00% |")
-            token_bar_md = get_token_bar_markdown(
-                used_tokens=used_tokens,
-                max_tokens=int(max_tokens or 0),
-                fragments=fragment_list,
-            )
-            if token_bar_md:
-                lines.append("")
-                lines.append(f"**Total Tokens:** {used_tokens:,} / {int(max_tokens or 0):,}")
-                lines.append("")
-                lines.append(token_bar_md)
-
-            await send_update(session_id, update_agent_message_text("\n".join(lines)))
-
-    async def _handle_model_job(
-        self,
-        prompt: Any,
-        prompt_text: str,
-        session_id: str,
-        executor_session_id: str,
-        mode: str,
-        planner_model: str,
-        code_model: Optional[str],
-        reasoning_level: Optional[str],
-        reasoning_level_code: Optional[str],
-        send_update: Callable[[str, Any], Awaitable[Any]],
-        update_agent_message_text: Callable[[str], Any],
-        cwd: str = "",
-    ) -> None:
-        # Add any @-mentioned files from ACP embedded/linked resource blocks to context.
-        attached_fragment_ids: list[str] = []
-        file_paths = extract_resource_file_paths(prompt, cwd)
-        if file_paths:
-            try:
-                resp = await self.executor.add_context_files(file_paths)
-                attached_fragment_ids.extend(_extract_fragment_ids(resp))
-            except Exception:
-                logger.exception("Failed attaching ACP resource file paths to context")
-
-        try:
-            job_id = await self.executor.submit_job(
-                task_input=prompt_text,
-                planner_model=planner_model,
-                code_model=code_model,
-                reasoning_level=reasoning_level,
-                reasoning_level_code=reasoning_level_code,
-                mode=mode,
-                session_id=executor_session_id,
-            )
-        except Exception:
-            if attached_fragment_ids:
-                try:
-                    await self.executor.drop_context_fragments(attached_fragment_ids)
-                except Exception:
-                    logger.exception(
-                        "Failed to rollback context fragments " + "after submit_job failure"
-                    )
-            raise
-        self._active_job_by_session[session_id] = job_id
-
-        try:
-            from acp import update_agent_thought_text
-
-            async for event in self.executor.stream_events(job_id):
-                update = map_executor_event_to_session_update(
-                    event,
-                    update_agent_message_text,
-                    update_agent_thought_text=update_agent_thought_text,
-                )
-                if update:
-                    await send_update(session_id, update)
-        finally:
-            active = self._active_job_by_session.get(session_id)
-            if active == job_id:
-                self._active_job_by_session.pop(session_id, None)
-
-    async def cancel(self, *args: Any, **kwargs: Any) -> None:
-        session_id = _extract_session_id_for_cancel(args, kwargs)
-        if not session_id:
-            return
-        job_id = self._active_job_by_session.get(session_id)
-        if not job_id:
-            return
-        await self.executor.cancel_job(job_id)
-
-
 class AcpStdioBridge:
     """Bridge that forwards ACP requests to Java ACP server via stdio JSON-RPC."""
 
@@ -1119,12 +855,6 @@ async def run_acp_server(
     executor_snapshot: bool,
     vendor: Optional[str] = None,
 ) -> None:
-    use_acp_server = os.environ.get("BROKK_USE_ACP_SERVER", "true").lower() not in (
-        "0",
-        "false",
-        "no",
-    )
-
     # Import ACP SDK once at the top of the function
     try:
         from acp import (
@@ -1791,161 +1521,36 @@ async def run_acp_server(
         async def cancel(self, *args: Any, **kwargs: Any) -> None:
             await self._bridge.cancel(*args, **kwargs)
 
-    # ---- Stdio mode (default) ----
-
-    if use_acp_server:
-        logger.info("Using ACP stdio server mode (BROKK_USE_ACP_SERVER=true)")
-        stdio_executor = AcpStdioExecutor(
-            workspace_dir=workspace_dir,
-            jar_path=jar_path,
-            executor_version=executor_version,
-            executor_snapshot=executor_snapshot,
-            vendor=vendor,
-        )
-        stdio_bridge = AcpStdioBridge(stdio_executor)
-
-        class AcpStdioAgent(BaseAcpAgent):
-            def __init__(self) -> None:
-                super().__init__(bridge=stdio_bridge)
-                self._replay_tasks: set[asyncio.Task[Any]] = set()
-
-            async def _fetch_models_payload(self, session_id: str) -> dict[str, Any]:
-                await self._bridge.ensure_ready(self._cwd_by_session.get(session_id))
-                return await self._bridge.get_models()
-
-            async def _fetch_sessions_payload(self, cwd: Optional[str]) -> Optional[dict[str, Any]]:
-                if not self._bridge.is_alive:
-                    return None
-                try:
-                    return await self._bridge.list_sessions()
-                except Exception:
-                    logger.warning("list_sessions: failed to list sessions", exc_info=True)
-                    return None
-
-            async def _do_load_session(self, session_id: str, cwd: str) -> bool:
-                await self._bridge.ensure_ready(cwd)
-                sessions_payload = await self._bridge.list_sessions()
-                known = _known_session_ids(sessions_payload.get("sessions", []))
-                if session_id not in known:
-                    return False
-                try:
-                    await self._bridge.executor.switch_session(session_id)
-                except Exception:
-                    logger.warning(
-                        "load_session: switch_session failed for %r",
-                        session_id,
-                        exc_info=True,
-                    )
-                    return False
-                return True
-
-            def _post_load_session(self, session_id: str) -> None:
-                self._schedule_replay_loaded_session(session_id)
-
-            async def _replay_loaded_session(self, session_id: str) -> None:
-                if not self.client:
-                    return
-                try:
-                    conversation_data = await self._bridge.executor.get_conversation()
-                except Exception:
-                    logger.warning(
-                        "Failed to fetch conversation replay for session %s",
-                        session_id,
-                        exc_info=True,
-                    )
-                    return
-
-                updates = conversation_payload_to_session_updates(
-                    conversation_data,
-                    update_user_message_text=update_user_message_text,
-                    update_agent_message_text=update_agent_message_text,
-                    update_agent_thought_text=update_agent_thought_text,
-                )
-                logger.info(
-                    "Replaying %s ACP chat updates for session %s", len(updates), session_id
-                )
-                for update in updates:
-                    await self.client.session_update(session_id, update)
-
-            def _schedule_replay_loaded_session(self, session_id: str) -> None:
-                async def _run() -> None:
-                    await asyncio.sleep(0)
-                    await self._replay_loaded_session(session_id)
-
-                task = asyncio.create_task(_run())
-                self._replay_tasks.add(task)
-
-                def _done_callback(done: asyncio.Task[Any]) -> None:
-                    self._replay_tasks.discard(done)
-                    try:
-                        done.result()
-                    except Exception:
-                        logger.warning(
-                            "Session replay task failed for session %s",
-                            session_id,
-                            exc_info=True,
-                        )
-
-                task.add_done_callback(_done_callback)
-
-            async def _pre_prompt(self, session_id: str) -> None:
-                if session_id not in self._cwd_by_session:
-                    self._ensure_session_defaults(session_id, str(workspace_dir))
-                logger.debug(
-                    "prompt session_id=%r, known_sessions=%r",
-                    session_id,
-                    list(self._cwd_by_session.keys()),
-                )
-
-        try:
-            await run_agent(AcpStdioAgent(), use_unstable_protocol=True)
-        finally:
-            await stdio_executor.stop()
-        return
-
-    # ---- Non-stdio mode (legacy HTTP) ----
-
-    logger.info("Starting ACP server")
-
-    # Note: The ExecutorManager launches the Java HeadlessExecutorMain with a dedicated
-    # stdin pipe. HeadlessExecutorMain monitors System.in for EOF and will initiate a
-    # controlled shutdown if the ACP Python process (the parent) exits or its stdin is
-    # closed by the IDE (for example, when IntelliJ terminates/restarts the run profile).
-    # This stdin-based parent-death signal prevents orphaned Java executor processes in
-    # cases where Python's finally blocks may not run (e.g., abrupt IDE lifecycle events).
-    settings = Settings.load()
-    executor = ExecutorManager(
+    stdio_executor = AcpStdioExecutor(
         workspace_dir=workspace_dir,
         jar_path=jar_path,
         executor_version=executor_version,
         executor_snapshot=executor_snapshot,
         vendor=vendor,
-        exit_on_stdin_eof=True,
-        brokk_api_key=settings.get_brokk_api_key(),
     )
-    bridge = BrokkAcpBridge(executor)
+    stdio_bridge = AcpStdioBridge(stdio_executor)
 
-    class BrokkAcpAgent(BaseAcpAgent):
+    class AcpStdioAgent(BaseAcpAgent):
         def __init__(self) -> None:
-            super().__init__(bridge=bridge)
+            super().__init__(bridge=stdio_bridge)
             self._replay_tasks: set[asyncio.Task[Any]] = set()
 
         async def _fetch_models_payload(self, session_id: str) -> dict[str, Any]:
             await self._bridge.ensure_ready(self._cwd_by_session.get(session_id))
-            return await self._bridge.executor.get_models()
+            return await self._bridge.get_models()
 
         async def _fetch_sessions_payload(self, cwd: Optional[str]) -> Optional[dict[str, Any]]:
-            if not self._bridge._started:
+            if not self._bridge.is_alive:
                 return None
             try:
-                return await self._bridge.executor.list_sessions()
+                return await self._bridge.list_sessions()
             except Exception:
                 logger.warning("list_sessions: failed to list sessions", exc_info=True)
                 return None
 
         async def _do_load_session(self, session_id: str, cwd: str) -> bool:
             await self._bridge.ensure_ready(cwd)
-            sessions_payload = await self._bridge.executor.list_sessions()
+            sessions_payload = await self._bridge.list_sessions()
             known = _known_session_ids(sessions_payload.get("sessions", []))
             if session_id not in known:
                 return False
@@ -2007,7 +1612,16 @@ async def run_acp_server(
 
             task.add_done_callback(_done_callback)
 
+        async def _pre_prompt(self, session_id: str) -> None:
+            if session_id not in self._cwd_by_session:
+                self._ensure_session_defaults(session_id, str(workspace_dir))
+            logger.debug(
+                "prompt session_id=%r, known_sessions=%r",
+                session_id,
+                list(self._cwd_by_session.keys()),
+            )
+
     try:
-        await run_agent(BrokkAcpAgent(), use_unstable_protocol=True)
+        await run_agent(AcpStdioAgent(), use_unstable_protocol=True)
     finally:
-        await executor.stop()
+        await stdio_executor.stop()
