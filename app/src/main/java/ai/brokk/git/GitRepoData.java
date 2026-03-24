@@ -405,8 +405,23 @@ public class GitRepoData {
                     ? null
                     : repo.toProjectFile(newPath).orElse(null);
 
-            String oldText = (oldFile != null) ? getRefContent(oldRef, oldFile) : "";
-            String newText = (newFile != null) ? getRefContent(newRef, newFile) : "";
+            String oldText;
+            if (oldFile == null) {
+                oldText = "";
+            } else if (oldFile.isBinary()) {
+                oldText = "[Binary file (old)]";
+            } else {
+                oldText = getRefContent(oldRef, oldFile);
+            }
+
+            String newText;
+            if (newFile == null) {
+                newText = "";
+            } else if (newFile.isBinary()) {
+                newText = "[Binary file (new)]";
+            } else {
+                newText = getRefContent(newRef, newFile);
+            }
 
             result.add(new FileDiff(oldFile, newFile, oldText, newText));
         }

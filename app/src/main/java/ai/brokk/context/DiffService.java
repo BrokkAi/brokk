@@ -340,6 +340,14 @@ public final class DiffService {
         int totalAdded = 0;
         int totalDeleted = 0;
         for (var fd : fileDiffs) {
+            if (fd.oldText().startsWith("[Binary file") || fd.newText().startsWith("[Binary file")) {
+                // For binary files, we just treat it as a 1-line change if they differ
+                if (!fd.oldText().equals(fd.newText())) {
+                    totalAdded++;
+                    totalDeleted++;
+                }
+                continue;
+            }
             var res = ContentDiffUtils.computeDiffResult(fd.oldText(), fd.newText(), "old", "new");
             totalAdded += res.added();
             totalDeleted += res.deleted();
@@ -430,6 +438,15 @@ public final class DiffService {
                                 fd.oldFile() == null ? null : fd.oldFile().toString();
                         String newName =
                                 fd.newFile() == null ? null : fd.newFile().toString();
+                        if (fd.oldText().startsWith("[Binary file")
+                                || fd.newText().startsWith("[Binary file")) {
+                            return "--- %s\n+++ %s\n@@ -0,0 +1,1 @@\n-%s\n+%s"
+                                    .formatted(
+                                            oldName != null ? oldName : "/dev/null",
+                                            newName != null ? newName : "/dev/null",
+                                            fd.oldText(),
+                                            fd.newText());
+                        }
                         return ContentDiffUtils.computeDiffResult(fd.oldText(), fd.newText(), oldName, newName)
                                 .diff();
                     })
