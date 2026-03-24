@@ -748,6 +748,46 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Show full headless executor output (events/tokens) for debugging",
     )
 
+    issue_diagnose_parser = issue_subparsers.add_parser(
+        "diagnose", help="Analyze a GitHub issue and post a diagnosis comment"
+    )
+    _add_common_runtime_args(issue_diagnose_parser)
+    issue_diagnose_parser.add_argument(
+        "--issue-number",
+        type=int,
+        required=True,
+        help="The GitHub issue number to diagnose",
+    )
+    issue_diagnose_parser.add_argument(
+        "--github-token",
+        type=str,
+        default=Settings().get_github_token(),
+        help="GitHub API token (from brokk.properties, GITHUB_TOKEN env var, or --github-token)",
+    )
+    issue_diagnose_parser.add_argument(
+        "--repo-owner",
+        type=str,
+        help="GitHub repository owner",
+    )
+    issue_diagnose_parser.add_argument(
+        "--repo-name",
+        type=str,
+        help="GitHub repository name",
+    )
+    issue_diagnose_parser.add_argument(
+        "--planner-model",
+        type=str,
+        default="gemini-3-flash-preview",
+        help="LLM model for analysis (default: gemini-3-flash-preview)",
+    )
+    issue_diagnose_parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        default=False,
+        help="Show full headless executor output (events/tokens) for debugging",
+    )
+
     issue_solve_parser = issue_subparsers.add_parser("solve", help="Fix an existing GitHub issue")
     _add_common_runtime_args(issue_solve_parser)
     issue_solve_parser.add_argument(
@@ -1853,6 +1893,42 @@ def main():
                         planner_reasoning_level="disable",
                         verbose=args.verbose,
                         mode="ISSUE_WRITER",
+                        tags=tags,
+                        jar_path=jar_path,
+                        executor_version=args.executor_version,
+                        executor_snapshot=args.executor_snapshot,
+                        vendor=args.vendor,
+                    )
+                )
+            return
+
+        if args.issue_command == "diagnose":
+            _validate_github_params(
+                args.github_token, args.repo_owner, args.repo_name, "issue diagnose"
+            )
+            tags = {
+                "github_token": args.github_token,
+                "repo_owner": args.repo_owner,
+                "repo_name": args.repo_name,
+                "issue_number": str(args.issue_number),
+            }
+
+            task_input = f"Diagnose GitHub Issue #{args.issue_number}"
+
+            with _temporary_issue_repo_checkout(
+                repo_owner=args.repo_owner,
+                repo_name=args.repo_name,
+                github_token=args.github_token,
+                action_label="Issue diagnose",
+            ) as issue_workspace_path:
+                asyncio.run(
+                    run_headless_job(
+                        workspace_dir=issue_workspace_path,
+                        task_input=task_input,
+                        planner_model=args.planner_model,
+                        planner_reasoning_level="disable",
+                        verbose=args.verbose,
+                        mode="ISSUE_DIAGNOSE",
                         tags=tags,
                         jar_path=jar_path,
                         executor_version=args.executor_version,
