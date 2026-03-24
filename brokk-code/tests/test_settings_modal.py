@@ -99,12 +99,12 @@ class SettingsTestApp(BrokkApp):
 
     CSS_PATH = str(Path(__file__).resolve().parent.parent / "brokk_code" / "styles" / "app.tcss")
 
-    def __init__(self, stub: StubExecutor):
+    def __init__(self, stub: "StubExecutor"):
         super().__init__(executor=stub, workspace_dir=stub.workspace_dir)
 
 
 @pytest.mark.asyncio
-async def test_settings_modal_has_tabbed_content(tmp_path):
+async def test_settings_modal_has_tabbed_content(tmp_path: Path):
     """SettingsModalScreen contains a TabbedContent widget."""
     stub = StubExecutor(tmp_path)
     app = SettingsTestApp(stub)
@@ -117,7 +117,7 @@ async def test_settings_modal_has_tabbed_content(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_settings_modal_tab_labels(tmp_path):
+async def test_settings_modal_tab_labels(tmp_path: Path):
     """Verify expected tab panes exist."""
     stub = StubExecutor(tmp_path)
     app = SettingsTestApp(stub)
@@ -130,7 +130,7 @@ async def test_settings_modal_tab_labels(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_settings_modal_languages_section_exists(tmp_path):
+async def test_settings_modal_languages_section_exists(tmp_path: Path):
     """Verify the languages scroll container exists in the CI tab."""
     stub = StubExecutor(tmp_path)
     app = SettingsTestApp(stub)
