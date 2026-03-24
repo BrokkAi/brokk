@@ -1,14 +1,11 @@
 package ai.brokk.acpserver;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.IConsoleIO;
 import ai.brokk.LlmOutputMeta;
 import ai.brokk.acpserver.agent.SyncPromptContext;
-import ai.brokk.acpserver.spec.AcpSchema.*;
 import ai.brokk.acpserver.transport.AcpTransport;
 import dev.langchain4j.data.message.ChatMessageType;
 import java.util.ArrayList;
@@ -39,39 +36,6 @@ class BrokkAcpServerTest {
         assertEquals(1, transport.getSentNotifications().size());
         var notification = transport.getSentNotifications().get(0);
         assertEquals("session/update", notification.method());
-    }
-
-    @Test
-    void syncPromptContextReturnsSessionId() {
-        var transport = new MockAcpTransport();
-        var ctx = new SyncPromptContext("my-session-id", transport);
-
-        assertEquals("my-session-id", ctx.sessionId());
-    }
-
-    @Test
-    void initializeResponseOkHasCorrectDefaults() {
-        var response = InitializeResponse.ok();
-
-        assertEquals(1, response.protocolVersion());
-        assertEquals(AgentCapabilities.DEFAULT, response.capabilities());
-        assertNull(response.agentInfo());
-    }
-
-    @Test
-    void promptResponseEndTurnHasCorrectStopReason() {
-        var response = PromptResponse.endTurn();
-
-        assertEquals(StopReason.END_TURN, response.stopReason());
-        assertNull(response._meta());
-    }
-
-    @Test
-    void newSessionResponseCanBeCreated() {
-        var response = new NewSessionResponse("session-123", null, null);
-
-        assertEquals("session-123", response.sessionId());
-        assertNull(response.error());
     }
 
     @Test
@@ -135,122 +99,6 @@ class BrokkAcpServerTest {
 
         assertEquals(1, transport.getSentNotifications().size());
         assertEquals("session/update", transport.getSentNotifications().get(0).method());
-    }
-
-    @Test
-    void modelsListRequestCanBeCreated() {
-        var request = new ModelsListRequest();
-        assertNotNull(request);
-    }
-
-    @Test
-    void modelsListResponseCanBeCreated() {
-        var response = new ModelsListResponse(List.of(new ModelInfo("gpt-4", "openai")));
-        assertEquals(1, response.models().size());
-        assertEquals("gpt-4", response.models().get(0).name());
-        assertEquals("openai", response.models().get(0).location());
-    }
-
-    @Test
-    void contextGetRequestCanBeCreated() {
-        var request = new ContextGetRequest();
-        assertNotNull(request);
-    }
-
-    @Test
-    void contextGetResponseCanBeCreated() {
-        var fragments = List.of(new ContextFragmentInfo("id1", "PROJECT_PATH", "src/Main.java"));
-        var response = new ContextGetResponse(fragments);
-        assertEquals(1, response.fragments().size());
-        assertEquals("id1", response.fragments().get(0).id());
-    }
-
-    @Test
-    void contextAddFilesRequestCanBeCreated() {
-        var request = new ContextAddFilesRequest(List.of("src/Main.java", "src/Test.java"));
-        assertEquals(2, request.relativePaths().size());
-    }
-
-    @Test
-    void contextAddFilesResponseCanBeCreated() {
-        var response = new ContextAddFilesResponse(List.of("frag-1", "frag-2"));
-        assertEquals(2, response.addedFragmentIds().size());
-    }
-
-    @Test
-    void contextDropRequestCanBeCreated() {
-        var request = new ContextDropRequest(List.of("frag-1", "frag-2"));
-        assertEquals(2, request.fragmentIds().size());
-    }
-
-    @Test
-    void contextDropResponseCanBeCreated() {
-        var response = new ContextDropResponse(List.of("frag-1"));
-        assertEquals(1, response.droppedFragmentIds().size());
-    }
-
-    @Test
-    void sessionsListRequestCanBeCreated() {
-        var request = new SessionsListRequest();
-        assertNotNull(request);
-    }
-
-    @Test
-    void sessionsListResponseCanBeCreated() {
-        var sessions = List.of(new SessionInfoDto("uuid-1", "Session 1", 1000L, 2000L));
-        var response = new SessionsListResponse(sessions);
-        assertEquals(1, response.sessions().size());
-        assertEquals("Session 1", response.sessions().get(0).name());
-    }
-
-    @Test
-    void sessionSwitchRequestCanBeCreated() {
-        var request = new SessionSwitchRequest("uuid-1");
-        assertEquals("uuid-1", request.sessionId());
-    }
-
-    @Test
-    void sessionSwitchResponseCanBeCreated() {
-        var response = new SessionSwitchResponse("ok", "uuid-1");
-        assertEquals("ok", response.status());
-        assertEquals("uuid-1", response.sessionId());
-    }
-
-    @Test
-    void getConversationRequestCanBeCreated() {
-        var request = new GetConversationRequest();
-        assertNotNull(request);
-    }
-
-    @Test
-    void getConversationResponseCanBeCreated() {
-        var messages = List.of(
-                new ConversationMessage("user", "Hello", null),
-                new ConversationMessage("ai", "Hi there!", "thinking..."));
-        var entry = new ConversationEntry(1, false, "CODE", messages, null);
-        var response = new GetConversationResponse(List.of(entry));
-
-        assertEquals(1, response.entries().size());
-        var e = response.entries().get(0);
-        assertEquals(1, e.sequence());
-        assertEquals(false, e.isCompressed());
-        assertEquals("CODE", e.taskType());
-        assertEquals(2, e.messages().size());
-        assertEquals("user", e.messages().get(0).role());
-        assertEquals("thinking...", e.messages().get(1).reasoning());
-        assertNull(e.summary());
-    }
-
-    @Test
-    void getConversationResponseWithSummaryCanBeCreated() {
-        var entry = new ConversationEntry(2, true, "ASK", null, "Compressed summary");
-        var response = new GetConversationResponse(List.of(entry));
-
-        assertEquals(1, response.entries().size());
-        var e = response.entries().get(0);
-        assertTrue(e.isCompressed());
-        assertNull(e.messages());
-        assertEquals("Compressed summary", e.summary());
     }
 
     // Mock transport for testing

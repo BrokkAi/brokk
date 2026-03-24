@@ -33,6 +33,7 @@ public class StdioAcpAgentTransport implements AcpTransport {
     private final PrintWriter writer;
     private final AtomicBoolean running = new AtomicBoolean(false);
     private final Object writeLock = new Object();
+    private volatile @Nullable Thread activePromptThread;
 
     /**
      * Creates a transport using System.in and System.out.
@@ -126,8 +127,14 @@ public class StdioAcpAgentTransport implements AcpTransport {
 
         // Run session/prompt on a worker thread so the main loop stays free for cancel
         if ("session/prompt".equals(request.method())) {
+            if (activePromptThread != null) {
+                sendErrorResponse(
+                        request.id(), JsonRpcMessage.RpcError.INVALID_REQUEST, "A prompt is already in progress");
+                return;
+            }
             var promptThread = new Thread(
                     () -> {
+                        activePromptThread = Thread.currentThread();
                         try {
                             dispatchRequest(request, handler);
                         } catch (Throwable t) {
@@ -136,6 +143,8 @@ public class StdioAcpAgentTransport implements AcpTransport {
                                     request.id(),
                                     JsonRpcMessage.RpcError.INTERNAL_ERROR,
                                     t.getClass().getName());
+                        } finally {
+                            activePromptThread = null;
                         }
                     },
                     "BrokkACP-Prompt");

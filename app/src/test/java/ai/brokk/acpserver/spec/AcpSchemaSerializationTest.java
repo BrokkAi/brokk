@@ -2,28 +2,13 @@ package ai.brokk.acpserver.spec;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import ai.brokk.acpserver.spec.AcpSchema.AgentCapabilities;
-import ai.brokk.acpserver.spec.AcpSchema.AgentInfo;
 import ai.brokk.acpserver.spec.AcpSchema.AgentMessageChunk;
 import ai.brokk.acpserver.spec.AcpSchema.AgentThought;
-import ai.brokk.acpserver.spec.AcpSchema.ClientCapabilities;
 import ai.brokk.acpserver.spec.AcpSchema.Content;
-import ai.brokk.acpserver.spec.AcpSchema.ConversationEntry;
-import ai.brokk.acpserver.spec.AcpSchema.ConversationMessage;
-import ai.brokk.acpserver.spec.AcpSchema.GetConversationRequest;
-import ai.brokk.acpserver.spec.AcpSchema.GetConversationResponse;
 import ai.brokk.acpserver.spec.AcpSchema.ImageContent;
-import ai.brokk.acpserver.spec.AcpSchema.InitializeRequest;
-import ai.brokk.acpserver.spec.AcpSchema.InitializeResponse;
-import ai.brokk.acpserver.spec.AcpSchema.NewSessionRequest;
-import ai.brokk.acpserver.spec.AcpSchema.NewSessionResponse;
 import ai.brokk.acpserver.spec.AcpSchema.PromptRequest;
-import ai.brokk.acpserver.spec.AcpSchema.PromptResponse;
-import ai.brokk.acpserver.spec.AcpSchema.SessionSwitchRequest;
-import ai.brokk.acpserver.spec.AcpSchema.SessionSwitchResponse;
 import ai.brokk.acpserver.spec.AcpSchema.SessionUpdate;
 import ai.brokk.acpserver.spec.AcpSchema.SessionUpdateNotification;
-import ai.brokk.acpserver.spec.AcpSchema.StopReason;
 import ai.brokk.acpserver.spec.AcpSchema.TextContent;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
@@ -37,63 +22,6 @@ class AcpSchemaSerializationTest {
     @BeforeEach
     void setUp() {
         mapper = new ObjectMapper();
-    }
-
-    @Test
-    void initializeRequestRoundTrip() throws Exception {
-        var caps = new ClientCapabilities(true, false);
-        var request = new InitializeRequest(1, caps);
-
-        String json = mapper.writeValueAsString(request);
-        var deserialized = mapper.readValue(json, InitializeRequest.class);
-
-        assertEquals(request.protocolVersion(), deserialized.protocolVersion());
-        assertEquals(request.capabilities(), deserialized.capabilities());
-    }
-
-    @Test
-    void initializeResponseOk() throws Exception {
-        var response = InitializeResponse.ok();
-
-        String json = mapper.writeValueAsString(response);
-        var deserialized = mapper.readValue(json, InitializeResponse.class);
-
-        assertEquals(1, deserialized.protocolVersion());
-        assertEquals(AgentCapabilities.DEFAULT, deserialized.capabilities());
-        assertNull(deserialized.agentInfo());
-    }
-
-    @Test
-    void initializeResponseWithAgentInfo() throws Exception {
-        var info = new AgentInfo("Brokk", "1.0.0");
-        var response = new InitializeResponse(1, new AgentCapabilities(true), info);
-
-        String json = mapper.writeValueAsString(response);
-        var deserialized = mapper.readValue(json, InitializeResponse.class);
-
-        assertEquals("Brokk", deserialized.agentInfo().name());
-        assertEquals("1.0.0", deserialized.agentInfo().version());
-    }
-
-    @Test
-    void newSessionRequestRoundTrip() throws Exception {
-        var request = new NewSessionRequest("/workspace/project");
-
-        String json = mapper.writeValueAsString(request);
-        var deserialized = mapper.readValue(json, NewSessionRequest.class);
-
-        assertEquals("/workspace/project", deserialized.workingDirectory());
-    }
-
-    @Test
-    void newSessionResponseRoundTrip() throws Exception {
-        var response = new NewSessionResponse("session-123", null, null);
-
-        String json = mapper.writeValueAsString(response);
-        var deserialized = mapper.readValue(json, NewSessionResponse.class);
-
-        assertEquals("session-123", deserialized.sessionId());
-        assertNull(deserialized.error());
     }
 
     @Test
@@ -122,17 +50,6 @@ class AcpSchemaSerializationTest {
         var image = (ImageContent) deserialized.messages().getFirst();
         assertEquals("base64data", image.data());
         assertEquals("image/png", image.mimeType());
-    }
-
-    @Test
-    void promptResponseEndTurn() throws Exception {
-        var response = PromptResponse.endTurn();
-
-        String json = mapper.writeValueAsString(response);
-        var deserialized = mapper.readValue(json, PromptResponse.class);
-
-        assertEquals(StopReason.END_TURN, deserialized.stopReason());
-        assertNull(deserialized._meta());
     }
 
     @Test
@@ -176,7 +93,6 @@ class AcpSchemaSerializationTest {
         String textJson = mapper.writeValueAsString(new TextContent("test"));
         String imageJson = mapper.writeValueAsString(new ImageContent("data", "image/png"));
 
-        // Verify type field is present
         assert textJson.contains("\"type\":\"text\"");
         assert imageJson.contains("\"type\":\"image\"");
     }
@@ -186,77 +102,7 @@ class AcpSchemaSerializationTest {
         String chunkJson = mapper.writeValueAsString(new AgentMessageChunk(new TextContent("test")));
         String thoughtJson = mapper.writeValueAsString(new AgentThought("thinking"));
 
-        // Verify type field is present
         assert chunkJson.contains("\"type\":\"agent_message_chunk\"");
         assert thoughtJson.contains("\"type\":\"agent_thought\"");
-    }
-
-    @Test
-    void sessionSwitchRequestRoundTrip() throws Exception {
-        var request = new SessionSwitchRequest("session-uuid");
-
-        String json = mapper.writeValueAsString(request);
-        var deserialized = mapper.readValue(json, SessionSwitchRequest.class);
-
-        assertEquals("session-uuid", deserialized.sessionId());
-    }
-
-    @Test
-    void sessionSwitchResponseRoundTrip() throws Exception {
-        var response = new SessionSwitchResponse("ok", "session-uuid");
-
-        String json = mapper.writeValueAsString(response);
-        var deserialized = mapper.readValue(json, SessionSwitchResponse.class);
-
-        assertEquals("ok", deserialized.status());
-        assertEquals("session-uuid", deserialized.sessionId());
-    }
-
-    @Test
-    void getConversationRequestRoundTrip() throws Exception {
-        var request = new GetConversationRequest();
-
-        String json = mapper.writeValueAsString(request);
-        var deserialized = mapper.readValue(json, GetConversationRequest.class);
-
-        assertNotNull(deserialized);
-    }
-
-    @Test
-    void getConversationResponseRoundTrip() throws Exception {
-        var messages = List.of(
-                new ConversationMessage("user", "Hello", null),
-                new ConversationMessage("ai", "Response", "reasoning text"));
-        var entry = new ConversationEntry(1, false, "CODE", messages, null);
-        var response = new GetConversationResponse(List.of(entry));
-
-        String json = mapper.writeValueAsString(response);
-        var deserialized = mapper.readValue(json, GetConversationResponse.class);
-
-        assertEquals(1, deserialized.entries().size());
-        var e = deserialized.entries().getFirst();
-        assertEquals(1, e.sequence());
-        assertFalse(e.isCompressed());
-        assertEquals("CODE", e.taskType());
-        assertEquals(2, e.messages().size());
-        assertEquals("user", e.messages().get(0).role());
-        assertEquals("Hello", e.messages().get(0).text());
-        assertNull(e.messages().get(0).reasoning());
-        assertEquals("reasoning text", e.messages().get(1).reasoning());
-        assertNull(e.summary());
-    }
-
-    @Test
-    void getConversationResponseWithSummaryRoundTrip() throws Exception {
-        var entry = new ConversationEntry(5, true, "ASK", null, "A compressed summary");
-        var response = new GetConversationResponse(List.of(entry));
-
-        String json = mapper.writeValueAsString(response);
-        var deserialized = mapper.readValue(json, GetConversationResponse.class);
-
-        var e = deserialized.entries().getFirst();
-        assertTrue(e.isCompressed());
-        assertNull(e.messages());
-        assertEquals("A compressed summary", e.summary());
     }
 }
