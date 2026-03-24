@@ -68,12 +68,16 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
     @Override
     protected IAnalyzer newSnapshot(
             AnalyzerState state, ProgressListener listener, @Nullable AnalyzerCache previousCache) {
-        return new PhpAnalyzer(getProject(), state, listener, (PhpAnalyzerCache) previousCache);
+        PhpAnalyzerCache phpCache = previousCache instanceof PhpAnalyzerCache p ? p : new PhpAnalyzerCache();
+        return new PhpAnalyzer(getProject(), state, listener, phpCache);
     }
 
     @Override
     protected AnalyzerCache createFilteredCache(AnalyzerCache previous, Set<ProjectFile> changedFiles) {
-        return new PhpAnalyzerCache((PhpAnalyzerCache) previous, changedFiles);
+        if (previous instanceof PhpAnalyzerCache phpCache) {
+            return new PhpAnalyzerCache(phpCache, changedFiles);
+        }
+        return new PhpAnalyzerCache();
     }
 
     @Override
