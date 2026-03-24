@@ -7,9 +7,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import ai.brokk.ContextManager;
 import ai.brokk.github.BackgroundGitHubAuth;
 import ai.brokk.github.DeviceFlowModels;
+import ai.brokk.project.MainProject;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import ai.brokk.project.MainProject;
 import java.nio.file.Path;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.BeforeEach;
@@ -37,7 +37,12 @@ class GitHubAuthRouterTest {
         starterCalled = new AtomicBoolean(false);
         logoutCalled = new AtomicBoolean(false);
         mockResponse = new DeviceFlowModels.DeviceCodeResponse(
-                "dev_123", "user_123", "https://github.com/login/device", "https://github.com/login/device/123", 900, 5);
+                "dev_123",
+                "user_123",
+                "https://github.com/login/device",
+                "https://github.com/login/device/123",
+                900,
+                5);
         currentStatus = new BackgroundGitHubAuth.AuthStatus("IDLE", "Ready");
         isConnected = false;
         isAuthInProgress = false;
@@ -64,7 +69,9 @@ class GitHubAuthRouterTest {
 
         JsonNode body = MAPPER.readTree(exchange.responseBodyBytes());
         assertEquals("started", body.get("status").asText());
-        assertEquals(mockResponse.getPreferredVerificationUri(), body.get("verificationUri").asText());
+        assertEquals(
+                mockResponse.getPreferredVerificationUri(),
+                body.get("verificationUri").asText());
         assertEquals("user_123", body.get("userCode").asText());
         assertTrue(body.get("hasCompleteUri").asBoolean());
     }

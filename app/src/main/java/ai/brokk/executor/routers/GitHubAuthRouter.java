@@ -98,8 +98,9 @@ public class GitHubAuthRouter implements SimpleHttpServer.CheckedHttpHandler {
                 case "/v1/github/oauth/start" -> handleStart(exchange);
                 case "/v1/github/oauth/status" -> handleStatus(exchange);
                 case "/v1/github/oauth/authorization" -> handleAuthorization(exchange);
-                default -> SimpleHttpServer.sendJsonResponse(
-                        exchange, 404, ErrorPayload.of(ErrorPayload.Code.NOT_FOUND, "Not found"));
+                default ->
+                    SimpleHttpServer.sendJsonResponse(
+                            exchange, 404, ErrorPayload.of(ErrorPayload.Code.NOT_FOUND, "Not found"));
             }
         } catch (Exception e) {
             logger.error("Error handling GitHub auth request", e);
@@ -127,12 +128,18 @@ public class GitHubAuthRouter implements SimpleHttpServer.CheckedHttpHandler {
                 exchange,
                 200,
                 Map.of(
-                        "status", "started",
-                        "verificationUri", preferredVerificationUri,
-                        "userCode", response.userCode(),
-                        "expiresIn", response.expiresIn(),
-                        "interval", response.interval(),
-                        "hasCompleteUri", hasCompleteUri));
+                        "status",
+                        "started",
+                        "verificationUri",
+                        preferredVerificationUri,
+                        "userCode",
+                        response.userCode(),
+                        "expiresIn",
+                        response.expiresIn(),
+                        "interval",
+                        response.interval(),
+                        "hasCompleteUri",
+                        hasCompleteUri));
     }
 
     private void handleStatus(HttpExchange exchange) throws IOException {
