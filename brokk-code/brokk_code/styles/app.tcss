@@ -953,6 +953,20 @@ ModuleEditModalScreen {
     margin: 0 1;
 }
 
+#settings-languages-scroll {
+    height: 8;
+    max-height: 12;
+    border: tall $primary-darken-1;
+    background: transparent;
+    padding: 0 1;
+}
+
+#settings-languages-scroll Checkbox {
+    height: auto;
+    margin: 0;
+    padding: 0;
+}
+
 /* Commands Modal Styles */
 #commands-modal-container {
     width: 100%;

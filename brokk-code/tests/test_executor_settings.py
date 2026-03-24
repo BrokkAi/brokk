@@ -1,5 +1,6 @@
-import pytest
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 from brokk_code.executor import ExecutorError, ExecutorManager
 

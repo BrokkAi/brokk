@@ -1261,6 +1261,8 @@ class SettingsModalScreen(ModalScreen[None]):
         self._shell_args: str = ""
         self._issue_provider_type: str = "NONE"
         self._github_override: bool = False
+        self._analyzer_languages: List[Dict[str, str]] = []
+        self._configured_languages: List[str] = []
 
     def compose(self) -> ComposeResult:
         with Vertical(id="settings-modal-container"):
@@ -1361,11 +1363,20 @@ class SettingsModalScreen(ModalScreen[None]):
 
                 with TabPane("Code Intelligence", id="settings-tab-ci"):
                     with VerticalScroll(classes="settings-tab-scroll"):
+                        yield Static("Analyzer Languages", classes="settings-section-title")
+                        yield Static(
+                            "Select which languages to analyze for code intelligence",
+                            classes="settings-hint",
+                        )
+                        with VerticalScroll(id="settings-languages-scroll"):
+                            pass
+
                         yield Static("Code Intelligence", classes="settings-section-title")
 
                         yield Static("Exclusion Patterns:", classes="settings-subsection-label")
                         yield Static(
-                            "Patterns to exclude from code intelligence (e.g., build, node_modules, *.svg)",
+                            "Patterns to exclude from code intelligence"
+                            " (e.g., build, node_modules, *.svg)",
                             classes="settings-hint",
                         )
                         yield ListView(id="settings-exclusion-list")
@@ -1424,7 +1435,8 @@ class SettingsModalScreen(ModalScreen[None]):
                                     yield Static("Host (optional):", classes="settings-label")
                                     yield Input(placeholder="github.com", id="settings-github-host")
                             yield Static(
-                                "If not overridden, issues are fetched from the project's own GitHub repository.",
+                                "If not overridden, issues are fetched from"
+                                " the project's own GitHub repository.",
                                 classes="settings-hint",
                             )
 
@@ -1624,6 +1636,33 @@ class SettingsModalScreen(ModalScreen[None]):
             self.query_one("#settings-retention-minimal", RadioButton).value = True
         else:
             self.query_one("#settings-retention-improve", RadioButton).value = True
+
+        # Analyzer Languages
+        analyzer_langs = self._settings_data.get("analyzerLanguages", {})
+        self._configured_languages = analyzer_langs.get("configured", [])
+        available = analyzer_langs.get("available", [])
+        detected = set(analyzer_langs.get("detected", []))
+
+        # Build display list: union of configured + detected, sorted by name
+        configured_set = set(self._configured_languages)
+        show_langs = []
+        for lang in available:
+            internal = lang.get("internalName", "")
+            if internal in configured_set or internal in detected:
+                show_langs.append(lang)
+
+        # Sort by display name
+        show_langs.sort(key=lambda x: x.get("name", "").lower())
+        self._analyzer_languages = show_langs
+
+        # Populate the scroll container with Checkbox widgets
+        lang_scroll = self.query_one("#settings-languages-scroll", VerticalScroll)
+        for lang in self._analyzer_languages:
+            internal = lang.get("internalName", "")
+            name = lang.get("name", internal)
+            is_configured = internal in configured_set
+            cb = Checkbox(name, value=is_configured, id=f"settings-lang-{internal}")
+            lang_scroll.mount(cb)
 
     def _refresh_exclusion_list(self) -> None:
         """Refreshes the exclusion patterns ListView."""
@@ -1901,6 +1940,20 @@ class SettingsModalScreen(ModalScreen[None]):
                 issue_provider_data["config"] = {}
 
             await self.app.executor.update_issue_provider(issue_provider_data)
+
+            # Save analyzer languages
+            selected_languages = []
+            for lang in self._analyzer_languages:
+                internal = lang.get("internalName", "")
+                try:
+                    cb = self.query_one(f"#settings-lang-{internal}", Checkbox)
+                    if cb.value:
+                        selected_languages.append(internal)
+                except Exception:
+                    pass
+
+            if self._analyzer_languages:
+                await self.app.executor.update_analyzer_languages(selected_languages)
 
             # Show success message in chat
             chat = self.app._maybe_chat()

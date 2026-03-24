@@ -1468,6 +1468,20 @@ class ExecutorManager:
             await self._handle_http_error(e, "/v1/settings/data-retention")
             raise
 
+    async def update_analyzer_languages(self, languages: List[str]) -> Dict[str, Any]:
+        """Updates the configured analyzer languages."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+        try:
+            resp = await self._http_client.post(
+                "/v1/settings/languages", json={"languages": languages}
+            )
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            await self._handle_http_error(e, "/v1/settings/languages")
+            raise
+
     async def delete_dependency(self, name: str) -> Dict[str, Any]:
         """Deletes a dependency by name."""
         if not self._http_client:
