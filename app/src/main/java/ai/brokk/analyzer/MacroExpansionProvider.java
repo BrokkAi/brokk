@@ -2,15 +2,13 @@ package ai.brokk.analyzer;
 
 import ai.brokk.analyzer.macro.MacroPolicy;
 import ai.brokk.analyzer.macro.MacroTemplateExpander;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import java.util.stream.Collectors;
 import org.jetbrains.annotations.Nullable;
 import org.jspecify.annotations.NullMarked;
 import org.slf4j.Logger;
@@ -255,7 +253,9 @@ public interface MacroExpansionProvider extends CapabilityProvider {
             if (isSnippetRoot) {
                 // If the snippet root is a container (like an impl block) and the target is a class,
                 // we often want to flatten its children directly into the target.
-                if (rescoped.isClass() && parentCu.isClass() && rescoped.identifier().equals(parentCu.identifier())) {
+                if (rescoped.isClass()
+                        && parentCu.isClass()
+                        && rescoped.identifier().equals(parentCu.identifier())) {
                     for (CodeUnit child : acc.getChildren(rescoped)) {
                         acc.addChild(parentCu, child);
                     }

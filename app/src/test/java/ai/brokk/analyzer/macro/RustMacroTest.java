@@ -135,7 +135,9 @@ public class RustMacroTest {
                             .flatMap(cu -> analyzer.getDirectChildren(cu).stream())
                             .filter(cu -> cu.identifier().equals("default") && cu.isSynthetic())
                             .findFirst())
-                    .orElseThrow(() -> new AssertionError("Missing synthetic default() method as a descendant of Config. Children found: " + children));
+                            .orElseThrow(() -> new AssertionError(
+                                    "Missing synthetic default() method as a descendant of Config. Children found: "
+                                            + children));
 
             assertTrue(defaultFn.fqName().contains("Config"), "FQN should contain struct name");
 
