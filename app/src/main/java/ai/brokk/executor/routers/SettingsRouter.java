@@ -15,7 +15,6 @@ import ai.brokk.project.IProject.CodeAgentTestScope;
 import ai.brokk.project.MainProject.DataRetentionPolicy;
 import ai.brokk.util.ShellConfig;
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpExchange;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -37,8 +36,6 @@ import org.jspecify.annotations.NullMarked;
 @NullMarked
 public final class SettingsRouter implements SimpleHttpServer.CheckedHttpHandler {
     private static final Logger logger = LogManager.getLogger(SettingsRouter.class);
-    private static final ObjectMapper objectMapper = new ObjectMapper();
-
     private final ContextManager contextManager;
 
     public SettingsRouter(ContextManager contextManager) {
@@ -226,7 +223,8 @@ public final class SettingsRouter implements SimpleHttpServer.CheckedHttpHandler
 
             SimpleHttpServer.sendJsonResponse(exchange, Map.of("status", "updated"));
         } catch (IllegalArgumentException e) {
-            RouterUtil.sendValidationError(exchange, e.getMessage());
+            var msg = e.getMessage();
+            RouterUtil.sendValidationError(exchange, msg != null ? msg : "Validation error");
         } catch (Exception e) {
             logger.error("Error handling POST /v1/settings", e);
             SimpleHttpServer.sendJsonResponse(
@@ -322,7 +320,7 @@ public final class SettingsRouter implements SimpleHttpServer.CheckedHttpHandler
         project.setShellConfig(new ShellConfig(request.executable(), args));
     }
 
-    private void applyIssueProvider(IProject project, JsonNode requestNode) {
+    private void applyIssueProvider(IProject project, @Nullable JsonNode requestNode) {
         if (requestNode == null || !requestNode.has("type")) {
             throw new IllegalArgumentException("type is required");
         }
@@ -452,8 +450,5 @@ public final class SettingsRouter implements SimpleHttpServer.CheckedHttpHandler
 
     private record UpdateShellRequest(@Nullable String executable, @Nullable List<String> args) {}
 
-    private record UpdateDataRetentionRequest(@Nullable String policy) {}
-
     private record UpdateLanguagesRequest(@Nullable List<String> languages) {}
-
 }

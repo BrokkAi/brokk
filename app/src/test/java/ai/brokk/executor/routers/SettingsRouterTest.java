@@ -5,7 +5,6 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.ContextManager;
-import ai.brokk.IssueProvider;
 import ai.brokk.agents.BuildAgent.BuildDetails;
 import ai.brokk.project.MainProject;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -60,11 +59,18 @@ class SettingsRouterTest {
     @Test
     @SuppressWarnings("unchecked")
     void handlePostSettings_updatesBuildDetails() throws Exception {
-        var initialDetails = new BuildDetails("initial-build", true,
-                                              "initial-test", true,
-                                              "initial-testsome", false,
-                                              Set.of("node_modules"),
-                                              Map.of(), null, "", List.of());
+        var initialDetails = new BuildDetails(
+                "initial-build",
+                true,
+                "initial-test",
+                true,
+                "initial-testsome",
+                false,
+                Set.of("node_modules"),
+                Map.of(),
+                null,
+                "",
+                List.of());
         project.saveBuildDetails(initialDetails);
 
         var body = Map.of("buildDetails", Map.of("buildLintCommand", "updated-build", "testAllEnabled", false));
@@ -92,11 +98,17 @@ class SettingsRouterTest {
     @Test
     @SuppressWarnings("unchecked")
     void handlePostSettings_updatesProjectSettings() throws Exception {
-        var body = Map.of("projectSettings",
-                          Map.of("commitMessageFormat", "feat: {{description}}",
-                                 "codeAgentTestScope", "ALL",
-                                 "runCommandTimeoutSeconds", 120,
-                                 "autoUpdateLocalDependencies", true));
+        var body = Map.of(
+                "projectSettings",
+                Map.of(
+                        "commitMessageFormat",
+                        "feat: {{description}}",
+                        "codeAgentTestScope",
+                        "ALL",
+                        "runCommandTimeoutSeconds",
+                        120,
+                        "autoUpdateLocalDependencies",
+                        true));
 
         var exchange = TestHttpExchange.jsonRequest("POST", "/v1/settings", body);
         settingsRouter.handle(exchange);
@@ -140,9 +152,13 @@ class SettingsRouterTest {
     @Test
     @SuppressWarnings("unchecked")
     void handlePostSettings_updatesIssueProvider() throws Exception {
-        var body = Map.of("issueProvider",
-                          Map.of("type", "GITHUB",
-                                 "config", Map.of("owner", "myorg", "repo", "myrepo", "host", "github.enterprise.com")));
+        var body = Map.of(
+                "issueProvider",
+                Map.of(
+                        "type",
+                        "GITHUB",
+                        "config",
+                        Map.of("owner", "myorg", "repo", "myrepo", "host", "github.enterprise.com")));
 
         var exchange = TestHttpExchange.jsonRequest("POST", "/v1/settings", body);
         settingsRouter.handle(exchange);
@@ -213,11 +229,12 @@ class SettingsRouterTest {
     @Test
     @SuppressWarnings("unchecked")
     void handlePostSettings_updatesAllSectionsAtOnce() throws Exception {
-        var body = Map.of("buildDetails", Map.of("buildLintCommand", "make lint"),
-                          "projectSettings", Map.of("commitMessageFormat", "fix: {msg}"),
-                          "shellConfig", Map.of("executable", "/bin/zsh", "args", List.of("-c")),
-                          "dataRetentionPolicy", "MINIMAL",
-                          "analyzerLanguages", Map.of("languages", List.of("JAVA")));
+        var body = Map.of(
+                "buildDetails", Map.of("buildLintCommand", "make lint"),
+                "projectSettings", Map.of("commitMessageFormat", "fix: {msg}"),
+                "shellConfig", Map.of("executable", "/bin/zsh", "args", List.of("-c")),
+                "dataRetentionPolicy", "MINIMAL",
+                "analyzerLanguages", Map.of("languages", List.of("JAVA")));
 
         var exchange = TestHttpExchange.jsonRequest("POST", "/v1/settings", body);
         settingsRouter.handle(exchange);

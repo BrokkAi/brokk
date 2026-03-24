@@ -565,8 +565,11 @@ class SettingsModalScreen(ModalScreen[None]):
             if internal in configured_set or internal in detected:
                 show_langs.append(lang)
 
-        # Sort by display name
-        show_langs.sort(key=lambda x: x.get("name", "").lower())
+        # Sort: configured first, then alphabetical within each group
+        def _lang_sort_key(x: Dict[str, str]) -> tuple[bool, str]:
+            return (x.get("internalName", "") not in configured_set, x.get("name", "").lower())
+
+        show_langs.sort(key=_lang_sort_key)
         self._analyzer_languages = show_langs
 
         # Populate the scroll container with Checkbox widgets
