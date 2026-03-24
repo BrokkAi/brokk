@@ -6,6 +6,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Objects;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -241,13 +242,23 @@ public interface MacroExpansionProvider extends CapabilityProvider {
                             .noneMatch(pUnit -> snippetAcc.getChildren(pUnit).contains(orig));
             if (isSnippetRoot) {
                 // If the snippet root is a container (like an impl block) and the target is a class,
-                // we often want to flatten the children directly into the target.
+                // we often want to flatten its children directly into the target.
                 if (rescoped.isClass() && parentCu.isClass() && rescoped.identifier().equals(parentCu.identifier())) {
                     for (CodeUnit child : acc.getChildren(rescoped)) {
                         acc.addChild(parentCu, child);
                     }
                 } else {
-                    acc.addChild(parentCu, rescoped);
+                    // Attach to the same parent as the target code unit (parentCu)
+                    // If parentCu has a parent in the accumulator, we use that.
+                    Optional<CodeUnit> targetParent = acc.cuByFqName().values().stream()
+                            .filter(pUnit -> acc.getChildren(pUnit).contains(parentCu))
+                            .findFirst();
+
+                    if (targetParent.isPresent()) {
+                        acc.addChild(targetParent.get(), rescoped);
+                    } else {
+                        acc.addChild(parentCu, rescoped);
+                    }
                 }
             }
         }

@@ -51,11 +51,16 @@ public class RustMacroTest {
             assertSyntheticFunction(children, "Status.is_Stopped");
             assertSyntheticFunction(children, "Status.is_Initial");
 
-            // Assert source code check for one of the synthetic units
+            // Verify that synthetic units share the same parent as the enum variants
             CodeUnit isRunning = children.stream()
                     .filter(cu -> cu.fqName().equals("Status.is_Running"))
                     .findFirst()
                     .orElseThrow();
+
+            assertEquals(
+                    Optional.of(statusEnum),
+                    analyzer.parentOf(isRunning),
+                    "Synthetic function should have the same parent as the enum variants");
 
             Optional<String> source = analyzer.getSource(isRunning, false);
             assertTrue(source.isPresent(), "Source should be present for synthetic function Status.is_Running");
