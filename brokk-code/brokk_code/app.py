@@ -1259,6 +1259,7 @@ class BrokkApp(App):
         self._relaunch_lock = asyncio.Lock()
         self._reasoning_target: str = "planner"
         self.latest_pypi_version: Optional[str] = None
+        self._welcome_variant_full: bool = True
 
         # Accumulators for LLM usage costs (USD).
         # current_job_cost is per-job and resets at the start of each _run_job.
@@ -1321,7 +1322,9 @@ class BrokkApp(App):
         if not chat:
             return
 
-        msg = build_welcome_message(self.get_slash_commands(), self.latest_pypi_version)
+        msg = build_welcome_message(
+            self.get_slash_commands(), self.latest_pypi_version, full=self._welcome_variant_full
+        )
         try:
             if refresh:
                 chat.update_welcome(msg)
@@ -1466,20 +1469,27 @@ class BrokkApp(App):
             history = load_history(self.executor.workspace_dir)
             chat.set_history(history)
 
-            self._show_welcome_message()
-
         # Check for updates in background
         self.run_worker(self._check_for_updates())
 
         # Check for API key before starting executor
-        if not self.settings.get_brokk_api_key():
-
+        api_key = self.settings.get_brokk_api_key()
+        if not api_key:
+            # If no API key, do NOT show welcome message yet.
+            # The login screen will be the first thing the user sees.
             async def on_key_entered(key: str) -> bool:
                 try:
                     await asyncio.to_thread(write_brokk_api_key, key)
                     self.executor.brokk_api_key = key
+                    # First time login: show full welcome
+                    self._welcome_variant_full = True
+                    # Persist flag so if they crash/close now, next start is also full.
+                    self.settings.show_full_welcome = True
+                    self.settings.save()
+
                     if chat:
                         chat.add_system_message("API key saved. Starting Brokk executor...")
+                        self._show_welcome_message()
                     self.run_worker(self._start_executor())
                     return True
                 except Exception as e:
@@ -1488,7 +1498,17 @@ class BrokkApp(App):
 
             self.push_screen(BrokkApiKeyModalScreen(on_submit=on_key_entered))
         else:
+            # Normal startup with key: decide between full or compact welcome
+            if self.settings.show_full_welcome:
+                self._welcome_variant_full = True
+                # Clear the flag now that we are showing it
+                self.settings.show_full_welcome = False
+                self.settings.save()
+            else:
+                self._welcome_variant_full = False
+
             if chat:
+                self._show_welcome_message()
                 chat.add_system_message("Starting Brokk executor...")
             self.run_worker(self._start_executor())
         self.run_worker(self._monitor_executor())

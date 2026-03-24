@@ -9,6 +9,8 @@ from brokk_code.app import BrokkApp
 @pytest.mark.asyncio
 async def test_welcome_message_shown_on_startup(tmp_path: Path):
     """Verify welcome message appears on every startup."""
+    from brokk_code.settings import Settings
+
     mock_executor = MagicMock()
     mock_executor.workspace_dir = tmp_path
     mock_executor.start = AsyncMock()
@@ -20,17 +22,24 @@ async def test_welcome_message_shown_on_startup(tmp_path: Path):
     mock_executor.stop = AsyncMock()
     mock_executor.get_context = AsyncMock(return_value={"usedTokens": 0})
     mock_executor.get_tasklist = AsyncMock(return_value={"tasks": []})
+    mock_executor.get_model_config = AsyncMock(return_value={})
 
     for history in ([], ["previous prompt"]):
         with patch("brokk_code.app.load_history", return_value=history):
-            app = BrokkApp(executor=mock_executor)
-            async with app.run_test() as pilot:
-                await pilot.pause()
+            # Ensure an API key exists so welcome is shown immediately
+            with patch("brokk_code.settings.Settings.get_brokk_api_key", return_value="test-key"):
+                with patch("brokk_code.settings.Settings.load") as mock_load:
+                    mock_load.return_value = Settings(show_full_welcome=False)
+                    app = BrokkApp(executor=mock_executor)
+                    async with app.run_test() as pilot:
+                        await pilot.pause()
 
-                chat_log = app.query_one("#chat-log")
-                content = "".join(str(line) for line in chat_log.lines)
-                assert "Welcome to Brokk" in content, f"Expected welcome with history={history!r}"
-                assert "Context Engineering" in content
+                        chat_log = app.query_one("#chat-log")
+                        content = "".join(str(line) for line in chat_log.lines)
+                        message = f"Expected welcome with history={history!r}"
+                        assert "Welcome to Brokk" in content, message
+                        # Default startup uses the compact welcome variant.
+                        assert "Context Engineering" not in content
 
 
 def test_build_welcome_message_content():
@@ -43,14 +52,24 @@ def test_build_welcome_message_content():
         {"command": "/task", "description": "test"},
     ]
 
-    msg = build_welcome_message(mock_commands)
-
+    # Test Full
+    msg = build_welcome_message(mock_commands, full=True)
     assert "Welcome to Brokk" in msg
     assert f"v{__version__}" in msg
     assert "context engineering" in msg.lower()
     assert "https://brokk.ai/" in msg
     assert "/context" in msg
     assert "/task" in msg
+
+    # Test Compact
+    msg_compact = build_welcome_message(mock_commands, full=False)
+    assert "Welcome to Brokk" in msg_compact
+    assert f"v{__version__}" in msg_compact
+    assert "context engineering" not in msg_compact.lower()
+    assert "### Context Engineering" not in msg_compact
+    assert "https://brokk.ai/" not in msg_compact
+    assert "/context" in msg_compact
+    assert "/task" in msg_compact
 
 
 def test_get_braille_icon_contains_braille():
@@ -88,23 +107,52 @@ async def test_welcome_message_updates_after_pypi_fetch(tmp_path: Path):
     mock_executor.start = AsyncMock()
     mock_executor.wait_live = AsyncMock(return_value=True)
 
-    with patch(
-        "brokk_code.app.BrokkApp._fetch_latest_pypi_version", new_callable=AsyncMock
-    ) as mock_fetch:
-        mock_fetch.return_value = "1.2.3"
-        app = BrokkApp(executor=mock_executor)
+    with patch("brokk_code.settings.Settings.get_brokk_api_key", return_value="sk-test"):
+        with patch(
+            "brokk_code.app.BrokkApp._fetch_latest_pypi_version", new_callable=AsyncMock
+        ) as mock_fetch:
+            mock_fetch.return_value = "1.2.3"
+            app = BrokkApp(executor=mock_executor)
 
-        async with app.run_test() as pilot:
-            await pilot.pause()
-            # Wait for background check_for_updates worker
-            for _ in range(10):
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                # Wait for background check_for_updates worker
+                for _ in range(10):
+                    chat_log = app.query_one("#chat-log")
+                    content = "".join(str(line) for line in chat_log.lines)
+                    if "(Latest: 1.2.3)" in content:
+                        break
+                    await pilot.pause(0.1)
+
+                assert "(Latest: 1.2.3)" in content
+
+
+@pytest.mark.asyncio
+async def test_full_welcome_on_first_startup_after_login(tmp_path: Path):
+    """Verify show_full_welcome=True in settings triggers the full variant."""
+    mock_executor = MagicMock()
+    mock_executor.workspace_dir = tmp_path
+    mock_executor.start = AsyncMock()
+    mock_executor.wait_live = AsyncMock(return_value=True)
+
+    from brokk_code.settings import Settings
+
+    with patch("brokk_code.settings.Settings.get_brokk_api_key", return_value="sk-test"):
+        with patch("brokk_code.settings.Settings.load") as mock_load:
+            # Setup settings with the one-time flag set
+            mock_settings = Settings(show_full_welcome=True)
+            mock_load.return_value = mock_settings
+
+            app = BrokkApp(executor=mock_executor)
+            async with app.run_test() as pilot:
+                await pilot.pause()
                 chat_log = app.query_one("#chat-log")
                 content = "".join(str(line) for line in chat_log.lines)
-                if "(Latest: 1.2.3)" in content:
-                    break
-                await pilot.pause(0.1)
 
-            assert "(Latest: 1.2.3)" in content
+                assert "Welcome to Brokk" in content
+                assert "Context Engineering" in content
+                # The flag should have been cleared and saved
+                assert mock_settings.show_full_welcome is False
 
 
 @pytest.mark.asyncio
