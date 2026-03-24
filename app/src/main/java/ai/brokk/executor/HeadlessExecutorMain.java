@@ -6,10 +6,10 @@ import ai.brokk.BuildInfo;
 import ai.brokk.ContextManager;
 import ai.brokk.cli.HeadlessConsole;
 import ai.brokk.executor.http.SimpleHttpServer;
-import ai.brokk.executor.jobs.ErrorPayload;
 import ai.brokk.executor.jobs.JobRunner;
 import ai.brokk.executor.jobs.JobStore;
 import ai.brokk.executor.routers.ActivityRouter;
+import ai.brokk.executor.routers.AuthRouter;
 import ai.brokk.executor.routers.CompletionsRouter;
 import ai.brokk.executor.routers.ContextRouter;
 import ai.brokk.executor.routers.DependenciesRouter;
@@ -67,9 +67,6 @@ public final class HeadlessExecutorMain {
     private final JobReservation jobReservation = new JobReservation();
     private final Thread initThread;
     private final CompletableFuture<Void> headlessInit = new CompletableFuture<>();
-    // Indicates whether a session has been loaded (either uploaded or created) at least once.
-    // Used to gate /health/ready until the first session is available.
-    private volatile boolean sessionLoaded = false;
 
     /**
      * Result of parsing command-line arguments, including both parsed args and invalid keys.
@@ -273,9 +270,7 @@ public final class HeadlessExecutorMain {
         this.server.registerUnauthenticatedContext("/v1/executor", this::handleExecutor);
 
         var sessionsRouter = new SessionsRouter(
-                this.contextManager,
-                this.contextManager.getProject().getSessionManager(),
-                val -> this.sessionLoaded = val);
+                this.contextManager, this.contextManager.getProject().getSessionManager());
         this.server.registerAuthenticatedContext("/v1/sessions", sessionsRouter);
 
         this.jobRunner = new JobRunner(this.contextManager, this.jobStore);
@@ -293,6 +288,9 @@ public final class HeadlessExecutorMain {
 
         var modelsRouter = new ModelsRouter(this.contextManager);
         this.server.registerAuthenticatedContext("/v1/models", modelsRouter);
+
+        var authRouter = new AuthRouter(this.contextManager);
+        this.server.registerAuthenticatedContext("/v1/auth", authRouter);
 
         var modelConfigRouter = new ModelConfigRouter(this.contextManager);
         this.server.registerAuthenticatedContext("/v1/model-config", modelConfigRouter);
@@ -327,47 +325,41 @@ public final class HeadlessExecutorMain {
     }
 
     /**
-     * Health readiness endpoint.
+     * Deprecated compatibility endpoint.
      *
-     * Note for maintainers: this endpoint signals that the headless executor has a session loaded
-     * at the time the request is served. The "sessionId" returned here is whatever the
-     * ContextManager reports as its current session when the request is handled. It is intentionally
-     * a snapshot of the current state and does NOT guarantee that this is the same session id that
-     * was most recently created or imported by a caller. The ContextManager may asynchronously
-     * quarantine, migrate, or replace sessions (for example, during import, validation, or
-     * compatibility migration), so the active session id can change as background tasks complete.
-     *
-     * Keep the handler behavior unchanged: it returns 503 if we have not yet loaded any session,
-     * otherwise it returns the ContextManager's current session id at request time.
+     * <p>/health/ready now mirrors process liveness and always returns HTTP 200 when the server is
+     * up. It remains temporarily to keep older clients working while they migrate to /health/live.
      */
     private void handleHealthReady(HttpExchange exchange) throws IOException {
         if (!RouterUtil.ensureMethod(exchange, "GET")) {
             return;
         }
+        exchange.getResponseHeaders().add("Deprecation", "true");
+        exchange.getResponseHeaders().add("Warning", "299 - \"Deprecated endpoint: use /health/live\"");
 
-        if (!sessionLoaded) {
-            // sessionLoaded is a local flag driven by session lifecycle events (e.g. SessionsRouter).
-            // A false value means no session has been marked as loaded for this headless executor yet,
-            // so we return 503 NOT_READY.
-            logger.info("/health/ready requested before any session is marked loaded; returning 503");
-            var error = ErrorPayload.of("NOT_READY", "No session loaded");
-            SimpleHttpServer.sendJsonResponse(exchange, 503, error);
-            return;
-        }
-
-        // Query the ContextManager for the session that is current at the instant of this request.
-        // This value may differ from session ids returned by recent create/import operations because
-        // ContextManager performs asynchronous work (quarantine, migration, etc.) that can change
-        // the active session after those operations complete.
-        var sessionId = contextManager.getCurrentSessionId();
-
-        // Log readiness along with the concrete current session id to make it clear in the logs which session
-        // satisfied the readiness check. Tests and callers should not rely on this id matching any
-        // previously-created/imported id unless they explicitly verify it themselves.
-        logger.info("/health/ready served; current sessionId={}", sessionId);
-
-        var response = Map.of("status", "ready", "sessionId", String.valueOf(sessionId));
+        var response = new HashMap<String, Object>();
+        response.put("status", "ready");
+        response.put("sessionId", resolveReadySessionId());
+        response.put("execId", this.execId.toString());
+        response.put("version", BuildInfo.version);
+        response.put("protocolVersion", 1);
+        logger.info("/health/ready served as deprecated liveness alias");
         SimpleHttpServer.sendJsonResponse(exchange, response);
+    }
+
+    private @Nullable String resolveReadySessionId() {
+        try {
+            var currentSessionId = contextManager.getCurrentSessionId();
+            var hasKnownActiveSession = contextManager.getProject().getSessionManager().listSessions().stream()
+                    .anyMatch(session -> session.id().equals(currentSessionId));
+            if (hasKnownActiveSession) {
+                return currentSessionId.toString();
+            }
+            return null;
+        } catch (Exception e) {
+            logger.warn("Failed to resolve sessionId for /health/ready payload", e);
+            return null;
+        }
     }
 
     private void handleExecutor(HttpExchange exchange) throws IOException {
@@ -416,18 +408,6 @@ public final class HeadlessExecutorMain {
     // ============================================================================
     // Helpers
     // ============================================================================
-    /**
-     * Test hook: allows tests in the same package to force the sessionLoaded flag.
-     *
-     * This is intentionally package-private and annotated @TestOnly to avoid use in
-     * production code. It enables tests to simulate the transient condition where the
-     * executor has observed a session lifecycle event (sessionLoaded==true) but the
-     * ContextManager currently reports no active session id.
-     */
-    @TestOnly
-    void setSessionLoadedForTests(boolean value) {
-        this.sessionLoaded = value;
-    }
 
     @TestOnly
     static String formatFatalStartupError(Throwable throwable) {
@@ -627,7 +607,7 @@ public final class HeadlessExecutorMain {
             System.out.println();
             System.out.println("  Unauthenticated (Health & Info):");
             System.out.println("    GET  /health/live       - executor liveness probe");
-            System.out.println("    GET  /health/ready      - readiness probe (503 until session loaded)");
+            System.out.println("    GET  /health/ready      - deprecated alias of /health/live");
             System.out.println("    GET  /v1/executor       - executor info and protocol version");
             System.out.println();
             System.out.println("  Authenticated (require Authorization header):");

@@ -14,7 +14,7 @@ import java.util.Set;
  * The {@link #AnalyzerCache(AnalyzerCache, Set)} constructor enables incremental updates
  * by transferring only those entries that remain valid given a set of changed files.
  */
-public final class AnalyzerCache {
+public class AnalyzerCache {
 
     private final SimpleCache<ProjectFile, SourceContent> sources;
     private final SimpleCache<ProjectFile, Set<String>> typeIdentifiers;

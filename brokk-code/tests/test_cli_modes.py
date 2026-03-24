@@ -1,6 +1,7 @@
 import subprocess
 import sys
 from contextlib import contextmanager
+from io import StringIO
 from types import ModuleType, SimpleNamespace
 from typing import Any
 from unittest.mock import patch
@@ -12,6 +13,7 @@ import brokk_code.git_utils as git_utils_module
 
 
 def _stub_install_warmup(monkeypatch) -> None:
+    monkeypatch.setattr(main_module, "ensure_uv_ready", lambda: "/usr/local/bin/uv")
     monkeypatch.setattr(main_module, "ensure_jbang_ready", lambda: "/usr/local/bin/jbang")
     monkeypatch.setattr(main_module, "_run_install_prefetch", lambda _commands: None)
     monkeypatch.setattr(
@@ -33,6 +35,173 @@ def test_main_version_subcommand_prints_version(monkeypatch, capsys) -> None:
 
     captured = capsys.readouterr()
     assert f"brokk {__version__}" in captured.out
+
+
+def test_main_login_routes_to_run_login(monkeypatch, tmp_path) -> None:
+    captured: dict[str, Any] = {}
+
+    async def fake_run_login(**kwargs: Any) -> None:
+        captured["kwargs"] = kwargs
+
+    monkeypatch.setattr(main_module, "run_login", fake_run_login)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "brokk",
+            "login",
+            "--workspace",
+            str(tmp_path),
+            "--stdin",
+            "--skip-validate",
+        ],
+    )
+
+    main_module.main()
+
+    assert captured["kwargs"]["workspace_dir"] == tmp_path.resolve()
+    assert captured["kwargs"]["read_from_stdin"] is True
+    assert captured["kwargs"]["skip_validate"] is True
+
+
+def test_main_logout_routes_to_run_logout(monkeypatch) -> None:
+    called = {"value": False}
+
+    def fake_run_logout() -> None:
+        called["value"] = True
+
+    monkeypatch.setattr(main_module, "run_logout", fake_run_logout)
+    monkeypatch.setattr(sys, "argv", ["brokk", "logout"])
+
+    main_module.main()
+
+    assert called["value"] is True
+
+
+@pytest.mark.asyncio
+async def test_run_login_reads_stdin_and_saves_key(monkeypatch, tmp_path) -> None:
+    from brokk_code.settings import read_brokk_properties
+
+    monkeypatch.setattr(sys, "stdin", StringIO("stdin-key\n"))
+
+    await main_module.run_login(
+        workspace_dir=tmp_path,
+        read_from_stdin=True,
+        skip_validate=True,
+    )
+
+    assert read_brokk_properties().get("brokkApiKey") == "stdin-key"
+
+
+@pytest.mark.asyncio
+async def test_run_login_stdin_requires_pipe(monkeypatch, tmp_path) -> None:
+    class FakeTtyInput(StringIO):
+        def isatty(self) -> bool:
+            return True
+
+    monkeypatch.setattr(sys, "stdin", FakeTtyInput(""))
+
+    with pytest.raises(SystemExit) as exc:
+        await main_module.run_login(
+            workspace_dir=tmp_path,
+            read_from_stdin=True,
+            skip_validate=True,
+        )
+
+    assert exc.value.code == 1
+
+
+@pytest.mark.asyncio
+async def test_run_login_interactive_path(monkeypatch, tmp_path) -> None:
+    from brokk_code.settings import read_brokk_properties
+
+    class FakeTtyInput(StringIO):
+        def isatty(self) -> bool:
+            return True
+
+    monkeypatch.setattr(sys, "stdin", FakeTtyInput(""))
+    monkeypatch.setattr(main_module, "_read_api_key_interactive", lambda: "interactive-key")
+
+    await main_module.run_login(
+        workspace_dir=tmp_path,
+        skip_validate=True,
+    )
+
+    assert read_brokk_properties().get("brokkApiKey") == "interactive-key"
+
+
+@pytest.mark.asyncio
+async def test_run_login_validation_reports_paid_balance(monkeypatch, tmp_path, capsys) -> None:
+    monkeypatch.setattr(sys, "stdin", StringIO("stdin-key\n"))
+
+    async def fake_validate(**_kwargs):
+        return {
+            "state": "PAID_USER",
+            "valid": True,
+            "subscribed": True,
+            "hasBalance": True,
+            "balance": 4.5,
+        }
+
+    monkeypatch.setattr(
+        main_module,
+        "_validate_brokk_api_key",
+        fake_validate,
+    )
+
+    await main_module.run_login(
+        workspace_dir=tmp_path,
+        read_from_stdin=True,
+    )
+
+    captured = capsys.readouterr()
+    assert "paid user, balance $4.50" in captured.out
+
+
+@pytest.mark.asyncio
+async def test_run_login_validation_unknown_user_exits_nonzero(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(sys, "stdin", StringIO("stdin-key\n"))
+
+    async def fake_validate(**_kwargs):
+        return {
+            "state": "UNKNOWN_USER",
+            "valid": False,
+            "subscribed": False,
+            "hasBalance": False,
+            "message": "User not found",
+        }
+
+    monkeypatch.setattr(
+        main_module,
+        "_validate_brokk_api_key",
+        fake_validate,
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        await main_module.run_login(
+            workspace_dir=tmp_path,
+            read_from_stdin=True,
+        )
+
+    assert exc.value.code == 1
+
+
+def test_main_login_rejects_api_key_flag(monkeypatch) -> None:
+    monkeypatch.setattr(sys, "argv", ["brokk", "login", "--api-key", "secret"])
+    with pytest.raises(SystemExit) as exc:
+        main_module.main()
+    assert exc.value.code == 2
+
+
+def test_run_logout_removes_saved_key(monkeypatch) -> None:
+    from brokk_code.settings import read_brokk_properties, write_brokk_api_key
+
+    write_brokk_api_key("persisted-key")
+    monkeypatch.delenv("BROKK_API_KEY", raising=False)
+
+    main_module.run_logout()
+
+    assert "brokkApiKey" not in read_brokk_properties()
 
 
 def test_main_defaults_to_tui(monkeypatch, tmp_path) -> None:
@@ -231,7 +400,7 @@ def test_main_install_zed_routes_to_installer(monkeypatch, tmp_path, capsys) -> 
     captured: dict[str, Any] = {}
 
     def fake_configure_zed_acp_settings(
-        *, force: bool = False, settings_path=None, uvx_command=None
+        *, force: bool = False, settings_path: Any = None, uvx_command: Any = None
     ):
         captured["force"] = force
         return tmp_path / ".config" / "zed" / "settings.json"
@@ -283,7 +452,7 @@ def test_main_install_intellij_routes_to_installer(monkeypatch, tmp_path, capsys
     captured: dict[str, Any] = {}
 
     def fake_configure_intellij_acp_settings(
-        *, force: bool = False, settings_path=None, uvx_command=None
+        *, force: bool = False, settings_path: Any = None, uvx_command: Any = None
     ):
         captured["force"] = force
         return tmp_path / "intellij-config"
@@ -304,7 +473,9 @@ def test_main_install_intellij_routes_to_installer(monkeypatch, tmp_path, capsys
 def test_main_install_nvim_routes_to_installer(monkeypatch, tmp_path, capsys) -> None:
     captured: dict[str, Any] = {}
 
-    def fake_configure_nvim_codecompanion_acp_settings(*, force: bool = False, settings_path=None):
+    def fake_configure_nvim_codecompanion_acp_settings(
+        *, force: bool = False, settings_path: Any = None
+    ):
         captured["force"] = force
         return tmp_path / ".config" / "nvim" / "lua" / "brokk" / "brokk_codecompanion.lua"
 
@@ -348,7 +519,9 @@ def test_main_install_neovim_with_plugin_codecompanion_routes_to_installer(
 ) -> None:
     captured: dict[str, Any] = {}
 
-    def fake_configure_nvim_codecompanion_acp_settings(*, force: bool = False, settings_path=None):
+    def fake_configure_nvim_codecompanion_acp_settings(
+        *, force: bool = False, settings_path: Any = None
+    ):
         captured["force"] = force
         return tmp_path / ".config" / "nvim" / "lua" / "brokk" / "brokk_codecompanion.lua"
 
@@ -374,7 +547,7 @@ def test_main_install_neovim_with_plugin_avante_routes_to_installer(
 ) -> None:
     captured: dict[str, Any] = {}
 
-    def fake_configure_nvim_avante_acp_settings(*, force: bool = False, settings_path=None):
+    def fake_configure_nvim_avante_acp_settings(*, force: bool = False, settings_path: Any = None):
         captured["force"] = force
         return tmp_path / ".config" / "nvim" / "lua" / "brokk" / "brokk_avante.lua"
 
@@ -397,6 +570,13 @@ def test_main_install_neovim_with_plugin_avante_routes_to_installer(
 
 def test_main_install_plugin_with_non_neovim_target_exits_nonzero(monkeypatch) -> None:
     _stub_install_warmup(monkeypatch)
+
+    called = {"ensure_key": False}
+
+    def fake_ensure_key():
+        called["ensure_key"] = True
+
+    monkeypatch.setattr(main_module, "_ensure_install_api_key", fake_ensure_key)
     monkeypatch.setattr(
         sys,
         "argv",
@@ -407,12 +587,67 @@ def test_main_install_plugin_with_non_neovim_target_exits_nonzero(monkeypatch) -
         main_module.main()
 
     assert exc.value.code == 1
+    assert not called["ensure_key"], "Should not check key for invalid args"
+
+
+def test_install_neovim_invalid_selection_skips_key_prompt(monkeypatch) -> None:
+    """Verify that if Neovim plugin selection fails, API key is not prompted."""
+    _stub_install_warmup(monkeypatch)
+
+    called = {"ensure_key": False}
+
+    def fake_ensure_key():
+        called["ensure_key"] = True
+
+    monkeypatch.setattr(main_module, "_ensure_install_api_key", fake_ensure_key)
+
+    class FakeTtyInput(StringIO):
+        def isatty(self) -> bool:
+            return True
+
+    # Use a custom stream to satisfy Rich's Console detection and selection
+    monkeypatch.setattr(sys, "stdin", FakeTtyInput(""))
+
+    # Patch rich.console.Console.input to return an invalid selection
+    from rich.console import Console
+
+    monkeypatch.setattr(Console, "input", lambda self, prompt="": "99")
+
+    monkeypatch.setattr(sys, "argv", ["brokk", "install", "neovim"])
+
+    with pytest.raises(SystemExit) as exc:
+        main_module.main()
+
+    assert exc.value.code == 1
+    assert not called["ensure_key"], "Should not prompt for API key if selection is invalid"
+
+
+def test_ensure_install_api_key_treats_whitespace_as_missing(monkeypatch) -> None:
+    """Verify that a whitespace-only key in settings triggers the prompt/read path."""
+    from brokk_code.settings import Settings
+
+    monkeypatch.setattr(Settings, "get_brokk_api_key", lambda self: "   ")
+
+    prompted = {"called": False}
+
+    def fake_prompt():
+        prompted["called"] = True
+        return "new-key"
+
+    monkeypatch.setattr(main_module, "_read_api_key_interactive", fake_prompt)
+    monkeypatch.setattr(main_module, "write_brokk_api_key", lambda k: None)
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+
+    main_module._ensure_install_api_key()
+    assert prompted["called"] is True
 
 
 def test_main_install_neovim_routes_to_installer(monkeypatch, tmp_path, capsys) -> None:
     captured: dict[str, Any] = {}
 
-    def fake_configure_nvim_codecompanion_acp_settings(*, force: bool = False, settings_path=None):
+    def fake_configure_nvim_codecompanion_acp_settings(
+        *, force: bool = False, settings_path: Any = None
+    ):
         captured["force"] = force
         return tmp_path / ".config" / "nvim" / "lua" / "brokk" / "brokk_codecompanion.lua"
 
@@ -431,7 +666,9 @@ def test_main_install_neovim_routes_to_installer(monkeypatch, tmp_path, capsys) 
     assert "Configured Neovim CodeCompanion ACP adapter" in output
 
 
-def test_main_install_neovim_with_plugin_codecompanion_conflict_exits_nonzero(monkeypatch) -> None:
+def test_main_install_neovim_with_plugin_codecompanion_conflict_exits_nonzero(
+    monkeypatch,
+) -> None:
     def fake_configure_nvim_codecompanion_acp_settings(*, force: bool = False, settings_path=None):
         raise main_module.ExistingBrokkCodeEntryError("exists")
 
@@ -516,21 +753,29 @@ def test_main_install_mcp_routes_to_installer(monkeypatch, tmp_path, capsys) -> 
     prefetched: dict[str, Any] = {}
 
     def fake_configure_claude_code_mcp_settings(
-        *, force: bool = False, settings_path=None, jbang_path=None, uvx_command=None
+        *,
+        force: bool = False,
+        settings_path: Any = None,
+        jbang_path: Any = None,
+        uvx_command: Any = None,
     ):
         captured["claude_force"] = force
         return tmp_path / "claude.json"
 
     def fake_configure_codex_mcp_settings(
-        *, force: bool = False, settings_path=None, jbang_path=None, uvx_command=None
+        *,
+        force: bool = False,
+        settings_path: Any = None,
+        jbang_path: Any = None,
+        uvx_command: Any = None,
     ):
         captured["codex_force"] = force
         return tmp_path / "codex.toml"
 
-    def fake_run_install_prefetch(commands):
+    def fake_run_install_prefetch(commands: Any):
         prefetched["commands"] = commands
 
-    def fake_install_codex_mcp_workspace_skill(*, skills_path=None):
+    def fake_install_codex_mcp_workspace_skill(*, skills_path: Any = None):
         return tmp_path / ".codex" / "skills" / "brokk-mcp-workspace" / "SKILL.md"
 
     monkeypatch.setattr(
@@ -923,14 +1168,8 @@ def test_main_issue_create_verbose_routes_correctly(monkeypatch, tmp_path) -> No
 
 @pytest.mark.asyncio
 @patch("brokk_code.executor.ExecutorManager")
-async def test_run_headless_job_creates_session_before_wait_ready(
-    mock_executor_class, tmp_path
-) -> None:
-    """Verifies that run_headless_job creates a session before polling for readiness.
-
-    This ordering is required because the Java executor's /health/ready endpoint
-    only returns 200 OK after a session has been created.
-    """
+async def test_run_headless_job_waits_for_live_before_submit(mock_executor_class, tmp_path) -> None:
+    """Verifies that run_headless_job waits for liveness before submitting."""
     from unittest.mock import AsyncMock
 
     call_order: list[str] = []
@@ -939,12 +1178,8 @@ async def test_run_headless_job_creates_session_before_wait_ready(
     async def mock_start():
         call_order.append("start")
 
-    async def mock_create_session(name: str = ""):
-        call_order.append("create_session")
-        return "session-123"
-
-    async def mock_wait_ready(timeout: float = 30.0):
-        call_order.append("wait_ready")
+    async def mock_wait_live(timeout: float = 30.0):
+        call_order.append("wait_live")
         return True
 
     async def mock_submit_job(**kwargs):
@@ -959,8 +1194,7 @@ async def test_run_headless_job_creates_session_before_wait_ready(
         call_order.append("stop")
 
     mock_manager.start = AsyncMock(side_effect=mock_start)
-    mock_manager.create_session = AsyncMock(side_effect=mock_create_session)
-    mock_manager.wait_ready = AsyncMock(side_effect=mock_wait_ready)
+    mock_manager.wait_live = AsyncMock(side_effect=mock_wait_live)
     mock_manager.submit_job = AsyncMock(side_effect=mock_submit_job)
     mock_manager.stream_events = mock_stream_events
     mock_manager.stop = AsyncMock(side_effect=mock_stop)
@@ -973,23 +1207,17 @@ async def test_run_headless_job_creates_session_before_wait_ready(
         tags={},
     )
 
-    # Verify the critical ordering: create_session MUST come before wait_ready
+    # Verify lifecycle ordering: start -> wait_live -> submit_job
     assert "start" in call_order
-    assert "create_session" in call_order
-    assert "wait_ready" in call_order
+    assert "wait_live" in call_order
     assert "submit_job" in call_order
 
     start_idx = call_order.index("start")
-    create_session_idx = call_order.index("create_session")
-    wait_ready_idx = call_order.index("wait_ready")
+    wait_live_idx = call_order.index("wait_live")
     submit_job_idx = call_order.index("submit_job")
 
-    # The critical assertion: session must be created before waiting for readiness
-    assert start_idx < create_session_idx, "start() must be called before create_session()"
-    assert create_session_idx < wait_ready_idx, (
-        "create_session() must be called before wait_ready()"
-    )
-    assert wait_ready_idx < submit_job_idx, "wait_ready() must be called before submit_job()"
+    assert start_idx < wait_live_idx, "start() must be called before wait_live()"
+    assert wait_live_idx < submit_job_idx, "wait_live() must be called before submit_job()"
 
 
 @pytest.mark.asyncio
@@ -1002,7 +1230,7 @@ async def test_run_headless_job_reports_failed_terminal_state(
     mock_manager = mock_executor_class.return_value
     mock_manager.start = AsyncMock()
     mock_manager.create_session = AsyncMock(return_value="session-123")
-    mock_manager.wait_ready = AsyncMock(return_value=True)
+    mock_manager.wait_live = AsyncMock(return_value=True)
     mock_manager.submit_job = AsyncMock(return_value="job-456")
 
     async def mock_stream_events(job_id: str):
@@ -1043,7 +1271,7 @@ async def test_run_headless_job_reports_stage_on_submit_failure(
     mock_manager = mock_executor_class.return_value
     mock_manager.start = AsyncMock()
     mock_manager.create_session = AsyncMock(return_value="session-123")
-    mock_manager.wait_ready = AsyncMock(return_value=True)
+    mock_manager.wait_live = AsyncMock(return_value=True)
     mock_manager.submit_job = AsyncMock(side_effect=ExecutorError("401 Unauthorized"))
     mock_manager.stop = AsyncMock()
 
@@ -1074,7 +1302,7 @@ async def test_run_headless_job_uses_nested_event_data_for_errors_and_quiet_noti
     mock_manager = mock_executor_class.return_value
     mock_manager.start = AsyncMock()
     mock_manager.create_session = AsyncMock(return_value="session-123")
-    mock_manager.wait_ready = AsyncMock(return_value=True)
+    mock_manager.wait_live = AsyncMock(return_value=True)
     mock_manager.submit_job = AsyncMock(return_value="job-456")
 
     async def mock_stream_events(job_id: str):
@@ -1116,7 +1344,7 @@ async def test_run_headless_job_verbose_shows_full_event_output(
     mock_manager = mock_executor_class.return_value
     mock_manager.start = AsyncMock()
     mock_manager.create_session = AsyncMock(return_value="session-123")
-    mock_manager.wait_ready = AsyncMock(return_value=True)
+    mock_manager.wait_live = AsyncMock(return_value=True)
     mock_manager.submit_job = AsyncMock(return_value="job-456")
 
     async def mock_stream_events(job_id: str):
@@ -1158,7 +1386,7 @@ async def test_run_headless_job_exits_nonzero_on_error_event_without_failed_stat
     mock_manager = mock_executor_class.return_value
     mock_manager.start = AsyncMock()
     mock_manager.create_session = AsyncMock(return_value="session-123")
-    mock_manager.wait_ready = AsyncMock(return_value=True)
+    mock_manager.wait_live = AsyncMock(return_value=True)
     mock_manager.submit_job = AsyncMock(return_value="job-456")
 
     async def mock_stream_events(job_id: str):
@@ -1196,7 +1424,7 @@ async def test_run_headless_job_prints_issue_created_link_from_suppressed_tokens
     mock_manager = mock_executor_class.return_value
     mock_manager.start = AsyncMock()
     mock_manager.create_session = AsyncMock(return_value="session-123")
-    mock_manager.wait_ready = AsyncMock(return_value=True)
+    mock_manager.wait_live = AsyncMock(return_value=True)
     mock_manager.submit_job = AsyncMock(return_value="job-456")
 
     async def mock_stream_events(job_id: str):
@@ -1235,7 +1463,7 @@ async def test_run_headless_job_prints_issue_created_link_from_issue_writer_noti
     mock_manager = mock_executor_class.return_value
     mock_manager.start = AsyncMock()
     mock_manager.create_session = AsyncMock(return_value="session-123")
-    mock_manager.wait_ready = AsyncMock(return_value=True)
+    mock_manager.wait_live = AsyncMock(return_value=True)
     mock_manager.submit_job = AsyncMock(return_value="job-456")
 
     async def mock_stream_events(job_id: str):
@@ -1274,7 +1502,7 @@ async def test_run_headless_job_prints_issue_created_link_from_tool_output_resul
     mock_manager = mock_executor_class.return_value
     mock_manager.start = AsyncMock()
     mock_manager.create_session = AsyncMock(return_value="session-123")
-    mock_manager.wait_ready = AsyncMock(return_value=True)
+    mock_manager.wait_live = AsyncMock(return_value=True)
     mock_manager.submit_job = AsyncMock(return_value="job-456")
 
     async def mock_stream_events(job_id: str):
@@ -1314,7 +1542,7 @@ async def test_run_headless_job_prints_issue_created_link_from_structured_issue_
     mock_manager = mock_executor_class.return_value
     mock_manager.start = AsyncMock()
     mock_manager.create_session = AsyncMock(return_value="session-123")
-    mock_manager.wait_ready = AsyncMock(return_value=True)
+    mock_manager.wait_live = AsyncMock(return_value=True)
     mock_manager.submit_job = AsyncMock(return_value="job-456")
 
     async def mock_stream_events(job_id: str):
@@ -1792,8 +2020,8 @@ async def test_run_pr_create_with_explicit_title_body(mock_executor_class, tmp_p
         call_order.append("create_session")
         return "session-123"
 
-    async def mock_wait_ready(timeout: float = 30.0):
-        call_order.append("wait_ready")
+    async def mock_wait_live(timeout: float = 30.0):
+        call_order.append("wait_live")
         return True
 
     async def mock_pr_suggest(**kwargs):
@@ -1809,7 +2037,7 @@ async def test_run_pr_create_with_explicit_title_body(mock_executor_class, tmp_p
 
     mock_manager.start = AsyncMock(side_effect=mock_start)
     mock_manager.create_session = AsyncMock(side_effect=mock_create_session)
-    mock_manager.wait_ready = AsyncMock(side_effect=mock_wait_ready)
+    mock_manager.wait_live = AsyncMock(side_effect=mock_wait_live)
     mock_manager.pr_suggest = AsyncMock(side_effect=mock_pr_suggest)
     mock_manager.pr_create = AsyncMock(side_effect=mock_pr_create)
     mock_manager.stop = AsyncMock(side_effect=mock_stop)
@@ -1838,7 +2066,7 @@ async def test_run_pr_create_suggests_when_title_missing(mock_executor_class, tm
 
     mock_manager.start = AsyncMock()
     mock_manager.create_session = AsyncMock(return_value="session-123")
-    mock_manager.wait_ready = AsyncMock(return_value=True)
+    mock_manager.wait_live = AsyncMock(return_value=True)
 
     async def mock_pr_suggest(**kwargs):
         call_order.append("pr_suggest")
@@ -1878,7 +2106,7 @@ async def test_run_pr_create_suggests_when_both_title_and_body_omitted(
 
     mock_manager.start = AsyncMock()
     mock_manager.create_session = AsyncMock(return_value="session-123")
-    mock_manager.wait_ready = AsyncMock(return_value=True)
+    mock_manager.wait_live = AsyncMock(return_value=True)
 
     async def mock_pr_suggest(**kwargs):
         captured_suggest_args.update(kwargs)
@@ -1935,7 +2163,7 @@ async def test_run_pr_create_executor_error_exits_nonzero(
     mock_manager = mock_executor_class.return_value
     mock_manager.start = AsyncMock()
     mock_manager.create_session = AsyncMock(return_value="session-123")
-    mock_manager.wait_ready = AsyncMock(return_value=True)
+    mock_manager.wait_live = AsyncMock(return_value=True)
     mock_manager.pr_create = AsyncMock(side_effect=ExecutorError("GitHub API error"))
     mock_manager.stop = AsyncMock()
 
@@ -2022,12 +2250,8 @@ async def test_run_commit_calls_lifecycle_in_order(mock_executor_class, tmp_path
     async def mock_start():
         call_order.append("start")
 
-    async def mock_create_session(name: str = ""):
-        call_order.append("create_session")
-        return "session-123"
-
-    async def mock_wait_ready(timeout: float = 30.0):
-        call_order.append("wait_ready")
+    async def mock_wait_live(timeout: float = 30.0):
+        call_order.append("wait_live")
         return True
 
     async def mock_commit_context(message=None):
@@ -2038,8 +2262,7 @@ async def test_run_commit_calls_lifecycle_in_order(mock_executor_class, tmp_path
         call_order.append("stop")
 
     mock_manager.start = AsyncMock(side_effect=mock_start)
-    mock_manager.create_session = AsyncMock(side_effect=mock_create_session)
-    mock_manager.wait_ready = AsyncMock(side_effect=mock_wait_ready)
+    mock_manager.wait_live = AsyncMock(side_effect=mock_wait_live)
     mock_manager.commit_context = AsyncMock(side_effect=mock_commit_context)
     mock_manager.stop = AsyncMock(side_effect=mock_stop)
 
@@ -2049,20 +2272,17 @@ async def test_run_commit_calls_lifecycle_in_order(mock_executor_class, tmp_path
     )
 
     assert "start" in call_order
-    assert "create_session" in call_order
-    assert "wait_ready" in call_order
+    assert "wait_live" in call_order
     assert "commit_context:My commit message" in call_order
     assert "stop" in call_order
 
     start_idx = call_order.index("start")
-    create_session_idx = call_order.index("create_session")
-    wait_ready_idx = call_order.index("wait_ready")
+    wait_live_idx = call_order.index("wait_live")
     commit_idx = call_order.index("commit_context:My commit message")
     stop_idx = call_order.index("stop")
 
-    assert start_idx < create_session_idx
-    assert create_session_idx < wait_ready_idx
-    assert wait_ready_idx < commit_idx
+    assert start_idx < wait_live_idx
+    assert wait_live_idx < commit_idx
     assert commit_idx < stop_idx
 
 
@@ -2075,7 +2295,7 @@ async def test_run_commit_no_changes(mock_executor_class, tmp_path, capsys) -> N
     mock_manager = mock_executor_class.return_value
     mock_manager.start = AsyncMock()
     mock_manager.create_session = AsyncMock(return_value="session-123")
-    mock_manager.wait_ready = AsyncMock(return_value=True)
+    mock_manager.wait_live = AsyncMock(return_value=True)
     mock_manager.commit_context = AsyncMock(return_value={"status": "no_changes"})
     mock_manager.stop = AsyncMock()
 
@@ -2095,7 +2315,7 @@ async def test_run_commit_success_output(mock_executor_class, tmp_path, capsys) 
     mock_manager = mock_executor_class.return_value
     mock_manager.start = AsyncMock()
     mock_manager.create_session = AsyncMock(return_value="session-123")
-    mock_manager.wait_ready = AsyncMock(return_value=True)
+    mock_manager.wait_live = AsyncMock(return_value=True)
     mock_manager.commit_context = AsyncMock(
         return_value={"commitId": "abc1234567890", "firstLine": "Fix parser bug"}
     )
@@ -2122,7 +2342,7 @@ async def test_run_commit_executor_error_exits_nonzero(
     mock_manager = mock_executor_class.return_value
     mock_manager.start = AsyncMock()
     mock_manager.create_session = AsyncMock(return_value="session-123")
-    mock_manager.wait_ready = AsyncMock(return_value=True)
+    mock_manager.wait_live = AsyncMock(return_value=True)
     mock_manager.commit_context = AsyncMock(side_effect=ExecutorError("Git error"))
     mock_manager.stop = AsyncMock()
 
@@ -2601,12 +2821,8 @@ async def test_run_pr_review_job_calls_submit_pr_review_job(mock_executor_class,
     async def mock_start():
         call_order.append("start")
 
-    async def mock_create_session(name: str = ""):
-        call_order.append(f"create_session:{name}")
-        return "session-123"
-
-    async def mock_wait_ready(timeout: float = 30.0):
-        call_order.append("wait_ready")
+    async def mock_wait_live(timeout: float = 30.0):
+        call_order.append("wait_live")
         return True
 
     async def mock_submit_pr_review_job(**kwargs):
@@ -2620,8 +2836,7 @@ async def test_run_pr_review_job_calls_submit_pr_review_job(mock_executor_class,
         call_order.append("stop")
 
     mock_manager.start = AsyncMock(side_effect=mock_start)
-    mock_manager.create_session = AsyncMock(side_effect=mock_create_session)
-    mock_manager.wait_ready = AsyncMock(side_effect=mock_wait_ready)
+    mock_manager.wait_live = AsyncMock(side_effect=mock_wait_live)
     mock_manager.submit_pr_review_job = AsyncMock(side_effect=mock_submit_pr_review_job)
     mock_manager.stream_events = mock_stream_events
     mock_manager.stop = AsyncMock(side_effect=mock_stop)
@@ -2636,8 +2851,7 @@ async def test_run_pr_review_job_calls_submit_pr_review_job(mock_executor_class,
     )
 
     assert "start" in call_order
-    assert any("create_session:PR Review #42" in c for c in call_order)
-    assert "wait_ready" in call_order
+    assert "wait_live" in call_order
     assert any("submit_pr_review_job" in c for c in call_order)
 
     submit_call = [c for c in call_order if "submit_pr_review_job" in c][0]
@@ -2659,7 +2873,7 @@ async def test_run_pr_review_job_exits_nonzero_on_failed_state(
     mock_manager = mock_executor_class.return_value
     mock_manager.start = AsyncMock()
     mock_manager.create_session = AsyncMock(return_value="session-123")
-    mock_manager.wait_ready = AsyncMock(return_value=True)
+    mock_manager.wait_live = AsyncMock(return_value=True)
     mock_manager.submit_pr_review_job = AsyncMock(return_value="job-456")
 
     async def mock_stream_events(job_id: str):
@@ -2685,14 +2899,19 @@ async def test_run_pr_review_job_exits_nonzero_on_failed_state(
 
 
 def test_install_calls_ensure_jbang_ready(monkeypatch, tmp_path) -> None:
-    """install command calls ensure_jbang_ready() directly (not _resolve_jbang_for_install)."""
+    """install command calls ensure_jbang_ready() directly."""
+    from brokk_code.settings import write_brokk_api_key
+
+    write_brokk_api_key("test-key")
+    monkeypatch.delenv("BROKK_API_KEY", raising=False)
+
     ensure_called = {"n": 0}
 
     def fake_ensure_jbang_ready() -> str:
         ensure_called["n"] += 1
         return "/usr/bin/jbang"
 
-    def fake_configure_zed_acp_settings(*, force=False, uvx_command=None):
+    def fake_configure_zed_acp_settings(*, force: bool = False, uvx_command: str | None = None):
         return tmp_path / "zed.json"
 
     monkeypatch.setattr(main_module, "ensure_jbang_ready", fake_ensure_jbang_ready)
@@ -2703,9 +2922,8 @@ def test_install_calls_ensure_jbang_ready(monkeypatch, tmp_path) -> None:
         "_build_install_prefetch_commands",
         lambda **kwargs: [],
     )
-    monkeypatch.setattr(main_module, "sys", __import__("sys"))
     monkeypatch.setattr(
-        __import__("sys"),
+        sys,
         "argv",
         ["brokk", "install", "zed"],
     )
@@ -2713,3 +2931,201 @@ def test_install_calls_ensure_jbang_ready(monkeypatch, tmp_path) -> None:
     main_module.main()
 
     assert ensure_called["n"] == 1
+
+
+def test_install_zed_skips_prompt_when_key_configured(monkeypatch, tmp_path) -> None:
+    from brokk_code.settings import write_brokk_api_key
+
+    write_brokk_api_key("existing-key")
+    monkeypatch.delenv("BROKK_API_KEY", raising=False)
+
+    def fail_if_called(*args, **kwargs):
+        pytest.fail("API key read should not be called when key exists")
+
+    monkeypatch.setattr(main_module, "_read_api_key_interactive", fail_if_called)
+    monkeypatch.setattr(main_module, "_read_api_key_from_stdin", fail_if_called)
+    monkeypatch.setattr(main_module, "ensure_uv_ready", lambda: "/usr/bin/uv")
+    monkeypatch.setattr(main_module, "ensure_jbang_ready", lambda: "/usr/bin/jbang")
+    monkeypatch.setattr(main_module, "_run_install_prefetch", lambda _commands: None)
+    monkeypatch.setattr(
+        main_module,
+        "configure_zed_acp_settings",
+        lambda *, force=False, settings_path=None, uvx_command=None: tmp_path / "zed.json",
+    )
+
+    monkeypatch.setattr(sys, "argv", ["brokk", "install", "zed"])
+    main_module.main()
+
+
+def test_install_mcp_skips_prompt_when_key_configured(monkeypatch, tmp_path) -> None:
+    from brokk_code.settings import write_brokk_api_key
+
+    write_brokk_api_key("existing-key")
+    monkeypatch.delenv("BROKK_API_KEY", raising=False)
+
+    def fail_if_called(*args, **kwargs):
+        pytest.fail("API key read should not be called when key exists")
+
+    monkeypatch.setattr(main_module, "_read_api_key_interactive", fail_if_called)
+    monkeypatch.setattr(main_module, "_read_api_key_from_stdin", fail_if_called)
+    monkeypatch.setattr(main_module, "ensure_uv_ready", lambda: "/usr/bin/uv")
+    monkeypatch.setattr(main_module, "ensure_jbang_ready", lambda: "/usr/bin/jbang")
+    monkeypatch.setattr(main_module, "_run_install_prefetch", lambda _commands: None)
+    monkeypatch.setattr(
+        main_module,
+        "configure_claude_code_mcp_settings",
+        lambda *, force=False, settings_path=None, uvx_command=None: tmp_path / "c.json",
+    )
+    monkeypatch.setattr(
+        main_module,
+        "configure_codex_mcp_settings",
+        lambda *, force=False, settings_path=None, uvx_command=None: tmp_path / "cx.toml",
+    )
+    monkeypatch.setattr(
+        main_module, "install_codex_mcp_workspace_skill", lambda *, skills_path=None: tmp_path / "s"
+    )
+
+    monkeypatch.setattr(sys, "argv", ["brokk", "install", "mcp"])
+    main_module.main()
+
+
+def test_install_zed_with_missing_key_interactive_persists_key(
+    monkeypatch,
+    tmp_path,
+    capsys,
+) -> None:
+    """Verify that 'install zed' prompts for a key if missing in TTY and saves it."""
+    monkeypatch.delenv("BROKK_API_KEY", raising=False)
+
+    class FakeTtyInput(StringIO):
+        def isatty(self) -> bool:
+            return True
+
+    monkeypatch.setattr(sys, "stdin", FakeTtyInput(""))
+    monkeypatch.setattr(main_module, "_read_api_key_interactive", lambda: "new-interactive-key")
+    _stub_install_warmup(monkeypatch)
+
+    def fake_configure_zed(*args, **kwargs):
+        return tmp_path / "zed.json"
+
+    monkeypatch.setattr(main_module, "configure_zed_acp_settings", fake_configure_zed)
+    monkeypatch.setattr(sys, "argv", ["brokk", "install", "zed"])
+
+    main_module.main()
+
+    out = capsys.readouterr().out
+    assert "Saved Brokk API key" in out
+    from brokk_code.settings import read_brokk_properties
+
+    assert read_brokk_properties().get("brokkApiKey") == "new-interactive-key"
+
+
+def test_install_intellij_with_missing_key_piped_persists_key(
+    monkeypatch,
+    tmp_path,
+    capsys,
+) -> None:
+    """Verify that 'install intellij' reads from stdin if missing key and not a TTY."""
+    monkeypatch.delenv("BROKK_API_KEY", raising=False)
+
+    monkeypatch.setattr(sys, "stdin", StringIO("piped-key\n"))
+    # Ensure it's not detected as TTY
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: False)
+
+    _stub_install_warmup(monkeypatch)
+
+    def fake_configure_intellij(*args, **kwargs):
+        return tmp_path / "intellij"
+
+    monkeypatch.setattr(main_module, "configure_intellij_acp_settings", fake_configure_intellij)
+    monkeypatch.setattr(sys, "argv", ["brokk", "install", "intellij"])
+
+    main_module.main()
+
+    out = capsys.readouterr().out
+    assert "Saved Brokk API key" in out
+    from brokk_code.settings import read_brokk_properties
+
+    assert read_brokk_properties().get("brokkApiKey") == "piped-key"
+
+
+def test_install_mcp_with_missing_key_piped_persists_key(
+    monkeypatch,
+    tmp_path,
+    capsys,
+) -> None:
+    """Verify that 'install mcp' reads from stdin if missing key and not a TTY."""
+    monkeypatch.delenv("BROKK_API_KEY", raising=False)
+
+    monkeypatch.setattr(sys, "stdin", StringIO("mcp-piped-key\n"))
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: False)
+
+    _stub_install_warmup(monkeypatch)
+    monkeypatch.setattr(
+        main_module,
+        "configure_claude_code_mcp_settings",
+        lambda **k: tmp_path / "c",
+    )
+    monkeypatch.setattr(
+        main_module,
+        "configure_codex_mcp_settings",
+        lambda **k: tmp_path / "x",
+    )
+    monkeypatch.setattr(
+        main_module,
+        "install_codex_mcp_workspace_skill",
+        lambda **k: tmp_path / "s",
+    )
+
+    monkeypatch.setattr(sys, "argv", ["brokk", "install", "mcp"])
+
+    main_module.main()
+
+    out = capsys.readouterr().out
+    assert "Saved Brokk API key" in out
+    from brokk_code.settings import read_brokk_properties
+
+    assert read_brokk_properties().get("brokkApiKey") == "mcp-piped-key"
+
+
+def test_install_fails_with_empty_stdin(monkeypatch, tmp_path) -> None:
+    """Verify that install exits non-zero if key is missing and stdin is empty."""
+    monkeypatch.delenv("BROKK_API_KEY", raising=False)
+
+    monkeypatch.setattr(sys, "stdin", StringIO(""))
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: False)
+
+    monkeypatch.setattr(sys, "argv", ["brokk", "install", "zed"])
+
+    with pytest.raises(SystemExit) as exc:
+        main_module.main()
+
+    assert exc.value.code == 1
+
+
+def test_install_continues_when_key_already_configured(monkeypatch, tmp_path, capsys) -> None:
+    """Verify that install does not prompt or read stdin if key is already in env/props."""
+    # Set key in env
+    monkeypatch.setenv("BROKK_API_KEY", "existing-env-key")
+
+    def fail_if_called(*args, **kwargs):
+        pytest.fail("API key read should not be called when key exists")
+
+    monkeypatch.setattr(main_module, "_read_api_key_interactive", fail_if_called)
+    monkeypatch.setattr(main_module, "_read_api_key_from_stdin", fail_if_called)
+
+    _stub_install_warmup(monkeypatch)
+    monkeypatch.setattr(main_module, "ensure_uv_ready", lambda: "/usr/bin/uv")
+    monkeypatch.setattr(
+        main_module,
+        "configure_zed_acp_settings",
+        lambda *, force=False, settings_path=None, uvx_command=None: tmp_path / "z",
+    )
+    monkeypatch.setattr(sys, "argv", ["brokk", "install", "zed"])
+
+    # Should not raise SystemExit
+    main_module.main()
+
+    out = capsys.readouterr().out
+    assert "Configured Zed ACP" in out
+    assert "Saved Brokk API key" not in out

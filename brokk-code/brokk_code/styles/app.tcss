@@ -2,7 +2,7 @@ Screen {
     background: $surface;
 }
 
-ContextModalScreen, TaskListModalScreen, SessionCostsModalScreen, DependenciesModalScreen {
+ContextModalScreen, TaskListModalScreen, SessionCostsModalScreen, DependenciesModalScreen, CommandsModalScreen {
     align: center middle;
 }
 
@@ -755,4 +755,98 @@ PrCreateModalScreen {
 #pr-sessions-list > ListItem:focus {
     background: $accent 20%;
     color: $text;
+}
+
+/* Commands Modal Styles */
+#commands-modal-container {
+    width: 100%;
+    height: 100%;
+    padding: 1 2;
+    background: $surface;
+}
+
+#commands-modal-title {
+    text-align: center;
+    width: 100%;
+    text-style: bold;
+    margin-bottom: 1;
+    color: $text;
+}
+
+#commands-list-wrap {
+    height: 1fr;
+    border: tall $primary-darken-1;
+    width: 100%;
+}
+
+#commands-list {
+    width: 100%;
+    height: auto;
+}
+
+#commands-header {
+    width: 100%;
+    height: 1;
+    background: $primary-darken-2;
+    color: $text;
+    text-style: bold;
+    padding: 0 1;
+}
+
+#commands-list > ListItem {
+    width: 100%;
+    height: auto;
+    padding: 0;
+}
+
+#commands-list > ListItem:focus {
+    background: $accent 15%;
+}
+
+.command-row {
+    width: 100%;
+    height: auto;
+    padding: 0 1;
+}
+
+.command-row Static {
+    height: auto;
+}
+
+.cmd-col-time { width: 10; }
+.cmd-col-stage { width: 15; }
+.cmd-col-command { width: 1fr; }
+.cmd-col-status { width: 8; content-align: right middle; }
+
+#commands-output-panel {
+    width: 100%;
+    height: auto;
+    max-height: 12;
+    padding: 1 2;
+    margin-top: 1;
+    background: $primary-darken-3;
+    border: tall $primary-darken-1;
+    overflow-y: auto;
+}
+
+#commands-summary {
+    height: auto;
+    margin-top: 1;
+    padding: 1 2;
+    background: $primary-darken-3;
+    border: tall $primary-darken-1;
+}
+
+#commands-help-line {
+    width: 100%;
+    height: 1;
+    color: $text-disabled;
+    background: transparent;
+    margin-top: 1;
+    padding: 0 1;
+}
+
+#commands-empty {
+    color: $text-disabled;
+    padding: 1 2;
 }

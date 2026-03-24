@@ -23,12 +23,14 @@ from textual.widgets import Button, Input, ListItem, ListView, LoadingIndicator,
 from brokk_code.event_utils import is_failure_state, safe_data
 from brokk_code.executor import ExecutorError, ExecutorManager
 from brokk_code.git_utils import infer_github_repo_from_remote
+from brokk_code.modals.commands_modal import CommandsModalScreen
 from brokk_code.prompt_history import append_prompt, load_history
 from brokk_code.settings import (
     DEFAULT_THEME,
     Settings,
     normalize_theme_name,
     write_brokk_api_key,
+    write_brokk_properties,
 )
 from brokk_code.welcome import build_welcome_message, get_braille_icon
 from brokk_code.widgets.chat_panel import ChatInput, ChatPanel
@@ -1566,7 +1568,7 @@ class BrokkApp(App):
             if self.executor.session_id:
                 save_last_session_id(self.executor.workspace_dir, self.executor.session_id)
 
-            if await self.executor.wait_ready():
+            if await self.executor.wait_live():
                 self._executor_ready = True
                 await self._sync_model_roles_from_executor()
                 # Initial context load
@@ -2130,6 +2132,13 @@ class BrokkApp(App):
                 if chat:
                     chat.set_response_finished()
                     chat.set_job_running(False)
+                    stale = chat.get_commands_running()
+                    if stale > 0:
+                        logger.warning(
+                            "Job ended with %d command(s) still running",
+                            stale,
+                        )
+                    chat.clear_running_commands()
                 self.job_in_progress = False
             self.current_job_id = None
 
@@ -2963,6 +2972,13 @@ class BrokkApp(App):
                 chat.add_system_message(msg, level="ERROR")
             # Note: set_job_running(False) happens in _run_job finally block
         elif event_type == "COMMAND_RESULT":
+            logger.info(
+                "COMMAND_RESULT event: stage=%s cmd=%s success=%s out_len=%d",
+                data.get("stage"),
+                data.get("command"),
+                data.get("success"),
+                len(data.get("output", "")),
+            )
             if chat:
                 stage = data.get("stage", "Command")
                 command = data.get("command", "")
@@ -2970,16 +2986,15 @@ class BrokkApp(App):
                 output = data.get("output", "").strip()
                 exception = data.get("exception")
 
-                status = "[bold green]Success[/]" if success else "[bold red]Failed[/]"
-                header = f"**{stage}**: `{command}` ({status})"
-
-                parts = [header]
-                if output:
-                    parts.append(f"```\n{output}\n```")
-                if exception:
-                    parts.append(f"**Error**: {exception}")
-
-                chat.add_tool_result("\n\n".join(parts))
+                cmd_key = f"{stage}:{command}"
+                chat.add_command_result(stage, command, success, output, exception)
+                chat.remove_running_command(cmd_key)
+        elif event_type == "COMMAND_START":
+            if chat:
+                stage = data.get("stage", "Command")
+                command = data.get("command", "")
+                cmd_key = f"{stage}:{command}"
+                chat.add_running_command(cmd_key)
         elif event_type == "STATE_HINT":
             hint_name = data.get("name")
             if hint_name in ("contextHistoryUpdated", "workspaceUpdated"):
@@ -3091,7 +3106,8 @@ class BrokkApp(App):
     def get_slash_commands() -> List[Dict[str, str]]:
         """Returns the structured catalog of supported slash commands."""
         return [
-            {"command": "/api-key", "description": "Update your Brokk API key"},
+            {"command": "/login", "description": "Login or update your Brokk API key"},
+            {"command": "/logout", "description": "Clear saved Brokk API key and logout"},
             {"command": "/costs", "description": "Show session cost breakdown"},
             {"command": "/login-openai", "description": "Connect your OpenAI ChatGPT subscription"},
             {"command": "/clear", "description": "Clear the chat transcript"},
@@ -3110,6 +3126,7 @@ class BrokkApp(App):
                 "description": "Submit a PR review job (supports --severity LEVEL)",
             },
             {"command": "/review", "description": "Generate guided review of changes"},
+            {"command": "/ps", "description": "Show command history"},
             {"command": "/info", "description": "Show current configuration and status"},
             {"command": "/quit", "description": "Exit the application"},
             {"command": "/exit", "description": "Exit the application"},
@@ -3184,7 +3201,10 @@ class BrokkApp(App):
                 )
             else:
                 self.run_worker(self._login_openai())
-        elif base == "/api-key":
+        elif base in ("/login", "/api-key"):
+            if len(parts) > 1:
+                chat.add_system_message(f"Usage: {base} (opens API key prompt)", level="WARNING")
+                return
 
             async def on_key_entered(key: str) -> bool:
                 try:
@@ -3201,6 +3221,22 @@ class BrokkApp(App):
             self.push_screen(
                 BrokkApiKeyModalScreen(on_key_entered, "Update Brokk API Key", is_update=True)
             )
+        elif base == "/logout":
+            if len(parts) > 1:
+                chat.add_system_message("Usage: /logout", level="WARNING")
+                return
+
+            async def do_logout():
+                try:
+                    await asyncio.to_thread(write_brokk_properties, {"brokkApiKey": None})
+                    self.executor.brokk_api_key = None
+                    chat.add_system_message("Logged out. Clearing API key and relaunching...")
+                    await self._relaunch_executor()
+                except Exception as e:
+                    logger.exception("Logout failed")
+                    chat.add_system_message(f"Logout failed: {e}", level="ERROR")
+
+            self.run_worker(do_logout())
         elif base == "/context":
             self.action_toggle_context()
         elif base == "/task":
@@ -3255,6 +3291,9 @@ class BrokkApp(App):
                 self.run_worker(self._create_pull_request(base_branch))
         elif base == "/review":
             self._handle_local_review_command(parts)
+        elif base == "/ps":
+            if chat:
+                self.push_screen(CommandsModalScreen(chat.get_command_history()))
         elif base in ("/quit", "/exit"):
             self.action_quit()
         else:
@@ -4125,6 +4164,8 @@ class BrokkApp(App):
             save_last_session_id(self.executor.workspace_dir, session_id)
 
             chat._message_history.clear()
+            chat.clear_command_history()
+            chat.clear_running_commands()
             log = chat.query_one("#chat-log")
             res = log.query("*").remove()
             if asyncio.iscoroutine(res):
@@ -4216,6 +4257,8 @@ class BrokkApp(App):
 
             # Clear UI and history
             chat._message_history.clear()
+            chat.clear_command_history()
+            chat.clear_running_commands()
             # Clear log container (the ScrollableContainer containing message widgets)
             log = chat.query_one("#chat-log")
             res = log.query("*").remove()
@@ -4311,8 +4354,7 @@ class BrokkApp(App):
                 await self.executor.start()
                 self._executor_started = True
 
-                # 4. Restore session state OR create new session BEFORE waiting for readiness.
-                # Java /health/ready requires a session to be loaded.
+                # 4. Restore session state or create a new session for continuity.
                 restored = False
                 if session_zip and current_sid:
                     try:
@@ -4329,9 +4371,9 @@ class BrokkApp(App):
                             level="WARNING",
                         )
 
-                # 5. Wait for readiness now that a session is loaded
-                if not await self.executor.wait_ready():
-                    raise ExecutorError("New executor failed to become ready.")
+                # 5. Wait for liveness before resuming traffic
+                if not await self.executor.wait_live():
+                    raise ExecutorError("New executor failed to become live.")
 
                 self._executor_ready = True
                 await self._sync_model_roles_from_executor()

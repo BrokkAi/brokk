@@ -69,4 +69,25 @@ describe('Extension Startup Recovery', () => {
         expect(attempts).to.equal(2, 'Should have attempted spawn twice');
         expect(handle.port).to.equal(8080);
     });
+
+    it('should not throw when stopping or restarting before initialization', async () => {
+        // This is a minimal unit test to ensure the commands are guarded.
+        // In a real VS Code environment, we'd test the registered command, 
+        // but here we just verify the exported functions don't crash on null globals.
+        
+        const extension = require('./extension');
+        
+        // Assert that calling these when globals are undefined/null doesn't throw
+        expect(() => extension.stopExecutor()).to.not.throw();
+        
+        // restartExecutor requires a context, we can mock a minimal one
+        const mockContext = { subscriptions: [], extensionUri: { fsPath: '/tmp' } };
+        try {
+            await extension.restartExecutor(mockContext);
+        } catch (e) {
+            // We expect connectOrSpawn to fail eventually in this mock environment,
+            // but the guard check happens before the first await.
+            expect(e.message).to.not.include('statusBarItem');
+        }
+    });
 });

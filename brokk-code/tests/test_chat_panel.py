@@ -808,9 +808,8 @@ async def test_chat_panel_history_and_filtering():
 
 @pytest.mark.asyncio
 async def test_brokk_app_command_result_handling_and_filtering():
-    """Verify that BrokkApp correctly routes COMMAND_RESULT events and they obey verbosity."""
+    """Verify that BrokkApp correctly routes COMMAND_RESULT events to history."""
     from brokk_code.app import BrokkApp
-    from brokk_code.widgets.chat_panel import ChatLog
 
     executor = MagicMock()
     app = BrokkApp(executor=executor)
@@ -818,19 +817,14 @@ async def test_brokk_app_command_result_handling_and_filtering():
     async def _noop() -> None:
         return None
 
-    # Avoid starting background workers during this integration test.
     app._start_executor = _noop  # type: ignore[method-assign]
     app._monitor_executor = _noop  # type: ignore[method-assign]
     app._poll_tasklist = _noop  # type: ignore[method-assign]
     app._poll_context = _noop  # type: ignore[method-assign]
 
-    app.show_verbose_output = False
-
     async with app.run_test() as pilot:
         chat = app.query_one(ChatPanel)
-        log = chat.query_one("#chat-log", ChatLog)
 
-        # Simulate a COMMAND_RESULT event
         event = {
             "type": "COMMAND_RESULT",
             "data": {
@@ -844,16 +838,16 @@ async def test_brokk_app_command_result_handling_and_filtering():
         app._handle_event(event)
         await pilot.pause()
 
-        # Verify it was added to history
-        assert any(m["kind"] == "TOOL_RESULT" for m in chat._message_history)
-        # Verbose is OFF by default, so it should NOT be in the rendered log lines
-        assert "hello world" not in "".join(str(line) for line in log.lines)
+        # Verify it was added to message history
+        assert any(m["kind"] == "COMMAND_SUMMARY" for m in chat._message_history)
 
-        # Toggle output ON
-        app.action_toggle_output()
-        await pilot.pause()
-        assert app.show_verbose_output is True
-        assert "hello world" in "".join(str(line) for line in log.lines)
+        # Verify it was added to command history (used by /ps)
+        history = chat.get_command_history()
+        assert len(history) == 1
+        assert history[0]["stage"] == "TestStage"
+        assert history[0]["command"] == "echo hello"
+        assert history[0]["success"] is True
+        assert history[0]["output"] == "hello world"
 
 
 @pytest.mark.asyncio
@@ -1874,6 +1868,525 @@ async def test_refresh_log_preserves_middle_scroll_position():
 
 
 @pytest.mark.asyncio
+async def test_add_command_result_stores_and_renders():
+    """Verify that add_command_result stores command data and renders a compact summary."""
+    from textual.app import App, ComposeResult
+
+    from brokk_code.widgets.chat_panel import ChatLog
+
+    class TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield ChatPanel(id="chat")
+
+    app = TestApp()
+    async with app.run_test() as pilot:
+        chat = app.query_one("#chat", ChatPanel)
+        log = chat.query_one("#chat-log", ChatLog)
+
+        # Add a successful command result
+        chat.add_command_result(
+            stage="Build",
+            command="mvn compile",
+            success=True,
+            output="BUILD SUCCESS",
+            exception=None,
+        )
+        await pilot.pause()
+
+        # Verify it was stored in command history
+        history = chat.get_command_history()
+        assert len(history) == 1
+        assert history[0]["stage"] == "Build"
+        assert history[0]["command"] == "mvn compile"
+        assert history[0]["success"] is True
+        assert history[0]["output"] == "BUILD SUCCESS"
+        assert history[0]["is_running"] is False
+        assert "id" in history[0]
+        assert "timestamp" in history[0]
+
+        # Verify it was added to message history
+        assert any(m["kind"] == "COMMAND_SUMMARY" for m in chat._message_history)
+
+        # Verify compact summary was rendered (check mark + stage)
+        content = "".join(str(line) for line in log.lines)
+        assert "Build" in content
+
+
+@pytest.mark.asyncio
+async def test_add_command_result_failure_with_exception():
+    """Verify that failed command results show error info in compact summary."""
+    from textual.app import App, ComposeResult
+
+    from brokk_code.widgets.chat_panel import ChatLog
+
+    class TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield ChatPanel(id="chat")
+
+    app = TestApp()
+    async with app.run_test() as pilot:
+        chat = app.query_one("#chat", ChatPanel)
+        log = chat.query_one("#chat-log", ChatLog)
+
+        # Add a failed command result with exception
+        chat.add_command_result(
+            stage="Lint",
+            command="ruff check",
+            success=False,
+            output="error output",
+            exception="exit code 1",
+        )
+        await pilot.pause()
+
+        # Verify it was stored
+        history = chat.get_command_history()
+        assert len(history) == 1
+        assert history[0]["success"] is False
+        assert history[0]["exception"] == "exit code 1"
+
+        # Verify compact summary was rendered (X mark + stage + error)
+        content = "".join(str(line) for line in log.lines)
+        assert "Lint" in content
+        assert "exit code 1" in content
+
+
+@pytest.mark.asyncio
+async def test_get_command_history_returns_copy():
+    """Verify that get_command_history returns a copy of the history."""
+    from textual.app import App, ComposeResult
+
+    class TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield ChatPanel(id="chat")
+
+    app = TestApp()
+    async with app.run_test():
+        chat = app.query_one("#chat", ChatPanel)
+
+        chat.add_command_result("Build", "make", True, "ok", None)
+
+        history1 = chat.get_command_history()
+        history2 = chat.get_command_history()
+
+        # Should be equal but not the same object
+        assert history1 == history2
+        assert history1 is not history2
+
+        # Modifying returned list should not affect internal state
+        history1.clear()
+        assert len(chat.get_command_history()) == 1
+
+
+@pytest.mark.asyncio
+async def test_set_and_get_commands_running():
+    """Verify commands running count tracks add/remove of command keys."""
+    from textual.app import App, ComposeResult
+
+    class TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield ChatPanel(id="chat")
+
+    app = TestApp()
+    async with app.run_test():
+        chat = app.query_one("#chat", ChatPanel)
+
+        # Initial state
+        assert chat.get_commands_running() == 0
+
+        # Add running commands
+        chat.add_running_command("Verification:make test")
+        chat.add_running_command("Post-Task:make lint")
+        chat.add_running_command("Verification:make build")
+        assert chat.get_commands_running() == 3
+
+        # Remove one
+        chat.remove_running_command("Post-Task:make lint")
+        assert chat.get_commands_running() == 2
+
+        # Removing unknown key is safe
+        chat.remove_running_command("unknown:cmd")
+        assert chat.get_commands_running() == 2
+
+        # Clear all
+        chat.clear_running_commands()
+        assert chat.get_commands_running() == 0
+
+
+@pytest.mark.asyncio
+async def test_command_summary_in_message_entry_renderables():
+    """Verify that _message_entry_renderables handles COMMAND_SUMMARY kind."""
+    from textual.app import App, ComposeResult
+
+    class TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield ChatPanel(id="chat")
+
+    app = TestApp()
+    async with app.run_test():
+        chat = app.query_one("#chat", ChatPanel)
+
+        # Test success case
+        renderables = chat._message_entry_renderables(
+            "COMMAND_SUMMARY",
+            "",
+            stage="Build",
+            success=True,
+            exception=None,
+        )
+        assert len(renderables) == 1
+        text = renderables[0]
+        assert isinstance(text, Text)
+        assert "Build" in text.plain
+
+        # Test failure case with exception
+        renderables = chat._message_entry_renderables(
+            "COMMAND_SUMMARY",
+            "",
+            stage="Test",
+            success=False,
+            exception="assertion failed",
+        )
+        assert len(renderables) == 1
+        text = renderables[0]
+        assert isinstance(text, Text)
+        assert "Test" in text.plain
+        assert "assertion failed" in text.plain
+
+
+@pytest.mark.asyncio
+async def test_render_command_summary_truncates_long_exception():
+    """Verify that long exception messages are truncated in compact summary."""
+    from textual.app import App, ComposeResult
+
+    class TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield ChatPanel(id="chat")
+
+    app = TestApp()
+    async with app.run_test():
+        chat = app.query_one("#chat", ChatPanel)
+
+        long_exception = (
+            "This is a very long exception message that should be truncated to fit on one line"
+        )
+        entry = {
+            "stage": "Build",
+            "success": False,
+            "exception": long_exception,
+        }
+        text = chat._render_command_summary(entry)
+
+        # Should be truncated with ellipsis
+        assert len(text.plain) < len(long_exception) + 20  # Some room for icon/stage
+        assert "..." in text.plain
+
+
+@pytest.mark.asyncio
+async def test_command_history_multiple_entries():
+    """Verify multiple command results are tracked in order."""
+    from textual.app import App, ComposeResult
+
+    class TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield ChatPanel(id="chat")
+
+    app = TestApp()
+    async with app.run_test():
+        chat = app.query_one("#chat", ChatPanel)
+
+        chat.add_command_result("Build", "mvn compile", True, "ok", None)
+        chat.add_command_result("Lint", "ruff check", False, "err", "exit 1")
+        chat.add_command_result("Test", "pytest", True, "passed", None)
+
+        history = chat.get_command_history()
+        assert len(history) == 3
+        assert history[0]["stage"] == "Build"
+        assert history[1]["stage"] == "Lint"
+        assert history[2]["stage"] == "Test"
+
+        # Each should have unique ID
+        ids = [h["id"] for h in history]
+        assert len(set(ids)) == 3
+
+
+@pytest.mark.asyncio
+async def test_commands_modal_displays_history():
+    """Verify CommandsModalScreen displays command history correctly."""
+    from textual.app import App, ComposeResult
+    from textual.widgets import Static
+
+    from brokk_code.modals.commands_modal import CommandsModalScreen
+
+    class TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield Static("host")
+
+    command_history = [
+        {
+            "id": "cmd-1",
+            "stage": "Build",
+            "command": "mvn compile",
+            "success": True,
+            "output": "BUILD SUCCESS",
+            "exception": None,
+            "timestamp": 1737627240.0,
+        },
+        {
+            "id": "cmd-2",
+            "stage": "Lint",
+            "command": "ruff check",
+            "success": False,
+            "output": "Found 3 errors",
+            "exception": "exit code 1",
+            "timestamp": 1737627300.0,
+        },
+    ]
+
+    app = TestApp()
+    async with app.run_test() as pilot:
+        screen = CommandsModalScreen(command_history)
+        app.push_screen(screen)
+        await pilot.pause()
+
+        # Verify title
+        title = screen.query_one("#commands-modal-title", Static)
+        assert "Command History" in _static_rendered_text(title)
+
+        # Verify summary shows correct counts
+        summary = screen.query_one("#commands-summary-text", Static)
+        summary_text = _static_rendered_text(summary)
+        assert "2 commands" in summary_text
+        assert "1 succeeded" in summary_text
+        assert "1 failed" in summary_text
+
+
+@pytest.mark.asyncio
+async def test_commands_modal_empty_state():
+    """Verify CommandsModalScreen handles empty command history."""
+    from textual.app import App, ComposeResult
+    from textual.widgets import Static
+
+    from brokk_code.modals.commands_modal import CommandsModalScreen
+
+    class TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield Static("host")
+
+    app = TestApp()
+    async with app.run_test() as pilot:
+        screen = CommandsModalScreen([])
+        app.push_screen(screen)
+        await pilot.pause()
+
+        # Verify empty state message
+        empty_msg = screen.query_one("#commands-empty", Static)
+        assert "No commands" in _static_rendered_text(empty_msg)
+
+        # Verify summary shows 0 commands
+        summary = screen.query_one("#commands-summary-text", Static)
+        assert "0 commands" in _static_rendered_text(summary)
+
+
+@pytest.mark.asyncio
+async def test_commands_modal_toggle_output():
+    """Verify CommandsModalScreen toggles output panel on enter."""
+    from textual.app import App, ComposeResult
+    from textual.widgets import Static
+
+    from brokk_code.modals.commands_modal import CommandsModalScreen
+
+    class TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield Static("host")
+
+    command_history = [
+        {
+            "id": "cmd-1",
+            "stage": "Build",
+            "command": "mvn compile",
+            "success": True,
+            "output": "BUILD SUCCESS\nCompiled 42 classes",
+            "exception": None,
+            "timestamp": 1737627240.0,
+        },
+    ]
+
+    app = TestApp()
+    async with app.run_test() as pilot:
+        screen = CommandsModalScreen(command_history)
+        app.push_screen(screen)
+        await pilot.pause()
+
+        output_panel = screen.query_one("#commands-output-panel", Static)
+
+        # Initially hidden
+        assert output_panel.has_class("hidden")
+
+        # Press enter to expand
+        await pilot.press("enter")
+        await pilot.pause()
+
+        # Should be visible with output
+        assert not output_panel.has_class("hidden")
+        output_text = _static_rendered_text(output_panel)
+        assert "BUILD SUCCESS" in output_text
+        assert "mvn compile" in output_text
+
+        # Press enter again to collapse
+        await pilot.press("enter")
+        await pilot.pause()
+
+        assert output_panel.has_class("hidden")
+
+
+@pytest.mark.asyncio
+async def test_commands_modal_escape_closes():
+    """Verify CommandsModalScreen closes on escape when output is collapsed."""
+    from textual.app import App, ComposeResult
+    from textual.widgets import Static
+
+    from brokk_code.modals.commands_modal import CommandsModalScreen
+
+    class TestApp(App):
+        def compose(self) -> ComposeResult:
+            yield Static("host")
+
+    app = TestApp()
+    async with app.run_test() as pilot:
+        screen = CommandsModalScreen([])
+        app.push_screen(screen)
+        await pilot.pause()
+
+        assert isinstance(app.screen, CommandsModalScreen)
+
+        await pilot.press("escape")
+        await pilot.pause()
+
+        # Should have dismissed the modal
+        assert not isinstance(app.screen, CommandsModalScreen)
+
+
+@pytest.mark.asyncio
+async def test_ps_command_opens_commands_modal():
+    """Verify that /ps command opens the CommandsModalScreen with command history."""
+    from brokk_code.app import BrokkApp
+    from brokk_code.modals.commands_modal import CommandsModalScreen
+
+    executor = MagicMock()
+    app = BrokkApp(executor=executor)
+
+    async def _noop() -> None:
+        return None
+
+    app._start_executor = _noop  # type: ignore[method-assign]
+    app._monitor_executor = _noop  # type: ignore[method-assign]
+    app._poll_tasklist = _noop  # type: ignore[method-assign]
+    app._poll_context = _noop  # type: ignore[method-assign]
+
+    async with app.run_test() as pilot:
+        chat = app.query_one(ChatPanel)
+
+        # Add some command results first
+        chat.add_command_result("Build", "mvn compile", True, "BUILD SUCCESS", None)
+        chat.add_command_result("Test", "pytest", False, "1 failed", "AssertionError")
+        await pilot.pause()
+
+        # Trigger /ps command
+        app._handle_command("/ps")
+        await pilot.pause()
+
+        # Verify modal is opened
+        assert isinstance(app.screen, CommandsModalScreen)
+
+        # Verify the modal has the command history
+        assert len(app.screen.command_history) == 2
+        assert app.screen.command_history[0]["stage"] == "Build"
+        assert app.screen.command_history[1]["stage"] == "Test"
+
+        # Close modal
+        await pilot.press("escape")
+        await pilot.pause()
+
+        assert not isinstance(app.screen, CommandsModalScreen)
+
+
+@pytest.mark.asyncio
+async def test_command_result_event_uses_compact_display():
+    """Verify that COMMAND_RESULT events are handled with compact display via add_command_result."""
+    from brokk_code.app import BrokkApp
+
+    executor = MagicMock()
+    app = BrokkApp(executor=executor)
+
+    async def _noop() -> None:
+        return None
+
+    app._start_executor = _noop  # type: ignore[method-assign]
+    app._monitor_executor = _noop  # type: ignore[method-assign]
+    app._poll_tasklist = _noop  # type: ignore[method-assign]
+    app._poll_context = _noop  # type: ignore[method-assign]
+
+    async with app.run_test() as pilot:
+        chat = app.query_one(ChatPanel)
+
+        # Simulate a COMMAND_RESULT event (success)
+        event = {
+            "type": "COMMAND_RESULT",
+            "data": {
+                "stage": "Build",
+                "command": "mvn compile",
+                "success": True,
+                "output": "BUILD SUCCESS",
+            },
+        }
+        app._handle_event(event)
+        await pilot.pause()
+
+        # Verify it was stored in command history (not just message history)
+        history = chat.get_command_history()
+        assert len(history) == 1
+        assert history[0]["stage"] == "Build"
+        assert history[0]["success"] is True
+
+        # Verify compact summary was rendered (COMMAND_SUMMARY kind, not TOOL_RESULT)
+        assert any(m["kind"] == "COMMAND_SUMMARY" for m in chat._message_history)
+        assert not any(m["kind"] == "TOOL_RESULT" for m in chat._message_history)
+
+        # Simulate a failed COMMAND_RESULT event
+        event_fail = {
+            "type": "COMMAND_RESULT",
+            "data": {
+                "stage": "Lint",
+                "command": "ruff check",
+                "success": False,
+                "output": "Found errors",
+                "exception": "exit code 1",
+            },
+        }
+        app._handle_event(event_fail)
+        await pilot.pause()
+
+        # Verify both are in history
+        history = chat.get_command_history()
+        assert len(history) == 2
+        assert history[1]["stage"] == "Lint"
+        assert history[1]["success"] is False
+        assert history[1]["exception"] == "exit code 1"
+
+
+@pytest.mark.asyncio
+async def test_ps_slash_command_in_catalog():
+    """Verify /ps command appears in the slash command catalog."""
+    from brokk_code.app import BrokkApp
+
+    commands = BrokkApp.get_slash_commands()
+    ps_commands = [c for c in commands if c["command"] == "/ps"]
+
+    assert len(ps_commands) == 1
+    assert ps_commands[0]["description"] == "Show command history"
+
+
+@pytest.mark.asyncio
 async def test_chat_panel_reflow_on_resize():
     """Verify that chat output reflows when the panel is resized."""
     from textual.app import App, ComposeResult
@@ -1913,3 +2426,100 @@ async def test_chat_panel_reflow_on_resize():
         # Verify content still exists
         content = "".join(str(line) for line in log.lines)
         assert "very long message" in content
+
+
+@pytest.mark.asyncio
+async def test_command_start_result_lifecycle_integration():
+    """Integration test: COMMAND_START increments running count, COMMAND_RESULT decrements it
+    and stores history accessible via /ps."""
+    from brokk_code.app import BrokkApp
+    from brokk_code.widgets.status_line import StatusLine
+
+    executor = MagicMock()
+    app = BrokkApp(executor=executor)
+
+    async def _noop() -> None:
+        return None
+
+    app._start_executor = _noop  # type: ignore[method-assign]
+    app._monitor_executor = _noop  # type: ignore[method-assign]
+    app._poll_tasklist = _noop  # type: ignore[method-assign]
+    app._poll_context = _noop  # type: ignore[method-assign]
+
+    async with app.run_test() as pilot:
+        chat = app.query_one(ChatPanel)
+        status = chat.query_one("#status-line", StatusLine)
+
+        # Initially no commands running
+        assert chat.get_commands_running() == 0
+
+        # Simulate COMMAND_START
+        app._handle_event(
+            {
+                "type": "COMMAND_START",
+                "data": {"stage": "Verification", "command": "make test"},
+            }
+        )
+        await pilot.pause()
+
+        assert chat.get_commands_running() == 1
+        assert status._commands_running == 1
+
+        # Second command starts
+        app._handle_event(
+            {
+                "type": "COMMAND_START",
+                "data": {"stage": "Post-Task", "command": "make lint"},
+            }
+        )
+        await pilot.pause()
+
+        assert chat.get_commands_running() == 2
+
+        # First command finishes
+        app._handle_event(
+            {
+                "type": "COMMAND_RESULT",
+                "data": {
+                    "stage": "Verification",
+                    "command": "make test",
+                    "success": True,
+                    "output": "All 42 tests passed",
+                },
+            }
+        )
+        await pilot.pause()
+
+        assert chat.get_commands_running() == 1
+        history = chat.get_command_history()
+        assert len(history) == 1
+        assert history[0]["stage"] == "Verification"
+        assert history[0]["success"] is True
+
+        # Second command fails
+        app._handle_event(
+            {
+                "type": "COMMAND_RESULT",
+                "data": {
+                    "stage": "Post-Task",
+                    "command": "make lint",
+                    "success": False,
+                    "output": "lint errors found",
+                    "exception": "Process exited with code 1",
+                },
+            }
+        )
+        await pilot.pause()
+
+        assert chat.get_commands_running() == 0
+        assert status._commands_running == 0
+        history = chat.get_command_history()
+        assert len(history) == 2
+        assert history[1]["stage"] == "Post-Task"
+        assert history[1]["success"] is False
+        assert history[1]["exception"] == "Process exited with code 1"
+
+        # Verify chat shows compact summaries (not full output)
+        log_text = "".join(str(line) for line in chat.query_one("#chat-log").lines)
+        assert "All 42 tests passed" not in log_text  # output not in chat
+        assert "lint errors found" not in log_text  # output not in chat

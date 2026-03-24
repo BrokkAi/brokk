@@ -3,9 +3,9 @@ package ai.brokk.analyzer;
 import static ai.brokk.analyzer.php.PhpTreeSitterNodeTypes.*;
 
 import ai.brokk.analyzer.cache.AnalyzerCache;
+import ai.brokk.analyzer.cache.PhpAnalyzerCache;
 import ai.brokk.project.IProject;
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
 import org.jetbrains.annotations.Nullable;
 import org.treesitter.*;
 
@@ -42,9 +42,6 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
                     READONLY_MODIFIER) // modifierNodeTypes
             );
 
-    @Nullable
-    private final Map<ProjectFile, String> fileScopedPackageNames = new ConcurrentHashMap<>();
-
     private static final String NAMESPACE_QUERY_STR = "(namespace_definition name: (namespace_name) @nsname)";
 
     public PhpAnalyzer(IProject project) {
@@ -52,22 +49,35 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
     }
 
     public PhpAnalyzer(IProject project, ProgressListener listener) {
-        super(project, Languages.PHP, listener);
+        this(project, listener, new PhpAnalyzerCache());
+    }
+
+    private PhpAnalyzer(IProject project, ProgressListener listener, PhpAnalyzerCache cache) {
+        super(project, Languages.PHP, listener, cache);
     }
 
     private PhpAnalyzer(
-            IProject project, AnalyzerState state, ProgressListener listener, @Nullable AnalyzerCache cache) {
+            IProject project, AnalyzerState state, ProgressListener listener, @Nullable PhpAnalyzerCache cache) {
         super(project, Languages.PHP, state, listener, cache);
     }
 
     public static PhpAnalyzer fromState(IProject project, AnalyzerState state, ProgressListener listener) {
-        return new PhpAnalyzer(project, state, listener, null);
+        return new PhpAnalyzer(project, state, listener, new PhpAnalyzerCache());
     }
 
     @Override
     protected IAnalyzer newSnapshot(
             AnalyzerState state, ProgressListener listener, @Nullable AnalyzerCache previousCache) {
-        return new PhpAnalyzer(getProject(), state, listener, previousCache);
+        PhpAnalyzerCache phpCache = previousCache instanceof PhpAnalyzerCache p ? p : new PhpAnalyzerCache();
+        return new PhpAnalyzer(getProject(), state, listener, phpCache);
+    }
+
+    @Override
+    protected AnalyzerCache createFilteredCache(AnalyzerCache previous, Set<ProjectFile> changedFiles) {
+        if (previous instanceof PhpAnalyzerCache phpCache) {
+            return new PhpAnalyzerCache(phpCache, changedFiles);
+        }
+        return new PhpAnalyzerCache();
     }
 
     @Override
@@ -189,26 +199,12 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
     @Override
     protected String determinePackageName(
             ProjectFile file, TSNode definitionNode, TSNode rootNode, SourceContent sourceContent) {
-        // definitionNode is not used here as package is file-scoped.
-
-        // If this.fileScopedPackageNames is null, it means this method is being called
-        // from the superclass (TreeSitterAnalyzer) constructor, before this PhpAnalyzer
-        // instance's fields (like fileScopedPackageNames or phpNamespaceQueryInstance) have been initialized.
-        // In this specific scenario, we cannot use the instance cache for fileScopedPackageNames.
-        // We must compute the package name directly. computeFilePackageName will handle query initialization.
-        if (this.fileScopedPackageNames == null) {
-            log.trace("PhpAnalyzer.determinePackageName called during super-constructor for file: {}", file);
-            return computeFilePackageName(file, rootNode, sourceContent);
+        AnalyzerCache currentCache = getCache();
+        if (currentCache instanceof PhpAnalyzerCache phpCache) {
+            return phpCache.fileScopedPackageNamesCache()
+                    .get(file, f -> computeFilePackageName(f, rootNode, sourceContent));
         }
-
-        // If fileScopedPackageNames is not null, the PhpAnalyzer instance is (likely) fully initialized,
-        // and we can use the caching mechanism.
-        String pkg = fileScopedPackageNames.get(file);
-        if (pkg != null) return pkg;
-
-        pkg = computeFilePackageName(file, rootNode, sourceContent);
-        fileScopedPackageNames.put(file, pkg);
-        return pkg;
+        return computeFilePackageName(file, rootNode, sourceContent);
     }
 
     @Override

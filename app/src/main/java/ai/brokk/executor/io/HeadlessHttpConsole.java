@@ -1,5 +1,6 @@
 package ai.brokk.executor.io;
 
+import ai.brokk.BrokkAuthValidation;
 import ai.brokk.LlmOutputMeta;
 import ai.brokk.TaskEntry;
 import ai.brokk.agents.BlitzForge;
@@ -135,6 +136,21 @@ public class HeadlessHttpConsole extends MemoryConsole {
                 "message", message,
                 "title", title);
         appendEvent("NOTIFICATION", data);
+    }
+
+    @Override
+    public void brokkAuthValidationUpdated(BrokkAuthValidation validation) {
+        var data = new HashMap<String, Object>();
+        data.put("state", validation.state().name());
+        data.put("valid", validation.valid());
+        data.put("subscribed", validation.subscribed());
+        data.put("hasBalance", validation.hasBalance());
+        data.put("balanceDisplay", validation.balanceDisplay());
+        data.put("message", validation.message());
+        if (validation.hasBalance()) {
+            data.put("balance", validation.balance());
+        }
+        appendEvent("BROKK_AUTH_VALIDATION", data);
     }
 
     /**
@@ -280,6 +296,38 @@ public class HeadlessHttpConsole extends MemoryConsole {
     public void updateContextHistoryTable(Context context) {
         var data = Map.of("name", "contextHistoryUpdated", "value", true, "count", 1);
         appendEvent("STATE_HINT", data);
+    }
+
+    @Override
+    public boolean supportsCommandResult() {
+        return true;
+    }
+
+    @Override
+    public void commandOutput(String line) {
+        // no-op: TUI receives full output via commandResult
+    }
+
+    @Override
+    public void commandStart(String stage, String command) {
+        var data = new HashMap<String, Object>();
+        data.put("stage", stage);
+        data.put("command", command);
+        appendEvent("COMMAND_START", data);
+    }
+
+    @Override
+    public void commandResult(
+            String stage, String command, boolean success, String output, @Nullable String exception) {
+        var data = new HashMap<String, Object>();
+        data.put("stage", stage);
+        data.put("command", command);
+        data.put("success", success);
+        data.put("output", output);
+        if (exception != null && !exception.isBlank()) {
+            data.put("exception", exception);
+        }
+        appendEvent("COMMAND_RESULT", data);
     }
 
     @Override

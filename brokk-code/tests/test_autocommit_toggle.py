@@ -82,6 +82,7 @@ async def test_run_job_passes_auto_commit_flag(tmp_path):
 
     app = BrokkApp(executor=executor)
     mock_chat = MagicMock(spec=ChatPanel)
+    mock_chat.get_commands_running.return_value = 0
     app.query_one = MagicMock(return_value=mock_chat)
 
     app.auto_commit = False
@@ -139,6 +140,7 @@ async def test_run_job_attaches_at_mentions_to_context(tmp_path):
 
     app = BrokkApp(executor=executor)
     mock_chat = MagicMock(spec=ChatPanel)
+    mock_chat.get_commands_running.return_value = 0
     app.query_one = MagicMock(return_value=mock_chat)
 
     await app._run_job(
@@ -179,6 +181,7 @@ async def test_run_job_skips_non_matching_at_mentions(tmp_path):
 
     app = BrokkApp(executor=executor)
     mock_chat = MagicMock(spec=ChatPanel)
+    mock_chat.get_commands_running.return_value = 0
     app.query_one = MagicMock(return_value=mock_chat)
 
     await app._run_job("Use @DoesNotMatch")
@@ -212,6 +215,7 @@ async def test_run_job_rolls_back_attached_mention_fragments_on_submit_failure(t
 
     app = BrokkApp(executor=executor)
     mock_chat = MagicMock(spec=ChatPanel)
+    mock_chat.get_commands_running.return_value = 0
     app.query_one = MagicMock(return_value=mock_chat)
 
     await app._run_job("Use @brokk_code/app.py")

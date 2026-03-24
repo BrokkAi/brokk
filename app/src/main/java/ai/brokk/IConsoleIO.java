@@ -90,6 +90,14 @@ public interface IConsoleIO {
         showNotification(role, message);
     }
 
+    /**
+     * Reports the latest Brokk auth validation snapshot (tier/status/balance).
+     * Default implementation is a no-op.
+     */
+    default void brokkAuthValidationUpdated(BrokkAuthValidation validation) {
+        // no-op
+    }
+
     default void showOutputSpinner(String message) {}
 
     default void hideOutputSpinner() {}
@@ -123,6 +131,46 @@ public interface IConsoleIO {
 
     default void setTaskInProgress(boolean progress) {
         // pass
+    }
+
+    /**
+     * Signals that a shell command is about to start executing.
+     * Default implementation outputs the stage and command via llmOutput.
+     * Headless consoles override to emit a COMMAND_START event instead.
+     */
+    default void commandStart(String stage, String command) {
+        llmOutput("\nRunning " + stage + " command:", ChatMessageType.CUSTOM, LlmOutputMeta.DEFAULT);
+        llmOutput(
+                command + "\n\n",
+                ChatMessageType.CUSTOM,
+                LlmOutputMeta.newMessage().withTerminal(true));
+    }
+
+    /**
+     * Streams a single line of command output during execution.
+     * Default implementation forwards to llmOutput for Swing compatibility.
+     * Headless consoles override as no-op since output is delivered via commandResult.
+     */
+    default void commandOutput(String line) {
+        llmOutput(line + "\n", ChatMessageType.CUSTOM, LlmOutputMeta.terminal());
+    }
+
+    /**
+     * Returns true if this console consumes the buffered output delivered via commandResult.
+     * When false, ProjectBuildRunner skips buffering command output to avoid memory waste.
+     */
+    default boolean supportsCommandResult() {
+        return false;
+    }
+
+    /**
+     * Signals that a shell command has finished executing.
+     * Default implementation is a no-op (Swing already saw output via commandOutput).
+     * Headless consoles override to emit a COMMAND_RESULT event.
+     */
+    default void commandResult(
+            String stage, String command, boolean success, String output, @Nullable String exception) {
+        // no-op: Swing consoles already streamed output line-by-line via commandOutput
     }
 
     //

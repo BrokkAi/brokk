@@ -452,11 +452,15 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     }
 
     protected TreeSitterAnalyzer(IProject project, Language language, ProgressListener listener) {
+        this(project, language, listener, new AnalyzerCache());
+    }
+
+    protected TreeSitterAnalyzer(IProject project, Language language, ProgressListener listener, AnalyzerCache cache) {
         this.project = project;
         this.language = language;
         // Register listener early so it receives progress during construction
         progressListener = listener;
-        this.cache = new AnalyzerCache();
+        this.cache = cache;
 
         // Initialize query sources from resources.
         Map<QueryType, String> sources = new EnumMap<>(QueryType.class);
@@ -655,6 +659,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
     protected final ProgressListener getProgressListener() {
         return this.progressListener;
+    }
+
+    protected final AnalyzerCache getCache() {
+        return this.cache;
     }
 
     /**
@@ -3669,6 +3677,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     protected abstract IAnalyzer newSnapshot(
             AnalyzerState state, ProgressListener listener, @Nullable AnalyzerCache previousCache);
 
+    protected AnalyzerCache createFilteredCache(AnalyzerCache previous, Set<ProjectFile> changedFiles) {
+        return new AnalyzerCache(previous, changedFiles);
+    }
+
     @Override
     public IAnalyzer update(Set<ProjectFile> changedFiles) {
         if (changedFiles.isEmpty()) return this;
@@ -3801,7 +3813,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 nextSymbolKeyIndex,
                 snapshotNanos);
 
-        var filteredCache = new AnalyzerCache(this.cache, changedFiles);
+        var filteredCache = createFilteredCache(this.cache, changedFiles);
         this.isStale = true;
         return newSnapshot(typedState, getProgressListener(), filteredCache);
     }

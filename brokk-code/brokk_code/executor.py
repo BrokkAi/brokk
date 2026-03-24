@@ -19,7 +19,7 @@ from brokk_code.workspace import resolve_workspace_dir
 
 logger = logging.getLogger(__name__)
 
-BUNDLED_EXECUTOR_VERSION = "0.23.3"
+BUNDLED_EXECUTOR_VERSION = "0.23.3.beta1"
 _EXECUTOR_JAR_BASE_URL = "https://github.com/BrokkAi/brokk-releases/releases/download"
 _EXECUTOR_MAIN_CLASS = "ai.brokk.executor.HeadlessExecutorMain"
 _READY_SENTINEL = "Executor listening on http://"
@@ -435,21 +435,25 @@ class ExecutorManager:
             resp.raise_for_status()
             return resp.json()
 
-    async def wait_ready(self, timeout: float = 30.0) -> bool:
-        """Polls /health/ready until the executor is ready."""
+    async def wait_live(self, timeout: float = 30.0) -> bool:
+        """Polls /health/live until the executor is live."""
         if not self._http_client:
             raise ExecutorError("Executor not started")
 
         start_time = asyncio.get_event_loop().time()
         while (asyncio.get_event_loop().time() - start_time) < timeout:
             try:
-                resp = await self._http_client.get("/health/ready")
+                resp = await self._http_client.get("/health/live")
                 if resp.status_code == 200:
                     return True
             except httpx.HTTPError:
                 pass
             await asyncio.sleep(0.5)
         return False
+
+    async def wait_ready(self, timeout: float = 30.0) -> bool:
+        """Compatibility alias for wait_live()."""
+        return await self.wait_live(timeout=timeout)
 
     async def create_session(self, name: str = "TUI Session") -> str:
         """Creates a new session and returns the sessionId."""
@@ -611,7 +615,11 @@ class ExecutorManager:
         try:
             resp = await self._http_client.post("/v1/jobs/pr-review", json=payload, headers=headers)
             resp.raise_for_status()
-            return resp.json()["jobId"]
+            data = resp.json()
+            response_session_id = data.get("sessionId")
+            if isinstance(response_session_id, str) and response_session_id.strip():
+                self.session_id = response_session_id
+            return data["jobId"]
         except httpx.HTTPError as e:
             status = getattr(getattr(e, "response", None), "status_code", "N/A")
             raise ExecutorError(f"Failed POST /v1/jobs/pr-review (status={status}): {e}") from e
@@ -671,7 +679,11 @@ class ExecutorManager:
 
         resp = await self._http_client.post("/v1/jobs", json=payload, headers=headers)
         resp.raise_for_status()
-        return resp.json()["jobId"]
+        data = resp.json()
+        response_session_id = data.get("sessionId")
+        if isinstance(response_session_id, str) and response_session_id.strip():
+            self.session_id = response_session_id
+        return data["jobId"]
 
     async def stream_events(self, job_id: str) -> AsyncIterator[Dict[str, Any]]:
         """
@@ -871,6 +883,19 @@ class ExecutorManager:
             return resp.json()
         except httpx.HTTPError as e:
             await self._handle_http_error(e, "/v1/models")
+            raise  # Should not be reached
+
+    async def validate_brokk_auth(self) -> Dict[str, Any]:
+        """Returns Brokk auth/account validation details for the current executor key."""
+        if not self._http_client:
+            raise ExecutorError("Executor not started")
+
+        try:
+            resp = await self._http_client.get("/v1/auth/validate")
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPError as e:
+            await self._handle_http_error(e, "/v1/auth/validate")
             raise  # Should not be reached
 
     async def get_model_config(self) -> Dict[str, Any]:

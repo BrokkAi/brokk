@@ -4,9 +4,12 @@ from typing import Optional
 
 from textual.app import ComposeResult
 from textual.containers import Horizontal
+from textual.timer import Timer
 from textual.widgets import Static
 
 from brokk_code.token_format import format_token_count
+
+SPINNER_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 
 
 class StatusLine(Horizontal):
@@ -44,6 +47,9 @@ class StatusLine(Horizontal):
         self._fragment_description: Optional[str] = None
         self._fragment_size: Optional[int] = None
         self._metadata: Optional[Static] = None
+        self._commands_running: int = 0
+        self._spinner_index: int = 0
+        self._spinner_timer: Optional[Timer] = None
 
     def compose(self) -> ComposeResult:
         yield Static(id="status-metadata")
@@ -124,6 +130,12 @@ class StatusLine(Horizontal):
             # Label-free fragment: {description} ({tokens} tokens)
             text = f"{self._fragment_description} ({size_text} tokens)"
 
+        if self._commands_running > 0:
+            suffix = "s" if self._commands_running != 1 else ""
+            frame = SPINNER_FRAMES[self._spinner_index % len(SPINNER_FRAMES)]
+            cmd_text = f"{frame} {self._commands_running} command{suffix} running"
+            text = f"{cmd_text} {self.SEPARATOR} {text}"
+
         self._set_status_metadata(text)
 
     def _set_status_metadata(self, text: str) -> None:
@@ -179,3 +191,23 @@ class StatusLine(Horizontal):
         Note: The elapsed timer was moved to ChatPanel help row; this is a no-op for StatusLine.
         """
         pass
+
+    def _advance_spinner(self) -> None:
+        self._spinner_index += 1
+        self._render_status_text()
+
+    def set_commands_running(self, count: int) -> None:
+        """
+        Update the count of currently running commands.
+        Displays "N commands running" with animated spinner when count > 0.
+        """
+        prev = self._commands_running
+        self._commands_running = max(0, count)
+        if prev == 0 and self._commands_running > 0:
+            self._spinner_index = 0
+            self._spinner_timer = self.set_interval(0.1, self._advance_spinner)
+        elif self._commands_running == 0 and self._spinner_timer is not None:
+            self._spinner_timer.stop()
+            self._spinner_timer = None
+            self._spinner_index = 0
+        self._render_status_text()
