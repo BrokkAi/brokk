@@ -2332,6 +2332,23 @@ public final class MainProject extends AbstractProject {
                         .sorted()
                         .collect(Collectors.toCollection(LinkedHashSet::new));
 
+        List<BuildAgent.ModuleBuildEntry> canonicalModules = details.modules().stream()
+                .map(m -> {
+                    String path = ai.brokk.util.PathNormalizer.canonicalizeForProject(m.relativePath(), getMasterRootPathForConfig());
+                    // Restore trailing slash for non-root modules as required by ModuleBuildEntry contract
+                    if (!path.equals(".") && !path.isEmpty() && !path.endsWith("/")) {
+                        path = path + "/";
+                    }
+                    return new BuildAgent.ModuleBuildEntry(
+                            m.alias(),
+                            path,
+                            m.buildLintCommand(),
+                            m.testAllCommand(),
+                            m.testSomeCommand(),
+                            m.language());
+                })
+                .toList();
+
         var canonicalDetails = new BuildAgent.BuildDetails(
                 details.buildLintCommand(),
                 details.buildLintEnabled(),
@@ -2343,7 +2360,7 @@ public final class MainProject extends AbstractProject {
                 canonicalEnv,
                 details.maxBuildAttempts(),
                 details.afterTaskListCommand(),
-                details.modules());
+                canonicalModules);
 
         try {
             String json = objectMapper.writeValueAsString(canonicalDetails);
