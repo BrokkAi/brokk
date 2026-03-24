@@ -3,9 +3,7 @@ package ai.brokk.gui.git;
 import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
 import ai.brokk.SettingsChangeListener;
-import ai.brokk.agents.IssueRewriterAgent;
 import ai.brokk.context.ContextFragments;
-import ai.brokk.executor.jobs.IssueExecutor;
 import ai.brokk.gui.AutoScalingHtmlPane;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.Constants;
@@ -47,7 +45,6 @@ import java.net.ConnectException;
 import java.net.SocketTimeoutException;
 import java.net.URI;
 import java.net.UnknownHostException;
-import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.*;
@@ -124,7 +121,6 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
     private Action copyDescriptionAction;
     private Action openInBrowserAction;
     private Action captureAction;
-    private Action diagnoseAction;
 
     private List<IssueHeader> allIssuesFromApi = new ArrayList<>();
     private List<IssueHeader> displayedIssues = new ArrayList<>();
@@ -513,23 +509,12 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
         captureAction.putValue(Action.SHORT_DESCRIPTION, "Capture details of the selected issue");
         captureAction.setEnabled(false);
 
-        diagnoseAction = new AbstractAction("Diagnose") {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                diagnoseSelectedIssue();
-            }
-        };
-        diagnoseAction.putValue(Action.SHORT_DESCRIPTION, "Diagnose the selected issue and post findings as a comment");
-        diagnoseAction.setEnabled(false);
-
         copyIssueDescriptionButton = new MaterialButton();
         copyIssueDescriptionButton.setAction(copyDescriptionAction);
         openInBrowserButton = new MaterialButton();
         openInBrowserButton.setAction(openInBrowserAction);
         captureButton = new MaterialButton();
         captureButton.setAction(captureAction);
-        MaterialButton diagnoseButton = new MaterialButton();
-        diagnoseButton.setAction(diagnoseAction);
 
         // ── compact icon-style buttons ───────────────────────────────────────
         final Icon copyIcon = Icons.CONTENT_COPY;
@@ -546,9 +531,6 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
         captureButton.setIcon(captureIcon);
         captureButton.setText("");
         captureButton.setMargin(new Insets(2, 2, 2, 2));
-
-        // Use text label for diagnose button since no specific icon exists
-        diagnoseButton.setText("Diagnose");
 
         filtersAndTablePanel.add(issueTableAndButtonsPanel, BorderLayout.CENTER);
         mainIssueAreaPanel.add(filtersAndTablePanel, BorderLayout.CENTER);
@@ -568,10 +550,8 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
         JPanel issueActionPanel = new JPanel();
         issueActionPanel.setLayout(new BoxLayout(issueActionPanel, BoxLayout.X_AXIS));
         issueActionPanel.setBorder(BorderFactory.createEmptyBorder(0, 0, Constants.V_GAP, 0));
-        // Capture and Diagnose on the left, Copy/Open on the right
+        // Capture on the left, Copy/Open on the right
         issueActionPanel.add(captureButton);
-        issueActionPanel.add(Box.createHorizontalStrut(Constants.H_GAP));
-        issueActionPanel.add(diagnoseButton);
         issueActionPanel.add(Box.createHorizontalGlue());
         issueActionPanel.add(copyIssueDescriptionButton);
         issueActionPanel.add(Box.createHorizontalStrut(Constants.H_GAP));
@@ -596,7 +576,6 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
         issueContextMenu.add(new JMenuItem(copyDescriptionAction));
         issueContextMenu.add(new JMenuItem(openInBrowserAction));
         issueContextMenu.add(new JMenuItem(captureAction));
-        issueContextMenu.add(new JMenuItem(diagnoseAction));
 
         // Add mouse listener for context menu on issue table
         issueTable.addMouseListener(new MouseAdapter() {
@@ -644,7 +623,6 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
                 copyDescriptionAction.setEnabled(true);
                 openInBrowserAction.setEnabled(true);
                 captureAction.setEnabled(true);
-                diagnoseAction.setEnabled(true);
                 issueDetailPanel.setVisible(true);
                 tableDetailsSplitPane.setDividerLocation(0.75); // reveal details (~25 % height)
 
@@ -787,7 +765,6 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
         copyDescriptionAction.setEnabled(false);
         openInBrowserAction.setEnabled(false);
         captureAction.setEnabled(false);
-        diagnoseAction.setEnabled(false);
         issueBodyTextPane.setContentType("text/html");
         issueBodyTextPane.setText("");
         issueDetailPanel.setVisible(false);
@@ -1240,90 +1217,6 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
         copyDescriptionAction.setEnabled(false);
         openInBrowserAction.setEnabled(false);
         captureAction.setEnabled(false);
-        diagnoseAction.setEnabled(false);
-    }
-
-    private void diagnoseSelectedIssue() {
-        int selectedRow = issueTable.getSelectedRow();
-        if (selectedRow == -1 || selectedRow >= displayedIssues.size()) {
-            return;
-        }
-        IssueHeader header = displayedIssues.get(selectedRow);
-
-        chrome.showNotification(
-                IConsoleIO.NotificationRole.INFO, "Starting diagnosis for issue " + header.id() + "...");
-
-        var future = contextManager.submitBackgroundTask("Diagnosing issue " + header.id(), () -> {
-            try {
-                if (!(issueService instanceof GitHubIssueService)) {
-                    SwingUtilities.invokeLater(() -> {
-                        chrome.toolError("Diagnose is only supported for GitHub issues.", "Unsupported Operation");
-                    });
-                    return null;
-                }
-
-                var model = contextManager.getCodeModel();
-                IssueDetails details = issueService.loadDetails(header.id());
-                int issueNumber = parseIssueNumber(header.id());
-
-                var context = contextManager.liveContext();
-                var writerAgent = new IssueRewriterAgent(
-                        context, model, IssueExecutor.formatIssueDiagnosePrompt(details, issueNumber));
-                var analysisResult = writerAgent.execute();
-
-                contextManager.pushContext(ctx -> analysisResult.context());
-
-                String timestamp = Instant.now().toString();
-                String diagnosisComment =
-                        """
-                        <!-- brokk:diagnosis:v1 timestamp="%s" -->
-
-                        ## Issue Analysis
-
-                        %s
-
-                        ---
-
-                        **Next steps:** Reply with `@BrokkBot solve` to proceed with the fix, or add comments to provide additional guidance.
-                        """
-                                .formatted(timestamp, analysisResult.bodyMarkdown());
-
-                ((GitHubIssueService) issueService).postComment(header.id(), diagnosisComment);
-
-                SwingUtilities.invokeLater(() -> {
-                    chrome.showNotification(
-                            IConsoleIO.NotificationRole.INFO, "Diagnosis posted to issue " + header.id());
-                    updateIssueList();
-                });
-
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                logger.debug("Diagnosis cancelled for issue {}", header.id());
-            } catch (Exception e) {
-                logger.error("Failed to diagnose issue {}: {}", header.id(), e.getMessage(), e);
-                SwingUtilities.invokeLater(() -> {
-                    chrome.toolError(
-                            "Failed to diagnose issue " + header.id() + ": " + e.getMessage(), "Diagnosis Error");
-                });
-            }
-            return null;
-        });
-        trackCancellableFuture(future);
-    }
-
-    /**
-     * Parses the issue number from an issue ID string like "#123" or "FOO-456".
-     */
-    private int parseIssueNumber(String issueId) {
-        if (issueId.startsWith("#")) {
-            return Integer.parseInt(issueId.substring(1));
-        }
-        // For Jira-style IDs like "FOO-456", extract the number part
-        int dashIndex = issueId.lastIndexOf('-');
-        if (dashIndex >= 0 && dashIndex < issueId.length() - 1) {
-            return Integer.parseInt(issueId.substring(dashIndex + 1));
-        }
-        return Integer.parseInt(issueId);
     }
 
     private void captureSelectedIssue() {
