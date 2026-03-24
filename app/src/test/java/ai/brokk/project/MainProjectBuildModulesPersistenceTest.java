@@ -89,11 +89,11 @@ public class MainProjectBuildModulesPersistenceTest {
         BuildAgent.BuildDetails persisted = parseDetailsFromProps(props);
 
         assertEquals(originalModules.size(), persisted.modules().size());
-        
+
         // ModuleBuildEntry normalizes "app" to "app/" and "brokk-code" to "brokk-code/"
         assertEquals("app/", persisted.modules().get(0).relativePath());
         assertEquals("brokk-code/", persisted.modules().get(1).relativePath());
-        
+
         for (int i = 0; i < originalModules.size(); i++) {
             var orig = originalModules.get(i);
             var actual = persisted.modules().get(i);
@@ -107,7 +107,7 @@ public class MainProjectBuildModulesPersistenceTest {
         // 4. Assert: Load via a NEW MainProject instance
         MainProject newProject = new MainProject(root);
         BuildAgent.BuildDetails loaded = newProject.loadBuildDetails().orElseThrow();
-        
+
         assertEquals(persisted, loaded);
         assertEquals("app/", loaded.modules().get(0).relativePath());
     }
@@ -120,8 +120,9 @@ public class MainProjectBuildModulesPersistenceTest {
         // 3. brokk-code\
         // 4. absolute path under project
         String absPathUnder = root.resolve("abs-module").toString();
-        
-        var jsonWithMixedPaths = """
+
+        var jsonWithMixedPaths =
+                """
             {
               "modules": [
                 { "alias": "m1", "relativePath": "./brokk-code", "language": "Python" },
@@ -130,7 +131,8 @@ public class MainProjectBuildModulesPersistenceTest {
                 { "alias": "m4", "relativePath": "%s", "language": "Java" }
               ]
             }
-            """.formatted(absPathUnder.replace("\\", "\\\\"));
+            """
+                        .formatted(absPathUnder.replace("\\", "\\\\"));
 
         Path propsFile = brokkProps(root);
         Files.createDirectories(propsFile.getParent());
@@ -148,22 +150,25 @@ public class MainProjectBuildModulesPersistenceTest {
         assertEquals("brokk-code/", loaded.modules().get(2).relativePath());
 
         // Note: Relativization of absolute paths happens in MainProject.saveBuildDetails.
-        // On initial load, it remains absolute because ModuleBuildEntry constructor 
+        // On initial load, it remains absolute because ModuleBuildEntry constructor
         // doesn't know the project root.
-        
+
         // Act: Save back to disk - this triggers canonicalization in MainProject
         project.saveBuildDetails(loaded);
-        
+
         // Reload to verify canonicalization
         BuildAgent.BuildDetails reloaded = project.loadBuildDetails().orElseThrow();
         assertEquals("abs-module/", reloaded.modules().get(3).relativePath());
-        
+
         // Assert: JSON stability
         Properties finalProps = loadProps(propsFile);
         String jsonAfterSave = finalProps.getProperty("buildDetailsJson");
-        
+
         project.saveBuildDetails(loaded);
         Properties stableProps = loadProps(propsFile);
-        assertEquals(jsonAfterSave, stableProps.getProperty("buildDetailsJson"), "JSON should be stable after canonicalization");
+        assertEquals(
+                jsonAfterSave,
+                stableProps.getProperty("buildDetailsJson"),
+                "JSON should be stable after canonicalization");
     }
 }

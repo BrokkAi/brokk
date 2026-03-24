@@ -2334,7 +2334,7 @@ public final class MainProject extends AbstractProject {
 
         List<BuildAgent.ModuleBuildEntry> canonicalModules = details.modules().stream()
                 .map(m -> {
-                    String path = ai.brokk.util.PathNormalizer.canonicalizeForProject(m.relativePath(), getMasterRootPathForConfig());
+                    String path = PathNormalizer.canonicalizeForProject(m.relativePath(), getMasterRootPathForConfig());
                     // Restore trailing slash for non-root modules as required by ModuleBuildEntry contract
                     if (!path.equals(".") && !path.isEmpty() && !path.endsWith("/")) {
                         path = path + "/";

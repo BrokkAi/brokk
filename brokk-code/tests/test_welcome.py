@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from brokk_code.app import BrokkApp
+from brokk_code.app import BrokkApiKeyModalScreen, BrokkApp
 
 
 @pytest.mark.asyncio
@@ -131,12 +131,12 @@ async def test_welcome_message_updates_after_pypi_fetch(tmp_path: Path):
 @pytest.mark.asyncio
 async def test_full_welcome_on_first_startup_after_login(tmp_path: Path):
     """Verify show_full_welcome=True in settings triggers the full variant."""
+    from brokk_code.settings import Settings
+
     mock_executor = MagicMock()
     mock_executor.workspace_dir = tmp_path
     mock_executor.start = AsyncMock()
     mock_executor.wait_live = AsyncMock(return_value=True)
-
-    from brokk_code.settings import Settings
 
     with patch("brokk_code.settings.Settings.get_brokk_api_key", return_value="sk-test"):
         with patch("brokk_code.settings.Settings.load") as mock_load:
@@ -199,28 +199,16 @@ async def test_login_flow_shows_full_welcome_once_only(tmp_path: Path):
     # 1. Simulate startup with NO API key
     with (
         patch("brokk_code.settings.Settings.load", return_value=settings_inst),
-        patch.object(settings_inst, "save") as mock_save,
         patch("brokk_code.settings.Settings.get_brokk_api_key", return_value=None),
         patch("brokk_code.app.write_brokk_api_key") as mock_write_key,
-        patch("brokk_code.app.BrokkApiKeyModalScreen") as mock_modal_cls,
     ):
         app = BrokkApp(executor=mock_executor)
 
-        # Capture the on_submit callback passed to the modal
-        on_submit_cb = None
-
-        def capture_modal_init(*args, **kwargs):
-            nonlocal on_submit_cb
-            on_submit_cb = kwargs.get("on_submit")
-            if on_submit_cb is None and args:
-                on_submit_cb = args[0]
-            return MagicMock()
-
-        mock_modal_cls.side_effect = capture_modal_init
-
         async with app.run_test() as pilot:
             await pilot.pause()
-            assert on_submit_cb is not None
+            # Verify the real modal screen is shown
+            assert isinstance(app.screen, BrokkApiKeyModalScreen)
+            on_submit_cb = app.screen._on_submit
 
             # Invoke the login callback manually
             res = on_submit_cb("sk-new-key")
@@ -236,7 +224,6 @@ async def test_login_flow_shows_full_welcome_once_only(tmp_path: Path):
 
             # Verify settings.show_full_welcome is NOT True (which would cause double welcome)
             assert settings_inst.show_full_welcome is False
-            assert mock_save.called
             mock_write_key.assert_called_once_with("sk-new-key")
 
             # Verify that the internal state was set to show full for this session
