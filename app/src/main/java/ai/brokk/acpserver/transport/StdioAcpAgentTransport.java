@@ -134,7 +134,6 @@ public class StdioAcpAgentTransport implements AcpTransport {
             }
             var promptThread = new Thread(
                     () -> {
-                        activePromptThread = Thread.currentThread();
                         try {
                             dispatchRequest(request, handler);
                         } catch (Throwable t) {
@@ -144,11 +143,14 @@ public class StdioAcpAgentTransport implements AcpTransport {
                                     JsonRpcMessage.RpcError.INTERNAL_ERROR,
                                     t.getClass().getName());
                         } finally {
-                            activePromptThread = null;
+                            if (activePromptThread == Thread.currentThread()) {
+                                activePromptThread = null;
+                            }
                         }
                     },
                     "BrokkACP-Prompt");
             promptThread.setDaemon(true);
+            activePromptThread = promptThread;
             promptThread.start();
             return;
         }
