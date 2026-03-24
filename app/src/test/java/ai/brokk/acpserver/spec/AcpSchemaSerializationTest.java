@@ -77,15 +77,12 @@ class AcpSchemaSerializationTest {
 
     @Test
     void newSessionRequestRoundTrip() throws Exception {
-        var context = List.of(new TextContent("Initial context"));
-        var request = new NewSessionRequest("/workspace/project", context);
+        var request = new NewSessionRequest("/workspace/project");
 
         String json = mapper.writeValueAsString(request);
         var deserialized = mapper.readValue(json, NewSessionRequest.class);
 
         assertEquals("/workspace/project", deserialized.workingDirectory());
-        assertEquals(1, deserialized.context().size());
-        assertEquals("Initial context", deserialized.context().getFirst().text());
     }
 
     @Test

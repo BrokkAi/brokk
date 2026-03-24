@@ -71,6 +71,8 @@ import org.jetbrains.annotations.Nullable;
  */
 public class BrokkAcpServer {
     private static final Logger logger = LogManager.getLogger(BrokkAcpServer.class);
+    private static final long INIT_TIMEOUT_MS = 60_000;
+    private static final long SESSION_SWITCH_TIMEOUT_SECONDS = 30;
 
     private sealed interface SessionState {
         record Uninitialized() implements SessionState {}
@@ -83,6 +85,14 @@ public class BrokkAcpServer {
     }
 
     private volatile SessionState state = new SessionState.Uninitialized();
+
+    private void setState(SessionState newState) {
+        var old = state;
+        state = newState;
+        logger.info("Session state: {} -> {}",
+                     old.getClass().getSimpleName(),
+                     newState.getClass().getSimpleName());
+    }
 
     @Nullable
     private volatile AcpSyncAgent agent;
@@ -153,8 +163,7 @@ public class BrokkAcpServer {
 
     private void startProjectInitialization(Path projectPath) {
         closeCurrentSession();
-        state = new SessionState.Initializing(projectPath);
-        logger.info("Starting project initialization at {}", projectPath);
+        setState(new SessionState.Initializing(projectPath));
         var initThread = new Thread(
                 () -> {
                     MainProject p = null;
@@ -163,8 +172,7 @@ public class BrokkAcpServer {
                         p = new MainProject(projectPath);
                         c = new ContextManager(p);
                         c.createHeadless(true, new MutedConsoleIO(c.getIo()));
-                        state = new SessionState.Ready(p, c);
-                        logger.info("Project initialized at {}", projectPath);
+                        setState(new SessionState.Ready(p, c));
                     } catch (Exception e) {
                         if (c != null) {
                             try {
@@ -180,11 +188,8 @@ public class BrokkAcpServer {
                                 logger.warn("Error closing MainProject during failed init", ex);
                             }
                         }
-                        state = new SessionState.Failed(
-                                projectPath,
-                                e.getMessage() != null
-                                        ? e.getMessage()
-                                        : e.getClass().getName());
+                        var errorMsg = e.getMessage() != null ? e.getMessage() : e.getClass().getName();
+                        setState(new SessionState.Failed(projectPath, errorMsg));
                         logger.error("Failed to initialize project at {}", projectPath, e);
                     }
                 },
@@ -195,7 +200,7 @@ public class BrokkAcpServer {
 
     private void closeCurrentSession() {
         var current = state;
-        state = new SessionState.Uninitialized();
+        setState(new SessionState.Uninitialized());
         if (current instanceof SessionState.Ready ready) {
             try {
                 ready.cm().close();
@@ -214,7 +219,7 @@ public class BrokkAcpServer {
         var current = state;
         if (current instanceof SessionState.Initializing) {
             logger.info("Waiting for project initialization to complete...");
-            long deadline = System.currentTimeMillis() + 60_000;
+            long deadline = System.currentTimeMillis() + INIT_TIMEOUT_MS;
             while (state instanceof SessionState.Initializing && System.currentTimeMillis() < deadline) {
                 try {
                     Thread.sleep(500);
@@ -233,7 +238,8 @@ public class BrokkAcpServer {
                         AcpProtocolException.INVALID_PARAMS, "Session initialization failed: " + failed.error());
             case SessionState.Initializing __ ->
                 throw new AcpProtocolException(
-                        AcpProtocolException.INTERNAL_ERROR, "Session initialization timed out after 60 seconds.");
+                        AcpProtocolException.INTERNAL_ERROR,
+                    "Session initialization timed out after " + (INIT_TIMEOUT_MS / 1000) + " seconds.");
             case SessionState.Uninitialized __ ->
                 throw new AcpProtocolException(
                         AcpProtocolException.INVALID_PARAMS, "No active session. Call session/new first.");
@@ -437,7 +443,7 @@ public class BrokkAcpServer {
         }
 
         try {
-            activeCm.switchSessionAsync(sessionId).get(30, TimeUnit.SECONDS);
+            activeCm.switchSessionAsync(sessionId).get(SESSION_SWITCH_TIMEOUT_SECONDS, TimeUnit.SECONDS);
             logger.info("Switched to session: {}", sessionId);
             return new SessionSwitchResponse("ok", sessionId.toString());
         } catch (Exception e) {

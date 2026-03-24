@@ -106,7 +106,7 @@ class AcpSyncAgentTest {
                 .build()
                 .run();
 
-        JsonNode params = mapper.readTree("{\"workingDirectory\":\"/workspace\",\"context\":[]}");
+        JsonNode params = mapper.readTree("{\"workingDirectory\":\"/workspace\"}");
         Object result = transport.simulateRequest("session/new", params, 2);
 
         assertTrue(sessionCalled[0]);

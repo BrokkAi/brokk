@@ -172,7 +172,7 @@ public class StdioAcpAgentTransport implements AcpTransport {
     }
 
     private void sendParseError() {
-        var response = JsonRpcMessage.Response.error("null", JsonRpcMessage.RpcError.PARSE_ERROR, "Parse error");
+        var response = JsonRpcMessage.Response.error(null, JsonRpcMessage.RpcError.PARSE_ERROR, "Parse error");
         writeMessage(response);
     }
 

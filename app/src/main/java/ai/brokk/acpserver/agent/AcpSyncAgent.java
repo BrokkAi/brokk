@@ -41,7 +41,8 @@ import org.jetbrains.annotations.Nullable;
 public class AcpSyncAgent {
 
     private static final Logger logger = LogManager.getLogger(AcpSyncAgent.class);
-    private final ObjectMapper mapper = new ObjectMapper();
+    private final ObjectMapper mapper =
+            new ObjectMapper().disable(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
     private final AcpTransport transport;
     private final Function<InitializeRequest, InitializeResponse> initializeHandler;
     private final Function<NewSessionRequest, NewSessionResponse> newSessionHandler;

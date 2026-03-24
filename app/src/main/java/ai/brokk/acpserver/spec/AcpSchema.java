@@ -19,7 +19,7 @@ public final class AcpSchema {
 
     public record InitializeRequest(int protocolVersion, @Nullable ClientCapabilities capabilities) {}
 
-    public record NewSessionRequest(@Nullable String workingDirectory, @Nullable List<TextContent> context) {}
+    public record NewSessionRequest(@Nullable String workingDirectory) {}
 
     public record PromptRequest(String sessionId, List<Content> messages) {}
 
