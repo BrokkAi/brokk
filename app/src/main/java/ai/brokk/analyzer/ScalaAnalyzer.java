@@ -77,7 +77,7 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer implements JvmBasedAnalyze
             // This is a primary constructor, which is matched against the class name. This constructor is "implicit"
             // and needs to be created explicitly as follows.
             effectiveSimpleName = simpleName + "." + simpleName;
-        } else if (simpleName.equals("this") && skeletonType.equals(SkeletonType.FUNCTION_LIKE)) {
+        } else if ("this".equals(simpleName) && skeletonType.equals(SkeletonType.FUNCTION_LIKE)) {
             // This is a secondary constructor, which is named `this`. The simple name should be the class name.
             // The classChain is the simple name of the enclosing class.
             if (!classChain.isEmpty()) {
@@ -239,13 +239,13 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer implements JvmBasedAnalyze
 
         // Single-name fast path: preserve the raw slice (modifiers, annotations) but truncate non-literals.
         TSNode patternNode = fieldNode.getChildByFieldName("pattern");
-        if (patternNode != null && !patternNode.isNull() && "identifier".equals(patternNode.getType())) {
+        if (patternNode != null && "identifier".equals(patternNode.getType())) {
             String patternText = sourceContent.substringFrom(patternNode).strip();
             if (patternText.equals(simpleName)) {
                 TSNode valueNode = fieldNode.getChildByFieldName("value");
                 String result = (exportPrefix.isEmpty() ? trimmedSignature : (exportPrefix + trimmedSignature));
 
-                if (valueNode != null && !valueNode.isNull() && !isLiteral(valueNode)) {
+                if (valueNode != null && !isLiteral(valueNode)) {
                     // Truncate non-literal initializer
                     int eqIndex = result.indexOf('=');
                     if (eqIndex > 0) {
@@ -266,12 +266,12 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer implements JvmBasedAnalyze
         sb.append(keyword).append(" ").append(simpleName);
 
         TSNode typeNode = fieldNode.getChildByFieldName("type");
-        if (typeNode != null && !typeNode.isNull()) {
+        if (typeNode != null) {
             sb.append(": ").append(sourceContent.substringFrom(typeNode));
         }
 
         TSNode valueNode = fieldNode.getChildByFieldName("value");
-        if (valueNode != null && !valueNode.isNull() && isLiteral(valueNode)) {
+        if (valueNode != null && isLiteral(valueNode)) {
             sb.append(" = ").append(sourceContent.substringFrom(valueNode));
         }
 
@@ -305,7 +305,7 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer implements JvmBasedAnalyze
                         while (cursor.nextMatch(match)) {
                             for (TSQueryCapture capture : match.getCaptures()) {
                                 TSNode node = capture.getNode();
-                                if (node == null || node.isNull()) continue;
+                                if (node == null) continue;
 
                                 String captureName = query.getCaptureNameForId(capture.getIndex());
                                 switch (captureName) {

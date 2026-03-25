@@ -272,7 +272,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
         // (We rely on the decorated_definition capture instead to preserve decorators)
         if (CLASS_DEFINITION.equals(node.getType()) || FUNCTION_DEFINITION.equals(node.getType())) {
             TSNode current = node.getParent();
-            while (current != null && !current.isNull()) {
+            while (current != null) {
                 if (DECORATED_DEFINITION.equals(current.getType())) {
                     return true;
                 }
@@ -334,7 +334,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
         if (DECORATED_DEFINITION.equals(decoratedNode.getType())) {
             for (int i = 0; i < decoratedNode.getChildCount(); i++) {
                 TSNode child = decoratedNode.getChild(i);
-                if (child.isNull()) continue;
+                if (child == null) continue;
                 String type = child.getType();
                 if (DECORATOR.equals(type)) {
                     outDecoratorLines.add(sourceContent.substringFrom(child).stripLeading());
@@ -370,7 +370,6 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
 
         TSNode bodyNode = funcNode.getChildByFieldName("body");
         boolean hasMeaningfulBody = bodyNode != null
-                && !bodyNode.isNull()
                 && (bodyNode.getNamedChildCount() > 1
                         || (bodyNode.getNamedChildCount() == 1
                                 && !PASS_STATEMENT.equals(
@@ -392,9 +391,9 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
             String simpleName,
             String baseIndent,
             ProjectFile file) {
-        if (fieldNode.isNull()) {
+        if (fieldNode == null) {
             return super.formatFieldSignature(
-                    fieldNode, sourceContent, exportPrefix, signatureText, simpleName, baseIndent, file);
+                    null, sourceContent, exportPrefix, signatureText, simpleName, baseIndent, file);
         }
 
         // Python field nodes from definitions.scm are typically 'expression_statement' wrapping 'assignment', or
@@ -405,12 +404,12 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
         }
 
         TSNode valueNode = assignmentNode.getChildByFieldName("value");
-        if (valueNode == null || valueNode.isNull()) {
+        if (valueNode == null) {
             // Assignments will have a "left"/"right" property
             valueNode = assignmentNode.getChildByFieldName("right");
         }
 
-        if (valueNode == null || valueNode.isNull()) {
+        if (valueNode == null) {
             // Pure type annotation with no default value (e.g. x: int)
             return baseIndent + signatureText;
         }
@@ -440,7 +439,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
         if (DECORATED_DEFINITION.equals(definitionNode.getType())) {
             for (int i = 0; i < definitionNode.getChildCount(); i++) {
                 TSNode child = definitionNode.getChild(i);
-                if (child.isNull()) continue;
+                if (child == null) continue;
                 String type = child.getType();
                 if (CLASS_DEFINITION.equals(type) || FUNCTION_DEFINITION.equals(type)) {
                     return new ResolvedNodes(child, child);
@@ -457,7 +456,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
         if (DECORATED_DEFINITION.equals(definitionNode.getType())) {
             for (int i = 0; i < definitionNode.getChildCount(); i++) {
                 TSNode child = definitionNode.getChild(i);
-                if (child.isNull()) continue;
+                if (child == null) continue;
                 String type = child.getType();
                 if (CLASS_DEFINITION.equals(type) || FUNCTION_DEFINITION.equals(type)) {
                     targetNode = child;
@@ -499,7 +498,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
                                 String captureName = query.getCaptureNameForId(cap.getIndex());
 
                                 TSNode node = cap.getNode();
-                                if (node == null || node.isNull()) {
+                                if (node == null) {
                                     continue;
                                 }
 
@@ -532,7 +531,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
                                 if (CaptureNames.CLASS_DEFINITION.equals(captureName)
                                         || CaptureNames.FUNCTION_DEFINITION.equals(captureName)) {
                                     TSNode nameNode = node.getChildByFieldName(FIELD_NAME);
-                                    if (nameNode != null && !nameNode.isNull()) {
+                                    if (nameNode != null) {
                                         String name = sourceContent.substringFrom(nameNode);
                                         if (name.startsWith("test_") || name.startsWith("Test")) {
                                             return true;
@@ -550,7 +549,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
     private boolean isPytestMark(TSNode decoratorNode, SourceContent sourceContent) {
         // decorator -> expression (named child 0)
         TSNode expression = decoratorNode.getNamedChild(0);
-        if (expression == null || expression.isNull()) {
+        if (expression == null) {
             return false;
         }
 
@@ -560,14 +559,14 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
             target = target.getChildByFieldName(FIELD_FUNCTION);
         }
 
-        if (target == null || target.isNull()) {
+        if (target == null) {
             return false;
         }
 
         // Try AST navigation for attribute segments
         List<String> segments = new ArrayList<>();
         TSNode current = target;
-        while (current != null && !current.isNull()) {
+        while (current != null) {
             if (ATTRIBUTE.equals(current.getType())) {
                 TSNode attributeNameNode = current.getChildByFieldName(FIELD_ATTRIBUTE);
                 if (attributeNameNode != null) {
@@ -717,7 +716,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
 
     @Override
     protected List<String> extractRawSupertypesForClassLike(
-            CodeUnit cu, TSNode classNode, String signature, SourceContent sourceContent) {
+            CodeUnit cu, @Nullable TSNode classNode, String signature, SourceContent sourceContent) {
         // Extract superclass names from Python class definition
         // Pattern: class Child(Parent1, Parent2): ...
         return withCachedQuery(
@@ -739,7 +738,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
 
                     // Ascend to root node for matching
                     TSNode root = classNode;
-                    while (root.getParent() != null && !root.getParent().isNull()) {
+                    while (root.getParent() != null) {
                         root = root.getParent();
                     }
 
@@ -758,7 +757,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
                             for (var cap : match.getCaptures()) {
                                 var capName = query.getCaptureNameForId(cap.getIndex());
                                 var n = cap.getNode();
-                                if (n == null || n.isNull()) continue;
+                                if (n == null) continue;
 
                                 if ("type.decl".equals(capName)) {
                                     declNode = n;
@@ -915,7 +914,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
                         for (var cap : match.getCaptures()) {
                             var capName = query.getCaptureNameForId(cap.getIndex());
                             var node = cap.getNode();
-                            if (node == null || node.isNull()) continue;
+                            if (node == null) continue;
 
                             var text = importSc.substringFrom(node);
 
@@ -1049,7 +1048,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
     protected void extractImports(
             Map<String, TSNode> capturedNodesForMatch, SourceContent sourceContent, List<ImportInfo> localImportInfos) {
         TSNode importNode = capturedNodesForMatch.get(IMPORT_DECLARATION);
-        if (importNode == null || importNode.isNull()) {
+        if (importNode == null) {
             return;
         }
 
@@ -1068,22 +1067,22 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
 
         // Check for alias first - if present, it becomes both the alias and the identifier used in code
         TSNode aliasNode = capturedNodesForMatch.get(IMPORT_ALIAS);
-        if (aliasNode != null && !aliasNode.isNull()) {
+        if (aliasNode != null) {
             alias = sourceContent.substringFrom(aliasNode).strip();
             identifier = alias;
         } else {
             // Check for import.name - this is the imported symbol (e.g., "Foo" from "from pkg import Foo")
             TSNode nameNode = capturedNodesForMatch.get(IMPORT_NAME);
-            if (nameNode != null && !nameNode.isNull()) {
+            if (nameNode != null) {
                 identifier = sourceContent.substringFrom(nameNode).strip();
             } else {
                 // For "import module" style (import pkg.mod), check import.module or import.relative
                 TSNode moduleNode = capturedNodesForMatch.get(IMPORT_MODULE);
-                if (moduleNode == null || moduleNode.isNull()) {
+                if (moduleNode == null) {
                     moduleNode = capturedNodesForMatch.get(IMPORT_RELATIVE);
                 }
 
-                if (moduleNode != null && !moduleNode.isNull()) {
+                if (moduleNode != null) {
                     String modulePath = sourceContent.substringFrom(moduleNode).strip();
                     // Strip leading dots for relative imports before finding first segment
                     String cleanPath = modulePath.replaceFirst("^\\.+", "");
@@ -1203,7 +1202,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
             if (tree == null) return identifiers;
             TSNode rootNode = tree.getRootNode();
 
-            if (rootNode.isNull()) {
+            if (rootNode == null) {
                 return identifiers;
             }
 
@@ -1218,7 +1217,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
                             while (cursor.nextMatch(match)) {
                                 for (TSQueryCapture capture : match.getCaptures()) {
                                     TSNode node = capture.getNode();
-                                    if (node != null && !node.isNull()) {
+                                    if (node != null) {
                                         String text = sc.substringFrom(node).strip();
                                         if (!text.isEmpty()) {
                                             identifiers.add(text);

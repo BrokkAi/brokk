@@ -152,9 +152,14 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             if (source == null) {
                 return;
             }
-            query = new TSQuery(getTSLanguage(), source);
-            queryCompilationCount.incrementAndGet();
-            cache.put(type, query);
+            try {
+                query = new TSQuery(getTSLanguage(), source);
+                queryCompilationCount.incrementAndGet();
+                cache.put(type, query);
+            } catch (TSQueryException e) {
+                log.error("Failed to compile {} query: {}", type, e.getMessage(), e);
+                return;
+            }
         }
 
         fn.accept(query);
@@ -182,9 +187,14 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 log.warn("Unable to resolve a Tree Sitter query source for {}", type.name());
                 return defaultValue;
             }
-            query = new TSQuery(getTSLanguage(), source);
-            queryCompilationCount.incrementAndGet();
-            cache.put(type, query);
+            try {
+                query = new TSQuery(getTSLanguage(), source);
+                queryCompilationCount.incrementAndGet();
+                cache.put(type, query);
+            } catch (TSQueryException e) {
+                log.error("Failed to compile {} query: {}", type, e.getMessage(), e);
+                return defaultValue;
+            }
         }
 
         return fn.apply(query);
@@ -202,7 +212,12 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         if (source == null) {
             return null;
         }
-        return new TSQuery(getTSLanguage(), source);
+        try {
+            return new TSQuery(getTSLanguage(), source);
+        } catch (TSQueryException e) {
+            log.error("Failed to create {} query: {}", type, e.getMessage(), e);
+            return null;
+        }
     }
 
     /**
@@ -1664,8 +1679,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
      * @param node The TSNode to check.
      * @return true if the node is a class-like declaration, false otherwise.
      */
-    protected boolean isClassLike(TSNode node) {
-        if (node.isNull()) {
+    protected boolean isClassLike(@Nullable TSNode node) {
+        if (node == null) {
             return false;
         }
         return getLanguageSyntaxProfile().classLikeNodeTypes().contains(node.getType());
@@ -2083,13 +2098,13 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
      */
     protected Optional<TSNode> findDeclarator(
             TSNode parent, String simpleName, SourceContent sourceContent, String declaratorType, String nameField) {
-        if (parent.isNull()) return Optional.empty();
+        if (parent == null) return Optional.empty();
         for (int i = 0; i < parent.getChildCount(); i++) {
             TSNode child = parent.getChild(i);
-            if (child == null || child.isNull()) continue;
+            if (child == null) continue;
             if (declaratorType.equals(child.getType())) {
                 TSNode nameNode = child.getChildByFieldName(nameField);
-                if (nameNode != null && !nameNode.isNull()) {
+                if (nameNode != null) {
                     if (simpleName.equals(sourceContent.substringFrom(nameNode).strip())) {
                         return Optional.of(child);
                     }
@@ -2107,7 +2122,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < parent.getChildCount(); i++) {
             TSNode child = parent.getChild(i);
-            if (child == null || child.isNull() || child.getEndByte() > target.getStartByte()) break;
+            if (child == null || child.getEndByte() > target.getStartByte()) break;
             if (acceptedNodeTypes.contains(child.getType())) {
                 String text = sourceContent.substringFrom(child).strip();
                 if (!text.isEmpty()) {
@@ -2164,7 +2179,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                     }
                     TSNode rootNode = tree.getRootNode();
                     long __processStart = System.nanoTime();
-                    if (rootNode.isNull()) {
+                    if (rootNode == null) {
                         log.warn("Parsing failed or produced null root node for {}", file);
                         long __processEnd = System.nanoTime();
                         if (timing != null) {
@@ -2189,7 +2204,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                                         for (TSQueryCapture capture : match.getCaptures()) {
                                             String captureName = importsQuery.getCaptureNameForId(capture.getIndex());
                                             TSNode node = capture.getNode();
-                                            if (node != null && !node.isNull()) {
+                                            if (node != null) {
                                                 capturedNodesForMatch.putIfAbsent(captureName, node);
                                             }
                                         }
@@ -2432,7 +2447,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                                 if (getIgnoredCaptures().contains(captureName)) continue;
 
                                 TSNode node = capture.getNode();
-                                if (node != null && !node.isNull()) {
+                                if (node != null) {
                                     if ("keyword.modifier".equals(captureName)) {
                                         modifierNodesForMatch.add(node);
                                     } else if (CaptureNames.DECORATOR_DEFINITION.equals(captureName)) {
@@ -2497,7 +2512,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
         if (CaptureNames.LAMBDA_DEFINITION.equals(captureName)) {
             simpleName = extractSimpleName(definitionNode, sourceContent);
-        } else if (nameNode != null && !nameNode.isNull()) {
+        } else if (nameNode != null) {
             String nameText = sourceContent.substringFrom(nameNode);
             if (nameText.isBlank()
                     && !isBlankNameAllowed(captureName, nameText, definitionNode.getType(), file.getFileName())) {
@@ -2515,7 +2530,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         List<ScopeSegment> enclosingScopes = new ArrayList<>();
         var profile = getLanguageSyntaxProfile();
         TSNode tempParent = node.getParent();
-        while (tempParent != null && !tempParent.isNull() && !tempParent.equals(rootNode)) {
+        while (tempParent != null && !tempParent.equals(rootNode)) {
             if (isClassLike(tempParent)) {
                 final var parent = tempParent;
                 extractSimpleName(tempParent, sourceContent).ifPresent(parentName -> {
@@ -2536,7 +2551,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     protected String buildClassChain(TSNode node, TSNode rootNode, SourceContent sourceContent) {
         Deque<String> segments = new ArrayDeque<>();
         TSNode current = node.getParent();
-        while (current != null && !current.isNull() && !current.equals(rootNode)) {
+        while (current != null && !current.equals(rootNode)) {
             if (isClassLike(current)) {
                 final TSNode parent = current;
                 extractSimpleName(parent, sourceContent).ifPresent(name -> {
@@ -2573,9 +2588,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         }
 
         TSNode bodyNodeCandidate = nodeForBody.getChildByFieldName(langProfile.bodyFieldName());
-        return bodyNodeCandidate != null
-                && !bodyNodeCandidate.isNull()
-                && bodyNodeCandidate.getEndByte() > bodyNodeCandidate.getStartByte();
+        return bodyNodeCandidate != null && bodyNodeCandidate.getEndByte() > bodyNodeCandidate.getStartByte();
     }
 
     protected boolean shouldAttachToParent(
@@ -2629,7 +2642,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     /**
      * Returns raw supertype names (extends/implements) for a class-like entity, computing them lazily if necessary.
      */
-    protected List<String> getRawSupertypesLazily(CodeUnit cu) {
+    protected List<String> getRawSupertypesLazily(@Nullable CodeUnit cu) {
+        if (cu == null) return List.of();
         if (!cu.isClass()) {
             return List.of();
         }
@@ -2652,7 +2666,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                             Range primary = ranges.getFirst();
                             TSNode node = tree.getRootNode()
                                     .getDescendantForByteRange(primary.startByte(), primary.endByte());
-                            if (node == null || node.isNull()) {
+                            if (node == null) {
                                 return List.of();
                             }
 
@@ -2727,7 +2741,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
      * @return The formatted parameter list text, or an empty string if the node is null.
      */
     protected String formatParameterList(TSNode parametersNode, SourceContent sourceContent) {
-        return parametersNode.isNull() ? "" : sourceContent.substringFrom(parametersNode);
+        return parametersNode == null ? "" : sourceContent.substringFrom(parametersNode);
     }
 
     /**
@@ -2740,7 +2754,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
      * @return The formatted return type text, or an empty string if the node is null.
      */
     protected String formatReturnType(@Nullable TSNode returnTypeNode, SourceContent sourceContent) {
-        return returnTypeNode == null || returnTypeNode.isNull() ? "" : sourceContent.substringFrom(returnTypeNode);
+        return returnTypeNode == null ? "" : sourceContent.substringFrom(returnTypeNode);
     }
 
     protected String formatHeritage(String signatureText) {
@@ -2882,7 +2896,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             case CLASS_LIKE: {
                 TSNode bodyNode = nodeForContent.getChildByFieldName(profile.bodyFieldName());
                 String classSignatureText;
-                if (bodyNode != null && !bodyNode.isNull()) {
+                if (bodyNode != null) {
                     // If unwrapped from export, slice from original node to include any prefix text up to body.
                     int startByte;
                     if (!Objects.equals(nodeForSignature, nodeForContent)) {
@@ -3037,7 +3051,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         String functionName;
         TSNode nameNode = funcNode.getChildByFieldName(profile.identifierFieldName());
 
-        if (nameNode != null && !nameNode.isNull()) {
+        if (nameNode != null) {
             functionName = sourceContent.substringFrom(nameNode);
         } else if (providedNameOpt.isPresent()) {
             functionName = providedNameOpt.get();
@@ -3067,7 +3081,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         TSNode bodyNode = funcNode.getChildByFieldName(profile.bodyFieldName());
 
         // Parameter node is usually essential for a valid function signature.
-        if (paramsNode == null || paramsNode.isNull()) {
+        if (paramsNode == null) {
             log.trace(
                     "Parameters node (field '{}') not found for function node type '{}', name '{}'. Assuming empty parameter list.",
                     profile.parametersFieldName(),
@@ -3076,7 +3090,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         }
 
         // Body node might be missing for abstract/interface methods.
-        if (bodyNode == null || bodyNode.isNull()) {
+        if (bodyNode == null) {
             log.trace(
                     "Body node (field '{}') not found for function node type '{}', name '{}'. Renderer or placeholder logic must handle this.",
                     profile.bodyFieldName(),
@@ -3091,7 +3105,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         String typeParamsText = "";
         if (!profile.typeParametersFieldName().isEmpty()) {
             TSNode typeParamsNode = funcNode.getChildByFieldName(profile.typeParametersFieldName());
-            if (typeParamsNode != null && !typeParamsNode.isNull()) {
+            if (typeParamsNode != null) {
                 typeParamsText = sourceContent.substringFrom(typeParamsNode); // Raw text including < >
             }
         }
@@ -3108,7 +3122,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
         for (int i = 0; i < funcNode.getChildCount(); i++) {
             TSNode child = funcNode.getChild(i);
-            if (child == null || child.isNull()) continue;
+            if (child == null) continue;
             String t = child.getType();
             boolean isModifierType = profile.modifierNodeTypes().contains(t)
                     || (!profile.asyncKeywordNodeType().isEmpty() && t.equals(profile.asyncKeywordNodeType()));
@@ -3194,14 +3208,13 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         String typeParamsText = "";
         if (!profile.typeParametersFieldName().isEmpty()) {
             TSNode tp = node.getChildByFieldName(profile.typeParametersFieldName());
-            if (tp != null && !tp.isNull()) {
+            if (tp != null) {
                 typeParamsText = sourceContent.substringFrom(tp).strip();
             }
         }
         TSNode valueNode = node.getChildByFieldName("value");
-        String valueText = (valueNode != null && !valueNode.isNull())
-                ? sourceContent.substringFrom(valueNode).strip()
-                : "";
+        String valueText =
+                (valueNode != null) ? sourceContent.substringFrom(valueNode).strip() : "";
         if (valueText.isEmpty()) {
             valueText = "any";
         }
@@ -3252,7 +3265,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             return decorators;
         }
         TSNode current = decoratedNode.getPrevSibling();
-        while (current != null && !current.isNull() && decoratorNodeTypes.contains(current.getType())) {
+        while (current != null && decoratorNodeTypes.contains(current.getType())) {
             decorators.add(current);
             current = current.getPrevSibling();
         }
@@ -3292,7 +3305,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         }
 
         TSNode nameNode = decl.getChildByFieldName(identifierFieldName);
-        if (nameNode != null && !nameNode.isNull()) {
+        if (nameNode != null) {
             nameOpt = Optional.of(sourceContent.substringFrom(nameNode));
         } else if (!isNullNameExpectedForExtraction(decl.getType())) {
             log.debug(
@@ -3320,7 +3333,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     protected Optional<String> findEnclosingFunctionName(TSNode node, SourceContent sourceContent) {
         var profile = getLanguageSyntaxProfile();
         TSNode current = node.getParent();
-        while (current != null && !current.isNull()) {
+        while (current != null) {
             if (profile.functionLikeNodeTypes().contains(current.getType())) {
                 return extractSimpleName(current, sourceContent);
             }
@@ -3876,7 +3889,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     protected void extractImports(
             Map<String, TSNode> capturedNodesForMatch, SourceContent sourceContent, List<ImportInfo> localImportInfos) {
         TSNode importNode = capturedNodesForMatch.get(getLanguageSyntaxProfile().importNodeType());
-        if (importNode != null && !importNode.isNull()) {
+        if (importNode != null) {
             String importText = sourceContent.substringFrom(importNode).strip();
             if (!importText.isEmpty()) {
                 // Default implementation: create basic ImportInfo without identifier extraction
@@ -3934,8 +3947,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     /**
      * Checks if a Tree-Sitter node represents a comment. Supports common comment node types across languages.
      */
-    protected boolean isCommentNode(TSNode node) {
-        if (node.isNull()) {
+    protected boolean isCommentNode(@Nullable TSNode node) {
+        if (node == null) {
             return false;
         }
         String nodeType = node.getType();
@@ -3973,7 +3986,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         List<TSNode> comments = new ArrayList<>();
         TSNode current = declarationNode.getPrevSibling();
 
-        while (current != null && !current.isNull()) {
+        while (current != null) {
             if (isCommentNode(current)) {
                 comments.add(current);
             } else if (!isWhitespaceOnlyNode(current)) {
@@ -3991,8 +4004,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     /**
      * Checks if a node contains only whitespace (spaces, tabs, newlines).
      */
-    protected boolean isWhitespaceOnlyNode(TSNode node) {
-        if (node.isNull()) {
+    protected boolean isWhitespaceOnlyNode(@Nullable TSNode node) {
+        if (node == null) {
             return false;
         }
         // Common whitespace node types in Tree-Sitter grammars
@@ -4066,7 +4079,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         // Walk preceding siblings and collect contiguous leading metadata nodes (comments, attributes)
         List<TSNode> leading = new ArrayList<>();
         TSNode current = declarationNode.getPrevSibling();
-        while (current != null && !current.isNull()) {
+        while (current != null) {
             if (isLeadingMetadataNode(current)) {
                 leading.add(current);
                 current = current.getPrevSibling();
@@ -4230,7 +4243,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
      *
      * @param captureName the Tree-sitter capture name (e.g., "constructor.definition")
      */
-    protected boolean isConstructor(CodeUnit candidate, @Nullable CodeUnit enclosingClass, String captureName) {
+    protected boolean isConstructor(
+            CodeUnit candidate, @Nullable CodeUnit enclosingClass, @Nullable String captureName) {
         if (getLanguageSyntaxProfile().constructorNodeTypes().contains(captureName)) {
             return true;
         }
@@ -4253,7 +4267,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
      * Extracts potential type identifiers from source code.
      */
     public Set<String> performIdentifierExtraction(@Nullable TSNode root, String source) {
-        if (root == null || root.isNull()) {
+        if (root == null) {
             return Set.of();
         }
 
@@ -4271,7 +4285,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                         while (cursor.nextMatch(match)) {
                             for (TSQueryCapture capture : match.getCaptures()) {
                                 TSNode node = capture.getNode();
-                                if (node != null && !node.isNull()) {
+                                if (node != null) {
                                     String text =
                                             sourceContent.substringFrom(node).strip();
                                     if (!text.isEmpty()) {

@@ -228,7 +228,7 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < methodNode.getChildCount(); i++) {
             TSNode child = methodNode.getChild(i);
-            if (child == null || child.isNull()) continue;
+            if (child == null) continue;
             String type = child.getType();
 
             if (PHP_SYNTAX_PROFILE.decoratorNodeTypes().contains(type)) { // This is an attribute
@@ -252,9 +252,9 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
             String simpleName,
             String baseIndent,
             ProjectFile file) {
-        if (fieldNode.isNull()) {
+        if (fieldNode == null) {
             return super.formatFieldSignature(
-                    fieldNode, sourceContent, exportPrefix, signatureText, simpleName, baseIndent, file);
+                    null, sourceContent, exportPrefix, signatureText, simpleName, baseIndent, file);
         }
 
         boolean isConstant = CONST_DECLARATION.equals(fieldNode.getType());
@@ -297,7 +297,7 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
             }
         }
 
-        if (elementNode == null || elementNode.isNull()) {
+        if (elementNode == null) {
             return super.formatFieldSignature(
                     fieldNode, sourceContent, exportPrefix, signatureText, simpleName, baseIndent, file);
         }
@@ -305,7 +305,7 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
         // Look for type information
         String typeText = "";
         TSNode typeNode = fieldNode.getChildByFieldName("type");
-        if (typeNode != null && !typeNode.isNull()) {
+        if (typeNode != null) {
             typeText = sourceContent.substringFrom(typeNode).strip() + " ";
         }
 
@@ -313,14 +313,14 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
         TSNode valueNode = null;
         if (isProperty) {
             valueNode = elementNode.getChildByFieldName("default_value");
-            if (valueNode == null || valueNode.isNull()) {
+            if (valueNode == null) {
                 if (elementNode.getNamedChildCount() > 1) {
                     valueNode = elementNode.getNamedChild(elementNode.getNamedChildCount() - 1);
                 }
             }
         } else {
             valueNode = elementNode.getChildByFieldName("value");
-            if (valueNode == null || valueNode.isNull()) {
+            if (valueNode == null) {
                 if (elementNode.getNamedChildCount() > 1) {
                     valueNode = elementNode.getNamedChild(elementNode.getNamedChildCount() - 1);
                 }
@@ -328,14 +328,13 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
         }
 
         if (valueNode != null
-                && !valueNode.isNull()
                 && PROPERTY_INITIALIZER.equals(valueNode.getType())
                 && valueNode.getNamedChildCount() > 0) {
             valueNode = valueNode.getNamedChild(0);
         }
 
         String initializerText = "";
-        if (valueNode != null && !valueNode.isNull() && isLiteralType(valueNode.getType())) {
+        if (valueNode != null && isLiteralType(valueNode.getType())) {
             initializerText = " = " + sourceContent.substringFrom(valueNode).strip();
         }
 
@@ -364,8 +363,8 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
         return baseIndent + fullSignature.stripLeading();
     }
 
-    private @Nullable TSNode findNameNodeRecursive(TSNode node) {
-        if (node.isNull()) return null;
+    private @Nullable TSNode findNameNodeRecursive(@Nullable TSNode node) {
+        if (node == null) return null;
         if (NAME.equals(node.getType())) return node;
         for (int i = 0; i < node.getNamedChildCount(); i++) {
             TSNode found = findNameNodeRecursive(node.getNamedChild(i));
@@ -447,7 +446,7 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
 
         TSNode bodyNode = funcNode.getChildByFieldName(PHP_SYNTAX_PROFILE.bodyFieldName());
         // If bodyNode is null or not a compound statement, it's an abstract/interface method.
-        if (bodyNode != null && !bodyNode.isNull() && COMPOUND_STATEMENT.equals(bodyNode.getType())) {
+        if (bodyNode != null && COMPOUND_STATEMENT.equals(bodyNode.getType())) {
             return mainSignaturePart + " { " + bodyPlaceholder() + " }";
         } else {
             // Abstract method or interface method (no body, ends with ';')
@@ -490,7 +489,7 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
                                 }
 
                                 TSNode node = capture.getNode();
-                                if (node == null || node.isNull()) {
+                                if (node == null) {
                                     continue;
                                 }
 
@@ -499,7 +498,7 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
                                 // Name-based detection: @test_marker is captured on the function/method name node.
                                 if (NAME.equals(nodeType)) {
                                     TSNode parent = node.getParent();
-                                    if (parent == null || parent.isNull()) {
+                                    if (parent == null) {
                                         continue;
                                     }
 
@@ -526,11 +525,11 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
                                     // Prefer AST adjacency: treat the comment as "belonging to" the next declaration
                                     // sibling.
                                     TSNode next = node.getNextSibling();
-                                    while (next != null && !next.isNull() && isWhitespaceOnlyNode(next)) {
+                                    while (next != null && isWhitespaceOnlyNode(next)) {
                                         next = next.getNextSibling();
                                     }
 
-                                    if (next == null || next.isNull()) {
+                                    if (next == null) {
                                         continue;
                                     }
 

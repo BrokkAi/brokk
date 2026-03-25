@@ -193,7 +193,7 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
                 return CodeUnit.cls(file, packageName, finalShortName);
             }
             case FUNCTION_LIKE -> {
-                if (definitionNode != null && !definitionNode.isNull()) {
+                if (definitionNode != null) {
                     String nodeType = definitionNode.getType();
                     if ("call_signature".equals(nodeType)) {
                         finalShortName = classChain.isEmpty() ? simpleName : classChain + "." + simpleName;
@@ -211,7 +211,7 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
                 return CodeUnit.fn(file, packageName, finalShortName);
             }
             case FIELD_LIKE -> {
-                if (definitionNode != null && !definitionNode.isNull()) {
+                if (definitionNode != null) {
                     String nodeType = definitionNode.getType();
                     if ("index_signature".equals(nodeType)) {
                         // Fields require "Container.field" format; use filename when no class container
@@ -248,7 +248,7 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
 
     @Override
     protected String formatReturnType(@Nullable TSNode returnTypeNode, SourceContent sourceContent) {
-        if (returnTypeNode == null || returnTypeNode.isNull()) {
+        if (returnTypeNode == null) {
             return "";
         }
         String text = sourceContent.substringFrom(returnTypeNode).strip();
@@ -287,7 +287,7 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
         // Cache the class-like node types Set to avoid repeated getter calls
         var classLikeTypes = getLanguageSyntaxProfile().classLikeNodeTypes();
 
-        while (current != null && !current.isNull()) {
+        while (current != null) {
             String nodeType = current.getType();
 
             if (classLikeTypes.contains(nodeType) && !"internal_module".equals(nodeType)) {
@@ -297,7 +297,7 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
 
             if ("internal_module".equals(nodeType)) {
                 TSNode nameNode = current.getChildByFieldName("name");
-                if (nameNode != null && !nameNode.isNull()) {
+                if (nameNode != null) {
                     String name = sourceContent.substringFrom(nameNode).strip();
                     // Manual dot-splitting instead of Splitter (faster, less overhead)
                     // Handles dotted namespace names: "A.B.C" -> ["A", "B", "C"]
@@ -365,7 +365,7 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
             String indent) {
         TSNode bodyNode =
                 funcNode.getChildByFieldName(getLanguageSyntaxProfile().bodyFieldName());
-        boolean hasBody = bodyNode != null && !bodyNode.isNull() && bodyNode.getEndByte() > bodyNode.getStartByte();
+        boolean hasBody = bodyNode != null && bodyNode.getEndByte() > bodyNode.getStartByte();
 
         if (ARROW_FUNCTION.equals(funcNode.getType())) {
             String prefix = exportAndModifierPrefix.stripTrailing();
@@ -486,7 +486,7 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
 
         if (VARIABLE_DECLARATOR.equals(nodeType) || PUBLIC_FIELD_DEFINITION.equals(nodeType)) {
             TSNode valueNode = fieldNode.getChildByFieldName("value");
-            if (valueNode != null && !valueNode.isNull() && !isLiteralType(valueNode.getType())) {
+            if (valueNode != null && !isLiteralType(valueNode.getType())) {
                 String valueText = sourceContent.substringFrom(valueNode).strip();
                 int idx = fullSignature.lastIndexOf(valueText);
                 if (idx != -1) {
@@ -506,9 +506,8 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
 
         // Special handling for enum members - add comma instead of semicolon
         String suffix = "";
-        if (!fieldNode.isNull()
+        if (fieldNode != null
                 && fieldNode.getParent() != null
-                && !fieldNode.getParent().isNull()
                 && "enum_body".equals(fieldNode.getParent().getType())
                 && ("property_identifier".equals(fieldNode.getType())
                         || "enum_assignment".equals(fieldNode.getType()))) {
@@ -529,7 +528,7 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
         // Use text slicing approach but include export prefix
         TSNode bodyNode =
                 classNode.getChildByFieldName(getLanguageSyntaxProfile().bodyFieldName());
-        if (bodyNode != null && !bodyNode.isNull()) {
+        if (bodyNode != null) {
             int startByte = classNode.getStartByte();
             int endByte = bodyNode.getStartByte();
             String signature =
@@ -589,7 +588,7 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
         // Look for modifier keywords in the first few children (needed for class/interface members)
         for (int i = 0; i < Math.min(nodeToCheck.getChildCount(), 6); i++) {
             TSNode child = nodeToCheck.getChild(i);
-            if (child != null && !child.isNull()) {
+            if (child != null) {
                 String childText = sourceContent.substringFrom(child).strip();
                 if (Set.of("abstract", "static", "readonly", "async", "const", "let", "var")
                         .contains(childText)) {
@@ -617,7 +616,7 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
         // 1. Unwrap export statement
         if ("export_statement".equals(definitionNode.getType())) {
             TSNode declarationInExport = definitionNode.getChildByFieldName("declaration");
-            if (declarationInExport != null && !declarationInExport.isNull()) {
+            if (declarationInExport != null) {
                 nodeForSignature = declarationInExport;
                 nodeForContent = declarationInExport;
             }
@@ -634,7 +633,6 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
                         TSNode nameNode = child.getChildByFieldName(
                                 getLanguageSyntaxProfile().identifierFieldName());
                         if (nameNode != null
-                                && !nameNode.isNull()
                                 && sourceContent.substringFrom(nameNode).equals(simpleName)) {
                             nodeForContent = child;
                             break;
@@ -661,7 +659,7 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
         if (skeletonType == SkeletonType.FUNCTION_LIKE || skeletonType == SkeletonType.FIELD_LIKE) {
             // Check if this is a method/field inside a class (not top-level)
             TSNode parent = definitionNode.getParent();
-            if (parent != null && !parent.isNull()) {
+            if (parent != null) {
                 String parentType = parent.getType();
                 // Check if parent is class_body (methods/fields are children of class_body)
                 if ("class_body".equals(parentType)) {
@@ -698,7 +696,7 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
         int childCount = node.getChildCount();
         for (int i = 0; i < childCount; i++) {
             TSNode child = node.getChild(i);
-            if (!child.isNull()) {
+            if (child != null) {
                 if ("static".equals(child.getType())) {
                     return true;
                 }
@@ -717,7 +715,7 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
         int childCount = node.getChildCount();
         for (int i = 0; i < childCount; i++) {
             TSNode child = node.getChild(i);
-            if (!child.isNull()) {
+            if (child != null) {
                 String childType = child.getType();
                 if ("get".equals(childType)) {
                     return "get";
@@ -755,7 +753,7 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
         if ("method_definition".equals(node.getType())) {
             // Walk up the AST to see if we're inside an object literal
             TSNode parent = node.getParent();
-            while (parent != null && !parent.isNull()) {
+            while (parent != null) {
                 String parentType = parent.getType();
 
                 // If we hit class_body first, we're a class method - keep it
@@ -868,7 +866,7 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
      */
     public boolean isInNamespaceContext(TSNode node) {
         TSNode parent = node.getParent();
-        while (parent != null && !parent.isNull()) {
+        while (parent != null) {
             String parentType = parent.getType();
 
             // If we find an internal_module (namespace), the function is inside a namespace
@@ -891,7 +889,7 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
 
     private boolean checkAmbientContextDirect(TSNode node) {
         TSNode parent = node.getParent();
-        while (parent != null && !parent.isNull()) {
+        while (parent != null) {
             if ("ambient_declaration".equals(parent.getType())) {
                 return true;
             }
@@ -1004,13 +1002,13 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
         // Handle variable_declarator containing arrow function
         if ("variable_declarator".equals(funcNode.getType())) {
             TSNode valueNode = funcNode.getChildByFieldName("value");
-            if (valueNode != null && !valueNode.isNull() && "arrow_function".equals(valueNode.getType())) {
+            if (valueNode != null && "arrow_function".equals(valueNode.getType())) {
                 // Build the const/let declaration with arrow function
                 String fullDeclaration = sourceContent.substringFrom(funcNode).strip();
 
                 // Replace function body with placeholder
                 TSNode bodyNode = valueNode.getChildByFieldName("body");
-                if (bodyNode != null && !bodyNode.isNull()) {
+                if (bodyNode != null) {
                     int startByte = funcNode.getStartByte();
                     int endByte = bodyNode.getStartByte();
                     String beforeBody =
@@ -1027,7 +1025,7 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
         // Handle constructor signatures specially
         if ("construct_signature".equals(funcNode.getType())) {
             TSNode typeNode = funcNode.getChildByFieldName("type");
-            if (typeNode != null && !typeNode.isNull()) {
+            if (typeNode != null) {
                 String typeText = sourceContent.substringFrom(typeNode);
                 String returnTypeText =
                         typeText.startsWith(":") ? typeText.substring(1).strip() : typeText;
@@ -1039,7 +1037,7 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
 
                 String typeParamsText = "";
                 TSNode typeParamsNode = funcNode.getChildByFieldName(profile.typeParametersFieldName());
-                if (typeParamsNode != null && !typeParamsNode.isNull()) {
+                if (typeParamsNode != null) {
                     typeParamsText = sourceContent.substringFrom(typeParamsNode);
                 }
 
@@ -1097,7 +1095,7 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
         Set<String> identifiers = new HashSet<>();
         TSParser parser = getTSParser();
         try (TSTree tree = parser.parseString(null, importStatement)) {
-            if (tree == null || tree.getRootNode().isNull()) {
+            if (tree == null || tree.getRootNode() == null) {
                 return identifiers;
             }
             SourceContent sourceContent = SourceContent.of(importStatement);
@@ -1161,7 +1159,7 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
     public Set<String> extractTypeIdentifiers(String source) {
         Set<String> identifiers = new HashSet<>();
         try (TSTree tree = getTSParser().parseString(null, source)) {
-            if (tree == null || tree.getRootNode().isNull()) {
+            if (tree == null || tree.getRootNode() == null) {
                 return identifiers;
             }
             SourceContent sourceContent = SourceContent.of(source);
@@ -1176,7 +1174,7 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
                         while (cursor.nextMatch(match)) {
                             for (TSQueryCapture capture : match.getCaptures()) {
                                 TSNode node = capture.getNode();
-                                if (node != null && !node.isNull()) {
+                                if (node != null) {
                                     identifiers.add(sourceContent.substringFrom(node));
                                 }
                             }

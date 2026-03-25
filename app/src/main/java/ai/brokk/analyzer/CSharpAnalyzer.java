@@ -173,13 +173,13 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
         TSNode body = funcNode.getChildByFieldName("body");
         String signature;
 
-        if (body != null && !body.isNull()) {
+        if (body != null) {
             int startByte = funcNode.getStartByte();
             int endByte = body.getStartByte();
             signature = sourceContent.substringFromBytes(startByte, endByte).stripTrailing();
         } else {
             TSNode paramsNode = funcNode.getChildByFieldName("parameters");
-            if (paramsNode != null && !paramsNode.isNull()) {
+            if (paramsNode != null) {
                 int startByte = funcNode.getStartByte();
                 int endByte = paramsNode.getEndByte();
                 signature = sourceContent.substringFromBytes(startByte, endByte).stripTrailing();
@@ -223,7 +223,7 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
         List<String> namespaceParts = new ArrayList<>();
         TSNode current = definitionNode.getParent();
 
-        while (current != null && !current.isNull() && !current.equals(rootNode)) {
+        while (current != null && !current.equals(rootNode)) {
             if (NAMESPACE_DECLARATION.equals(current.getType())) {
                 // Find the identifier or qualified_name child as the name
                 for (int i = 0; i < current.getChildCount(); i++) {
@@ -267,18 +267,16 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
             fieldDecl = fieldNode;
             // Some grammars expose the variable_declaration via a field name, others as a plain child.
             varDecl = fieldNode.getChildByFieldName("declaration");
-            if (varDecl == null || varDecl.isNull()) {
+            if (varDecl == null) {
                 for (int i = 0; i < fieldNode.getChildCount(); i++) {
                     TSNode child = fieldNode.getChild(i);
-                    if (child != null
-                            && !child.isNull()
-                            && CSharpTreeSitterNodeTypes.VARIABLE_DECLARATION.equals(child.getType())) {
+                    if (child != null && CSharpTreeSitterNodeTypes.VARIABLE_DECLARATION.equals(child.getType())) {
                         varDecl = child;
                         break;
                     }
                 }
             }
-            if (varDecl != null && !varDecl.isNull()) {
+            if (varDecl != null) {
                 declarator = findDeclarator(
                                 varDecl,
                                 simpleName,
@@ -298,11 +296,11 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
 
         if (fieldDecl != null && varDecl != null && declarator != null) {
             TSNode typeNode = varDecl.getChildByFieldName("type");
-            if (typeNode != null && !typeNode.isNull()) {
+            if (typeNode != null) {
                 StringBuilder modifiersBuilder = new StringBuilder();
                 for (int i = 0; i < fieldDecl.getChildCount(); i++) {
                     TSNode child = fieldDecl.getChild(i);
-                    if (child == null || child.isNull() || child.getEndByte() > varDecl.getStartByte()) {
+                    if (child == null || child.getEndByte() > varDecl.getStartByte()) {
                         break;
                     }
                     String childType = child.getType();
@@ -318,9 +316,8 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
                 String typeStr = sourceContent.substringFrom(typeNode).strip();
 
                 TSNode nameNode = declarator.getChildByFieldName("name");
-                String nameStr = nameNode != null && !nameNode.isNull()
-                        ? sourceContent.substringFrom(nameNode).strip()
-                        : simpleName;
+                String nameStr =
+                        nameNode != null ? sourceContent.substringFrom(nameNode).strip() : simpleName;
 
                 // Locate the initializer expression. In C#, it might be inside an equals_value_clause
                 // or a direct child of the declarator depending on the grammar version/context.
@@ -342,7 +339,7 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
 
                 if (valueClause != null) {
                     expression = valueClause.getChildByFieldName("value");
-                    if (expression == null || expression.isNull()) {
+                    if (expression == null) {
                         // Fallback: first named child in the clause that isn't the '=' operator
                         for (int i = 0; i < valueClause.getChildCount(); i++) {
                             TSNode child = valueClause.getChild(i);
@@ -355,7 +352,7 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
                 }
 
                 String initializerStr = "";
-                if (expression != null && !expression.isNull()) {
+                if (expression != null) {
                     TSNode literalNode = findLiteralNode(expression);
                     if (literalNode != null) {
                         initializerStr =
@@ -391,8 +388,8 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
                 || NULL_KEYWORD.equals(type);
     }
 
-    private @Nullable TSNode findLiteralNode(TSNode node) {
-        if (node.isNull()) return null;
+    private @Nullable TSNode findLiteralNode(@Nullable TSNode node) {
+        if (node == null) return null;
         String type = node.getType();
 
         // 1. Direct hit
@@ -402,7 +399,7 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
         if (PARENTHESIZED_EXPRESSION.equals(type) || LITERAL.equals(type)) {
             for (int i = 0; i < node.getChildCount(); i++) {
                 TSNode child = node.getChild(i);
-                if (child == null || child.isNull() || !child.isNamed()) continue;
+                if (child == null || !child.isNamed()) continue;
 
                 TSNode found = findLiteralNode(child);
                 if (found != null) return found;
@@ -462,7 +459,7 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
                             for (var capture : match.getCaptures()) {
                                 String captureName = query.getCaptureNameForId(capture.getIndex());
                                 TSNode node = capture.getNode();
-                                if (node == null || node.isNull()) continue;
+                                if (node == null) continue;
 
                                 if (TEST_MARKER.equals(captureName)) {
                                     hasTestMarker = true;

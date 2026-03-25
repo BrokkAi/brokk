@@ -13,7 +13,7 @@ import org.treesitter.TSNode;
 public class ASTTraversalUtils {
     /** Recursively finds the first node matching the given predicate. */
     public static @Nullable TSNode findNodeRecursive(@Nullable TSNode rootNode, Predicate<TSNode> predicate) {
-        if (rootNode == null || rootNode.isNull()) {
+        if (rootNode == null) {
             return null;
         }
 
@@ -24,7 +24,7 @@ public class ASTTraversalUtils {
         // Recursively search children
         for (int i = 0; i < rootNode.getChildCount(); i++) {
             var child = rootNode.getChild(i);
-            if (child != null && !child.isNull()) {
+            if (child != null) {
                 var result = findNodeRecursive(child, predicate);
                 if (result != null) {
                     return result;
@@ -44,7 +44,7 @@ public class ASTTraversalUtils {
 
     private static void findAllNodesRecursiveInternal(
             @Nullable TSNode node, Predicate<TSNode> predicate, List<TSNode> results) {
-        if (node == null || node.isNull()) {
+        if (node == null) {
             return;
         }
 
@@ -55,7 +55,7 @@ public class ASTTraversalUtils {
         // Recursively search children
         for (int i = 0; i < node.getChildCount(); i++) {
             var child = node.getChild(i);
-            if (child != null && !child.isNull()) {
+            if (child != null) {
                 findAllNodesRecursiveInternal(child, predicate, results);
             }
         }
@@ -70,7 +70,7 @@ public class ASTTraversalUtils {
             }
 
             var nameNode = node.getChildByFieldName("name");
-            if (nameNode == null || nameNode.isNull()) {
+            if (nameNode == null) {
                 return false;
             }
 
@@ -83,7 +83,7 @@ public class ASTTraversalUtils {
      * Extracts text from a TSNode using the provided SourceContent.
      */
     public static String extractNodeText(@Nullable TSNode node, SourceContent sourceContent) {
-        if (node == null || node.isNull()) {
+        if (node == null) {
             return "";
         }
 
