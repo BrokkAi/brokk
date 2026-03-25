@@ -200,10 +200,14 @@ public class ToolsPane extends JPanel implements ThemeAware {
             JLabel label =
                     createSquareTabLabel(Icons.FLOWSHEET, "Log (" + KeyboardShortcutUtil.formatKeyStroke(ks) + ")");
             toolsPane.setTabComponentAt(idx, label);
+            Component comp = gitLogTab;
             label.addMouseListener(new MouseAdapter() {
                 @Override
                 public void mousePressed(MouseEvent e) {
-                    handleTabToggle(idx);
+                    int currentIdx = toolsPane.indexOfComponent(comp);
+                    if (currentIdx != -1) {
+                        handleTabToggle(currentIdx);
+                    }
                 }
             });
         }
@@ -215,10 +219,14 @@ public class ToolsPane extends JPanel implements ThemeAware {
             JLabel label = createSquareTabLabel(
                     Icons.FLOWCHART, "Worktrees (" + KeyboardShortcutUtil.formatKeyStroke(ks) + ")");
             toolsPane.setTabComponentAt(idx, label);
+            Component comp = gitWorktreeTab;
             label.addMouseListener(new MouseAdapter() {
                 @Override
                 public void mousePressed(MouseEvent e) {
-                    handleTabToggle(idx);
+                    int currentIdx = toolsPane.indexOfComponent(comp);
+                    if (currentIdx != -1) {
+                        handleTabToggle(currentIdx);
+                    }
                 }
             });
         }
@@ -233,10 +241,14 @@ public class ToolsPane extends JPanel implements ThemeAware {
             JLabel label = createSquareTabLabel(
                     Icons.PULL_REQUEST, "Pull Requests (" + KeyboardShortcutUtil.formatKeyStroke(ks) + ")");
             toolsPane.setTabComponentAt(idx, label);
+            Component comp = pullRequestsPanel;
             label.addMouseListener(new MouseAdapter() {
                 @Override
                 public void mousePressed(MouseEvent e) {
-                    handleTabToggle(idx);
+                    int currentIdx = toolsPane.indexOfComponent(comp);
+                    if (currentIdx != -1) {
+                        handleTabToggle(currentIdx);
+                    }
                 }
             });
         }
@@ -250,10 +262,14 @@ public class ToolsPane extends JPanel implements ThemeAware {
             JLabel label =
                     createSquareTabLabel(Icons.ADJUST, "Issues (" + KeyboardShortcutUtil.formatKeyStroke(ks) + ")");
             toolsPane.setTabComponentAt(idx, label);
+            Component comp = issuesPanel;
             label.addMouseListener(new MouseAdapter() {
                 @Override
                 public void mousePressed(MouseEvent e) {
-                    handleTabToggle(idx);
+                    int currentIdx = toolsPane.indexOfComponent(comp);
+                    if (currentIdx != -1) {
+                        handleTabToggle(currentIdx);
+                    }
                 }
             });
         }
