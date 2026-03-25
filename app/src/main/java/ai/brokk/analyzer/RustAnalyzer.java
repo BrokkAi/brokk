@@ -479,8 +479,11 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
     protected Set<CodeUnit> resolveImports(ProjectFile file, List<String> importStatements) {
         String currentPackage = withTreeOf(
                 file,
-                tree -> withSource(
-                        file, sc -> determinePackageName(file, tree.getRootNode(), tree.getRootNode(), sc), ""),
+                tree -> {
+                    TSNode root = tree.getRootNode();
+                    if (root == null) return "";
+                    return withSource(file, sc -> determinePackageName(file, root, root, sc), "");
+                },
                 "");
         Set<CodeUnit> resolved = new HashSet<>();
 
@@ -680,8 +683,10 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
         return withCachedQuery(
                 QueryType.DEFINITIONS,
                 query -> {
+                    TSNode root = tree.getRootNode();
+                    if (root == null) return false;
                     try (TSQueryCursor cursor = new TSQueryCursor()) {
-                        cursor.exec(query, tree.getRootNode(), sourceContent.text());
+                        cursor.exec(query, root, sourceContent.text());
 
                         TSQueryMatch match = new TSQueryMatch();
                         while (cursor.nextMatch(match)) {

@@ -132,7 +132,7 @@ public class UTF8ByteOffsetTest {
     // Helper method for finding nodes
 
     private TSNode findNodeByType(TSNode root, String nodeType) {
-        if (root == null || root.isNull()) return null;
+        if (root == null) return null;
 
         if (nodeType.equals(root.getType())) {
             return root;
@@ -140,7 +140,7 @@ public class UTF8ByteOffsetTest {
 
         for (int i = 0; i < root.getChildCount(); i++) {
             var child = root.getChild(i);
-            if (child != null && !child.isNull()) {
+            if (child != null) {
                 var result = findNodeByType(child, nodeType);
                 if (result != null) {
                     return result;

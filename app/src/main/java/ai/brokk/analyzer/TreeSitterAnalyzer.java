@@ -187,14 +187,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 log.warn("Unable to resolve a Tree Sitter query source for {}", type.name());
                 return defaultValue;
             }
-            try {
-                query = new TSQuery(getTSLanguage(), source);
-                queryCompilationCount.incrementAndGet();
-                cache.put(type, query);
-            } catch (TSQueryException e) {
-                log.error("Failed to compile {} query: {}", type, e.getMessage(), e);
-                return defaultValue;
-            }
+            query = new TSQuery(getTSLanguage(), source);
+            queryCompilationCount.incrementAndGet();
+            cache.put(type, query);
         }
 
         return fn.apply(query);
@@ -212,12 +207,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         if (source == null) {
             return null;
         }
-        try {
-            return new TSQuery(getTSLanguage(), source);
-        } catch (TSQueryException e) {
-            log.error("Failed to create {} query: {}", type, e.getMessage(), e);
-            return null;
-        }
+        return new TSQuery(getTSLanguage(), source);
     }
 
     /**
@@ -2029,7 +2019,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
      * Duplicate handling is controlled by shouldReplaceOnDuplicate().
      * Similar to addTopLevelCodeUnit but for nested elements (methods, class attributes, nested classes).
      */
-    private void addChildCodeUnit(CodeUnit cu, CodeUnit parentCu, FileAnalysisAccumulator acc) {
+    private void addChildCodeUnit(CodeUnit cu, @Nullable CodeUnit parentCu, FileAnalysisAccumulator acc) {
+        if (parentCu == null) {
+            addTopLevelCodeUnit(cu, acc, cu.source());
+            return;
+        }
         CodeUnit existingDuplicate = acc.findChildDuplicate(parentCu, cu);
 
         if (existingDuplicate == null) {
@@ -2489,7 +2483,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                                                         simpleName,
                                                         sortedModifierStrings,
                                                         decoratorNodesForMatch,
-                                                        definitionNode.getParent())));
+                                                        Objects.requireNonNull(definitionNode.getParent()))));
                                     }
                                 }
                             }
@@ -2664,8 +2658,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                             }
 
                             Range primary = ranges.getFirst();
-                            TSNode node = tree.getRootNode()
-                                    .getDescendantForByteRange(primary.startByte(), primary.endByte());
+                            TSNode root = tree.getRootNode();
+                            if (root == null) return List.of();
+                            TSNode node = root.getDescendantForByteRange(primary.startByte(), primary.endByte());
                             if (node == null) {
                                 return List.of();
                             }
@@ -2740,7 +2735,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
      * @param sourceContent  The source code wrapper for extracting text.
      * @return The formatted parameter list text, or an empty string if the node is null.
      */
-    protected String formatParameterList(TSNode parametersNode, SourceContent sourceContent) {
+    protected String formatParameterList(@Nullable TSNode parametersNode, SourceContent sourceContent) {
         return parametersNode == null ? "" : sourceContent.substringFrom(parametersNode);
     }
 
@@ -2951,8 +2946,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             case FUNCTION_LIKE: {
                 // Extra comments derived from the function body if any.
                 TSNode bodyNode = nodeForContent.getChildByFieldName(profile.bodyFieldName());
-                for (String c : getExtraFunctionComments(bodyNode, sourceContent, null)) {
-                    if (!c.isBlank()) signatureLines.add(c);
+                if (bodyNode != null) {
+                    for (String c : getExtraFunctionComments(bodyNode, sourceContent, null)) {
+                        if (!c.isBlank()) signatureLines.add(c);
+                    }
                 }
                 buildFunctionSkeleton(
                         nodeForContent, Optional.of(simpleName), sourceContent, "", signatureLines, exportPrefix);
@@ -3073,7 +3070,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             }
         }
 
-        TSNode paramsNode = funcNode.getChildByFieldName(profile.parametersFieldName());
+        TSNode paramsNode = null;
+        if (!profile.parametersFieldName().isEmpty()) {
+            paramsNode = funcNode.getChildByFieldName(profile.parametersFieldName());
+        }
         TSNode returnTypeNode = null;
         if (!profile.returnTypeFieldName().isEmpty()) {
             returnTypeNode = funcNode.getChildByFieldName(profile.returnTypeFieldName());

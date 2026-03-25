@@ -161,7 +161,7 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
                 // Find the variable_declarator child that matches the simpleName
                 for (int i = 0; i < nodeForContent.getChildCount(); i++) {
                     TSNode child = nodeForContent.getChild(i);
-                    if ("variable_declarator".equals(child.getType())) {
+                    if (child != null && "variable_declarator".equals(child.getType())) {
                         TSNode nameNode = child.getChildByFieldName(
                                 getLanguageSyntaxProfile().identifierFieldName());
                         if (nameNode != null
@@ -628,11 +628,14 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
         Set<String> identifiers = new HashSet<>();
         TSParser parser = getTSParser();
         try (TSTree tree = parser.parseString(null, source)) {
-            if (tree == null || tree.getRootNode() == null) {
+            if (tree == null) {
+                return identifiers;
+            }
+            TSNode rootNode = tree.getRootNode();
+            if (rootNode == null) {
                 return identifiers;
             }
             SourceContent sourceContent = SourceContent.of(source);
-            TSNode rootNode = tree.getRootNode();
 
             try (TSQuery query = createQuery(QueryType.IDENTIFIERS)) {
                 if (query != null) {

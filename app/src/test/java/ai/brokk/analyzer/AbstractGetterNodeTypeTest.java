@@ -31,7 +31,7 @@ public class AbstractGetterNodeTypeTest {
     }
 
     private void printTree(TSNode node, byte[] source, int depth) {
-        if (node == null || node.isNull()) {
+        if (node == null) {
             return;
         }
 
