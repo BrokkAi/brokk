@@ -17,7 +17,6 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.io.UncheckedIOException;
-import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Comparator;
@@ -56,15 +55,6 @@ public class SearchToolsTest {
 
     @Nullable
     private static TestProject javaTestProject;
-
-    private static boolean matchesPlatformGlob(String globPattern, String relativePath) {
-        char separator = FileSystems.getDefault().getSeparator().charAt(0);
-        String normalizedPattern = globPattern.replace('\\', '/').replace('/', separator);
-        String normalizedPath = relativePath.replace('/', separator);
-        return FileSystems.getDefault()
-                .getPathMatcher("glob:" + normalizedPattern)
-                .matches(Path.of(normalizedPath));
-    }
 
     @BeforeAll
     static void setupAnalyzer() throws IOException {
@@ -775,10 +765,7 @@ public class SearchToolsTest {
         mockProjectFiles.add(new ProjectFile(projectRoot, "src/main/java/Nested.java"));
 
         String result = searchTools.searchFileContents(List.of("MATCH"), "**/*.java", false, false, 0, 200);
-        assertEquals(
-                matchesPlatformGlob("**/*.java", "src/main/java/Nested.java"),
-                result.contains("src/main/java/Nested.java"),
-                "searchFileContents should follow the platform glob matcher for **/*.java");
+        assertTrue(result.contains("src/main/java/Nested.java"), "Should find nested Java file with recursive glob");
     }
 
     @Test
@@ -790,10 +777,20 @@ public class SearchToolsTest {
         mockProjectFiles.add(new ProjectFile(projectRoot, "a/b/Backslash.java"));
 
         String result = searchTools.searchFileContents(List.of("MATCH"), "a\\**\\*.java", false, false, 0, 200);
-        assertEquals(
-                matchesPlatformGlob("a\\**\\*.java", "a/b/Backslash.java"),
-                result.contains("a/b/Backslash.java"),
-                "searchFileContents should follow the platform glob matcher for backslash-separated input");
+        assertTrue(
+                result.contains("a/b/Backslash.java"), "Should find nested file even when input glob uses backslashes");
+    }
+
+    @Test
+    void testSearchFileContents_LiteralSubpathGlob() throws Exception {
+        Path subDir = projectRoot.resolve("dir");
+        Files.createDirectories(subDir);
+        Path file = subDir.resolve("file.txt");
+        Files.writeString(file, "MATCH");
+        mockProjectFiles.add(new ProjectFile(projectRoot, "dir/file.txt"));
+
+        String result = searchTools.searchFileContents(List.of("MATCH"), "dir/file.txt", false, false, 0, 200);
+        assertTrue(result.contains("dir/file.txt"), "Should find file in subdirectory using literal subpath");
     }
 
     @Test

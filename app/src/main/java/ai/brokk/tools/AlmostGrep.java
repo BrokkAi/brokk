@@ -33,18 +33,13 @@ final class AlmostGrep {
         PathMatcher matcher = compileGlobPathMatcher(globPattern);
         return allFiles.stream()
                 .filter(ProjectFile::isText)
-                .filter(file -> matcher.matches(Path.of(toSystemPathPattern(toUnixPath(file.toString())))))
+                .filter(file -> matcher.matches(Path.of(toUnixPath(file.toString()))))
                 .sorted()
                 .toList();
     }
 
     private static PathMatcher compileGlobPathMatcher(String pattern) {
-        return FileSystems.getDefault().getPathMatcher("glob:" + toSystemPathPattern(toUnixPath(pattern)));
-    }
-
-    private static String toSystemPathPattern(String input) {
-        char sep = FileSystems.getDefault().getSeparator().charAt(0);
-        return input.replace('/', sep);
+        return FileSystems.getDefault().getPathMatcher("glob:" + toUnixPath(pattern));
     }
 
     static SearchTools.FindFilesContainingResult findFilesContainingPatterns(
