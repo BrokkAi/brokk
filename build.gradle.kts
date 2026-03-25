@@ -108,7 +108,7 @@ allprojects {
                 rootProject.file(".gradle/tree-sitter-ng/v$treeSitterNgVersion/tree-sitter-go"),
                 rootProject.file(".gradle/tree-sitter-ng/v$treeSitterNgVersion/tree-sitter-javascript"),
                 rootProject.file(".gradle/tree-sitter-ng/v$treeSitterNgVersion/tree-sitter-rust"),
-                rootProject.file(".gradle/tree-sitter-ng/v$treeSitterNgVersion/tree-sitter-typescript"),
+                rootProject.file(".gradle/tree-sitter-ng/v$treeSitterNgVersion/tree-sitter-tsx"),
                 rootProject.file(".gradle/tree-sitter-ng/v$treeSitterNgVersion/tree-sitter-php"),
                 rootProject.file(".gradle/tree-sitter-ng/v$treeSitterNgVersion/tree-sitter-scala")
             )
@@ -177,7 +177,7 @@ tasks.register("downloadTreeSitterNg") {
             include("tree-sitter-go/**")
             include("tree-sitter-javascript/**")
             include("tree-sitter-rust/**")
-            include("tree-sitter-typescript/**")
+            include("tree-sitter-tsx/**")
             include("tree-sitter-php/**")
             include("tree-sitter-scala/**")
 

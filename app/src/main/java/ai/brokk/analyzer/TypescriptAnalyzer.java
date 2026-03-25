@@ -1069,7 +1069,7 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
 
     @Override
     protected TSLanguage createTSLanguage() {
-        return new TreeSitterTypescript();
+        return new TreeSitterTsx(); // this is the canonical way to support both TypeScript & TSX
     }
 
     @Override

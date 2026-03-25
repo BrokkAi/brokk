@@ -117,7 +117,7 @@ treesitter-javascript = { module = "ai.brokk:tree-sitter-javascript", version.re
 treesitter-php = { module = "ai.brokk:tree-sitter-php", version.ref = "treesitter-lang" }
 treesitter-python = { module = "ai.brokk:tree-sitter-python", version.ref = "treesitter-lang" }
 treesitter-rust = { module = "ai.brokk:tree-sitter-rust", version.ref = "treesitter-lang" }
-treesitter-typescript = { module = "ai.brokk:tree-sitter-typescript", version.ref = "treesitter-lang" }
+treesitter-tsx = { module = "ai.brokk:tree-sitter-tsx", version.ref = "treesitter-lang" }
 treesitter-scala = { module = "ai.brokk:tree-sitter-scala", version.ref = "treesitter-lang" }
 
 # Eclipse JDT
@@ -148,7 +148,7 @@ junit-runtime = ["junit-platform-engine", "junit-platform-launcher", "junit-plat
 ui = ["flatlaf", "flatlaf-extras", "rsyntaxtextarea", "autocomplete", "jgoodies-forms"]
 markdown = ["flexmark-core", "flexmark-html2md", "handlebars", "mustache"]
 git = ["jgit-core", "jgit-gpg", "jgit-ssh", "jgit-ssh-agent", "bouncycastle"]
-treesitter = ["treesitter-core", "treesitter-java", "treesitter-cpp", "treesitter-csharp", "treesitter-go", "treesitter-javascript", "treesitter-php", "treesitter-python", "treesitter-rust", "treesitter-typescript", "treesitter-scala"]
+treesitter = ["treesitter-core", "treesitter-java", "treesitter-cpp", "treesitter-csharp", "treesitter-go", "treesitter-javascript", "treesitter-php", "treesitter-python", "treesitter-rust", "treesitter-tsx", "treesitter-scala"]
 maven-resolver = ["maven-embedder", "maven-resolver-api", "maven-resolver-spi", "maven-resolver-util", "maven-resolver-impl", "maven-resolver-connector-basic", "maven-resolver-transport-http"]
 apache = ["apache-compress", "apache-commons-text"]
 jdkmon = ["disco", "jdktools", "osdetector-plugin", "commons-compress", "xz"]
