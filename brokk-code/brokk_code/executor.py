@@ -247,6 +247,19 @@ class AcpStdioExecutor:
         self._reader_task: Optional[asyncio.Task[None]] = None
         self._stderr_task: Optional[asyncio.Task[None]] = None
         self.session_id: Optional[str] = None
+        self.environment_type: str = "tui"
+
+    def set_environment_type(self, env_type: str) -> None:
+        if env_type not in ("tui", "zed", "intellij"):
+            raise ValueError(f"Invalid environment type: {env_type}")
+        self.environment_type = env_type
+
+    def _get_environment_flag(self) -> str:
+        if self.environment_type == "zed":
+            return "-Dbrokk.zed=true"
+        elif self.environment_type == "intellij":
+            return "-Dbrokk.intellij=true"
+        return "-Dbrokk.tui=true"
 
     def _find_dev_jar(self) -> Optional[Path]:
         """Searches for a local development JAR in the project structure."""
@@ -277,6 +290,7 @@ class AcpStdioExecutor:
             "java",
             "-Djava.awt.headless=true",
             "-Dapple.awt.UIElement=true",
+            self._get_environment_flag(),
             "-cp",
             str(jar_path),
             _ACP_SERVER_MAIN_CLASS,
@@ -294,7 +308,7 @@ class AcpStdioExecutor:
             "--java",
             "21",
             "-R",
-            "-Djava.awt.headless=true -Dapple.awt.UIElement=true",
+            f"-Djava.awt.headless=true -Dapple.awt.UIElement=true {self._get_environment_flag()}",
             "--main",
             _ACP_SERVER_MAIN_CLASS,
             jar_url,
