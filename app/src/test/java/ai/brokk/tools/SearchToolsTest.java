@@ -17,7 +17,6 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.io.UncheckedIOException;
-import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Comparator;
@@ -778,7 +777,8 @@ public class SearchToolsTest {
         mockProjectFiles.add(new ProjectFile(projectRoot, "a/b/Backslash.java"));
 
         String result = searchTools.searchFileContents(List.of("MATCH"), "a\\**\\*.java", false, false, 0, 200);
-        assertTrue(result.contains("a/b/Backslash.java"), "Should find nested file even when input glob uses backslashes");
+        assertTrue(
+                result.contains("a/b/Backslash.java"), "Should find nested file even when input glob uses backslashes");
     }
 
     @Test
