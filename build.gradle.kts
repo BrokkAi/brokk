@@ -121,6 +121,53 @@ tasks.register("printVersion") {
     }
 }
 
+tasks.register("downloadTreeSitterNg") {
+    description = "Downloads and extracts tree-sitter-ng native libraries"
+    group = "build setup"
+
+    val version = "0.2.0"
+    val downloadUrl = "https://github.com/BrokkAi/tree-sitter-ng/releases/download/v$version/tree-sitter-ng-jar.zip"
+    val cacheDir = file(".gradle/tree-sitter-ng/v$version")
+    val zipFile = file(".gradle/tree-sitter-ng/tree-sitter-ng-$version.zip")
+
+    inputs.property("version", version)
+    outputs.dir(cacheDir)
+
+    doLast {
+        if (!cacheDir.exists()) {
+            cacheDir.mkdirs()
+        }
+
+        if (!zipFile.exists()) {
+            logger.lifecycle("Downloading TreeSitter NG v$version...")
+            zipFile.parentFile.mkdirs()
+            java.net.URL(downloadUrl).openStream().use { input ->
+                zipFile.outputStream().use { output ->
+                    input.copyTo(output)
+                }
+            }
+        }
+
+        logger.lifecycle("Extracting TreeSitter NG modules to ${cacheDir.absolutePath}...")
+        copy {
+            from(zipTree(zipFile))
+            into(cacheDir)
+            // Only keep required modules/directories
+            include("tree-sitter/**")
+            include("tree-sitter-java/**")
+            include("tree-sitter-python/**")
+            include("tree-sitter-cpp/**")
+            include("tree-sitter-c-sharp/**")
+            include("tree-sitter-go/**")
+            include("tree-sitter-javascript/**")
+            include("tree-sitter-rust/**")
+            include("tree-sitter-typescript/**")
+            
+            includeEmptyDirs = false
+        }
+    }
+}
+
 tasks.register("deployMcpShadowJar") {
     description = "Builds :app:shadowJar and copies it to a stable MCP jar path."
     group = "distribution"
