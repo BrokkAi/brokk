@@ -682,7 +682,8 @@ public class BrokkExternalMcpServer {
                 if (lines.lineCount() == 0) {
                     continue;
                 }
-                blocks.add("```%s\n%s\n```".formatted(file, withLineNumbers(lines.text())));
+                // Lines.range already returns true one-based file line labels (e.g. "10: ...")
+                blocks.add("```%s\n%s\n```".formatted(file, lines.text()));
             }
         }
         return blocks;
