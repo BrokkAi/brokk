@@ -48,6 +48,7 @@ class BrokkExternalMcpServerMcpFormattingIntegrationTest {
             assertTrue(output.matches("(?s).*```.*Foo\\.java\\R.*"), output);
             assertTrue(output.contains("10:     int baz() {"), output);
             assertTrue(output.contains("11:         return new Foo().inc(1);"), output);
+            assertFalse(output.contains("1: 10:"), "Output should not have double-prefixed line numbers");
         }
     }
 
