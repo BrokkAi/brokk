@@ -433,4 +433,10 @@ subprojects {
     tasks.withType<JavaCompile> {
         options.encoding = "UTF-8"
     }
+
+    // Dependency analysis report tasks must wait for TreeSitter NG native jars to be available
+    // to avoid implicit dependency warnings during artifact resolution.
+    tasks.matching { it.name.startsWith("artifactsReport") }.configureEach {
+        dependsOn(":downloadTreeSitterNg")
+    }
 }
