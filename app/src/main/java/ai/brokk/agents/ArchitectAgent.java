@@ -123,6 +123,9 @@ public class ArchitectAgent {
 
     private boolean deferBuildForInitialCodeAgentCall = false;
 
+    /** When true, all CodeAgent calls always defer build, regardless of what the LLM requests. */
+    private boolean alwaysDeferBuild = false;
+
     @Nullable
     private CompletableFuture<List<TaskEntry>> compressedHistoryFuture;
 
@@ -221,6 +224,10 @@ public class ArchitectAgent {
         this.deferBuildForInitialCodeAgentCall = deferBuildForInitialCodeAgentCall;
     }
 
+    public void setAlwaysDeferBuild(boolean alwaysDeferBuild) {
+        this.alwaysDeferBuild = alwaysDeferBuild;
+    }
+
     private StreamingChatModel delegatedSearchModel() {
         return ParallelSearch.usePlannerModelForSearchAgent()
                 ? planningModel
@@ -289,8 +296,9 @@ public class ArchitectAgent {
 
         io.llmOutput("**Code Agent** engaged:\n" + instructions, ChatMessageType.CUSTOM, LlmOutputMeta.newMessage());
         var agent = new CodeAgent(cm, codeModel);
+        var effectiveDeferBuild = deferBuild || alwaysDeferBuild;
         var opts = new HashSet<CodeAgent.Option>();
-        if (deferBuild) {
+        if (effectiveDeferBuild) {
             opts.add(CodeAgent.Option.DEFER_BUILD);
         }
         var result = agent.executeWithoutHistory(context, instructions, opts);
@@ -313,7 +321,7 @@ public class ArchitectAgent {
         // checking for changes de-risks that
         if (reason == StopReason.SUCCESS && !changedFragments.isEmpty()) {
             logger.debug("callCodeAgent finished successfully");
-            if (!deferBuild && !changedFragments.isEmpty()) {
+            if (!effectiveDeferBuild && !changedFragments.isEmpty()) {
                 codeAgentJustSucceeded = true;
 
                 if (verifyCommand != null) {

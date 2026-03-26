@@ -9,6 +9,7 @@ import ai.brokk.Llm;
 import ai.brokk.LlmOutputMeta;
 import ai.brokk.Service;
 import ai.brokk.TaskResult;
+import ai.brokk.agents.ArchitectAgent;
 import ai.brokk.agents.CodeAgent;
 import ai.brokk.agents.ContextAgent;
 import ai.brokk.agents.IssueRewriterAgent;
@@ -527,57 +528,54 @@ public final class JobRunner {
                                         }
                                     }
                                     case LITE_AGENT -> {
-                                        try (var scope = cm.beginTaskUngrouped(spec.taskInput())) {
-                                            // Phase 1: Resolve references
-                                            var context = cm.liveContext();
-                                            var setupResult = LutzAgent.setupContext(context, spec.taskInput(), false);
-                                            context = setupResult.context();
-
-                                            // Phase 2: ContextAgent scan to find relevant files
-                                            context = runContextAgentScan(
-                                                    context,
-                                                    spec,
-                                                    spec.taskInput(),
+                                        // ContextAgent scan + ArchitectAgent with build always deferred
+                                        var liteGoal = spec.taskInput();
+                                        var initialContext = cm.liveContext();
+                                        var compressedHistory = cm.compressHistoryAsync(initialContext);
+                                        try (var scope = cm.beginTaskUngrouped(liteGoal)) {
+                                            // Phase 1: ContextAgent scan
+                                            var context = runContextAgentScan(
+                                                    initialContext, spec, liteGoal,
                                                     requireNonNull(architectCodeModel));
                                             scope.publish(context);
 
-                                            // Phase 3: CodeAgent with DEFER_BUILD (no build step)
-                                            var agent = new CodeAgent(
+                                            // Phase 2: ArchitectAgent with all builds deferred
+                                            var architectAgent = new ArchitectAgent(
                                                     cm,
-                                                    requireNonNull(
-                                                            architectCodeModel,
-                                                            "code model unavailable for LITE_AGENT jobs"));
-                                            var result = agent.execute(
-                                                    spec.taskInput(), EnumSet.of(CodeAgent.Option.DEFER_BUILD));
+                                                    requireNonNull(architectPlannerModel,
+                                                            "plannerModel required for LITE_AGENT jobs"),
+                                                    requireNonNull(architectCodeModel,
+                                                            "code model unavailable for LITE_AGENT jobs"),
+                                                    liteGoal, scope, context, compressedHistory);
+                                            architectAgent.setAlwaysDeferBuild(true);
+                                            var result = architectAgent.executeWithScan();
                                             scope.append(result);
                                         }
                                     }
                                     case LITE_PLAN -> {
+                                        // ContextAgent scan + ArchitectAgent in plan-only mode
+                                        var planGoal = spec.taskInput() + "\n\n"
+                                                + "[IMPORTANT: Write no code. Do not make any file changes. "
+                                                + "Only produce a detailed implementation plan.]";
+                                        var initialContext = cm.liveContext();
+                                        var compressedHistory = cm.compressHistoryAsync(initialContext);
                                         try (var scope = cm.beginTaskUngrouped(spec.taskInput())) {
-                                            // Phase 1: Resolve references
-                                            var context = cm.liveContext();
-                                            var setupResult = LutzAgent.setupContext(context, spec.taskInput(), false);
-                                            context = setupResult.context();
-
-                                            // Phase 2: ContextAgent scan to find relevant files
-                                            context = runContextAgentScan(
-                                                    context,
-                                                    spec,
-                                                    spec.taskInput(),
+                                            // Phase 1: ContextAgent scan
+                                            var context = runContextAgentScan(
+                                                    initialContext, spec, spec.taskInput(),
                                                     requireNonNull(architectCodeModel));
                                             scope.publish(context);
 
-                                            // Phase 3: CodeAgent with DEFER_BUILD + plan-only instruction
-                                            var planPrompt = spec.taskInput() + "\n\n"
-                                                    + "[IMPORTANT: Write no code. Do not make any file changes. "
-                                                    + "Only produce a detailed implementation plan.]";
-                                            var agent = new CodeAgent(
+                                            // Phase 2: ArchitectAgent with plan-only instruction
+                                            var architectAgent = new ArchitectAgent(
                                                     cm,
-                                                    requireNonNull(
-                                                            architectCodeModel,
-                                                            "code model unavailable for LITE_PLAN jobs"));
-                                            var result =
-                                                    agent.execute(planPrompt, EnumSet.of(CodeAgent.Option.DEFER_BUILD));
+                                                    requireNonNull(architectPlannerModel,
+                                                            "plannerModel required for LITE_PLAN jobs"),
+                                                    requireNonNull(architectCodeModel,
+                                                            "code model unavailable for LITE_PLAN jobs"),
+                                                    planGoal, scope, context, compressedHistory);
+                                            architectAgent.setAlwaysDeferBuild(true);
+                                            var result = architectAgent.executeWithScan();
                                             scope.append(result);
                                         }
                                     }
