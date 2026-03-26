@@ -6,8 +6,7 @@ jgit = "7.5.0.202512021534-r"
 nullaway = "0.12.7"
 flatlaf = "3.6.2"
 flexmark = "0.64.8"
-treesitter = "0.2.0"
-treesitter-lang = "0.2.0"
+treesitter = "0.2.1"
 palantirJavaFormat = "2.73.0"
 picocli = "4.7.7"
 maven-embedder = "3.9.6"
@@ -109,16 +108,16 @@ bouncycastle = "org.bouncycastle:bcprov-jdk18on:1.80"
 
 # TreeSitter
 treesitter-core = { module = "ai.brokk:tree-sitter", version.ref = "treesitter" }
-treesitter-java = { module = "ai.brokk:tree-sitter-java", version.ref = "treesitter-lang" }
-treesitter-cpp = { module = "ai.brokk:tree-sitter-cpp", version.ref = "treesitter-lang" }
-treesitter-csharp = { module = "ai.brokk:tree-sitter-c-sharp", version.ref = "treesitter-lang" }
-treesitter-go = { module = "ai.brokk:tree-sitter-go", version.ref = "treesitter-lang" }
-treesitter-javascript = { module = "ai.brokk:tree-sitter-javascript", version.ref = "treesitter-lang" }
-treesitter-php = { module = "ai.brokk:tree-sitter-php", version.ref = "treesitter-lang" }
-treesitter-python = { module = "ai.brokk:tree-sitter-python", version.ref = "treesitter-lang" }
-treesitter-rust = { module = "ai.brokk:tree-sitter-rust", version.ref = "treesitter-lang" }
-treesitter-tsx = { module = "ai.brokk:tree-sitter-tsx", version.ref = "treesitter-lang" }
-treesitter-scala = { module = "ai.brokk:tree-sitter-scala", version.ref = "treesitter-lang" }
+treesitter-java = { module = "ai.brokk:tree-sitter-java", version.ref = "treesitter" }
+treesitter-cpp = { module = "ai.brokk:tree-sitter-cpp", version.ref = "treesitter" }
+treesitter-csharp = { module = "ai.brokk:tree-sitter-c-sharp", version.ref = "treesitter" }
+treesitter-go = { module = "ai.brokk:tree-sitter-go", version.ref = "treesitter" }
+treesitter-javascript = { module = "ai.brokk:tree-sitter-javascript", version.ref = "treesitter" }
+treesitter-php = { module = "ai.brokk:tree-sitter-php", version.ref = "treesitter" }
+treesitter-python = { module = "ai.brokk:tree-sitter-python", version.ref = "treesitter" }
+treesitter-rust = { module = "ai.brokk:tree-sitter-rust", version.ref = "treesitter" }
+treesitter-tsx = { module = "ai.brokk:tree-sitter-tsx", version.ref = "treesitter" }
+treesitter-scala = { module = "ai.brokk:tree-sitter-scala", version.ref = "treesitter" }
 
 # Eclipse JDT
 eclipse-jdt-core = "org.eclipse.jdt:org.eclipse.jdt.core:3.44.0"
