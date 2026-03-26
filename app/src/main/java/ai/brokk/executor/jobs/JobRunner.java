@@ -8,9 +8,14 @@ import ai.brokk.IConsoleIO;
 import ai.brokk.Llm;
 import ai.brokk.Service;
 import ai.brokk.TaskResult;
+import ai.brokk.LlmOutputMeta;
 import ai.brokk.agents.CodeAgent;
+import ai.brokk.agents.ContextAgent;
 import ai.brokk.agents.IssueRewriterAgent;
 import ai.brokk.agents.LutzAgent;
+import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
+import ai.brokk.util.Messages;
 import ai.brokk.agents.ReviewAgent;
 import ai.brokk.agents.ReviewScope;
 import ai.brokk.context.Context;
@@ -22,6 +27,7 @@ import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.tasks.TaskList;
 import ai.brokk.util.ReviewParser;
 import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
@@ -250,7 +256,8 @@ public final class JobRunner {
         return switch (mode) {
             case ASK, SEARCH, REVIEW, GUIDED_REVIEW -> SearchPrompts.Objective.ANSWER_ONLY;
             case LUTZ -> SearchPrompts.Objective.LUTZ;
-            case PLAN, ARCHITECT, CODE, ISSUE, ISSUE_DIAGNOSE, ISSUE_WRITER, LITE_AGENT, LITE_PLAN -> SearchPrompts.Objective.TASKS_ONLY;
+            case PLAN, ARCHITECT, CODE, ISSUE, ISSUE_DIAGNOSE, ISSUE_WRITER, LITE_AGENT, LITE_PLAN ->
+                SearchPrompts.Objective.TASKS_ONLY;
         };
     }
 
@@ -362,19 +369,24 @@ public final class JobRunner {
                         (rawCodeModelName != null && !rawCodeModelName.isBlank()) ? rawCodeModelName.trim() : null;
                 var hasCodeModelOverride = trimmedCodeModelName != null;
 
-                final StreamingChatModel architectPlannerModel =
-                        (mode == Mode.ARCHITECT || mode == Mode.LUTZ || mode == Mode.PLAN || mode == Mode.ISSUE
-                                || mode == Mode.LITE_AGENT || mode == Mode.LITE_PLAN)
-                                ? resolveModelOrThrow(spec.plannerModel(), spec.reasoningLevel(), spec.temperature())
-                                : null;
-                final StreamingChatModel architectCodeModel =
-                        (mode == Mode.ARCHITECT || mode == Mode.LUTZ || mode == Mode.ISSUE
-                                || mode == Mode.LITE_AGENT || mode == Mode.LITE_PLAN)
-                                ? (trimmedCodeModelName != null
-                                        ? resolveModelOrThrow(
-                                                trimmedCodeModelName, spec.reasoningLevelCode(), spec.temperatureCode())
-                                        : defaultCodeModel(spec))
-                                : null;
+                final StreamingChatModel architectPlannerModel = (mode == Mode.ARCHITECT
+                                || mode == Mode.LUTZ
+                                || mode == Mode.PLAN
+                                || mode == Mode.ISSUE
+                                || mode == Mode.LITE_AGENT
+                                || mode == Mode.LITE_PLAN)
+                        ? resolveModelOrThrow(spec.plannerModel(), spec.reasoningLevel(), spec.temperature())
+                        : null;
+                final StreamingChatModel architectCodeModel = (mode == Mode.ARCHITECT
+                                || mode == Mode.LUTZ
+                                || mode == Mode.ISSUE
+                                || mode == Mode.LITE_AGENT
+                                || mode == Mode.LITE_PLAN)
+                        ? (trimmedCodeModelName != null
+                                ? resolveModelOrThrow(
+                                        trimmedCodeModelName, spec.reasoningLevelCode(), spec.temperatureCode())
+                                : defaultCodeModel(spec))
+                        : null;
                 final StreamingChatModel reviewPlannerModel = mode == Mode.REVIEW
                         ? resolveModelOrThrow(spec.plannerModel(), spec.reasoningLevel(), spec.temperature())
                         : null;
@@ -411,7 +423,8 @@ public final class JobRunner {
 
                 String plannerModelNameForLog =
                         switch (mode) {
-                            case ARCHITECT, LUTZ, PLAN, ISSUE, LITE_AGENT, LITE_PLAN -> service.nameOf(requireNonNull(architectPlannerModel));
+                            case ARCHITECT, LUTZ, PLAN, ISSUE, LITE_AGENT, LITE_PLAN ->
+                                service.nameOf(requireNonNull(architectPlannerModel));
                             case ASK -> service.nameOf(requireNonNull(askPlannerModel));
                             case SEARCH -> service.nameOf(requireNonNull(searchPlannerModel));
                             case CODE -> {
@@ -424,7 +437,8 @@ public final class JobRunner {
                         };
                 String codeModelNameForLog =
                         switch (mode) {
-                            case ARCHITECT, LUTZ, ISSUE, LITE_AGENT, LITE_PLAN -> service.nameOf(requireNonNull(architectCodeModel));
+                            case ARCHITECT, LUTZ, ISSUE, LITE_AGENT, LITE_PLAN ->
+                                service.nameOf(requireNonNull(architectCodeModel));
                             case ASK -> "(default, ignored for ASK)";
                             case SEARCH -> "(default, ignored for SEARCH)";
                             case PLAN -> "(default, ignored for PLAN)";
@@ -513,35 +527,42 @@ public final class JobRunner {
                                     }
                                     case LITE_AGENT -> {
                                         try (var scope = cm.beginTaskUngrouped(spec.taskInput())) {
-                                            // Phase 1: Scan (resolve references and add context)
+                                            // Phase 1: Resolve references
                                             var context = cm.liveContext();
                                             var setupResult = LutzAgent.setupContext(context, spec.taskInput(), false);
-                                            if (!setupResult.newFragments().isEmpty()) {
-                                                scope.publish(setupResult.context());
-                                            }
+                                            context = setupResult.context();
 
-                                            // Phase 2: CodeAgent with DEFER_BUILD (no build step)
+                                            // Phase 2: ContextAgent scan to find relevant files
+                                            context = runContextAgentScan(
+                                                    context, spec, spec.taskInput(),
+                                                    requireNonNull(architectCodeModel));
+                                            scope.publish(context);
+
+                                            // Phase 3: CodeAgent with DEFER_BUILD (no build step)
                                             var agent = new CodeAgent(
                                                     cm,
                                                     requireNonNull(
                                                             architectCodeModel,
                                                             "code model unavailable for LITE_AGENT jobs"));
                                             var result = agent.execute(
-                                                    spec.taskInput(),
-                                                    EnumSet.of(CodeAgent.Option.DEFER_BUILD));
+                                                    spec.taskInput(), EnumSet.of(CodeAgent.Option.DEFER_BUILD));
                                             scope.append(result);
                                         }
                                     }
                                     case LITE_PLAN -> {
                                         try (var scope = cm.beginTaskUngrouped(spec.taskInput())) {
-                                            // Phase 1: Scan (resolve references and add context)
+                                            // Phase 1: Resolve references
                                             var context = cm.liveContext();
                                             var setupResult = LutzAgent.setupContext(context, spec.taskInput(), false);
-                                            if (!setupResult.newFragments().isEmpty()) {
-                                                scope.publish(setupResult.context());
-                                            }
+                                            context = setupResult.context();
 
-                                            // Phase 2: CodeAgent with DEFER_BUILD + plan-only instruction
+                                            // Phase 2: ContextAgent scan to find relevant files
+                                            context = runContextAgentScan(
+                                                    context, spec, spec.taskInput(),
+                                                    requireNonNull(architectCodeModel));
+                                            scope.publish(context);
+
+                                            // Phase 3: CodeAgent with DEFER_BUILD + plan-only instruction
                                             var planPrompt = spec.taskInput() + "\n\n"
                                                     + "[IMPORTANT: Write no code. Do not make any file changes. "
                                                     + "Only produce a detailed implementation plan.]";
@@ -550,9 +571,8 @@ public final class JobRunner {
                                                     requireNonNull(
                                                             architectCodeModel,
                                                             "code model unavailable for LITE_PLAN jobs"));
-                                            var result = agent.execute(
-                                                    planPrompt,
-                                                    EnumSet.of(CodeAgent.Option.DEFER_BUILD));
+                                            var result =
+                                                    agent.execute(planPrompt, EnumSet.of(CodeAgent.Option.DEFER_BUILD));
                                             scope.append(result);
                                         }
                                     }
@@ -1490,6 +1510,60 @@ public final class JobRunner {
         var service = cm.getService();
         var baseConfig = Service.ModelConfig.from(service.getScanModel(), service);
         return resolveModelOrThrow(baseConfig, spec.reasoningLevel(), spec.temperature());
+    }
+
+    /**
+     * Runs ContextAgent to scan the repository for files relevant to the goal,
+     * adding recommended fragments to the context.
+     */
+    private Context runContextAgentScan(
+            Context context, JobSpec spec, String goal, StreamingChatModel codeModel)
+            throws InterruptedException {
+        StreamingChatModel scanModel;
+        try {
+            scanModel = (spec.scanModel() != null && !spec.scanModel().trim().isEmpty())
+                    ? resolveModelOrThrow(spec.scanModel().trim(), spec.reasoningLevel(), spec.temperature())
+                    : defaultScanModel(spec);
+        } catch (Exception e) {
+            logger.warn("Scan model unavailable, skipping ContextAgent scan: {}", e.getMessage());
+            return context;
+        }
+
+        var io = cm.getIo();
+        io.llmOutput(
+                "\n**Brokk Context Engine** analyzing repository context…\n",
+                ChatMessageType.AI,
+                LlmOutputMeta.newMessage());
+
+        var contextAgent = new ContextAgent(cm, scanModel, goal, io);
+        var recommendation = contextAgent.getRecommendations(context);
+
+        if (recommendation.success() && !recommendation.fragments().isEmpty()) {
+            var totalTokens = contextAgent.calculateFragmentTokens(recommendation.fragments());
+            int budget = cm.getService().getMaxInputTokens(codeModel) / 2
+                    - Messages.getApproximateTokens(context);
+            if (totalTokens > budget) {
+                var summaries = ContextFragment.describe(recommendation.fragments().stream());
+                context = context.addFragments(List.of(new ContextFragments.StringFragment(
+                        cm,
+                        "ContextAgent analyzed the repository and marked these fragments as highly relevant. "
+                                + "Since including all would exceed the model's context capacity, "
+                                + "their summarized descriptions are provided below:\n\n"
+                                + summaries,
+                        "Summary of ContextAgent Findings",
+                        org.fife.ui.rsyntaxtextarea.SyntaxConstants.SYNTAX_STYLE_NONE)));
+            } else {
+                context = context.addFragments(recommendation.fragments());
+                io.llmOutput(
+                        "\n\n**Brokk Context Engine** complete — contextual insights added to Workspace.\n",
+                        ChatMessageType.AI,
+                        LlmOutputMeta.DEFAULT);
+            }
+        } else {
+            io.llmOutput("\n\nNo additional context insights found\n", ChatMessageType.AI, LlmOutputMeta.DEFAULT);
+        }
+
+        return context;
     }
 
     /**
