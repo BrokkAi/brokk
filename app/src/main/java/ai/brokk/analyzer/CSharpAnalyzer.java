@@ -226,8 +226,7 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
         while (current != null && !current.equals(rootNode)) {
             if (NAMESPACE_DECLARATION.equals(current.getType())) {
                 // Find the identifier or qualified_name child as the name
-                for (int i = 0; i < current.getChildCount(); i++) {
-                    TSNode child = current.getChild(i);
+                for (TSNode child : current.getChildren()) {
                     String type = child.getType();
                     if ("identifier".equals(type) || "qualified_name".equals(type)) {
                         String nsPart = sourceContent.substringFrom(child);
@@ -268,9 +267,8 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
             // Some grammars expose the variable_declaration via a field name, others as a plain child.
             varDecl = fieldNode.getChildByFieldName("declaration");
             if (varDecl == null) {
-                for (int i = 0; i < fieldNode.getChildCount(); i++) {
-                    TSNode child = fieldNode.getChild(i);
-                    if (child != null && CSharpTreeSitterNodeTypes.VARIABLE_DECLARATION.equals(child.getType())) {
+                for (TSNode child : fieldNode.getChildren()) {
+                    if (CSharpTreeSitterNodeTypes.VARIABLE_DECLARATION.equals(child.getType())) {
                         varDecl = child;
                         break;
                     }
@@ -298,9 +296,8 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
             TSNode typeNode = varDecl.getChildByFieldName("type");
             if (typeNode != null) {
                 StringBuilder modifiersBuilder = new StringBuilder();
-                for (int i = 0; i < fieldDecl.getChildCount(); i++) {
-                    TSNode child = fieldDecl.getChild(i);
-                    if (child == null || child.getEndByte() > varDecl.getStartByte()) {
+                for (TSNode child : fieldDecl.getChildren()) {
+                    if (child.getEndByte() > varDecl.getStartByte()) {
                         break;
                     }
                     String childType = child.getType();
@@ -323,9 +320,7 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
                 // or a direct child of the declarator depending on the grammar version/context.
                 TSNode expression = null;
                 TSNode valueClause = null;
-                for (int i = 0; i < declarator.getChildCount(); i++) {
-                    TSNode child = declarator.getChild(i);
-                    if (child == null || !child.isNamed()) continue;
+                for (TSNode child : declarator.getNamedChildren()) {
                     if (EQUALS_VALUE_CLAUSE.equals(child.getType())) {
                         valueClause = child;
                         break;
@@ -394,10 +389,7 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
 
         // 2. Only descend into specific wrapper nodes to avoid finding literals inside complex expressions
         if (PARENTHESIZED_EXPRESSION.equals(type) || LITERAL.equals(type)) {
-            for (int i = 0; i < node.getChildCount(); i++) {
-                TSNode child = node.getChild(i);
-                if (child == null || !child.isNamed()) continue;
-
+            for (TSNode child : node.getNamedChildren()) {
                 TSNode found = findLiteralNode(child);
                 if (found != null) return found;
             }
