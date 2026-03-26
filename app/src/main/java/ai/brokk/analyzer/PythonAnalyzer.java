@@ -500,8 +500,6 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
                                 }
 
                                 if (TEST_MARKER.equals(captureName)) {
-                                    TSNode root = tree.getRootNode();
-                                    if (root == null) continue;
                                     // Case A: Function name starting with test_
                                     if (IDENTIFIER.equals(node.getType())) {
                                         TSNode parent = node.getParent();
@@ -896,11 +894,8 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
 
             // Re-parse the import statement with TreeSitter (see TODO above)
             var parser = getTSParser();
-            try (var tree = parser.parseString(null, importLine)) {
-                if (tree == null) continue;
+            try (var tree = parser.parseStringOrThrow(null, importLine)) {
                 var rootNode = tree.getRootNode();
-                if (rootNode == null) continue;
-
                 SourceContent importSc = SourceContent.of(importLine);
                 withCachedQuery(QueryType.IMPORTS, query -> {
                     try (var cursor = new TSQueryCursor()) {
@@ -981,6 +976,8 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
                         }
                     }
                 });
+            } catch (Exception e) {
+                log.warn("Error parsing import statement: {}", importLine, e);
             }
         }
 
@@ -1204,14 +1201,8 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
     @Override
     public Set<String> extractTypeIdentifiers(String source) {
         Set<String> identifiers = new HashSet<>();
-        try (TSTree tree = getTSParser().parseString(null, source)) {
-            if (tree == null) return identifiers;
+        try (TSTree tree = getTSParser().parseStringOrThrow(null, source)) {
             TSNode rootNode = tree.getRootNode();
-
-            if (rootNode == null) {
-                return identifiers;
-            }
-
             SourceContent sc = SourceContent.of(source);
             withCachedQuery(
                     QueryType.IDENTIFIERS,
@@ -1238,7 +1229,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
 
             return identifiers;
         } catch (Exception e) {
-            log.debug("Failed to parse ad-hoc source string: {}", e.getMessage());
+            log.warn("Failed to parse ad-hoc source string: {}", e.getMessage());
             return identifiers;
         }
     }

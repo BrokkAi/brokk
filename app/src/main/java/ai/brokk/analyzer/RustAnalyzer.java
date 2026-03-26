@@ -483,7 +483,6 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
                 file,
                 tree -> {
                     TSNode root = tree.getRootNode();
-                    if (root == null) return "";
                     return withSource(file, sc -> determinePackageName(file, root, root, sc), "");
                 },
                 "");
@@ -686,7 +685,6 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
                 QueryType.DEFINITIONS,
                 query -> {
                     TSNode root = tree.getRootNode();
-                    if (root == null) return false;
                     try (TSQueryCursor cursor = new TSQueryCursor()) {
                         cursor.exec(query, root, sourceContent.text());
 

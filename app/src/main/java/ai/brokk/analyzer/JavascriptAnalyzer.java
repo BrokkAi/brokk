@@ -631,9 +631,6 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
                 return identifiers;
             }
             TSNode rootNode = tree.getRootNode();
-            if (rootNode == null) {
-                return identifiers;
-            }
             SourceContent sourceContent = SourceContent.of(source);
 
             try (TSQuery query = createQuery(QueryType.IDENTIFIERS)) {

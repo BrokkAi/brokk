@@ -1093,10 +1093,7 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
     public Set<String> extractIdentifiersFromImport(String importStatement) {
         Set<String> identifiers = new HashSet<>();
         TSParser parser = getTSParser();
-        try (TSTree tree = parser.parseString(null, importStatement)) {
-            if (tree == null || tree.getRootNode() == null) {
-                return identifiers;
-            }
+        try (TSTree tree = parser.parseStringOrThrow(null, importStatement)) {
             SourceContent sourceContent = SourceContent.of(importStatement);
             TSNode rootNode = tree.getRootNode();
 
@@ -1143,7 +1140,7 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
                 }
             }
         } catch (Exception e) {
-            log.debug("Failed to parse import statement: {}", importStatement, e);
+            log.warn("Failed to parse import statement: {}", importStatement, e);
         }
         return identifiers;
     }

@@ -336,11 +336,6 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
             String simpleName,
             String baseIndent,
             ProjectFile file) {
-        if (fieldNode == null) {
-            return super.formatFieldSignature(
-                    null, sourceContent, exportPrefix, signatureText, simpleName, baseIndent, file);
-        }
-
         if (ENUMERATOR.equals(fieldNode.getType())) {
             return baseIndent + sourceContent.substringFrom(fieldNode).strip();
         }
