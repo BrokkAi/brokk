@@ -115,7 +115,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     public enum QueryType {
         DEFINITIONS,
         IMPORTS,
-        IDENTIFIERS
+        IDENTIFIERS,
+        MACROS
     }
 
     private final Map<QueryType, String> querySources;
@@ -173,8 +174,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
      * @return the result of the function, or {@code defaultValue} if the query source is missing
      */
     protected final <T> T withCachedQuery(QueryType type, Function<TSQuery, T> fn, T defaultValue) {
-        Map<QueryType, TSQuery> cache = threadLocalQueries.get();
-        TSQuery query = cache.get(type);
+        Map<QueryType, TSQuery> queryMap = threadLocalQueries.get();
+        TSQuery query = queryMap.get(type);
 
         if (query == null) {
             String source = querySources.get(type);
@@ -184,7 +185,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             }
             query = new TSQuery(getTSLanguage(), source);
             queryCompilationCount.incrementAndGet();
-            cache.put(type, query);
+            queryMap.put(type, query);
         }
 
         return fn.apply(query);
@@ -939,7 +940,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             ProjectFile file, Function<SourceContent, R> fn, R defaultValue, byte @Nullable [] seedBytes) {
         SourceContent sc = cache.sources().get(file);
         if (sc == null) {
-            if (Files.exists(file.absPath())) {
+            if (seedBytes != null || Files.exists(file.absPath())) {
                 try {
                     byte[] bytes = seedBytes == null ? readFileBytes(file, null) : seedBytes;
                     if (bytes.length == 0) {
@@ -974,8 +975,15 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         return withSource(
                 file,
                 sc -> {
-                    try (TSTree tree = getTSParser().parseString(null, sc.text())) {
+                    TSParser parser = getTSParser();
+                    try (TSTree tree = parser.parseString(null, sc.text())) {
                         if (tree == null) {
+                            log.debug("Failed to parse tree for {}: parser returned null", file);
+                            return defaultValue;
+                        }
+                        TSNode root = tree.getRootNode();
+                        if (root.isNull()) {
+                            log.debug("Failed to parse tree for {}: root node is null", file);
                             return defaultValue;
                         }
                         return fn.apply(tree);
@@ -1403,6 +1411,13 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             return Optional.empty();
         }
 
+        if (cu.isSynthetic()) {
+            List<String> sigs = signaturesOf(cu);
+            if (!sigs.isEmpty()) {
+                return Optional.of("# This declaration is synthetic\n" + sigs.getFirst());
+            }
+        }
+
         var ranges = rangesOf(cu);
         if (ranges.isEmpty()) {
             return Optional.empty();
@@ -1426,6 +1441,13 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     private Set<String> getSourcesForFunction(CodeUnit cu, boolean includeComments) {
         if (!cu.isFunction()) {
             return Collections.emptySet();
+        }
+
+        if (cu.isSynthetic()) {
+            List<String> sigs = signaturesOf(cu);
+            if (!sigs.isEmpty()) {
+                return Set.of("# This declaration is synthetic\n" + sigs.getFirst());
+            }
         }
 
         List<Range> rangesForOverloads = rangesOf(cu);
@@ -1847,6 +1869,12 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
      * @return true if the candidate should be ignored (existing kept), false if candidate should be added
      */
     protected boolean shouldIgnoreDuplicate(CodeUnit existing, CodeUnit candidate, ProjectFile file) {
+        // For function overloads with same FQN but different signatures, do not ignore.
+        if (existing.isFunction()
+                && candidate.isFunction()
+                && !Objects.equals(existing.signature(), candidate.signature())) {
+            return false;
+        }
         // Default: ignore duplicates (keep first)
         // Subclasses can override for language-specific logic
         return true;
@@ -2014,7 +2042,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
      * Duplicate handling is controlled by shouldReplaceOnDuplicate().
      * Similar to addTopLevelCodeUnit but for nested elements (methods, class attributes, nested classes).
      */
-    private void addChildCodeUnit(CodeUnit cu, CodeUnit parentCu, FileAnalysisAccumulator acc) {
+    protected void addChildCodeUnit(CodeUnit cu, CodeUnit parentCu, FileAnalysisAccumulator acc) {
         CodeUnit existingDuplicate = acc.findChildDuplicate(parentCu, cu);
 
         if (existingDuplicate == null) {
@@ -2363,8 +2391,43 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                             .map(ImportInfo::rawSnippet)
                             .toList();
 
+                    localImportInfos.forEach(acc::registerImport);
+
                     // Register modules from imports
                     wrapModulesFromImports(file, localImportStatements, rootNode, sourceContent, acc);
+
+                    // Ensure the file's own module is registered so macros can attach to it as a fallback
+                    String currentPackage = determinePackageName(file, rootNode, rootNode, sourceContent);
+                    String fileName = file.getFileName();
+                    int lastDotIdx = fileName.lastIndexOf('.');
+                    String fileStem = lastDotIdx == -1 ? fileName : fileName.substring(0, lastDotIdx);
+
+                    String moduleSimpleName = currentPackage.isEmpty()
+                            ? fileStem
+                            : currentPackage.substring(currentPackage.lastIndexOf('.') + 1);
+
+                    CodeUnit fileModule = CodeUnit.module(file, currentPackage, moduleSimpleName);
+                    CodeUnit existingModule = acc.getByFqName(fileModule.fqName());
+                    if (existingModule == null) {
+                        existingModule = acc.getByFqName(currentPackage);
+                    }
+
+                    if (existingModule == null) {
+                        acc.registerCodeUnit(fileModule);
+                        // Do not add to topLevelCUs to avoid cluttering file skeletons,
+                        // but register it so macros/children can attach.
+                        acc.addLookupKey(fileModule.fqName(), fileModule);
+                    } else {
+                        // Ensure that even if the module was registered with different metadata,
+                        // it's accessible via both names for macro/child attachment.
+                        acc.addLookupKey(fileModule.fqName(), existingModule);
+                        if (!currentPackage.isEmpty()) {
+                            acc.addLookupKey(currentPackage, existingModule);
+                        }
+                    }
+
+                    // Phase 3: Post-processing Hook (e.g., Macros)
+                    postProcessAnalysis(rootNode, file, sourceContent, acc);
 
                     // Synthesize implicit constructors
                     for (CodeUnit cu : List.copyOf(acc.cuByFqName().values())) {
@@ -2388,6 +2451,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                     }
 
                     boolean containsTests = containsTestMarkers(tree, sourceContent);
+
                     Map<CodeUnit, CodeUnitProperties> localStates = acc.toCodeUnitProperties();
 
                     long __processEnd = System.nanoTime();
@@ -2400,7 +2464,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                             acc.topLevelCUs().stream().distinct().toList(),
                             Collections.unmodifiableMap(localStates),
                             acc.codeUnitsBySymbol().entrySet().stream()
-                                    .collect(Collectors.toMap(Map.Entry::getKey, e -> new HashSet<>(e.getValue()))),
+                                    .collect(Collectors.toMap(
+                                            entry -> entry.getKey(), entry -> new HashSet<>(entry.getValue()))),
                             Collections.unmodifiableList(localImportInfos),
                             containsTests);
                 },
@@ -3545,11 +3610,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         // Merge code unit state
         analysisResult.codeUnitState().forEach((cu, newState) -> {
             // For MODULE CodeUnits (e.g., Java packages), prefer merging using a canonical key
-            // so that children from multiple files aggregate under a single module entry.
+            // indexed by FQN to ensure cross-file aggregation.
             CodeUnit mergeKey = cu;
             if (cu.isModule()) {
                 CodeUnit existingKey = moduleKeyCache.getIfPresent(cu.fqName());
-                if (existingKey != null) {
+                if (existingKey != null && !existingKey.equals(cu)) {
                     mergeKey = existingKey;
                 }
             }
@@ -3585,8 +3650,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             });
 
             if (cu.isModule()) {
-                // Assignment is here to pass linting
-                var unused = moduleKeyCache.get(cu.fqName(), k -> finalMergeKey);
+                moduleKeyCache.put(cu.fqName(), finalMergeKey);
             }
         });
 
@@ -4195,6 +4259,87 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             }
         }
         return best;
+    }
+
+    /**
+     * Optional hook for subclasses to perform additional analysis passes (like macro discovery)
+     * after the primary definitions pass is complete.
+     */
+    protected void postProcessAnalysis(
+            TSNode rootNode, ProjectFile file, SourceContent sourceContent, FileAnalysisAccumulator acc) {
+        // No-op by default
+    }
+
+    /**
+     * Parses a raw string snippet into CodeUnits and merges them into the provided accumulator.
+     * The resulting CodeUnits are marked as synthetic.
+     *
+     * @param snippet the source code snippet to parse
+     * @param file the file context for the snippet
+     * @param acc the accumulator to merge results into
+     */
+    protected void analyzeSnippet(String snippet, ProjectFile file, FileAnalysisAccumulator acc) {
+        if (snippet.isBlank()) return;
+
+        byte[] bytes = snippet.getBytes(StandardCharsets.UTF_8);
+
+        SourceContent originalSc = cache.sources().get(file);
+        cache.sources().remove(file);
+
+        FileAnalysisResult result;
+        try {
+            result = analyzeFileContent(file, bytes, null);
+        } finally {
+            if (originalSc != null) {
+                cache.sources().put(file, originalSc);
+            } else {
+                cache.sources().remove(file);
+            }
+        }
+
+        // Map original CodeUnits from snippet to their synthetic versions to preserve relationships
+        Map<CodeUnit, CodeUnit> syntheticMap = new HashMap<>();
+        for (CodeUnit cu : result.codeUnitState().keySet()) {
+            syntheticMap.put(cu, cu.withSynthetic(true));
+        }
+
+        // Merge results using synthetic versions
+        for (Map.Entry<CodeUnit, CodeUnitProperties> entry :
+                result.codeUnitState().entrySet()) {
+            CodeUnit originalCu = entry.getKey();
+            CodeUnitProperties props = entry.getValue();
+            CodeUnit syntheticCu = syntheticMap.get(originalCu);
+            if (syntheticCu == null) continue;
+
+            acc.registerCodeUnit(syntheticCu);
+
+            if (props.hasBody()) {
+                acc.setHasBody(syntheticCu, true);
+            }
+
+            for (String sig : props.signatures()) {
+                acc.addSignature(syntheticCu, sig);
+            }
+
+            for (Range range : props.ranges()) {
+                acc.addRange(syntheticCu, range);
+            }
+
+            for (CodeUnit child : props.children()) {
+                CodeUnit syntheticChild = syntheticMap.get(child);
+                if (syntheticChild != null) {
+                    acc.addChild(syntheticCu, syntheticChild);
+                }
+            }
+        }
+
+        // Add top-level units from snippet as synthetic
+        for (CodeUnit topLevel : result.topLevelCUs()) {
+            CodeUnit syntheticTop = syntheticMap.get(topLevel);
+            if (syntheticTop != null) {
+                addTopLevelCodeUnit(syntheticTop, acc, file);
+            }
+        }
     }
 
     protected boolean isBlankNameAllowed(String captureName, String simpleName, String nodeType, String file) {

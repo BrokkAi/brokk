@@ -2,8 +2,11 @@ package ai.brokk.project;
 
 import ai.brokk.IAnalyzerWrapper;
 import ai.brokk.agents.BuildAgent;
+import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.analyzer.macro.MacroPolicy;
+import ai.brokk.analyzer.macro.MacroPolicyLoader;
 import ai.brokk.concurrent.AtomicWrites;
 import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.git.GitRepo;
@@ -17,11 +20,13 @@ import ai.brokk.util.ShellConfig;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 import java.awt.Rectangle;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -298,6 +303,47 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
 
     @Override
     public abstract void saveLiveDependencies(Set<Path> dependencyTopLevelDirs);
+
+    @Override
+    public Map<Language, MacroPolicy> getMacroPolicies() {
+        Map<Language, MacroPolicy> policies = new HashMap<>();
+        for (Language lang : getAnalyzerLanguages()) {
+            Path policyFile = root.resolve(BROKK_DIR)
+                    .resolve("code_intelligence")
+                    .resolve("macros")
+                    .resolve(lang.internalName().toLowerCase(Locale.ROOT) + ".yml");
+            if (Files.exists(policyFile)) {
+                try (var is = Files.newInputStream(policyFile)) {
+                    policies.put(lang, MacroPolicyLoader.load(is));
+                } catch (IOException e) {
+                    logger.error("Error loading macro policy for {}: {}", lang.name(), e.getMessage());
+                }
+            }
+        }
+        return policies;
+    }
+
+    @Override
+    public void setMacroPolicy(Language language, @Nullable MacroPolicy policy) {
+        Path policyFile = root.resolve(BROKK_DIR)
+                .resolve("code_intelligence")
+                .resolve("macros")
+                .resolve(language.internalName().toLowerCase(Locale.ROOT) + ".yml");
+        try {
+            if (policy == null) {
+                Files.deleteIfExists(policyFile);
+            } else {
+                Files.createDirectories(policyFile.getParent());
+                // Use the YAML mapper from MacroPolicyLoader if it was accessible,
+                // but since it's private there, we use the one here or a new one.
+                // MacroPolicyLoader uses a YAMLFactory.
+                ObjectMapper yamlMapper = new ObjectMapper(new YAMLFactory());
+                AtomicWrites.save(policyFile, yamlMapper.writeValueAsBytes(policy));
+            }
+        } catch (IOException e) {
+            logger.error("Error saving macro policy for {}: {}", language.name(), e.getMessage());
+        }
+    }
 
     @Override
     public CompletableFuture<Void> addLiveDependency(

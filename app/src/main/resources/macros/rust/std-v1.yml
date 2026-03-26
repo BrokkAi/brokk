@@ -1,0 +1,83 @@
+version: "1"
+language: "rust"
+macros:
+  # Common bang macros
+  - name: "vec"
+    strategy: "BYPASS"
+    options: {}
+  - name: "format"
+    strategy: "BYPASS"
+    options: {}
+  - name: "println"
+    strategy: "BYPASS"
+    options: {}
+  - name: "panic"
+    strategy: "BYPASS"
+    options: {}
+  - name: "assert"
+    strategy: "BYPASS"
+    options: {}
+  - name: "todo"
+    strategy: "BYPASS"
+    options: {}
+  - name: "unimplemented"
+    strategy: "BYPASS"
+    options: {}
+  - name: "unreachable"
+    strategy: "BYPASS"
+    options: {}
+
+  # Common derive macros (standard)
+  - name: "Clone"
+    strategy: "BYPASS"
+    options: {}
+  - name: "Copy"
+    strategy: "BYPASS"
+    options: {}
+  - name: "Debug"
+    strategy: "BYPASS"
+    options: {}
+  - name: "Default"
+    strategy: "TEMPLATE"
+    options:
+      template: "impl Default for {{identifier}} { pub fn default() -> Self { unimplemented!() } }"
+  - name: "PartialEq"
+    strategy: "BYPASS"
+    options: {}
+  - name: "Eq"
+    strategy: "BYPASS"
+    options: {}
+  - name: "PartialOrd"
+    strategy: "BYPASS"
+    options: {}
+  - name: "Ord"
+    strategy: "BYPASS"
+    options: {}
+  - name: "Hash"
+    strategy: "BYPASS"
+    options: {}
+
+  # Attribute macros
+  - name: "test"
+    strategy: "BYPASS"
+    options: {}
+  - name: "inline"
+    strategy: "BYPASS"
+    options: {}
+  - name: "cfg"
+    strategy: "BYPASS"
+    options: {}
+  - name: "derive"
+    strategy: "BYPASS"
+    options: {}
+  - name: "matches"
+    strategy: "BYPASS"
+    options: {}
+
+  # Common external derives
+  - name: "Serialize"
+    strategy: "BYPASS"
+    options: {}
+  - name: "Deserialize"
+    strategy: "BYPASS"
+    options: {}

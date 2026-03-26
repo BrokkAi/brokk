@@ -3,6 +3,8 @@ package ai.brokk.testutil;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
+import ai.brokk.analyzer.macro.MacroPolicy;
+import ai.brokk.analyzer.macro.MacroPolicyLoader;
 import ai.brokk.concurrent.AtomicWrites;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitRepoFactory;
@@ -455,9 +457,22 @@ public class InlineTestProjectCreator {
 
     public static class TestProjectBuilder {
         protected final ProjectContentStrategy strategy;
+        protected final Map<Language, MacroPolicy> macroPolicies = new java.util.HashMap<>();
 
         protected TestProjectBuilder(ProjectContentStrategy strategy) {
             this.strategy = strategy;
+        }
+
+        public TestProjectBuilder withMacros(Language language, String name) {
+            String resourcePath =
+                    String.format("/macros/%s/%s.yml", language.name().toLowerCase(), name);
+            try {
+                MacroPolicy policy = MacroPolicyLoader.loadFromResource(resourcePath);
+                this.macroPolicies.put(language, policy);
+            } catch (IOException e) {
+                throw new AssertionError("Failed to load macro policy from " + resourcePath, e);
+            }
+            return this;
         }
 
         public TestProjectBuilder addFileContents(String contents, String filename) {
@@ -489,6 +504,7 @@ public class InlineTestProjectCreator {
                 Path projectRoot = existingGitRepoStrategy.getWorkTreeRoot();
                 var project = new ExistingRootTestProject(projectRoot);
                 project.setRepo(existingGitRepoStrategy.getRepo());
+                macroPolicies.forEach(project::setMacroPolicy);
                 initializeLanguages(project, projectRoot);
                 return project;
             }
@@ -535,6 +551,8 @@ public class InlineTestProjectCreator {
             } else {
                 project = new EphemeralTestProject(newTemporaryDirectory);
             }
+
+            macroPolicies.forEach(project::setMacroPolicy);
 
             initializeLanguages(project, newTemporaryDirectory);
             return project;

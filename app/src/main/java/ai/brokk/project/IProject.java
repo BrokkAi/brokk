@@ -10,6 +10,7 @@ import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.SourceRootScanner;
+import ai.brokk.analyzer.macro.MacroPolicy;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.mcpclient.McpConfig;
 import ai.brokk.project.ModelProperties.ModelType;
@@ -374,6 +375,12 @@ public interface IProject extends AutoCloseable {
     default void setCodeAgentTestScope(CodeAgentTestScope selectedScope) {}
 
     default void setAnalyzerLanguages(Set<Language> languages) {}
+
+    default Map<Language, MacroPolicy> getMacroPolicies() {
+        return Map.of();
+    }
+
+    default void setMacroPolicy(Language language, @Nullable MacroPolicy policy) {}
 
     /**
      * Invalidates any cached auto-detected languages. This should be called when project

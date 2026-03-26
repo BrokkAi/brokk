@@ -3,6 +3,7 @@ package ai.brokk.analyzer;
 import static ai.brokk.analyzer.rust.RustTreeSitterNodeTypes.*;
 
 import ai.brokk.analyzer.cache.AnalyzerCache;
+import ai.brokk.analyzer.macro.MacroPolicy;
 import ai.brokk.project.IProject;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -11,15 +12,18 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Function;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.treesitter.*;
 
-public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisProvider {
+public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisProvider, MacroExpansionProvider {
     private static final Logger log = LoggerFactory.getLogger(RustAnalyzer.class);
 
     @Override
@@ -83,6 +87,7 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
             case DEFINITIONS -> Optional.of("treesitter/rust/definitions.scm");
             case IMPORTS -> Optional.of("treesitter/rust/imports.scm");
             case IDENTIFIERS -> Optional.empty();
+            case MACROS -> Optional.of("treesitter/rust/macros.scm");
         };
     }
 
@@ -672,6 +677,200 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
             // The rawSnippet in ImportInfo should be a clean standalone "use ...;" statement for the specific leaf.
             String standaloneSnippet = "use " + resolvedPath + (alias != null ? " as " + alias : "") + ";";
             localImportInfos.add(new ImportInfo(standaloneSnippet, isWildcard, identifier, alias));
+        }
+    }
+
+    @Override
+    public <R> R withSource(ProjectFile file, Function<SourceContent, R> fn, R defaultValue) {
+        return super.withSource(file, fn, defaultValue);
+    }
+
+    @Override
+    public <R> R withTreeOf(ProjectFile file, Function<TSTree, R> fn, R defaultValue) {
+        return super.withTreeOf(file, fn, defaultValue);
+    }
+
+    /**
+     * Scans the given tree for macro invocations and returns the set of macro names found.
+     */
+    public Set<String> findMacroNames(TSTree tree, SourceContent sourceContent) {
+        Set<String> names = new HashSet<>();
+        withCachedQuery(QueryType.MACROS, query -> {
+            try (TSQueryCursor cursor = new TSQueryCursor()) {
+                cursor.exec(query, tree.getRootNode(), sourceContent.text());
+                TSQueryMatch match = new TSQueryMatch();
+                while (cursor.nextMatch(match)) {
+                    for (TSQueryCapture capture : match.getCaptures()) {
+                        String captureName = query.getCaptureNameForId(capture.getIndex());
+                        if (captureName.endsWith(".name")) {
+                            names.add(sourceContent
+                                    .substringFrom(capture.getNode())
+                                    .strip());
+                        }
+                    }
+                }
+            }
+        });
+        return names;
+    }
+
+    @Override
+    protected void postProcessAnalysis(
+            TSNode rootNode, ProjectFile file, SourceContent sourceContent, FileAnalysisAccumulator acc) {
+        discoverMacros(this, rootNode, file, sourceContent, acc);
+    }
+
+    private static final Pattern LAZY_STATIC_PATTERN =
+            Pattern.compile("static\\s+(?:ref\\s+)?([\\w_]+)\\s*:\\s*([^=;{]+)");
+
+    @Override
+    public boolean isMacroPolicyMatch(String macroName, MacroPolicy.MacroMatch mm, FileAnalysisAccumulator acc) {
+        String parent = mm.parent();
+        if (parent == null || parent.isBlank()) {
+            return true;
+        }
+
+        List<ImportInfo> infos = acc.importInfos();
+        String parentHyphen = parent.replace("_", "-");
+
+        // 1. Direct/Explicit Import Check
+        var explicitImport = infos.stream()
+                .filter(info -> !info.isWildcard() && Objects.equals(info.identifier(), macroName))
+                .findFirst();
+
+        if (explicitImport.isPresent()) {
+            String snippet = explicitImport.get().rawSnippet();
+            return snippet.contains(parent) || snippet.contains(parentHyphen);
+        }
+
+        // 2. Fallback: If no explicit import, check if ANY wildcard imports the parent.
+        return infos.stream().anyMatch(info -> {
+            String snippet = info.rawSnippet();
+            return info.isWildcard() && (snippet.contains(parent) || snippet.contains(parentHyphen));
+        });
+    }
+
+    @Override
+    public void enrichMacroContext(
+            TreeSitterAnalyzer analyzer,
+            CodeUnit targetCu,
+            Map<String, Object> context,
+            FileAnalysisAccumulator acc,
+            TSNode macroNode,
+            SourceContent sourceContent,
+            TSNode rootNode) {
+        // Re-implement the lazy_static extraction logic here
+        TSNode targetNode = macroNode;
+        TSNode p = macroNode.getParent();
+        while (p != null
+                && !p.isNull()
+                && !p.getType().contains("item")
+                && !p.getType().contains("declaration")) {
+            targetNode = p;
+            if (p.getType().equals("macro_invocation")) break;
+            p = p.getParent();
+        }
+
+        String nodeText = sourceContent.substringFrom(targetNode);
+        if (nodeText.contains("static")) {
+            Matcher m = LAZY_STATIC_PATTERN.matcher(nodeText);
+            if (m.find()) {
+                context.put("name", m.group(1).strip());
+                context.put("type", m.group(2).strip());
+            }
+        }
+    }
+
+    @Override
+    public void enrichChildContext(
+            TreeSitterAnalyzer analyzer,
+            CodeUnit targetCu,
+            CodeUnit childCu,
+            Map<String, Object> childMap,
+            FileAnalysisAccumulator acc,
+            SourceContent sourceContent,
+            TSNode rootNode) {
+        if (!childCu.isField()) {
+            return;
+        }
+
+        List<IAnalyzer.Range> ranges = acc.getRanges(childCu);
+        if (ranges.isEmpty()) {
+            return;
+        }
+
+        IAnalyzer.Range range = ranges.getFirst();
+        if (rootNode.isNull()) {
+            log.warn("enrichChildContext: rootNode is null for {}", childCu.fqName());
+            return;
+        }
+
+        // Use named descendant for range to avoid anonymous tokens (commas, parentheses)
+        // which can complicate parent climbing.
+        TSNode variantNode = rootNode.getNamedDescendantForByteRange(range.startByte(), range.endByte());
+
+        if (variantNode == null || variantNode.isNull()) {
+            log.debug(
+                    "enrichChildContext: no node found for {} at range [{}, {}]",
+                    childCu.identifier(),
+                    range.startByte(),
+                    range.endByte());
+            return;
+        }
+
+        log.debug(
+                "enrichChildContext: child={}, range=[{}, {}], foundNode={}",
+                childCu.identifier(),
+                range.startByte(),
+                range.endByte(),
+                variantNode.getType());
+
+        // Find the enum_variant node. The range might point to the identifier, so we climb.
+        while (variantNode != null && !variantNode.isNull() && !ENUM_VARIANT.equals(variantNode.getType())) {
+            variantNode = variantNode.getParent();
+            if (variantNode == null || variantNode.isNull() || variantNode.equals(rootNode)) {
+                variantNode = null;
+                break;
+            }
+        }
+
+        if (variantNode == null || variantNode.isNull() || !ENUM_VARIANT.equals(variantNode.getType())) {
+            return;
+        }
+
+        // Check for tuple variants: Variant(u32, String) or struct variants: Variant { x: u32 }
+        // In rust tree-sitter, the fields of a variant are children of the enum_variant node,
+        // often under a 'body' field which can be an 'ordered_field_declaration_list' (tuples)
+        // or a 'field_declaration_list' (structs).
+        TSNode variantBody = variantNode.getChildByFieldName("body");
+        if (variantBody == null || variantBody.isNull()) {
+            // Fallback: look for children with known variant body types
+            for (int i = 0; i < variantNode.getChildCount(); i++) {
+                TSNode child = variantNode.getChild(i);
+                if (child != null && !child.isNull()) {
+                    String type = child.getType();
+                    if (ORDERED_FIELD_DECL_LIST.equals(type)
+                            || ORDERED_FIELD_DECLARATION_LIST.equals(type)
+                            || FIELD_DECLARATION_LIST.equals(type)) {
+                        variantBody = child;
+                        break;
+                    }
+                }
+            }
+        }
+
+        if (variantBody != null && !variantBody.isNull()) {
+            childMap.put("has_payload", true);
+
+            // For KeyPress(char), variantBody text is '(char)'.
+            // Extract the inner content.
+            String innerText = sourceContent.substringFrom(variantBody).trim();
+            if (innerText.startsWith("(") && innerText.endsWith(")")) {
+                innerText = innerText.substring(1, innerText.length() - 1).trim();
+            } else if (innerText.startsWith("{") && innerText.endsWith("}")) {
+                innerText = innerText.substring(1, innerText.length() - 1).trim();
+            }
+            childMap.put("inner_type", innerText);
         }
     }
 

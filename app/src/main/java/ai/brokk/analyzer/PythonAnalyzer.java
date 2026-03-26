@@ -102,6 +102,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
             case DEFINITIONS -> Optional.of("treesitter/python/definitions.scm");
             case IMPORTS -> Optional.of("treesitter/python/imports.scm");
             case IDENTIFIERS -> Optional.of("treesitter/python/identifiers.scm");
+            case MACROS -> Optional.empty();
         };
     }
 

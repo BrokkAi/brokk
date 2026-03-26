@@ -6,6 +6,7 @@ import ai.brokk.agents.BuildAgent;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.analyzer.macro.MacroPolicy;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.mcpclient.McpConfig;
 import ai.brokk.project.FileFilteringService;
@@ -19,6 +20,7 @@ import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.util.Collections;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
@@ -47,6 +49,7 @@ public class TestProject implements IProject {
             FileFilteringService.createPatternMatcher(Set.of());
     private boolean gitConfigDeclined = false;
     private @Nullable String jdk;
+    private Map<Language, MacroPolicy> macroPolicies = new java.util.HashMap<>();
     private @Nullable IGitRepo repo;
     private boolean repoExplicitlySetToNull = false;
     private @Nullable Supplier<Set<ProjectFile>> allFilesSupplier;
@@ -229,6 +232,20 @@ public class TestProject implements IProject {
     @Override
     public boolean hasJdkOverride() {
         return jdk != null;
+    }
+
+    @Override
+    public Map<Language, MacroPolicy> getMacroPolicies() {
+        return java.util.Collections.unmodifiableMap(macroPolicies);
+    }
+
+    @Override
+    public void setMacroPolicy(Language language, @Nullable MacroPolicy policy) {
+        if (policy == null) {
+            this.macroPolicies.remove(language);
+        } else {
+            this.macroPolicies.put(language, policy);
+        }
     }
 
     public TestProject withJdk(@Nullable String jdkHome) {

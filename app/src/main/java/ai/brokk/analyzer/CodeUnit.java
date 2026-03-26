@@ -58,11 +58,7 @@ public class CodeUnit implements Comparable<CodeUnit> {
         this(source, kind, packageName, shortName, signature, false);
     }
 
-    public CodeUnit(
-            @JsonProperty("source") ProjectFile source,
-            @JsonProperty("kind") CodeUnitType kind,
-            @JsonProperty("packageName") String packageName,
-            @JsonProperty("shortName") String shortName) {
+    public CodeUnit(ProjectFile source, CodeUnitType kind, String packageName, String shortName) {
         this(source, kind, packageName, shortName, null, false);
     }
 
@@ -100,7 +96,11 @@ public class CodeUnit implements Comparable<CodeUnit> {
                 int lastSep = Math.max(lastDot, lastDollar);
                 yield lastSep >= 0 ? shortName.substring(lastSep + 1) : shortName;
             }
-            case MODULE -> shortName; // The module's own short name, e.g., "_module_"
+            case MODULE -> {
+                // For modules, if the shortName is a filename, we want to preserve it.
+                // Otherwise, it's a fixed placeholder like "_module_".
+                yield shortName;
+            }
             default -> { // FUNCTION or FIELD
                 // shortName format is "Class.member" or "simpleFunction"
                 int lastDot = shortName.lastIndexOf('.');
@@ -222,7 +222,7 @@ public class CodeUnit implements Comparable<CodeUnit> {
      * Used to filter out lambda/anonymous artifacts from summaries and recommendations.
      */
     public boolean isAnonymous() {
-        return fqName.contains("$anon$");
+        return synthetic || fqName.contains("$anon$");
     }
 
     @Override

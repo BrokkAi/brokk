@@ -3,6 +3,8 @@ package ai.brokk.analyzer;
 import static java.util.Objects.requireNonNull;
 
 import ai.brokk.IConsoleIO;
+import ai.brokk.analyzer.macro.MacroPolicy;
+import ai.brokk.analyzer.macro.MacroPolicyLoader;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.dependencies.DependenciesPanel;
 import ai.brokk.project.AbstractProject;
@@ -18,6 +20,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -274,6 +277,22 @@ public class RustLanguage implements Language {
         } catch (IOException e) {
             return 0L;
         }
+    }
+
+    @Override
+    public List<MacroPolicy> getDefaultMacroPolicies() {
+        List<String> resources =
+                List.of("/macros/rust/std-v1.yml", "/macros/rust/lazy_static-v1.yml", "/macros/rust/is_macro.yml");
+
+        List<MacroPolicy> policies = new ArrayList<>();
+        for (String resource : resources) {
+            try {
+                policies.add(MacroPolicyLoader.loadFromResource(resource));
+            } catch (IOException e) {
+                logger.error("Failed to load default Rust macro policy from resource: {}", resource, e);
+            }
+        }
+        return Collections.unmodifiableList(policies);
     }
 
     // TODO: Refine isAnalyzed for Rust (e.g. target directory, .cargo, vendor)

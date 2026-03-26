@@ -107,6 +107,7 @@ class GitRepoIgnoreConfiguratorTest {
         assertTrue(gitignoreContent.contains("**/.brokk/**"));
         assertTrue(gitignoreContent.contains("!AGENTS.md"));
         assertTrue(gitignoreContent.contains("!**/.brokk/style.md"));
+        assertTrue(gitignoreContent.contains("!**/.brokk/code_intelligence/macros/*.yml"));
 
         // Verify .gitignore was staged
         assertTrue(

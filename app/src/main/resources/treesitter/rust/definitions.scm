@@ -95,8 +95,6 @@
   body: (enum_variant_list
           (enum_variant
             name: (identifier) @field.name
-            ; parameters: (_)? @field.parameters ; For tuple-like variants, e.g., Variant(u32, String)
-            ; body: (field_declaration_list)? @field.body ; For struct-like variants, e.g., Variant { field1: u32 }
             ) @field.definition
           )
   )
