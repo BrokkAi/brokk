@@ -6,25 +6,25 @@ import ai.brokk.ContextManager;
 import ai.brokk.GitHubAuth;
 import ai.brokk.IConsoleIO;
 import ai.brokk.Llm;
+import ai.brokk.LlmOutputMeta;
 import ai.brokk.Service;
 import ai.brokk.TaskResult;
-import ai.brokk.LlmOutputMeta;
 import ai.brokk.agents.CodeAgent;
 import ai.brokk.agents.ContextAgent;
 import ai.brokk.agents.IssueRewriterAgent;
 import ai.brokk.agents.LutzAgent;
-import ai.brokk.context.ContextFragment;
-import ai.brokk.context.ContextFragments;
-import ai.brokk.util.Messages;
 import ai.brokk.agents.ReviewAgent;
 import ai.brokk.agents.ReviewScope;
 import ai.brokk.context.Context;
+import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.executor.io.HeadlessHttpConsole;
 import ai.brokk.git.GitRepo;
 import ai.brokk.issues.GitHubIssueService;
 import ai.brokk.issues.IssueHeader;
 import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.tasks.TaskList;
+import ai.brokk.util.Messages;
 import ai.brokk.util.ReviewParser;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
@@ -53,6 +53,7 @@ import java.util.function.Function;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
+import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -534,7 +535,9 @@ public final class JobRunner {
 
                                             // Phase 2: ContextAgent scan to find relevant files
                                             context = runContextAgentScan(
-                                                    context, spec, spec.taskInput(),
+                                                    context,
+                                                    spec,
+                                                    spec.taskInput(),
                                                     requireNonNull(architectCodeModel));
                                             scope.publish(context);
 
@@ -558,7 +561,9 @@ public final class JobRunner {
 
                                             // Phase 2: ContextAgent scan to find relevant files
                                             context = runContextAgentScan(
-                                                    context, spec, spec.taskInput(),
+                                                    context,
+                                                    spec,
+                                                    spec.taskInput(),
                                                     requireNonNull(architectCodeModel));
                                             scope.publish(context);
 
@@ -1516,8 +1521,7 @@ public final class JobRunner {
      * Runs ContextAgent to scan the repository for files relevant to the goal,
      * adding recommended fragments to the context.
      */
-    private Context runContextAgentScan(
-            Context context, JobSpec spec, String goal, StreamingChatModel codeModel)
+    private Context runContextAgentScan(Context context, JobSpec spec, String goal, StreamingChatModel codeModel)
             throws InterruptedException {
         StreamingChatModel scanModel;
         try {
@@ -1540,8 +1544,7 @@ public final class JobRunner {
 
         if (recommendation.success() && !recommendation.fragments().isEmpty()) {
             var totalTokens = contextAgent.calculateFragmentTokens(recommendation.fragments());
-            int budget = cm.getService().getMaxInputTokens(codeModel) / 2
-                    - Messages.getApproximateTokens(context);
+            int budget = cm.getService().getMaxInputTokens(codeModel) / 2 - Messages.getApproximateTokens(context);
             if (totalTokens > budget) {
                 var summaries = ContextFragment.describe(recommendation.fragments().stream());
                 context = context.addFragments(List.of(new ContextFragments.StringFragment(
@@ -1551,7 +1554,7 @@ public final class JobRunner {
                                 + "their summarized descriptions are provided below:\n\n"
                                 + summaries,
                         "Summary of ContextAgent Findings",
-                        org.fife.ui.rsyntaxtextarea.SyntaxConstants.SYNTAX_STYLE_NONE)));
+                        SyntaxConstants.SYNTAX_STYLE_NONE)));
             } else {
                 context = context.addFragments(recommendation.fragments());
                 io.llmOutput(
