@@ -340,6 +340,14 @@ public final class DiffService {
         int totalAdded = 0;
         int totalDeleted = 0;
         for (var fd : fileDiffs) {
+            if (fd.isBinary()) {
+                // For binary files, we just treat it as a 1-line change if they differ
+                if (!fd.oldText().equals(fd.newText())) {
+                    totalAdded++;
+                    totalDeleted++;
+                }
+                continue;
+            }
             var res = ContentDiffUtils.computeDiffResult(fd.oldText(), fd.newText(), "old", "new");
             totalAdded += res.added();
             totalDeleted += res.deleted();
@@ -426,11 +434,25 @@ public final class DiffService {
         public String toDiff() {
             return perFileChanges().stream()
                     .map(fd -> {
-                        String oldName =
-                                fd.oldFile() == null ? null : fd.oldFile().toString();
-                        String newName =
-                                fd.newFile() == null ? null : fd.newFile().toString();
-                        return ContentDiffUtils.computeDiffResult(fd.oldText(), fd.newText(), oldName, newName)
+                        String oldPath = fd.oldFile() == null
+                                ? "/dev/null"
+                                : "a/" + fd.oldFile().toString();
+                        String newPath = fd.newFile() == null
+                                ? "/dev/null"
+                                : "b/" + fd.newFile().toString();
+
+                        if (fd.isBinary()) {
+                            return "Binary files %s and %s differ".formatted(oldPath, newPath);
+                        }
+                        return ContentDiffUtils.computeDiffResult(
+                                        fd.oldText(),
+                                        fd.newText(),
+                                        fd.oldFile() == null
+                                                ? null
+                                                : fd.oldFile().toString(),
+                                        fd.newFile() == null
+                                                ? null
+                                                : fd.newFile().toString())
                                 .diff();
                     })
                     .collect(Collectors.joining("\n\n"));
@@ -440,6 +462,17 @@ public final class DiffService {
         public String toReviewDiff(IAnalyzer analyzer) {
             return perFileChanges().stream()
                     .map(fd -> {
+                        String oldPath = fd.oldFile() == null
+                                ? "/dev/null"
+                                : "a/" + fd.oldFile().toString();
+                        String newPath = fd.newFile() == null
+                                ? "/dev/null"
+                                : "b/" + fd.newFile().toString();
+
+                        if (fd.isBinary()) {
+                            return "Binary files %s and %s differ".formatted(oldPath, newPath);
+                        }
+
                         String oldName =
                                 fd.oldFile() == null ? null : fd.oldFile().toString();
                         String newName =

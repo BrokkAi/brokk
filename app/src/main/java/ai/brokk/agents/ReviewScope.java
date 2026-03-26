@@ -11,6 +11,7 @@ import ai.brokk.context.DiffService;
 import ai.brokk.context.SpecialTextType;
 import ai.brokk.git.CommitInfo;
 import ai.brokk.git.GitRepo;
+import ai.brokk.git.GitRepoData;
 import ai.brokk.git.GitRepoData.FileDiff;
 import ai.brokk.git.GitWorkflow;
 import ai.brokk.util.ContentDiffUtils;
@@ -218,14 +219,25 @@ public record ReviewScope(DiffService.CumulativeChanges changes, ReviewScope.Met
             var oldFile = oldPathStr == null || oldPathStr.equals("/dev/null") ? null : cm.toFile(oldPathStr);
             var newFile = newPathStr == null || newPathStr.equals("/dev/null") ? null : cm.toFile(newPathStr);
 
-            String oldText = "";
-            String newText = "";
+            String oldText;
+            String newText;
+
+            boolean isBinary = (oldFile != null && oldFile.isBinary()) || (newFile != null && newFile.isBinary());
 
             try {
-                if (oldFile != null) {
+                if (oldFile == null) {
+                    oldText = "";
+                } else if (isBinary) {
+                    oldText = GitRepoData.BINARY_FILE_MARKER;
+                } else {
                     oldText = repo.data().getRefContent(metadata.fromRef(), oldFile);
                 }
-                if (newFile != null) {
+
+                if (newFile == null) {
+                    newText = "";
+                } else if (isBinary) {
+                    newText = GitRepoData.BINARY_FILE_MARKER;
+                } else {
                     newText = repo.data().getRefContent(metadata.toRef(), newFile);
                 }
             } catch (GitAPIException e) {
@@ -237,7 +249,7 @@ public record ReviewScope(DiffService.CumulativeChanges changes, ReviewScope.Met
                         "Failed to load content for " + (newPathStr != null ? newPathStr : oldPathStr), e);
             }
 
-            fileDiffs.add(new FileDiff(oldFile, newFile, oldText, newText));
+            fileDiffs.add(new FileDiff(oldFile, newFile, oldText, newText, isBinary));
         }
 
         var cumulativeChanges = new DiffService.CumulativeChanges(

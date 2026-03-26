@@ -11,6 +11,7 @@ import java.util.Optional;
 
 public interface BrokkFile extends Comparable<BrokkFile> {
     /** Heuristic binary detection: presence of NUL within the first few KB, reading from disk without loading full file. */
+    @JsonIgnore
     default boolean isBinary() {
         try {
             var path = absPath();
@@ -49,10 +50,12 @@ public interface BrokkFile extends Comparable<BrokkFile> {
         }
     }
 
+    @JsonIgnore
     default boolean exists() {
         return Files.exists(absPath());
     }
 
+    @JsonIgnore
     default boolean isDirectory() {
         return Files.isDirectory(absPath());
     }
@@ -105,6 +108,7 @@ public interface BrokkFile extends Comparable<BrokkFile> {
         return ""; // No extension found or invalid placement
     }
 
+    @JsonIgnore
     default String getSyntaxStyle() {
         return SyntaxDetector.fromExtension(extension());
     }

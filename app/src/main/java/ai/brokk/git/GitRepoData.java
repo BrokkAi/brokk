@@ -40,6 +40,8 @@ import org.jetbrains.annotations.Nullable;
 public class GitRepoData {
     private static final Logger logger = LogManager.getLogger(GitRepoData.class);
 
+    public static final String BINARY_FILE_MARKER = "[Binary file";
+
     private final GitRepo repo;
     private final Repository repository;
     private final Git git;
@@ -300,9 +302,13 @@ public class GitRepoData {
     }
 
     public record FileDiff(
-            @Nullable ProjectFile oldFile, @Nullable ProjectFile newFile, String oldText, String newText) {}
+            @Nullable ProjectFile oldFile,
+            @Nullable ProjectFile newFile,
+            String oldText,
+            String newText,
+            boolean isBinary) {}
 
-    private List<DiffEntry> scanDiffs(String oldRef, String newRef) throws GitAPIException {
+    protected List<DiffEntry> scanDiffs(String oldRef, String newRef) throws GitAPIException {
         var oldTreeIter = prepareTreeParser(oldRef);
         if (oldTreeIter == null) return List.of();
 
@@ -405,10 +411,27 @@ public class GitRepoData {
                     ? null
                     : repo.toProjectFile(newPath).orElse(null);
 
-            String oldText = (oldFile != null) ? getRefContent(oldRef, oldFile) : "";
-            String newText = (newFile != null) ? getRefContent(newRef, newFile) : "";
+            boolean isBinary = (oldFile != null && oldFile.isBinary()) || (newFile != null && newFile.isBinary());
 
-            result.add(new FileDiff(oldFile, newFile, oldText, newText));
+            String oldText;
+            if (oldFile == null) {
+                oldText = "";
+            } else if (oldFile.isBinary()) {
+                oldText = BINARY_FILE_MARKER;
+            } else {
+                oldText = getRefContent(oldRef, oldFile);
+            }
+
+            String newText;
+            if (newFile == null) {
+                newText = "";
+            } else if (newFile.isBinary()) {
+                newText = BINARY_FILE_MARKER;
+            } else {
+                newText = getRefContent(newRef, newFile);
+            }
+
+            result.add(new FileDiff(oldFile, newFile, oldText, newText, isBinary));
         }
         return result;
     }

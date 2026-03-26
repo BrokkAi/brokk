@@ -44,7 +44,7 @@ class ReviewAgentTest {
     void testFindFileDiff() {
         ProjectFile oldFile = new ProjectFile(tempDir, "old_path.java");
         ProjectFile newFile = new ProjectFile(tempDir, "new_path.java");
-        var diff = new FileDiff(oldFile, newFile, "old", "new");
+        var diff = new FileDiff(oldFile, newFile, "old", "new", false);
         var diffs = List.of(diff);
 
         assertEquals(diff, ReviewAgent.findFileDiff("old_path.java", diffs));
@@ -128,8 +128,8 @@ class ReviewAgentTest {
 
         ProjectFile f1 = new ProjectFile(tempDir, "file1.java");
         ProjectFile f2 = new ProjectFile(tempDir, "file2.java");
-        var d1 = new FileDiff(f1, f1, "content1", "content1");
-        var d2 = new FileDiff(f2, f2, "content2", "content2");
+        var d1 = new FileDiff(f1, f1, "content1", "content1", false);
+        var d2 = new FileDiff(f2, f2, "content2", "content2", false);
 
         var changes = new DiffService.CumulativeChanges(2, 0, 0, List.of(d1, d2), List.of());
         ReviewAgent agent = new ReviewAgent(changes, List.of(), cm);
@@ -223,7 +223,7 @@ class ReviewAgentTest {
         IContextManager cm = new TestContextManager(project);
 
         ProjectFile f1 = new ProjectFile(tempDir, "file1.java");
-        var d1 = new FileDiff(f1, f1, "content1", "content1");
+        var d1 = new FileDiff(f1, f1, "content1", "content1", false);
 
         var changes = new DiffService.CumulativeChanges(1, 0, 0, List.of(d1), List.of());
         ReviewAgent agent = new ReviewAgent(changes, List.of(), cm);
@@ -254,7 +254,7 @@ class ReviewAgentTest {
         IContextManager cm = new TestContextManager(project);
 
         ProjectFile f = new ProjectFile(tempDir, "file.java");
-        var diff = new FileDiff(f, f, "line1\nline2\nline3\nline4", "line1\nline2-new\nline3\nline4");
+        var diff = new FileDiff(f, f, "line1\nline2\nline3\nline4", "line1\nline2-new\nline3\nline4", false);
         var changes = new DiffService.CumulativeChanges(1, 1, 1, List.of(diff), List.of());
         ReviewAgent agent = new ReviewAgent(changes, List.of(), cm);
 
@@ -321,8 +321,8 @@ class ReviewAgentTest {
 
         ProjectFile f1 = new ProjectFile(tempDir, "good.java");
         ProjectFile f2 = new ProjectFile(tempDir, "fixed.java");
-        var d1 = new FileDiff(f1, f1, "public class Good {}", "public class Good {}");
-        var d2 = new FileDiff(f2, f2, "public class Fixed {}", "public class Fixed {}");
+        var d1 = new FileDiff(f1, f1, "public class Good {}", "public class Good {}", false);
+        var d2 = new FileDiff(f2, f2, "public class Fixed {}", "public class Fixed {}", false);
 
         var changes = new DiffService.CumulativeChanges(2, 0, 0, List.of(d1, d2), List.of());
         ReviewAgent agent = new ReviewAgent(changes, List.of(), cm);
@@ -373,8 +373,8 @@ class ReviewAgentTest {
 
         ProjectFile f1 = new ProjectFile(tempDir, "file1.java");
         ProjectFile f2 = new ProjectFile(tempDir, "file2.java");
-        var d1 = new FileDiff(f1, f1, "content1", "content1");
-        var d2 = new FileDiff(f2, f2, "content2", "content2");
+        var d1 = new FileDiff(f1, f1, "content1", "content1", false);
+        var d2 = new FileDiff(f2, f2, "content2", "content2", false);
 
         var changes = new DiffService.CumulativeChanges(2, 0, 0, List.of(d1, d2), List.of());
         ReviewAgent agent = new ReviewAgent(changes, List.of(), cm);
@@ -432,7 +432,7 @@ class ReviewAgentTest {
         IContextManager cm = new TestContextManager(project);
 
         ProjectFile f = new ProjectFile(tempDir, "file.java");
-        var diff = new FileDiff(f, f, "line1\nline2", "line1\nline2");
+        var diff = new FileDiff(f, f, "line1\nline2", "line1\nline2", false);
         var changes = new DiffService.CumulativeChanges(1, 0, 0, List.of(diff), List.of());
         ReviewAgent agent = new ReviewAgent(changes, List.of(), cm);
 
@@ -466,7 +466,7 @@ class ReviewAgentTest {
         IContextManager cm = new TestContextManager(project);
 
         ProjectFile f = new ProjectFile(tempDir, "file.java");
-        var diff = new FileDiff(f, f, "line1\nline2\nline3", "line1\nline2\nline3");
+        var diff = new FileDiff(f, f, "line1\nline2\nline3", "line1\nline2\nline3", false);
         var changes = new DiffService.CumulativeChanges(1, 0, 0, List.of(diff), List.of());
         ReviewAgent agent = new ReviewAgent(changes, List.of(), cm);
 
@@ -512,8 +512,8 @@ class ReviewAgentTest {
 
         ProjectFile f1 = new ProjectFile(tempDir, "file1.java");
         ProjectFile f2 = new ProjectFile(tempDir, "file2.java");
-        var d1 = new FileDiff(f1, f1, "content1", "content1");
-        var d2 = new FileDiff(f2, f2, "content2", "content2");
+        var d1 = new FileDiff(f1, f1, "content1", "content1", false);
+        var d2 = new FileDiff(f2, f2, "content2", "content2", false);
 
         var changes = new DiffService.CumulativeChanges(2, 0, 0, List.of(d1, d2), List.of());
         ReviewAgent agent = new ReviewAgent(changes, List.of(), cm);

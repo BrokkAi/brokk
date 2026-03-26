@@ -1,13 +1,21 @@
 package ai.brokk.testutil;
 
+import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.GitRepo;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.HashMap;
+import java.util.Map;
 import org.eclipse.jgit.api.errors.GitAPIException;
 
 public class TestGitRepo extends GitRepo {
     private final Path nextWorktreePath;
+    private final Map<String, ProjectFile> fileMap = new HashMap<>();
+
+    public TestGitRepo(Path projectRoot) throws IOException {
+        this(projectRoot, projectRoot.resolve("next-worktree"));
+    }
 
     public TestGitRepo(Path projectRoot, Path nextWorktreePath) throws IOException {
         super(projectRoot);
