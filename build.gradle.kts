@@ -141,7 +141,7 @@ tasks.register("downloadTreeSitterNg") {
     description = "Downloads and extracts tree-sitter-ng native libraries"
     group = "build setup"
 
-    val version = libs.versions.treesitter
+    val version = libs.versions.treesitter.get()
     val downloadUrl = "https://github.com/BrokkAi/tree-sitter-ng/releases/download/v$version/tree-sitter-ng-jar.zip"
     val cacheDir = file(".gradle/tree-sitter-ng/v$version")
     val zipFile = file(".gradle/tree-sitter-ng/tree-sitter-ng.zip")
