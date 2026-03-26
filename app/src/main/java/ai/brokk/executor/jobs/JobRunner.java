@@ -35,7 +35,6 @@ import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.openai.OpenAiChatRequestParameters;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -535,18 +534,22 @@ public final class JobRunner {
                                         try (var scope = cm.beginTaskUngrouped(liteGoal)) {
                                             // Phase 1: ContextAgent scan
                                             var context = runContextAgentScan(
-                                                    initialContext, spec, liteGoal,
-                                                    requireNonNull(architectCodeModel));
+                                                    initialContext, spec, liteGoal, requireNonNull(architectCodeModel));
                                             scope.publish(context);
 
                                             // Phase 2: ArchitectAgent with all builds deferred
                                             var architectAgent = new ArchitectAgent(
                                                     cm,
-                                                    requireNonNull(architectPlannerModel,
+                                                    requireNonNull(
+                                                            architectPlannerModel,
                                                             "plannerModel required for LITE_AGENT jobs"),
-                                                    requireNonNull(architectCodeModel,
+                                                    requireNonNull(
+                                                            architectCodeModel,
                                                             "code model unavailable for LITE_AGENT jobs"),
-                                                    liteGoal, scope, context, compressedHistory);
+                                                    liteGoal,
+                                                    scope,
+                                                    context,
+                                                    compressedHistory);
                                             architectAgent.setAlwaysDeferBuild(true);
                                             var result = architectAgent.executeWithScan();
                                             scope.append(result);
@@ -562,18 +565,25 @@ public final class JobRunner {
                                         try (var scope = cm.beginTaskUngrouped(spec.taskInput())) {
                                             // Phase 1: ContextAgent scan
                                             var context = runContextAgentScan(
-                                                    initialContext, spec, spec.taskInput(),
+                                                    initialContext,
+                                                    spec,
+                                                    spec.taskInput(),
                                                     requireNonNull(architectCodeModel));
                                             scope.publish(context);
 
                                             // Phase 2: ArchitectAgent with plan-only instruction
                                             var architectAgent = new ArchitectAgent(
                                                     cm,
-                                                    requireNonNull(architectPlannerModel,
+                                                    requireNonNull(
+                                                            architectPlannerModel,
                                                             "plannerModel required for LITE_PLAN jobs"),
-                                                    requireNonNull(architectCodeModel,
+                                                    requireNonNull(
+                                                            architectCodeModel,
                                                             "code model unavailable for LITE_PLAN jobs"),
-                                                    planGoal, scope, context, compressedHistory);
+                                                    planGoal,
+                                                    scope,
+                                                    context,
+                                                    compressedHistory);
                                             architectAgent.setAlwaysDeferBuild(true);
                                             var result = architectAgent.executeWithScan();
                                             scope.append(result);
