@@ -341,13 +341,10 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
                     expression = valueClause.getChildByFieldName("value");
                     if (expression == null) {
                         // Fallback: first named child in the clause that isn't the '=' operator
-                        for (int i = 0; i < valueClause.getChildCount(); i++) {
-                            TSNode child = valueClause.getChild(i);
-                            if (child != null && child.isNamed() && !"=".equals(child.getType())) {
-                                expression = child;
-                                break;
-                            }
-                        }
+                        expression = valueClause.getChildren().stream()
+                                .filter(child -> child.isNamed() && !"=".equals(child.getType()))
+                                .findFirst()
+                                .orElse(null);
                     }
                 }
 

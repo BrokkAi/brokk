@@ -339,7 +339,7 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
     @Override
     protected SkeletonType refineSkeletonType(
             String captureName, TSNode definitionNode, LanguageSyntaxProfile profile) {
-        if (CaptureNames.TYPE_DEFINITION.equals(captureName) && definitionNode != null) {
+        if (CaptureNames.TYPE_DEFINITION.equals(captureName)) {
             if (TYPE_ALIAS.equals(definitionNode.getType())) {
                 return SkeletonType.FIELD_LIKE;
             }
@@ -482,7 +482,9 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
             // Count identifiers to detect tuples/multi-assignments
             int identifierCount = 0;
             for (int i = 0; i < nameList.getNamedChildCount(); i++) {
-                if ("identifier".equals(nameList.getNamedChild(i).getType())) {
+                var namedChild = nameList.getNamedChild(i);
+                if (namedChild == null) continue;
+                if ("identifier".equals(namedChild.getType())) {
                     identifierCount++;
                 }
             }
@@ -835,7 +837,7 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
     @Override
     public Set<String> extractTypeIdentifiers(String source) {
         try (TSTree tree = getTSParser().parseString(null, source)) {
-            if (tree == null || tree.getRootNode() == null) {
+            if (tree == null) {
                 return Collections.emptySet();
             }
 
@@ -1036,13 +1038,15 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
 
                             for (int i = 0; i < paramsNode.getNamedChildCount(); i++) {
                                 TSNode child = paramsNode.getNamedChild(i);
+                                if (child == null) continue;
                                 if (PARAMETER_DECLARATION.equals(child.getType())) {
                                     if (firstParamDecl == null) {
                                         firstParamDecl = child;
                                     }
                                     for (int j = 0; j < child.getNamedChildCount(); j++) {
-                                        if ("identifier"
-                                                .equals(child.getNamedChild(j).getType())) {
+                                        var n = child.getNamedChild(j);
+                                        if (n == null) continue;
+                                        if ("identifier".equals(n.getType())) {
                                             totalIdentifierCount++;
                                         }
                                     }
@@ -1058,6 +1062,7 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
                             if (typeNode == null) {
                                 for (int i = 0; i < firstParamDecl.getNamedChildCount(); i++) {
                                     TSNode child = firstParamDecl.getNamedChild(i);
+                                    if (child == null) continue;
                                     String type = child.getType();
                                     if (POINTER_TYPE.equals(type)
                                             || QUALIFIED_TYPE.equals(type)

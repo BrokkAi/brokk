@@ -1158,10 +1158,7 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
     @Override
     public Set<String> extractTypeIdentifiers(String source) {
         Set<String> identifiers = new HashSet<>();
-        try (TSTree tree = getTSParser().parseString(null, source)) {
-            if (tree == null || tree.getRootNode() == null) {
-                return identifiers;
-            }
+        try (TSTree tree = getTSParser().parseStringOrThrow(null, source)) {
             SourceContent sourceContent = SourceContent.of(source);
             TSNode rootNode = tree.getRootNode();
 

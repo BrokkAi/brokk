@@ -92,26 +92,15 @@ dependencyAnalysis {
     }
 }
 
+val treeSitterNgVersion = libs.versions.treesitter.get()
+
 allprojects {
     group = "ai.brokk"
     version = getVersionFromGit()
 
     repositories {
-        val treeSitterNgVersion = "0.2.0"
         flatDir {
-            dirs(
-                rootProject.file(".gradle/tree-sitter-ng/v$treeSitterNgVersion/tree-sitter"),
-                rootProject.file(".gradle/tree-sitter-ng/v$treeSitterNgVersion/tree-sitter-java"),
-                rootProject.file(".gradle/tree-sitter-ng/v$treeSitterNgVersion/tree-sitter-python"),
-                rootProject.file(".gradle/tree-sitter-ng/v$treeSitterNgVersion/tree-sitter-cpp"),
-                rootProject.file(".gradle/tree-sitter-ng/v$treeSitterNgVersion/tree-sitter-c-sharp"),
-                rootProject.file(".gradle/tree-sitter-ng/v$treeSitterNgVersion/tree-sitter-go"),
-                rootProject.file(".gradle/tree-sitter-ng/v$treeSitterNgVersion/tree-sitter-javascript"),
-                rootProject.file(".gradle/tree-sitter-ng/v$treeSitterNgVersion/tree-sitter-rust"),
-                rootProject.file(".gradle/tree-sitter-ng/v$treeSitterNgVersion/tree-sitter-tsx"),
-                rootProject.file(".gradle/tree-sitter-ng/v$treeSitterNgVersion/tree-sitter-php"),
-                rootProject.file(".gradle/tree-sitter-ng/v$treeSitterNgVersion/tree-sitter-scala")
-            )
+            dirs(rootProject.layout.projectDirectory.dir(".gradle/tree-sitter-ng/v$treeSitterNgVersion/jars"))
         }
         mavenCentral()
         google()
@@ -141,10 +130,10 @@ tasks.register("downloadTreeSitterNg") {
     description = "Downloads and extracts tree-sitter-ng native libraries"
     group = "build setup"
 
-    val version = libs.versions.treesitter.get()
+    val version = treeSitterNgVersion
     val downloadUrl = "https://github.com/BrokkAi/tree-sitter-ng/releases/download/v$version/tree-sitter-ng-jar.zip"
     val cacheDir = file(".gradle/tree-sitter-ng/v$version")
-    val zipFile = file(".gradle/tree-sitter-ng/tree-sitter-ng.zip")
+    val zipFile = file(".gradle/tree-sitter-ng/tree-sitter-ng-$version.zip")
 
     inputs.property("version", version)
     outputs.dir(cacheDir)
@@ -165,22 +154,17 @@ tasks.register("downloadTreeSitterNg") {
         }
 
         logger.lifecycle("Extracting TreeSitter NG modules to ${cacheDir.absolutePath}...")
+        val jarsDir = cacheDir.resolve("jars")
+        jarsDir.mkdirs()
+
         copy {
             from(zipTree(zipFile))
-            into(cacheDir)
-            // Only keep required modules/directories
-            include("tree-sitter/**")
-            include("tree-sitter-java/**")
-            include("tree-sitter-python/**")
-            include("tree-sitter-cpp/**")
-            include("tree-sitter-c-sharp/**")
-            include("tree-sitter-go/**")
-            include("tree-sitter-javascript/**")
-            include("tree-sitter-rust/**")
-            include("tree-sitter-tsx/**")
-            include("tree-sitter-php/**")
-            include("tree-sitter-scala/**")
-
+            into(jarsDir)
+            include("**/*.jar")
+            // Flatten the directory structure so all JARs are in the root of 'jarsDir'
+            eachFile {
+                path = name
+            }
             includeEmptyDirs = false
         }
     }

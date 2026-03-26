@@ -892,7 +892,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
      */
     @Override
     public Set<String> extractTypeIdentifiers(String source) {
-        try (TSTree tree = getTSParser().parseString(null, source)) {
+        try (TSTree tree = getTSParser().parseStringOrThrow(null, source)) {
             TSNode root = tree.getRootNode();
             return performIdentifierExtraction(root, source);
         } catch (Exception e) {
@@ -1124,7 +1124,6 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
                 file,
                 tree -> {
                     TSNode root = tree.getRootNode();
-                    if (root == null) return Optional.empty();
 
                     TSNode node = root.getDescendantForByteRange(startByte, endByte);
                     if (node == null) return Optional.empty();
@@ -1383,7 +1382,8 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
     }
 
     @Override
-    protected boolean isConstructor(CodeUnit candidate, @Nullable CodeUnit enclosingClass, String captureName) {
+    protected boolean isConstructor(
+            CodeUnit candidate, @Nullable CodeUnit enclosingClass, @Nullable String captureName) {
         return CaptureNames.CONSTRUCTOR_DEFINITION.equals(captureName);
     }
 

@@ -565,7 +565,7 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
         TSParser parser = getTSParser();
         try {
             SourceContent sourceContent = SourceContent.of(importStatement);
-            TSTree tree = parser.parseString(null, importStatement);
+            TSTree tree = parser.parseStringOrThrow(null, importStatement);
             TSNode rootNode = tree.getRootNode();
 
             String queryStr =
