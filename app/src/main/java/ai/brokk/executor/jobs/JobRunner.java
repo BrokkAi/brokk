@@ -28,6 +28,7 @@ import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.openai.OpenAiChatRequestParameters;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -240,14 +241,16 @@ public final class JobRunner {
         PLAN,
         ISSUE,
         ISSUE_DIAGNOSE,
-        ISSUE_WRITER
+        ISSUE_WRITER,
+        LITE_AGENT,
+        LITE_PLAN
     }
 
     static SearchPrompts.Objective objectiveForMode(Mode mode) {
         return switch (mode) {
             case ASK, SEARCH, REVIEW, GUIDED_REVIEW -> SearchPrompts.Objective.ANSWER_ONLY;
             case LUTZ -> SearchPrompts.Objective.LUTZ;
-            case PLAN, ARCHITECT, CODE, ISSUE, ISSUE_DIAGNOSE, ISSUE_WRITER -> SearchPrompts.Objective.TASKS_ONLY;
+            case PLAN, ARCHITECT, CODE, ISSUE, ISSUE_DIAGNOSE, ISSUE_WRITER, LITE_AGENT, LITE_PLAN -> SearchPrompts.Objective.TASKS_ONLY;
         };
     }
 
@@ -360,11 +363,13 @@ public final class JobRunner {
                 var hasCodeModelOverride = trimmedCodeModelName != null;
 
                 final StreamingChatModel architectPlannerModel =
-                        (mode == Mode.ARCHITECT || mode == Mode.LUTZ || mode == Mode.PLAN || mode == Mode.ISSUE)
+                        (mode == Mode.ARCHITECT || mode == Mode.LUTZ || mode == Mode.PLAN || mode == Mode.ISSUE
+                                || mode == Mode.LITE_AGENT || mode == Mode.LITE_PLAN)
                                 ? resolveModelOrThrow(spec.plannerModel(), spec.reasoningLevel(), spec.temperature())
                                 : null;
                 final StreamingChatModel architectCodeModel =
-                        (mode == Mode.ARCHITECT || mode == Mode.LUTZ || mode == Mode.ISSUE)
+                        (mode == Mode.ARCHITECT || mode == Mode.LUTZ || mode == Mode.ISSUE
+                                || mode == Mode.LITE_AGENT || mode == Mode.LITE_PLAN)
                                 ? (trimmedCodeModelName != null
                                         ? resolveModelOrThrow(
                                                 trimmedCodeModelName, spec.reasoningLevelCode(), spec.temperatureCode())
@@ -406,7 +411,7 @@ public final class JobRunner {
 
                 String plannerModelNameForLog =
                         switch (mode) {
-                            case ARCHITECT, LUTZ, PLAN, ISSUE -> service.nameOf(requireNonNull(architectPlannerModel));
+                            case ARCHITECT, LUTZ, PLAN, ISSUE, LITE_AGENT, LITE_PLAN -> service.nameOf(requireNonNull(architectPlannerModel));
                             case ASK -> service.nameOf(requireNonNull(askPlannerModel));
                             case SEARCH -> service.nameOf(requireNonNull(searchPlannerModel));
                             case CODE -> {
@@ -419,7 +424,7 @@ public final class JobRunner {
                         };
                 String codeModelNameForLog =
                         switch (mode) {
-                            case ARCHITECT, LUTZ, ISSUE -> service.nameOf(requireNonNull(architectCodeModel));
+                            case ARCHITECT, LUTZ, ISSUE, LITE_AGENT, LITE_PLAN -> service.nameOf(requireNonNull(architectCodeModel));
                             case ASK -> "(default, ignored for ASK)";
                             case SEARCH -> "(default, ignored for SEARCH)";
                             case PLAN -> "(default, ignored for PLAN)";
@@ -430,7 +435,7 @@ public final class JobRunner {
                         };
                 boolean usesDefaultCodeModel =
                         switch (mode) {
-                            case ARCHITECT, LUTZ, ISSUE -> !hasCodeModelOverride;
+                            case ARCHITECT, LUTZ, ISSUE, LITE_AGENT, LITE_PLAN -> !hasCodeModelOverride;
                             case ASK, SEARCH, PLAN, REVIEW, GUIDED_REVIEW -> true;
                             case CODE -> !hasCodeModelOverride;
                             case ISSUE_DIAGNOSE, ISSUE_WRITER -> true;
@@ -503,6 +508,51 @@ public final class JobRunner {
                                                 requireNonNull(codeModeModel, "code model unavailable for CODE jobs"));
                                         try (var scope = cm.beginTaskUngrouped(spec.taskInput())) {
                                             var result = agent.execute(spec.taskInput(), Set.of());
+                                            scope.append(result);
+                                        }
+                                    }
+                                    case LITE_AGENT -> {
+                                        try (var scope = cm.beginTaskUngrouped(spec.taskInput())) {
+                                            // Phase 1: Scan (resolve references and add context)
+                                            var context = cm.liveContext();
+                                            var setupResult = LutzAgent.setupContext(context, spec.taskInput(), false);
+                                            if (!setupResult.newFragments().isEmpty()) {
+                                                scope.publish(setupResult.context());
+                                            }
+
+                                            // Phase 2: CodeAgent with DEFER_BUILD (no build step)
+                                            var agent = new CodeAgent(
+                                                    cm,
+                                                    requireNonNull(
+                                                            architectCodeModel,
+                                                            "code model unavailable for LITE_AGENT jobs"));
+                                            var result = agent.execute(
+                                                    spec.taskInput(),
+                                                    EnumSet.of(CodeAgent.Option.DEFER_BUILD));
+                                            scope.append(result);
+                                        }
+                                    }
+                                    case LITE_PLAN -> {
+                                        try (var scope = cm.beginTaskUngrouped(spec.taskInput())) {
+                                            // Phase 1: Scan (resolve references and add context)
+                                            var context = cm.liveContext();
+                                            var setupResult = LutzAgent.setupContext(context, spec.taskInput(), false);
+                                            if (!setupResult.newFragments().isEmpty()) {
+                                                scope.publish(setupResult.context());
+                                            }
+
+                                            // Phase 2: CodeAgent with DEFER_BUILD + plan-only instruction
+                                            var planPrompt = spec.taskInput() + "\n\n"
+                                                    + "[IMPORTANT: Write no code. Do not make any file changes. "
+                                                    + "Only produce a detailed implementation plan.]";
+                                            var agent = new CodeAgent(
+                                                    cm,
+                                                    requireNonNull(
+                                                            architectCodeModel,
+                                                            "code model unavailable for LITE_PLAN jobs"));
+                                            var result = agent.execute(
+                                                    planPrompt,
+                                                    EnumSet.of(CodeAgent.Option.DEFER_BUILD));
                                             scope.append(result);
                                         }
                                     }
