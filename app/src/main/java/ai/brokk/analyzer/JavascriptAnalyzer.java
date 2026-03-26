@@ -159,9 +159,8 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
             String nodeType = nodeForContent.getType();
             if ("lexical_declaration".equals(nodeType) || "variable_declaration".equals(nodeType)) {
                 // Find the variable_declarator child that matches the simpleName
-                for (int i = 0; i < nodeForContent.getChildCount(); i++) {
-                    TSNode child = nodeForContent.getChild(i);
-                    if (child != null && "variable_declarator".equals(child.getType())) {
+                for (TSNode child : nodeForContent.getChildren()) {
+                    if ("variable_declarator".equals(child.getType())) {
                         TSNode nameNode = child.getChildByFieldName(
                                 getLanguageSyntaxProfile().identifierFieldName());
                         if (nameNode != null

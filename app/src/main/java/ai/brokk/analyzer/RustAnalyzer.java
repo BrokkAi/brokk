@@ -245,12 +245,14 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
     protected String getVisibilityPrefix(TSNode node, SourceContent sourceContent) {
         // A common pattern for Rust grammar is that visibility_modifier is a direct child.
         // We check the first few children as its position can vary slightly (e.g. after attributes).
-        for (int i = 0; i < node.getChildCount(); i++) {
-            TSNode child = node.getChild(i);
-            if (child != null && VISIBILITY_MODIFIER.equals(child.getType())) {
+        int i = 0;
+        for (TSNode child : node.getChildren()) {
+            if (VISIBILITY_MODIFIER.equals(child.getType())) {
                 String text = sourceContent.substringFrom(child).strip();
                 return text + " ";
             }
+            if (i > 5) break;
+            i++;
         }
         return "";
     }

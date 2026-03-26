@@ -177,21 +177,21 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
             }
         }
         // Fallback to manual scan if query fails or no match, though query is preferred
-        for (int i = 0; i < rootNode.getChildCount(); i++) {
-            TSNode current = rootNode.getChild(i);
-            if (current != null && NAMESPACE_DEFINITION.equals(current.getType())) {
+        int i = 0;
+        for (TSNode current : rootNode.getChildren()) {
+            if (NAMESPACE_DEFINITION.equals(current.getType())) {
                 TSNode nameNode = current.getChildByFieldName("name");
                 if (nameNode != null) {
                     return sourceContent.substringFrom(nameNode).replace('\\', '.');
                 }
             }
-            if (current != null
-                    && !PHP_TAG.equals(current.getType())
+            if (!PHP_TAG.equals(current.getType())
                     && !NAMESPACE_DEFINITION.equals(current.getType())
                     && !DECLARE_STATEMENT.equals(current.getType())
                     && i > 5) {
                 break; // Stop searching after a few top-level elements
             }
+            i++;
         }
         return ""; // No namespace found
     }
@@ -226,9 +226,7 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
 
     private String extractModifiers(TSNode methodNode, SourceContent sourceContent) {
         StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < methodNode.getChildCount(); i++) {
-            TSNode child = methodNode.getChild(i);
-            if (child == null) continue;
+        for (TSNode child : methodNode.getChildren()) {
             String type = child.getType();
 
             if (PHP_SYNTAX_PROFILE.decoratorNodeTypes().contains(type)) { // This is an attribute
@@ -267,8 +265,7 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
 
         TSNode elementNode = null;
         if (isProperty) {
-            for (int i = 0; i < fieldNode.getNamedChildCount(); i++) {
-                TSNode child = fieldNode.getNamedChild(i);
+            for (TSNode child : fieldNode.getNamedChildren()) {
                 if (PROPERTY_ELEMENT.equals(child.getType())) {
                     TSNode nameNode = findNameNodeRecursive(child);
                     if (nameNode != null) {
@@ -282,8 +279,7 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
                 }
             }
         } else {
-            for (int i = 0; i < fieldNode.getNamedChildCount(); i++) {
-                TSNode child = fieldNode.getNamedChild(i);
+            for (TSNode child : fieldNode.getNamedChildren()) {
                 if (CONST_ELEMENT.equals(child.getType())) {
                     TSNode nameNode = findNameNodeRecursive(child);
                     if (nameNode != null) {
@@ -366,8 +362,8 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
     private @Nullable TSNode findNameNodeRecursive(@Nullable TSNode node) {
         if (node == null) return null;
         if (NAME.equals(node.getType())) return node;
-        for (int i = 0; i < node.getNamedChildCount(); i++) {
-            TSNode found = findNameNodeRecursive(node.getNamedChild(i));
+        for (TSNode child : node.getNamedChildren()) {
+            TSNode found = findNameNodeRecursive(child);
             if (found != null) return found;
         }
         return null;
@@ -420,10 +416,8 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
         String ampersand = "";
         TSNode referenceModifierNode = null;
         // Iterate children to find reference_modifier, as its position can vary slightly.
-        for (int i = 0; i < funcNode.getChildCount(); i++) {
-            TSNode child = funcNode.getChild(i);
-            // Check for Java null before calling getType or other methods on child
-            if (child != null && REFERENCE_MODIFIER.equals(child.getType())) {
+        for (TSNode child : funcNode.getChildren()) {
+            if (REFERENCE_MODIFIER.equals(child.getType())) {
                 referenceModifierNode = child;
                 break;
             }

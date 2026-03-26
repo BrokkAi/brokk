@@ -586,17 +586,17 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
         }
 
         // Look for modifier keywords in the first few children (needed for class/interface members)
-        for (int i = 0; i < Math.min(nodeToCheck.getChildCount(), 6); i++) {
-            TSNode child = nodeToCheck.getChild(i);
-            if (child != null) {
-                String childText = sourceContent.substringFrom(child).strip();
-                if (Set.of("abstract", "static", "readonly", "async", "const", "let", "var")
-                        .contains(childText)) {
-                    modifiers.append(childText).append(" ");
-                } else if ("accessibility_modifier".equals(child.getType())) {
-                    modifiers.append(childText).append(" ");
-                }
+        int i = 0;
+        for (TSNode child : nodeToCheck.getChildren()) {
+            String childText = sourceContent.substringFrom(child).strip();
+            if (Set.of("abstract", "static", "readonly", "async", "const", "let", "var")
+                    .contains(childText)) {
+                modifiers.append(childText).append(" ");
+            } else if ("accessibility_modifier".equals(child.getType())) {
+                modifiers.append(childText).append(" ");
             }
+            if (i >= 5) break;
+            i++;
         }
 
         return modifiers.toString();
@@ -627,8 +627,7 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
             String nodeType = nodeForContent.getType();
             if ("lexical_declaration".equals(nodeType) || "variable_declaration".equals(nodeType)) {
                 // Find the variable_declarator child that matches the simpleName
-                for (int i = 0; i < nodeForContent.getChildCount(); i++) {
-                    TSNode child = nodeForContent.getChild(i);
+                for (TSNode child : nodeForContent.getChildren()) {
                     if ("variable_declarator".equals(child.getType())) {
                         TSNode nameNode = child.getChildByFieldName(
                                 getLanguageSyntaxProfile().identifierFieldName());

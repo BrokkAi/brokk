@@ -445,17 +445,14 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
 
         if (VAR_DECLARATION.equals(fieldNodeType) || CONST_DECLARATION.equals(fieldNodeType)) {
             // Find the correct spec node containing this identifier
-            for (int i = 0; i < fieldNode.getChildCount(); i++) {
-                TSNode child = fieldNode.getChild(i);
-                if (child != null && (VAR_SPEC.equals(child.getType()) || CONST_SPEC.equals(child.getType()))) {
+            for (TSNode child : fieldNode.getChildren()) {
+                if (VAR_SPEC.equals(child.getType()) || CONST_SPEC.equals(child.getType())) {
                     TSNode childNameList = child.getChildByFieldName("name");
                     if (childNameList == null) {
                         childNameList = child;
                     }
-                    for (int j = 0; j < childNameList.getNamedChildCount(); j++) {
-                        TSNode nameNode = childNameList.getNamedChild(j);
-                        if (nameNode != null
-                                && "identifier".equals(nameNode.getType())
+                    for (TSNode nameNode : childNameList.getNamedChildren()) {
+                        if ("identifier".equals(nameNode.getType())
                                 && identifier.equals(
                                         sourceContent.substringFrom(nameNode).trim())) {
                             specNode = child;
@@ -481,9 +478,7 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
 
             // Count identifiers to detect tuples/multi-assignments
             int identifierCount = 0;
-            for (int i = 0; i < nameList.getNamedChildCount(); i++) {
-                var namedChild = nameList.getNamedChild(i);
-                if (namedChild == null) continue;
+            for (TSNode namedChild : nameList.getNamedChildren()) {
                 if ("identifier".equals(namedChild.getType())) {
                     identifierCount++;
                 }
@@ -1036,16 +1031,12 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
                             int totalIdentifierCount = 0;
                             TSNode firstParamDecl = null;
 
-                            for (int i = 0; i < paramsNode.getNamedChildCount(); i++) {
-                                TSNode child = paramsNode.getNamedChild(i);
-                                if (child == null) continue;
+                            for (TSNode child : paramsNode.getNamedChildren()) {
                                 if (PARAMETER_DECLARATION.equals(child.getType())) {
                                     if (firstParamDecl == null) {
                                         firstParamDecl = child;
                                     }
-                                    for (int j = 0; j < child.getNamedChildCount(); j++) {
-                                        var n = child.getNamedChild(j);
-                                        if (n == null) continue;
+                                    for (TSNode n : child.getNamedChildren()) {
                                         if ("identifier".equals(n.getType())) {
                                             totalIdentifierCount++;
                                         }
@@ -1060,9 +1051,7 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
                             TSNode typeNode = firstParamDecl.getChildByFieldName(FIELD_TYPE);
                             // Fallback for types without field name (depending on TS version/grammar)
                             if (typeNode == null) {
-                                for (int i = 0; i < firstParamDecl.getNamedChildCount(); i++) {
-                                    TSNode child = firstParamDecl.getNamedChild(i);
-                                    if (child == null) continue;
+                                for (TSNode child : firstParamDecl.getNamedChildren()) {
                                     String type = child.getType();
                                     if (POINTER_TYPE.equals(type)
                                             || QUALIFIED_TYPE.equals(type)

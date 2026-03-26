@@ -170,9 +170,8 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer implements JvmBasedAnalyze
             String indent) {
         var paramSb = new StringBuilder();
         for (int i = 0; i < funcNode.getChildCount(); i++) {
-            var nodeKind = funcNode.getFieldNameForChild(i);
             var child = funcNode.getChild(i);
-            if ("parameters".equals(nodeKind)) {
+            if (child != null && "parameters".equals(funcNode.getFieldNameForChild(i))) {
                 paramSb.append(sourceContent.substringFrom(child));
             }
         }

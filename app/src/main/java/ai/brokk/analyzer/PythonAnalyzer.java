@@ -286,9 +286,8 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
         // Skip property setters to avoid duplicates with property getters
         if (CaptureNames.FUNCTION_DEFINITION.equals(captureName) && DECORATED_DEFINITION.equals(node.getType())) {
             // Check if this is a property setter by looking at decorators
-            for (int i = 0; i < node.getNamedChildCount(); i++) {
-                TSNode child = node.getNamedChild(i);
-                if (child != null && DECORATOR.equals(child.getType())) {
+            for (TSNode child : node.getNamedChildren()) {
+                if (DECORATOR.equals(child.getType())) {
                     TSNode decoratorChild = child.getNamedChild(0);
                     if (decoratorChild != null && ATTRIBUTE.equals(decoratorChild.getType())) {
                         // Get the decorator text using the inherited textSlice method
@@ -332,9 +331,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
         // Process decorators and identify the actual content node
         TSNode nodeForContent = decoratedNode;
         if (DECORATED_DEFINITION.equals(decoratedNode.getType())) {
-            for (int i = 0; i < decoratedNode.getChildCount(); i++) {
-                TSNode child = decoratedNode.getChild(i);
-                if (child == null) continue;
+            for (TSNode child : decoratedNode.getChildren()) {
                 String type = child.getType();
                 if (DECORATOR.equals(type)) {
                     outDecoratorLines.add(sourceContent.substringFrom(child).stripLeading());
@@ -441,9 +438,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
     protected ResolvedNodes resolveSignatureNodes(
             TSNode definitionNode, String simpleName, SkeletonType refined, SourceContent sourceContent) {
         if (DECORATED_DEFINITION.equals(definitionNode.getType())) {
-            for (int i = 0; i < definitionNode.getChildCount(); i++) {
-                TSNode child = definitionNode.getChild(i);
-                if (child == null) continue;
+            for (TSNode child : definitionNode.getChildren()) {
                 String type = child.getType();
                 if (CLASS_DEFINITION.equals(type) || FUNCTION_DEFINITION.equals(type)) {
                     return new ResolvedNodes(child, child);
@@ -458,9 +453,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
             String captureName, TSNode definitionNode, SourceContent sourceContent) {
         TSNode targetNode = definitionNode;
         if (DECORATED_DEFINITION.equals(definitionNode.getType())) {
-            for (int i = 0; i < definitionNode.getChildCount(); i++) {
-                TSNode child = definitionNode.getChild(i);
-                if (child == null) continue;
+            for (TSNode child : definitionNode.getChildren()) {
                 String type = child.getType();
                 if (CLASS_DEFINITION.equals(type) || FUNCTION_DEFINITION.equals(type)) {
                     targetNode = child;
@@ -735,9 +728,8 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
                     // to match the 'type.decl' capture in python.scm.
                     TSNode matchNode = classNode;
                     if (DECORATED_DEFINITION.equals(classNode.getType())) {
-                        for (int i = 0; i < classNode.getNamedChildCount(); i++) {
-                            TSNode child = classNode.getNamedChild(i);
-                            if (child != null && CLASS_DEFINITION.equals(child.getType())) {
+                        for (TSNode child : classNode.getNamedChildren()) {
+                            if (CLASS_DEFINITION.equals(child.getType())) {
                                 matchNode = child;
                                 break;
                             }
