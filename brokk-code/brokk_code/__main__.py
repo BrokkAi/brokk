@@ -69,6 +69,42 @@ def _resolve_neovim_plugin(*, plugin: str | None) -> str:
     raise ValueError(f"Invalid plugin selection: '{choice}'")
 
 
+def _add_github_issue_args(
+    parser: argparse.ArgumentParser,
+    planner_model_default: str = "gemini-3-flash-preview",
+) -> None:
+    """Add common GitHub issue arguments to a parser."""
+    parser.add_argument(
+        "--github-token",
+        type=str,
+        default=Settings().get_github_token(),
+        help="GitHub API token (from brokk.properties, GITHUB_TOKEN env var, or --github-token)",
+    )
+    parser.add_argument(
+        "--repo-owner",
+        type=str,
+        help="GitHub repository owner",
+    )
+    parser.add_argument(
+        "--repo-name",
+        type=str,
+        help="GitHub repository name",
+    )
+    parser.add_argument(
+        "--planner-model",
+        type=str,
+        default=planner_model_default,
+        help=f"LLM model for planning/analysis (default: {planner_model_default})",
+    )
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        default=False,
+        help="Show full headless executor output (events/tokens) for debugging",
+    )
+
+
 def _validate_github_params(
     github_token: str | None,
     repo_owner: str | None,
@@ -691,6 +727,63 @@ def _add_common_runtime_args(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def _run_issue_command(
+    args: argparse.Namespace,
+    jar_path: Path | None,
+    command_name: str,
+    mode: str,
+    task_input: str,
+    action_label: str,
+    *,
+    include_issue_number: bool = False,
+    planner_reasoning_level: str = "disable",
+    code_model: str | None = None,
+    code_reasoning_level: str | None = None,
+    skip_verification: bool | None = None,
+    max_issue_fix_attempts: int | None = None,
+    build_settings: str | None = None,
+) -> None:
+    """Run a GitHub issue command with shared validation, checkout, and job execution."""
+    _validate_github_params(
+        args.github_token, args.repo_owner, args.repo_name, command_name
+    )
+    tags: dict[str, str] = {
+        "github_token": args.github_token,
+        "repo_owner": args.repo_owner,
+        "repo_name": args.repo_name,
+    }
+    if include_issue_number:
+        tags["issue_number"] = str(args.issue_number)
+    if build_settings:
+        tags["build_settings"] = build_settings
+
+    with _temporary_issue_repo_checkout(
+        repo_owner=args.repo_owner,
+        repo_name=args.repo_name,
+        github_token=args.github_token,
+        action_label=action_label,
+    ) as issue_workspace_path:
+        asyncio.run(
+            run_headless_job(
+                workspace_dir=issue_workspace_path,
+                task_input=task_input,
+                planner_model=args.planner_model,
+                planner_reasoning_level=planner_reasoning_level,
+                code_model=code_model,
+                code_reasoning_level=code_reasoning_level,
+                skip_verification=skip_verification,
+                max_issue_fix_attempts=max_issue_fix_attempts,
+                verbose=args.verbose,
+                mode=mode,
+                tags=tags,
+                jar_path=jar_path,
+                executor_version=args.executor_version,
+                executor_snapshot=args.executor_snapshot,
+                vendor=args.vendor,
+            )
+        )
+
+
 @contextlib.contextmanager
 def _temporary_issue_repo_checkout(
     *,
@@ -851,37 +944,19 @@ def _build_parser() -> argparse.ArgumentParser:
         type=str,
         help="Description of the issue to create",
     )
-    issue_create_parser.add_argument(
-        "--github-token",
-        type=str,
-        default=Settings().get_github_token(),
-        help="GitHub API token (from brokk.properties, GITHUB_TOKEN env var, or --github-token)",
+    _add_github_issue_args(issue_create_parser)
+
+    issue_diagnose_parser = issue_subparsers.add_parser(
+        "diagnose", help="Analyze a GitHub issue and post a diagnosis comment"
     )
-    issue_create_parser.add_argument(
-        "--repo-owner",
-        type=str,
-        help="GitHub repository owner",
+    _add_common_runtime_args(issue_diagnose_parser)
+    issue_diagnose_parser.add_argument(
+        "--issue-number",
+        type=int,
+        required=True,
+        help="The GitHub issue number to diagnose",
     )
-    issue_create_parser.add_argument(
-        "--repo-name",
-        type=str,
-        help="GitHub repository name",
-    )
-    # Default to a fast planner model for issue creation. Reasoning is disabled
-    # explicitly in the headless submit path for this command.
-    issue_create_parser.add_argument(
-        "--planner-model",
-        type=str,
-        default="gemini-3-flash-preview",
-        help="LLM model for planning (default: gemini-3-flash-preview)",
-    )
-    issue_create_parser.add_argument(
-        "-v",
-        "--verbose",
-        action="store_true",
-        default=False,
-        help="Show full headless executor output (events/tokens) for debugging",
-    )
+    _add_github_issue_args(issue_diagnose_parser)
 
     issue_solve_parser = issue_subparsers.add_parser("solve", help="Fix an existing GitHub issue")
     _add_common_runtime_args(issue_solve_parser)
@@ -891,28 +966,8 @@ def _build_parser() -> argparse.ArgumentParser:
         required=True,
         help="The GitHub issue number to solve",
     )
-    issue_solve_parser.add_argument(
-        "--github-token",
-        type=str,
-        default=Settings().get_github_token(),
-        help="GitHub API token (from brokk.properties, GITHUB_TOKEN env var, or --github-token)",
-    )
-    issue_solve_parser.add_argument(
-        "--repo-owner",
-        type=str,
-        help="GitHub repository owner",
-    )
-    issue_solve_parser.add_argument(
-        "--repo-name",
-        type=str,
-        help="GitHub repository name",
-    )
-    issue_solve_parser.add_argument(
-        "--planner-model",
-        type=str,
-        default="gpt-5.1",
-        help="LLM model for planning (default: gpt-5.1)",
-    )
+    _add_github_issue_args(issue_solve_parser, planner_model_default="gpt-5.1")
+    # Additional solve-specific arguments
     issue_solve_parser.add_argument(
         "--code-model",
         type=str,
@@ -948,13 +1003,6 @@ def _build_parser() -> argparse.ArgumentParser:
         type=str,
         default=None,
         help="JSON string of build settings overrides (matching executor expectations)",
-    )
-    issue_solve_parser.add_argument(
-        "-v",
-        "--verbose",
-        action="store_true",
-        default=False,
-        help="Show full headless executor output (events/tokens) for debugging",
     )
 
     # PR commands
@@ -2112,79 +2160,44 @@ def main():
 
     if args.command == "issue":
         if args.issue_command == "create":
-            _validate_github_params(
-                args.github_token, args.repo_owner, args.repo_name, "issue create"
-            )
-            # Handle issue create mode by launching a non-interactive job
-            tags = {
-                "github_token": args.github_token,
-                "repo_owner": args.repo_owner,
-                "repo_name": args.repo_name,
-            }
-
-            with _temporary_issue_repo_checkout(
-                repo_owner=args.repo_owner,
-                repo_name=args.repo_name,
-                github_token=args.github_token,
+            _run_issue_command(
+                args,
+                jar_path,
+                command_name="issue create",
+                mode="ISSUE_WRITER",
+                task_input=args.prompt,
                 action_label="Issue create",
-            ) as issue_workspace_path:
-                asyncio.run(
-                    run_headless_job(
-                        workspace_dir=issue_workspace_path,
-                        task_input=args.prompt,
-                        planner_model=args.planner_model,
-                        planner_reasoning_level="disable",
-                        verbose=args.verbose,
-                        mode="ISSUE_WRITER",
-                        tags=tags,
-                        jar_path=jar_path,
-                        executor_version=args.executor_version,
-                        executor_snapshot=args.executor_snapshot,
-                        vendor=args.vendor,
-                    )
-                )
+            )
+            return
+
+        if args.issue_command == "diagnose":
+            _run_issue_command(
+                args,
+                jar_path,
+                command_name="issue diagnose",
+                mode="ISSUE_DIAGNOSE",
+                task_input=f"Diagnose GitHub Issue #{args.issue_number}",
+                action_label="Issue diagnose",
+                include_issue_number=True,
+            )
             return
 
         if args.issue_command == "solve":
-            _validate_github_params(
-                args.github_token, args.repo_owner, args.repo_name, "issue solve"
-            )
-            tags = {
-                "github_token": args.github_token,
-                "repo_owner": args.repo_owner,
-                "repo_name": args.repo_name,
-                "issue_number": str(args.issue_number),
-            }
-            if args.build_settings:
-                tags["build_settings"] = args.build_settings
-
-            task_input = f"Resolve GitHub Issue #{args.issue_number}"
-
-            with _temporary_issue_repo_checkout(
-                repo_owner=args.repo_owner,
-                repo_name=args.repo_name,
-                github_token=args.github_token,
+            _run_issue_command(
+                args,
+                jar_path,
+                command_name="issue solve",
+                mode="ISSUE",
+                task_input=f"Resolve GitHub Issue #{args.issue_number}",
                 action_label="Issue solve",
-            ) as issue_workspace_path:
-                asyncio.run(
-                    run_headless_job(
-                        workspace_dir=issue_workspace_path,
-                        task_input=task_input,
-                        planner_model=args.planner_model,
-                        planner_reasoning_level=args.planner_reasoning_level,
-                        code_model=args.code_model,
-                        code_reasoning_level=args.code_reasoning_level,
-                        skip_verification=args.skip_verification,
-                        max_issue_fix_attempts=args.max_issue_fix_attempts,
-                        verbose=args.verbose,
-                        mode="ISSUE",
-                        tags=tags,
-                        jar_path=jar_path,
-                        executor_version=args.executor_version,
-                        executor_snapshot=args.executor_snapshot,
-                        vendor=args.vendor,
-                    )
-                )
+                include_issue_number=True,
+                planner_reasoning_level=args.planner_reasoning_level,
+                code_model=args.code_model,
+                code_reasoning_level=args.code_reasoning_level,
+                skip_verification=args.skip_verification,
+                max_issue_fix_attempts=args.max_issue_fix_attempts,
+                build_settings=args.build_settings,
+            )
             return
 
     if not workspace_path.exists():
