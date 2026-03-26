@@ -385,12 +385,10 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
         //   int* p = &x, q = nullptr;
         // In that style, users may expect the '*' to be rendered with the type for each declarator skeleton line.
         boolean hasPointerDeclaratorInDeclaration = false;
-        for (int i = 0; i < fieldDecl.getChildCount(); i++) {
-            if (!"declarator".equals(fieldDecl.getFieldNameForChild(i))) {
-                continue;
-            }
+        int fieldDeclChildCount = fieldDecl.getChildCount();
+        for (int i = 0; i < fieldDeclChildCount; i++) {
             TSNode child = fieldDecl.getChild(i);
-            if (child == null) {
+            if (!"declarator".equals(fieldDecl.getFieldNameForChild(i))) {
                 continue;
             }
             if (POINTER_DECLARATOR.equals(child.getType())) {
@@ -415,11 +413,8 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
         TSNode matchedIdNode = null;
         int matchedDeclaratorIndex = -1;
 
-        for (int i = 0; i < fieldDecl.getChildCount(); i++) {
+        for (int i = 0; i < fieldDeclChildCount; i++) {
             TSNode child = fieldDecl.getChild(i);
-            if (child == null) {
-                continue;
-            }
             if (!"declarator".equals(fieldDecl.getFieldNameForChild(i))) {
                 continue;
             }
@@ -444,12 +439,9 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
         }
 
         int nextDeclaratorStartByte = Integer.MAX_VALUE;
-        for (int i = matchedDeclaratorIndex + 1; i < fieldDecl.getChildCount(); i++) {
-            if (!"declarator".equals(fieldDecl.getFieldNameForChild(i))) {
-                continue;
-            }
+        for (int i = matchedDeclaratorIndex + 1; i < fieldDeclChildCount; i++) {
             TSNode next = fieldDecl.getChild(i);
-            if (next != null) {
+            if ("declarator".equals(fieldDecl.getFieldNameForChild(i))) {
                 nextDeclaratorStartByte = next.getStartByte();
                 break;
             }
@@ -459,12 +451,9 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
         // identifier/pointer_declarator), then its initializer is typically a sibling default_value node. Associate
         // the initializer based on byte offsets (between this declarator and the next declarator).
         TSNode initializerNode = null;
-        for (int i = matchedDeclaratorIndex + 1; i < fieldDecl.getChildCount(); i++) {
-            if (!"default_value".equals(fieldDecl.getFieldNameForChild(i))) {
-                continue;
-            }
+        for (int i = matchedDeclaratorIndex + 1; i < fieldDeclChildCount; i++) {
             TSNode candidate = fieldDecl.getChild(i);
-            if (candidate == null) {
+            if (!"default_value".equals(fieldDecl.getFieldNameForChild(i))) {
                 continue;
             }
             int sb = candidate.getStartByte();
@@ -911,11 +900,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
         var paramTypes = new ArrayList<String>();
 
         // Iterate named children to avoid naive comma splitting (templates contain commas)
-        int namedCount = paramsNode.getNamedChildCount();
-        for (int i = 0; i < namedCount; i++) {
-            TSNode paramNode = paramsNode.getNamedChild(i);
-            if (paramNode == null) continue;
-
+        for (TSNode paramNode : paramsNode.getNamedChildren()) {
             String raw = sourceContent.substringFrom(paramNode).strip();
             if (raw.isEmpty()) continue;
             if (raw.equals("...")) {
@@ -1000,11 +985,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
         var fieldIdentifierTypes = Set.of(FIELD_IDENTIFIER, IDENTIFIER);
         if (fieldIdentifierTypes.contains(node.getType())) return node;
 
-        for (int i = 0; i < node.getChildCount(); i++) {
-            TSNode child = node.getChild(i);
-            if (child == null) {
-                continue;
-            }
+        for (TSNode child : node.getChildren()) {
             TSNode found = findFieldIdentifier(child);
             if (found != null) return found;
         }
@@ -1022,13 +1003,10 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
         }
 
         // Recursive case: search all children depth-first
-        for (int i = 0; i < node.getChildCount(); i++) {
-            TSNode child = node.getChild(i);
-            if (child != null) {
-                TSNode result = findFunctionDeclaratorRecursive(child);
-                if (result != null) {
-                    return result;
-                }
+        for (TSNode child : node.getChildren()) {
+            TSNode result = findFunctionDeclaratorRecursive(child);
+            if (result != null) {
+                return result;
             }
         }
 
@@ -1085,10 +1063,11 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
             // For multi-declarator declarations, the "name" capture usually points to the specific identifier.
             // If we are here, we are trying to extract the name from the declaration node itself.
             // In C++, we need to check all children because there can be multiple declarators.
-            for (int i = 0; i < decl.getChildCount(); i++) {
+            int childCount = decl.getChildCount();
+            for (int i = 0; i < childCount; i++) {
                 if ("declarator".equals(decl.getFieldNameForChild(i))) {
-                    TSNode declaratorNode = decl.getChild(i);
-                    TSNode idNode = findFieldIdentifier(declaratorNode);
+                    TSNode child = decl.getChild(i);
+                    TSNode idNode = findFieldIdentifier(child);
                     if (idNode != null) {
                         String name = sourceContent.substringFrom(idNode).strip();
                         if (!name.isBlank()) {
@@ -1454,10 +1433,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
     private boolean scanForQualifier(
             @Nullable TSNode parent, int tailStart, int tailEnd, SourceContent sourceContent, String qualifier) {
         if (parent == null) return false;
-        int count = parent.getNamedChildCount();
-        for (int i = 0; i < count; i++) {
-            TSNode child = parent.getNamedChild(i);
-            if (child == null) continue;
+        for (TSNode child : parent.getNamedChildren()) {
             int sb = child.getStartByte();
             if (sb < tailStart || sb >= tailEnd) continue;
             String t = child.getType();
