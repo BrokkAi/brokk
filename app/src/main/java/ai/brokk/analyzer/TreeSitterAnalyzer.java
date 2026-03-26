@@ -2416,8 +2416,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                                         .collect(Collectors.toMap(Map.Entry::getKey, e -> new HashSet<>(e.getValue()))),
                                 Collections.unmodifiableList(localImportInfos),
                                 containsTests);
-                    } catch (Exception e) {
-                        log.warn("Parsing failed or produced null root node for {}", file);
+                    } catch (TSException | IllegalStateException | IndexOutOfBoundsException e) {
+                        log.warn("Parsing failed or produced null root node for {}", file, e);
                         long __processEnd = System.nanoTime();
                         if (timing != null) {
                             timing.processStageNanos().addAndGet(__processEnd - __processStart);
@@ -2425,6 +2425,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                             timing.processStageLastEndNanos().accumulateAndGet(__processEnd, Math::max);
                         }
                         return new FileAnalysisResult(List.of(), Map.of(), Map.of(), List.of(), false);
+                    } catch (Exception e) {
+                        log.warn("Parsing failed due to unknown reason {}", file);
+                        throw e;
                     }
                 },
                 defaultResult);
@@ -2490,14 +2493,17 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                                     if (simpleNameOpt.isPresent()
                                             && !simpleNameOpt.get().isBlank()) {
                                         String simpleName = simpleNameOpt.get();
-                                        declarationNodes.add(Map.entry(
-                                                definitionNode,
-                                                new DefinitionInfoRecord(
-                                                        captureName,
-                                                        simpleName,
-                                                        sortedModifierStrings,
-                                                        decoratorNodesForMatch,
-                                                        Objects.requireNonNull(definitionNode.getParent()))));
+                                        var parent = definitionNode.getParent();
+                                        if (parent != null) {
+                                            declarationNodes.add(Map.entry(
+                                                    definitionNode,
+                                                    new DefinitionInfoRecord(
+                                                            captureName,
+                                                            simpleName,
+                                                            sortedModifierStrings,
+                                                            decoratorNodesForMatch,
+                                                            parent)));
+                                        }
                                     }
                                 }
                             }
