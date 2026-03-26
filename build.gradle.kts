@@ -206,6 +206,9 @@ tasks.register("downloadTreeSitterNg") {
             // Flatten the directory structure so all JARs are in the root of 'jarsDir'
             eachFile {
                 path = name
+                // Normalize names: if the fork prefixed jars with 'tree-sitter-ng', 
+                // rename to 'tree-sitter' so flatDir matches them correctly.
+                path = path.replace("tree-sitter-ng", "tree-sitter")
             }
             includeEmptyDirs = false
         }
@@ -483,11 +486,17 @@ subprojects {
         options.encoding = "UTF-8"
     }
 
-    // Dependency analysis plugin tasks may resolve/scan classpaths that include the locally extracted
-    // tree-sitter-ng jars. Declare an explicit dependency to satisfy Gradle's task graph validation.
-    var tasksToDependOnTSDownload = setOf("artifactsReport", "graphView", "explode", "serviceLoader")
+    // Tasks that may resolve/scan classpaths that include the locally extracted tree-sitter-ng jars.
+    // We declare an explicit dependency to satisfy Gradle's task graph validation and prevent
+    // early resolution caching missing files before the download task populates the flatDir.
+    var tasksToDependOnTSDownload = setOf(
+        "artifactsReport", "graphView", "explode", "serviceLoader",
+        "projectHealth", "buildHealth", "generate",
+        "spotless", "check", "analyze", "test", "compile", "javadoc", "build",
+        "classes", "run", "shadowJar"
+    )
     tasks.matching {
-        tasksToDependOnTSDownload.any { taskName -> it.name.startsWith(taskName) }
+        it.name != "downloadTreeSitterNg" && tasksToDependOnTSDownload.any { taskName -> it.name.startsWith(taskName) }
     }.configureEach {
         dependsOn(":downloadTreeSitterNg")
     }
