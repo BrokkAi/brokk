@@ -379,7 +379,7 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
             return indent + signature + " " + bodyPlaceholder();
         }
 
-        if (hasBody) {
+        if (hasBody && bodyNode != null) {
             int startByte = funcNode.getStartByte();
             int endByte = bodyNode.getStartByte();
             String signature =
@@ -460,7 +460,8 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
         return "";
     }
 
-    private boolean isLiteralType(String type) {
+    private boolean isLiteralType(@Nullable String type) {
+        if (type == null) return false;
         return type.endsWith("literal")
                 || type.equals("number")
                 || type.equals("string")
@@ -506,8 +507,7 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
 
         // Special handling for enum members - add comma instead of semicolon
         String suffix = "";
-        if (fieldNode != null
-                && fieldNode.getParent() != null
+        if (fieldNode.getParent() != null
                 && "enum_body".equals(fieldNode.getParent().getType())
                 && ("property_identifier".equals(fieldNode.getType())
                         || "enum_assignment".equals(fieldNode.getType()))) {
@@ -1096,6 +1096,7 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
         try (TSTree tree = parser.parseStringOrThrow(null, importStatement)) {
             SourceContent sourceContent = SourceContent.of(importStatement);
             TSNode rootNode = tree.getRootNode();
+            if (rootNode == null) return Set.of();
 
             String queryStr =
                     """
@@ -1157,6 +1158,7 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
         try (TSTree tree = getTSParser().parseStringOrThrow(null, source)) {
             SourceContent sourceContent = SourceContent.of(source);
             TSNode rootNode = tree.getRootNode();
+            if (rootNode == null) return identifiers;
 
             try (TSQuery query = createQuery(QueryType.IDENTIFIERS)) {
                 if (query != null) {

@@ -289,7 +289,11 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
                     TSNode valueNode = declarator.getChildByFieldName("value");
                     if (valueNode != null) {
                         String valueType = valueNode.getType();
-                        if (valueType.endsWith("_literal") || TRUE.equals(valueType) || FALSE.equals(valueType) || NULL.equals(valueType)) {
+                        if (valueType != null
+                                && (valueType.endsWith("_literal")
+                                        || TRUE.equals(valueType)
+                                        || FALSE.equals(valueType)
+                                        || NULL.equals(valueType))) {
                             suffix = " = "
                                     + sourceContent.substringFrom(valueNode).strip() + ";";
                         }
@@ -349,7 +353,9 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
                 QueryType.DEFINITIONS,
                 query -> {
                     try (TSQueryCursor cursor = new TSQueryCursor()) {
-                        cursor.exec(query, tree.getRootNode(), sourceContent.text());
+                        var rootNode = tree.getRootNode();
+                        if (rootNode == null) return false;
+                        cursor.exec(query, rootNode, sourceContent.text());
 
                         TSQueryMatch match = new TSQueryMatch();
                         while (cursor.nextMatch(match)) {
@@ -743,6 +749,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
                 file,
                 tree -> {
                     TSNode root = tree.getRootNode();
+                    if (root == null) return false;
                     TSNode node = root.getDescendantForByteRange(startByte, endByte);
                     if (node == null) return true;
 
@@ -759,15 +766,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
                         String type = current.getType();
 
                         // If we hit a known reference/usage node type, it's likely a reference
-                        if (type.equals(METHOD_INVOCATION)
-                                || type.equals(FIELD_ACCESS)
-                                || type.equals(OBJECT_CREATION_EXPRESSION)
-                                || type.equals(TYPE_IDENTIFIER)
-                                || type.equals(SCOPED_TYPE_IDENTIFIER)
-                                || type.equals(MARKER_ANNOTATION)
-                                || type.equals(ANNOTATION)
-                                || type.equals(CLASS_LITERAL)
-                                || type.equals(IMPORT_DECLARATION)) {
+                        if (ACCESS_TYPES.contains(type)) {
                             break; // Continue to nearest declaration check
                         }
 
@@ -775,15 +774,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
                         TSNode parent = current.getParent();
                         if (parent != null) {
                             String pType = parent.getType();
-                            if (pType.equals(METHOD_DECLARATION)
-                                    || pType.equals(FIELD_DECLARATION)
-                                    || pType.equals(CLASS_DECLARATION)
-                                    || pType.equals(INTERFACE_DECLARATION)
-                                    || pType.equals(ENUM_DECLARATION)
-                                    || pType.equals(RECORD_DECLARATION)
-                                    || pType.equals(VARIABLE_DECLARATOR)
-                                    || pType.equals(FORMAL_PARAMETER)) {
-
+                            if (DECLARATION_TYPES.contains(pType)) {
                                 TSNode nameNode = parent.getChildByFieldName("name");
                                 if (nameNode != null && nameNode.getStartByte() == startByte) {
                                     return false;
@@ -799,14 +790,14 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
                     TSNode parent = node.getParent();
                     if (parent != null) {
                         String pType = parent.getType();
-                        if (pType.equals(FIELD_ACCESS)) {
+                        if (FIELD_ACCESS.equals(pType)) {
                             // In tree-sitter-java, field_access has a "field" child for the member name
                             TSNode fieldNode = parent.getChildByFieldName("field");
                             if (fieldNode != null && fieldNode.getStartByte() == node.getStartByte()) {
                                 return true;
                             }
                         }
-                        if (pType.equals(METHOD_INVOCATION)) {
+                        if (METHOD_INVOCATION.equals(pType)) {
                             // In tree-sitter-java, method_invocation has a "name" child for the method name
                             TSNode nameNode = parent.getChildByFieldName("name");
                             if (nameNode != null && nameNode.getStartByte() == node.getStartByte()) {
@@ -1111,7 +1102,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
                 file,
                 tree -> {
                     TSNode root = tree.getRootNode();
-
+                    if (root == null) return Optional.empty();
                     TSNode node = root.getDescendantForByteRange(startByte, endByte);
                     if (node == null) return Optional.empty();
 
@@ -1140,7 +1131,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
             String nodeType = current.getType();
 
             // Check method/constructor parameters
-            if (nodeType.equals(METHOD_DECLARATION) || nodeType.equals(CONSTRUCTOR_DECLARATION)) {
+            if (METHOD_DECLARATION.equals(nodeType) || CONSTRUCTOR_DECLARATION.equals(nodeType)) {
                 var paramResult = checkFormalParameters(current, identifierName, sourceContent);
                 if (paramResult.isPresent()) return paramResult;
             }
@@ -1150,7 +1141,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
             if (localResult.isPresent()) return localResult;
 
             // Check enhanced for loop variable
-            if (nodeType.equals(ENHANCED_FOR_STATEMENT)) {
+            if (ENHANCED_FOR_STATEMENT.equals(nodeType)) {
                 var forResult = checkEnhancedForStatement(current, identifierName, sourceContent);
                 if (forResult.isPresent()) return forResult;
             }
@@ -1168,7 +1159,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
             }
 
             // Check try-with-resources
-            if (nodeType.equals("try_with_resources_statement")) {
+            if ("try_with_resources_statement".equals(nodeType)) {
                 TSNode resourceSpec = current.getChildByFieldName("resources");
                 if (resourceSpec != null) {
                     var resourceResult = checkResourceSpecification(resourceSpec, identifierName, sourceContent);
@@ -1177,13 +1168,13 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
             }
 
             // Check lambda parameters
-            if (nodeType.equals(LAMBDA_EXPRESSION)) {
+            if (LAMBDA_EXPRESSION.equals(nodeType)) {
                 var lambdaResult = checkLambdaParameters(current, identifierName, sourceContent);
                 if (lambdaResult.isPresent()) return lambdaResult;
             }
 
             // Check instanceof pattern variable (Java 16+)
-            if (nodeType.equals(INSTANCEOF_EXPRESSION)) {
+            if (INSTANCEOF_EXPRESSION.equals(nodeType)) {
                 var patternResult = checkInstanceofPattern(current, identifierName, sourceContent);
                 if (patternResult.isPresent()) return patternResult;
             }

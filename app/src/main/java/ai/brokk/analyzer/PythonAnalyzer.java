@@ -423,7 +423,8 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
         return "";
     }
 
-    private boolean isLiteralType(String type) {
+    private boolean isLiteralType(@Nullable String type) {
+        if (type == null) return false;
         return type.endsWith("_literal")
                 || type.equals(STRING)
                 || type.equals(INTEGER)
@@ -483,11 +484,13 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
 
     @Override
     protected boolean containsTestMarkers(TSTree tree, SourceContent sourceContent) {
+        var rootNode = tree.getRootNode();
+        if (rootNode == null) return false;
         return withCachedQuery(
                 QueryType.DEFINITIONS,
                 query -> {
                     try (TSQueryCursor cursor = new TSQueryCursor()) {
-                        cursor.exec(query, tree.getRootNode(), sourceContent.text());
+                        cursor.exec(query, rootNode, sourceContent.text());
 
                         var match = new TSQueryMatch();
                         while (cursor.nextMatch(match)) {
@@ -896,6 +899,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
             var parser = getTSParser();
             try (var tree = parser.parseStringOrThrow(null, importLine)) {
                 var rootNode = tree.getRootNode();
+                if (rootNode == null) continue;
                 SourceContent importSc = SourceContent.of(importLine);
                 withCachedQuery(QueryType.IMPORTS, query -> {
                     try (var cursor = new TSQueryCursor()) {
@@ -1203,6 +1207,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
         Set<String> identifiers = new HashSet<>();
         try (TSTree tree = getTSParser().parseStringOrThrow(null, source)) {
             TSNode rootNode = tree.getRootNode();
+            if (rootNode == null) return identifiers;
             SourceContent sc = SourceContent.of(source);
             withCachedQuery(
                     QueryType.IDENTIFIERS,

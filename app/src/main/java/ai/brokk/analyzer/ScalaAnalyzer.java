@@ -112,7 +112,7 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer implements JvmBasedAnalyze
     }
 
     @Override
-    protected String determineClassName(String nodeType, String shortName) {
+    protected String determineClassName(@Nullable String nodeType, String shortName) {
         if (OBJECT_DEFINITION.equals(nodeType)) {
             // Companion objects append '$' on a bytecode level to avoid naming conflicts
             return shortName + "$";
@@ -215,7 +215,8 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer implements JvmBasedAnalyze
     }
 
     @Override
-    protected boolean isConstructor(CodeUnit candidate, @Nullable CodeUnit enclosingClass, String captureName) {
+    protected boolean isConstructor(
+            CodeUnit candidate, @Nullable CodeUnit enclosingClass, @Nullable String captureName) {
         return false;
     }
 
@@ -279,6 +280,7 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer implements JvmBasedAnalyze
 
     private boolean isLiteral(TSNode node) {
         String type = node.getType();
+        if (type == null) return false;
         return type.endsWith("_literal")
                 || STRING.equals(type)
                 || INTERPOLATED_STRING.equals(type)
@@ -294,11 +296,13 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer implements JvmBasedAnalyze
 
     @Override
     protected boolean containsTestMarkers(TSTree tree, SourceContent sourceContent) {
+        var rootNode = tree.getRootNode();
+        if (rootNode == null) return false;
         return withCachedQuery(
                 QueryType.DEFINITIONS,
                 query -> {
                     try (TSQueryCursor cursor = new TSQueryCursor()) {
-                        cursor.exec(query, tree.getRootNode(), sourceContent.text());
+                        cursor.exec(query, rootNode, sourceContent.text());
 
                         TSQueryMatch match = new TSQueryMatch();
                         while (cursor.nextMatch(match)) {

@@ -404,7 +404,8 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected boolean isConstructor(CodeUnit candidate, @Nullable CodeUnit enclosingClass, String captureName) {
+    protected boolean isConstructor(
+            CodeUnit candidate, @Nullable CodeUnit enclosingClass, @Nullable String captureName) {
         return CaptureNames.CONSTRUCTOR_DEFINITION.equals(captureName);
     }
 
@@ -424,11 +425,13 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected boolean containsTestMarkers(TSTree tree, SourceContent sourceContent) {
+        var rootNode = tree.getRootNode();
+        if (rootNode == null) return false;
         return withCachedQuery(
                 QueryType.DEFINITIONS,
                 query -> {
                     try (TSQueryCursor cursor = new TSQueryCursor()) {
-                        cursor.exec(query, tree.getRootNode(), sourceContent.text());
+                        cursor.exec(query, rootNode, sourceContent.text());
                         TSQueryMatch match = new TSQueryMatch();
 
                         Set<String> testAttributes = Set.of(

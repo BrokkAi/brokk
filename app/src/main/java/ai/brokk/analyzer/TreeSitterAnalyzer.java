@@ -2170,6 +2170,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                     long __processStart = System.nanoTime();
                     try {
                         TSNode rootNode = tree.getRootNode();
+                        if (rootNode == null) {
+                            throw new RuntimeException("Failed to parse tree for " + file);
+                        }
                         log.trace("Root node type for {}: {}", file, rootNode.getType());
 
                         // Phase 1: Explicit Imports Pass (New Multi-Query Architecture)
@@ -2183,7 +2186,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                                         while (cursor.nextMatch(match)) {
                                             Map<String, TSNode> capturedNodesForMatch = new HashMap<>();
                                             for (TSQueryCapture capture : match.getCaptures()) {
-                                                String captureName = importsQuery.getCaptureNameForId(capture.getIndex());
+                                                String captureName =
+                                                        importsQuery.getCaptureNameForId(capture.getIndex());
                                                 TSNode node = capture.getNode();
                                                 if (node != null) {
                                                     capturedNodesForMatch.putIfAbsent(captureName, node);
@@ -2200,10 +2204,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                         List<Map.Entry<TSNode, DefinitionInfoRecord>> declarationNodes =
                                 collectDefinitions(rootNode, sourceContent, localImportInfos, file);
 
-                        List<Map.Entry<TSNode, DefinitionInfoRecord>> sortedDeclarationEntries = declarationNodes.stream()
-                                .sorted(Comparator.comparingInt(
-                                        entry -> entry.getKey().getStartByte()))
-                                .toList();
+                        List<Map.Entry<TSNode, DefinitionInfoRecord>> sortedDeclarationEntries =
+                                declarationNodes.stream()
+                                        .sorted(Comparator.comparingInt(
+                                                entry -> entry.getKey().getStartByte()))
+                                        .toList();
 
                         for (var entry : sortedDeclarationEntries) {
                             TSNode node = entry.getKey();
@@ -2236,7 +2241,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                             List<ScopeSegment> scopeChain = buildScopeChain(node, rootNode, sourceContent);
                             String classChain = buildClassChain(node, rootNode, sourceContent);
 
-                            Optional<String> receiverType = extractReceiverType(node, primaryCaptureName, sourceContent);
+                            Optional<String> receiverType =
+                                    extractReceiverType(node, primaryCaptureName, sourceContent);
                             if (receiverType.isPresent()) {
                                 String receiverTypeText = receiverType.get();
                                 simpleName = receiverTypeText + "." + simpleName;
@@ -2276,18 +2282,22 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                             }
 
                             String enhancedFqName = enhanceFqName(cu.fqName(), primaryCaptureName, node, sourceContent);
-                            @Nullable String codeUnitSignature = extractSignature(primaryCaptureName, node, sourceContent);
+                            @Nullable
+                            String codeUnitSignature = extractSignature(primaryCaptureName, node, sourceContent);
 
                             String cuLookupKey = (codeUnitSignature != null)
                                     ? enhancedFqName + "(" + codeUnitSignature + ")@" + node.getStartByte()
                                     : enhancedFqName;
 
                             CodeUnit existingCUforKeyLookup = acc.getByFqName(cuLookupKey);
-                            if (existingCUforKeyLookup != null && cu.isFunction() && existingCUforKeyLookup.isFunction()) {
+                            if (existingCUforKeyLookup != null
+                                    && cu.isFunction()
+                                    && existingCUforKeyLookup.isFunction()) {
                                 cu = existingCUforKeyLookup;
                             }
 
-                            if (!enhancedFqName.equals(cu.fqName()) || !Objects.equals(codeUnitSignature, cu.signature())) {
+                            if (!enhancedFqName.equals(cu.fqName())
+                                    || !Objects.equals(codeUnitSignature, cu.signature())) {
                                 String enhancedShortName = enhancedFqName;
                                 if (!cu.packageName().isEmpty() && enhancedFqName.startsWith(cu.packageName() + ".")) {
                                     enhancedShortName = enhancedFqName.substring(
@@ -2298,12 +2308,19 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                             }
 
                             String signature = buildSignatureString(
-                                    node, simpleName, sourceContent, primaryCaptureName, defInfo.modifierKeywords(), file);
+                                    node,
+                                    simpleName,
+                                    sourceContent,
+                                    primaryCaptureName,
+                                    defInfo.modifierKeywords(),
+                                    file);
 
                             // Use the already-resolved content node (from signature building) for hasBody computation
-                            SkeletonType refined = refineSkeletonType(primaryCaptureName, node, getLanguageSyntaxProfile());
+                            SkeletonType refined =
+                                    refineSkeletonType(primaryCaptureName, node, getLanguageSyntaxProfile());
                             ResolvedNodes resolved = resolveSignatureNodes(node, simpleName, refined, sourceContent);
-                            acc.setHasBody(cu, computeHasBody(resolved.contentNode(), primaryCaptureName, sourceContent));
+                            acc.setHasBody(
+                                    cu, computeHasBody(resolved.contentNode(), primaryCaptureName, sourceContent));
                             if (CaptureNames.TYPEALIAS_DEFINITION.equals(primaryCaptureName)) {
                                 acc.setIsTypeAlias(cu, true);
                             }
@@ -2345,11 +2362,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                             var finalRange = (cu.isClass() || cu.isFunction())
                                     ? expandRangeWithComments(rangeNode, sourceContent)
                                     : new Range(
-                                    rangeNode.getStartByte(),
-                                    rangeNode.getEndByte(),
-                                    rangeNode.getStartPoint().getRow(),
-                                    rangeNode.getEndPoint().getRow(),
-                                    rangeNode.getStartByte());
+                                            rangeNode.getStartByte(),
+                                            rangeNode.getEndByte(),
+                                            rangeNode.getStartPoint().getRow(),
+                                            rangeNode.getEndPoint().getRow(),
+                                            rangeNode.getStartByte());
 
                             acc.addRange(cu, finalRange);
                             acc.addLookupKey(cuLookupKey, cu);
@@ -2409,8 +2426,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                         }
                         return new FileAnalysisResult(List.of(), Map.of(), Map.of(), List.of(), false);
                     }
-
-
                 },
                 defaultResult);
     }
@@ -2619,7 +2634,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
      * Useful for languages that separate the concept of instance and singleton classes that have the same names in
      * source code, but are identified by some suffix or other transformation on a lower level, e.g., Kotlin, Scala, Ruby.
      */
-    protected String determineClassName(String captureName, String shortName) {
+    protected String determineClassName(@Nullable String captureName, String shortName) {
         return shortName;
     }
 
@@ -2628,7 +2643,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
      * By default, delegates to determineClassName, but can be overridden to add type markers
      * (e.g., Python adds ":F" for functions to distinguish them from classes in the chain).
      */
-    protected String determineClassChainSegmentName(String nodeType, String shortName) {
+    protected String determineClassChainSegmentName(@Nullable String nodeType, String shortName) {
         return determineClassName(nodeType, shortName);
     }
 
@@ -2658,6 +2673,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
                             Range primary = ranges.getFirst();
                             TSNode root = tree.getRootNode();
+                            if (root == null) return List.of();
+
                             TSNode node = root.getDescendantForByteRange(primary.startByte(), primary.endByte());
                             if (node == null) {
                                 return List.of();
@@ -3121,7 +3138,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         for (TSNode child : funcNode.getChildren()) {
             String t = child.getType();
             boolean isModifierType = profile.modifierNodeTypes().contains(t)
-                    || (!profile.asyncKeywordNodeType().isEmpty() && t.equals(profile.asyncKeywordNodeType()));
+                    || (!profile.asyncKeywordNodeType().isEmpty()
+                            && profile.asyncKeywordNodeType().equals(t));
             if (isModifierType) {
                 String text = sourceContent.substringFrom(child).strip();
                 if (!text.isEmpty()) {
@@ -3948,6 +3966,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             return false;
         }
         String nodeType = node.getType();
+        if (nodeType == null) return false;
         return nodeType.equals(CommonTreeSitterNodeTypes.COMMENT)
                 || nodeType.equals(CommonTreeSitterNodeTypes.LINE_COMMENT)
                 || nodeType.equals(CommonTreeSitterNodeTypes.BLOCK_COMMENT)
@@ -4006,6 +4025,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         }
         // Common whitespace node types in Tree-Sitter grammars
         String nodeType = node.getType();
+        if (nodeType == null) return false;
         return nodeType.equals(CommonTreeSitterNodeTypes.WHITESPACE)
                 || nodeType.equals(CommonTreeSitterNodeTypes.NEWLINE)
                 || nodeType.equals("\n")
@@ -4206,11 +4226,13 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         return best;
     }
 
-    protected boolean isBlankNameAllowed(String captureName, String simpleName, String nodeType, String file) {
+    protected boolean isBlankNameAllowed(
+            String captureName, String simpleName, @Nullable String nodeType, String file) {
         return false;
     }
 
-    protected boolean isNullNameAllowed(String identifierFieldName, String nodeType, int lineNumber, String file) {
+    protected boolean isNullNameAllowed(
+            String identifierFieldName, @Nullable String nodeType, int lineNumber, String file) {
         return false;
     }
 
@@ -4229,7 +4251,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
      * @param nodeType the AST node type
      * @return true if null names are expected and logging should be suppressed
      */
-    protected boolean isNullNameExpectedForExtraction(String nodeType) {
+    protected boolean isNullNameExpectedForExtraction(@Nullable String nodeType) {
         return false;
     }
 

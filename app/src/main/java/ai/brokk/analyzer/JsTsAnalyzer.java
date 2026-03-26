@@ -362,7 +362,8 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
                     nodeToCapture = current;
                     // If we found a declarator, try one more step for the full declaration
                     TSNode parent = current.getParent();
-                    if (parent != null && parent.getType().contains("declaration")) {
+                    if (parent != null
+                            && Optional.ofNullable(parent.getType()).orElse("").contains("declaration")) {
                         nodeToCapture = parent;
                     }
                     break;

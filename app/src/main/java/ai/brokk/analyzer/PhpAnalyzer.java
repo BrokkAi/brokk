@@ -250,10 +250,6 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
             String simpleName,
             String baseIndent,
             ProjectFile file) {
-        if (fieldNode == null) {
-            return super.formatFieldSignature(
-                    null, sourceContent, exportPrefix, signatureText, simpleName, baseIndent, file);
-        }
 
         boolean isConstant = CONST_DECLARATION.equals(fieldNode.getType());
         boolean isProperty = PROPERTY_DECLARATION.equals(fieldNode.getType());
@@ -369,7 +365,8 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
         return null;
     }
 
-    private boolean isLiteralType(String type) {
+    private boolean isLiteralType(@Nullable String type) {
+        if (type == null) return false;
         return type.endsWith("_literal")
                 || INTEGER.equals(type)
                 || FLOAT.equals(type)
@@ -468,11 +465,13 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     protected boolean containsTestMarkers(TSTree tree, SourceContent sourceContent) {
+        var rootNode = tree.getRootNode();
+        if (rootNode == null) return false;
         return withCachedQuery(
                 QueryType.DEFINITIONS,
                 query -> {
                     try (TSQueryCursor cursor = new TSQueryCursor()) {
-                        cursor.exec(query, tree.getRootNode(), sourceContent.text());
+                        cursor.exec(query, rootNode, sourceContent.text());
                         TSQueryMatch match = new TSQueryMatch();
 
                         while (cursor.nextMatch(match)) {
@@ -546,7 +545,8 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected boolean isConstructor(CodeUnit candidate, @Nullable CodeUnit enclosingClass, String captureName) {
+    protected boolean isConstructor(
+            CodeUnit candidate, @Nullable CodeUnit enclosingClass, @Nullable String captureName) {
         return "__construct".equals(candidate.identifier());
     }
 }

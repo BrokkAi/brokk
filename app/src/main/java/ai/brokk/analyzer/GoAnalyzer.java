@@ -496,7 +496,7 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
             // Single identifier case
             TSNode specificValueNode = null;
             if (valueList != null) {
-                if (valueList.getType().equals("expression_list")) {
+                if ("expression_list".equals(valueList.getType())) {
                     if (valueList.getNamedChildCount() == 1) {
                         specificValueNode = valueList.getNamedChild(0);
                     }
@@ -508,13 +508,16 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
             boolean isLiteral = false;
             if (specificValueNode != null) {
                 String valType = specificValueNode.getType();
-                String valText = sourceContent.substringFrom(specificValueNode).trim();
-                isLiteral = (valType.endsWith("_literal")
-                                && !valType.equals("composite_literal")
-                                && !valType.equals("func_literal"))
-                        || valType.equals("true")
-                        || valType.equals("false")
-                        || valText.equals("iota");
+                if (valType != null) {
+                    String valText =
+                            sourceContent.substringFrom(specificValueNode).trim();
+                    isLiteral = (valType.endsWith("_literal")
+                                    && !valType.equals("composite_literal")
+                                    && !valType.equals("func_literal"))
+                            || valType.equals("true")
+                            || valType.equals("false")
+                            || valText.equals("iota");
+                }
             } else if (valueList == null && CONST_SPEC.equals(fieldNodeType)) {
                 // In Go const blocks, missing values imply iota or inherited values.
                 // We treat these as literals.
@@ -833,16 +836,19 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
     public Set<String> extractTypeIdentifiers(String source) {
         try (TSTree tree = getTSParser().parseString(null, source)) {
             if (tree == null) {
-                return Collections.emptySet();
+                return Set.of();
             }
 
+            var rootNode = tree.getRootNode();
+            if (rootNode == null) return Set.of();
             SourceContent sourceContent = SourceContent.of(source);
             Set<String> identifiers = new HashSet<>();
             withCachedQuery(
                     QueryType.IDENTIFIERS,
                     query -> {
                         try (TSQueryCursor cursor = new TSQueryCursor()) {
-                            cursor.exec(query, tree.getRootNode(), sourceContent.text());
+
+                            cursor.exec(query, rootNode, sourceContent.text());
 
                             TSQueryMatch match = new TSQueryMatch();
                             while (cursor.nextMatch(match)) {
@@ -941,7 +947,9 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
                     if (content.isPresent()) {
                         String pkgName = withTreeOf(
                                 pf,
-                                tree -> determinePackageName(pf, tree.getRootNode(), tree.getRootNode(), content.get()),
+                                tree -> Optional.ofNullable(tree.getRootNode())
+                                        .map(rootNode -> determinePackageName(pf, rootNode, rootNode, content.get()))
+                                        .orElse(""),
                                 "");
                         if (!pkgName.isEmpty()) {
                             return pkgName;
@@ -971,11 +979,13 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
 
     @Override
     protected boolean containsTestMarkers(TSTree tree, SourceContent sourceContent) {
+        var rootNode = tree.getRootNode();
+        if (rootNode == null) return false;
         return withCachedQuery(
                 QueryType.DEFINITIONS,
                 query -> {
                     try (TSQueryCursor cursor = new TSQueryCursor()) {
-                        cursor.exec(query, tree.getRootNode(), sourceContent.text());
+                        cursor.exec(query, rootNode, sourceContent.text());
                         TSQueryMatch match = new TSQueryMatch();
 
                         while (cursor.nextMatch(match)) {
@@ -990,12 +1000,10 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
                                     continue;
                                 }
 
-                                if (TEST_MARKER.equals(captureName)) {
-                                    sawTestMarker = true;
-                                } else if (CAPTURE_TEST_CANDIDATE_NAME.equals(captureName)) {
-                                    nameNode = node;
-                                } else if (CAPTURE_TEST_CANDIDATE_PARAMS.equals(captureName)) {
-                                    paramsNode = node;
+                                switch (captureName) {
+                                    case TEST_MARKER -> sawTestMarker = true;
+                                    case CAPTURE_TEST_CANDIDATE_NAME -> nameNode = node;
+                                    case CAPTURE_TEST_CANDIDATE_PARAMS -> paramsNode = node;
                                 }
 
                                 if (sawTestMarker && nameNode != null && paramsNode != null) {
@@ -1044,7 +1052,7 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
                                 }
                             }
 
-                            if (totalIdentifierCount != 1 || firstParamDecl == null) {
+                            if (firstParamDecl == null || totalIdentifierCount != 1) {
                                 continue;
                             }
 

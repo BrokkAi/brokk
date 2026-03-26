@@ -346,17 +346,17 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
             // This is for field definitions like `const a = 1;` or `export let b = 2;`
             // where `node` is the `variable_declarator` (e.g., `a = 1`).
             if (("lexical_declaration".equals(parent.getType()) || "variable_declaration".equals(parent.getType()))
-                    && node.getType().equals("variable_declarator")) {
-                TSNode declarationNode = parent; // lexical_declaration or variable_declaration
+                    && "variable_declarator".equals(node.getType())) {
+                // lexical_declaration or variable_declaration
                 String keyword = "";
                 // The first child of lexical/variable_declaration is the keyword (const, let, var)
-                TSNode keywordNode = declarationNode.getChild(0);
+                TSNode keywordNode = parent.getChild(0);
                 if (keywordNode != null) {
                     keyword = sourceContent.substringFrom(keywordNode); // "const", "let", or "var"
                 }
 
                 String exportStr = "";
-                TSNode exportStatementNode = declarationNode.getParent(); // Parent of lexical/variable_declaration
+                TSNode exportStatementNode = parent.getParent(); // Parent of lexical/variable_declaration
                 if (exportStatementNode != null && "export_statement".equals(exportStatementNode.getType())) {
                     exportStr = "export ";
                 }
@@ -440,7 +440,8 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
     // that logic would need to to be integrated into analyzeFileDeclarations or a new helper.
     // For now, assume main query captures are sufficient for JS CUs.
 
-    private boolean isLiteralType(String type) {
+    private boolean isLiteralType(@Nullable String type) {
+        if (type == null) return false;
         return type.endsWith("literal")
                 || type.equals("number")
                 || type.equals("string")
@@ -563,9 +564,10 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
         Set<String> identifiers = new HashSet<>();
         TSParser parser = getTSParser();
         try {
-            SourceContent sourceContent = SourceContent.of(importStatement);
             TSTree tree = parser.parseStringOrThrow(null, importStatement);
             TSNode rootNode = tree.getRootNode();
+            if (rootNode == null) return identifiers;
+            SourceContent sourceContent = SourceContent.of(importStatement);
 
             String queryStr =
                     """
@@ -631,6 +633,7 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
                 return identifiers;
             }
             TSNode rootNode = tree.getRootNode();
+            if (rootNode == null) return identifiers;
             SourceContent sourceContent = SourceContent.of(source);
 
             try (TSQuery query = createQuery(QueryType.IDENTIFIERS)) {

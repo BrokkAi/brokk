@@ -320,11 +320,10 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
      * and is acceptable.
      */
     private Optional<String> extractCoreTypeName(@Nullable TSNode typeNode, SourceContent sourceContent) {
-        if (typeNode == null) {
-            return Optional.empty();
-        }
-
+        if (typeNode == null) return Optional.empty();
         String nodeType = typeNode.getType();
+        if (nodeType == null) return Optional.empty();
+
         return switch (nodeType) {
             case TYPE_IDENTIFIER -> Optional.of(sourceContent.substringFrom(typeNode));
 
@@ -356,7 +355,7 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
                         if (child != null) {
                             String childType = child.getType();
                             // Skip punctuation like '(' ',' ')'
-                            if (!childType.equals("(") && !childType.equals(")") && !childType.equals(",")) {
+                            if (!"(".equals(childType) && !")".equals(childType) && !",".equals(childType)) {
                                 Optional<String> extracted = extractCoreTypeName(child, sourceContent);
                                 if (extracted.isPresent()) {
                                     yield extracted;
@@ -483,6 +482,7 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
                 file,
                 tree -> {
                     TSNode root = tree.getRootNode();
+                    if (root == null) return "";
                     return withSource(file, sc -> determinePackageName(file, root, root, sc), "");
                 },
                 "");
@@ -681,10 +681,11 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
 
     @Override
     protected boolean containsTestMarkers(TSTree tree, SourceContent sourceContent) {
+        TSNode root = tree.getRootNode();
+        if (root == null) return false;
         return withCachedQuery(
                 QueryType.DEFINITIONS,
                 query -> {
-                    TSNode root = tree.getRootNode();
                     try (TSQueryCursor cursor = new TSQueryCursor()) {
                         cursor.exec(query, root, sourceContent.text());
 
