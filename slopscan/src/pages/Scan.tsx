@@ -41,7 +41,7 @@ export function ScanPage() {
   const [scanId, setScanId] = useState<string | null>(null);
   const [status, setStatus] = useState<string>("Initializing...");
   const [progress, setProgress] = useState(0);
-  const [feed, setFeed] = useState<Array<{ level: "info" | "warning" | "error"; message: string }>>([]);
+  const [feed, setFeed] = useState<Array<{ level: "info" | "warning" | "error"; message: string; timestamp: string }>>([]);
   const navigate = useNavigate();
 
   const addLog = (message: any, level: "info" | "warning" | "error" = "info") => {
@@ -51,7 +51,7 @@ export function ScanPage() {
         : typeof message === "object" && message !== null
         ? JSON.stringify(message)
         : String(message);
-    setFeed((prev) => [...prev, { level, message: stringMessage }]);
+    setFeed((prev) => [...prev, { level, message: stringMessage, timestamp: new Date().toLocaleTimeString() }]);
   };
 
   const handleStartScan = async () => {
@@ -79,8 +79,23 @@ export function ScanPage() {
 
         if (scan.logs && typeof scan.logs === "string") {
           const { lines, progress: latestProgress } = parseLogs(scan.logs);
-          setFeed(lines.map((l) => ({ level: "info", message: String(l) })));
           setProgress(latestProgress);
+
+          setFeed((prevFeed) => {
+            // We only want to add lines that aren't already in our feed.
+            // Since logs are strictly appended, we can compare lengths or content.
+            if (lines.length > prevFeed.length) {
+              const newLines = lines.slice(prevFeed.length);
+              const now = new Date().toLocaleTimeString();
+              const newItems = newLines.map((l) => ({
+                level: "info" as const,
+                message: String(l),
+                timestamp: now,
+              }));
+              return [...prevFeed, ...newItems];
+            }
+            return prevFeed;
+          });
         }
 
         if (scan.status === "CLONED") {
@@ -165,7 +180,7 @@ export function ScanPage() {
 
           <div className="max-h-64 overflow-y-auto space-y-2">
             {feed.map((item, i) => (
-              <FeedItem key={i} level={item.level} message={item.message} />
+              <FeedItem key={i} level={item.level} message={item.message} timestamp={item.timestamp} />
             ))}
           </div>
         </div>
@@ -174,16 +189,26 @@ export function ScanPage() {
   );
 }
 
-function FeedItem({ level, message }: { level: "info" | "warning" | "error"; message: string }) {
+function FeedItem({
+  level,
+  message,
+  timestamp,
+}: {
+  level: "info" | "warning" | "error";
+  message: string;
+  timestamp?: string;
+}) {
   const colors = {
     info: "text-white/70",
     warning: "text-yellow-400",
     error: "text-red-400",
   };
 
+  const displayTime = timestamp || new Date().toLocaleTimeString();
+
   return (
     <div className={`font-mono text-sm ${colors[level]}`}>
-      <span className="text-white/40">[{new Date().toLocaleTimeString()}]</span> {message}
+      <span className="text-white/40">[{displayTime}]</span> {message}
     </div>
   );
 }
