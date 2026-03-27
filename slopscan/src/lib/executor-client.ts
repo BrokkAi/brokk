@@ -57,15 +57,18 @@ export class ExecutorClient {
     headers?: Record<string, string>
   ): Promise<T> {
     const url = `${this.baseUrl}${path}`;
-    const response = await fetch(url, {
+    const init: RequestInit = {
       method,
       headers: {
         Authorization: `Bearer ${this.authToken}`,
         "Content-Type": "application/json",
         ...headers,
       },
-      body: body ? JSON.stringify(body) : undefined,
-    });
+    };
+    if (body !== undefined) {
+      init.body = JSON.stringify(body);
+    }
+    const response = await fetch(url, init);
 
     if (!response.ok) {
       const errorText = await response.text();

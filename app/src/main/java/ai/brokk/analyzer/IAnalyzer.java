@@ -682,7 +682,7 @@ public interface IAnalyzer {
         if (!cu.isFunction()) return 0;
         String source = getSource(cu, false).orElse("");
         int complexity = 1; // Base complexity
-        Matcher matcher = COMPLEXITY_KEYWORDS.matcher(source);
+        java.util.regex.Matcher matcher = COMPLEXITY_KEYWORDS.matcher(source);
         while (matcher.find()) {
             complexity++;
         }
@@ -696,7 +696,7 @@ public interface IAnalyzer {
         List<String> findings = new java.util.ArrayList<>();
         // Match single line comments
         Pattern commentPattern = Pattern.compile("//\\s*(.*)");
-        Matcher matcher = commentPattern.matcher(content);
+        java.util.regex.Matcher matcher = commentPattern.matcher(content);
 
         while (matcher.find()) {
             String commentText = matcher.group(1).toLowerCase(java.util.Locale.ROOT);

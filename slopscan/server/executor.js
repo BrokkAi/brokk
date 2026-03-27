@@ -14,46 +14,29 @@ export class ExecutorManager {
 
   async start() {
     // Determine JAR path - looking for the prelaunch jar
-    const jarPath = path.resolve('../../app/build/libs/jdeploy-prelaunch.jar');
-    const useLocalJar = fs.existsSync(jarPath);
+    // In Docker, cwd is /app/server and the jar is mounted at /app/app/build/...
+    // Locally, this resolves correctly as well.
+    const jarPath = path.resolve('../app/build/libs/jdeploy-prelaunch.jar');
 
-    let command;
-    let args = [];
-
-    if (useLocalJar) {
-      command = 'java';
-      args = [
-        '-cp',
-        jarPath,
-        'ai.brokk.executor.HeadlessExecutorMain',
-        '--exec-id',
-        randomUUID(),
-        '--listen-addr',
-        '127.0.0.1:0',
-        '--auth-token',
-        this.authToken,
-        '--workspace-dir',
-        this.workspaceDir,
-        '-Dbrokk.tui=true',
-      ];
-    } else {
-      command = 'jbang';
-      args = [
-        '--java',
-        '21',
-        '-R',
-        '-Djava.awt.headless=true -Dapple.awt.UIElement=true',
-        'brokk-headless@brokkai/brokk-releases',
-        '--exec-id',
-        randomUUID(),
-        '--listen-addr',
-        '127.0.0.1:0',
-        '--auth-token',
-        this.authToken,
-        '--workspace-dir',
-        this.workspaceDir,
-      ];
+    if (!fs.existsSync(jarPath)) {
+      throw new Error(`Executor JAR not found at ${jarPath}. Please build the project or check volume mounts.`);
     }
+
+    const command = 'java';
+    const args = [
+      '-cp',
+      jarPath,
+      'ai.brokk.executor.HeadlessExecutorMain',
+      '--exec-id',
+      randomUUID(),
+      '--listen-addr',
+      '127.0.0.1:0',
+      '--auth-token',
+      this.authToken,
+      '--workspace-dir',
+      this.workspaceDir,
+      '-Dbrokk.tui=true',
+    ];
 
     if (config.BROKK_API_KEY) {
       args.push('--brokk-api-key', config.BROKK_API_KEY);
