@@ -98,9 +98,7 @@ export function ScanPage() {
           });
         }
 
-        if (scan.status === "CLONED") {
-          addLog("Repository cloned. Starting deep analysis...");
-        } else if (scan.status === "COMPLETED") {
+        if (scan.status === "COMPLETED") {
           addLog("Analysis complete!", "info");
           setIsScanning(false);
           setTimeout(() => navigate(`/scan-result/${scanId}`), 1000);
