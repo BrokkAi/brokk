@@ -134,17 +134,24 @@ export function ScanPage() {
             <span className="animate-pulse text-xs font-mono text-slop-accent">{status}</span>
           </div>
 
-          {progress > 0 && status === "PENDING" && (
+          {((progress > 0 && status === "PENDING") || status === "CLONED") && (
             <div className="mb-4">
               <div className="mb-1 flex justify-between text-xs font-mono text-white/50">
-                <span>Cloning Progress</span>
+                <span>
+                  {progress === 100 || status === "CLONED"
+                    ? status === "CLONED" ? "Analyzing repository..." : "Finalizing clone..."
+                    : "Cloning Progress"}
+                </span>
                 <span>{progress}%</span>
               </div>
-              <progress
-                className="h-2 w-full overflow-hidden rounded-full bg-slop-darker [&::-webkit-progress-bar]:bg-slop-darker [&::-webkit-progress-value]:bg-slop-accent [&::-moz-progress-bar]:bg-slop-accent"
-                value={progress}
-                max="100"
-              />
+              <div className="h-2 w-full overflow-hidden rounded-full bg-slop-darker">
+                <div
+                  className={`h-full bg-slop-accent transition-all duration-500 ease-out ${
+                    progress === 100 || status === "CLONED" ? "animate-pulse" : ""
+                  }`}
+                  style={{ width: `${progress}%` }}
+                />
+              </div>
             </div>
           )}
 
