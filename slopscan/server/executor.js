@@ -153,8 +153,22 @@ export class ExecutorManager {
     let afterSeq = -1;
     const terminalStates = new Set(['COMPLETED', 'FAILED', 'CANCELLED']);
 
+    const fetchWithRetry = async (url, options, maxRetries = 5, retryDelay = 2000) => {
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+          const resp = await fetch(url, options);
+          if (resp.ok) return resp;
+          throw new Error(`HTTP ${resp.status}: ${resp.statusText}`);
+        } catch (err) {
+          if (attempt === maxRetries) throw err;
+          console.warn(`[ExecutorManager] Fetch failed (attempt ${attempt}/${maxRetries}): ${err.message}. Retrying in ${retryDelay}ms...`);
+          await new Promise(r => setTimeout(r, retryDelay));
+        }
+      }
+    };
+
     while (true) {
-      const resp = await fetch(`${this.baseUrl}/v1/jobs/${jobId}/events?after=${afterSeq}&limit=100`, {
+      const resp = await fetchWithRetry(`${this.baseUrl}/v1/jobs/${jobId}/events?after=${afterSeq}&limit=100`, {
         headers: { 'Authorization': `Bearer ${this.authToken}` }
       });
       const { events, nextAfter } = await resp.json();
@@ -164,7 +178,7 @@ export class ExecutorManager {
       }
       afterSeq = nextAfter;
 
-      const statusResp = await fetch(`${this.baseUrl}/v1/jobs/${jobId}`, {
+      const statusResp = await fetchWithRetry(`${this.baseUrl}/v1/jobs/${jobId}`, {
         headers: { 'Authorization': `Bearer ${this.authToken}` }
       });
       const status = await statusResp.json();
