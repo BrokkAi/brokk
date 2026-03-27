@@ -124,8 +124,13 @@ app.post('/api/scans', async (req, res) => {
         const prompt = "Analyze the repository for code quality issues. You MUST find the source files and use the computeCyclomaticComplexity and analyzeCommentSemantics tools on them.";
         const jobId = await executor.submitJob(prompt, { mode: 'SLOP_SCAN' });
         
+        console.log(`[Scan] Submitted job ${jobId} for scan ${scanId} repo=${repoUrl}`);
+        db.prepare('UPDATE scans SET logs = logs || ? WHERE id = ?').run(`[JOB] Submitted job ${jobId}\n`, scanId);
+
         const findings = [];
         for await (const event of executor.pollEvents(jobId)) {
+          console.log(`[Scan][${scanId}][${jobId}] Event: ${event.type}`);
+
           if (event.type === 'SLOP_FINDING') {
             findings.push(event.data);
           } else if (event.type === 'NOTIFICATION') {
@@ -140,15 +145,17 @@ app.post('/api/scans', async (req, res) => {
                   impact: complexity * 100,
                   complexity
                 });
+                db.prepare('UPDATE scans SET logs = logs || ? WHERE id = ?')
+                  .run(`[Scan][${scanId}][${jobId}][INFO] ${msg}\n`, scanId);
               } else {
                 db.prepare('UPDATE scans SET logs = logs || ? WHERE id = ?')
-                  .run(`[INFO] ${msg}\n`, scanId);
+                  .run(`[Scan][${scanId}][${jobId}][INFO] ${msg}\n`, scanId);
               }
             }
           } else if (event.type === 'STATE_HINT') {
             if (event.data?.name === 'backgroundTask' && event.data?.value) {
               db.prepare('UPDATE scans SET logs = logs || ? WHERE id = ?')
-                .run(`[TASK] ${event.data.value}\n`, scanId);
+                .run(`[Scan][${scanId}][${jobId}][TASK] ${event.data.value}\n`, scanId);
             }
           }
         }
