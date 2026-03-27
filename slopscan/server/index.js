@@ -20,6 +20,7 @@ db.exec(`
     status TEXT NOT NULL,
     local_path TEXT,
     result_json TEXT,
+    logs TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   )
 `);
@@ -72,10 +73,30 @@ app.post('/api/scans', async (req, res) => {
       try {
         await new Promise((resolve, reject) => {
           const cloneProcess = spawn('git', ['clone', '--progress', repoUrl, tmpDir]);
-          cloneProcess.stdout.pipe(process.stdout);
-          cloneProcess.stderr.pipe(process.stderr);
+          
+          let logBuffer = '';
+          let lastUpdate = Date.now();
+
+          const flushLogs = (force = false) => {
+            const now = Date.now();
+            if (force || now - lastUpdate > 500) {
+              db.prepare('UPDATE scans SET logs = ? WHERE id = ?').run(logBuffer, scanId);
+              lastUpdate = now;
+            }
+          };
+
+          const handleData = (data) => {
+            const str = data.toString();
+            process.stderr.write(str);
+            logBuffer += str;
+            flushLogs();
+          };
+
+          cloneProcess.stdout.on('data', handleData);
+          cloneProcess.stderr.on('data', handleData);
 
           cloneProcess.on('close', (code) => {
+            flushLogs(true);
             if (code === 0) resolve();
             else reject(new Error(`Git clone failed with code ${code}`));
           });
