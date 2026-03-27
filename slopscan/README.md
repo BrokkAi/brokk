@@ -19,16 +19,32 @@ This will create a JAR file in `app/build/libs/` (for example, `app/build/libs/b
 
 ### 2. Configure the JAR Path
 
-The SlopScan backend needs to know where this JAR file is. By default, it looks for `../app/build/libs/jdeploy-prelaunch.jar` or similar. If your JAR is named differently (e.g., `brokk-0.23.3.beta3-34-g279b83237.jar`), you might need to ensure it's in the expected location or update `slopscan/server/executor.js` to point to the correct JAR file, or simply symlink/rename your generated JAR to match what the server expects.
+The SlopScan backend automatically looks for the latest JAR file in `../app/build/libs/`. It prioritizes `jdeploy-prelaunch.jar` but will fallback to the most recently modified `brokk-*.jar` file found in that directory.
 
-If you are just testing locally, the easiest way is to either rename the JAR or adjust `jarPath` in `slopscan/server/executor.js` to match the exact filename in your `app/build/libs/` directory.
+As long as you have run `./gradlew :app:shadowJar`, the backend should be able to locate the executor without manual configuration.
 
 ### 3. Environment Variables
 
-If you are using LLMs for the analysis (like Comment Semantics), make sure you have your Brokk API key or other necessary keys available. You can create a `.env` file in the `slopscan` directory:
+Create a `.env` file in the `slopscan` directory to configure the server and analysis parameters.
 
-```
-BROKK_API_KEY=your_key_here
+**Template:**
+```env
+# Server Port
+PORT=3001
+
+# Brokk API Authentication
+BROKK_API_KEY=your_brokk_api_key_here
+
+# LLM Configuration
+BROKK_PLANNER_MODEL=gemini-flash-3-preview
+
+# SlopScan Economic Parameters (Optional Overrides)
+SLOP_V_RATIO=1.0
+SLOP_I_DRIFT=0.1
+SLOP_E_IGNORE=50
+SLOP_C_DAY=1200
+SLOP_M_MULTIPLIER=1.5
+SLOP_N_TEAM=6
 ```
 
 ## Running Locally (Development Mode)
@@ -52,9 +68,12 @@ npm run dev
 ```
 The Vite development server will start, typically on `http://localhost:5173`.
 
-## Docker Testing
+## Docker Testing (Experimental)
 
-If you want to test via Docker, make sure you've built the JAR first, as the `docker-compose.yml` mounts the `../app` directory to provide the JAR to the container.
+> [!WARNING]
+> Docker support is currently **untested** and may not work as expected. Local testing is recommended.
+
+If you want to try testing via Docker, make sure you've built the JAR first, as the `docker-compose.yml` mounts the `../app` directory to provide the JAR to the container.
 
 ```bash
 cd slopscan
