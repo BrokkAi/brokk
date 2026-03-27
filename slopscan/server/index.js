@@ -121,16 +121,29 @@ app.post('/api/scans', async (req, res) => {
       const executor = new ExecutorManager(tmpDir);
       try {
         await executor.start();
-        const jobId = await executor.submitJob('Perform a SLOP_SCAN for code quality issues', { mode: 'SLOP_SCAN' });
+        const prompt = "Analyze the repository for code quality issues. You MUST find the source files and use the computeCyclomaticComplexity and analyzeCommentSemantics tools on them.";
+        const jobId = await executor.submitJob(prompt, { mode: 'SLOP_SCAN' });
         
         const findings = [];
         for await (const event of executor.pollEvents(jobId)) {
           if (event.type === 'SLOP_FINDING') {
             findings.push(event.data);
           } else if (event.type === 'NOTIFICATION') {
-            if (event.data?.message) {
-              db.prepare('UPDATE scans SET logs = logs || ? WHERE id = ?')
-                .run(`[INFO] ${event.data.message}\n`, scanId);
+            const msg = event.data?.message;
+            if (msg) {
+              if (msg.startsWith('[SLOP_FINDING]')) {
+                const complexityMatch = msg.match(/\(CC: (\d+)\)/);
+                const complexity = complexityMatch ? parseInt(complexityMatch[1], 10) : 0;
+                findings.push({
+                  finding: msg.replace('[SLOP_FINDING] ', ''),
+                  location: 'Repository',
+                  impact: complexity * 100,
+                  complexity
+                });
+              } else {
+                db.prepare('UPDATE scans SET logs = logs || ? WHERE id = ?')
+                  .run(`[INFO] ${msg}\n`, scanId);
+              }
             }
           } else if (event.type === 'STATE_HINT') {
             if (event.data?.name === 'backgroundTask' && event.data?.value) {
