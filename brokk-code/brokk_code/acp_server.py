@@ -1082,12 +1082,10 @@ async def run_acp_server(
                     }
                 ),
             ]
-            if self._profile.is_zed:
-                current_model = self._model_by_session.get(session_id, DEFAULT_MODEL_SELECTION)
-                current_reasoning = self._reasoning_by_session.get(
-                    session_id, DEFAULT_REASONING_LEVEL
-                )
-                model_options = _model_options(self._catalog_for_session(session_id))
+            current_model = self._model_by_session.get(session_id, DEFAULT_MODEL_SELECTION)
+            current_reasoning = self._reasoning_by_session.get(session_id, DEFAULT_REASONING_LEVEL)
+            model_options = _model_options(self._catalog_for_session(session_id))
+            if model_options:
                 options.append(
                     SessionConfigOptionSelect.model_validate(
                         {
