@@ -14,22 +14,24 @@ class AngularTemplateAnalyzerTest {
 
     @Test
     void testIsApplicable_WithAngularJson() {
-        try (var project = InlineTestProjectCreator.empty()
-                .addFileContents("{}", "angular.json")
-                .build()) {
-            
+        try (var project =
+                InlineTestProjectCreator.empty().addFileContents("{}", "angular.json").build()) {
+
             AngularTemplateAnalyzer analyzer = new AngularTemplateAnalyzer();
             assertTrue(analyzer.isApplicable(project), "Should be applicable when angular.json is present");
-            
-            List<ITemplateAnalyzer> discovered = Languages.discoverTemplateAnalyzers(project, Set.of(Languages.TYPESCRIPT));
-            assertTrue(discovered.stream().anyMatch(a -> a instanceof AngularTemplateAnalyzer), 
+
+            List<ITemplateAnalyzer> discovered =
+                    Languages.discoverTemplateAnalyzers(project, Set.of(Languages.TYPESCRIPT));
+            assertTrue(
+                    discovered.stream().anyMatch(a -> a instanceof AngularTemplateAnalyzer),
                     "Should be discovered via Languages.discoverTemplateAnalyzers");
         }
     }
 
     @Test
     void testIsApplicable_WithAngularPackageJson() {
-        String packageJson = """
+        String packageJson =
+                """
                 {
                   "dependencies": {
                     "@angular/core": "^17.0.0"
@@ -39,9 +41,10 @@ class AngularTemplateAnalyzerTest {
         try (var project = InlineTestProjectCreator.empty()
                 .addFileContents(packageJson, "package.json")
                 .build()) {
-            
+
             AngularTemplateAnalyzer analyzer = new AngularTemplateAnalyzer();
-            assertTrue(analyzer.isApplicable(project), "Should be applicable when package.json contains @angular/core");
+            assertTrue(
+                    analyzer.isApplicable(project), "Should be applicable when package.json contains @angular/core");
         }
     }
 
@@ -50,7 +53,7 @@ class AngularTemplateAnalyzerTest {
         try (var project = InlineTestProjectCreator.empty()
                 .addFileContents("<div></div>", "src/app/app.component.html")
                 .build()) {
-            
+
             AngularTemplateAnalyzer analyzer = new AngularTemplateAnalyzer();
             assertTrue(analyzer.isApplicable(project), "Should be applicable when .component.html files exist");
         }
@@ -62,12 +65,14 @@ class AngularTemplateAnalyzerTest {
                 .addFileContents("public class Main {}", "Main.java")
                 .addFileContents("console.log('hello');", "index.ts")
                 .build()) {
-            
+
             AngularTemplateAnalyzer analyzer = new AngularTemplateAnalyzer();
             assertFalse(analyzer.isApplicable(project), "Should NOT be applicable to a plain Java/TS project");
-            
-            List<ITemplateAnalyzer> discovered = Languages.discoverTemplateAnalyzers(project, Set.of(Languages.JAVA, Languages.TYPESCRIPT));
-            assertTrue(discovered.stream().noneMatch(a -> a instanceof AngularTemplateAnalyzer), 
+
+            List<ITemplateAnalyzer> discovered =
+                    Languages.discoverTemplateAnalyzers(project, Set.of(Languages.JAVA, Languages.TYPESCRIPT));
+            assertTrue(
+                    discovered.stream().noneMatch(a -> a instanceof AngularTemplateAnalyzer),
                     "Should NOT be discovered in a plain project");
         }
     }

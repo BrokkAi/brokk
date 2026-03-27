@@ -353,7 +353,8 @@ public final class TreeSitterStateIO {
             if (temp != null) {
                 try {
                     Files.deleteIfExists(temp);
-                } catch (IOException ignored) {
+                } catch (IOException ex) {
+                    log.debug("Failed to delete temp file {} after template save failure: {}", temp, ex.getMessage());
                 }
             }
         }
