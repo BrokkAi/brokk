@@ -95,13 +95,21 @@ dependencyAnalysis {
 
 val treeSitterNgVersion = libs.versions.treesitter.get()
 
+// Ensure the flatDir target exists at configuration time so Gradle doesn't cache "missing" artifacts.
+// The actual JARs are populated by :downloadTreeSitterNg at execution time, but the directory must exist
+// during configuration to prevent early resolution failures in parallel CI builds.
+val treeSitterJarsDir = rootProject.layout.projectDirectory.dir(".gradle/tree-sitter-ng/v$treeSitterNgVersion/jars").asFile
+if (!treeSitterJarsDir.exists()) {
+    treeSitterJarsDir.mkdirs()
+}
+
 allprojects {
     group = "ai.brokk"
     version = getVersionFromGit()
 
     repositories {
         flatDir {
-            dirs(rootProject.layout.projectDirectory.dir(".gradle/tree-sitter-ng/v$treeSitterNgVersion/jars"))
+            dirs(treeSitterJarsDir)
         }
         mavenCentral()
         google()
