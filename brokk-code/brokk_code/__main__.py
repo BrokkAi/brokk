@@ -744,9 +744,7 @@ def _run_issue_command(
     build_settings: str | None = None,
 ) -> None:
     """Run a GitHub issue command with shared validation, checkout, and job execution."""
-    _validate_github_params(
-        args.github_token, args.repo_owner, args.repo_name, command_name
-    )
+    _validate_github_params(args.github_token, args.repo_owner, args.repo_name, command_name)
     tags: dict[str, str] = {
         "github_token": args.github_token,
         "repo_owner": args.repo_owner,
@@ -932,7 +930,9 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Commit message (optional; if omitted, a message will be generated)",
     )
 
-    exec_parser = subparsers.add_parser("exec", help="Run a prompt with LITE_AGENT (scan + architect, no build)")
+    exec_parser = subparsers.add_parser(
+        "exec", help="Run a prompt with LITE_AGENT (scan + architect, no build)"
+    )
     _add_common_runtime_args(exec_parser)
     exec_parser.add_argument(
         "prompt",
@@ -950,6 +950,18 @@ def _build_parser() -> argparse.ArgumentParser:
         type=str,
         default="gemini-3-flash-preview",
         help="LLM model for code generation (default: gemini-3-flash-preview)",
+    )
+    exec_parser.add_argument(
+        "--planner-reasoning-level",
+        type=str,
+        default="medium",
+        help="Reasoning level for planner model (default: medium)",
+    )
+    exec_parser.add_argument(
+        "--code-reasoning-level",
+        type=str,
+        default=None,
+        help="Reasoning level for code model (default: none)",
     )
     exec_parser.add_argument(
         "-v",
@@ -2133,6 +2145,8 @@ def main():
                 task_input=args.prompt,
                 planner_model=args.planner_model,
                 code_model=args.code_model,
+                planner_reasoning_level=args.planner_reasoning_level,
+                code_reasoning_level=args.code_reasoning_level,
                 mode="LITE_AGENT",
                 tags={"mode": "LITE_AGENT"},
                 verbose=args.verbose,
