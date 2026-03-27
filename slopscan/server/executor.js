@@ -48,13 +48,14 @@ export class ExecutorManager {
 
       let output = '';
       const onData = (data) => {
+        process.stdout.write(data);
         const line = data.toString();
         output += line;
         const match = line.match(/Executor listening on http:\/\/127.0.0.1:(\d+)/);
         if (match) {
           const port = match[1];
           this.baseUrl = `http://127.0.0.1:${port}`;
-          this.process.stdout.off('data', onData);
+          // Keep the listener active so logs continue to flow to process.stdout
           resolve(this.baseUrl);
         }
       };
