@@ -34,6 +34,14 @@ app.get('/api/config', (req, res) => {
   res.json(config);
 });
 
+app.get('/api/health', async (req, res) => {
+  // We check if any executor is active. 
+  // Since ExecutorManager instances are currently per-scan, 
+  // we'll return ok if the server itself is up for now, 
+  // or add a more robust check if a global manager is introduced.
+  res.json({ status: 'ok' });
+});
+
 app.post('/api/scans', async (req, res) => {
   const { repoUrl } = req.body;
 

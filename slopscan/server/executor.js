@@ -133,10 +133,29 @@ export class ExecutorManager {
     }
   }
 
+  async checkHealth() {
+    if (!this.process || !this.baseUrl) {
+      return { status: 'error', reason: 'Executor not started' };
+    }
+
+    try {
+      const response = await fetch(`${this.baseUrl}/health/live`, {
+        signal: AbortSignal.timeout(2000),
+      });
+      if (response.ok) {
+        return { status: 'ok' };
+      }
+      return { status: 'error', reason: `Executor returned status ${response.status}` };
+    } catch (err) {
+      return { status: 'error', reason: `Failed to reach executor: ${err.message}` };
+    }
+  }
+
   stop() {
     if (this.process) {
       this.process.kill();
       this.process = null;
+      this.baseUrl = null;
     }
   }
 }
