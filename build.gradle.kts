@@ -371,16 +371,9 @@ subprojects {
     repositories {
         mavenCentral()
         google()
-        // Additional repositories for dependencies
-        maven {
-            url = uri("https://repo.gradle.org/gradle/libs-releases")
-        }
-        maven {
-            url = uri("https://www.jetbrains.com/intellij-repository/releases")
-        }
-        maven {
-            url = uri("https://repo.eclipse.org/content/groups/releases/")
-        }
+        maven("https://repo.gradle.org/gradle/libs-releases")
+        maven("https://www.jetbrains.com/intellij-repository/releases")
+        maven("https://repo.eclipse.org/content/groups/releases/")
     }
 
 
