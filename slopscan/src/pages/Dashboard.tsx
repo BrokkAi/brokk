@@ -1,5 +1,7 @@
 import { useParams } from "react-router-dom";
 import { useEffect, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { apiClient, type ScanResult, type ScanStatus } from "../lib/api-client";
 
 export function DashboardPage() {
@@ -61,6 +63,18 @@ export function DashboardPage() {
             )) || <p className="text-white/40 italic">No findings recorded.</p>}
           </div>
         </div>
+
+        {/* Full Analysis Report */}
+        {results?.markdownReport && (
+          <div className="card col-span-2 mt-6">
+            <h2 className="mb-6 text-xl font-semibold text-slop-accent">Forensic Audit Report</h2>
+            <div className="prose prose-invert max-w-none">
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                {results.markdownReport}
+              </ReactMarkdown>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

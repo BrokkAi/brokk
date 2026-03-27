@@ -14,6 +14,7 @@ export interface ScanResult {
     finding: string;
     impact: number;
   }>;
+  markdownReport?: string;
 }
 
 class ApiClient {
