@@ -18,10 +18,6 @@ import java.util.regex.Pattern;
  */
 public class SlopScanTools {
 
-    // Heuristic for cyclomatic complexity: count control flow keywords
-    private static final Pattern COMPLEXITY_KEYWORDS =
-            Pattern.compile("\\b(if|else|while|for|switch|case|catch|&&|\\|\\||\\?|break|continue)\\b");
-
     private final IContextManager contextManager;
 
     public SlopScanTools(IContextManager contextManager) {
@@ -59,12 +55,7 @@ public class SlopScanTools {
     private boolean analyzeUnitComplexity(IAnalyzer analyzer, CodeUnit cu, int threshold, StringBuilder report) {
         boolean flagged = false;
         if (cu.isFunction()) {
-            String source = analyzer.getSource(cu, false).orElse("");
-            int complexity = 1; // Base complexity
-            Matcher matcher = COMPLEXITY_KEYWORDS.matcher(source);
-            while (matcher.find()) {
-                complexity++;
-            }
+            int complexity = analyzer.computeCyclomaticComplexity(cu);
 
             if (complexity > threshold) {
                 String finding = String.format(
@@ -94,13 +85,14 @@ public class SlopScanTools {
             @P("List of file paths relative to the project root.") List<String> filePaths) {
 
         StringBuilder report = new StringBuilder("Comment Semantics Analysis:\n");
+        IAnalyzer analyzer = contextManager.getAnalyzerUninterrupted();
 
         for (String path : filePaths) {
             ProjectFile file = contextManager.toFile(path);
             if (!file.exists()) continue;
 
             String content = file.read().orElse("");
-            List<String> howComments = findPotentialHowComments(content);
+            List<String> howComments = analyzer.findPotentialHowComments(content);
 
             if (!howComments.isEmpty()) {
                 report.append("File: ").append(path).append("\n");
@@ -114,23 +106,4 @@ public class SlopScanTools {
 
         return report.length() > 27 ? report.toString() : "No redundant 'How' comments detected.";
     }
-
-    private List<String> findPotentialHowComments(String content) {
-        List<String> findings = new ArrayList<>();
-        // Match single line comments
-        Pattern commentPattern = Pattern.compile("//\\s*(.*)");
-        Matcher matcher = commentPattern.matcher(content);
-
-        while (matcher.find()) {
-            String commentText = matcher.group(1).toLowerCase(Locale.ROOT);
-            // Heuristic: comments describing increment, assignment, or simple returns
-            if (commentText.contains("increment")
-                    || commentText.contains("set ")
-                    || commentText.contains("assign")
-                    || commentText.contains("return ")) {
-                findings.add(matcher.group(0));
-            }
-        }
-        return findings;
     }
-}
