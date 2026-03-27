@@ -9,3 +9,4 @@ services:
       - .env
     volumes:
       - ../app:/app/app
+#      - ./data/slopscan.db:/app/server/slopscan.db  # Mounts a host file to the container
