@@ -575,4 +575,16 @@ public class Languages {
         }
         throw new IllegalArgumentException("No language constant " + Language.class.getCanonicalName() + "." + name);
     }
+
+    /**
+     * Discovers and returns template analyzers appropriate for the given project and active languages.
+     *
+     * @param project   The project context.
+     * @param languages The set of active host languages.
+     * @return A list of discovered template analyzers.
+     */
+    public static List<ITemplateAnalyzer> discoverTemplateAnalyzers(IProject project, Set<Language> languages) {
+        // TODO: Implement discovery logic (e.g., check for Angular, Vue, or Svelte dependencies/files)
+        return List.of();
+    }
 }

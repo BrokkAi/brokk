@@ -302,12 +302,13 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
                 }
             }
 
+            var templates = Languages.discoverTemplateAnalyzers(project, projectLangs);
             if (nextDelegates.isEmpty()) {
                 return new DisabledAnalyzer(project);
-            } else if (nextDelegates.size() == 1) {
+            } else if (nextDelegates.size() == 1 && templates.isEmpty()) {
                 return nextDelegates.values().iterator().next();
             } else {
-                return new MultiAnalyzer(nextDelegates);
+                return new MultiAnalyzer(nextDelegates, templates);
             }
         });
     }
@@ -402,9 +403,10 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
                             nextDelegates.put(lang, lang.createAnalyzer(project, progressListener));
                         }
                     }
-                    analyzer = nextDelegates.size() == 1
+                    var templates = Languages.discoverTemplateAnalyzers(project, projectLangs);
+                    analyzer = (nextDelegates.size() == 1 && templates.isEmpty())
                             ? nextDelegates.values().iterator().next()
-                            : new MultiAnalyzer(nextDelegates);
+                            : new MultiAnalyzer(nextDelegates, templates);
                 }
 
                 logger.warn(
@@ -419,12 +421,13 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
                     for (Language lang : projectLangs) {
                         analyzer.subAnalyzer(lang).ifPresent(sub -> finalDelegates.put(lang, sub));
                     }
+                    var templates = Languages.discoverTemplateAnalyzers(project, projectLangs);
                     if (finalDelegates.isEmpty()) {
                         analyzer = new DisabledAnalyzer(project);
-                    } else if (finalDelegates.size() == 1) {
+                    } else if (finalDelegates.size() == 1 && templates.isEmpty()) {
                         analyzer = finalDelegates.values().iterator().next();
                     } else {
-                        analyzer = new MultiAnalyzer(finalDelegates);
+                        analyzer = new MultiAnalyzer(finalDelegates, templates);
                     }
                 }
 
