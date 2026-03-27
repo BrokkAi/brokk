@@ -44,8 +44,14 @@ export function ScanPage() {
   const [feed, setFeed] = useState<Array<{ level: "info" | "warning" | "error"; message: string }>>([]);
   const navigate = useNavigate();
 
-  const addLog = (message: string, level: "info" | "warning" | "error" = "info") => {
-    setFeed((prev) => [...prev, { level, message }]);
+  const addLog = (message: any, level: "info" | "warning" | "error" = "info") => {
+    const stringMessage =
+      typeof message === "string"
+        ? message
+        : typeof message === "object" && message !== null
+        ? JSON.stringify(message)
+        : String(message);
+    setFeed((prev) => [...prev, { level, message: stringMessage }]);
   };
 
   const handleStartScan = async () => {
@@ -71,29 +77,29 @@ export function ScanPage() {
         const scan = await apiClient.getScan(scanId);
         setStatus(scan.status);
 
-        if (scan.logs) {
+        if (scan.logs && typeof scan.logs === "string") {
           const { lines, progress: latestProgress } = parseLogs(scan.logs);
-          setFeed(lines.map((l) => ({ level: "info", message: l })));
+          setFeed(lines.map((l) => ({ level: "info", message: String(l) })));
           setProgress(latestProgress);
         }
 
         if (scan.status === "CLONED") {
           addLog("Repository cloned. Starting deep analysis...");
-        } else if (scan.status === 'COMPLETED') {
+        } else if (scan.status === "COMPLETED") {
           addLog("Analysis complete!", "info");
           setIsScanning(false);
           setTimeout(() => navigate(`/scan-result/${scanId}`), 1000);
-        } else if (scan.status === 'FAILED') {
-          let errorMsg = "Unknown error";
+        } else if (scan.status === "FAILED") {
+          let errorMsg: any = "Unknown error";
           if (scan.result_json) {
             try {
               const parsed = JSON.parse(scan.result_json);
-              errorMsg = parsed.error || scan.result_json;
+              errorMsg = parsed.error ?? scan.result_json;
             } catch (e) {
               errorMsg = scan.result_json;
             }
           }
-          addLog(`Analysis failed: ${errorMsg}`, "error");
+          addLog(`Analysis failed: ${typeof errorMsg === "string" ? errorMsg : JSON.stringify(errorMsg)}`, "error");
           setIsScanning(false);
         }
       } catch (err) {
