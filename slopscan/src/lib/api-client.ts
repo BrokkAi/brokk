@@ -33,6 +33,12 @@ class ApiClient {
     if (!response.ok) throw new Error('Failed to fetch scan');
     return response.json();
   }
+
+  async checkHealth(): Promise<boolean> {
+    const response = await fetch(`${this.baseUrl}/health`);
+    if (!response.ok) throw new Error('Health check failed');
+    return true;
+  }
 }
 
 export const apiClient = new ApiClient();
