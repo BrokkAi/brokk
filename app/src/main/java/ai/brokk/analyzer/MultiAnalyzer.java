@@ -19,9 +19,15 @@ public class MultiAnalyzer
             TestDetectionProvider.class);
 
     private final Map<Language, IAnalyzer> delegates;
+    private final Collection<ITemplateAnalyzer> templateAnalyzers;
 
     public MultiAnalyzer(Map<Language, IAnalyzer> delegates) {
+        this(delegates, List.of());
+    }
+
+    public MultiAnalyzer(Map<Language, IAnalyzer> delegates, Collection<ITemplateAnalyzer> templateAnalyzers) {
         this.delegates = delegates; // Store the live map directly
+        this.templateAnalyzers = List.copyOf(templateAnalyzers);
     }
 
     private <R> Optional<R> findFirst(Function<IAnalyzer, Optional<R>> extractor) {
@@ -287,7 +293,7 @@ public class MultiAnalyzer
             var analyzer = entry.getValue();
             newDelegates.put(delegateKey, analyzer.update());
         }
-        return new MultiAnalyzer(newDelegates);
+        return new MultiAnalyzer(newDelegates, templateAnalyzers);
     }
 
     @Override
@@ -310,7 +316,39 @@ public class MultiAnalyzer
             }
         }
 
-        return new MultiAnalyzer(newDelegates);
+        return new MultiAnalyzer(newDelegates, templateAnalyzers);
+    }
+
+    /**
+     * Emits a signal to all registered template analyzers.
+     * Host analyzers should call this when they encounter structural patterns (like @Component)
+     * that require template-side analysis.
+     */
+    public void emitHostSignal(String signal, Map<String, Object> payload, TreeSitterAnalyzer.AnalyzerState state) {
+        for (var templateAnalyzer : templateAnalyzers) {
+            try {
+                templateAnalyzer.onHostSignal(signal, payload, state);
+            } catch (Exception e) {
+                log.error("Error routing signal {} to template analyzer {}", signal, templateAnalyzer.getName(), e);
+            }
+        }
+    }
+
+    /**
+     * Orchestrates the analysis of a template file using the appropriate guest analyzer.
+     */
+    public List<TemplateAnalysisResult> analyzeTemplates(ProjectFile templateFile, CodeUnit hostClass) {
+        var extension = templateFile.extension();
+        return templateAnalyzers.stream()
+                .filter(ta -> ta.getSupportedExtensions().contains(extension))
+                .flatMap(ta -> {
+                    var hostAnalyzer = delegateFor(hostClass);
+                    if (hostAnalyzer.isPresent()) {
+                        return Stream.of(ta.analyzeTemplate(hostAnalyzer.get(), templateFile, hostClass));
+                    }
+                    return Stream.empty();
+                })
+                .toList();
     }
 
     @Override
