@@ -10,8 +10,7 @@ from urllib.parse import unquote, urlparse
 
 from brokk_code import __version__
 from brokk_code.event_utils import safe_data
-from brokk_code.executor import ExecutorError, ExecutorManager
-from brokk_code.settings import Settings
+from brokk_code.executor import AcpStdioExecutor, ExecutorError
 from brokk_code.widgets.token_bar import get_token_bar_markdown
 from brokk_code.workspace import resolve_workspace_dir
 
@@ -625,93 +624,83 @@ def _known_session_ids(entries: Any) -> set[str]:
     return ids
 
 
-class BrokkAcpBridge:
-    def __init__(self, executor: ExecutorManager):
+class AcpStdioBridge:
+    """Bridge that forwards ACP requests to Java ACP server via stdio JSON-RPC."""
+
+    def __init__(self, executor: AcpStdioExecutor):
         self.executor = executor
-        self._acp_to_brokk_session: dict[str, str] = {}
-        self._active_job_by_session: dict[str, str] = {}
+        self._session_id: Optional[str] = None
         self._started = False
-        self._active_workspace_dir = getattr(executor, "workspace_dir", None)
+        self._ready_lock = asyncio.Lock()
+        self._active_workspace_dir: Optional[Path] = getattr(executor, "workspace_dir", None)
 
     def _resolved_workspace_dir(self, cwd: Optional[str] = None) -> Path:
         requested = (cwd or "").strip()
         if requested:
             return resolve_workspace_dir(Path(requested))
-
         current = getattr(self.executor, "workspace_dir", None)
         if isinstance(current, Path):
             return resolve_workspace_dir(current)
-
         return resolve_workspace_dir(Path.cwd())
 
-    async def _cancel_current_work(self) -> None:
-        for job_id in set(self._active_job_by_session.values()):
-            await self.executor.cancel_job(job_id)
-        self._active_job_by_session.clear()
-
-    def _reset_executor_session_state(self) -> None:
-        self._acp_to_brokk_session.clear()
-        if hasattr(self.executor, "session_id"):
-            self.executor.session_id = None
-        if hasattr(self.executor, "base_url"):
-            self.executor.base_url = None
+    @property
+    def is_alive(self) -> bool:
+        """Returns True if the bridge was started and the executor is still running."""
+        return self._started and self.executor.check_alive()
 
     async def ensure_ready(self, cwd: Optional[str] = None) -> None:
-        target_workspace_dir = self._resolved_workspace_dir(cwd)
-        if self._started and self._active_workspace_dir == target_workspace_dir:
+        target = self._resolved_workspace_dir(cwd)
+        if self._started and self.executor.check_alive() and self._active_workspace_dir == target:
             return
-
-        if self._started:
-            logger.info(
-                "ACP cwd changed from %s to %s; restarting executor",
-                self._active_workspace_dir,
-                target_workspace_dir,
-            )
-            await self._cancel_current_work()
-            await self.executor.stop()
-            self._started = False
-            self._reset_executor_session_state()
-
-        self.executor.workspace_dir = target_workspace_dir
-        self._active_workspace_dir = target_workspace_dir
-        await self.executor.start()
-        self._started = True
-
-    async def _wait_until_ready(self) -> None:
-        ready = await self.executor.wait_live()
-        if not ready:
-            raise ExecutorError("Brokk executor failed liveness check")
+        async with self._ready_lock:
+            if (
+                self._started
+                and self.executor.check_alive()
+                and self._active_workspace_dir == target
+            ):
+                return
+            if self._started:
+                if not self.executor.check_alive():
+                    logger.warning("ACP server process died, restarting")
+                else:
+                    logger.info(
+                        "ACP cwd changed from %s to %s; restarting",
+                        self._active_workspace_dir,
+                        target,
+                    )
+                self._started = False
+                await self.executor.stop()
+            self.executor.workspace_dir = target
+            self._active_workspace_dir = target
+            await self.executor.start()
+            await self.executor.initialize()
+            self._session_id = await self.executor.new_session(str(target))
+            self._started = True
 
     async def start_and_create_session(self, name: str, cwd: Optional[str] = None) -> str:
-        """Starts the executor on-demand and creates the session requested by the client."""
+        """Starts the executor on-demand and creates the session."""
         await self.ensure_ready(cwd)
-        session_id = await self.executor.create_session(name=name)
-        await self._wait_until_ready()
-        return session_id
+        return self._session_id or ""
 
-    async def _ensure_session(self, acp_session_id: str) -> str:
-        existing = self._acp_to_brokk_session.get(acp_session_id)
-        if existing:
-            await self._switch_executor_session(existing)
-            return existing
-        if await self._switch_executor_session(acp_session_id):
-            self._acp_to_brokk_session[acp_session_id] = acp_session_id
-            return acp_session_id
-        session_id = await self.executor.create_session(name=f"ACP Session {acp_session_id}")
-        await self._wait_until_ready()
-        self._acp_to_brokk_session[acp_session_id] = session_id
-        return session_id
+    async def get_models(self) -> dict[str, Any]:
+        """Returns available models from the executor."""
+        return await self.executor.get_models()
 
-    async def _switch_executor_session(self, session_id: str) -> bool:
-        switch_session = getattr(self.executor, "switch_session", None)
-        if not callable(switch_session):
-            return False
-        try:
-            await switch_session(session_id)
-            return True
-        except Exception:
-            logger.debug("Failed to switch executor session %s", session_id, exc_info=True)
-            return False
+    async def get_context(self) -> dict[str, Any]:
+        """Returns the current context fragments."""
+        return await self.executor.get_context()
+
+    async def add_context_files(self, relative_paths: list[str]) -> dict[str, Any]:
+        """Adds files to context by workspace-relative paths."""
+        return await self.executor.add_context_files(relative_paths)
+
+    async def drop_context_fragments(self, fragment_ids: list[str]) -> dict[str, Any]:
+        """Drops specific fragments from context by ID."""
+        return await self.executor.drop_context_fragments(fragment_ids)
+
+    async def list_sessions(self) -> dict[str, Any]:
+        """Lists known sessions."""
+        return await self.executor.list_sessions()
 
     async def prompt(
         self,
@@ -727,8 +716,6 @@ class BrokkAcpBridge:
         cwd: str = "",
     ) -> None:
         await self.ensure_ready(cwd)
-        executor_session_id = await self._ensure_session(session_id)
-        await self._switch_executor_session(executor_session_id)
 
         prompt_text = extract_prompt_text(prompt)
         if not prompt_text:
@@ -748,12 +735,6 @@ class BrokkAcpBridge:
             prompt=prompt,
             prompt_text=prompt_text,
             session_id=session_id,
-            executor_session_id=executor_session_id,
-            mode=mode,
-            planner_model=planner_model,
-            code_model=code_model,
-            reasoning_level=reasoning_level,
-            reasoning_level_code=reasoning_level_code,
             send_update=send_update,
             update_agent_message_text=update_agent_message_text,
             cwd=cwd,
@@ -820,12 +801,6 @@ class BrokkAcpBridge:
         prompt: Any,
         prompt_text: str,
         session_id: str,
-        executor_session_id: str,
-        mode: str,
-        planner_model: str,
-        code_model: Optional[str],
-        reasoning_level: Optional[str],
-        reasoning_level_code: Optional[str],
         send_update: Callable[[str, Any], Awaitable[Any]],
         update_agent_message_text: Callable[[str], Any],
         cwd: str = "",
@@ -833,6 +808,7 @@ class BrokkAcpBridge:
         # Add any @-mentioned files from ACP embedded/linked resource blocks to context.
         attached_fragment_ids: list[str] = []
         file_paths = extract_resource_file_paths(prompt, cwd)
+        logger.info("AcpStdioBridge file paths (cwd=%r): %r", cwd, file_paths)
         if file_paths:
             try:
                 resp = await self.executor.add_context_files(file_paths)
@@ -840,51 +816,39 @@ class BrokkAcpBridge:
             except Exception:
                 logger.exception("Failed attaching ACP resource file paths to context")
 
+        messages = [{"type": "text", "text": prompt_text}]
+
         try:
-            job_id = await self.executor.submit_job(
-                task_input=prompt_text,
-                planner_model=planner_model,
-                code_model=code_model,
-                reasoning_level=reasoning_level,
-                reasoning_level_code=reasoning_level_code,
-                mode=mode,
-                session_id=executor_session_id,
-            )
+            async for update in self.executor.prompt(self._session_id or "", messages):
+                update_data = update.get("update", {})
+                update_type = update_data.get("type")
+
+                if update_type == "agent_message_chunk":
+                    content = update_data.get("content", {})
+                    if content.get("type") == "text":
+                        text = content.get("text", "")
+                        if text:
+                            await send_update(session_id, update_agent_message_text(text))
+                elif update_type == "agent_thought":
+                    thought = update_data.get("thought", "")
+                    if thought:
+                        try:
+                            from acp import update_agent_thought_text
+
+                            await send_update(session_id, update_agent_thought_text(thought))
+                        except ImportError:
+                            pass
         except Exception:
             if attached_fragment_ids:
                 try:
                     await self.executor.drop_context_fragments(attached_fragment_ids)
                 except Exception:
-                    logger.exception(
-                        "Failed to rollback context fragments " + "after submit_job failure"
-                    )
+                    logger.exception("Failed to rollback context fragments after prompt failure")
             raise
-        self._active_job_by_session[session_id] = job_id
-
-        try:
-            from acp import update_agent_thought_text
-
-            async for event in self.executor.stream_events(job_id):
-                update = map_executor_event_to_session_update(
-                    event,
-                    update_agent_message_text,
-                    update_agent_thought_text=update_agent_thought_text,
-                )
-                if update:
-                    await send_update(session_id, update)
-        finally:
-            active = self._active_job_by_session.get(session_id)
-            if active == job_id:
-                self._active_job_by_session.pop(session_id, None)
 
     async def cancel(self, *args: Any, **kwargs: Any) -> None:
         session_id = _extract_session_id_for_cancel(args, kwargs)
-        if not session_id:
-            return
-        job_id = self._active_job_by_session.get(session_id)
-        if not job_id:
-            return
-        await self.executor.cancel_job(job_id)
+        await self.executor.cancel(session_id)
 
 
 async def run_acp_server(
@@ -894,6 +858,7 @@ async def run_acp_server(
     executor_snapshot: bool,
     vendor: Optional[str] = None,
 ) -> None:
+    # Import ACP SDK once at the top of the function
     try:
         from acp import (
             Agent,
@@ -940,26 +905,8 @@ async def run_acp_server(
         ) from e
 
     logging.basicConfig(stream=sys.stderr, level=logging.INFO)
-    logger.info("Starting ACP server")
 
-    # Note: The ExecutorManager launches the Java HeadlessExecutorMain with a dedicated
-    # stdin pipe. HeadlessExecutorMain monitors System.in for EOF and will initiate a
-    # controlled shutdown if the ACP Python process (the parent) exits or its stdin is
-    # closed by the IDE (for example, when IntelliJ terminates/restarts the run profile).
-    # This stdin-based parent-death signal prevents orphaned Java executor processes in
-    # cases where Python's finally blocks may not run (e.g., abrupt IDE lifecycle events).
-    settings = Settings.load()
-    executor = ExecutorManager(
-        workspace_dir=workspace_dir,
-        jar_path=jar_path,
-        executor_version=executor_version,
-        executor_snapshot=executor_snapshot,
-        vendor=vendor,
-        exit_on_stdin_eof=True,
-        brokk_api_key=settings.get_brokk_api_key(),
-    )
-    bridge = BrokkAcpBridge(executor)
-
+    # Patch ACP SDK router to support session config options (applied once)
     def _patch_acp_router_for_session_config_option() -> None:
         if getattr(acp_agent_router, "_brokk_session_config_patch", False):
             return
@@ -978,14 +925,16 @@ async def run_acp_server(
             return router
 
         acp_agent_router.build_agent_router = patched_build_agent_router
-        # AgentSideConnection captured a module-level symbol; patch it too.
         acp_agent_connection.build_agent_router = patched_build_agent_router
         acp_agent_router._brokk_session_config_patch = True
 
     _patch_acp_router_for_session_config_option()
 
-    class BrokkAcpAgent(Agent):
-        def __init__(self) -> None:
+    class BaseAcpAgent(Agent):
+        """Shared ACP agent logic for both stdio and HTTP bridges."""
+
+        def __init__(self, bridge: Any) -> None:
+            self._bridge = bridge
             self.client: Optional[Any] = None
             self._mode_by_session: dict[str, str] = {}
             self._model_by_session: dict[str, str] = {}
@@ -994,15 +943,28 @@ async def run_acp_server(
             self._model_catalog_by_session: dict[str, list[dict[str, Any]]] = {}
             self._catalog_is_fallback_by_session: dict[str, bool] = {}
             self._profile = resolve_client_profile(None, None)
-            self._replay_tasks: set[asyncio.Task[Any]] = set()
             self._commands_tasks: set[asyncio.Task[Any]] = set()
 
-            # Load ACP defaults once on agent init
             acp_defaults = load_acp_defaults()
             self._default_model_id: str = acp_defaults.default_model or DEFAULT_MODEL_SELECTION
             self._default_reasoning_level: str = (
                 acp_defaults.default_reasoning or DEFAULT_REASONING_LEVEL
             )
+
+        async def _fetch_models_payload(self, session_id: str) -> dict[str, Any]:
+            raise NotImplementedError
+
+        async def _fetch_sessions_payload(self, cwd: Optional[str]) -> Optional[dict[str, Any]]:
+            raise NotImplementedError
+
+        async def _do_load_session(self, session_id: str, cwd: str) -> bool:
+            raise NotImplementedError
+
+        async def _pre_prompt(self, session_id: str) -> None:
+            pass
+
+        def _post_load_session(self, session_id: str) -> None:
+            pass
 
         async def _refresh_model_catalog(
             self,
@@ -1010,8 +972,7 @@ async def run_acp_server(
             attempts: int = MODEL_DISCOVERY_INITIAL_ATTEMPTS,
         ) -> None:
             async def fetch_payload() -> dict[str, Any]:
-                await bridge.ensure_ready(self._cwd_by_session.get(session_id))
-                return await bridge.executor.get_models()
+                return await self._fetch_models_payload(session_id)
 
             normalized = await _fetch_normalized_catalog_with_retries(
                 fetch_payload,
@@ -1094,7 +1055,7 @@ async def run_acp_server(
 
         def _config_options_for_session(self, session_id: str) -> list[Any]:
             current_mode = self._mode_by_session.get(session_id, "LUTZ")
-            options = [
+            options: list[Any] = [
                 SessionConfigOption.model_validate(
                     {
                         "type": "select",
@@ -1115,7 +1076,7 @@ async def run_acp_server(
                 current_reasoning = self._reasoning_by_session.get(
                     session_id, DEFAULT_REASONING_LEVEL
                 )
-                model_options = _model_options(self._catalog_for_session(session_id))
+                model_opts = _model_options(self._catalog_for_session(session_id))
                 options.append(
                     SessionConfigOption.model_validate(
                         {
@@ -1127,7 +1088,7 @@ async def run_acp_server(
                             "currentValue": current_model,
                             "options": [
                                 SessionConfigSelectOption(value=model_id, name=model_name)
-                                for model_id, model_name in model_options
+                                for model_id, model_name in model_opts
                             ],
                         }
                     )
@@ -1173,54 +1134,8 @@ async def run_acp_server(
                 }
             }
 
-        async def _replay_loaded_session(self, session_id: str) -> None:
-            if not self.client:
-                return
-            try:
-                conversation_data = await bridge.executor.get_conversation()
-            except Exception:
-                logger.warning(
-                    "Failed to fetch conversation replay for session %s",
-                    session_id,
-                    exc_info=True,
-                )
-                return
-
-            updates = conversation_payload_to_session_updates(
-                conversation_data,
-                update_user_message_text=update_user_message_text,
-                update_agent_message_text=update_agent_message_text,
-                update_agent_thought_text=update_agent_thought_text,
-            )
-            logger.info("Replaying %s ACP chat updates for session %s", len(updates), session_id)
-            for update in updates:
-                await self.client.session_update(session_id, update)
-
-        def _schedule_replay_loaded_session(self, session_id: str) -> None:
-            async def _run() -> None:
-                # Yield so the load/resume response can be delivered first.
-                await asyncio.sleep(0)
-                await self._replay_loaded_session(session_id)
-
-            task = asyncio.create_task(_run())
-            self._replay_tasks.add(task)
-
-            def _done_callback(done: asyncio.Task[Any]) -> None:
-                self._replay_tasks.discard(done)
-                try:
-                    done.result()
-                except Exception:
-                    logger.warning(
-                        "Session replay task failed for session %s",
-                        session_id,
-                        exc_info=True,
-                    )
-
-            task.add_done_callback(_done_callback)
-
         def _schedule_available_commands_update(self, session_id: str) -> None:
             async def _run() -> None:
-                # Yield so the session response can be delivered first.
                 await asyncio.sleep(0)
                 if not self.client:
                     return
@@ -1276,11 +1191,11 @@ async def run_acp_server(
             logger.info("ACP Client Profile resolved: %s", self._profile)
 
             if self._profile.is_zed:
-                bridge.executor.set_environment_type("zed")
+                self._bridge.executor.set_environment_type("zed")
             elif self._profile.is_intellij:
-                bridge.executor.set_environment_type("intellij")
+                self._bridge.executor.set_environment_type("intellij")
             else:
-                bridge.executor.set_environment_type("tui")
+                self._bridge.executor.set_environment_type("tui")
 
             return InitializeResponse(
                 protocol_version=protocol_version,
@@ -1304,17 +1219,14 @@ async def run_acp_server(
             del mcp_servers
             requested_name = str(kwargs.get("title") or kwargs.get("name") or "ACP Session").strip()
             session_name = requested_name or "ACP Session"
-            session_id = await bridge.start_and_create_session(name=session_name, cwd=cwd)
+            session_id = await self._bridge.start_and_create_session(name=session_name, cwd=cwd)
             self._ensure_session_defaults(session_id, cwd)
             await self._refresh_model_catalog(session_id)
 
-            # After refreshing catalog, ensure persisted defaults are valid for this catalog.
             catalog = self._catalog_for_session(session_id)
             available_models = _available_model_names(catalog)
             available_set = set(available_models)
-            # Validate model default
             if self._model_by_session[session_id] not in available_set and available_models:
-                # fallback to first available model and persist that choice
                 fallback = available_models[0]
                 logger.info(
                     "Persisted ACP default model %s not available; falling back to %s",
@@ -1330,7 +1242,6 @@ async def run_acp_server(
                     )
                 )
 
-            # Validate reasoning default against model capabilities
             sanitized = _sanitize_reasoning_level_for_model(
                 self._model_by_session[session_id],
                 self._reasoning_by_session[session_id],
@@ -1378,18 +1289,13 @@ async def run_acp_server(
             **kwargs: Any,
         ) -> Optional[LoadSessionResponse]:
             del mcp_servers, kwargs
-            await bridge.ensure_ready(cwd)
-            requested_session_id = session_id
-            sessions_payload = await bridge.executor.list_sessions()
-            known_session_ids = _known_session_ids(sessions_payload.get("sessions", []))
-            if requested_session_id not in known_session_ids:
+            if not await self._do_load_session(session_id, cwd):
                 return None
-            await bridge.executor.switch_session(requested_session_id)
-            self._ensure_session_defaults(requested_session_id, cwd)
-            await self._refresh_model_catalog(requested_session_id)
-            self._schedule_replay_loaded_session(requested_session_id)
-            self._schedule_available_commands_update(requested_session_id)
-            model_state = self._model_state_for_session(requested_session_id)
+            self._ensure_session_defaults(session_id, cwd)
+            await self._refresh_model_catalog(session_id)
+            self._schedule_available_commands_update(session_id)
+            self._post_load_session(session_id)
+            model_state = self._model_state_for_session(session_id)
             return LoadSessionResponse(
                 modes=SessionModeState(
                     available_modes=[
@@ -1398,11 +1304,11 @@ async def run_acp_server(
                         SessionMode(id="ASK", name="ASK"),
                         SessionMode(id="PLAN", name="PLAN"),
                     ],
-                    current_mode_id=self._mode_by_session.get(requested_session_id, "LUTZ"),
+                    current_mode_id=self._mode_by_session.get(session_id, "LUTZ"),
                 ),
                 models=model_state,
-                config_options=self._config_options_for_session(requested_session_id),
-                _meta=self._variant_meta_for_session(requested_session_id),
+                config_options=self._config_options_for_session(session_id),
+                _meta=self._variant_meta_for_session(session_id),
             )
 
         async def resume_session(
@@ -1434,8 +1340,9 @@ async def run_acp_server(
             **kwargs: Any,
         ) -> ListSessionsResponse:
             del cursor, kwargs
-            await bridge.ensure_ready(cwd)
-            sessions_payload = await bridge.executor.list_sessions()
+            sessions_payload = await self._fetch_sessions_payload(cwd)
+            if sessions_payload is None:
+                return ListSessionsResponse(sessions=[])
             executor_sessions = sessions_payload.get("sessions", [])
             sessions = []
             for entry in executor_sessions:
@@ -1497,7 +1404,6 @@ async def run_acp_server(
             chosen_model = selected_model if selected_model in available_set else fallback_model
             self._model_by_session[session_id] = chosen_model
 
-            # Update persisted default model to the newly selected valid model
             try:
                 self._default_model_id = chosen_model
                 save_acp_defaults(
@@ -1528,14 +1434,12 @@ async def run_acp_server(
             elif config_id == "model" and value:
                 await self._refresh_model_catalog_if_fallback(session_id)
                 selected_model, selected_reasoning = resolve_model_selection(value)
-                # Validate against catalog
                 catalog = self._catalog_for_session(session_id)
                 available = _available_model_names(catalog)
                 available_set = set(available)
                 fallback_model = available[0] if available else DEFAULT_MODEL_SELECTION
                 chosen_model = selected_model if selected_model in available_set else fallback_model
                 self._model_by_session[session_id] = chosen_model
-                # Persist model change
                 try:
                     self._default_model_id = chosen_model
                     save_acp_defaults(
@@ -1552,12 +1456,10 @@ async def run_acp_server(
                 config_id in {THOUGHT_LEVEL_CONFIG_ID, "reasoning_effort", "reasoning"}
                 and value in REASONING_LEVEL_IDS
             ):
-                # Sanitize for model capabilities
                 catalog = self._catalog_for_session(session_id)
                 model = self._model_by_session.get(session_id, self._default_model_id)
                 sanitized = _sanitize_reasoning_level_for_model(model, value, catalog)
                 self._reasoning_by_session[session_id] = sanitized
-                # Persist reasoning change
                 try:
                     self._default_reasoning_level = sanitized
                     save_acp_defaults(
@@ -1572,6 +1474,7 @@ async def run_acp_server(
             return SetSessionConfigOptionResponse(config_options=options)
 
         async def prompt(self, prompt: Any, session_id: str, **kwargs: Any) -> Any:
+            await self._pre_prompt(session_id)
             await self._refresh_model_catalog_if_fallback(session_id)
             mode = normalize_mode(kwargs.get("mode") or self._mode_by_session.get(session_id))
             planner_model = (
@@ -1611,7 +1514,7 @@ async def run_acp_server(
             if not self.client:
                 raise ExecutorError("ACP client connection not established.")
 
-            await bridge.prompt(
+            await self._bridge.prompt(
                 prompt=prompt,
                 session_id=session_id,
                 cwd=self._cwd_by_session.get(session_id, ""),
@@ -1626,9 +1529,109 @@ async def run_acp_server(
             return PromptResponse(stop_reason="end_turn")
 
         async def cancel(self, *args: Any, **kwargs: Any) -> None:
-            await bridge.cancel(*args, **kwargs)
+            await self._bridge.cancel(*args, **kwargs)
+
+    stdio_executor = AcpStdioExecutor(
+        workspace_dir=workspace_dir,
+        jar_path=jar_path,
+        executor_version=executor_version,
+        executor_snapshot=executor_snapshot,
+        vendor=vendor,
+    )
+    stdio_bridge = AcpStdioBridge(stdio_executor)
+
+    class AcpStdioAgent(BaseAcpAgent):
+        def __init__(self) -> None:
+            super().__init__(bridge=stdio_bridge)
+            self._replay_tasks: set[asyncio.Task[Any]] = set()
+
+        async def _fetch_models_payload(self, session_id: str) -> dict[str, Any]:
+            await self._bridge.ensure_ready(self._cwd_by_session.get(session_id))
+            return await self._bridge.get_models()
+
+        async def _fetch_sessions_payload(self, cwd: Optional[str]) -> Optional[dict[str, Any]]:
+            if not self._bridge.is_alive:
+                return None
+            try:
+                return await self._bridge.list_sessions()
+            except Exception:
+                logger.warning("list_sessions: failed to list sessions", exc_info=True)
+                return None
+
+        async def _do_load_session(self, session_id: str, cwd: str) -> bool:
+            await self._bridge.ensure_ready(cwd)
+            sessions_payload = await self._bridge.list_sessions()
+            known = _known_session_ids(sessions_payload.get("sessions", []))
+            if session_id not in known:
+                return False
+            try:
+                await self._bridge.executor.switch_session(session_id)
+            except Exception:
+                logger.warning(
+                    "load_session: switch_session failed for %r",
+                    session_id,
+                    exc_info=True,
+                )
+                return False
+            return True
+
+        def _post_load_session(self, session_id: str) -> None:
+            self._schedule_replay_loaded_session(session_id)
+
+        async def _replay_loaded_session(self, session_id: str) -> None:
+            if not self.client:
+                return
+            try:
+                conversation_data = await self._bridge.executor.get_conversation()
+            except Exception:
+                logger.warning(
+                    "Failed to fetch conversation replay for session %s",
+                    session_id,
+                    exc_info=True,
+                )
+                return
+
+            updates = conversation_payload_to_session_updates(
+                conversation_data,
+                update_user_message_text=update_user_message_text,
+                update_agent_message_text=update_agent_message_text,
+                update_agent_thought_text=update_agent_thought_text,
+            )
+            logger.info("Replaying %s ACP chat updates for session %s", len(updates), session_id)
+            for update in updates:
+                await self.client.session_update(session_id, update)
+
+        def _schedule_replay_loaded_session(self, session_id: str) -> None:
+            async def _run() -> None:
+                await asyncio.sleep(0)
+                await self._replay_loaded_session(session_id)
+
+            task = asyncio.create_task(_run())
+            self._replay_tasks.add(task)
+
+            def _done_callback(done: asyncio.Task[Any]) -> None:
+                self._replay_tasks.discard(done)
+                try:
+                    done.result()
+                except Exception:
+                    logger.warning(
+                        "Session replay task failed for session %s",
+                        session_id,
+                        exc_info=True,
+                    )
+
+            task.add_done_callback(_done_callback)
+
+        async def _pre_prompt(self, session_id: str) -> None:
+            if session_id not in self._cwd_by_session:
+                self._ensure_session_defaults(session_id, str(workspace_dir))
+            logger.debug(
+                "prompt session_id=%r, known_sessions=%r",
+                session_id,
+                list(self._cwd_by_session.keys()),
+            )
 
     try:
-        await run_agent(BrokkAcpAgent(), use_unstable_protocol=True)
+        await run_agent(AcpStdioAgent(), use_unstable_protocol=True)
     finally:
-        await executor.stop()
+        await stdio_executor.stop()

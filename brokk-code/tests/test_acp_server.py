@@ -1,12 +1,14 @@
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from brokk_code.acp_server import (
     BASE_MODEL_IDS,
     DEFAULT_MODEL_SELECTION,
     DEFAULT_REASONING_LEVEL,
     REASONING_LEVEL_IDS,
-    BrokkAcpBridge,
+    AcpStdioBridge,
     _available_model_names,
     _build_available_models,
     _extract_session_id_for_cancel,
@@ -26,7 +28,6 @@ from brokk_code.acp_server import (
     normalize_mode,
     resolve_model_selection,
 )
-from brokk_code.workspace import resolve_workspace_dir
 
 
 def _text_block(value: str) -> dict[str, str]:
@@ -456,242 +457,246 @@ def test_known_session_ids_handles_bad_payload() -> None:
     assert _known_session_ids("bad") == set()
 
 
-async def test_ensure_ready_bootstraps_session_before_wait_live() -> None:
-    calls: list[str] = []
+class MockAcpStdioExecutor:
+    """Mock AcpStdioExecutor for testing JSON-RPC method calls."""
 
-    class StubExecutor:
-        def __init__(self) -> None:
-            self.workspace_dir = Path("/initial")
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, dict[str, Any]]] = []
+        self.next_result: dict[str, Any] = {}
 
-        async def start(self) -> None:
-            calls.append("start")
-
-    bridge = BrokkAcpBridge(StubExecutor())  # type: ignore[arg-type]
-    await bridge.ensure_ready("/tmp/project")
-
-    assert calls == ["start"]
-    assert bridge.executor.workspace_dir == resolve_workspace_dir(Path("/tmp/project"))
+    async def _send_request(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
+        self.calls.append((method, params))
+        return self.next_result
 
 
-async def test_start_and_create_session_avoids_bootstrap_on_first_call() -> None:
-    calls: list[str] = []
+@pytest.mark.asyncio
+async def test_acp_stdio_executor_get_models() -> None:
+    from brokk_code.executor import AcpStdioExecutor
 
-    class StubExecutor:
-        def __init__(self) -> None:
-            self.workspace_dir = Path("/initial")
+    executor = AcpStdioExecutor()
+    executor._send_request = MockAcpStdioExecutor()._send_request.__get__(executor)  # type: ignore[method-assign]
 
-        async def start(self) -> None:
-            calls.append("start")
+    mock = MockAcpStdioExecutor()
+    mock.next_result = {"models": {"gpt-4": "openai"}}
 
-        async def create_session(self, name: str = "ignored") -> str:
-            calls.append(f"create_session:{name}")
-            return "session-real"
+    async def mock_send(method: str, params: dict[str, Any]) -> dict[str, Any]:
+        mock.calls.append((method, params))
+        return mock.next_result
 
-        async def wait_live(self) -> bool:
-            calls.append("wait_live")
-            return True
+    executor._send_request = mock_send  # type: ignore[method-assign]
 
-    bridge = BrokkAcpBridge(StubExecutor())  # type: ignore[arg-type]
-    session_id = await bridge.start_and_create_session(name="Requested Session")
+    result = await executor.get_models()
 
-    assert session_id == "session-real"
-    assert calls == ["start", "create_session:Requested Session", "wait_live"]
+    assert len(mock.calls) == 1
+    assert mock.calls[0] == ("models/list", {})
+    assert result == {"models": {"gpt-4": "openai"}}
 
 
-async def test_ensure_ready_noops_when_workspace_is_unchanged(tmp_path: Path) -> None:
-    calls: list[str] = []
+@pytest.mark.asyncio
+async def test_acp_stdio_executor_get_context() -> None:
+    from brokk_code.executor import AcpStdioExecutor
 
-    class StubExecutor:
-        def __init__(self, workspace_dir: Path) -> None:
-            self.workspace_dir = workspace_dir
+    executor = AcpStdioExecutor()
+    mock = MockAcpStdioExecutor()
+    mock.next_result = {"fragments": [{"id": "frag-1", "type": "PROJECT_PATH"}]}
 
-        async def start(self) -> None:
-            calls.append("start")
+    async def mock_send(method: str, params: dict[str, Any]) -> dict[str, Any]:
+        mock.calls.append((method, params))
+        return mock.next_result
 
-    bridge = BrokkAcpBridge(StubExecutor(tmp_path))  # type: ignore[arg-type]
+    executor._send_request = mock_send  # type: ignore[method-assign]
 
-    await bridge.ensure_ready(str(tmp_path))
-    await bridge.ensure_ready(str(tmp_path))
+    result = await executor.get_context()
 
-    assert calls == ["start"]
+    assert len(mock.calls) == 1
+    assert mock.calls[0] == ("context/get", {})
+    assert result == {"fragments": [{"id": "frag-1", "type": "PROJECT_PATH"}]}
 
 
-async def test_ensure_ready_restarts_executor_when_workspace_changes(tmp_path: Path) -> None:
-    calls: list[str] = []
-    first = tmp_path / "first"
-    second = tmp_path / "second"
-    first.mkdir()
-    second.mkdir()
+@pytest.mark.asyncio
+async def test_acp_stdio_executor_add_context_files() -> None:
+    from brokk_code.executor import AcpStdioExecutor
 
-    class StubExecutor:
-        def __init__(self, workspace_dir: Path) -> None:
-            self.workspace_dir = workspace_dir
-            self.session_id = "session-1"
-            self.base_url = "http://127.0.0.1:9999"
+    executor = AcpStdioExecutor()
+    mock = MockAcpStdioExecutor()
+    mock.next_result = {"addedFragmentIds": ["frag-1", "frag-2"]}
 
-        async def start(self) -> None:
-            calls.append(f"start:{self.workspace_dir}")
+    async def mock_send(method: str, params: dict[str, Any]) -> dict[str, Any]:
+        mock.calls.append((method, params))
+        return mock.next_result
 
-        async def stop(self) -> None:
-            calls.append("stop")
+    executor._send_request = mock_send  # type: ignore[method-assign]
 
-        async def cancel_job(self, job_id: str) -> None:
-            calls.append(f"cancel_job:{job_id}")
+    result = await executor.add_context_files(["src/main.py", "README.md"])
 
-    bridge = BrokkAcpBridge(StubExecutor(first))  # type: ignore[arg-type]
-    bridge._active_job_by_session["acp-1"] = "job-1"
+    assert len(mock.calls) == 1
+    assert mock.calls[0] == ("context/add-files", {"relativePaths": ["src/main.py", "README.md"]})
+    assert result == {"addedFragmentIds": ["frag-1", "frag-2"]}
 
-    await bridge.ensure_ready(str(first))
-    await bridge.ensure_ready(str(second))
 
-    assert calls == [
-        f"start:{first.resolve()}",
-        "cancel_job:job-1",
-        "stop",
-        f"start:{second.resolve()}",
+@pytest.mark.asyncio
+async def test_acp_stdio_executor_drop_context_fragments() -> None:
+    from brokk_code.executor import AcpStdioExecutor
+
+    executor = AcpStdioExecutor()
+    mock = MockAcpStdioExecutor()
+    mock.next_result = {"droppedFragmentIds": ["frag-1"]}
+
+    async def mock_send(method: str, params: dict[str, Any]) -> dict[str, Any]:
+        mock.calls.append((method, params))
+        return mock.next_result
+
+    executor._send_request = mock_send  # type: ignore[method-assign]
+
+    result = await executor.drop_context_fragments(["frag-1", "frag-2"])
+
+    assert len(mock.calls) == 1
+    assert mock.calls[0] == ("context/drop", {"fragmentIds": ["frag-1", "frag-2"]})
+    assert result == {"droppedFragmentIds": ["frag-1"]}
+
+
+@pytest.mark.asyncio
+async def test_acp_stdio_executor_list_sessions() -> None:
+    from brokk_code.executor import AcpStdioExecutor
+
+    executor = AcpStdioExecutor()
+    mock = MockAcpStdioExecutor()
+    mock.next_result = {"sessions": [{"id": "uuid-1", "name": "Session 1"}]}
+
+    async def mock_send(method: str, params: dict[str, Any]) -> dict[str, Any]:
+        mock.calls.append((method, params))
+        return mock.next_result
+
+    executor._send_request = mock_send  # type: ignore[method-assign]
+
+    result = await executor.list_sessions()
+
+    assert len(mock.calls) == 1
+    assert mock.calls[0] == ("sessions/list", {})
+    assert result == {"sessions": [{"id": "uuid-1", "name": "Session 1"}]}
+
+
+# ── AcpStdioBridge tests ──────────────────────────────────────────────
+
+
+class StubStdioExecutor:
+    """Minimal stub for AcpStdioExecutor used in AcpStdioBridge tests."""
+
+    def __init__(self) -> None:
+        self.workspace_dir = Path("/stub/workspace")
+        self.session_id: str | None = None
+        self.calls: list[str] = []
+
+    def check_alive(self) -> bool:
+        return True
+
+    async def start(self) -> None:
+        self.calls.append("start")
+
+    async def stop(self) -> None:
+        self.calls.append("stop")
+
+    async def initialize(self) -> dict[str, Any]:
+        self.calls.append("initialize")
+        return {}
+
+    async def new_session(self, working_directory: str) -> str:
+        self.calls.append(f"new_session:{working_directory}")
+        return "stub-session-id"
+
+    async def list_sessions(self) -> dict[str, Any]:
+        self.calls.append("list_sessions")
+        return {"sessions": []}
+
+    async def switch_session(self, session_id: str) -> dict[str, Any]:
+        self.calls.append(f"switch_session:{session_id}")
+        return {"status": "ok", "sessionId": session_id}
+
+    async def get_conversation(self) -> dict[str, Any]:
+        self.calls.append("get_conversation")
+        return {"entries": []}
+
+
+@pytest.mark.asyncio
+async def test_stdio_bridge_ensure_ready_starts_once() -> None:
+    executor = StubStdioExecutor()
+    bridge = AcpStdioBridge(executor)  # type: ignore[arg-type]
+
+    await bridge.ensure_ready("/project/a")
+    await bridge.ensure_ready("/project/a")
+
+    assert bridge._started is True
+    assert executor.calls == [
+        "start",
+        "initialize",
+        "new_session:/project/a",
     ]
-    assert bridge.executor.workspace_dir == second.resolve()
-    assert bridge.executor.session_id is None
-    assert bridge.executor.base_url is None
 
 
-async def test_prompt_standard_flow_calls_submit_job_and_streams_tokens(tmp_path: Path) -> None:
-    updates: list[tuple[str, dict[str, str]]] = []
-    job_submitted = False
+@pytest.mark.asyncio
+async def test_stdio_bridge_ensure_ready_concurrent_calls_start_once() -> None:
+    import asyncio
 
-    class StubExecutor:
-        def __init__(self, workspace_dir: Path):
-            self.workspace_dir = workspace_dir
+    executor = StubStdioExecutor()
+    bridge = AcpStdioBridge(executor)  # type: ignore[arg-type]
 
-        async def start(self) -> None:
-            pass
-
-        async def create_session(self, name: str = "ignored") -> str:
-            return "session-1"
-
-        async def wait_live(self) -> bool:
-            return True
-
-        async def switch_session(self, sid: str) -> bool:
-            return True
-
-        async def submit_job(
-            self,
-            task_input: str,
-            planner_model: str,
-            code_model: str | None = None,
-            reasoning_level: str | None = None,
-            reasoning_level_code: str | None = None,
-            mode: str = "LUTZ",
-            session_id: str | None = None,
-            **kwargs: Any,
-        ) -> str:
-            nonlocal job_submitted
-            job_submitted = True
-            assert task_input == "hello"
-            assert session_id == "acp-session-1"
-            return "job-1"
-
-        async def stream_events(self, job_id: str):
-            yield {"type": "LLM_TOKEN", "data": {"token": "abc"}}
-
-    async def send_update(session_id: str, update: dict[str, str]) -> None:
-        updates.append((session_id, update))
-
-    def update_agent_message_text(text: str) -> dict[str, str]:
-        return {"sessionUpdate": "agent_message_chunk", "text": text}
-
-    bridge = BrokkAcpBridge(StubExecutor(tmp_path))  # type: ignore[arg-type]
-    await bridge.prompt(
-        prompt=[{"type": "text", "text": "hello"}],
-        session_id="acp-session-1",
-        mode="LUTZ",
-        planner_model="gpt-5.3-codex",
-        code_model="gemini-3-flash-preview",
-        reasoning_level="low",
-        reasoning_level_code="disable",
-        send_update=send_update,
-        update_agent_message_text=update_agent_message_text,
+    await asyncio.gather(
+        bridge.ensure_ready("/project/a"),
+        bridge.ensure_ready("/project/a"),
+        bridge.ensure_ready("/project/a"),
     )
 
-    assert job_submitted
-    # Only one update for the token "abc"
-    assert len(updates) == 1
-    assert updates[0][1]["text"] == "abc"
+    assert bridge._started is True
+    start_count = executor.calls.count("start")
+    assert start_count == 1, f"Expected start called once, got {start_count}: {executor.calls}"
 
 
-async def test_prompt_context_command_renders_snapshot_without_job(tmp_path: Path) -> None:
-    updates: list[tuple[str, dict[str, Any]]] = []
-    job_submitted = False
+@pytest.mark.asyncio
+async def test_stdio_bridge_not_started_initially() -> None:
+    executor = StubStdioExecutor()
+    bridge = AcpStdioBridge(executor)  # type: ignore[arg-type]
 
-    class StubExecutor:
-        async def start(self) -> None:
-            pass
+    assert bridge._started is False
 
-        async def create_session(self, name: str) -> str:
-            return "session-1"
 
-        async def wait_live(self) -> bool:
-            return True
+@pytest.mark.asyncio
+async def test_stdio_executor_switch_session_sends_correct_method() -> None:
+    from brokk_code.executor import AcpStdioExecutor
 
-        async def switch_session(self, sid: str) -> bool:
-            return True
+    executor = AcpStdioExecutor()
+    mock = MockAcpStdioExecutor()
+    mock.next_result = {"status": "ok", "sessionId": "uuid-1"}
 
-        async def get_context(self) -> dict[str, Any]:
-            return {
-                "fragments": [
-                    {"shortDescription": "file.py", "tokens": 1500, "pinned": True},
-                    {"shortDescription": "other.txt", "tokens": 500, "readonly": True},
-                    {"shortDescription": "a.md", "tokens": 400},
-                    {"shortDescription": "b.md", "tokens": 300},
-                    {"shortDescription": "c.md", "tokens": 200},
-                    {"shortDescription": "d.md", "tokens": 100},
-                ],
-                "usedTokens": 1234,
-                "maxTokens": 200000,
-                "branch": "main",
-                "totalCost": 0.0567,
-            }
+    async def mock_send(method: str, params: dict[str, Any]) -> dict[str, Any]:
+        mock.calls.append((method, params))
+        return mock.next_result
 
-        async def submit_job(self, **kwargs: Any) -> str:
-            nonlocal job_submitted
-            job_submitted = True
-            return "job-1"
+    executor._send_request = mock_send  # type: ignore[method-assign]
 
-    async def send_update(session_id: str, update: dict[str, Any]) -> None:
-        updates.append((session_id, update))
+    result = await executor.switch_session("uuid-1")
 
-    def update_agent_message_text(text: str) -> dict[str, str]:
-        return {"sessionUpdate": "agent_message_chunk", "text": text}
+    assert len(mock.calls) == 1
+    assert mock.calls[0] == ("session/switch", {"sessionId": "uuid-1"})
+    assert result == {"status": "ok", "sessionId": "uuid-1"}
+    assert executor.session_id == "uuid-1"
 
-    bridge = BrokkAcpBridge(StubExecutor())  # type: ignore[arg-type]
-    # In ACP mode, do NOT emit context snapshots after prompt completion via automatic means.
-    # The /context command explicitly generates one.
-    await bridge.prompt(
-        prompt="/context",
-        session_id="acp-1",
-        mode="LUTZ",
-        planner_model="gpt-5.3-codex",
-        code_model=None,
-        reasoning_level=None,
-        reasoning_level_code=None,
-        send_update=send_update,
-        update_agent_message_text=update_agent_message_text,
-    )
 
-    assert not job_submitted
-    assert len(updates) == 1
-    assert updates[0][1]["sessionUpdate"] == "agent_message_chunk"
-    table = updates[0][1]["text"]
-    assert "| Fragment | Tokens | % Context |" in table
-    assert "|---|---:|---:|" in table
-    assert "| file.py | 1,500 | 0.75% |" in table
-    assert "| other.txt | 500 | 0.25% |" in table
-    assert "| a.md | 400 | 0.20% |" in table
-    assert "| b.md | 300 | 0.15% |" in table
-    assert "| (other) | 300 | 0.15% |" in table
-    assert "| c.md |" not in table
-    assert "| d.md |" not in table
-    assert table.index("| file.py |") < table.index("| other.txt |")
-    assert "**Total Tokens:** 1,234 / 200,000" in table
-    assert "![Token usage](data:image/png;base64," in table
+@pytest.mark.asyncio
+async def test_stdio_executor_get_conversation_sends_correct_method() -> None:
+    from brokk_code.executor import AcpStdioExecutor
+
+    executor = AcpStdioExecutor()
+    mock = MockAcpStdioExecutor()
+    mock.next_result = {"entries": [{"sequence": 1, "isCompressed": False}]}
+
+    async def mock_send(method: str, params: dict[str, Any]) -> dict[str, Any]:
+        mock.calls.append((method, params))
+        return mock.next_result
+
+    executor._send_request = mock_send  # type: ignore[method-assign]
+
+    result = await executor.get_conversation()
+
+    assert len(mock.calls) == 1
+    assert mock.calls[0] == ("context/get-conversation", {})
+    assert result == {"entries": [{"sequence": 1, "isCompressed": False}]}

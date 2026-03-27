@@ -3,6 +3,7 @@ package ai.brokk.concurrent;
 import ai.brokk.exception.GlobalExceptionHandler;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -70,6 +71,24 @@ public final class ExecutorsUtil {
         };
         var delegate = Executors.newThreadPerTaskExecutor(factory);
         return new LoggingExecutorService(delegate, th -> GlobalExceptionHandler.handle(th, st -> {}));
+    }
+
+    public static ScheduledExecutorService newSingleThreadScheduledExecutor(String threadPrefix) {
+        var factory = new ThreadFactory() {
+            private int count = 0;
+
+            @Override
+            public synchronized Thread newThread(Runnable r) {
+                var t = Executors.defaultThreadFactory().newThread(r);
+                t.setName(threadPrefix + "-" + ++count);
+                t.setDaemon(true);
+                t.setUncaughtExceptionHandler((thr, ex) -> {
+                    GlobalExceptionHandler.handle(thr, ex, s -> {});
+                });
+                return t;
+            }
+        };
+        return Executors.newSingleThreadScheduledExecutor(factory);
     }
 
     public static ThreadFactory createNamedThreadFactory(String prefix) {
