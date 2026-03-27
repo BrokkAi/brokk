@@ -6,8 +6,7 @@ jgit = "7.5.0.202512021534-r"
 nullaway = "0.12.7"
 flatlaf = "3.6.2"
 flexmark = "0.64.8"
-treesitter = "0.26.6"
-treesitter-lang = "0.23.4"
+treesitter = "0.2.4"
 palantirJavaFormat = "2.73.0"
 picocli = "4.7.7"
 maven-embedder = "3.9.6"
@@ -107,19 +106,6 @@ jgit-ssh = { module = "org.eclipse.jgit:org.eclipse.jgit.ssh.apache", version.re
 jgit-ssh-agent = { module = "org.eclipse.jgit:org.eclipse.jgit.ssh.apache.agent", version.ref = "jgit" }
 bouncycastle = "org.bouncycastle:bcprov-jdk18on:1.80"
 
-# TreeSitter
-treesitter-core = { module = "io.github.bonede:tree-sitter", version.ref = "treesitter" }
-treesitter-java = { module = "io.github.bonede:tree-sitter-java", version.ref = "treesitter-lang" }
-treesitter-cpp = { module = "io.github.bonede:tree-sitter-cpp", version.ref = "treesitter-lang" }
-treesitter-csharp = "io.github.bonede:tree-sitter-c-sharp:0.23.1"
-treesitter-go = "io.github.bonede:tree-sitter-go:0.23.3"
-treesitter-javascript = "io.github.bonede:tree-sitter-javascript:0.23.1"
-treesitter-php = "io.github.bonede:tree-sitter-php:0.23.11"
-treesitter-python = { module = "io.github.bonede:tree-sitter-python", version.ref = "treesitter-lang" }
-treesitter-rust = "io.github.bonede:tree-sitter-rust:0.23.1"
-treesitter-typescript = "io.github.bonede:tree-sitter-typescript:0.21.1"
-treesitter-scala = "io.github.bonede:tree-sitter-scala:0.23.3"
-
 # Eclipse JDT
 eclipse-jdt-core = "org.eclipse.jdt:org.eclipse.jdt.core:3.44.0"
 
@@ -148,7 +134,6 @@ junit-runtime = ["junit-platform-engine", "junit-platform-launcher", "junit-plat
 ui = ["flatlaf", "flatlaf-extras", "rsyntaxtextarea", "autocomplete", "jgoodies-forms"]
 markdown = ["flexmark-core", "flexmark-html2md", "handlebars", "mustache"]
 git = ["jgit-core", "jgit-gpg", "jgit-ssh", "jgit-ssh-agent", "bouncycastle"]
-treesitter = ["treesitter-core", "treesitter-java", "treesitter-cpp", "treesitter-csharp", "treesitter-go", "treesitter-javascript", "treesitter-php", "treesitter-python", "treesitter-rust", "treesitter-typescript", "treesitter-scala"]
 maven-resolver = ["maven-embedder", "maven-resolver-api", "maven-resolver-spi", "maven-resolver-util", "maven-resolver-impl", "maven-resolver-connector-basic", "maven-resolver-transport-http"]
 apache = ["apache-compress", "apache-commons-text"]
 jdkmon = ["disco", "jdktools", "osdetector-plugin", "commons-compress", "xz"]

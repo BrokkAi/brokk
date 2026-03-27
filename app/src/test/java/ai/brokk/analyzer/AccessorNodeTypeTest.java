@@ -13,7 +13,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.treesitter.TSNode;
 import org.treesitter.TSParser;
-import org.treesitter.TreeSitterTypescript;
+import org.treesitter.TreeSitterTsx;
 
 public class AccessorNodeTypeTest {
 
@@ -39,7 +39,7 @@ public class AccessorNodeTypeTest {
             """;
 
         var parser = new TSParser();
-        parser.setLanguage(new TreeSitterTypescript());
+        parser.setLanguage(new TreeSitterTsx());
         var tree = parser.parseString(null, source);
         var root = tree.getRootNode();
 

@@ -10,6 +10,7 @@ rootProject.name = "brokk"
 
 include("app")
 include("errorprone-checks")
+include("treesitter-provider")
 
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.PREFER_PROJECT)
