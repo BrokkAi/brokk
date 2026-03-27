@@ -106,19 +106,6 @@ jgit-ssh = { module = "org.eclipse.jgit:org.eclipse.jgit.ssh.apache", version.re
 jgit-ssh-agent = { module = "org.eclipse.jgit:org.eclipse.jgit.ssh.apache.agent", version.ref = "jgit" }
 bouncycastle = "org.bouncycastle:bcprov-jdk18on:1.80"
 
-# TreeSitter
-treesitter-core = { module = "ai.brokk:tree-sitter", version.ref = "treesitter" }
-treesitter-java = { module = "ai.brokk:tree-sitter-java", version.ref = "treesitter" }
-treesitter-cpp = { module = "ai.brokk:tree-sitter-cpp", version.ref = "treesitter" }
-treesitter-csharp = { module = "ai.brokk:tree-sitter-c-sharp", version.ref = "treesitter" }
-treesitter-go = { module = "ai.brokk:tree-sitter-go", version.ref = "treesitter" }
-treesitter-javascript = { module = "ai.brokk:tree-sitter-javascript", version.ref = "treesitter" }
-treesitter-php = { module = "ai.brokk:tree-sitter-php", version.ref = "treesitter" }
-treesitter-python = { module = "ai.brokk:tree-sitter-python", version.ref = "treesitter" }
-treesitter-rust = { module = "ai.brokk:tree-sitter-rust", version.ref = "treesitter" }
-treesitter-tsx = { module = "ai.brokk:tree-sitter-tsx", version.ref = "treesitter" }
-treesitter-scala = { module = "ai.brokk:tree-sitter-scala", version.ref = "treesitter" }
-
 # Eclipse JDT
 eclipse-jdt-core = "org.eclipse.jdt:org.eclipse.jdt.core:3.44.0"
 
@@ -147,7 +134,6 @@ junit-runtime = ["junit-platform-engine", "junit-platform-launcher", "junit-plat
 ui = ["flatlaf", "flatlaf-extras", "rsyntaxtextarea", "autocomplete", "jgoodies-forms"]
 markdown = ["flexmark-core", "flexmark-html2md", "handlebars", "mustache"]
 git = ["jgit-core", "jgit-gpg", "jgit-ssh", "jgit-ssh-agent", "bouncycastle"]
-treesitter = ["treesitter-core", "treesitter-java", "treesitter-cpp", "treesitter-csharp", "treesitter-go", "treesitter-javascript", "treesitter-php", "treesitter-python", "treesitter-rust", "treesitter-tsx", "treesitter-scala"]
 maven-resolver = ["maven-embedder", "maven-resolver-api", "maven-resolver-spi", "maven-resolver-util", "maven-resolver-impl", "maven-resolver-connector-basic", "maven-resolver-transport-http"]
 apache = ["apache-compress", "apache-commons-text"]
 jdkmon = ["disco", "jdktools", "osdetector-plugin", "commons-compress", "xz"]
