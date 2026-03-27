@@ -113,13 +113,14 @@ export class ExecutorManager {
       body: JSON.stringify({
         taskInput,
         plannerModel: 'gpt-4o',
-        tags: { ...tags, mode: 'SEARCH' },
+        tags: { mode: 'SEARCH', ...tags },
         autoCompress: true
       })
     });
 
     if (!response.ok) {
-      throw new Error(`Failed to submit job: ${response.statusText}`);
+      const text = await response.text();
+      throw new Error(`Failed to submit job: ${response.statusText} - ${text}`);
     }
     const data = await response.json();
     return data.jobId;
