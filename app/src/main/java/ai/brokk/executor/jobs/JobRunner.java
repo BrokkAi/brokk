@@ -240,12 +240,13 @@ public final class JobRunner {
         PLAN,
         ISSUE,
         ISSUE_DIAGNOSE,
-        ISSUE_WRITER
+        ISSUE_WRITER,
+        SLOP_SCAN
     }
 
     static SearchPrompts.Objective objectiveForMode(Mode mode) {
         return switch (mode) {
-            case ASK, SEARCH, REVIEW, GUIDED_REVIEW -> SearchPrompts.Objective.ANSWER_ONLY;
+            case ASK, SEARCH, REVIEW, GUIDED_REVIEW, SLOP_SCAN -> SearchPrompts.Objective.ANSWER_ONLY;
             case LUTZ -> SearchPrompts.Objective.LUTZ;
             case PLAN, ARCHITECT, CODE, ISSUE, ISSUE_DIAGNOSE, ISSUE_WRITER -> SearchPrompts.Objective.TASKS_ONLY;
         };
@@ -415,7 +416,7 @@ public final class JobRunner {
                             }
                             case REVIEW -> service.nameOf(requireNonNull(reviewPlannerModel));
                             case GUIDED_REVIEW -> spec.plannerModel().trim();
-                            case ISSUE_DIAGNOSE, ISSUE_WRITER -> "(unused)";
+                            case ISSUE_DIAGNOSE, ISSUE_WRITER, SLOP_SCAN -> "(unused)";
                         };
                 String codeModelNameForLog =
                         switch (mode) {
@@ -426,12 +427,12 @@ public final class JobRunner {
                             case CODE -> service.nameOf(requireNonNull(codeModeModel));
                             case REVIEW -> "(default, ignored for REVIEW)";
                             case GUIDED_REVIEW -> "(unused)";
-                            case ISSUE_DIAGNOSE, ISSUE_WRITER -> "(unused)";
+                            case ISSUE_DIAGNOSE, ISSUE_WRITER, SLOP_SCAN -> "(unused)";
                         };
                 boolean usesDefaultCodeModel =
                         switch (mode) {
                             case ARCHITECT, LUTZ, ISSUE -> !hasCodeModelOverride;
-                            case ASK, SEARCH, PLAN, REVIEW, GUIDED_REVIEW -> true;
+                            case ASK, SEARCH, PLAN, REVIEW, GUIDED_REVIEW, SLOP_SCAN -> true;
                             case CODE -> !hasCodeModelOverride;
                             case ISSUE_DIAGNOSE, ISSUE_WRITER -> true;
                         };
@@ -1187,6 +1188,31 @@ public final class JobRunner {
                                                     jobId,
                                                     ioe.getMessage(),
                                                     ioe);
+                                        }
+                                    }
+                                    case SLOP_SCAN -> {
+                                        // Specialized search-based audit for code quality/complexity
+                                        try (var scope = cm.beginTaskUngrouped(spec.taskInput())) {
+                                            var context = cm.liveContext();
+                                            var scanModel = (spec.scanModel() != null && !spec.scanModel().isBlank())
+                                                    ? resolveModelOrThrow(
+                                                            spec.scanModel().trim(),
+                                                            spec.reasoningLevel(),
+                                                            spec.temperature())
+                                                    : defaultScanModel(spec);
+
+                                            var slopTools = new ai.brokk.tools.SlopScanTools(cm);
+                                            // SearchAgent allows injecting extra tools via ToolRegistry if we use the internal API,
+                                            // but for simplicity here we assume SlopScanTools are registered or used via specific agent logic.
+                                            var searchAgent = new LutzAgent(
+                                                    context,
+                                                    spec.taskInput(),
+                                                    requireNonNull(scanModel, "scan model unavailable for SLOP_SCAN"),
+                                                    objectiveForMode(Mode.SLOP_SCAN),
+                                                    scope);
+
+                                            var result = searchAgent.execute();
+                                            scope.append(result);
                                         }
                                     }
                                     default -> throw new IllegalStateException("Unhandled job mode: " + mode);
