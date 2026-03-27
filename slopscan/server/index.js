@@ -133,6 +133,8 @@ app.post('/api/scans', async (req, res) => {
 
           if (event.type === 'SLOP_FINDING') {
             findings.push(event.data);
+          } else if (event.type === 'LLM_TOKEN') {
+            process.stdout.write(event.data || '');
           } else if (event.type === 'NOTIFICATION') {
             const msg = event.data?.message;
             if (msg) {
