@@ -908,10 +908,7 @@ async def run_acp_server(
             update_agent_thought_text,
             update_user_message_text,
         )
-        from acp.agent import connection as acp_agent_connection
-        from acp.agent import router as acp_agent_router
         from acp.helpers import update_available_commands
-        from acp.meta import AGENT_METHODS
         from acp.schema import (
             AgentCapabilities,
             AvailableCommand,
@@ -921,7 +918,7 @@ async def run_acp_server(
             PromptCapabilities,
             ResumeSessionResponse,
             SessionCapabilities,
-            SessionConfigOption,
+            SessionConfigOptionSelect,
             SessionConfigSelectOption,
             SessionInfo,
             SessionListCapabilities,
@@ -929,10 +926,9 @@ async def run_acp_server(
             SessionModelState,
             SessionModeState,
             SessionResumeCapabilities,
-            SetSessionConfigOptionRequest,
             SetSessionConfigOptionResponse,
         )
-        from acp.utils import normalize_result
+
     except ImportError as e:
         raise RuntimeError(
             "ACP mode requires the official ACP Python SDK. "
@@ -959,30 +955,6 @@ async def run_acp_server(
         brokk_api_key=settings.get_brokk_api_key(),
     )
     bridge = BrokkAcpBridge(executor)
-
-    def _patch_acp_router_for_session_config_option() -> None:
-        if getattr(acp_agent_router, "_brokk_session_config_patch", False):
-            return
-        original_build_agent_router = acp_agent_router.build_agent_router
-
-        def patched_build_agent_router(agent: Any, use_unstable_protocol: bool = False) -> Any:
-            router = original_build_agent_router(agent, use_unstable_protocol=use_unstable_protocol)
-            router.route_request(
-                AGENT_METHODS["session_set_config_option"],
-                SetSessionConfigOptionRequest,
-                agent,
-                "set_session_config_option",
-                adapt_result=normalize_result,
-                unstable=True,
-            )
-            return router
-
-        acp_agent_router.build_agent_router = patched_build_agent_router
-        # AgentSideConnection captured a module-level symbol; patch it too.
-        acp_agent_connection.build_agent_router = patched_build_agent_router
-        acp_agent_router._brokk_session_config_patch = True
-
-    _patch_acp_router_for_session_config_option()
 
     class BrokkAcpAgent(Agent):
         def __init__(self) -> None:
@@ -1095,7 +1067,7 @@ async def run_acp_server(
         def _config_options_for_session(self, session_id: str) -> list[Any]:
             current_mode = self._mode_by_session.get(session_id, "LUTZ")
             options = [
-                SessionConfigOption.model_validate(
+                SessionConfigOptionSelect.model_validate(
                     {
                         "type": "select",
                         "id": "mode",
@@ -1117,7 +1089,7 @@ async def run_acp_server(
                 )
                 model_options = _model_options(self._catalog_for_session(session_id))
                 options.append(
-                    SessionConfigOption.model_validate(
+                    SessionConfigOptionSelect.model_validate(
                         {
                             "type": "select",
                             "id": "model",
@@ -1136,7 +1108,7 @@ async def run_acp_server(
                     current_model, self._catalog_for_session(session_id)
                 )
                 options.append(
-                    SessionConfigOption.model_validate(
+                    SessionConfigOptionSelect.model_validate(
                         {
                             "type": "select",
                             "id": "reasoning",
@@ -1515,7 +1487,7 @@ async def run_acp_server(
                 self._reasoning_by_session[session_id] = DEFAULT_VARIANT_VALUE
             return SetSessionModelResponse(_meta=self._variant_meta_for_session(session_id))
 
-        async def set_session_config_option(
+        async def set_config_option(
             self,
             config_id: str,
             session_id: str,
