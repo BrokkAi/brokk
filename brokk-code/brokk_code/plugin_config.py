@@ -223,11 +223,15 @@ HOOK_EOF
 
 _ENRICH_PROMPT_PY = """\
 #!/usr/bin/env python3
-\"\"\"UserPromptSubmit hook: extract identifiers from the user's prompt and inject
-Brokk tool routing context so Claude automatically uses semantic code intelligence.\"\"\"
+\"\"\"UserPromptSubmit hook: extract code identifiers from the user's prompt,
+call Brokk's analyzer via `brokk query` to find real definitions, and inject
+the results as additionalContext so Claude starts pre-oriented with actual
+code intelligence.\"\"\"
 
 import json
+import os
 import re
+import subprocess
 import sys
 
 
@@ -251,6 +255,23 @@ def extract_identifiers(text):
     return result
 
 
+def brokk_query(tool_name, json_args, cwd):
+    \"\"\"Call brokk query to run a real Brokk tool and return the result.\"\"\"
+    try:
+        result = subprocess.run(
+            ["brokk", "query", tool_name, json.dumps(json_args)],
+            capture_output=True,
+            text=True,
+            timeout=8,
+            cwd=cwd,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout.strip()
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        pass
+    return None
+
+
 def main():
     try:
         hook_input = json.load(sys.stdin)
@@ -263,21 +284,32 @@ def main():
 
     identifiers = extract_identifiers(prompt)
     if not identifiers:
-        # No code identifiers found -- no enrichment needed
         sys.exit(0)
 
-    # Build context injection with the extracted symbols
-    symbols_list = ", ".join(identifiers[:10])  # Limit to 10 to keep context small
-    patterns_json = json.dumps(identifiers[:10])
+    cwd = hook_input.get("cwd", os.getcwd())
+    patterns = identifiers[:8]  # Limit to keep query fast
 
-    context = (
-        f"[Brokk Code Intelligence] The user's prompt mentions these code symbols: {symbols_list}. "
-        f"Before writing code or making changes, call mcp__brokk__searchSymbols with "
-        f"patterns={patterns_json} to locate their definitions. "
-        f"Then call mcp__brokk__scanUsages on the most relevant symbols to understand "
-        f"the dependency graph. Use mcp__brokk__getClassSkeletons to understand API surfaces "
-        f"before modifying any class."
-    )
+    # Call Brokk's real analyzer to find symbol definitions
+    search_result = brokk_query("searchSymbols", {"patterns": patterns}, cwd)
+
+    if not search_result:
+        # Brokk query unavailable or no results -- fall back to just listing the symbols
+        # so Claude at least knows what to search for via MCP tools
+        context = (
+            f"[Brokk] Code symbols detected in prompt: {', '.join(patterns)}. "
+            f"Use mcp__brokk__searchSymbols to locate their definitions before making changes."
+        )
+    else:
+        # Inject the real search results as context
+        # Truncate if very long to avoid bloating context
+        if len(search_result) > 3000:
+            search_result = search_result[:3000] + "\\n... (truncated, use searchSymbols for full results)"
+        context = (
+            f"[Brokk Code Intelligence] Symbol definitions found for the user's request:\\n\\n"
+            f"{search_result}\\n\\n"
+            f"Use mcp__brokk__scanUsages on key symbols above to understand the dependency graph "
+            f"before making changes. Use mcp__brokk__getClassSkeletons for API surfaces."
+        )
 
     output = {
         "hookSpecificOutput": {

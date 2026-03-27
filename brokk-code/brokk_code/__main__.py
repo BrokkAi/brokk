@@ -895,6 +895,19 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     _add_common_runtime_args(mcp_pure_parser)
 
+    query_parser = subparsers.add_parser(
+        "query", help="Run a single Brokk tool query (no LLM, pure code intelligence)"
+    )
+    _add_common_runtime_args(query_parser)
+    query_parser.add_argument(
+        "tool_name",
+        help="Tool to run (e.g. searchSymbols, scanUsages, getClassSkeletons)",
+    )
+    query_parser.add_argument(
+        "json_args",
+        help='JSON arguments for the tool (e.g. \'{"patterns":["MyClass"]}\')',
+    )
+
     install_parser = subparsers.add_parser("install", help="Install integration settings")
     install_parser.add_argument(
         "target",
@@ -2107,6 +2120,18 @@ def main():
             jar_path=jar_path,
             executor_version=args.executor_version,
             passthrough_args=unknown,
+        )
+        return
+
+    if args.command == "query":
+        from brokk_code.query_launcher import run_query
+
+        run_query(
+            workspace_dir=workspace_path,
+            jar_path=jar_path,
+            executor_version=args.executor_version,
+            tool_name=args.tool_name,
+            json_args=args.json_args,
         )
         return
 

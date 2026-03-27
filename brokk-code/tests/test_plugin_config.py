@@ -123,21 +123,28 @@ def test_all_hook_scripts_executable(tmp_path):
 
 
 def test_enrich_prompt_script_extracts_identifiers(tmp_path):
-    """Verify the enrich_prompt.py hook produces valid output for prompts with code symbols."""
+    """Verify the enrich_prompt.py hook produces valid output for prompts with code symbols.
+
+    When brokk query is not available (as in tests), the script should fall back
+    to injecting the extracted symbol names with a hint to use MCP tools.
+    """
     import subprocess
 
     plugin_root = tmp_path / "brokk-plugin"
     install_claude_code_plugin(plugin_root=plugin_root)
 
     script = plugin_root / "hooks" / "enrich_prompt.py"
-    hook_input = json.dumps({"prompt": "Refactor the BrokkExternalMcpServer to use SearchTools"})
+    hook_input = json.dumps({
+        "prompt": "Refactor the BrokkExternalMcpServer to use SearchTools",
+        "cwd": str(tmp_path),
+    })
 
     result = subprocess.run(
         ["python3", str(script)],
         input=hook_input,
         capture_output=True,
         text=True,
-        timeout=5,
+        timeout=15,
     )
     assert result.returncode == 0
     output = json.loads(result.stdout)
