@@ -2,11 +2,45 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { apiClient } from "../lib/api-client";
 
+function parseLogs(rawLogs: string) {
+  const lines: string[] = [];
+  let currentLine = "";
+  let progress = 0;
+
+  for (let i = 0; i < rawLogs.length; i++) {
+    const char = rawLogs[i];
+    if (char === "\r") {
+      currentLine = "";
+    } else if (char === "\n") {
+      if (currentLine.trim()) {
+        lines.push(currentLine);
+      }
+      currentLine = "";
+    } else {
+      currentLine += char;
+    }
+
+    // Check for percentage in the active line buffer
+    const match = currentLine.match(/(\d+)%/);
+    if (match) {
+      progress = parseInt(match[1], 10);
+    }
+  }
+
+  // Push remaining buffer if not empty
+  if (currentLine.trim()) {
+    lines.push(currentLine);
+  }
+
+  return { lines, progress };
+}
+
 export function ScanPage() {
   const [repoUrl, setRepoUrl] = useState("");
   const [isScanning, setIsScanning] = useState(false);
   const [scanId, setScanId] = useState<string | null>(null);
   const [status, setStatus] = useState<string>("Initializing...");
+  const [progress, setProgress] = useState(0);
   const [feed, setFeed] = useState<Array<{ level: "info" | "warning" | "error"; message: string }>>([]);
   const navigate = useNavigate();
 
@@ -32,25 +66,18 @@ export function ScanPage() {
   useEffect(() => {
     if (!scanId || !isScanning) return;
 
-    let lastLogLength = 0;
-
     const poll = async () => {
       try {
         const scan = await apiClient.getScan(scanId);
         setStatus(scan.status);
 
-        if (scan.logs && scan.logs.length > lastLogLength) {
-          const newLogs = scan.logs.substring(lastLogLength);
-          // Split by newline and add each non-empty line to the feed
-          newLogs.split(/\r?\n/).forEach((line) => {
-            if (line.trim()) {
-              addLog(line);
-            }
-          });
-          lastLogLength = scan.logs.length;
+        if (scan.logs) {
+          const { lines, progress: latestProgress } = parseLogs(scan.logs);
+          setFeed(lines.map((l) => ({ level: "info", message: l })));
+          setProgress(latestProgress);
         }
-        
-        if (scan.status === 'CLONED') {
+
+        if (scan.status === "CLONED") {
           addLog("Repository cloned. Starting deep analysis...");
         } else if (scan.status === 'COMPLETED') {
           addLog("Analysis complete!", "info");
@@ -106,6 +133,21 @@ export function ScanPage() {
             <h2 className="text-xl font-semibold">Forensic Feed</h2>
             <span className="animate-pulse text-xs font-mono text-slop-accent">{status}</span>
           </div>
+
+          {progress > 0 && status === "PENDING" && (
+            <div className="mb-4">
+              <div className="mb-1 flex justify-between text-xs font-mono text-white/50">
+                <span>Cloning Progress</span>
+                <span>{progress}%</span>
+              </div>
+              <progress
+                className="h-2 w-full overflow-hidden rounded-full bg-slop-darker [&::-webkit-progress-bar]:bg-slop-darker [&::-webkit-progress-value]:bg-slop-accent [&::-moz-progress-bar]:bg-slop-accent"
+                value={progress}
+                max="100"
+              />
+            </div>
+          )}
+
           <div className="max-h-64 overflow-y-auto space-y-2">
             {feed.map((item, i) => (
               <FeedItem key={i} level={item.level} message={item.message} />
