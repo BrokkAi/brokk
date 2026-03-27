@@ -1,0 +1,141 @@
+package ai.brokk.tools;
+
+import ai.brokk.IConsoleIO;
+import ai.brokk.IContextManager;
+import ai.brokk.analyzer.CodeUnit;
+import ai.brokk.analyzer.IAnalyzer;
+import ai.brokk.analyzer.ProjectFile;
+import dev.langchain4j.agent.tool.P;
+import dev.langchain4j.agent.tool.Tool;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+/**
+ * Tools for performing "Forensic Audits" of code quality, focusing on complexity and semantics.
+ */
+public class SlopScanTools {
+    private static final Logger logger = LogManager.getLogger(SlopScanTools.class);
+
+    // Heuristic for cyclomatic complexity: count control flow keywords
+    private static final Pattern COMPLEXITY_KEYWORDS =
+            Pattern.compile("\\b(if|else|while|for|switch|case|catch|&&|\\|\\||\\?|break|continue)\\b");
+
+    private final IContextManager contextManager;
+
+    public SlopScanTools(IContextManager contextManager) {
+        this.contextManager = contextManager;
+    }
+
+    @Tool(
+            """
+            Computes the heuristic cyclomatic complexity for methods in the specified files.
+            Identifies methods that are potentially 'slop' due to excessive branching.
+            Returns a report of methods exceeding the provided threshold.
+            """)
+    public String computeCyclomaticComplexity(
+            @P("List of file paths relative to the project root.") List<String> filePaths,
+            @P("Complexity threshold above which a method is flagged (default 10).") int threshold) {
+
+        int limit = threshold > 0 ? threshold : 10;
+        IAnalyzer analyzer = contextManager.getAnalyzerUninterrupted();
+        StringBuilder report = new StringBuilder("Cyclomatic Complexity Report (Threshold: " + limit + "):\n");
+        boolean foundAny = false;
+
+        for (String path : filePaths) {
+            ProjectFile file = contextManager.toFile(path);
+            if (!file.exists()) continue;
+
+            List<CodeUnit> declarations = analyzer.getTopLevelDeclarations(file);
+            for (CodeUnit cu : declarations) {
+                foundAny |= analyzeUnitComplexity(analyzer, cu, limit, report);
+            }
+        }
+
+        return foundAny ? report.toString() : "No methods exceeded the complexity threshold of " + limit;
+    }
+
+    private boolean analyzeUnitComplexity(IAnalyzer analyzer, CodeUnit cu, int threshold, StringBuilder report) {
+        boolean flagged = false;
+        if (cu.isFunction()) {
+            String source = analyzer.getSource(cu, false).orElse("");
+            int complexity = 1; // Base complexity
+            Matcher matcher = COMPLEXITY_KEYWORDS.matcher(source);
+            while (matcher.find()) {
+                complexity++;
+            }
+
+            if (complexity > threshold) {
+                String finding = String.format(
+                        "[SLOP_FINDING] High Complexity: %s (CC: %d) in %s", cu.fqName(), complexity, cu.source());
+                contextManager.getIo().showNotification(IConsoleIO.NotificationRole.INFO, finding);
+                report.append("- ")
+                        .append(cu.fqName())
+                        .append(": ")
+                        .append(complexity)
+                        .append("\n");
+                flagged = true;
+            }
+        }
+
+        for (CodeUnit child : analyzer.getDirectChildren(cu)) {
+            flagged |= analyzeUnitComplexity(analyzer, child, threshold, report);
+        }
+        return flagged;
+    }
+
+    @Tool(
+            """
+            Analyzes comments in the specified files to distinguish between 'How' (redundant) vs 'Why' (semantic) comments.
+            Identifies 'How' comments as slop that should be refactored into cleaner code.
+            """)
+    public String analyzeCommentSemantics(
+            @P("List of file paths relative to the project root.") List<String> filePaths) {
+
+        IAnalyzer analyzer = contextManager.getAnalyzerUninterrupted();
+        StringBuilder report = new StringBuilder("Comment Semantics Analysis:\n");
+
+        for (String path : filePaths) {
+            ProjectFile file = contextManager.toFile(path);
+            if (!file.exists()) continue;
+
+            String content = file.read().orElse("");
+            // Simple heuristic: comments that repeat variable names or simple operations
+            // In a real implementation, this might call an LLM for classification.
+            List<String> howComments = findPotentialHowComments(content);
+
+            if (!howComments.isEmpty()) {
+                report.append("File: ").append(path).append("\n");
+                for (String comment : howComments) {
+                    String finding = "[SLOP_FINDING] Redundant 'How' Comment in " + path + ": " + comment;
+                    contextManager.getIo().showNotification(IConsoleIO.NotificationRole.INFO, finding);
+                    report.append("  - ").append(comment).append("\n");
+                }
+            }
+        }
+
+        return report.length() > 27 ? report.toString() : "No redundant 'How' comments detected.";
+    }
+
+    private List<String> findPotentialHowComments(String content) {
+        List<String> findings = new ArrayList<>();
+        // Match single line comments
+        Pattern commentPattern = Pattern.compile("//\\s*(.*)");
+        Matcher matcher = commentPattern.matcher(content);
+
+        while (matcher.find()) {
+            String commentText = matcher.group(1).toLowerCase();
+            // Heuristic: comments describing increment, assignment, or simple returns
+            if (commentText.contains("increment")
+                    || commentText.contains("set ")
+                    || commentText.contains("assign")
+                    || commentText.contains("return ")) {
+                findings.add(matcher.group(0));
+            }
+        }
+        return findings;
+    }
+}
