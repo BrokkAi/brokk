@@ -1,5 +1,6 @@
 package ai.brokk.analyzer;
 
+import ai.brokk.project.IProject;
 import java.util.List;
 import java.util.Map;
 
@@ -8,6 +9,12 @@ import java.util.Map;
  * Designed to be triggered by a Host IAnalyzer through the MultiAnalyzer.
  */
 public interface ITemplateAnalyzer {
+
+    /**
+     * Returns true if this template analyzer should be active for the given project.
+     * This typically checks for framework-specific markers, dependencies, or configuration files.
+     */
+    boolean isApplicable(IProject project);
 
     /**
      * @return The unique name of the analyzer (e.g., "AngularTemplateAnalyzer").
