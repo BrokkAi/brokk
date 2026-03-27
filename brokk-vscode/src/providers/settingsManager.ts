@@ -3,6 +3,15 @@ import * as path from "path";
 import * as os from "os";
 
 const BROKK_SERVICE_URL = "https://app.brokk.ai";
+const STAGING_SERVICE_URL = "https://brokk-backend-staging.up.railway.app";
+
+/**
+ * Returns the appropriate service URL based on the llmProxySetting in brokk.properties.
+ */
+function getServiceUrl(): string {
+  const setting = readProperty("llmProxySetting");
+  return setting === "STAGING" ? STAGING_SERVICE_URL : BROKK_SERVICE_URL;
+}
 
 /**
  * Returns the path to `brokk.properties` in the platform-appropriate config directory.
@@ -87,7 +96,7 @@ export function writeProperty(key: string, value: string): void {
  * Fetch the account balance from the Brokk API.
  */
 export async function fetchBalanceFromApi(key: string): Promise<number> {
-  const url = `${BROKK_SERVICE_URL}/api/payments/balance-lookup/${encodeURIComponent(key)}`;
+  const url = `${getServiceUrl()}/api/payments/balance-lookup/${encodeURIComponent(key)}`;
   const resp = await fetch(url);
   if (resp.status === 401) {
     throw new Error("Invalid Brokk Key (unauthorized)");
