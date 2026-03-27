@@ -5,10 +5,11 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { config } from './config.js';
 import { ExecutorManager } from './executor.js';
 
 const app = express();
-const port = process.env.PORT || 3001;
+const port = config.port;
 
 // Initialize Database
 const db = new Database('slopscan.db');
