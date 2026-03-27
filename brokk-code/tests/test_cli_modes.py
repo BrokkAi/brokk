@@ -2917,7 +2917,7 @@ def test_main_pr_review_uses_default_planner_model(monkeypatch, tmp_path) -> Non
 
     main_module.main()
 
-    assert captured["kwargs"]["planner_model"] == "gpt-5.1"
+    assert captured["kwargs"]["planner_model"] == "gpt-5.4"
 
 
 def test_infer_github_repo_from_remote_https_format(monkeypatch, tmp_path) -> None:

@@ -942,8 +942,8 @@ def _build_parser() -> argparse.ArgumentParser:
     exec_parser.add_argument(
         "--planner-model",
         type=str,
-        default="gpt-5.1",
-        help="LLM model for planning (default: gpt-5.1)",
+        default="gpt-5.4",
+        help="LLM model for planning (default: gpt-5.4)",
     )
     exec_parser.add_argument(
         "--code-model",
@@ -954,8 +954,8 @@ def _build_parser() -> argparse.ArgumentParser:
     exec_parser.add_argument(
         "--planner-reasoning-level",
         type=str,
-        default="medium",
-        help="Reasoning level for planner model (default: medium)",
+        default="high",
+        help="Reasoning level for planner model (default: high)",
     )
     exec_parser.add_argument(
         "--code-reasoning-level",
@@ -1005,7 +1005,7 @@ def _build_parser() -> argparse.ArgumentParser:
         required=True,
         help="The GitHub issue number to solve",
     )
-    _add_github_issue_args(issue_solve_parser, planner_model_default="gpt-5.1")
+    _add_github_issue_args(issue_solve_parser, planner_model_default="gpt-5.4")
     # Additional solve-specific arguments
     issue_solve_parser.add_argument(
         "--code-model",
@@ -1016,8 +1016,8 @@ def _build_parser() -> argparse.ArgumentParser:
     issue_solve_parser.add_argument(
         "--planner-reasoning-level",
         type=str,
-        default="medium",
-        help="Reasoning level for planner model (default: medium)",
+        default="high",
+        help="Reasoning level for planner model (default: high)",
     )
     issue_solve_parser.add_argument(
         "--code-reasoning-level",
@@ -1110,8 +1110,8 @@ def _build_parser() -> argparse.ArgumentParser:
     pr_review_parser.add_argument(
         "--planner-model",
         type=str,
-        default="gpt-5.1",
-        help="LLM model for the review (default: gpt-5.1)",
+        default="gpt-5.4",
+        help="LLM model for the review (default: gpt-5.4)",
     )
     pr_review_parser.add_argument(
         "--severity",
@@ -1706,9 +1706,12 @@ async def run_headless_job(
                 _record_issue_url_from_issue_writer_notification(message)
                 _record_issue_url(message)
                 level = str(data.get("level", event.get("level", "INFO"))).strip().upper()
-                # Keep headless issue mode quiet by default: warnings/errors matter,
-                # routine INFO/COST/CONFIRM notifications do not.
-                if not verbose and level not in {"WARN", "WARNING", "ERROR"}:
+                # LITE_AGENT always shows notifications; other modes only show WARN/ERROR unless verbose.
+                if (
+                    not verbose
+                    and mode not in {"LITE_AGENT", "LITE_PLAN"}
+                    and level not in {"WARN", "WARNING", "ERROR"}
+                ):
                     continue
                 _clear_spinner()
                 print(f"[{level}] {message}")
@@ -1721,7 +1724,8 @@ async def run_headless_job(
             elif event_type in {"TOKEN", "LLM_TOKEN"}:
                 text = str(data.get("token", event.get("text", "")))
                 _record_issue_url(text)
-                if verbose and text:
+                # LITE_AGENT always streams tokens; other modes only when verbose.
+                if (verbose or mode in {"LITE_AGENT", "LITE_PLAN"}) and text:
                     sys.stdout.write(text)
                     sys.stdout.flush()
                 continue
