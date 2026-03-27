@@ -57,7 +57,15 @@ export function ScanPage() {
           setIsScanning(false);
           setTimeout(() => navigate(`/scan-result/${scanId}`), 1000);
         } else if (scan.status === 'FAILED') {
-          const errorMsg = scan.result_json ? JSON.parse(scan.result_json).error : "Unknown error";
+          let errorMsg = "Unknown error";
+          if (scan.result_json) {
+            try {
+              const parsed = JSON.parse(scan.result_json);
+              errorMsg = parsed.error || scan.result_json;
+            } catch (e) {
+              errorMsg = scan.result_json;
+            }
+          }
           addLog(`Analysis failed: ${errorMsg}`, "error");
           setIsScanning(false);
         }
