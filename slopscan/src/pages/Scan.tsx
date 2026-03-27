@@ -150,14 +150,14 @@ export function ScanPage() {
                     ? "Finalizing clone..."
                     : "Cloning Progress"}
                 </span>
-                <span>{progress}%</span>
+                <span>{status === "CLONED" ? "" : `${progress}%`}</span>
               </div>
               <div className="h-2 w-full overflow-hidden rounded-full bg-slop-darker">
                 <div
                   className={`h-full bg-slop-accent transition-all duration-500 ease-out ${
                     progress === 100 || status === "CLONED" ? "animate-pulse" : ""
-                  }`}
-                  style={{ width: `${status === "CLONED" ? 100 : progress}%` }}
+                  } ${status === "CLONED" ? "w-full opacity-75" : ""}`}
+                  style={{ width: status === "CLONED" ? undefined : `${progress}%` }}
                 />
               </div>
             </div>
