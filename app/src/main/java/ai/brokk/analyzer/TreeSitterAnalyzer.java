@@ -350,7 +350,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             List<TSNode> decoratorNodes,
             TSNode cachedParent) {}
 
-    protected record LanguageSyntaxProfile(
+    public record LanguageSyntaxProfile(
             Set<String> classLikeNodeTypes,
             Set<String> functionLikeNodeTypes,
             Set<String> fieldLikeNodeTypes,

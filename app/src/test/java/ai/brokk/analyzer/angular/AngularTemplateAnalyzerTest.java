@@ -1,10 +1,15 @@
 package ai.brokk.analyzer.angular;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import ai.brokk.analyzer.CodeUnit;
+import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ITemplateAnalyzer;
 import ai.brokk.analyzer.Languages;
+import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.analyzer.TemplateAnalysisResult;
 import ai.brokk.testutil.InlineTestProjectCreator;
 import java.util.List;
 import java.util.Set;
@@ -56,6 +61,33 @@ class AngularTemplateAnalyzerTest {
 
             AngularTemplateAnalyzer analyzer = new AngularTemplateAnalyzer();
             assertTrue(analyzer.isApplicable(project), "Should be applicable when .component.html files exist");
+        }
+    }
+
+    @Test
+    void testAnalyzeTemplate_ParsesHtml() {
+        String html = """
+                <div class="container">
+                  <app-header></app-header>
+                  <router-outlet></router-outlet>
+                </div>
+                """;
+        try (var project = InlineTestProjectCreator.empty()
+                .addFileContents(html, "src/app/app.component.html")
+                .build()) {
+
+            AngularTemplateAnalyzer analyzer = new AngularTemplateAnalyzer();
+            ProjectFile templateFile = project.getAllFiles().iterator().next();
+            
+            // Mock host class
+            CodeUnit hostClass = CodeUnit.cls(templateFile, "app", "AppComponent");
+            IAnalyzer mockHost = Languages.TYPESCRIPT.createAnalyzer(project, IAnalyzer.ProgressListener.NOOP);
+
+            TemplateAnalysisResult result = analyzer.analyzeTemplate(mockHost, templateFile, hostClass);
+
+            assertFalse(result.discoveredUnits().isEmpty(), "Should discover HTML units");
+            assertTrue(result.discoveredUnits().stream().anyMatch(cu -> cu.shortName().equals("div")),
+                    "Should discover top-level 'div' element");
         }
     }
 
