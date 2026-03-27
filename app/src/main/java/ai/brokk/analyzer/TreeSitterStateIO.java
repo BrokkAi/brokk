@@ -293,6 +293,13 @@ public final class TreeSitterStateIO {
     public record FileStateEntryDto(ProjectFileDto key, FilePropertiesDto value) {}
 
     /**
+     * DTO for TemplateAnalysisResult persistence.
+     */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record TemplateAnalysisResultDto(
+            String analyzerName, ProjectFileDto templateFile, Set<CodeUnitDto> discoveredUnits, List<String> errors) {}
+
+    /**
      * DTO for TreeSitterAnalyzer.FileProperties without the TSTree.
      */
     @JsonIgnoreProperties(ignoreUnknown = true)
@@ -306,6 +313,72 @@ public final class TreeSitterStateIO {
             this.topLevelCodeUnits = topLevelCodeUnits;
             this.importStatements = importStatements;
             this.containsTests = containsTests;
+        }
+    }
+
+    @Blocking
+    public static void saveTemplateState(List<TemplateAnalysisResult> results, Path file) {
+        long startMs = System.currentTimeMillis();
+        Path temp = null;
+        Path parent = (file.getParent() != null ? file.getParent() : Path.of("."))
+                .toAbsolutePath()
+                .normalize();
+        try {
+            Files.createDirectories(parent);
+            temp = Files.createTempFile(parent, "." + file.getFileName().toString() + ".", ".tmp");
+
+            List<TemplateAnalysisResultDto> dtos = results.stream()
+                    .map(r -> new TemplateAnalysisResultDto(
+                            r.analyzerName(),
+                            toDto(r.templateFile()),
+                            r.discoveredUnits().stream()
+                                    .map(TreeSitterStateIO::toDto)
+                                    .collect(Collectors.toSet()),
+                            r.errors()))
+                    .toList();
+
+            try (var os = Files.newOutputStream(temp);
+                    var out = new LZ4FrameOutputStream(os)) {
+                SMILE_MAPPER.writeValue(out, dtos);
+            }
+
+            try {
+                Files.move(temp, file, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+            } catch (AtomicMoveNotSupportedException e) {
+                moveWithRetriesOrCopyFallback(temp, file);
+            }
+            log.debug("Saved template state to {} in {} ms", file, System.currentTimeMillis() - startMs);
+        } catch (IOException e) {
+            log.warn("Failed to save template state to {}: {}", file, e.getMessage());
+            if (temp != null) {
+                try {
+                    Files.deleteIfExists(temp);
+                } catch (IOException ignored) {
+                }
+            }
+        }
+    }
+
+    @Blocking
+    public static List<TemplateAnalysisResult> loadTemplateState(Path file) {
+        if (!Files.exists(file)) return List.of();
+        try (var in = new LZ4FrameInputStream(Files.newInputStream(file))) {
+            JsonNode root = SMILE_MAPPER.readTree(in);
+            List<TemplateAnalysisResultDto> dtos = SMILE_MAPPER
+                    .readerForListOf(TemplateAnalysisResultDto.class)
+                    .readValue(root);
+            return dtos.stream()
+                    .map(dto -> new TemplateAnalysisResult(
+                            dto.analyzerName(),
+                            fromDto(dto.templateFile()),
+                            dto.discoveredUnits().stream()
+                                    .map(TreeSitterStateIO::fromDto)
+                                    .collect(Collectors.toSet()),
+                            dto.errors()))
+                    .toList();
+        } catch (IOException e) {
+            log.debug("Failed to load template state from {}: {}", file, e.getMessage());
+            return List.of();
         }
     }
 

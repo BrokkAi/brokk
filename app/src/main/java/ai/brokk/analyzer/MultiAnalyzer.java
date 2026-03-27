@@ -378,6 +378,10 @@ public class MultiAnalyzer
         return Collections.unmodifiableMap(delegates);
     }
 
+    public Collection<ITemplateAnalyzer> getTemplateAnalyzers() {
+        return templateAnalyzers;
+    }
+
     @Override
     public Optional<IAnalyzer> subAnalyzer(Language language) {
         return delegates.values().stream()

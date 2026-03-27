@@ -37,4 +37,14 @@ public interface ITemplateAnalyzer {
      * @return Results to be merged into the final project report
      */
     TemplateAnalysisResult analyzeTemplate(IAnalyzer hostAnalyzer, ProjectFile templateFile, CodeUnit hostClass);
+
+    /**
+     * Returns the current analysis state for persistence.
+     */
+    List<TemplateAnalysisResult> snapshotState();
+
+    /**
+     * Restores the analyzer state from a previously persisted snapshot.
+     */
+    void restoreState(List<TemplateAnalysisResult> state);
 }
