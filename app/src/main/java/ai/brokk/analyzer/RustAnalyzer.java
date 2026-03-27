@@ -245,12 +245,14 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
     protected String getVisibilityPrefix(TSNode node, SourceContent sourceContent) {
         // A common pattern for Rust grammar is that visibility_modifier is a direct child.
         // We check the first few children as its position can vary slightly (e.g. after attributes).
-        for (int i = 0; i < node.getChildCount(); i++) {
-            TSNode child = node.getChild(i);
-            if (!child.isNull() && VISIBILITY_MODIFIER.equals(child.getType())) {
+        int i = 0;
+        for (TSNode child : node.getChildren()) {
+            if (VISIBILITY_MODIFIER.equals(child.getType())) {
                 String text = sourceContent.substringFrom(child).strip();
                 return text + " ";
             }
+            if (i > 5) break;
+            i++;
         }
         return "";
     }
@@ -274,7 +276,7 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
                 .stripLeading();
 
         TSNode bodyNode = fnNode.getChildByFieldName(getLanguageSyntaxProfile().bodyFieldName());
-        if (!bodyNode.isNull()) {
+        if (bodyNode != null) {
             // For functions/methods with a body
             return header + " { " + bodyPlaceholder() + " }";
         } else {
@@ -318,11 +320,10 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
      * and is acceptable.
      */
     private Optional<String> extractCoreTypeName(@Nullable TSNode typeNode, SourceContent sourceContent) {
-        if (typeNode == null || typeNode.isNull()) {
-            return Optional.empty();
-        }
-
+        if (typeNode == null) return Optional.empty();
         String nodeType = typeNode.getType();
+        if (nodeType == null) return Optional.empty();
+
         return switch (nodeType) {
             case TYPE_IDENTIFIER -> Optional.of(sourceContent.substringFrom(typeNode));
 
@@ -351,10 +352,10 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
                 if (typeNode.getChildCount() > 0) {
                     for (int i = 0; i < typeNode.getChildCount(); i++) {
                         TSNode child = typeNode.getChild(i);
-                        if (child != null && !child.isNull()) {
+                        if (child != null) {
                             String childType = child.getType();
                             // Skip punctuation like '(' ',' ')'
-                            if (!childType.equals("(") && !childType.equals(")") && !childType.equals(",")) {
+                            if (!"(".equals(childType) && !")".equals(childType) && !",".equals(childType)) {
                                 Optional<String> extracted = extractCoreTypeName(child, sourceContent);
                                 if (extracted.isPresent()) {
                                     yield extracted;
@@ -378,7 +379,7 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
     protected Optional<String> extractSimpleName(TSNode decl, SourceContent sourceContent) {
         if (IMPL_ITEM.equals(decl.getType())) {
             TSNode typeNode = decl.getChildByFieldName("type");
-            if (typeNode != null && !typeNode.isNull()) {
+            if (typeNode != null) {
                 Optional<String> name = extractCoreTypeName(typeNode, sourceContent);
                 if (name.isPresent()) {
                     return name;
@@ -479,8 +480,11 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
     protected Set<CodeUnit> resolveImports(ProjectFile file, List<String> importStatements) {
         String currentPackage = withTreeOf(
                 file,
-                tree -> withSource(
-                        file, sc -> determinePackageName(file, tree.getRootNode(), tree.getRootNode(), sc), ""),
+                tree -> {
+                    TSNode root = tree.getRootNode();
+                    if (root == null) return "";
+                    return withSource(file, sc -> determinePackageName(file, root, root, sc), "");
+                },
                 "");
         Set<CodeUnit> resolved = new HashSet<>();
 
@@ -573,7 +577,7 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
     protected void extractImports(
             Map<String, TSNode> capturedNodesForMatch, SourceContent sourceContent, List<ImportInfo> localImportInfos) {
         TSNode importNode = capturedNodesForMatch.get(RS_SYNTAX_PROFILE.importNodeType());
-        if (importNode == null || importNode.isNull()) {
+        if (importNode == null) {
             return;
         }
 
@@ -677,11 +681,13 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
 
     @Override
     protected boolean containsTestMarkers(TSTree tree, SourceContent sourceContent) {
+        TSNode root = tree.getRootNode();
+        if (root == null) return false;
         return withCachedQuery(
                 QueryType.DEFINITIONS,
                 query -> {
                     try (TSQueryCursor cursor = new TSQueryCursor()) {
-                        cursor.exec(query, tree.getRootNode(), sourceContent.text());
+                        cursor.exec(query, root, sourceContent.text());
 
                         TSQueryMatch match = new TSQueryMatch();
                         while (cursor.nextMatch(match)) {
@@ -690,7 +696,7 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
                                 if (TEST_MARKER.equals(captureName)) {
                                     // The capture is now directly on the attribute_item node
                                     TSNode attrItemNode = capture.getNode();
-                                    if (attrItemNode != null && !attrItemNode.isNull()) {
+                                    if (attrItemNode != null) {
                                         String content = sourceContent.substringFrom(attrItemNode);
                                         // Rust attributes look like #[test] or #[cfg(test)]
                                         if (content.contains("#[test]") || content.contains("#[cfg(test)]")) {

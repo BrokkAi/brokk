@@ -152,9 +152,14 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             if (source == null) {
                 return;
             }
-            query = new TSQuery(getTSLanguage(), source);
-            queryCompilationCount.incrementAndGet();
-            cache.put(type, query);
+            try {
+                query = new TSQuery(getTSLanguage(), source);
+                queryCompilationCount.incrementAndGet();
+                cache.put(type, query);
+            } catch (TSQueryException e) {
+                log.error("Failed to compile {} query: {}", type, e.getMessage(), e);
+                return;
+            }
         }
 
         fn.accept(query);
@@ -1664,8 +1669,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
      * @param node The TSNode to check.
      * @return true if the node is a class-like declaration, false otherwise.
      */
-    protected boolean isClassLike(TSNode node) {
-        if (node.isNull()) {
+    protected boolean isClassLike(@Nullable TSNode node) {
+        if (node == null) {
             return false;
         }
         return getLanguageSyntaxProfile().classLikeNodeTypes().contains(node.getType());
@@ -2014,7 +2019,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
      * Duplicate handling is controlled by shouldReplaceOnDuplicate().
      * Similar to addTopLevelCodeUnit but for nested elements (methods, class attributes, nested classes).
      */
-    private void addChildCodeUnit(CodeUnit cu, CodeUnit parentCu, FileAnalysisAccumulator acc) {
+    private void addChildCodeUnit(CodeUnit cu, @Nullable CodeUnit parentCu, FileAnalysisAccumulator acc) {
+        if (parentCu == null) {
+            addTopLevelCodeUnit(cu, acc, cu.source());
+            return;
+        }
         CodeUnit existingDuplicate = acc.findChildDuplicate(parentCu, cu);
 
         if (existingDuplicate == null) {
@@ -2083,13 +2092,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
      */
     protected Optional<TSNode> findDeclarator(
             TSNode parent, String simpleName, SourceContent sourceContent, String declaratorType, String nameField) {
-        if (parent.isNull()) return Optional.empty();
-        for (int i = 0; i < parent.getChildCount(); i++) {
-            TSNode child = parent.getChild(i);
-            if (child == null || child.isNull()) continue;
+        for (TSNode child : parent.getChildren()) {
             if (declaratorType.equals(child.getType())) {
                 TSNode nameNode = child.getChildByFieldName(nameField);
-                if (nameNode != null && !nameNode.isNull()) {
+                if (nameNode != null) {
                     if (simpleName.equals(sourceContent.substringFrom(nameNode).strip())) {
                         return Optional.of(child);
                     }
@@ -2105,9 +2111,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     protected String getPrefixText(
             TSNode parent, TSNode target, SourceContent sourceContent, Set<String> acceptedNodeTypes) {
         StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < parent.getChildCount(); i++) {
-            TSNode child = parent.getChild(i);
-            if (child == null || child.isNull() || child.getEndByte() > target.getStartByte()) break;
+        for (TSNode child : parent.getChildren()) {
+            if (child == null || child.getEndByte() > target.getStartByte()) break;
             if (acceptedNodeTypes.contains(child.getType())) {
                 String text = sourceContent.substringFrom(child).strip();
                 if (!text.isEmpty()) {
@@ -2162,10 +2167,257 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                         timing.parseStageFirstStartNanos().accumulateAndGet(__parseStart, Math::min);
                         timing.parseStageLastEndNanos().accumulateAndGet(__parseEnd, Math::max);
                     }
-                    TSNode rootNode = tree.getRootNode();
                     long __processStart = System.nanoTime();
-                    if (rootNode.isNull()) {
-                        log.warn("Parsing failed or produced null root node for {}", file);
+                    try {
+                        TSNode rootNode = tree.getRootNode();
+                        if (rootNode == null) {
+                            throw new RuntimeException("Failed to parse tree for " + file);
+                        }
+                        log.trace("Root node type for {}: {}", file, rootNode.getType());
+
+                        // Phase 1: Explicit Imports Pass (New Multi-Query Architecture)
+                        final String sourceText = sourceContent.text();
+                        withCachedQuery(
+                                QueryType.IMPORTS,
+                                importsQuery -> {
+                                    try (TSQueryCursor cursor = new TSQueryCursor()) {
+                                        cursor.exec(importsQuery, rootNode, sourceText);
+                                        TSQueryMatch match = new TSQueryMatch();
+                                        while (cursor.nextMatch(match)) {
+                                            Map<String, TSNode> capturedNodesForMatch = new HashMap<>();
+                                            for (TSQueryCapture capture : match.getCaptures()) {
+                                                String captureName =
+                                                        importsQuery.getCaptureNameForId(capture.getIndex());
+                                                TSNode node = capture.getNode();
+                                                if (node != null) {
+                                                    capturedNodesForMatch.putIfAbsent(captureName, node);
+                                                }
+                                            }
+                                            extractImports(capturedNodesForMatch, sourceContent, localImportInfos);
+                                        }
+                                    }
+                                    return true;
+                                },
+                                false);
+
+                        // Phase 2: Definitions Pass (Includes legacy imports pass if QueryType.IMPORTS is missing)
+                        List<Map.Entry<TSNode, DefinitionInfoRecord>> declarationNodes =
+                                collectDefinitions(rootNode, sourceContent, localImportInfos, file);
+
+                        List<Map.Entry<TSNode, DefinitionInfoRecord>> sortedDeclarationEntries =
+                                declarationNodes.stream()
+                                        .sorted(Comparator.comparingInt(
+                                                entry -> entry.getKey().getStartByte()))
+                                        .toList();
+
+                        for (var entry : sortedDeclarationEntries) {
+                            TSNode node = entry.getKey();
+                            DefinitionInfoRecord defInfo = entry.getValue();
+                            String primaryCaptureName = defInfo.primaryCaptureName();
+                            String simpleName = defInfo.simpleName();
+
+                            if (isClassLike(node)) {
+                                simpleName = determineClassName(node.getType(), simpleName);
+                            }
+
+                            if (simpleName.isBlank()) {
+                                log.warn(
+                                        "Simple name was null/blank for node type {} (capture: {}) in file {}. Skipping.",
+                                        node.getType(),
+                                        primaryCaptureName,
+                                        file);
+                                continue;
+                            }
+
+                            log.trace(
+                                    "Processing definition: Name='{}', Capture='{}', Node Type='{}'",
+                                    simpleName,
+                                    primaryCaptureName,
+                                    node.getType());
+
+                            SkeletonType skeletonType =
+                                    refineSkeletonType(primaryCaptureName, node, getLanguageSyntaxProfile());
+                            String packageName = determinePackageName(file, node, rootNode, sourceContent);
+                            List<ScopeSegment> scopeChain = buildScopeChain(node, rootNode, sourceContent);
+                            String classChain = buildClassChain(node, rootNode, sourceContent);
+
+                            Optional<String> receiverType =
+                                    extractReceiverType(node, primaryCaptureName, sourceContent);
+                            if (receiverType.isPresent()) {
+                                String receiverTypeText = receiverType.get();
+                                simpleName = receiverTypeText + "." + simpleName;
+                                classChain = receiverTypeText;
+                                scopeChain = List.of(new ScopeSegment(receiverTypeText, ScopeType.CLASS));
+                                log.trace(
+                                        "Adjusted method with receiver: simpleName='{}', classChain='{}'",
+                                        simpleName,
+                                        classChain);
+                            }
+
+                            if (shouldSkipNode(node, primaryCaptureName, sourceContent)) {
+                                log.trace(
+                                        "Skipping node {} ({}) in file {} due to language-specific filtering",
+                                        simpleName,
+                                        primaryCaptureName,
+                                        file.getFileName());
+                                continue;
+                            }
+
+                            CodeUnit cu = createCodeUnit(
+                                    file,
+                                    primaryCaptureName,
+                                    simpleName,
+                                    packageName,
+                                    classChain,
+                                    scopeChain,
+                                    node,
+                                    skeletonType);
+                            if (cu == null) {
+                                log.trace(
+                                        "createCodeUnit returned null for node {} ({}) in file {}",
+                                        simpleName,
+                                        primaryCaptureName,
+                                        file.getFileName());
+                                continue;
+                            }
+
+                            String enhancedFqName = enhanceFqName(cu.fqName(), primaryCaptureName, node, sourceContent);
+                            @Nullable
+                            String codeUnitSignature = extractSignature(primaryCaptureName, node, sourceContent);
+
+                            String cuLookupKey = (codeUnitSignature != null)
+                                    ? enhancedFqName + "(" + codeUnitSignature + ")@" + node.getStartByte()
+                                    : enhancedFqName;
+
+                            CodeUnit existingCUforKeyLookup = acc.getByFqName(cuLookupKey);
+                            if (existingCUforKeyLookup != null
+                                    && cu.isFunction()
+                                    && existingCUforKeyLookup.isFunction()) {
+                                cu = existingCUforKeyLookup;
+                            }
+
+                            if (!enhancedFqName.equals(cu.fqName())
+                                    || !Objects.equals(codeUnitSignature, cu.signature())) {
+                                String enhancedShortName = enhancedFqName;
+                                if (!cu.packageName().isEmpty() && enhancedFqName.startsWith(cu.packageName() + ".")) {
+                                    enhancedShortName = enhancedFqName.substring(
+                                            cu.packageName().length() + 1);
+                                }
+                                cu = new CodeUnit(
+                                        cu.source(), cu.kind(), cu.packageName(), enhancedShortName, codeUnitSignature);
+                            }
+
+                            String signature = buildSignatureString(
+                                    node,
+                                    simpleName,
+                                    sourceContent,
+                                    primaryCaptureName,
+                                    defInfo.modifierKeywords(),
+                                    file);
+
+                            // Use the already-resolved content node (from signature building) for hasBody computation
+                            SkeletonType refined =
+                                    refineSkeletonType(primaryCaptureName, node, getLanguageSyntaxProfile());
+                            ResolvedNodes resolved = resolveSignatureNodes(node, simpleName, refined, sourceContent);
+                            acc.setHasBody(
+                                    cu, computeHasBody(resolved.contentNode(), primaryCaptureName, sourceContent));
+                            if (CaptureNames.TYPEALIAS_DEFINITION.equals(primaryCaptureName)) {
+                                acc.setIsTypeAlias(cu, true);
+                            }
+
+                            if (existingCUforKeyLookup != null
+                                    && !existingCUforKeyLookup.equals(cu)
+                                    && shouldMergeSignaturesForSameFqn()) {
+                                List<String> existingSignatures = acc.getSignatures(existingCUforKeyLookup);
+                                boolean newIsExported = signature.trim().startsWith("export");
+                                boolean oldIsExported = !existingSignatures.isEmpty()
+                                        && existingSignatures.get(0).trim().startsWith("export");
+
+                                if (newIsExported && !oldIsExported) {
+                                    acc.remove(existingCUforKeyLookup);
+                                } else if (!newIsExported && oldIsExported) {
+                                    continue;
+                                }
+                            }
+
+                            if (!signature.isBlank()) {
+                                acc.addSignature(cu, signature);
+                            }
+
+                            cuToCaptureName.put(cu, primaryCaptureName);
+
+                            if (shouldAttachToParent(cu, node, primaryCaptureName, classChain, scopeChain)) {
+                                CodeUnit parentCu = findParentForCodeUnit(
+                                        cu, node, primaryCaptureName, classChain, scopeChain, acc, sourceContent);
+                                if (parentCu != null) {
+                                    addChildCodeUnit(cu, parentCu, acc);
+                                } else {
+                                    addTopLevelCodeUnit(cu, acc, file);
+                                }
+                            } else {
+                                addTopLevelCodeUnit(cu, acc, file);
+                            }
+
+                            var rangeNode = adjustSourceRangeNode(node, primaryCaptureName);
+                            var finalRange = (cu.isClass() || cu.isFunction())
+                                    ? expandRangeWithComments(rangeNode, sourceContent)
+                                    : new Range(
+                                            rangeNode.getStartByte(),
+                                            rangeNode.getEndByte(),
+                                            rangeNode.getStartPoint().getRow(),
+                                            rangeNode.getEndPoint().getRow(),
+                                            rangeNode.getStartByte());
+
+                            acc.addRange(cu, finalRange);
+                            acc.addLookupKey(cuLookupKey, cu);
+                        }
+
+                        List<String> localImportStatements = localImportInfos.stream()
+                                .map(ImportInfo::rawSnippet)
+                                .toList();
+
+                        // Register modules from imports
+                        wrapModulesFromImports(file, localImportStatements, rootNode, sourceContent, acc);
+
+                        // Synthesize implicit constructors
+                        for (CodeUnit cu : List.copyOf(acc.cuByFqName().values())) {
+                            if (cu.isClass()) {
+                                List<CodeUnit> kids = acc.getChildren(cu);
+                                boolean hasExplicitConstructor = kids.stream().anyMatch(k -> {
+                                    String capture = cuToCaptureName.getOrDefault(k, "");
+                                    return isConstructor(k, cu, capture);
+                                });
+
+                                if (!hasExplicitConstructor) {
+                                    String classCaptureName = cuToCaptureName.getOrDefault(cu, "");
+                                    CodeUnit implicit = createImplicitConstructor(cu, classCaptureName);
+                                    if (implicit != null) {
+                                        acc.registerCodeUnit(implicit);
+                                        acc.setHasBody(implicit, true);
+                                        acc.addChild(cu, implicit);
+                                    }
+                                }
+                            }
+                        }
+
+                        boolean containsTests = containsTestMarkers(tree, sourceContent);
+                        Map<CodeUnit, CodeUnitProperties> localStates = acc.toCodeUnitProperties();
+
+                        long __processEnd = System.nanoTime();
+                        if (timing != null) {
+                            timing.processStageNanos().addAndGet(__processEnd - __processStart);
+                            timing.processStageFirstStartNanos().accumulateAndGet(__processStart, Math::min);
+                            timing.processStageLastEndNanos().accumulateAndGet(__processEnd, Math::max);
+                        }
+                        return new FileAnalysisResult(
+                                acc.topLevelCUs().stream().distinct().toList(),
+                                Collections.unmodifiableMap(localStates),
+                                acc.codeUnitsBySymbol().entrySet().stream()
+                                        .collect(Collectors.toMap(Map.Entry::getKey, e -> new HashSet<>(e.getValue()))),
+                                Collections.unmodifiableList(localImportInfos),
+                                containsTests);
+                    } catch (TSException | IllegalStateException | IndexOutOfBoundsException e) {
+                        log.warn("Parsing failed or produced null root node for {}", file, e);
                         long __processEnd = System.nanoTime();
                         if (timing != null) {
                             timing.processStageNanos().addAndGet(__processEnd - __processStart);
@@ -2173,236 +2425,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                             timing.processStageLastEndNanos().accumulateAndGet(__processEnd, Math::max);
                         }
                         return new FileAnalysisResult(List.of(), Map.of(), Map.of(), List.of(), false);
+                    } catch (Exception e) {
+                        log.warn("Parsing failed due to unknown reason {}", file);
+                        throw e;
                     }
-                    log.trace("Root node type for {}: {}", file, rootNode.getType());
-
-                    // Phase 1: Explicit Imports Pass (New Multi-Query Architecture)
-                    final String sourceText = sourceContent.text();
-                    withCachedQuery(
-                            QueryType.IMPORTS,
-                            importsQuery -> {
-                                try (TSQueryCursor cursor = new TSQueryCursor()) {
-                                    cursor.exec(importsQuery, rootNode, sourceText);
-                                    TSQueryMatch match = new TSQueryMatch();
-                                    while (cursor.nextMatch(match)) {
-                                        Map<String, TSNode> capturedNodesForMatch = new HashMap<>();
-                                        for (TSQueryCapture capture : match.getCaptures()) {
-                                            String captureName = importsQuery.getCaptureNameForId(capture.getIndex());
-                                            TSNode node = capture.getNode();
-                                            if (node != null && !node.isNull()) {
-                                                capturedNodesForMatch.putIfAbsent(captureName, node);
-                                            }
-                                        }
-                                        extractImports(capturedNodesForMatch, sourceContent, localImportInfos);
-                                    }
-                                }
-                                return true;
-                            },
-                            false);
-
-                    // Phase 2: Definitions Pass (Includes legacy imports pass if QueryType.IMPORTS is missing)
-                    List<Map.Entry<TSNode, DefinitionInfoRecord>> declarationNodes =
-                            collectDefinitions(rootNode, sourceContent, localImportInfos, file);
-
-                    List<Map.Entry<TSNode, DefinitionInfoRecord>> sortedDeclarationEntries = declarationNodes.stream()
-                            .sorted(Comparator.comparingInt(
-                                    entry -> entry.getKey().getStartByte()))
-                            .toList();
-
-                    for (var entry : sortedDeclarationEntries) {
-                        TSNode node = entry.getKey();
-                        DefinitionInfoRecord defInfo = entry.getValue();
-                        String primaryCaptureName = defInfo.primaryCaptureName();
-                        String simpleName = defInfo.simpleName();
-
-                        if (isClassLike(node)) {
-                            simpleName = determineClassName(node.getType(), simpleName);
-                        }
-
-                        if (simpleName.isBlank()) {
-                            log.warn(
-                                    "Simple name was null/blank for node type {} (capture: {}) in file {}. Skipping.",
-                                    node.getType(),
-                                    primaryCaptureName,
-                                    file);
-                            continue;
-                        }
-
-                        log.trace(
-                                "Processing definition: Name='{}', Capture='{}', Node Type='{}'",
-                                simpleName,
-                                primaryCaptureName,
-                                node.getType());
-
-                        SkeletonType skeletonType =
-                                refineSkeletonType(primaryCaptureName, node, getLanguageSyntaxProfile());
-                        String packageName = determinePackageName(file, node, rootNode, sourceContent);
-                        List<ScopeSegment> scopeChain = buildScopeChain(node, rootNode, sourceContent);
-                        String classChain = buildClassChain(node, rootNode, sourceContent);
-
-                        Optional<String> receiverType = extractReceiverType(node, primaryCaptureName, sourceContent);
-                        if (receiverType.isPresent()) {
-                            String receiverTypeText = receiverType.get();
-                            simpleName = receiverTypeText + "." + simpleName;
-                            classChain = receiverTypeText;
-                            scopeChain = List.of(new ScopeSegment(receiverTypeText, ScopeType.CLASS));
-                            log.trace(
-                                    "Adjusted method with receiver: simpleName='{}', classChain='{}'",
-                                    simpleName,
-                                    classChain);
-                        }
-
-                        if (shouldSkipNode(node, primaryCaptureName, sourceContent)) {
-                            log.trace(
-                                    "Skipping node {} ({}) in file {} due to language-specific filtering",
-                                    simpleName,
-                                    primaryCaptureName,
-                                    file.getFileName());
-                            continue;
-                        }
-
-                        CodeUnit cu = createCodeUnit(
-                                file,
-                                primaryCaptureName,
-                                simpleName,
-                                packageName,
-                                classChain,
-                                scopeChain,
-                                node,
-                                skeletonType);
-                        if (cu == null) {
-                            log.trace(
-                                    "createCodeUnit returned null for node {} ({}) in file {}",
-                                    simpleName,
-                                    primaryCaptureName,
-                                    file.getFileName());
-                            continue;
-                        }
-
-                        String enhancedFqName = enhanceFqName(cu.fqName(), primaryCaptureName, node, sourceContent);
-                        @Nullable String codeUnitSignature = extractSignature(primaryCaptureName, node, sourceContent);
-
-                        String cuLookupKey = (codeUnitSignature != null)
-                                ? enhancedFqName + "(" + codeUnitSignature + ")@" + node.getStartByte()
-                                : enhancedFqName;
-
-                        CodeUnit existingCUforKeyLookup = acc.getByFqName(cuLookupKey);
-                        if (existingCUforKeyLookup != null && cu.isFunction() && existingCUforKeyLookup.isFunction()) {
-                            cu = existingCUforKeyLookup;
-                        }
-
-                        if (!enhancedFqName.equals(cu.fqName()) || !Objects.equals(codeUnitSignature, cu.signature())) {
-                            String enhancedShortName = enhancedFqName;
-                            if (!cu.packageName().isEmpty() && enhancedFqName.startsWith(cu.packageName() + ".")) {
-                                enhancedShortName = enhancedFqName.substring(
-                                        cu.packageName().length() + 1);
-                            }
-                            cu = new CodeUnit(
-                                    cu.source(), cu.kind(), cu.packageName(), enhancedShortName, codeUnitSignature);
-                        }
-
-                        String signature = buildSignatureString(
-                                node, simpleName, sourceContent, primaryCaptureName, defInfo.modifierKeywords(), file);
-
-                        // Use the already-resolved content node (from signature building) for hasBody computation
-                        SkeletonType refined = refineSkeletonType(primaryCaptureName, node, getLanguageSyntaxProfile());
-                        ResolvedNodes resolved = resolveSignatureNodes(node, simpleName, refined, sourceContent);
-                        acc.setHasBody(cu, computeHasBody(resolved.contentNode(), primaryCaptureName, sourceContent));
-                        if (CaptureNames.TYPEALIAS_DEFINITION.equals(primaryCaptureName)) {
-                            acc.setIsTypeAlias(cu, true);
-                        }
-
-                        if (existingCUforKeyLookup != null
-                                && !existingCUforKeyLookup.equals(cu)
-                                && shouldMergeSignaturesForSameFqn()) {
-                            List<String> existingSignatures = acc.getSignatures(existingCUforKeyLookup);
-                            boolean newIsExported = signature.trim().startsWith("export");
-                            boolean oldIsExported = !existingSignatures.isEmpty()
-                                    && existingSignatures.get(0).trim().startsWith("export");
-
-                            if (newIsExported && !oldIsExported) {
-                                acc.remove(existingCUforKeyLookup);
-                            } else if (!newIsExported && oldIsExported) {
-                                continue;
-                            }
-                        }
-
-                        if (!signature.isBlank()) {
-                            acc.addSignature(cu, signature);
-                        }
-
-                        cuToCaptureName.put(cu, primaryCaptureName);
-
-                        if (shouldAttachToParent(cu, node, primaryCaptureName, classChain, scopeChain)) {
-                            CodeUnit parentCu = findParentForCodeUnit(
-                                    cu, node, primaryCaptureName, classChain, scopeChain, acc, sourceContent);
-                            if (parentCu != null) {
-                                addChildCodeUnit(cu, parentCu, acc);
-                            } else {
-                                addTopLevelCodeUnit(cu, acc, file);
-                            }
-                        } else {
-                            addTopLevelCodeUnit(cu, acc, file);
-                        }
-
-                        var rangeNode = adjustSourceRangeNode(node, primaryCaptureName);
-                        var finalRange = (cu.isClass() || cu.isFunction())
-                                ? expandRangeWithComments(rangeNode, sourceContent)
-                                : new Range(
-                                        rangeNode.getStartByte(),
-                                        rangeNode.getEndByte(),
-                                        rangeNode.getStartPoint().getRow(),
-                                        rangeNode.getEndPoint().getRow(),
-                                        rangeNode.getStartByte());
-
-                        acc.addRange(cu, finalRange);
-                        acc.addLookupKey(cuLookupKey, cu);
-                    }
-
-                    List<String> localImportStatements = localImportInfos.stream()
-                            .map(ImportInfo::rawSnippet)
-                            .toList();
-
-                    // Register modules from imports
-                    wrapModulesFromImports(file, localImportStatements, rootNode, sourceContent, acc);
-
-                    // Synthesize implicit constructors
-                    for (CodeUnit cu : List.copyOf(acc.cuByFqName().values())) {
-                        if (cu.isClass()) {
-                            List<CodeUnit> kids = acc.getChildren(cu);
-                            boolean hasExplicitConstructor = kids.stream().anyMatch(k -> {
-                                String capture = cuToCaptureName.getOrDefault(k, "");
-                                return isConstructor(k, cu, capture);
-                            });
-
-                            if (!hasExplicitConstructor) {
-                                String classCaptureName = cuToCaptureName.getOrDefault(cu, "");
-                                CodeUnit implicit = createImplicitConstructor(cu, classCaptureName);
-                                if (implicit != null) {
-                                    acc.registerCodeUnit(implicit);
-                                    acc.setHasBody(implicit, true);
-                                    acc.addChild(cu, implicit);
-                                }
-                            }
-                        }
-                    }
-
-                    boolean containsTests = containsTestMarkers(tree, sourceContent);
-                    Map<CodeUnit, CodeUnitProperties> localStates = acc.toCodeUnitProperties();
-
-                    long __processEnd = System.nanoTime();
-                    if (timing != null) {
-                        timing.processStageNanos().addAndGet(__processEnd - __processStart);
-                        timing.processStageFirstStartNanos().accumulateAndGet(__processStart, Math::min);
-                        timing.processStageLastEndNanos().accumulateAndGet(__processEnd, Math::max);
-                    }
-                    return new FileAnalysisResult(
-                            acc.topLevelCUs().stream().distinct().toList(),
-                            Collections.unmodifiableMap(localStates),
-                            acc.codeUnitsBySymbol().entrySet().stream()
-                                    .collect(Collectors.toMap(Map.Entry::getKey, e -> new HashSet<>(e.getValue()))),
-                            Collections.unmodifiableList(localImportInfos),
-                            containsTests);
                 },
                 defaultResult);
     }
@@ -2432,7 +2458,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                                 if (getIgnoredCaptures().contains(captureName)) continue;
 
                                 TSNode node = capture.getNode();
-                                if (node != null && !node.isNull()) {
+                                if (node != null) {
                                     if ("keyword.modifier".equals(captureName)) {
                                         modifierNodesForMatch.add(node);
                                     } else if (CaptureNames.DECORATOR_DEFINITION.equals(captureName)) {
@@ -2467,14 +2493,17 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                                     if (simpleNameOpt.isPresent()
                                             && !simpleNameOpt.get().isBlank()) {
                                         String simpleName = simpleNameOpt.get();
-                                        declarationNodes.add(Map.entry(
-                                                definitionNode,
-                                                new DefinitionInfoRecord(
-                                                        captureName,
-                                                        simpleName,
-                                                        sortedModifierStrings,
-                                                        decoratorNodesForMatch,
-                                                        definitionNode.getParent())));
+                                        var parent = definitionNode.getParent();
+                                        if (parent != null) {
+                                            declarationNodes.add(Map.entry(
+                                                    definitionNode,
+                                                    new DefinitionInfoRecord(
+                                                            captureName,
+                                                            simpleName,
+                                                            sortedModifierStrings,
+                                                            decoratorNodesForMatch,
+                                                            parent)));
+                                        }
                                     }
                                 }
                             }
@@ -2497,7 +2526,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
         if (CaptureNames.LAMBDA_DEFINITION.equals(captureName)) {
             simpleName = extractSimpleName(definitionNode, sourceContent);
-        } else if (nameNode != null && !nameNode.isNull()) {
+        } else if (nameNode != null) {
             String nameText = sourceContent.substringFrom(nameNode);
             if (nameText.isBlank()
                     && !isBlankNameAllowed(captureName, nameText, definitionNode.getType(), file.getFileName())) {
@@ -2515,7 +2544,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         List<ScopeSegment> enclosingScopes = new ArrayList<>();
         var profile = getLanguageSyntaxProfile();
         TSNode tempParent = node.getParent();
-        while (tempParent != null && !tempParent.isNull() && !tempParent.equals(rootNode)) {
+        while (tempParent != null && !tempParent.equals(rootNode)) {
             if (isClassLike(tempParent)) {
                 final var parent = tempParent;
                 extractSimpleName(tempParent, sourceContent).ifPresent(parentName -> {
@@ -2536,7 +2565,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     protected String buildClassChain(TSNode node, TSNode rootNode, SourceContent sourceContent) {
         Deque<String> segments = new ArrayDeque<>();
         TSNode current = node.getParent();
-        while (current != null && !current.isNull() && !current.equals(rootNode)) {
+        while (current != null && !current.equals(rootNode)) {
             if (isClassLike(current)) {
                 final TSNode parent = current;
                 extractSimpleName(parent, sourceContent).ifPresent(name -> {
@@ -2573,9 +2602,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         }
 
         TSNode bodyNodeCandidate = nodeForBody.getChildByFieldName(langProfile.bodyFieldName());
-        return bodyNodeCandidate != null
-                && !bodyNodeCandidate.isNull()
-                && bodyNodeCandidate.getEndByte() > bodyNodeCandidate.getStartByte();
+        return bodyNodeCandidate != null && bodyNodeCandidate.getEndByte() > bodyNodeCandidate.getStartByte();
     }
 
     protected boolean shouldAttachToParent(
@@ -2613,7 +2640,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
      * Useful for languages that separate the concept of instance and singleton classes that have the same names in
      * source code, but are identified by some suffix or other transformation on a lower level, e.g., Kotlin, Scala, Ruby.
      */
-    protected String determineClassName(String captureName, String shortName) {
+    protected String determineClassName(@Nullable String captureName, String shortName) {
         return shortName;
     }
 
@@ -2622,14 +2649,15 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
      * By default, delegates to determineClassName, but can be overridden to add type markers
      * (e.g., Python adds ":F" for functions to distinguish them from classes in the chain).
      */
-    protected String determineClassChainSegmentName(String nodeType, String shortName) {
+    protected String determineClassChainSegmentName(@Nullable String nodeType, String shortName) {
         return determineClassName(nodeType, shortName);
     }
 
     /**
      * Returns raw supertype names (extends/implements) for a class-like entity, computing them lazily if necessary.
      */
-    protected List<String> getRawSupertypesLazily(CodeUnit cu) {
+    protected List<String> getRawSupertypesLazily(@Nullable CodeUnit cu) {
+        if (cu == null) return List.of();
         if (!cu.isClass()) {
             return List.of();
         }
@@ -2650,9 +2678,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                             }
 
                             Range primary = ranges.getFirst();
-                            TSNode node = tree.getRootNode()
-                                    .getDescendantForByteRange(primary.startByte(), primary.endByte());
-                            if (node == null || node.isNull()) {
+                            TSNode root = tree.getRootNode();
+                            if (root == null) return List.of();
+
+                            TSNode node = root.getDescendantForByteRange(primary.startByte(), primary.endByte());
+                            if (node == null) {
                                 return List.of();
                             }
 
@@ -2726,8 +2756,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
      * @param sourceContent  The source code wrapper for extracting text.
      * @return The formatted parameter list text, or an empty string if the node is null.
      */
-    protected String formatParameterList(TSNode parametersNode, SourceContent sourceContent) {
-        return parametersNode.isNull() ? "" : sourceContent.substringFrom(parametersNode);
+    protected String formatParameterList(@Nullable TSNode parametersNode, SourceContent sourceContent) {
+        return parametersNode == null ? "" : sourceContent.substringFrom(parametersNode);
     }
 
     /**
@@ -2740,7 +2770,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
      * @return The formatted return type text, or an empty string if the node is null.
      */
     protected String formatReturnType(@Nullable TSNode returnTypeNode, SourceContent sourceContent) {
-        return returnTypeNode == null || returnTypeNode.isNull() ? "" : sourceContent.substringFrom(returnTypeNode);
+        return returnTypeNode == null ? "" : sourceContent.substringFrom(returnTypeNode);
     }
 
     protected String formatHeritage(String signatureText) {
@@ -2882,7 +2912,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             case CLASS_LIKE: {
                 TSNode bodyNode = nodeForContent.getChildByFieldName(profile.bodyFieldName());
                 String classSignatureText;
-                if (bodyNode != null && !bodyNode.isNull()) {
+                if (bodyNode != null) {
                     // If unwrapped from export, slice from original node to include any prefix text up to body.
                     int startByte;
                     if (!Objects.equals(nodeForSignature, nodeForContent)) {
@@ -2937,8 +2967,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             case FUNCTION_LIKE: {
                 // Extra comments derived from the function body if any.
                 TSNode bodyNode = nodeForContent.getChildByFieldName(profile.bodyFieldName());
-                for (String c : getExtraFunctionComments(bodyNode, sourceContent, null)) {
-                    if (!c.isBlank()) signatureLines.add(c);
+                if (bodyNode != null) {
+                    for (String c : getExtraFunctionComments(bodyNode, sourceContent, null)) {
+                        if (!c.isBlank()) signatureLines.add(c);
+                    }
                 }
                 buildFunctionSkeleton(
                         nodeForContent, Optional.of(simpleName), sourceContent, "", signatureLines, exportPrefix);
@@ -3037,7 +3069,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         String functionName;
         TSNode nameNode = funcNode.getChildByFieldName(profile.identifierFieldName());
 
-        if (nameNode != null && !nameNode.isNull()) {
+        if (nameNode != null) {
             functionName = sourceContent.substringFrom(nameNode);
         } else if (providedNameOpt.isPresent()) {
             functionName = providedNameOpt.get();
@@ -3059,7 +3091,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             }
         }
 
-        TSNode paramsNode = funcNode.getChildByFieldName(profile.parametersFieldName());
+        TSNode paramsNode = null;
+        if (!profile.parametersFieldName().isEmpty()) {
+            paramsNode = funcNode.getChildByFieldName(profile.parametersFieldName());
+        }
         TSNode returnTypeNode = null;
         if (!profile.returnTypeFieldName().isEmpty()) {
             returnTypeNode = funcNode.getChildByFieldName(profile.returnTypeFieldName());
@@ -3067,7 +3102,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         TSNode bodyNode = funcNode.getChildByFieldName(profile.bodyFieldName());
 
         // Parameter node is usually essential for a valid function signature.
-        if (paramsNode == null || paramsNode.isNull()) {
+        if (paramsNode == null) {
             log.trace(
                     "Parameters node (field '{}') not found for function node type '{}', name '{}'. Assuming empty parameter list.",
                     profile.parametersFieldName(),
@@ -3076,7 +3111,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         }
 
         // Body node might be missing for abstract/interface methods.
-        if (bodyNode == null || bodyNode.isNull()) {
+        if (bodyNode == null) {
             log.trace(
                     "Body node (field '{}') not found for function node type '{}', name '{}'. Renderer or placeholder logic must handle this.",
                     profile.bodyFieldName(),
@@ -3091,7 +3126,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         String typeParamsText = "";
         if (!profile.typeParametersFieldName().isEmpty()) {
             TSNode typeParamsNode = funcNode.getChildByFieldName(profile.typeParametersFieldName());
-            if (typeParamsNode != null && !typeParamsNode.isNull()) {
+            if (typeParamsNode != null) {
                 typeParamsText = sourceContent.substringFrom(typeParamsNode); // Raw text including < >
             }
         }
@@ -3106,12 +3141,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             }
         }
 
-        for (int i = 0; i < funcNode.getChildCount(); i++) {
-            TSNode child = funcNode.getChild(i);
-            if (child == null || child.isNull()) continue;
+        for (TSNode child : funcNode.getChildren()) {
             String t = child.getType();
             boolean isModifierType = profile.modifierNodeTypes().contains(t)
-                    || (!profile.asyncKeywordNodeType().isEmpty() && t.equals(profile.asyncKeywordNodeType()));
+                    || (!profile.asyncKeywordNodeType().isEmpty()
+                            && profile.asyncKeywordNodeType().equals(t));
             if (isModifierType) {
                 String text = sourceContent.substringFrom(child).strip();
                 if (!text.isEmpty()) {
@@ -3194,14 +3228,13 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         String typeParamsText = "";
         if (!profile.typeParametersFieldName().isEmpty()) {
             TSNode tp = node.getChildByFieldName(profile.typeParametersFieldName());
-            if (tp != null && !tp.isNull()) {
+            if (tp != null) {
                 typeParamsText = sourceContent.substringFrom(tp).strip();
             }
         }
         TSNode valueNode = node.getChildByFieldName("value");
-        String valueText = (valueNode != null && !valueNode.isNull())
-                ? sourceContent.substringFrom(valueNode).strip()
-                : "";
+        String valueText =
+                (valueNode != null) ? sourceContent.substringFrom(valueNode).strip() : "";
         if (valueText.isEmpty()) {
             valueText = "any";
         }
@@ -3252,7 +3285,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             return decorators;
         }
         TSNode current = decoratedNode.getPrevSibling();
-        while (current != null && !current.isNull() && decoratorNodeTypes.contains(current.getType())) {
+        while (current != null && decoratorNodeTypes.contains(current.getType())) {
             decorators.add(current);
             current = current.getPrevSibling();
         }
@@ -3292,7 +3325,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         }
 
         TSNode nameNode = decl.getChildByFieldName(identifierFieldName);
-        if (nameNode != null && !nameNode.isNull()) {
+        if (nameNode != null) {
             nameOpt = Optional.of(sourceContent.substringFrom(nameNode));
         } else if (!isNullNameExpectedForExtraction(decl.getType())) {
             log.debug(
@@ -3320,7 +3353,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     protected Optional<String> findEnclosingFunctionName(TSNode node, SourceContent sourceContent) {
         var profile = getLanguageSyntaxProfile();
         TSNode current = node.getParent();
-        while (current != null && !current.isNull()) {
+        while (current != null) {
             if (profile.functionLikeNodeTypes().contains(current.getType())) {
                 return extractSimpleName(current, sourceContent);
             }
@@ -3876,7 +3909,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     protected void extractImports(
             Map<String, TSNode> capturedNodesForMatch, SourceContent sourceContent, List<ImportInfo> localImportInfos) {
         TSNode importNode = capturedNodesForMatch.get(getLanguageSyntaxProfile().importNodeType());
-        if (importNode != null && !importNode.isNull()) {
+        if (importNode != null) {
             String importText = sourceContent.substringFrom(importNode).strip();
             if (!importText.isEmpty()) {
                 // Default implementation: create basic ImportInfo without identifier extraction
@@ -3934,11 +3967,12 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     /**
      * Checks if a Tree-Sitter node represents a comment. Supports common comment node types across languages.
      */
-    protected boolean isCommentNode(TSNode node) {
-        if (node.isNull()) {
+    protected boolean isCommentNode(@Nullable TSNode node) {
+        if (node == null) {
             return false;
         }
         String nodeType = node.getType();
+        if (nodeType == null) return false;
         return nodeType.equals(CommonTreeSitterNodeTypes.COMMENT)
                 || nodeType.equals(CommonTreeSitterNodeTypes.LINE_COMMENT)
                 || nodeType.equals(CommonTreeSitterNodeTypes.BLOCK_COMMENT)
@@ -3973,7 +4007,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         List<TSNode> comments = new ArrayList<>();
         TSNode current = declarationNode.getPrevSibling();
 
-        while (current != null && !current.isNull()) {
+        while (current != null) {
             if (isCommentNode(current)) {
                 comments.add(current);
             } else if (!isWhitespaceOnlyNode(current)) {
@@ -3991,12 +4025,13 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     /**
      * Checks if a node contains only whitespace (spaces, tabs, newlines).
      */
-    protected boolean isWhitespaceOnlyNode(TSNode node) {
-        if (node.isNull()) {
+    protected boolean isWhitespaceOnlyNode(@Nullable TSNode node) {
+        if (node == null) {
             return false;
         }
         // Common whitespace node types in Tree-Sitter grammars
         String nodeType = node.getType();
+        if (nodeType == null) return false;
         return nodeType.equals(CommonTreeSitterNodeTypes.WHITESPACE)
                 || nodeType.equals(CommonTreeSitterNodeTypes.NEWLINE)
                 || nodeType.equals("\n")
@@ -4066,7 +4101,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         // Walk preceding siblings and collect contiguous leading metadata nodes (comments, attributes)
         List<TSNode> leading = new ArrayList<>();
         TSNode current = declarationNode.getPrevSibling();
-        while (current != null && !current.isNull()) {
+        while (current != null) {
             if (isLeadingMetadataNode(current)) {
                 leading.add(current);
                 current = current.getPrevSibling();
@@ -4197,11 +4232,13 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         return best;
     }
 
-    protected boolean isBlankNameAllowed(String captureName, String simpleName, String nodeType, String file) {
+    protected boolean isBlankNameAllowed(
+            String captureName, String simpleName, @Nullable String nodeType, String file) {
         return false;
     }
 
-    protected boolean isNullNameAllowed(String identifierFieldName, String nodeType, int lineNumber, String file) {
+    protected boolean isNullNameAllowed(
+            String identifierFieldName, @Nullable String nodeType, int lineNumber, String file) {
         return false;
     }
 
@@ -4220,7 +4257,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
      * @param nodeType the AST node type
      * @return true if null names are expected and logging should be suppressed
      */
-    protected boolean isNullNameExpectedForExtraction(String nodeType) {
+    protected boolean isNullNameExpectedForExtraction(@Nullable String nodeType) {
         return false;
     }
 
@@ -4230,7 +4267,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
      *
      * @param captureName the Tree-sitter capture name (e.g., "constructor.definition")
      */
-    protected boolean isConstructor(CodeUnit candidate, @Nullable CodeUnit enclosingClass, String captureName) {
+    protected boolean isConstructor(
+            CodeUnit candidate, @Nullable CodeUnit enclosingClass, @Nullable String captureName) {
         if (getLanguageSyntaxProfile().constructorNodeTypes().contains(captureName)) {
             return true;
         }
@@ -4253,7 +4291,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
      * Extracts potential type identifiers from source code.
      */
     public Set<String> performIdentifierExtraction(@Nullable TSNode root, String source) {
-        if (root == null || root.isNull()) {
+        if (root == null) {
             return Set.of();
         }
 
@@ -4271,7 +4309,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                         while (cursor.nextMatch(match)) {
                             for (TSQueryCapture capture : match.getCaptures()) {
                                 TSNode node = capture.getNode();
-                                if (node != null && !node.isNull()) {
+                                if (node != null) {
                                     String text =
                                             sourceContent.substringFrom(node).strip();
                                     if (!text.isEmpty()) {

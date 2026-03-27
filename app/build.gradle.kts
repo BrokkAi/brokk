@@ -171,7 +171,7 @@ dependencies {
     implementation(libs.bundles.git)
 
     // TreeSitter parsers
-    implementation(libs.bundles.treesitter)
+    implementation(project(":treesitter-provider"))
 
     // Eclipse JDT Core for Java parse without classpath
     implementation(libs.eclipse.jdt.core)
