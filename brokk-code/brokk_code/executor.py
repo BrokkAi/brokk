@@ -172,7 +172,16 @@ def ensure_jbang_ready() -> str:
                         'iex "& { $(iwr -useb https://ps.jbang.dev) } app setup"',
                     ]
                 else:
-                    cmd = ["bash", "-c", "curl -Ls https://sh.jbang.dev | bash -s - app setup"]
+                    if not shutil.which("curl"):
+                        raise ExecutorError(
+                            "curl is required to install jbang but was not found. "
+                            "Please install it (e.g. 'sudo apt install curl') and try again."
+                        )
+                    cmd = [
+                        "bash",
+                        "-c",
+                        "set -o pipefail; curl -Ls https://sh.jbang.dev | bash -s - app setup",
+                    ]
 
                 proc = subprocess.run(
                     cmd,
