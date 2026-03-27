@@ -121,7 +121,11 @@ app.post('/api/scans', async (req, res) => {
       const executor = new ExecutorManager(tmpDir);
       try {
         await executor.start();
-        const prompt = "Analyze the repository for code quality issues. You MUST find the source files and use the computeCyclomaticComplexity and analyzeCommentSemantics tools on them.";
+        const prompt = `Analyze the repository for code quality issues. You MUST find the source files and use the computeCyclomaticComplexity and analyzeCommentSemantics tools on them.
+
+Example usage:
+computeCyclomaticComplexity(filePaths=["src/main.js", "src/utils.js"], threshold=10)
+analyzeCommentSemantics(filePaths=["src/main.js"])`;
         const jobId = await executor.submitJob(prompt, { mode: 'SLOP_SCAN' });
         
         console.log(`[Scan] Submitted job ${jobId} for scan ${scanId} repo=${repoUrl}`);
