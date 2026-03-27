@@ -131,6 +131,7 @@ analyzeCommentSemantics(filePaths=["src/main.js"])`;
         console.log(`[Scan] Submitted job ${jobId} for scan ${scanId} repo=${repoUrl}`);
         db.prepare('UPDATE scans SET logs = logs || ? WHERE id = ?').run(`[JOB] Submitted job ${jobId}\n`, scanId);
 
+        let lastLlmProgressLine = null;
         const findings = [];
         for await (const event of executor.pollEvents(jobId)) {
           console.log(`[Scan][${scanId}][${jobId}] Event: ${event.type}`);
@@ -138,7 +139,45 @@ analyzeCommentSemantics(filePaths=["src/main.js"])`;
           if (event.type === 'SLOP_FINDING') {
             findings.push(event.data);
           } else if (event.type === 'LLM_TOKEN') {
-            process.stdout.write(event.data || '');
+            const data = event.data;
+            let tokenText = '';
+
+            if (typeof data === 'string' || Buffer.isBuffer(data) || data instanceof Uint8Array) {
+              tokenText = String(data || '');
+              process.stdout.write(tokenText);
+            } else if (data !== null && data !== undefined) {
+              tokenText = typeof data.token === 'string' ? data.token : JSON.stringify(data);
+              process.stdout.write(tokenText + (typeof data.token === 'string' ? '' : '\n'));
+            }
+
+            // Attempt to parse a progress header from the token
+            let effectiveText = tokenText;
+            if (tokenText.trim().startsWith('{')) {
+              try {
+                const parsed = JSON.parse(tokenText);
+                if (typeof parsed.token === 'string') effectiveText = parsed.token;
+              } catch (e) { /* ignore */ }
+            }
+
+            const firstLine = effectiveText.split('\n').map(l => l.trim()).find(l => l.length > 0);
+            if (firstLine && firstLine.length <= 120) {
+              let cleanLine = firstLine;
+              // Strip single pair of backticks if wrapped
+              if (cleanLine.startsWith('`') && cleanLine.endsWith('`')) {
+                cleanLine = cleanLine.substring(1, cleanLine.length - 1);
+              }
+
+              const isHeader = 
+                firstLine.startsWith('`') || 
+                cleanLine.startsWith('**') || 
+                /^[A-Z][a-z]+(\s+[A-Z][a-z]+)+/.test(cleanLine); // Simple Title Case check
+
+              if (isHeader && cleanLine !== lastLlmProgressLine) {
+                lastLlmProgressLine = cleanLine;
+                db.prepare('UPDATE scans SET logs = logs || ? WHERE id = ?')
+                  .run(`[Scan][${scanId}][${jobId}][LLM] ${cleanLine}\n`, scanId);
+              }
+            }
           } else if (event.type === 'NOTIFICATION') {
             const msg = event.data?.message;
             if (msg) {
@@ -191,10 +230,27 @@ analyzeCommentSemantics(filePaths=["src/main.js"])`;
             scanId
           );
       } finally {
-        executor.stop();
-        // Cleanup temp dir
+        await executor.stop();
+        // Cleanup temp dir with retries for ENOTEMPTY/EBUSY
         if (fs.existsSync(tmpDir)) {
-          fs.rmSync(tmpDir, { recursive: true, force: true });
+          let attempts = 0;
+          const maxAttempts = 10;
+          while (attempts < maxAttempts) {
+            try {
+              fs.rmSync(tmpDir, { recursive: true, force: true });
+              break;
+            } catch (err) {
+              attempts++;
+              const isRetryable = err.code === 'ENOTEMPTY' || err.code === 'EBUSY' || err.code === 'EPERM';
+              if (isRetryable && attempts < maxAttempts) {
+                console.warn(`[Cleanup] Failed to remove ${tmpDir} (${err.code}). Retry ${attempts}/${maxAttempts}...`);
+                await new Promise((r) => setTimeout(r, 200));
+              } else {
+                console.error(`[Cleanup] Final failure removing ${tmpDir}:`, err);
+                break;
+              }
+            }
+          }
         }
       }
       

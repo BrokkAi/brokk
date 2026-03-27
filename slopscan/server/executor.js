@@ -209,11 +209,27 @@ export class ExecutorManager {
     }
   }
 
-  stop() {
-    if (this.process) {
-      this.process.kill();
-      this.process = null;
-      this.baseUrl = null;
+  async stop() {
+    if (!this.process) {
+      return;
     }
+
+    const proc = this.process;
+    this.process = null;
+    this.baseUrl = null;
+
+    return new Promise((resolve) => {
+      const timeout = setTimeout(() => {
+        console.warn('[ExecutorManager] Stop timeout reached, sending SIGKILL');
+        proc.kill('SIGKILL');
+      }, 5000);
+
+      proc.once('exit', () => {
+        clearTimeout(timeout);
+        resolve();
+      });
+
+      proc.kill('SIGTERM');
+    });
   }
 }
