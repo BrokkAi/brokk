@@ -1194,16 +1194,18 @@ public final class JobRunner {
                                         // Specialized search-based audit for code quality/complexity
                                         try (var scope = cm.beginTaskUngrouped(spec.taskInput())) {
                                             var context = cm.liveContext();
-                                            var scanModel = (spec.scanModel() != null && !spec.scanModel().isBlank())
+                                            var scanModel = (spec.scanModel() != null
+                                                            && !spec.scanModel().isBlank())
                                                     ? resolveModelOrThrow(
                                                             spec.scanModel().trim(),
                                                             spec.reasoningLevel(),
                                                             spec.temperature())
                                                     : defaultScanModel(spec);
 
-                                            var slopTools = new ai.brokk.tools.SlopScanTools(cm);
-                                            // SearchAgent allows injecting extra tools via ToolRegistry if we use the internal API,
-                                            // but for simplicity here we assume SlopScanTools are registered or used via specific agent logic.
+                                            // SearchAgent allows injecting extra tools via ToolRegistry if we use the
+                                            // internal API,
+                                            // but for simplicity here we assume SlopScanTools are registered or used
+                                            // via specific agent logic.
                                             var searchAgent = new LutzAgent(
                                                     context,
                                                     spec.taskInput(),

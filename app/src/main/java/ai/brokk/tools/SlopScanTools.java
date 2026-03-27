@@ -9,16 +9,14 @@ import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 /**
  * Tools for performing "Forensic Audits" of code quality, focusing on complexity and semantics.
  */
 public class SlopScanTools {
-    private static final Logger logger = LogManager.getLogger(SlopScanTools.class);
 
     // Heuristic for cyclomatic complexity: count control flow keywords
     private static final Pattern COMPLEXITY_KEYWORDS =
@@ -95,7 +93,6 @@ public class SlopScanTools {
     public String analyzeCommentSemantics(
             @P("List of file paths relative to the project root.") List<String> filePaths) {
 
-        IAnalyzer analyzer = contextManager.getAnalyzerUninterrupted();
         StringBuilder report = new StringBuilder("Comment Semantics Analysis:\n");
 
         for (String path : filePaths) {
@@ -103,8 +100,6 @@ public class SlopScanTools {
             if (!file.exists()) continue;
 
             String content = file.read().orElse("");
-            // Simple heuristic: comments that repeat variable names or simple operations
-            // In a real implementation, this might call an LLM for classification.
             List<String> howComments = findPotentialHowComments(content);
 
             if (!howComments.isEmpty()) {
@@ -127,7 +122,7 @@ public class SlopScanTools {
         Matcher matcher = commentPattern.matcher(content);
 
         while (matcher.find()) {
-            String commentText = matcher.group(1).toLowerCase();
+            String commentText = matcher.group(1).toLowerCase(Locale.ROOT);
             // Heuristic: comments describing increment, assignment, or simple returns
             if (commentText.contains("increment")
                     || commentText.contains("set ")

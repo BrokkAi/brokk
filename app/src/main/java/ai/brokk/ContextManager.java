@@ -2748,7 +2748,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
         var gitState = ch.getGitState(contextId).orElse(null);
         if (gitState == null) {
-            io.toolError("Could not find git state for context " + contextId, "Error");
+            io.toolError("Could find git state for context " + contextId, "Error");
             return;
         }
 
