@@ -7,11 +7,8 @@ import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
-import java.util.ArrayList;
+
 import java.util.List;
-import java.util.Locale;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /**
  * Tools for performing "Forensic Audits" of code quality, focusing on complexity and semantics.
@@ -106,4 +103,4 @@ public class SlopScanTools {
 
         return report.length() > 27 ? report.toString() : "No redundant 'How' comments detected.";
     }
-    }
+}
