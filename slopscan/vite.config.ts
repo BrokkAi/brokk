@@ -10,12 +10,11 @@ export default defineConfig({
     },
   },
   server: {
-    port: 3000,
+    port: 5173,
     proxy: {
       "/api": {
-        target: process.env.VITE_EXECUTOR_URL || "http://localhost:8080",
+        target: process.env.VITE_API_URL || "http://localhost:3001",
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api/, ""),
       },
     },
   },
