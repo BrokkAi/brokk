@@ -138,8 +138,10 @@ export function ScanPage() {
             <div className="mb-4">
               <div className="mb-1 flex justify-between text-xs font-mono text-white/50">
                 <span>
-                  {progress === 100 || status === "CLONED"
-                    ? status === "CLONED" ? "Analyzing repository..." : "Finalizing clone..."
+                  {status === "CLONED"
+                    ? "Spinning up analysis server..."
+                    : progress === 100
+                    ? "Finalizing clone..."
                     : "Cloning Progress"}
                 </span>
                 <span>{progress}%</span>
@@ -149,7 +151,7 @@ export function ScanPage() {
                   className={`h-full bg-slop-accent transition-all duration-500 ease-out ${
                     progress === 100 || status === "CLONED" ? "animate-pulse" : ""
                   }`}
-                  style={{ width: `${progress}%` }}
+                  style={{ width: `${status === "CLONED" ? 100 : progress}%` }}
                 />
               </div>
             </div>

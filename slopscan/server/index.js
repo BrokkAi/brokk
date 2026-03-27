@@ -115,6 +115,7 @@ app.post('/api/scans', async (req, res) => {
       }
 
       db.prepare('UPDATE scans SET status = ? WHERE id = ?').run('CLONED', scanId);
+      db.prepare('UPDATE scans SET logs = logs || ? WHERE id = ?').run('\nSpinning up analysis server...\n', scanId);
       console.log(`Successfully cloned ${repoUrl} to ${tmpDir}`);
       
       const executor = new ExecutorManager(tmpDir);
