@@ -24,7 +24,16 @@ export function DashboardPage() {
   if (loading) return <div className="animate-pulse text-slop-accent">Loading Audit...</div>;
   if (!scan) return <div className="text-slop-red">Scan not found.</div>;
 
-  const totalLiability = results?.findings.reduce((sum, f) => sum + f.impact, 0) || 0;
+  let displayMarkdown = results?.markdownReport || "";
+  let extractedCost = 0;
+
+  const costRegex = /est_annual_dev_cost=\$([\d,]+)/;
+  const match = displayMarkdown.match(costRegex);
+
+  if (match) {
+    extractedCost = parseInt(match[1].replace(/,/g, ""), 10);
+    displayMarkdown = displayMarkdown.replace(match[0], "").trim();
+  }
 
   return (
     <div>
@@ -37,63 +46,24 @@ export function DashboardPage() {
         {/* Maintenance Liability Summary */}
         <div className="card col-span-2">
           <h2 className="mb-4 text-xl font-semibold text-slop-accent">Maintenance Liability</h2>
-          <div className="text-5xl font-bold text-slop-red">${totalLiability.toLocaleString()}</div>
+          <div className="text-5xl font-bold text-slop-red">
+            ${extractedCost.toLocaleString()}
+          </div>
           <p className="mt-2 text-white/60">Estimated annual cost to maintain this codebase</p>
         </div>
 
-        {/* Ownership Heatmap Placeholder */}
-        <div className="card">
-          <h2 className="mb-4 text-xl font-semibold">Ownership Heatmap</h2>
-          <div className="flex h-64 items-center justify-center rounded-md bg-slop-darker text-white/40">
-            D3 Visualization Placeholder
-          </div>
-        </div>
-
-        {/* Hallucination Ledger */}
-        <div className="card">
-          <h2 className="mb-4 text-xl font-semibold">Hallucination Ledger</h2>
-          <div className="space-y-2">
-            {results?.findings.map((f, i) => (
-              <LedgerItem
-                key={i}
-                location={f.location}
-                finding={f.finding}
-                impact={f.impact}
-              />
-            )) || <p className="text-white/40 italic">No findings recorded.</p>}
-          </div>
-        </div>
-
         {/* Full Analysis Report */}
-        {results?.markdownReport && (
+        {displayMarkdown && (
           <div className="card col-span-2 mt-6">
             <h2 className="mb-6 text-xl font-semibold text-slop-accent">Forensic Audit Report</h2>
             <div className="prose prose-invert max-w-none">
               <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                {results.markdownReport}
+                {displayMarkdown}
               </ReactMarkdown>
             </div>
           </div>
         )}
       </div>
-    </div>
-  );
-}
-
-function LedgerItem({
-  location,
-  finding,
-  impact,
-}: {
-  location: string;
-  finding: string;
-  impact: number;
-}) {
-  return (
-    <div className="rounded-md border border-white/10 bg-slop-darker p-3">
-      <div className="font-mono text-sm text-slop-accent">{location}</div>
-      <div className="text-sm text-white/70">{finding}</div>
-      <div className="mt-1 text-sm font-semibold text-slop-red">${impact.toLocaleString()}</div>
     </div>
   );
 }

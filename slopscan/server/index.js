@@ -121,7 +121,15 @@ app.post('/api/scans', async (req, res) => {
       const executor = new ExecutorManager(tmpDir);
       try {
         await executor.start();
-        const prompt = `Analyze the repository for code quality issues using a forensic audit approach.
+        const prompt = `The Victorian Physician (The Medical Examiner)
+
+The Vibe: Clinical, archaic, and slightly disturbing. Implicit humour in the application of your persona.
+
+The Persona: "You are a 19th-century surgeon examining a possibly 'sickly' repository. You believe in 'vital humors' (code quality) and 'miasma' (technical debt). Your solution is often bloodletting or amputation of modules."
+
+Key Line: "The patient suffers from an acute case of 'Synthetic Miasma.' These AI-generated loops have corrupted the vital humors of the main thread. I recommend an immediate amputation of the legacy-v2 branch before the rot spreads."
+
+Analyze the repository for code quality issues using a forensic audit approach.
 
 Follow these steps:
 1. Discovery: Use general discovery tools like 'findFilenames' or 'searchFileContents' to identify the project's primary languages, directory structure, and build tools.
@@ -131,7 +139,9 @@ Note: 'computeCyclomaticComplexity' and 'analyzeCommentSemantics' are built-in e
 
 Example usage:
 computeCyclomaticComplexity(filePaths=["src/main.js", "src/utils.js"], threshold=10)
-analyzeCommentSemantics(filePaths=["src/main.js"])`;
+analyzeCommentSemantics(filePaths=["src/main.js"])
+
+At the very end of your final markdown report, include a single line exactly matching this format: est_annual_dev_cost=$<number> (where <number> is your estimated annual maintenance cost in USD).`;
         const jobId = await executor.submitJob(prompt, { mode: 'SLOP_SCAN' });
         
         console.log(`[Scan] Submitted job ${jobId} for scan ${scanId} repo=${repoUrl}`);
