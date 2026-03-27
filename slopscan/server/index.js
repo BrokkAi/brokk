@@ -127,6 +127,16 @@ app.post('/api/scans', async (req, res) => {
         for await (const event of executor.pollEvents(jobId)) {
           if (event.type === 'SLOP_FINDING') {
             findings.push(event.data);
+          } else if (event.type === 'NOTIFICATION') {
+            if (event.data?.message) {
+              db.prepare('UPDATE scans SET logs = logs || ? WHERE id = ?')
+                .run(`[INFO] ${event.data.message}\n`, scanId);
+            }
+          } else if (event.type === 'STATE_HINT') {
+            if (event.data?.name === 'backgroundTask' && event.data?.value) {
+              db.prepare('UPDATE scans SET logs = logs || ? WHERE id = ?')
+                .run(`[TASK] ${event.data.value}\n`, scanId);
+            }
           }
         }
 
