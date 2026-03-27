@@ -26,6 +26,14 @@ db.exec(`
 
 app.use(express.json());
 
+// Serve static files from the React app dist folder
+const __dirname = path.dirname(new URL(import.meta.url).pathname);
+app.use(express.static(path.join(__dirname, '../dist')));
+
+app.get('/api/config', (req, res) => {
+  res.json(config);
+});
+
 app.post('/api/scans', async (req, res) => {
   const { repoUrl } = req.body;
 
@@ -68,9 +76,30 @@ app.post('/api/scans', async (req, res) => {
           }
         }
 
+        // Calculate financial metrics based on findings and config
+        // C_rem: Remediation Cost = (Sum of complexity / E_ignore) * C_day * M_multiplier
+        // I_weekly: Weekly Innovation Leak = N_team * C_day * 5 * I_drift
+        // R_bank: Bankrupt Risk = C_rem / (N_team * C_day * 250)
+
+        const totalComplexity = findings.reduce((acc, f) => acc + (f.complexity || 0), 0);
+        const cRem = (totalComplexity / config.SLOP_E_IGNORE) * config.SLOP_C_DAY * config.SLOP_M_MULTIPLIER;
+        const iWeekly = config.SLOP_N_TEAM * config.SLOP_C_DAY * 5 * config.SLOP_I_DRIFT;
+        const rBank = cRem / (config.SLOP_N_TEAM * config.SLOP_C_DAY * 250);
+
         db.prepare('UPDATE scans SET status = ?, result_json = ? WHERE id = ?')
-          .run('COMPLETED', JSON.stringify({ findings }), scanId);
-        
+          .run(
+            'COMPLETED',
+            JSON.stringify({
+              findings,
+              metrics: {
+                cRem,
+                iWeekly,
+                rBank,
+                totalComplexity,
+              },
+            }),
+            scanId
+          );
       } finally {
         executor.stop();
         // Cleanup temp dir
@@ -93,6 +122,11 @@ app.get('/api/scans/:id', (req, res) => {
     return res.status(404).json({ error: 'Scan not found' });
   }
   res.json(scan);
+});
+
+// Handle React routing, return all requests to React app
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, '../dist/index.html'));
 });
 
 app.listen(port, () => {
