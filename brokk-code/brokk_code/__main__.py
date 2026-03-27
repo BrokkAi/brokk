@@ -744,9 +744,7 @@ def _run_issue_command(
     build_settings: str | None = None,
 ) -> None:
     """Run a GitHub issue command with shared validation, checkout, and job execution."""
-    _validate_github_params(
-        args.github_token, args.repo_owner, args.repo_name, command_name
-    )
+    _validate_github_params(args.github_token, args.repo_owner, args.repo_name, command_name)
     tags: dict[str, str] = {
         "github_token": args.github_token,
         "repo_owner": args.repo_owner,
