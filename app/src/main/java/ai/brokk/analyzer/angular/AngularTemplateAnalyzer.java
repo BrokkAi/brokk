@@ -32,30 +32,28 @@ public class AngularTemplateAnalyzer implements ITemplateAnalyzer {
 
         // Check for configuration files up to 5 levels deep
         try (Stream<Path> stream = Files.walk(root, 5)) {
-            boolean hasConfig = stream.filter(Files::isRegularFile)
-                    .anyMatch(p -> {
-                        String fileName = p.getFileName().toString();
-                        if (fileName.equals("angular.json")) {
-                            return true;
-                        }
-                        if (fileName.equals("package.json")) {
-                            try {
-                                String content = Files.readString(p);
-                                return content.contains("@angular/core");
-                            } catch (IOException e) {
-                                return false;
-                            }
-                        }
+            boolean hasConfig = stream.filter(Files::isRegularFile).anyMatch(p -> {
+                String fileName = p.getFileName().toString();
+                if (fileName.equals("angular.json")) {
+                    return true;
+                }
+                if (fileName.equals("package.json")) {
+                    try {
+                        String content = Files.readString(p);
+                        return content.contains("@angular/core");
+                    } catch (IOException e) {
                         return false;
-                    });
+                    }
+                }
+                return false;
+            });
             if (hasConfig) return true;
         } catch (IOException e) {
             log.debug("Error scanning for Angular config in {}: {}", root, e.getMessage());
         }
 
         // Check for component templates
-        return project.getAllFiles().stream()
-                .anyMatch(pf -> pf.getFileName().endsWith(".component.html"));
+        return project.getAllFiles().stream().anyMatch(pf -> pf.getFileName().endsWith(".component.html"));
     }
 
     @Override
@@ -74,7 +72,8 @@ public class AngularTemplateAnalyzer implements ITemplateAnalyzer {
     }
 
     @Override
-    public TemplateAnalysisResult analyzeTemplate(IAnalyzer hostAnalyzer, ProjectFile templateFile, CodeUnit hostClass) {
+    public TemplateAnalysisResult analyzeTemplate(
+            IAnalyzer hostAnalyzer, ProjectFile templateFile, CodeUnit hostClass) {
         // Focus of this PR is infrastructure; returns empty result for now.
         return TemplateAnalysisResult.empty(getName(), templateFile);
     }

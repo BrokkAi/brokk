@@ -1,5 +1,6 @@
 package ai.brokk.analyzer;
 
+import ai.brokk.analyzer.angular.AngularTemplateAnalyzer;
 import ai.brokk.analyzer.scala.ScalaLanguage;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.dependencies.DependenciesPanel;
@@ -586,7 +587,7 @@ public class Languages {
     public static List<ITemplateAnalyzer> discoverTemplateAnalyzers(IProject project, Set<Language> languages) {
         List<ITemplateAnalyzer> analyzers = new ArrayList<>();
 
-        var angular = new ai.brokk.analyzer.angular.AngularTemplateAnalyzer();
+        AngularTemplateAnalyzer angular = new AngularTemplateAnalyzer();
         if (angular.isApplicable(project)) {
             analyzers.add(angular);
         }
