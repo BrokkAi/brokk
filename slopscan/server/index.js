@@ -66,12 +66,14 @@ app.post('/api/scans', async (req, res) => {
         fs.mkdirSync(tmpDir, { recursive: true });
       }
 
-      console.log(`Cloning repository: ${repoUrl} into ${tmpDir}`);
+      console.log(`Cloning repository: ${repoUrl}`);
+      console.log(`Target directory: ${tmpDir}`);
+
       const git = simpleGit();
       try {
         await git.clone(repoUrl, tmpDir);
       } catch (cloneErr) {
-        console.error(`Git clone failed for ${repoUrl}:`, cloneErr);
+        console.error(`Git clone failed for ${repoUrl} at ${tmpDir}:`, cloneErr);
         db.prepare('UPDATE scans SET status = ?, result_json = ? WHERE id = ?').run(
           'FAILED',
           JSON.stringify({
