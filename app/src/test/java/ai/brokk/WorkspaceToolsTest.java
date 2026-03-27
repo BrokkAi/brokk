@@ -160,6 +160,19 @@ public class WorkspaceToolsTest {
     }
 
     @Test
+    void runShellCommand_executesAndReturnsOutput() {
+        var cm = new TestContextManager(tempDir, new TestConsoleIO());
+        var wst = new WorkspaceTools(new Context(cm));
+
+        // Use a platform-independent simple command
+        String cmd = Environment.isWindows() ? "echo hello" : "echo hello";
+        var result = wst.runShellCommand(cmd);
+
+        assertTrue(result.contains("Command succeeded"));
+        assertTrue(result.contains("hello"));
+    }
+
+    @Test
     void addUrlContentsToWorkspace_invalidUrl_returnsTypedErrorOutput() {
         var cm = new TestContextManager(tempDir, new TestConsoleIO());
         var wst = new WorkspaceTools(new Context(cm));

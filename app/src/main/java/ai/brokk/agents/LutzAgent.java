@@ -257,6 +257,7 @@ public class LutzAgent {
         tools.add("scanUsages");
         tools.add("findFilenames");
         tools.add("searchFileContents");
+        tools.add("runShellCommand");
 
         // Workspace analyzer tools
         tools.add("addClassesToWorkspace");

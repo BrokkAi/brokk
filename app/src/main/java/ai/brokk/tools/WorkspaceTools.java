@@ -668,6 +668,28 @@ public class WorkspaceTools {
         }
     }
 
+    /**
+     * Executes a shell command in the project root and returns the output.
+     * Use this for general-purpose tasks that aren't covered by specialized tools:
+     * running scripts, checking system state, or executing CLI utilities.
+     * Commands run with the project's configured shell and JDK.
+     * Output is capped to the last 80 lines for brevity.
+     */
+    @Tool("Executes a shell command in the project root and returns the output.")
+    public String runShellCommand(@P("The shell command to execute.") String command) {
+        if (command.isBlank()) {
+            return "Error: Command cannot be empty.";
+        }
+
+        var project = context.getContextManager().getProject();
+        var result = BuildVerifier.verify(project, command);
+
+        var status = result.success() ? "Command succeeded" : "Command failed (exit " + result.exitCode() + ")";
+        var output = result.output().isBlank() ? "(no output)" : result.output();
+
+        return "%s.\n\nOutput:\n%s".formatted(status, output);
+    }
+
     @Tool(
             value =
                     "Replace the entire task list with the provided tasks. Completed tasks from the previous list are implicitly dropped. Use this when you want to create a fresh task list or significantly revise the scope.")

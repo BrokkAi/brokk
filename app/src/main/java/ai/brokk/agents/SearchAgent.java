@@ -379,6 +379,7 @@ public class SearchAgent {
         names.add("findFilesContaining");
         names.add("findFilenames");
         names.add("searchFileContents");
+        names.add("runShellCommand");
 
         names.add("addClassesToWorkspace");
         names.add("addClassSummariesToWorkspace");
