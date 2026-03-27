@@ -261,6 +261,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             SequencedSet<Range> ranges,
             boolean hasBody,
             boolean isTypeAlias,
+            Map<String, Object> attributes,
             List<CodeUnit> childrenList,
             List<String> signaturesList,
             List<Range> rangesList) {
@@ -271,12 +272,23 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 SequencedSet<Range> ranges,
                 boolean hasBody,
                 boolean isTypeAlias) {
+            this(children, signatures, ranges, hasBody, isTypeAlias, Map.of());
+        }
+
+        public CodeUnitProperties(
+                SequencedSet<CodeUnit> children,
+                SequencedSet<String> signatures,
+                SequencedSet<Range> ranges,
+                boolean hasBody,
+                boolean isTypeAlias,
+                Map<String, Object> attributes) {
             this(
                     children,
                     signatures,
                     ranges,
                     hasBody,
                     isTypeAlias,
+                    attributes,
                     List.copyOf(children),
                     List.copyOf(signatures),
                     List.copyOf(ranges));
@@ -288,7 +300,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                     Collections.unmodifiableSequencedSet(new LinkedHashSet<>()),
                     Collections.unmodifiableSequencedSet(new LinkedHashSet<>()),
                     false,
-                    false);
+                    false,
+                    Map.of());
         }
     }
 
@@ -2272,6 +2285,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                                     scopeChain,
                                     node,
                                     skeletonType);
+
+                            if (cu != null && !defInfo.decoratorNodes().isEmpty()) {
+                                handleDecorators(cu, node, defInfo.decoratorNodes(), sourceContent, acc);
+                            }
                             if (cu == null) {
                                 log.trace(
                                         "createCodeUnit returned null for node {} ({}) in file {}",
@@ -3276,6 +3293,18 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             String indent);
 
     /**
+     * Hook for subclasses to process decorators associated with a CodeUnit.
+     */
+    protected void handleDecorators(
+            CodeUnit cu,
+            TSNode definitionNode,
+            List<TSNode> decoratorNodes,
+            SourceContent sourceContent,
+            FileAnalysisAccumulator acc) {
+        // Default: no-op
+    }
+
+    /**
      * Finds decorator nodes immediately preceding a given node.
      */
     private List<TSNode> getPrecedingDecorators(TSNode decoratedNode) {
@@ -3595,7 +3624,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                             newState.signatures(),
                             newState.ranges(),
                             newState.hasBody(),
-                            newState.isTypeAlias());
+                            newState.isTypeAlias(),
+                            newState.attributes());
                 }
                 SequencedSet<CodeUnit> mergedKids = new LinkedHashSet<>(existing.children());
                 mergedKids.addAll(newState.children());
@@ -3609,12 +3639,17 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 // Merge semantics: flags are combined using logical OR.
                 boolean mergedHasBody = existing.hasBody() || newState.hasBody();
                 boolean mergedIsTypeAlias = existing.isTypeAlias() || newState.isTypeAlias();
+
+                Map<String, Object> mergedAttributes = new HashMap<>(existing.attributes());
+                mergedAttributes.putAll(newState.attributes());
+
                 return new CodeUnitProperties(
                         Collections.unmodifiableSequencedSet(mergedKids),
                         Collections.unmodifiableSequencedSet(mergedSigs),
                         Collections.unmodifiableSequencedSet(mergedRanges),
                         mergedHasBody,
-                        mergedIsTypeAlias);
+                        mergedIsTypeAlias,
+                        Collections.unmodifiableMap(mergedAttributes));
             });
 
             if (cu.isModule()) {
@@ -3700,7 +3735,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                             props.signatures(),
                             props.ranges(),
                             props.hasBody(),
-                            props.isTypeAlias());
+                            props.isTypeAlias(),
+                            props.attributes());
         });
 
         // Filter symbol index

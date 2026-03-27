@@ -587,9 +587,12 @@ public class Languages {
     public static List<ITemplateAnalyzer> discoverTemplateAnalyzers(IProject project, Set<Language> languages) {
         List<ITemplateAnalyzer> analyzers = new ArrayList<>();
 
-        AngularTemplateAnalyzer angular = new AngularTemplateAnalyzer();
-        if (angular.isApplicable(project)) {
-            analyzers.add(angular);
+        // Angular template analysis is relevant if TypeScript is active
+        if (languages.contains(Languages.TYPESCRIPT)) {
+            AngularTemplateAnalyzer angular = new AngularTemplateAnalyzer();
+            if (angular.isApplicable(project)) {
+                analyzers.add(angular);
+            }
         }
 
         return analyzers;

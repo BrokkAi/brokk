@@ -2,6 +2,7 @@ package ai.brokk.analyzer;
 
 import static ai.brokk.analyzer.typescript.TypeScriptTreeSitterNodeTypes.*;
 
+import ai.brokk.analyzer.TreeSitterAnalyzer.AnalyzerState;
 import ai.brokk.analyzer.cache.AnalyzerCache;
 import ai.brokk.project.IProject;
 import com.google.common.base.Splitter;
@@ -1076,6 +1077,71 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
             Map<String, TSNode> capturedNodesForMatch, SourceContent sourceContent, List<ImportInfo> localImportInfos) {
         // Delegate to JsTsAnalyzer for ES6 and CommonJS require extraction
         super.extractImports(capturedNodesForMatch, sourceContent, localImportInfos);
+    }
+
+    @Override
+    protected void handleDecorators(
+            CodeUnit cu,
+            TSNode definitionNode,
+            List<TSNode> decoratorNodes,
+            SourceContent sourceContent,
+            FileAnalysisAccumulator acc) {
+        if (!cu.isClass()) return;
+
+        for (TSNode decorator : decoratorNodes) {
+            // Decorator structure in TS: (decorator (call_expression (identifier) @name (arguments (object ...))))
+            TSNode callExpr = decorator.getChild(0);
+            if (callExpr == null || !"call_expression".equals(callExpr.getType())) continue;
+
+            TSNode decoratorNameNode = callExpr.getChildByFieldName("function");
+            if (decoratorNameNode == null) continue;
+
+            String decoratorName =
+                    sourceContent.substringFrom(decoratorNameNode).strip();
+            if ("Component".equals(decoratorName)) {
+                TSNode arguments = callExpr.getChildByFieldName("arguments");
+                if (arguments != null && arguments.getChildCount() > 0) {
+                    // Look for object literal in arguments
+                    for (int i = 0; i < arguments.getChildCount(); i++) {
+                        TSNode arg = arguments.getChild(i);
+                        if ("object".equals(arg.getType())) {
+                            processComponentDecorator(cu, arg, sourceContent, acc);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private void processComponentDecorator(
+            CodeUnit hostClass, TSNode objectNode, SourceContent sourceContent, FileAnalysisAccumulator acc) {
+        Map<String, Object> componentInfo = new HashMap<>();
+
+        for (int i = 0; i < objectNode.getChildCount(); i++) {
+            TSNode pair = objectNode.getChild(i);
+            if (!"pair".equals(pair.getType())) continue;
+
+            TSNode keyNode = pair.getChildByFieldName("key");
+            TSNode valueNode = pair.getChildByFieldName("value");
+            if (keyNode == null || valueNode == null) continue;
+
+            String key = sourceContent.substringFrom(keyNode).strip();
+            if ("templateUrl".equals(key) || "template".equals(key)) {
+                String value = sourceContent.substringFrom(valueNode).strip();
+                // Strip quotes from string literals
+                if ((value.startsWith("'") && value.endsWith("'"))
+                        || (value.startsWith("\"") && value.endsWith("\""))
+                        || (value.startsWith("`") && value.endsWith("`"))) {
+                    value = value.substring(1, value.length() - 1);
+                }
+                componentInfo.put(key, value);
+            }
+        }
+
+        if (componentInfo.containsKey("templateUrl") || componentInfo.containsKey("template")) {
+            // Attributes are stored in CodeUnitProperties via the accumulator in analyzeFileContent
+            acc.setAttribute(hostClass, "angular.component", componentInfo);
+        }
     }
 
     @Override

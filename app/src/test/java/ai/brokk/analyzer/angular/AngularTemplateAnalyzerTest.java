@@ -14,8 +14,9 @@ class AngularTemplateAnalyzerTest {
 
     @Test
     void testIsApplicable_WithAngularJson() {
-        try (var project =
-                InlineTestProjectCreator.empty().addFileContents("{}", "angular.json").build()) {
+        try (var project = InlineTestProjectCreator.empty()
+                .addFileContents("{}", "angular.json")
+                .build()) {
 
             AngularTemplateAnalyzer analyzer = new AngularTemplateAnalyzer();
             assertTrue(analyzer.isApplicable(project), "Should be applicable when angular.json is present");
@@ -43,8 +44,7 @@ class AngularTemplateAnalyzerTest {
                 .build()) {
 
             AngularTemplateAnalyzer analyzer = new AngularTemplateAnalyzer();
-            assertTrue(
-                    analyzer.isApplicable(project), "Should be applicable when package.json contains @angular/core");
+            assertTrue(analyzer.isApplicable(project), "Should be applicable when package.json contains @angular/core");
         }
     }
 

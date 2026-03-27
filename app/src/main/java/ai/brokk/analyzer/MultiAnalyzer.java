@@ -319,6 +319,30 @@ public class MultiAnalyzer
         return new MultiAnalyzer(newDelegates, templateAnalyzers);
     }
 
+    @SuppressWarnings("unchecked")
+    public TreeSitterAnalyzer.AnalyzerState snapshotState() {
+        // MultiAnalyzer is an aggregator; for signal purposes we provide the first available TS state
+        // This is a simplification; in a perfect world MultiAnalyzer would aggregate states.
+        TreeSitterAnalyzer.AnalyzerState firstState = null;
+        for (var delegate : delegates.values()) {
+            if (delegate instanceof TreeSitterAnalyzer ts) {
+                var state = ts.snapshotState();
+                if (firstState == null) firstState = state;
+
+                // Process Angular component signals from metadata
+                state.codeUnitState().forEach((cu, props) -> {
+                    Object attr = props.attributes().get("angular.component");
+                    if (attr instanceof Map<?, ?> angularInfo) {
+                        Map<String, Object> payload = new HashMap<>((Map<String, Object>) angularInfo);
+                        payload.put("hostClass", cu);
+                        emitHostSignal("COMPONENT_FOUND", payload, state);
+                    }
+                });
+            }
+        }
+        return firstState;
+    }
+
     /**
      * Emits a signal to all registered template analyzers.
      * Host analyzers should call this when they encounter structural patterns (like @Component)
