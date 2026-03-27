@@ -4,6 +4,7 @@ export interface ScanStatus {
   status: 'PENDING' | 'CLONED' | 'COMPLETED' | 'FAILED';
   local_path?: string;
   result_json?: string;
+  logs?: string;
   created_at: string;
 }
 

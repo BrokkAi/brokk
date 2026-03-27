@@ -32,10 +32,23 @@ export function ScanPage() {
   useEffect(() => {
     if (!scanId || !isScanning) return;
 
+    let lastLogLength = 0;
+
     const poll = async () => {
       try {
         const scan = await apiClient.getScan(scanId);
         setStatus(scan.status);
+
+        if (scan.logs && scan.logs.length > lastLogLength) {
+          const newLogs = scan.logs.substring(lastLogLength);
+          // Split by newline and add each non-empty line to the feed
+          newLogs.split(/\r?\n/).forEach((line) => {
+            if (line.trim()) {
+              addLog(line);
+            }
+          });
+          lastLogLength = scan.logs.length;
+        }
         
         if (scan.status === 'CLONED') {
           addLog("Repository cloned. Starting deep analysis...");
