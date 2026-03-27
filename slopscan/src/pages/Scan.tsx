@@ -1,15 +1,61 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
+import { apiClient } from "../lib/api-client";
 
 export function ScanPage() {
   const [repoUrl, setRepoUrl] = useState("");
   const [isScanning, setIsScanning] = useState(false);
+  const [scanId, setScanId] = useState<string | null>(null);
+  const [status, setStatus] = useState<string>("Initializing...");
+  const [feed, setFeed] = useState<Array<{ level: "info" | "warning" | "error"; message: string }>>([]);
+  const navigate = useNavigate();
 
-  const handleStartScan = () => {
+  const addLog = (message: string, level: "info" | "warning" | "error" = "info") => {
+    setFeed((prev) => [...prev, { level, message }]);
+  };
+
+  const handleStartScan = async () => {
     if (!repoUrl.trim()) return;
     setIsScanning(true);
-    // TODO: Implement executor client integration
-    console.log("Starting scan for:", repoUrl);
+    setFeed([]);
+    try {
+      addLog(`Starting scan for: ${repoUrl}`);
+      const { id } = await apiClient.startScan(repoUrl);
+      setScanId(id);
+      addLog(`Scan registered: ${id}`);
+    } catch (err) {
+      addLog(err instanceof Error ? err.message : "Failed to start scan", "error");
+      setIsScanning(false);
+    }
   };
+
+  useEffect(() => {
+    if (!scanId || !isScanning) return;
+
+    const poll = async () => {
+      try {
+        const scan = await apiClient.getScan(scanId);
+        setStatus(scan.status);
+        
+        if (scan.status === 'CLONED') {
+          addLog("Repository cloned. Starting deep analysis...");
+        } else if (scan.status === 'COMPLETED') {
+          addLog("Analysis complete!", "info");
+          setIsScanning(false);
+          setTimeout(() => navigate(`/scan-result/${scanId}`), 1000);
+        } else if (scan.status === 'FAILED') {
+          const errorMsg = scan.result_json ? JSON.parse(scan.result_json).error : "Unknown error";
+          addLog(`Analysis failed: ${errorMsg}`, "error");
+          setIsScanning(false);
+        }
+      } catch (err) {
+        addLog("Error polling status", "error");
+      }
+    };
+
+    const interval = setInterval(poll, 2000);
+    return () => clearInterval(interval);
+  }, [scanId, isScanning, navigate]);
 
   return (
     <div className="mx-auto max-w-2xl">
@@ -35,11 +81,14 @@ export function ScanPage() {
 
       {isScanning && (
         <div className="card mt-8">
-          <h2 className="mb-4 text-xl font-semibold">Forensic Feed</h2>
-          <div className="space-y-2">
-            <FeedItem level="info" message="Initializing analyzer..." />
-            <FeedItem level="info" message="Parsing source files..." />
-            {/* Events will be streamed here */}
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="text-xl font-semibold">Forensic Feed</h2>
+            <span className="animate-pulse text-xs font-mono text-slop-accent">{status}</span>
+          </div>
+          <div className="max-h-64 overflow-y-auto space-y-2">
+            {feed.map((item, i) => (
+              <FeedItem key={i} level={item.level} message={item.message} />
+            ))}
           </div>
         </div>
       )}

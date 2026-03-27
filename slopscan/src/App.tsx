@@ -10,6 +10,7 @@ function App() {
       <Route path="/" element={<Layout />}>
         <Route index element={<HomePage />} />
         <Route path="scan" element={<ScanPage />} />
+        <Route path="scan-result/:id" element={<DashboardPage />} />
         <Route path="dashboard/:jobId" element={<DashboardPage />} />
       </Route>
     </Routes>

@@ -1,22 +1,41 @@
 import { useParams } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { apiClient, type ScanResult, type ScanStatus } from "../lib/api-client";
 
 export function DashboardPage() {
-  const { jobId } = useParams<{ jobId: string }>();
+  const { id } = useParams<{ id: string }>();
+  const [scan, setScan] = useState<ScanStatus | null>(null);
+  const [results, setResults] = useState<ScanResult | null>(null);
+  const [loading, setLoading] = useState(true);
 
-  // TODO: Fetch job results and render dashboard
+  useEffect(() => {
+    if (!id) return;
+    apiClient.getScan(id).then((data) => {
+      setScan(data);
+      if (data.result_json) {
+        setResults(JSON.parse(data.result_json));
+      }
+      setLoading(false);
+    });
+  }, [id]);
+
+  if (loading) return <div className="animate-pulse text-slop-accent">Loading Audit...</div>;
+  if (!scan) return <div className="text-slop-red">Scan not found.</div>;
+
+  const totalLiability = results?.findings.reduce((sum, f) => sum + f.impact, 0) || 0;
 
   return (
     <div>
       <h1 className="mb-8 text-3xl font-bold">
         Interactive Tax Bill
-        <span className="ml-2 text-sm font-normal text-white/50">Job: {jobId}</span>
+        <span className="ml-2 text-sm font-normal text-white/50">Audit: {id}</span>
       </h1>
 
       <div className="grid gap-6 md:grid-cols-2">
         {/* Maintenance Liability Summary */}
         <div className="card col-span-2">
           <h2 className="mb-4 text-xl font-semibold text-slop-accent">Maintenance Liability</h2>
-          <div className="text-5xl font-bold text-slop-red">$12,340</div>
+          <div className="text-5xl font-bold text-slop-red">${totalLiability.toLocaleString()}</div>
           <p className="mt-2 text-white/60">Estimated annual cost to maintain this codebase</p>
         </div>
 
@@ -28,20 +47,18 @@ export function DashboardPage() {
           </div>
         </div>
 
-        {/* Hallucination Ledger Placeholder */}
+        {/* Hallucination Ledger */}
         <div className="card">
           <h2 className="mb-4 text-xl font-semibold">Hallucination Ledger</h2>
           <div className="space-y-2">
-            <LedgerItem
-              location="src/services/PaymentProcessor.java:142"
-              finding="Cyclomatic complexity: 47"
-              impact={2340}
-            />
-            <LedgerItem
-              location="src/utils/DateHelper.java:89"
-              finding="'How' comment ratio: 94%"
-              impact={890}
-            />
+            {results?.findings.map((f, i) => (
+              <LedgerItem
+                key={i}
+                location={f.location}
+                finding={f.finding}
+                impact={f.impact}
+              />
+            )) || <p className="text-white/40 italic">No findings recorded.</p>}
           </div>
         </div>
       </div>
