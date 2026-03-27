@@ -121,7 +121,13 @@ app.post('/api/scans', async (req, res) => {
       const executor = new ExecutorManager(tmpDir);
       try {
         await executor.start();
-        const prompt = `Analyze the repository for code quality issues. You MUST find the source files and use the computeCyclomaticComplexity and analyzeCommentSemantics tools on them.
+        const prompt = `Analyze the repository for code quality issues using a forensic audit approach.
+
+Follow these steps:
+1. Discovery: Use general discovery tools like 'findFilenames' or 'searchFileContents' to identify the project's primary languages, directory structure, and build tools.
+2. Analysis: Apply the built-in agent tools 'computeCyclomaticComplexity' and 'analyzeCommentSemantics' to the discovered source files.
+
+Note: 'computeCyclomaticComplexity' and 'analyzeCommentSemantics' are built-in environment functions available for you to call; they are NOT files in the repository.
 
 Example usage:
 computeCyclomaticComplexity(filePaths=["src/main.js", "src/utils.js"], threshold=10)
