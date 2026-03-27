@@ -584,7 +584,13 @@ public class Languages {
      * @return A list of discovered template analyzers.
      */
     public static List<ITemplateAnalyzer> discoverTemplateAnalyzers(IProject project, Set<Language> languages) {
-        // TODO: Implement discovery logic (e.g., check for Angular, Vue, or Svelte dependencies/files)
-        return List.of();
+        List<ITemplateAnalyzer> analyzers = new ArrayList<>();
+
+        var angular = new ai.brokk.analyzer.angular.AngularTemplateAnalyzer();
+        if (angular.isApplicable(project)) {
+            analyzers.add(angular);
+        }
+
+        return analyzers;
     }
 }
