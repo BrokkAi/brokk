@@ -138,6 +138,7 @@ analyzeCommentSemantics(filePaths=["src/main.js"])`;
         db.prepare('UPDATE scans SET logs = logs || ? WHERE id = ?').run(`[JOB] Submitted job ${jobId}\n`, scanId);
 
         let lastLlmProgressLine = null;
+        let markdownReport = '';
         const findings = [];
         for await (const event of executor.pollEvents(jobId)) {
           console.log(`[Scan][${scanId}][${jobId}] Event: ${event.type}`);
@@ -164,6 +165,8 @@ analyzeCommentSemantics(filePaths=["src/main.js"])`;
                 if (typeof parsed.token === 'string') effectiveText = parsed.token;
               } catch (e) { /* ignore */ }
             }
+
+            markdownReport += effectiveText;
 
             const firstLine = effectiveText.split('\n').map(l => l.trim()).find(l => l.length > 0);
             if (firstLine && firstLine.length <= 120) {
@@ -226,6 +229,7 @@ analyzeCommentSemantics(filePaths=["src/main.js"])`;
             'COMPLETED',
             JSON.stringify({
               findings,
+              markdownReport,
               metrics: {
                 cRem,
                 iWeekly,
