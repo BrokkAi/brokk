@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { ExecutorManager } from './executor.js';
 
 const app = express();
 const port = process.env.PORT || 3001;
@@ -54,7 +55,28 @@ app.post('/api/scans', async (req, res) => {
       db.prepare('UPDATE scans SET status = ? WHERE id = ?').run('CLONED', scanId);
       console.log(`Successfully cloned ${repoUrl} to ${tmpDir}`);
       
-      // Future: Trigger analysis here
+      const executor = new ExecutorManager(tmpDir);
+      try {
+        await executor.start();
+        const jobId = await executor.submitJob('Perform a SLOP_SCAN for code quality issues', { mode: 'SLOP_SCAN' });
+        
+        const findings = [];
+        for await (const event of executor.pollEvents(jobId)) {
+          if (event.type === 'SLOP_FINDING') {
+            findings.push(event.data);
+          }
+        }
+
+        db.prepare('UPDATE scans SET status = ?, result_json = ? WHERE id = ?')
+          .run('COMPLETED', JSON.stringify({ findings }), scanId);
+        
+      } finally {
+        executor.stop();
+        // Cleanup temp dir
+        if (fs.existsSync(tmpDir)) {
+          fs.rmSync(tmpDir, { recursive: true, force: true });
+        }
+      }
       
     } catch (err) {
       console.error(`Failed to process scan ${scanId}:`, err);
