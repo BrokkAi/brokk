@@ -932,6 +932,33 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Commit message (optional; if omitted, a message will be generated)",
     )
 
+    exec_parser = subparsers.add_parser("exec", help="Run a prompt with LITE_AGENT (scan + architect, no build)")
+    _add_common_runtime_args(exec_parser)
+    exec_parser.add_argument(
+        "prompt",
+        type=str,
+        help="The task to execute",
+    )
+    exec_parser.add_argument(
+        "--planner-model",
+        type=str,
+        default="gpt-5.1",
+        help="LLM model for planning (default: gpt-5.1)",
+    )
+    exec_parser.add_argument(
+        "--code-model",
+        type=str,
+        default="gemini-3-flash-preview",
+        help="LLM model for code generation (default: gemini-3-flash-preview)",
+    )
+    exec_parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        default=False,
+        help="Show full output (events/tokens) for debugging",
+    )
+
     issue_parser = subparsers.add_parser("issue", help="Manage GitHub issues")
     issue_subparsers = issue_parser.add_subparsers(dest="issue_command", required=True)
 
@@ -2098,6 +2125,24 @@ def main():
         pick_session = True
         session_id = None
         resume_session = False
+
+    if args.command == "exec":
+        asyncio.run(
+            run_headless_job(
+                workspace_dir=workspace_path,
+                task_input=args.prompt,
+                planner_model=args.planner_model,
+                code_model=args.code_model,
+                mode="LITE_AGENT",
+                tags={"mode": "LITE_AGENT"},
+                verbose=args.verbose,
+                jar_path=jar_path,
+                executor_version=args.executor_version,
+                executor_snapshot=args.executor_snapshot,
+                vendor=args.vendor,
+            )
+        )
+        return
 
     if args.command == "commit":
         asyncio.run(
