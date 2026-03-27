@@ -2,7 +2,10 @@ import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { config } from './config.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export class ExecutorManager {
   constructor(workspaceDir) {
@@ -13,13 +16,30 @@ export class ExecutorManager {
   }
 
   async start() {
-    // Determine JAR path - looking for the prelaunch jar
-    // In Docker, cwd is /app/server and the jar is mounted at /app/app/build/...
-    // Locally, this resolves correctly as well.
-    const jarPath = path.resolve('../app/build/libs/jdeploy-prelaunch.jar');
+    // Determine JAR path
+    const libsDir = path.join(__dirname, '../../app/build/libs');
+    let jarPath = path.join(libsDir, 'jdeploy-prelaunch.jar');
 
     if (!fs.existsSync(jarPath)) {
-      throw new Error(`Executor JAR not found at ${jarPath}. Please build the project or check volume mounts.`);
+      // Fallback: look for latest brokk-*.jar
+      if (fs.existsSync(libsDir)) {
+        const files = fs.readdirSync(libsDir)
+          .filter(f => f.startsWith('brokk-') && f.endsWith('.jar'))
+          .map(f => ({ name: f, path: path.join(libsDir, f) }))
+          .map(f => ({ ...f, mtime: fs.statSync(f.path).mtimeMs }))
+          .sort((a, b) => b.mtime - a.mtime);
+
+        if (files.length > 0) {
+          jarPath = files[0].path;
+        }
+      }
+    }
+
+    if (!fs.existsSync(jarPath)) {
+      throw new Error(
+        `Executor JAR not found. Checked for jdeploy-prelaunch.jar and brokk-*.jar in ${libsDir}. ` +
+        `Please build the project with './gradlew :app:shadowJar'.`
+      );
     }
 
     const command = 'java';
