@@ -1234,8 +1234,8 @@ async def run_acp_server(
             elif session_id not in self._cwd_by_session:
                 self._cwd_by_session[session_id] = str(workspace_dir)
 
-        def on_connect(self, client: Any) -> None:
-            self.client = client
+        def on_connect(self, conn: Any) -> None:
+            self.client = conn
 
         async def initialize(
             self,
@@ -1266,6 +1266,10 @@ async def run_acp_server(
                     ),
                 ),
             )
+
+        async def authenticate(self, method_id: str, **kwargs: Any) -> Any:
+            del kwargs
+            return None
 
         async def new_session(
             self,
@@ -1339,7 +1343,7 @@ async def run_acp_server(
                 ),
                 models=model_state,
                 config_options=self._config_options_for_session(session_id),
-                _meta=self._variant_meta_for_session(session_id),
+                field_meta=self._variant_meta_for_session(session_id),
             )
 
         async def load_session(
@@ -1374,7 +1378,7 @@ async def run_acp_server(
                 ),
                 models=model_state,
                 config_options=self._config_options_for_session(requested_session_id),
-                _meta=self._variant_meta_for_session(requested_session_id),
+                field_meta=self._variant_meta_for_session(requested_session_id),
             )
 
         async def resume_session(
@@ -1396,8 +1400,20 @@ async def run_acp_server(
                 modes=resumed.modes,
                 models=resumed.models,
                 config_options=resumed.config_options,
-                _meta=resumed.field_meta,
+                field_meta=resumed.field_meta,
             )
+
+        async def fork_session(
+            self,
+            cwd: str,
+            session_id: str,
+            mcp_servers: Optional[list[Any]] = None,
+            **kwargs: Any,
+        ) -> Any:
+            return await self.new_session(cwd=cwd, mcp_servers=mcp_servers, **kwargs)
+
+        async def close_session(self, session_id: str, **kwargs: Any) -> None:
+            del session_id, kwargs
 
         async def list_sessions(
             self,
@@ -1485,21 +1501,22 @@ async def run_acp_server(
                 self._reasoning_by_session[session_id] = selected_reasoning
             elif not self._profile.is_zed:
                 self._reasoning_by_session[session_id] = DEFAULT_VARIANT_VALUE
-            return SetSessionModelResponse(_meta=self._variant_meta_for_session(session_id))
+            return SetSessionModelResponse(field_meta=self._variant_meta_for_session(session_id))
 
         async def set_config_option(
             self,
             config_id: str,
             session_id: str,
-            value: str,
+            value: str | bool,
             **kwargs: Any,
         ) -> SetSessionConfigOptionResponse:
             del kwargs
-            if config_id == "mode" and value:
-                self._mode_by_session[session_id] = normalize_mode(value)
-            elif config_id == "model" and value:
+            str_value = str(value)
+            if config_id == "mode" and str_value:
+                self._mode_by_session[session_id] = normalize_mode(str_value)
+            elif config_id == "model" and str_value:
                 await self._refresh_model_catalog_if_fallback(session_id)
-                selected_model, selected_reasoning = resolve_model_selection(value)
+                selected_model, selected_reasoning = resolve_model_selection(str_value)
                 # Validate against catalog
                 catalog = self._catalog_for_session(session_id)
                 available = _available_model_names(catalog)
@@ -1522,12 +1539,12 @@ async def run_acp_server(
                     self._reasoning_by_session[session_id] = selected_reasoning
             elif (
                 config_id in {THOUGHT_LEVEL_CONFIG_ID, "reasoning_effort", "reasoning"}
-                and value in REASONING_LEVEL_IDS
+                and str_value in REASONING_LEVEL_IDS
             ):
                 # Sanitize for model capabilities
                 catalog = self._catalog_for_session(session_id)
                 model = self._model_by_session.get(session_id, self._default_model_id)
-                sanitized = _sanitize_reasoning_level_for_model(model, value, catalog)
+                sanitized = _sanitize_reasoning_level_for_model(model, str_value, catalog)
                 self._reasoning_by_session[session_id] = sanitized
                 # Persist reasoning change
                 try:
@@ -1543,7 +1560,9 @@ async def run_acp_server(
             options = self._config_options_for_session(session_id)
             return SetSessionConfigOptionResponse(config_options=options)
 
-        async def prompt(self, prompt: Any, session_id: str, **kwargs: Any) -> Any:
+        async def prompt(
+            self, prompt: Any, session_id: str, message_id: Optional[str] = None, **kwargs: Any
+        ) -> Any:
             await self._refresh_model_catalog_if_fallback(session_id)
             mode = normalize_mode(kwargs.get("mode") or self._mode_by_session.get(session_id))
             planner_model = (
