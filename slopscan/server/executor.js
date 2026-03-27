@@ -104,27 +104,49 @@ export class ExecutorManager {
   }
 
   async submitJob(taskInput, tags = {}) {
-    const response = await fetch(`${this.baseUrl}/v1/jobs`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${this.authToken}`,
-        'Content-Type': 'application/json',
-        'Idempotency-Key': randomUUID()
-      },
-      body: JSON.stringify({
-        taskInput,
-        plannerModel: 'gpt-4o',
-        tags: { mode: 'SEARCH', ...tags },
-        autoCompress: true
-      })
-    });
+    const maxRetries = 15;
+    const retryDelay = 2000;
 
-    if (!response.ok) {
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      const response = await fetch(`${this.baseUrl}/v1/jobs`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${this.authToken}`,
+          'Content-Type': 'application/json',
+          'Idempotency-Key': randomUUID(),
+        },
+        body: JSON.stringify({
+          taskInput,
+          plannerModel: 'gpt-4o',
+          tags: { mode: 'SEARCH', ...tags },
+          autoCompress: true,
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        return data.jobId;
+      }
+
       const text = await response.text();
+      let isNotReady = false;
+      try {
+        const errorData = JSON.parse(text);
+        if (response.status === 503 && errorData.code === 'NOT_READY') {
+          isNotReady = true;
+        }
+      } catch (e) {
+        // Not JSON or doesn't match expected error format
+      }
+
+      if (isNotReady && attempt < maxRetries) {
+        console.log(`Executor not ready (attempt ${attempt}/${maxRetries}). Retrying in ${retryDelay}ms...`);
+        await new Promise((resolve) => setTimeout(resolve, retryDelay));
+        continue;
+      }
+
       throw new Error(`Failed to submit job: ${response.statusText} - ${text}`);
     }
-    const data = await response.json();
-    return data.jobId;
   }
 
   async *pollEvents(jobId) {
