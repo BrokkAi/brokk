@@ -108,7 +108,8 @@ export class ExecutorManager {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${this.authToken}`,
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'Idempotency-Key': randomUUID()
       },
       body: JSON.stringify({
         taskInput,
