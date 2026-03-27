@@ -257,19 +257,18 @@ def extract_identifiers(text):
 
 def brokk_query(tool_name, json_args, cwd):
     \"\"\"Call brokk query to run a real Brokk tool and return the result.\"\"\"
-    try:
-        result = subprocess.run(
-            ["brokk", "query", tool_name, json.dumps(json_args)],
-            capture_output=True,
-            text=True,
-            timeout=8,
-            cwd=cwd,
+    result = subprocess.run(
+        ["brokk", "query", tool_name, json.dumps(json_args)],
+        capture_output=True,
+        text=True,
+        timeout=15,
+        cwd=cwd,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"brokk query {tool_name} failed (exit {result.returncode}): {result.stderr.strip()}"
         )
-        if result.returncode == 0 and result.stdout.strip():
-            return result.stdout.strip()
-    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
-        pass
-    return None
+    return result.stdout.strip()
 
 
 def main():
@@ -292,24 +291,16 @@ def main():
     # Call Brokk's real analyzer to find symbol definitions
     search_result = brokk_query("searchSymbols", {"patterns": patterns}, cwd)
 
-    if not search_result:
-        # Brokk query unavailable or no results -- fall back to just listing the symbols
-        # so Claude at least knows what to search for via MCP tools
-        context = (
-            f"[Brokk] Code symbols detected in prompt: {', '.join(patterns)}. "
-            f"Use mcp__brokk__searchSymbols to locate their definitions before making changes."
-        )
-    else:
-        # Inject the real search results as context
-        # Truncate if very long to avoid bloating context
-        if len(search_result) > 3000:
-            search_result = search_result[:3000] + "\\n... (truncated, use searchSymbols for full results)"
-        context = (
-            f"[Brokk Code Intelligence] Symbol definitions found for the user's request:\\n\\n"
-            f"{search_result}\\n\\n"
-            f"Use mcp__brokk__scanUsages on key symbols above to understand the dependency graph "
-            f"before making changes. Use mcp__brokk__getClassSkeletons for API surfaces."
-        )
+    # Truncate if very long to avoid bloating context
+    if len(search_result) > 3000:
+        search_result = search_result[:3000] + "\\n... (truncated, use searchSymbols for full results)"
+
+    context = (
+        f"[Brokk Code Intelligence] Symbol definitions found for the user's request:\\n\\n"
+        f"{search_result}\\n\\n"
+        f"Use mcp__brokk__scanUsages on key symbols above to understand the dependency graph "
+        f"before making changes. Use mcp__brokk__getClassSkeletons for API surfaces."
+    )
 
     output = {
         "hookSpecificOutput": {

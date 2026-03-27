@@ -122,36 +122,34 @@ def test_all_hook_scripts_executable(tmp_path):
         assert script.stat().st_mode & 0o100, f"{script_name} should be executable"
 
 
-def test_enrich_prompt_script_extracts_identifiers(tmp_path):
-    """Verify the enrich_prompt.py hook produces valid output for prompts with code symbols.
-
-    When brokk query is not available (as in tests), the script should fall back
-    to injecting the extracted symbol names with a hint to use MCP tools.
-    """
+def test_enrich_prompt_extracts_identifiers_correctly(tmp_path):
+    """Verify the extract_identifiers function in the hook script finds code symbols."""
     import subprocess
 
     plugin_root = tmp_path / "brokk-plugin"
     install_claude_code_plugin(plugin_root=plugin_root)
 
+    # Run a small Python snippet that imports the extract_identifiers function
+    # from the generated script and tests it directly
     script = plugin_root / "hooks" / "enrich_prompt.py"
-    hook_input = json.dumps({
-        "prompt": "Refactor the BrokkExternalMcpServer to use SearchTools",
-        "cwd": str(tmp_path),
-    })
+    test_code = (
+        f"import sys; sys.path.insert(0, ''); "
+        f"exec(open('{script}').read().split('def main')[0]); "
+        f"ids = extract_identifiers('Refactor BrokkExternalMcpServer to use SearchTools and scan_usages'); "
+        f"import json; print(json.dumps(ids))"
+    )
 
     result = subprocess.run(
-        ["python3", str(script)],
-        input=hook_input,
+        ["python3", "-c", test_code],
         capture_output=True,
         text=True,
-        timeout=15,
+        timeout=5,
     )
     assert result.returncode == 0
-    output = json.loads(result.stdout)
-    context = output["hookSpecificOutput"]["additionalContext"]
-    assert "BrokkExternalMcpServer" in context
-    assert "SearchTools" in context
-    assert "searchSymbols" in context
+    identifiers = json.loads(result.stdout)
+    assert "BrokkExternalMcpServer" in identifiers
+    assert "SearchTools" in identifiers
+    assert "scan_usages" in identifiers
 
 
 def test_enrich_prompt_no_output_for_plain_text(tmp_path):
