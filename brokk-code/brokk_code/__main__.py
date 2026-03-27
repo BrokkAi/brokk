@@ -890,10 +890,15 @@ def _build_parser() -> argparse.ArgumentParser:
     mcp_parser = subparsers.add_parser("mcp", help="Run in MCP server mode", add_help=False)
     _add_common_runtime_args(mcp_parser)
 
+    mcp_pure_parser = subparsers.add_parser(
+        "mcp-pure", help="Run in Pure MCP server mode (no LLM inference)", add_help=False
+    )
+    _add_common_runtime_args(mcp_pure_parser)
+
     install_parser = subparsers.add_parser("install", help="Install integration settings")
     install_parser.add_argument(
         "target",
-        choices=["zed", "intellij", "nvim", "neovim", "mcp"],
+        choices=["zed", "intellij", "nvim", "neovim", "mcp", "claude-code-plugin"],
         help="Install target for integration settings",
     )
     install_parser.add_argument(
@@ -1963,6 +1968,22 @@ def main():
                     f"Configured Codex MCP integration in {codex_settings_path}",
                     f"Installed Codex MCP workspace skill in {codex_skill_path}",
                 ]
+            elif args.target == "claude-code-plugin":
+                from brokk_code.plugin_config import install_claude_code_plugin
+
+                plugin_path = install_claude_code_plugin(
+                    force=args.force, uvx_command=uvx_command
+                )
+                prefetch_commands = _build_install_prefetch_commands(
+                    target="mcp",
+                    jbang_binary=jbang_binary,
+                    executor_version=args.executor_version,
+                )
+                messages = [
+                    f"Installed Brokk Claude Code plugin at {plugin_path}",
+                    "The plugin provides semantic code intelligence tools and skills.",
+                    "Restart Claude Code to activate the plugin.",
+                ]
             else:
                 # Should not happen due to argparse choices
                 raise ValueError(f"Unknown target: {args.target}")
@@ -2071,6 +2092,17 @@ def main():
 
     if args.command == "mcp":
         run_mcp_server(
+            workspace_dir=workspace_path,
+            jar_path=jar_path,
+            executor_version=args.executor_version,
+            passthrough_args=unknown,
+        )
+        return
+
+    if args.command == "mcp-pure":
+        from brokk_code.mcp_pure_launcher import run_mcp_server as run_pure_mcp_server
+
+        run_pure_mcp_server(
             workspace_dir=workspace_path,
             jar_path=jar_path,
             executor_version=args.executor_version,
