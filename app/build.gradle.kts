@@ -171,7 +171,7 @@ dependencies {
     implementation(libs.bundles.git)
 
     // TreeSitter parsers
-    implementation(libs.bundles.treesitter)
+    implementation(project(":treesitter-provider"))
 
     // Eclipse JDT Core for Java parse without classpath
     implementation(libs.eclipse.jdt.core)
@@ -371,7 +371,7 @@ val jdwpDebugArgsProvider = object : CommandLineArgumentProvider {
 
 // Configure main source compilation without ErrorProne (fast incremental)
 tasks.named<JavaCompile>("compileJava") {
-    dependsOn(verifyNoEmptyJavaSources, ":downloadTreeSitterNg")
+    dependsOn(verifyNoEmptyJavaSources)
 
     options.isIncremental = true
     options.isFork = true
@@ -402,7 +402,7 @@ tasks.register<JavaCompile>("compileJavaErrorProne") {
     group = "verification"
     description = "Compile with Error Prone and NullAway enabled"
 
-    dependsOn(verifyNoEmptyJavaSources, ":downloadTreeSitterNg")
+    dependsOn(verifyNoEmptyJavaSources)
 
     // Ensure generated sources (e.g., BuildConfig) exist before compiling
     dependsOn("generateBuildConfig")
@@ -467,7 +467,7 @@ tasks.register<JavaCompile>("fix") {
     group = "verification"
     description = "Apply Error Prone patches in-place"
 
-    dependsOn(verifyNoEmptyJavaSources, ":downloadTreeSitterNg")
+    dependsOn(verifyNoEmptyJavaSources)
     dependsOn("generateBuildConfig")
 
     source = sourceSets.main.get().java
@@ -543,7 +543,6 @@ tasks.withType<JavaCompile>().configureEach {
 
 // Configure test compilation without ErrorProne
 tasks.named<JavaCompile>("compileTestJava") {
-    dependsOn(":downloadTreeSitterNg")
     options.isIncremental = true
     options.isFork = false
     options.compilerArgs.addAll(listOf(

@@ -93,24 +93,11 @@ dependencyAnalysis {
     }
 }
 
-val treeSitterNgVersion = libs.versions.treesitter.get()
-
-// Ensure the flatDir target exists at configuration time so Gradle doesn't cache "missing" artifacts.
-// The actual JARs are populated by :downloadTreeSitterNg at execution time, but the directory must exist
-// during configuration to prevent early resolution failures in parallel CI builds.
-val treeSitterJarsDir = rootProject.layout.projectDirectory.dir(".gradle/tree-sitter-ng/v$treeSitterNgVersion/jars").asFile
-if (!treeSitterJarsDir.exists()) {
-    treeSitterJarsDir.mkdirs()
-}
-
 allprojects {
     group = "ai.brokk"
     version = getVersionFromGit()
 
     repositories {
-        flatDir {
-            dirs(treeSitterJarsDir)
-        }
         mavenCentral()
         google()
         maven("https://packages.jetbrains.team/maven/p/ij/intellij-dependencies/")
@@ -135,93 +122,6 @@ tasks.register("printVersion") {
     }
 }
 
-tasks.register("downloadTreeSitterNg") {
-    description = "Downloads and extracts tree-sitter-ng native libraries"
-    group = "build setup"
-
-    val version = treeSitterNgVersion
-    val downloadUrl = "https://github.com/BrokkAi/tree-sitter-ng/releases/download/v$version/tree-sitter-ng-jar.zip"
-    val checksumsUrl = "https://github.com/BrokkAi/tree-sitter-ng/releases/download/v$version/checksums.txt"
-    val cacheDir = file(".gradle/tree-sitter-ng/v$version")
-    val zipFile = file(".gradle/tree-sitter-ng/tree-sitter-ng-$version.zip")
-    val checksumsFile = cacheDir.resolve("checksums.txt")
-
-    inputs.property("version", version)
-    outputs.dir(cacheDir)
-    outputs.file(zipFile)
-
-    doLast {
-        if (!cacheDir.exists()) {
-            cacheDir.mkdirs()
-        }
-
-        // 1. Download checksums.txt if missing
-        if (!checksumsFile.exists()) {
-            logger.lifecycle("Downloading checksums.txt for TreeSitter NG v$version...")
-            java.net.URI(checksumsUrl).toURL().openStream().use { input ->
-                checksumsFile.outputStream().use { output -> input.copyTo(output) }
-            }
-        }
-
-        // 2. Download ZIP if missing
-        if (!zipFile.exists()) {
-            logger.lifecycle("Downloading TreeSitter NG v$version...")
-            zipFile.parentFile.mkdirs()
-            java.net.URI(downloadUrl).toURL().openStream().use { input ->
-                zipFile.outputStream().use { output ->
-                    input.copyTo(output)
-                }
-            }
-        }
-
-        // 3. Verify Checksum
-        val expectedFileName = "tree-sitter-ng-jar.zip"
-        val expectedHash = checksumsFile.useLines { lines ->
-            lines.map { it.split(Regex("\\s+")) }
-                .find { it.size >= 2 && it[1] == expectedFileName }
-                ?.get(0)
-        } ?: throw GradleException("No checksum entry found for $expectedFileName in $checksumsUrl")
-
-        val digest = java.security.MessageDigest.getInstance("SHA-256")
-        val actualHash = zipFile.inputStream().use { input ->
-            val buffer = ByteArray(8192)
-            var read = input.read(buffer)
-            while (read != -1) {
-                digest.update(buffer, 0, read)
-                read = input.read(buffer)
-            }
-            digest.digest().joinToString("") { "%02x".format(it) }
-        }
-
-        if (!actualHash.equals(expectedHash, ignoreCase = true)) {
-            zipFile.delete() // Delete corrupted file so it re-downloads next time
-            throw GradleException(
-                "SHA-256 checksum mismatch for $zipFile\n" +
-                "Expected: $expectedHash\n" +
-                "Actual:   $actualHash\n" +
-                "The downloaded file may be corrupted or tampered with."
-            )
-        }
-
-        logger.lifecycle("Extracting verified TreeSitter NG modules to ${cacheDir.absolutePath}...")
-        val jarsDir = cacheDir.resolve("jars")
-        jarsDir.mkdirs()
-
-        copy {
-            from(zipTree(zipFile))
-            into(jarsDir)
-            include("**/*.jar")
-            // Flatten the directory structure so all JARs are in the root of 'jarsDir'
-            eachFile {
-                path = name
-                // Normalize names: if the fork prefixed jars with 'tree-sitter-ng', 
-                // rename to 'tree-sitter' so flatDir matches them correctly.
-                path = path.replace("tree-sitter-ng", "tree-sitter")
-            }
-            includeEmptyDirs = false
-        }
-    }
-}
 
 tasks.register("deployMcpShadowJar") {
     description = "Builds :app:shadowJar and copies it to a stable MCP jar path."
@@ -494,18 +394,4 @@ subprojects {
         options.encoding = "UTF-8"
     }
 
-    // Tasks that may resolve/scan classpaths that include the locally extracted tree-sitter-ng jars.
-    // We declare an explicit dependency to satisfy Gradle's task graph validation and prevent
-    // early resolution caching missing files before the download task populates the flatDir.
-    var tasksToDependOnTSDownload = setOf(
-        "artifactsReport", "graphView", "explode", "serviceLoader",
-        "projectHealth", "buildHealth", "generate",
-        "spotless", "check", "analyze", "test", "compile", "javadoc", "build",
-        "classes", "run", "shadowJar"
-    )
-    tasks.matching {
-        it.name != "downloadTreeSitterNg" && tasksToDependOnTSDownload.any { taskName -> it.name.startsWith(taskName) }
-    }.configureEach {
-        dependsOn(":downloadTreeSitterNg")
-    }
 }
