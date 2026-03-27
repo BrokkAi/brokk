@@ -1,6 +1,6 @@
 import express from 'express';
 import Database from 'better-sqlite3';
-import { simpleGit } from 'simple-git';
+import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -69,9 +69,18 @@ app.post('/api/scans', async (req, res) => {
       console.log(`Cloning repository: ${repoUrl}`);
       console.log(`Target directory: ${tmpDir}`);
 
-      const git = simpleGit();
       try {
-        await git.clone(repoUrl, tmpDir);
+        await new Promise((resolve, reject) => {
+          const cloneProcess = spawn('git', ['clone', '--progress', repoUrl, tmpDir]);
+          cloneProcess.stdout.pipe(process.stdout);
+          cloneProcess.stderr.pipe(process.stderr);
+
+          cloneProcess.on('close', (code) => {
+            if (code === 0) resolve();
+            else reject(new Error(`Git clone failed with code ${code}`));
+          });
+          cloneProcess.on('error', reject);
+        });
       } catch (cloneErr) {
         console.error(`Git clone failed for ${repoUrl} at ${tmpDir}:`, cloneErr);
         db.prepare('UPDATE scans SET status = ?, result_json = ? WHERE id = ?').run(
