@@ -72,7 +72,7 @@ app.post('/api/scans', async (req, res) => {
 
       try {
         await new Promise((resolve, reject) => {
-          const cloneProcess = spawn('git', ['clone', '--progress', repoUrl, tmpDir]);
+          const cloneProcess = spawn('git', ['clone', '--progress', '--filter=blob:none', repoUrl, tmpDir]);
           
           let logBuffer = '';
           let lastUpdate = Date.now();
