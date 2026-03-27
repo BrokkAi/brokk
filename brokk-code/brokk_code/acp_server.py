@@ -632,6 +632,7 @@ class BrokkAcpBridge:
         self._active_job_by_session: dict[str, str] = {}
         self._started = False
         self._active_workspace_dir = getattr(executor, "workspace_dir", None)
+        self._start_lock = asyncio.Lock()
 
     def _resolved_workspace_dir(self, cwd: Optional[str] = None) -> Path:
         requested = (cwd or "").strip()
@@ -657,25 +658,26 @@ class BrokkAcpBridge:
             self.executor.base_url = None
 
     async def ensure_ready(self, cwd: Optional[str] = None) -> None:
-        target_workspace_dir = self._resolved_workspace_dir(cwd)
-        if self._started and self._active_workspace_dir == target_workspace_dir:
-            return
+        async with self._start_lock:
+            target_workspace_dir = self._resolved_workspace_dir(cwd)
+            if self._started and self._active_workspace_dir == target_workspace_dir:
+                return
 
-        if self._started:
-            logger.info(
-                "ACP cwd changed from %s to %s; restarting executor",
-                self._active_workspace_dir,
-                target_workspace_dir,
-            )
-            await self._cancel_current_work()
-            await self.executor.stop()
-            self._started = False
-            self._reset_executor_session_state()
+            if self._started:
+                logger.info(
+                    "ACP cwd changed from %s to %s; restarting executor",
+                    self._active_workspace_dir,
+                    target_workspace_dir,
+                )
+                await self._cancel_current_work()
+                await self.executor.stop()
+                self._started = False
+                self._reset_executor_session_state()
 
-        self.executor.workspace_dir = target_workspace_dir
-        self._active_workspace_dir = target_workspace_dir
-        await self.executor.start()
-        self._started = True
+            self.executor.workspace_dir = target_workspace_dir
+            self._active_workspace_dir = target_workspace_dir
+            await self.executor.start()
+            self._started = True
 
     async def _wait_until_ready(self) -> None:
         ready = await self.executor.wait_live()
