@@ -24,4 +24,7 @@ export const config = {
 
   // N: Team Size (Default 6)
   SLOP_N_TEAM: parseInt(process.env.SLOP_N_TEAM || '6', 10),
+
+  // Brokk API Key for headless executor authentication
+  BROKK_API_KEY: process.env.BROKK_API_KEY,
 };

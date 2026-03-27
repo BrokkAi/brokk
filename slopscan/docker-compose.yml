@@ -15,5 +15,6 @@ services:
       - SLOP_C_DAY=1200
       - SLOP_M_MULTIPLIER=1.5
       - SLOP_N_TEAM=6
+      - BROKK_API_KEY=${BROKK_API_KEY:-}
     volumes:
       - ../app:/app/app

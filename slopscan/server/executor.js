@@ -1,6 +1,8 @@
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
+import fs from 'node:fs';
+import { config } from './config.js';
 
 export class ExecutorManager {
   constructor(workspaceDir) {
@@ -11,23 +13,55 @@ export class ExecutorManager {
   }
 
   async start() {
-    // Determine JAR path - looking for the prelaunch jar from package.json
-    // In a real setup, this might be an environment variable or a relative path to the built app
+    // Determine JAR path - looking for the prelaunch jar
     const jarPath = path.resolve('../../app/build/libs/jdeploy-prelaunch.jar');
-    
-    const args = [
-      '-cp', jarPath,
-      'ai.brokk.executor.HeadlessExecutorMain',
-      '--exec-id', randomUUID(),
-      '--listen-addr', '127.0.0.1:0',
-      '--auth-token', this.authToken,
-      '--workspace-dir', this.workspaceDir,
-      '-Dbrokk.tui=true'
-    ];
+    const useLocalJar = fs.existsSync(jarPath);
+
+    let command;
+    let args = [];
+
+    if (useLocalJar) {
+      command = 'java';
+      args = [
+        '-cp',
+        jarPath,
+        'ai.brokk.executor.HeadlessExecutorMain',
+        '--exec-id',
+        randomUUID(),
+        '--listen-addr',
+        '127.0.0.1:0',
+        '--auth-token',
+        this.authToken,
+        '--workspace-dir',
+        this.workspaceDir,
+        '-Dbrokk.tui=true',
+      ];
+    } else {
+      command = 'jbang';
+      args = [
+        '--java',
+        '21',
+        '-R',
+        '-Djava.awt.headless=true -Dapple.awt.UIElement=true',
+        'brokk-headless@brokkai/brokk-releases',
+        '--exec-id',
+        randomUUID(),
+        '--listen-addr',
+        '127.0.0.1:0',
+        '--auth-token',
+        this.authToken,
+        '--workspace-dir',
+        this.workspaceDir,
+      ];
+    }
+
+    if (config.BROKK_API_KEY) {
+      args.push('--brokk-api-key', config.BROKK_API_KEY);
+    }
 
     return new Promise((resolve, reject) => {
-      console.log(`Starting executor: java ${args.join(' ')}`);
-      this.process = spawn('java', args, { cwd: this.workspaceDir });
+      console.log(`Starting executor: ${command} ${args.join(' ')}`);
+      this.process = spawn(command, args, { cwd: this.workspaceDir });
 
       let output = '';
       const onData = (data) => {
