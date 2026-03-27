@@ -145,6 +145,7 @@ Example usage:
 computeCyclomaticComplexity(filePaths=["src/main.js", "src/utils.js"], threshold=10)
 analyzeCommentSemantics(filePaths=["src/main.js"])
 
+Start your markdown report with "# Answer"
 At the very end of your final markdown report, include a single line exactly matching this format: est_annual_dev_cost=$<number> (where <number> is your estimated annual maintenance cost in USD).`;
         const jobId = await executor.submitJob(prompt, { mode: 'SLOP_SCAN' });
         
