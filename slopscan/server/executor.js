@@ -117,7 +117,7 @@ export class ExecutorManager {
         },
         body: JSON.stringify({
           taskInput,
-          plannerModel: 'gpt-4o',
+          plannerModel: config.BROKK_PLANNER_MODEL,
           tags: { mode: 'SEARCH', ...tags },
           autoCompress: true,
         }),

@@ -27,4 +27,7 @@ export const config = {
 
   // Brokk API Key for headless executor authentication
   BROKK_API_KEY: process.env.BROKK_API_KEY,
+
+  // LLM Model used for planning analysis tasks
+  BROKK_PLANNER_MODEL: process.env.BROKK_PLANNER_MODEL || 'gpt-4o',
 };
