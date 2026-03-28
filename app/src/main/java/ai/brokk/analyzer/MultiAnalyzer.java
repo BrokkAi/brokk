@@ -5,6 +5,7 @@ import java.util.*;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import org.pcollections.HashTreePMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -340,6 +341,16 @@ public class MultiAnalyzer
                 });
             }
         }
+
+        if (firstState == null) {
+            return new TreeSitterAnalyzer.AnalyzerState(
+                    HashTreePMap.empty(),
+                    HashTreePMap.empty(),
+                    HashTreePMap.empty(),
+                    new TreeSitterAnalyzer.SymbolKeyIndex(new TreeSet<>()),
+                    System.nanoTime());
+        }
+
         return firstState;
     }
 

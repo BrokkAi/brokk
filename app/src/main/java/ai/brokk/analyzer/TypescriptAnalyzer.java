@@ -12,6 +12,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
@@ -1103,7 +1104,7 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
                 if (arguments != null && arguments.getChildCount() > 0) {
                     // Look for object literal in arguments
                     for (int i = 0; i < arguments.getChildCount(); i++) {
-                        TSNode arg = arguments.getChild(i);
+                        TSNode arg = Objects.requireNonNull(arguments.getChild(i));
                         if ("object".equals(arg.getType())) {
                             processComponentDecorator(cu, arg, sourceContent, acc);
                         }
@@ -1118,7 +1119,7 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
         Map<String, Object> componentInfo = new HashMap<>();
 
         for (int i = 0; i < objectNode.getChildCount(); i++) {
-            TSNode pair = objectNode.getChild(i);
+            TSNode pair = Objects.requireNonNull(objectNode.getChild(i));
             if (!"pair".equals(pair.getType())) continue;
 
             TSNode keyNode = pair.getChildByFieldName("key");

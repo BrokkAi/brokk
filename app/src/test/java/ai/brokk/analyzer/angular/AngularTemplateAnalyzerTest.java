@@ -1,6 +1,5 @@
 package ai.brokk.analyzer.angular;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -66,7 +65,8 @@ class AngularTemplateAnalyzerTest {
 
     @Test
     void testAnalyzeTemplate_ParsesHtml() {
-        String html = """
+        String html =
+                """
                 <div class="container">
                   <app-header></app-header>
                   <router-outlet></router-outlet>
@@ -78,7 +78,7 @@ class AngularTemplateAnalyzerTest {
 
             AngularTemplateAnalyzer analyzer = new AngularTemplateAnalyzer();
             ProjectFile templateFile = project.getAllFiles().iterator().next();
-            
+
             // Mock host class
             CodeUnit hostClass = CodeUnit.cls(templateFile, "app", "AppComponent");
             IAnalyzer mockHost = Languages.TYPESCRIPT.createAnalyzer(project, IAnalyzer.ProgressListener.NOOP);
@@ -86,7 +86,9 @@ class AngularTemplateAnalyzerTest {
             TemplateAnalysisResult result = analyzer.analyzeTemplate(mockHost, templateFile, hostClass);
 
             assertFalse(result.discoveredUnits().isEmpty(), "Should discover HTML units");
-            assertTrue(result.discoveredUnits().stream().anyMatch(cu -> cu.shortName().equals("div")),
+            assertTrue(
+                    result.discoveredUnits().stream()
+                            .anyMatch(cu -> cu.shortName().equals("div")),
                     "Should discover top-level 'div' element");
         }
     }

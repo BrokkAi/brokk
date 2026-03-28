@@ -6,10 +6,11 @@ import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.IAnalyzer.ProgressListener;
 import ai.brokk.analyzer.ITemplateAnalyzer;
 import ai.brokk.analyzer.Language;
-import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.analyzer.SourceContent;
 import ai.brokk.analyzer.TemplateAnalysisResult;
 import ai.brokk.analyzer.TreeSitterAnalyzer;
+import ai.brokk.analyzer.cache.AnalyzerCache;
 import ai.brokk.project.IProject;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -21,7 +22,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -95,8 +95,8 @@ public class AngularTemplateAnalyzer implements ITemplateAnalyzer {
             AngularHtmlParser parser = new AngularHtmlParser(focusedProject);
             List<CodeUnit> topLevel = parser.getTopLevelDeclarations(templateFile);
 
-            TemplateAnalysisResult result = new TemplateAnalysisResult(
-                    getName(), templateFile, Set.copyOf(topLevel), List.of());
+            TemplateAnalysisResult result =
+                    new TemplateAnalysisResult(getName(), templateFile, Set.copyOf(topLevel), List.of());
 
             results.put(templateFile, result);
             return result;
@@ -168,7 +168,7 @@ public class AngularTemplateAnalyzer implements ITemplateAnalyzer {
                 Map.of("element", SkeletonType.CLASS_LIKE), // captureConfiguration
                 "", // asyncKeywordNodeType
                 Set.of() // modifierNodeTypes
-        );
+                );
 
         AngularHtmlParser(IProject project) {
             super(project, ANGULAR_HTML, ProgressListener.NOOP);
@@ -209,14 +209,14 @@ public class AngularTemplateAnalyzer implements ITemplateAnalyzer {
 
         @Override
         protected String determinePackageName(
-                ProjectFile file, TSNode definitionNode, TSNode rootNode, ai.brokk.analyzer.SourceContent sourceContent) {
+                ProjectFile file, TSNode definitionNode, TSNode rootNode, SourceContent sourceContent) {
             return "";
         }
 
         @Override
         protected String renderClassHeader(
                 TSNode classNode,
-                ai.brokk.analyzer.SourceContent sourceContent,
+                SourceContent sourceContent,
                 String exportPrefix,
                 String signatureText,
                 String baseIndent) {
@@ -226,7 +226,7 @@ public class AngularTemplateAnalyzer implements ITemplateAnalyzer {
         @Override
         protected String renderFunctionDeclaration(
                 TSNode funcNode,
-                ai.brokk.analyzer.SourceContent sourceContent,
+                SourceContent sourceContent,
                 String exportAndModifierPrefix,
                 String asyncPrefix,
                 String functionName,
@@ -249,17 +249,12 @@ public class AngularTemplateAnalyzer implements ITemplateAnalyzer {
 
         @Override
         protected IAnalyzer newSnapshot(
-                AnalyzerState state,
-                ProgressListener listener,
-                @Nullable ai.brokk.analyzer.cache.AnalyzerCache previousCache) {
+                AnalyzerState state, ProgressListener listener, @Nullable AnalyzerCache previousCache) {
             return new AngularHtmlParser(getProject(), state, listener, previousCache);
         }
 
         AngularHtmlParser(
-                IProject project,
-                AnalyzerState state,
-                ProgressListener listener,
-                @Nullable ai.brokk.analyzer.cache.AnalyzerCache cache) {
+                IProject project, AnalyzerState state, ProgressListener listener, @Nullable AnalyzerCache cache) {
             super(project, ANGULAR_HTML, state, listener, cache);
         }
 
