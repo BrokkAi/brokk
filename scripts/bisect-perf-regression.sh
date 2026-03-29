@@ -59,6 +59,7 @@ MODE=""
 USER_SET_ITER=false
 USER_PROVIDED_RUNNER_ARGS=false
 DEBUG=false
+FIND_IMPROVEMENT=false
 
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || true)"
 if [[ -z "${REPO_ROOT}" ]] || [[ ! -d "${REPO_ROOT}" ]]; then
@@ -87,7 +88,7 @@ declare -a CREATED_WORKTREES=()
 # --------------- Helpers ---------------
 usage() {
   cat <<EOF
-Bisect a performance regression between two commits using git worktrees.
+Bisect a performance regression (or improvement) between two commits using git worktrees.
 
 Usage:
   $(basename "$0") [options] <good_commit> <bad_commit>
@@ -100,6 +101,7 @@ Options:
                         Example: --runner-args "chromium-cpp --max-files 1000 --json"
   --workdir DIR         Directory to store artifacts (default: <repo>/build/perf-bisect/<timestamp>/)
   --keep-worktrees      Keep created worktrees for inspection
+  --find-improvement    Bisect to find where an improvement was introduced (instead of a regression)
   --debug, -v           Print debug diagnostics (where JSON is searched/copied)
   -h, --help            Show this help
 
@@ -125,10 +127,13 @@ Examples:
   Project-specific (OpenJDK / Java):
     $(basename "$0") <good_commit> <bad_commit> --runner-args "test-project --project openjdk --language java --max-files 1000 --json"
 
+  Find where an improvement was introduced:
+    $(basename "$0") <slow_commit> <fast_commit> --find-improvement
+
 Exit codes:
-  0  Success; first bad commit found and reported
+  0  Success; first bad (or first improved) commit found and reported
   1  Error during setup or execution
-  2  Regression not reproducible between endpoints (invalid)
+  2  Regression/improvement not reproducible between endpoints (invalid)
 
 EOF
 }
@@ -345,7 +350,7 @@ compare_dirs_json() {
 }
 
 # Extract overall status from JSON using python3 -c (no jq dependency).
-# Prints "regression", "ok", or "unknown".
+# Prints "regression", "improvement", "ok", or "unknown".
 status_from_json() {
   python3 -c 'import json, sys
 try:
@@ -356,7 +361,9 @@ try:
         print("unknown")
     elif any(s == "regression" for s in statuses):
         print("regression")
-    elif all(s in ("ok", "improvement") for s in statuses if s):
+    elif any(s == "improvement" for s in statuses):
+        print("improvement")
+    elif all(s == "ok" for s in statuses if s):
         print("ok")
     else:
         print("unknown")
@@ -451,6 +458,9 @@ parse_args() {
         ;;
       --keep-worktrees)
         KEEP_WORKTREES=true
+        ;;
+      --find-improvement)
+        FIND_IMPROVEMENT=true
         ;;
       --debug|-v)
         DEBUG=true
@@ -553,6 +563,9 @@ main() {
   echo -e "${BLUE}Runner args: ${RUNNER_ARGS}${NC}"
   echo -e "${BLUE}Iterations: ${ITERATIONS}, Retries: ${RETRIES}${NC}"
   echo -e "${BLUE}Good: ${good_sha} (${good_sha_short})  Bad: ${bad_sha} (${bad_sha_short})${NC}"
+  if [[ "${FIND_IMPROVEMENT}" == "true" ]]; then
+    echo -e "${BLUE}Mode: Finding improvement (not regression)${NC}"
+  fi
   if [[ "${DEBUG}" == "true" ]]; then echo -e "${YELLOW}Debug mode enabled${NC}" >&2; fi
 
   # Pre-check: run endpoints
@@ -570,14 +583,22 @@ main() {
     exit 1
   fi
 
-  # Confirm that there is an actual regression between endpoints
+  # Confirm that there is an actual regression (or improvement) between endpoints
   local pre_json pre_status
   pre_json="$(compare_dirs_json "${good_dir}" "${bad_dir}" "${good_sha_short}" "${bad_sha_short}")"
   echo -e "${BLUE}[Compare] ${good_sha_short} -> ${bad_sha_short}${NC}"
   print_compare_summary "${good_sha_short}" "${bad_sha_short}" "${pre_json}"
   pre_status="$(status_from_json <<< "${pre_json}")"
-  if [[ "${pre_status}" != "regression" ]]; then
-    echo -e "${YELLOW}No reproducible regression detected between endpoints (${good_sha_short} -> ${bad_sha_short}).${NC}"
+
+  local target_status="regression"
+  local target_label="regression"
+  if [[ "${FIND_IMPROVEMENT}" == "true" ]]; then
+    target_status="improvement"
+    target_label="improvement"
+  fi
+
+  if [[ "${pre_status}" != "${target_status}" ]]; then
+    echo -e "${YELLOW}No reproducible ${target_label} detected between endpoints (${good_sha_short} -> ${bad_sha_short}).${NC}"
     echo -e "${YELLOW}compare-perf-results status: ${pre_status}${NC}"
     echo "GOOD results: ${good_dir}"
     echo "BAD results : ${bad_dir}"
@@ -640,8 +661,8 @@ main() {
       status="$(status_from_json <<< "${cmp_json}")"
     fi
 
-    # If not a regression, retry up to --retries times by re-running midpoint to replace JSON runs.
-    if [[ "${status}" != "regression" ]]; then
+    # If not matching target status, retry up to --retries times by re-running midpoint to replace JSON runs.
+    if [[ "${status}" != "${target_status}" ]]; then
       local attempt=1
       while (( attempt <= RETRIES )); do
         echo -e "${YELLOW}Inconclusive midpoint result (${status}) for ${mid_short}; retry ${attempt}/${RETRIES}...${NC}"
@@ -651,7 +672,7 @@ main() {
           echo -e "${BLUE}[Compare] ${lo_short} -> ${mid_short}${NC}"
           print_compare_summary "${lo_short}" "${mid_short}" "${cmp_json}"
           status="$(status_from_json <<< "${cmp_json}")"
-          if [[ "${status}" == "regression" ]]; then
+          if [[ "${status}" == "${target_status}" ]]; then
             break
           fi
         else
@@ -661,21 +682,30 @@ main() {
       done
     fi
 
-    if [[ "${status}" == "regression" ]]; then
-      # Midpoint behaves like BAD -> narrow upper bound
+    if [[ "${status}" == "${target_status}" ]]; then
+      # Midpoint shows target change -> narrow upper bound
       hi="${mid_index}"
-      echo -e "${RED}${mid_short} classified as BAD (regression).${NC}"
+      if [[ "${FIND_IMPROVEMENT}" == "true" ]]; then
+        echo -e "${GREEN}${mid_short} classified as IMPROVED.${NC}"
+      else
+        echo -e "${RED}${mid_short} classified as BAD (regression).${NC}"
+      fi
     else
-      # Midpoint behaves like GOOD (or still inconclusive after retries) -> advance lower bound
+      # Midpoint behaves like baseline (or still inconclusive after retries) -> advance lower bound
       lo="${mid_index}"
-      echo -e "${GREEN}${mid_short} classified as GOOD.${NC}"
+      echo -e "${GREEN}${mid_short} classified as GOOD (no ${target_label}).${NC}"
     fi
   done
 
   local first_bad_sha="${PATH_COMMITS[$hi]}"
   local first_bad_short="$(git -C "${REPO_ROOT}" rev-parse --short "${first_bad_sha}")"
-  echo -e "${GREEN}First bad commit identified: ${first_bad_sha} (${first_bad_short})${NC}"
-  echo "${first_bad_sha}" > "${WORKDIR}/first-bad-commit.txt"
+  if [[ "${FIND_IMPROVEMENT}" == "true" ]]; then
+    echo -e "${GREEN}First improved commit identified: ${first_bad_sha} (${first_bad_short})${NC}"
+    echo "${first_bad_sha}" > "${WORKDIR}/first-improved-commit.txt"
+  else
+    echo -e "${GREEN}First bad commit identified: ${first_bad_sha} (${first_bad_short})${NC}"
+    echo "${first_bad_sha}" > "${WORKDIR}/first-bad-commit.txt"
+  fi
 
   # Produce a final markdown summary using current GOOD (lo) and BAD (hi)
   local final_good_sha="${PATH_COMMITS[$lo]}"
