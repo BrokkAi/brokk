@@ -1,7 +1,6 @@
 package ai.brokk.analyzer.angular;
 
 import static ai.brokk.testutil.AssertionHelperUtil.assertCodeContains;
-import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -138,9 +137,8 @@ class AngularTemplateAnalyzerTest {
             // Explicitly create a MultiAnalyzer with Angular support for this integration test
             IAnalyzer tsAnalyzer = Languages.TYPESCRIPT.createAnalyzer(project, IAnalyzer.ProgressListener.NOOP);
             AngularTemplateAnalyzer angularTemplateAnalyzer = new AngularTemplateAnalyzer();
-            MultiAnalyzer multi = new MultiAnalyzer(
-                    Map.of(Languages.TYPESCRIPT, tsAnalyzer),
-                    List.of(angularTemplateAnalyzer));
+            MultiAnalyzer multi =
+                    new MultiAnalyzer(Map.of(Languages.TYPESCRIPT, tsAnalyzer), List.of(angularTemplateAnalyzer));
 
             // Ensure the AngularTemplateAnalyzer has received the metadata signals
             // MultiAnalyzer.snapshotState() triggers signal emission in the current implementation.
@@ -158,7 +156,8 @@ class AngularTemplateAnalyzerTest {
             // Debug check for attributes
             var state = multi.snapshotState();
             var props = state.codeUnitState().get(appComponent);
-            assertTrue(props != null && props.attributes().containsKey("angular.component"),
+            assertTrue(
+                    props != null && props.attributes().containsKey("angular.component"),
                     "AppComponent should have angular.component attribute. Attributes: "
                             + (props != null ? props.attributes() : "null"));
 
@@ -200,9 +199,8 @@ class AngularTemplateAnalyzerTest {
             // Set up the analyzers
             IAnalyzer tsAnalyzer = Languages.TYPESCRIPT.createAnalyzer(project, IAnalyzer.ProgressListener.NOOP);
             AngularTemplateAnalyzer angularTemplateAnalyzer = new AngularTemplateAnalyzer();
-            MultiAnalyzer multi = new MultiAnalyzer(
-                    Map.of(Languages.TYPESCRIPT, tsAnalyzer),
-                    List.of(angularTemplateAnalyzer));
+            MultiAnalyzer multi =
+                    new MultiAnalyzer(Map.of(Languages.TYPESCRIPT, tsAnalyzer), List.of(angularTemplateAnalyzer));
 
             // Analysis pass to link metadata
             multi.snapshotState();

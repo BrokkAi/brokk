@@ -440,8 +440,8 @@ public final class CSharpAnalyzerTest {
             var xCu = xDefs.iterator().next();
             var xSkeleton = analyzer.getSkeleton(xCu);
             assertTrue(xSkeleton.isPresent());
-            // Should contain 'public' and NOT contain the attribute
-            assertCodeEquals("public int x = 1;", xSkeleton.get());
+            // Should contain the attribute since it's part of the field declaration node
+            assertCodeEquals("[NonSerialized]\npublic int x = 1;", xSkeleton.get());
 
             var yDefs = analyzer.getDefinitions("C.y");
             assertEquals(1, yDefs.size());

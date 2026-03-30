@@ -179,7 +179,8 @@ public class MultiAnalyzerTest {
     @Test
     public void testGetSources_AggregatesTemplateSourcesWithFormatting() {
         // GIVEN: A CodeUnit and a MultiAnalyzer with a language delegate and a template analyzer
-        var classUnit = multiAnalyzer.getDefinitions("TestClass").stream().findFirst().orElseThrow();
+        var classUnit =
+                multiAnalyzer.getDefinitions("TestClass").stream().findFirst().orElseThrow();
         String templateContent = "<div>Template Content</div>";
 
         var mockTemplateAnalyzer = new TestTemplateAnalyzer("Mock", Map.of(classUnit, Set.of(templateContent)));

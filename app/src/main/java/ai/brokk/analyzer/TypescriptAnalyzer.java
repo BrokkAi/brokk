@@ -1114,7 +1114,8 @@ public class TypescriptAnalyzer extends JsTsAnalyzer {
             }
             if (decoratorNameNode == null) continue;
 
-            String decoratorName = sourceContent.substringFrom(decoratorNameNode).strip();
+            String decoratorName =
+                    sourceContent.substringFrom(decoratorNameNode).strip();
             // Handle both @Component and @angular.Component, stripping any '@' if present
             String cleanName = decoratorName.startsWith("@") ? decoratorName.substring(1) : decoratorName;
 

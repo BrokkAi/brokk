@@ -337,10 +337,11 @@ public class TypescriptAnalyzerTest {
         CodeUnit decoratedClass = CodeUnit.cls(advancedTsFile, "", "DecoratedClass");
         assertTrue(skeletons.containsKey(decoratedClass));
 
-        // With unified query, class-level decorators and method type parameters are not captured
+        // Class-level decorators and property decorators should be present in the skeleton.
         assertEquals(
                 normalize.apply(
                         """
+            @MyClassDecorator
             export class DecoratedClass<T> {
               @MyPropertyDecorator
               decoratedProperty: string = "initial"

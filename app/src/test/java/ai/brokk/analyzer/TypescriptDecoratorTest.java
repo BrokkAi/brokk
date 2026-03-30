@@ -6,7 +6,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import ai.brokk.testutil.InlineTestProjectCreator;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
-import java.util.concurrent.atomic.AtomicInteger;
 
 class TypescriptDecoratorTest {
 

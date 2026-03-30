@@ -41,10 +41,12 @@ public class TestTemplateAnalyzer implements ITemplateAnalyzer {
     }
 
     @Override
-    public void onHostSignal(String signal, Map<String, Object> payload, TreeSitterAnalyzer.AnalyzerState globalState) {}
+    public void onHostSignal(
+            String signal, Map<String, Object> payload, TreeSitterAnalyzer.AnalyzerState globalState) {}
 
     @Override
-    public TemplateAnalysisResult analyzeTemplate(IAnalyzer hostAnalyzer, ProjectFile templateFile, CodeUnit hostClass) {
+    public TemplateAnalysisResult analyzeTemplate(
+            IAnalyzer hostAnalyzer, ProjectFile templateFile, CodeUnit hostClass) {
         return new TemplateAnalysisResult(internalName(), templateFile, Set.of(), List.of());
     }
 
