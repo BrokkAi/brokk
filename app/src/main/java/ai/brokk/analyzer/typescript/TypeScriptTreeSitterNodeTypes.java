@@ -24,6 +24,17 @@ public final class TypeScriptTreeSitterNodeTypes {
 
     // Statements
     public static final String EXPORT_STATEMENT = CommonTreeSitterNodeTypes.EXPORT_STATEMENT;
+    public static final String IF_STATEMENT = "if_statement";
+    public static final String FOR_STATEMENT = "for_statement";
+    public static final String FOR_IN_STATEMENT = "for_in_statement";
+    public static final String WHILE_STATEMENT = "while_statement";
+    public static final String DO_STATEMENT = "do_statement";
+    public static final String CATCH_CLAUSE = "catch_clause";
+    public static final String SWITCH_CASE = "switch_case";
+
+    // Expressions
+    public static final String TERNARY_EXPRESSION = "ternary_expression";
+    public static final String BINARY_EXPRESSION = "binary_expression";
 
     // Decorators
     public static final String DECORATOR = CommonTreeSitterNodeTypes.DECORATOR;

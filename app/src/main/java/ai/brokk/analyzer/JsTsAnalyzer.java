@@ -1,5 +1,6 @@
 package ai.brokk.analyzer;
 
+import static ai.brokk.analyzer.javascript.JavaScriptTreeSitterNodeTypes.*;
 import static ai.brokk.analyzer.javascript.JavaScriptTreeSitterNodeTypes.REQUIRE_CALL_CAPTURE_NAME;
 import static ai.brokk.analyzer.javascript.JavaScriptTreeSitterNodeTypes.REQUIRE_FUNC_CAPTURE_NAME;
 
@@ -8,6 +9,8 @@ import ai.brokk.project.IProject;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import java.nio.file.Path;
+import java.util.ArrayDeque;
+import java.util.Deque;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -385,5 +388,64 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
     protected boolean isConstructor(
             CodeUnit candidate, @Nullable CodeUnit enclosingClass, @Nullable String captureName) {
         return "constructor".equals(candidate.identifier());
+    }
+
+    @Override
+    public int computeCyclomaticComplexity(CodeUnit cu) {
+        return withTreeOf(
+                cu.source(),
+                tree -> {
+                    List<Range> ranges = rangesOf(cu);
+                    if (ranges.isEmpty()) return 1;
+
+                    Range firstRange = ranges.getFirst();
+                    TSNode root = tree.getRootNode();
+                    TSNode cuNode = root.getDescendantForByteRange(firstRange.startByte(), firstRange.endByte());
+
+                    if (cuNode == null) return 1;
+
+                    int complexity = 1;
+                    Deque<TSNode> stack = new ArrayDeque<>();
+                    stack.push(cuNode);
+
+                    while (!stack.isEmpty()) {
+                        TSNode node = stack.pop();
+                        String type = node.getType();
+
+                        switch (type) {
+                            case IF_STATEMENT,
+                                    FOR_STATEMENT,
+                                    FOR_IN_STATEMENT,
+                                    WHILE_STATEMENT,
+                                    DO_STATEMENT,
+                                    CATCH_CLAUSE,
+                                    TERNARY_EXPRESSION -> complexity++;
+                            case SWITCH_CASE -> {
+                                // Increment for 'case ...:', but not for 'default:'
+                                if (node.getChildByFieldName("value") != null) {
+                                    complexity++;
+                                }
+                            }
+                            case BINARY_EXPRESSION -> {
+                                TSNode operatorNode = node.getChildByFieldName("operator");
+                                if (operatorNode != null) {
+                                    String operator =
+                                            operatorNode
+                                                    .getType(); // In JS/TS grammar, operators are often their own types
+                                    if (operator.equals("&&") || operator.equals("||") || operator.equals("??")) {
+                                        complexity++;
+                                    }
+                                }
+                            }
+                        }
+
+                        for (int i = 0; i < node.getChildCount(); i++) {
+                            stack.push(node.getChild(i));
+                        }
+                    }
+
+                    return complexity;
+                },
+                1);
     }
 }
