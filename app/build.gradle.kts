@@ -19,8 +19,7 @@ group = "ai.brokk"
 
 java {
     toolchain {
-        languageVersion.set(JavaLanguageVersion.of(21))
-        vendor.set(JvmVendorSpec.JETBRAINS)
+        languageVersion.set(JavaLanguageVersion.of(25))
     }
 }
 
@@ -931,7 +930,7 @@ tasks.shadowJar {
     enabled = project.hasProperty("enableShadowJar") ||
               System.getenv("CI") == "true" ||
               gradle.startParameter.taskNames.any {
-                  it.contains("shadowJar") || it.contains("deployMcpShadowJar")
+                  it.contains("shadowJar") || it.contains("deployMcpShadowJar") || it.contains("buildClaudePlugin")
               }
 }
 

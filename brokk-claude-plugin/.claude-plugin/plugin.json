@@ -1,0 +1,11 @@
+{
+  "name": "brokk-context",
+  "version": "0.1.0",
+  "description": "Injects Brokk's code intelligence into every prompt — gives Claude a structured symbol index of your project (classes, methods, fields per file) powered by tree-sitter analysis, with zero LLM calls.",
+  "author": {
+    "name": "Brokk AI"
+  },
+  "repository": "https://github.com/BrokkAi/brokk",
+  "license": "Apache-2.0",
+  "keywords": ["code-intelligence", "analyzer", "context", "tree-sitter"]
+}

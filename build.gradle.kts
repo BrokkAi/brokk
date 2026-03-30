@@ -225,6 +225,29 @@ tool_timeout_sec = 300.0
     }
 }
 
+tasks.register("buildClaudePlugin") {
+    description = "Builds the shadow jar and bundles it into the brokk-claude-plugin for distribution."
+    group = "distribution"
+
+    dependsOn(":app:shadowJar")
+
+    doLast {
+        val shadowJarFile = rootDir.resolve("app/build/libs/brokk-${project.version}.jar")
+        if (!shadowJarFile.exists()) {
+            throw GradleException("Expected shadow jar not found: ${shadowJarFile.absolutePath}")
+        }
+
+        val pluginLib = rootDir.resolve("brokk-claude-plugin/lib/brokk-hook.jar")
+        pluginLib.parentFile.mkdirs()
+        shadowJarFile.copyTo(pluginLib, overwrite = true)
+
+        println("Bundled jar into plugin at ${pluginLib.absolutePath}")
+        println()
+        println("Test the plugin locally:")
+        println("  claude --plugin-dir ./brokk-claude-plugin")
+    }
+}
+
 tasks.register("tidy") {
     description = "Formats code using Spotless (alias for spotlessApply in all projects)"
     group = "formatting"
