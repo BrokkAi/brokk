@@ -1478,6 +1478,9 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
                         while (!stack.isEmpty()) {
                             TSNode node = stack.pop();
                             String type = node.getType();
+                            if (type == null) {
+                                continue;
+                            }
 
                             switch (type) {
                                 case IF_STATEMENT,
@@ -1503,7 +1506,10 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
                             }
 
                             for (int i = 0; i < node.getNamedChildCount(); i++) {
-                                stack.push(node.getNamedChild(i));
+                                TSNode child = node.getNamedChild(i);
+                                if (child != null) {
+                                    stack.push(child);
+                                }
                             }
                         }
                         return complexity;
