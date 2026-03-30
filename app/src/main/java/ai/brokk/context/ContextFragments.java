@@ -13,6 +13,7 @@ import ai.brokk.analyzer.CodeUnitType;
 import ai.brokk.analyzer.ExternalFile;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ImportAnalysisProvider;
+import ai.brokk.analyzer.MultiAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.TypeHierarchyProvider;
 import ai.brokk.analyzer.usages.FuzzyResult;
@@ -79,14 +80,17 @@ public class ContextFragments {
     public static final LoggingExecutorService FRAGMENT_EXECUTOR = createFragmentExecutor();
 
     /**
-     * Resolves supporting summary fragments for the direct ancestors of the given code units.
-     * Filters out anonymous units.
+     * Resolves supporting fragments for the given code units, including direct ancestors
+     * and template files/sources for component-like units.
      */
     @Blocking
-    public static Set<ContextFragment> resolveAncestorFragments(
+    public static Set<ContextFragment> resolveRelatedFragments(
             Collection<CodeUnit> units, IContextManager contextManager) {
         IAnalyzer analyzer = contextManager.getAnalyzerUninterrupted();
-        return units.stream()
+        Set<ContextFragment> supporting = new LinkedHashSet<>();
+
+        // 1. Resolve Ancestors
+        units.stream()
                 .filter(CodeUnit::isClass)
                 .flatMap(cu ->
                         analyzer
@@ -98,7 +102,33 @@ public class ContextFragments {
                 .distinct()
                 .map(anc -> new SummaryFragment(
                         contextManager, anc.fqName(), ContextFragment.SummaryType.CODEUNIT_SKELETON))
-                .collect(Collectors.toSet());
+                .forEach(supporting::add);
+
+        // 2. Resolve Templates (Angular/Guest DSLs)
+        if (analyzer instanceof MultiAnalyzer multi) {
+            for (var unit : units) {
+                for (var templateAnalyzer : multi.getTemplateAnalyzers()) {
+                    var files = templateAnalyzer.getTemplateFiles(unit, contextManager);
+                    if (!files.isEmpty()) {
+                        files.stream()
+                                .map(f -> new ProjectPathFragment(f, contextManager))
+                                .forEach(supporting::add);
+                    } else {
+                        var sources = templateAnalyzer.getTemplateSources(unit);
+                        if (!sources.isEmpty()) {
+                            String combinedSource = String.join("\n\n", sources);
+                            supporting.add(new StringFragment(
+                                    contextManager,
+                                    combinedSource,
+                                    "Inline template for " + unit.shortName(),
+                                    "text/html"));
+                        }
+                    }
+                }
+            }
+        }
+
+        return supporting;
     }
 
     public static byte @Nullable [] convertToByteArray(@Nullable List<Byte> imageBytes) {
@@ -507,7 +537,7 @@ public class ContextFragments {
         @Blocking
         public Set<ContextFragment> supportingFragments() {
             IAnalyzer analyzer = contextManager.getAnalyzerUninterrupted();
-            return resolveAncestorFragments(analyzer.getTopLevelDeclarations(file), contextManager);
+            return resolveRelatedFragments(analyzer.getTopLevelDeclarations(file), contextManager);
         }
     }
 
@@ -1702,7 +1732,7 @@ public class ContextFragments {
         @Blocking
         public Set<ContextFragment> supportingFragments() {
             IAnalyzer analyzer = contextManager.getAnalyzerUninterrupted();
-            return resolveAncestorFragments(List.copyOf(analyzer.getDefinitions(fullyQualifiedName)), contextManager);
+            return resolveRelatedFragments(List.copyOf(analyzer.getDefinitions(fullyQualifiedName)), contextManager);
         }
     }
 
@@ -1959,7 +1989,7 @@ public class ContextFragments {
                             yield analyzer.getTopLevelDeclarations(file);
                         }
                     };
-            return resolveAncestorFragments(codeUnits, contextManager);
+            return resolveRelatedFragments(codeUnits, contextManager);
         }
 
         private static ContentSnapshot computeSnapshotFor(
