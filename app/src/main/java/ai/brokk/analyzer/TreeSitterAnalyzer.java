@@ -2923,9 +2923,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             for (TSNode decoratorNode : getPrecedingDecorators(nodeForContent)) {
                 // Only add the decorator manually if it's NOT already part of the node being sliced for signature.
                 // If it is inside nodeForSignature, slicing nodeForSignature will already include it.
-                if (decoratorNode.getStartByte() < nodeForSignature.getStartByte() ||
-                    decoratorNode.getEndByte() > nodeForSignature.getEndByte()) {
-                    signatureLines.add(sourceContent.substringFrom(decoratorNode).stripLeading());
+                if (decoratorNode.getStartByte() < nodeForSignature.getStartByte()
+                        || decoratorNode.getEndByte() > nodeForSignature.getEndByte()) {
+                    signatureLines.add(
+                            sourceContent.substringFrom(decoratorNode).stripLeading());
                 }
             }
         }
