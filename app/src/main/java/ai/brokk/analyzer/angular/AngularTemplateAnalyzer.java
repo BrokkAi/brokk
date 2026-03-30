@@ -114,25 +114,24 @@ public class AngularTemplateAnalyzer implements ITemplateAnalyzer {
     @Override
     public Set<ProjectFile> getTemplateFiles(CodeUnit hostClass, IContextManager contextManager) {
         String templateUrl = hostClassToTemplateUrl.get(hostClass);
-        if (templateUrl != null) {
-            try {
-                Path sourcePath = hostClass.source().absPath();
-                Path parentPath = sourcePath.getParent();
-                if (parentPath != null) {
-                    Path templatePath = parentPath.resolve(templateUrl).normalize();
-                    Path projectRoot = contextManager.getProject().getRoot();
-                    if (templatePath.startsWith(projectRoot)) {
-                        Path relPath = projectRoot.relativize(templatePath);
-                        ProjectFile pf = new ProjectFile(projectRoot, relPath);
-                        if (pf.exists()) {
-                            return Set.of(pf);
-                        }
-                    }
-                }
-            } catch (Exception e) {
-                log.warn("Failed to resolve template file {} for {}: {}", templateUrl, hostClass, e.getMessage());
-            }
+        if (templateUrl == null) {
+            return Set.of();
         }
+
+        try {
+            // Angular template URLs are relative to the component file
+            Path hostDir = hostClass.source().getParent();
+            Path resolvedPath = hostDir.resolve(templateUrl).normalize();
+
+            // ProjectFile requires a path relative to the project root
+            ProjectFile pf = new ProjectFile(contextManager.getProject().getRoot(), resolvedPath);
+            if (pf.exists()) {
+                return Set.of(pf);
+            }
+        } catch (Exception e) {
+            log.warn("Failed to resolve template file {} for {}: {}", templateUrl, hostClass, e.getMessage());
+        }
+
         return Set.of();
     }
 
