@@ -70,7 +70,7 @@ public final class JavaTreeSitterNodeTypes {
     public static final String WHILE_STATEMENT = "while_statement";
     public static final String DO_STATEMENT = "do_statement";
     public static final String CATCH_CLAUSE = "catch_clause";
-    public static final String CONDITIONAL_EXPRESSION = "conditional_expression";
+    public static final String CONDITIONAL_EXPRESSION = "ternary_expression";
     public static final String SWITCH_LABEL = "switch_label";
     public static final String BINARY_EXPRESSION = "binary_expression";
 
