@@ -6,6 +6,7 @@ import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.project.IProject;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.jetbrains.annotations.Nullable;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
@@ -77,6 +78,10 @@ public class ContextHook {
         // Boot the analyzer (pure local, no LLM, no global Brokk config)
         var project = new LightweightProject(projectPath);
         var analyzer = createAnalyzer(project);
+        if (analyzer == null) {
+            // No analyzable languages — silently exit so the hook is a no-op
+            return;
+        }
 
         // Build the compact project index
         var index = buildProjectIndex(analyzer, project);
@@ -91,13 +96,13 @@ public class ContextHook {
         System.out.println(MAPPER.writeValueAsString(output));
     }
 
-    private static IAnalyzer createAnalyzer(IProject project) {
+    private static @Nullable IAnalyzer createAnalyzer(IProject project) {
         Set<Language> languages = project.getAnalyzerLanguages().stream()
                 .filter(l -> l != Languages.NONE)
                 .collect(Collectors.toSet());
 
         if (languages.isEmpty()) {
-            throw new RuntimeException("No analyzable languages found in " + project.getRoot());
+            return null;
         }
 
         // Load or create per-language analyzers, saving each one's cache
