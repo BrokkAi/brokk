@@ -40,6 +40,8 @@ public class AngularTemplateAnalyzer implements ITemplateAnalyzer {
     private static final Logger log = LogManager.getLogger(AngularTemplateAnalyzer.class);
 
     private final Map<ProjectFile, TemplateAnalysisResult> results = Collections.synchronizedMap(new HashMap<>());
+    private final Map<CodeUnit, String> hostClassToInlineTemplate = Collections.synchronizedMap(new HashMap<>());
+    private final Map<CodeUnit, String> hostClassToTemplateUrl = Collections.synchronizedMap(new HashMap<>());
 
     @Override
     public boolean isApplicable(IProject project) {
@@ -88,7 +90,50 @@ public class AngularTemplateAnalyzer implements ITemplateAnalyzer {
 
     @Override
     public void onHostSignal(String signal, Map<String, Object> payload, TreeSitterAnalyzer.AnalyzerState globalState) {
-        // Implementation for responding to @Component discovery will go here
+        if (!"COMPONENT_FOUND".equals(signal)) {
+            return;
+        }
+
+        Object hostClassObj = payload.get("hostClass");
+        if (!(hostClassObj instanceof CodeUnit hostClass)) {
+            return;
+        }
+
+        Object template = payload.get("template");
+        if (template instanceof String inline) {
+            hostClassToInlineTemplate.put(hostClass, inline);
+        }
+
+        Object templateUrl = payload.get("templateUrl");
+        if (templateUrl instanceof String url) {
+            hostClassToTemplateUrl.put(hostClass, url);
+        }
+    }
+
+    @Override
+    public Set<String> getTemplateSources(CodeUnit hostClass) {
+        String inline = hostClassToInlineTemplate.get(hostClass);
+        if (inline != null) {
+            return Set.of(inline);
+        }
+
+        String templateUrl = hostClassToTemplateUrl.get(hostClass);
+        if (templateUrl != null) {
+            try {
+                Path sourcePath = hostClass.source().absPath();
+                Path parentPath = sourcePath.getParent();
+                if (parentPath != null) {
+                    Path templatePath = parentPath.resolve(templateUrl).normalize();
+                    if (Files.exists(templatePath)) {
+                        return Set.of(Files.readString(templatePath));
+                    }
+                }
+            } catch (IOException e) {
+                log.warn("Failed to read template file {} for {}: {}", templateUrl, hostClass, e.getMessage());
+            }
+        }
+
+        return Set.of();
     }
 
     @Override
