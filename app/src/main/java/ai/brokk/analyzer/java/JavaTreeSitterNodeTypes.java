@@ -64,6 +64,16 @@ public final class JavaTreeSitterNodeTypes {
     public static final String INSTANCEOF_EXPRESSION = "instanceof_expression";
     public static final String PATTERN = "pattern";
 
+    // Control flow and complexity inducing types
+    public static final String IF_STATEMENT = "if_statement";
+    public static final String FOR_STATEMENT = "for_statement";
+    public static final String WHILE_STATEMENT = "while_statement";
+    public static final String DO_STATEMENT = "do_statement";
+    public static final String CATCH_CLAUSE = "catch_clause";
+    public static final String CONDITIONAL_EXPRESSION = "conditional_expression";
+    public static final String SWITCH_LABEL = "switch_label";
+    public static final String BINARY_EXPRESSION = "binary_expression";
+
     // Literals
     public static final String DECIMAL_INTEGER_LITERAL = "decimal_integer_literal";
     public static final String HEX_INTEGER_LITERAL = "hex_integer_literal";
