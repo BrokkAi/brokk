@@ -176,4 +176,54 @@ class AngularTemplateAnalyzerTest {
             assertCodeContains(mergedSource, "<h1>Hello Angular</h1>", "Should contain HTML template content");
         }
     }
+
+    @Test
+    void testGetSources_WithExternalTemplate_Integration() {
+        String tsCode =
+                """
+                import { Component } from '@angular/core';
+
+                @Component({
+                  selector: 'app-test',
+                  templateUrl: './test.component.html'
+                })
+                export class TestComponent {}
+                """;
+        String htmlCode = "<p>External Template Content</p>";
+
+        try (var project = InlineTestProjectCreator.empty()
+                .addFileContents(tsCode, "src/app/test.component.ts")
+                .addFileContents(htmlCode, "src/app/test.component.html")
+                .addFileContents("{}", "angular.json")
+                .build()) {
+
+            // Set up the analyzers
+            IAnalyzer tsAnalyzer = Languages.TYPESCRIPT.createAnalyzer(project, IAnalyzer.ProgressListener.NOOP);
+            AngularTemplateAnalyzer angularTemplateAnalyzer = new AngularTemplateAnalyzer();
+            MultiAnalyzer multi = new MultiAnalyzer(
+                    Map.of(Languages.TYPESCRIPT, tsAnalyzer),
+                    List.of(angularTemplateAnalyzer));
+
+            // Analysis pass to link metadata
+            multi.snapshotState();
+
+            // Find the component
+            CodeUnit testComponent = multi.getAllDeclarations().stream()
+                    .filter(cu -> cu.isClass() && cu.fqName().endsWith("TestComponent"))
+                    .findFirst()
+                    .orElseThrow();
+
+            // Act: Retrieve merged sources
+            Set<String> sources = multi.getSources(testComponent, true);
+
+            // Assert: Verify merged output
+            assertFalse(sources.isEmpty(), "Should return sources for TestComponent");
+            String combined = sources.iterator().next();
+
+            assertCodeContains(combined, "/* Typescript source */", "Should have TS header");
+            assertCodeContains(combined, "export class TestComponent", "Should have TS body");
+            assertCodeContains(combined, "/* Angular source */", "Should have Angular header");
+            assertCodeContains(combined, "<p>External Template Content</p>", "Should have external HTML content");
+        }
+    }
 }
