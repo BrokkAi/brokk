@@ -24,6 +24,7 @@ _EXECUTOR_JAR_BASE_URL = "https://github.com/BrokkAi/brokk-releases/releases/dow
 _EXECUTOR_MAIN_CLASS = "ai.brokk.executor.HeadlessExecutorMain"
 _READY_SENTINEL = "Executor listening on http://"
 _STARTUP_LINE_TIMEOUT = 120.0
+_JOB_CREATE_TIMEOUT_SECONDS = 120.0
 
 _BROKK_TRUST_URLS = [
     "https://github.com/BrokkAi/brokk-releases",
@@ -644,7 +645,12 @@ class ExecutorManager:
         headers = {"Idempotency-Key": str(uuid.uuid4())}
 
         try:
-            resp = await self._http_client.post("/v1/jobs/pr-review", json=payload, headers=headers)
+            resp = await self._http_client.post(
+                "/v1/jobs/pr-review",
+                json=payload,
+                headers=headers,
+                timeout=_JOB_CREATE_TIMEOUT_SECONDS,
+            )
             resp.raise_for_status()
             data = resp.json()
             response_session_id = data.get("sessionId")
@@ -708,7 +714,12 @@ class ExecutorManager:
         if effective_session_id:
             headers["X-Session-Id"] = effective_session_id
 
-        resp = await self._http_client.post("/v1/jobs", json=payload, headers=headers)
+        resp = await self._http_client.post(
+            "/v1/jobs",
+            json=payload,
+            headers=headers,
+            timeout=_JOB_CREATE_TIMEOUT_SECONDS,
+        )
         resp.raise_for_status()
         data = resp.json()
         response_session_id = data.get("sessionId")
@@ -1415,7 +1426,10 @@ class ExecutorManager:
 
         try:
             resp = await self._http_client.post(
-                "/v1/review/submit", json=payload, headers=headers, timeout=60.0
+                "/v1/review/submit",
+                json=payload,
+                headers=headers,
+                timeout=_JOB_CREATE_TIMEOUT_SECONDS,
             )
             resp.raise_for_status()
             return resp.json()["jobId"]
