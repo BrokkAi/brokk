@@ -3341,10 +3341,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             return decorators;
         }
 
-        TSNode current = decoratedNode.getPrevSibling();
+        TSNode current = decoratedNode.getPrevNamedSibling();
         while (current != null && decoratorNodeTypes.contains(current.getType())) {
             decorators.add(current);
-            current = current.getPrevSibling();
+            current = current.getPrevNamedSibling();
         }
         Collections.reverse(decorators); // Decorators should be in source order
         return decorators;
