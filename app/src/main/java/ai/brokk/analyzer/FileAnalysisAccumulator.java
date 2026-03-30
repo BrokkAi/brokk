@@ -238,6 +238,10 @@ public class FileAnalysisAccumulator {
         return ranges == null ? List.of() : List.copyOf(ranges);
     }
 
+    public Map<String, Object> getAttributes(CodeUnit cu) {
+        return attributes.getOrDefault(cu, Collections.emptyMap());
+    }
+
     public List<String> getLookupKeys(CodeUnit cu) {
         Set<String> keys = lookupKeys.get(cu);
         return keys == null ? List.of() : List.copyOf(keys);

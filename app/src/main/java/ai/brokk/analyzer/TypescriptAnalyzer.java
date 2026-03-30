@@ -1091,21 +1091,40 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
 
         for (TSNode decorator : decoratorNodes) {
             // Decorator structure in TS: (decorator (call_expression (identifier) @name (arguments (object ...))))
-            TSNode callExpr = decorator.getChild(0);
-            if (callExpr == null || !"call_expression".equals(callExpr.getType())) continue;
+            // Or (decorator "@" (call_expression ...)) depending on grammar version/ASX.
+            TSNode callExpr = null;
+            if ("call_expression".equals(decorator.getType())) {
+                callExpr = decorator;
+            } else {
+                for (int i = 0; i < decorator.getChildCount(); i++) {
+                    TSNode child = decorator.getChild(i);
+                    if (child != null && "call_expression".equals(child.getType())) {
+                        callExpr = child;
+                        break;
+                    }
+                }
+            }
+
+            if (callExpr == null) continue;
 
             TSNode decoratorNameNode = callExpr.getChildByFieldName("function");
+            if (decoratorNameNode == null) {
+                // Fallback: use first child of call_expression if "function" field is missing
+                decoratorNameNode = callExpr.getChild(0);
+            }
             if (decoratorNameNode == null) continue;
 
-            String decoratorName =
-                    sourceContent.substringFrom(decoratorNameNode).strip();
-            if ("Component".equals(decoratorName)) {
+            String decoratorName = sourceContent.substringFrom(decoratorNameNode).strip();
+            // Handle both @Component and @angular.Component, stripping any '@' if present
+            String cleanName = decoratorName.startsWith("@") ? decoratorName.substring(1) : decoratorName;
+
+            if (cleanName.equals("Component") || cleanName.endsWith(".Component")) {
                 TSNode arguments = callExpr.getChildByFieldName("arguments");
-                if (arguments != null && arguments.getChildCount() > 0) {
-                    // Look for object literal in arguments
+                if (arguments != null) {
+                    // TS grammar: arguments is often (arguments "(" (object ...) ")")
                     for (int i = 0; i < arguments.getChildCount(); i++) {
-                        TSNode arg = Objects.requireNonNull(arguments.getChild(i));
-                        if ("object".equals(arg.getType())) {
+                        TSNode arg = arguments.getChild(i);
+                        if (arg != null && "object".equals(arg.getType())) {
                             processComponentDecorator(cu, arg, sourceContent, acc);
                         }
                     }
@@ -1124,6 +1143,15 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
 
             TSNode keyNode = pair.getChildByFieldName("key");
             TSNode valueNode = pair.getChildByFieldName("value");
+            if (keyNode == null) {
+                // Fallback for key: use first child of pair
+                keyNode = pair.getChild(0);
+            }
+            if (valueNode == null && pair.getChildCount() >= 2) {
+                // Fallback for value: use last child of pair
+                valueNode = pair.getChild(pair.getChildCount() - 1);
+            }
+
             if (keyNode == null || valueNode == null) continue;
 
             String key = sourceContent.substringFrom(keyNode).strip();
@@ -1140,8 +1168,9 @@ public final class TypescriptAnalyzer extends JsTsAnalyzer {
         }
 
         if (componentInfo.containsKey("templateUrl") || componentInfo.containsKey("template")) {
+            log.debug("Found Angular component metadata for {}: {}", hostClass.fqName(), componentInfo);
             // Attributes are stored in CodeUnitProperties via the accumulator in analyzeFileContent
-            acc.setAttribute(hostClass, "angular.component", componentInfo);
+            acc.setAttribute(hostClass, "angular.component", Map.copyOf(componentInfo));
         }
     }
 

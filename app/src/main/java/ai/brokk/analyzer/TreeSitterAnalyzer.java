@@ -2015,6 +2015,14 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             acc.setHasBody(target, true);
         }
 
+        // Transfer attributes
+        Map<String, Object> sourceAttrs = acc.getAttributes(source);
+        if (!sourceAttrs.isEmpty()) {
+            for (var entry : sourceAttrs.entrySet()) {
+                acc.setAttribute(target, entry.getKey(), entry.getValue());
+            }
+        }
+
         List<String> sourceLookupKeys = acc.getLookupKeys(source);
         for (String lookupKey : sourceLookupKeys) {
             acc.addLookupKey(lookupKey, target);
@@ -2286,9 +2294,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                                     node,
                                     skeletonType);
 
-                            if (cu != null && !defInfo.decoratorNodes().isEmpty()) {
-                                handleDecorators(cu, node, defInfo.decoratorNodes(), sourceContent, acc);
-                            }
                             if (cu == null) {
                                 log.trace(
                                         "createCodeUnit returned null for node {} ({}) in file {}",
@@ -2324,6 +2329,22 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                                         cu.source(), cu.kind(), cu.packageName(), enhancedShortName, codeUnitSignature);
                             }
 
+                            // Use the already-resolved content node (from signature building) for hasBody computation
+                            SkeletonType refined =
+                                    refineSkeletonType(primaryCaptureName, node, getLanguageSyntaxProfile());
+                            ResolvedNodes resolved = resolveSignatureNodes(node, simpleName, refined, sourceContent);
+
+                            List<TSNode> currentDecoratorNodes = defInfo.decoratorNodes();
+                            if (currentDecoratorNodes.isEmpty() && !hasWrappingDecoratorNode()) {
+                                currentDecoratorNodes = getPrecedingDecorators(resolved.contentNode());
+                                if (currentDecoratorNodes.isEmpty() && !node.equals(resolved.contentNode())) {
+                                    currentDecoratorNodes = getPrecedingDecorators(node);
+                                }
+                            }
+                            if (!currentDecoratorNodes.isEmpty()) {
+                                handleDecorators(cu, node, currentDecoratorNodes, sourceContent, acc);
+                            }
+
                             String signature = buildSignatureString(
                                     node,
                                     simpleName,
@@ -2331,11 +2352,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                                     primaryCaptureName,
                                     defInfo.modifierKeywords(),
                                     file);
-
-                            // Use the already-resolved content node (from signature building) for hasBody computation
-                            SkeletonType refined =
-                                    refineSkeletonType(primaryCaptureName, node, getLanguageSyntaxProfile());
-                            ResolvedNodes resolved = resolveSignatureNodes(node, simpleName, refined, sourceContent);
                             acc.setHasBody(
                                     cu, computeHasBody(resolved.contentNode(), primaryCaptureName, sourceContent));
                             if (CaptureNames.TYPEALIAS_DEFINITION.equals(primaryCaptureName)) {
@@ -3313,6 +3329,18 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         if (decoratorNodeTypes.isEmpty()) {
             return decorators;
         }
+
+        // In some languages (like TypeScript), decorators are children of the declaration node.
+        for (int i = 0; i < decoratedNode.getChildCount(); i++) {
+            TSNode child = decoratedNode.getChild(i);
+            if (child != null && decoratorNodeTypes.contains(child.getType())) {
+                decorators.add(child);
+            }
+        }
+        if (!decorators.isEmpty()) {
+            return decorators;
+        }
+
         TSNode current = decoratedNode.getPrevSibling();
         while (current != null && decoratorNodeTypes.contains(current.getType())) {
             decorators.add(current);

@@ -1,5 +1,7 @@
 package ai.brokk.analyzer.angular;
 
+import static ai.brokk.testutil.AssertionHelperUtil.assertCodeContains;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -7,10 +9,12 @@ import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ITemplateAnalyzer;
 import ai.brokk.analyzer.Languages;
+import ai.brokk.analyzer.MultiAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.TemplateAnalysisResult;
 import ai.brokk.testutil.InlineTestProjectCreator;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 
@@ -108,6 +112,68 @@ class AngularTemplateAnalyzerTest {
             assertTrue(
                     discovered.stream().noneMatch(a -> a instanceof AngularTemplateAnalyzer),
                     "Should NOT be discovered in a plain project");
+        }
+    }
+
+    @Test
+    void testIntegration_GetSources_ReturnsMergedTsAndHtml() {
+        String tsCode =
+                """
+                import { Component } from '@angular/core';
+
+                @Component({
+                  selector: 'app-root',
+                  templateUrl: './app.component.html'
+                })
+                export class AppComponent {}
+                """;
+        String htmlCode = "<h1>Hello Angular</h1>";
+
+        try (var project = InlineTestProjectCreator.empty()
+                .addFileContents(tsCode, "src/app/app.component.ts")
+                .addFileContents(htmlCode, "src/app/app.component.html")
+                .addFileContents("{}", "angular.json")
+                .build()) {
+
+            // Explicitly create a MultiAnalyzer with Angular support for this integration test
+            IAnalyzer tsAnalyzer = Languages.TYPESCRIPT.createAnalyzer(project, IAnalyzer.ProgressListener.NOOP);
+            AngularTemplateAnalyzer angularTemplateAnalyzer = new AngularTemplateAnalyzer();
+            MultiAnalyzer multi = new MultiAnalyzer(
+                    Map.of(Languages.TYPESCRIPT, tsAnalyzer),
+                    List.of(angularTemplateAnalyzer));
+
+            // Ensure the AngularTemplateAnalyzer has received the metadata signals
+            // MultiAnalyzer.snapshotState() triggers signal emission in the current implementation.
+            // This is required to link the TypeScript component to its template.
+            multi.snapshotState();
+
+            // Find the TypeScript CodeUnit via the MultiAnalyzer to ensure instance consistency.
+            // Use robust lookup as TypescriptAnalyzer might prefix with directory-based package name.
+            CodeUnit appComponent = multi.getAllDeclarations().stream()
+                    .filter(cu -> cu.isClass() && cu.fqName().endsWith("AppComponent"))
+                    .findFirst()
+                    .orElseThrow(() -> new AssertionError(
+                            "AppComponent not found. Available declarations: " + multi.getAllDeclarations()));
+
+            // Debug check for attributes
+            var state = multi.snapshotState();
+            var props = state.codeUnitState().get(appComponent);
+            assertTrue(props != null && props.attributes().containsKey("angular.component"),
+                    "AppComponent should have angular.component attribute. Attributes: "
+                            + (props != null ? props.attributes() : "null"));
+
+            // Retrieve sources. MultiAnalyzer should merge TS and HTML.
+            Set<String> sources = multi.getSources(appComponent, true);
+
+            assertFalse(sources.isEmpty(), "Should return sources for AppComponent");
+            String mergedSource = sources.iterator().next();
+
+            // Assert TypeScript and Angular content are present with correct headers.
+            // Note: Languages.TYPESCRIPT.name() is "Typescript" and AngularTemplateAnalyzer.name() is "Angular".
+            assertCodeContains(mergedSource, "/* Typescript source */", "Should contain TS header");
+            assertCodeContains(mergedSource, "export class AppComponent", "Should contain TS class definition");
+            assertCodeContains(mergedSource, "/* Angular source */", "Should contain Angular header");
+            assertCodeContains(mergedSource, "<h1>Hello Angular</h1>", "Should contain HTML template content");
         }
     }
 }

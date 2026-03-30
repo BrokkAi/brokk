@@ -228,11 +228,12 @@ public class MultiAnalyzer
             }
         }
 
+        // Always include headers when template sources are present.
+        // If no template results, just return host sources as-is.
         if (templateResults.isEmpty()) {
             return hostSources;
         }
 
-        // If we have template sources, we merge them with host sources using the requested format
         for (String hostSource : hostSources) {
             StringBuilder merged = new StringBuilder();
             merged.append("/* ").append(lang.name()).append(" source */\n");
