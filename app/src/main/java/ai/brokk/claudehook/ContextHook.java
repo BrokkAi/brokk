@@ -6,13 +6,13 @@ import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.project.IProject;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.jetbrains.annotations.Nullable;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.Set;
 import java.util.stream.Collectors;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Lightweight CLI for Claude Code hooks.
@@ -63,7 +63,9 @@ public class ContextHook {
                         prompt = hookInput.get("prompt").asText();
                     }
                     if (projectPath == null && hookInput.has("cwd")) {
-                        projectPath = Path.of(hookInput.get("cwd").asText()).toAbsolutePath().normalize();
+                        projectPath = Path.of(hookInput.get("cwd").asText())
+                                .toAbsolutePath()
+                                .normalize();
                     }
                 } catch (Exception e) {
                     prompt = input;
@@ -140,9 +142,7 @@ public class ContextHook {
 
             sb.append(file);
             sb.append(": ");
-            sb.append(declarations.stream()
-                    .map(CodeUnit::shortName)
-                    .collect(Collectors.joining(", ")));
+            sb.append(declarations.stream().map(CodeUnit::shortName).collect(Collectors.joining(", ")));
             sb.append('\n');
 
             if (sb.length() > MAX_OUTPUT_CHARS) {

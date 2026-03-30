@@ -26,9 +26,7 @@ final class LightweightProject implements IProject {
 
     LightweightProject(Path root) {
         this.root = root.toAbsolutePath().normalize();
-        this.repo = GitRepoFactory.hasGitRepo(this.root)
-                ? new GitRepo(this.root)
-                : new LocalFileRepo(this.root);
+        this.repo = GitRepoFactory.hasGitRepo(this.root) ? new GitRepo(this.root) : new LocalFileRepo(this.root);
     }
 
     @Override
