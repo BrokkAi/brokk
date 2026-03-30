@@ -1,0 +1,6 @@
+{
+  "name": "brokk-code-intelligence",
+  "version": "0.1.0",
+  "description": "Code intelligence tools powered by Brokk's analyzers (scanUsages, symbol search, etc.)",
+  "author": "Brokk"
+}

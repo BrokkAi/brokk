@@ -9,6 +9,7 @@ pluginManagement {
 rootProject.name = "brokk"
 
 include("app")
+include("claude-code-plugin")
 include("errorprone-checks")
 include("treesitter-provider")
 

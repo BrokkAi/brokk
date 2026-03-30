@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "brokk-code-intelligence": {
+      "command": "java",
+      "args": ["-jar", "${CLAUDE_PLUGIN_ROOT}/build/libs/claude-code-plugin-all.jar"]
+    }
+  }
+}
