@@ -17,9 +17,14 @@ public interface ITemplateAnalyzer {
     boolean isApplicable(IProject project);
 
     /**
-     * @return The unique name of the analyzer (e.g., "AngularTemplateAnalyzer").
+     * @return The human-readable name of the analyzer (e.g., "Angular").
      */
-    String getName();
+    String name();
+
+    /**
+     * @return The unique internal name of the analyzer (e.g., "ANGULAR").
+     */
+    String internalName();
 
     /**
      * @return A list of file extensions this analyzer handles (e.g., ".html", ".template").

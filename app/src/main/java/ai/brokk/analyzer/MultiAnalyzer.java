@@ -364,7 +364,8 @@ public class MultiAnalyzer
             try {
                 templateAnalyzer.onHostSignal(signal, payload, state);
             } catch (Exception e) {
-                log.error("Error routing signal {} to template analyzer {}", signal, templateAnalyzer.getName(), e);
+                log.error(
+                        "Error routing signal {} to template analyzer {}", signal, templateAnalyzer.internalName(), e);
             }
         }
     }

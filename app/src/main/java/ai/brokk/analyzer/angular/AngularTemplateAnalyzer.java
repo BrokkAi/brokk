@@ -72,8 +72,13 @@ public class AngularTemplateAnalyzer implements ITemplateAnalyzer {
     }
 
     @Override
-    public String getName() {
-        return "AngularTemplateAnalyzer";
+    public String name() {
+        return "Angular";
+    }
+
+    @Override
+    public String internalName() {
+        return "ANGULAR";
     }
 
     @Override
@@ -96,13 +101,13 @@ public class AngularTemplateAnalyzer implements ITemplateAnalyzer {
             List<CodeUnit> topLevel = parser.getTopLevelDeclarations(templateFile);
 
             TemplateAnalysisResult result =
-                    new TemplateAnalysisResult(getName(), templateFile, Set.copyOf(topLevel), List.of());
+                    new TemplateAnalysisResult(internalName(), templateFile, Set.copyOf(topLevel), List.of());
 
             results.put(templateFile, result);
             return result;
         } catch (Exception e) {
             log.error("Error analyzing Angular template {}: {}", templateFile, e.getMessage());
-            return new TemplateAnalysisResult(getName(), templateFile, Set.of(), List.of(e.getMessage()));
+            return new TemplateAnalysisResult(internalName(), templateFile, Set.of(), List.of(e.getMessage()));
         }
     }
 

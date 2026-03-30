@@ -309,7 +309,7 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
                 var savedResults = TreeSitterStateIO.loadTemplateState(templateStorage);
                 for (var ta : templates) {
                     ta.restoreState(savedResults.stream()
-                            .filter(r -> r.analyzerName().equals(ta.getName()))
+                            .filter(r -> r.analyzerName().equals(ta.name()))
                             .toList());
                 }
             }
@@ -350,7 +350,7 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
             var savedResults = TreeSitterStateIO.loadTemplateState(templateStorage);
             for (var ta : templates) {
                 ta.restoreState(savedResults.stream()
-                        .filter(r -> r.analyzerName().equals(ta.getName()))
+                        .filter(r -> r.analyzerName().equals(ta.name()))
                         .toList());
             }
         }
@@ -431,7 +431,7 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
                         var savedResults = TreeSitterStateIO.loadTemplateState(templateStorage);
                         for (var ta : templates) {
                             ta.restoreState(savedResults.stream()
-                                    .filter(r -> r.analyzerName().equals(ta.getName()))
+                                    .filter(r -> r.analyzerName().equals(ta.name()))
                                     .toList());
                         }
                     }
@@ -459,7 +459,7 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
                         var savedResults = TreeSitterStateIO.loadTemplateState(templateStorage);
                         for (var ta : templates) {
                             ta.restoreState(savedResults.stream()
-                                    .filter(r -> r.analyzerName().equals(ta.getName()))
+                                    .filter(r -> r.analyzerName().equals(ta.name()))
                                     .toList());
                         }
                     }
