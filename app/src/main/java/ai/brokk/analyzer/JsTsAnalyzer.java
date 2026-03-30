@@ -1,8 +1,6 @@
 package ai.brokk.analyzer;
 
 import static ai.brokk.analyzer.javascript.JavaScriptTreeSitterNodeTypes.*;
-import static ai.brokk.analyzer.javascript.JavaScriptTreeSitterNodeTypes.REQUIRE_CALL_CAPTURE_NAME;
-import static ai.brokk.analyzer.javascript.JavaScriptTreeSitterNodeTypes.REQUIRE_FUNC_CAPTURE_NAME;
 
 import ai.brokk.analyzer.cache.AnalyzerCache;
 import ai.brokk.project.IProject;
@@ -392,7 +390,7 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
 
     @Override
     public int computeCyclomaticComplexity(CodeUnit cu) {
-        return withTreeOf(
+        Integer result = withTreeOf(
                 cu.source(),
                 tree -> {
                     List<Range> ranges = rangesOf(cu);
@@ -400,6 +398,7 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
 
                     Range firstRange = ranges.getFirst();
                     TSNode root = tree.getRootNode();
+                    if (root == null) return 1;
                     TSNode cuNode = root.getDescendantForByteRange(firstRange.startByte(), firstRange.endByte());
 
                     if (cuNode == null) return 1;
@@ -412,40 +411,50 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
                         TSNode node = stack.pop();
                         String type = node.getType();
 
-                        switch (type) {
-                            case IF_STATEMENT,
-                                    FOR_STATEMENT,
-                                    FOR_IN_STATEMENT,
-                                    WHILE_STATEMENT,
-                                    DO_STATEMENT,
-                                    CATCH_CLAUSE,
-                                    TERNARY_EXPRESSION -> complexity++;
-                            case SWITCH_CASE -> {
-                                // Increment for 'case ...:', but not for 'default:'
-                                if (node.getChildByFieldName("value") != null) {
-                                    complexity++;
-                                }
-                            }
-                            case BINARY_EXPRESSION -> {
-                                TSNode operatorNode = node.getChildByFieldName("operator");
-                                if (operatorNode != null) {
-                                    String operator =
-                                            operatorNode
-                                                    .getType(); // In JS/TS grammar, operators are often their own types
-                                    if (operator.equals("&&") || operator.equals("||") || operator.equals("??")) {
+                        if (type != null) {
+                            switch (type) {
+                                case IF_STATEMENT,
+                                        FOR_STATEMENT,
+                                        FOR_IN_STATEMENT,
+                                        WHILE_STATEMENT,
+                                        DO_STATEMENT,
+                                        CATCH_CLAUSE,
+                                        TERNARY_EXPRESSION -> complexity++;
+                                case SWITCH_CASE -> {
+                                    // Increment for 'case ...:', but not for 'default:'
+                                    if (node.getChildByFieldName("value") != null) {
                                         complexity++;
                                     }
                                 }
+                                case BINARY_EXPRESSION -> {
+                                    TSNode operatorNode = node.getChildByFieldName("operator");
+                                    if (operatorNode != null) {
+                                        String operator = operatorNode.getType(); // In JS/TS grammar,
+                                        // operators are often
+                                        // their own types
+                                        if (operator != null
+                                                && (operator.equals("&&")
+                                                        || operator.equals("||")
+                                                        || operator.equals("??"))) {
+                                            complexity++;
+                                        }
+                                    }
+                                }
+                                default -> {}
                             }
                         }
 
                         for (int i = 0; i < node.getChildCount(); i++) {
-                            stack.push(node.getChild(i));
+                            TSNode child = node.getChild(i);
+                            if (child != null) {
+                                stack.push(child);
+                            }
                         }
                     }
 
                     return complexity;
                 },
                 1);
+        return result != null ? result : 1;
     }
 }
