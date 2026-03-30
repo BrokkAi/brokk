@@ -120,12 +120,11 @@ jobs:
             echo "should_skip=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Set up Java 21 (JetBrains Runtime)
+      - name: Set up Java 21
         if: steps.resolve_commits.outputs.should_skip == 'false'
         uses: actions/setup-java@v4
         with:
-          distribution: jetbrains
-          java-package: jdk+jcef
+          distribution: temurin
           java-version: '21'
 
       - name: Set up Python
