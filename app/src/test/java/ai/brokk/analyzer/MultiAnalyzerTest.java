@@ -177,20 +177,25 @@ public class MultiAnalyzerTest {
     }
 
     @Test
-    public void testGetSources_AggregatesTemplateSources() {
+    public void testGetSources_AggregatesTemplateSourcesWithFormatting() {
         // GIVEN: A CodeUnit and a MultiAnalyzer with a language delegate and a template analyzer
         var classUnit = multiAnalyzer.getDefinitions("TestClass").stream().findFirst().orElseThrow();
         String templateContent = "<div>Template Content</div>";
-        
+
         var mockTemplateAnalyzer = new TestTemplateAnalyzer("Mock", Map.of(classUnit, Set.of(templateContent)));
         var multiWithTemplate = new MultiAnalyzer(multiAnalyzer.getDelegates(), List.of(mockTemplateAnalyzer));
 
         // WHEN: Calling getSources
         Set<String> sources = multiWithTemplate.getSources(classUnit, true);
 
-        // THEN: It should contain both the host source and the template source
-        assertTrue(sources.stream().anyMatch(s -> s.contains("public class TestClass")), "Should contain host source");
-        assertTrue(sources.contains(templateContent), "Should contain template source");
+        // THEN: It should contain both the host source and the template source formatted with comments
+        assertEquals(1, sources.size());
+        String combined = sources.iterator().next();
+
+        assertTrue(combined.contains("/* Java source */"), "Should contain host language header");
+        assertTrue(combined.contains("public class TestClass"), "Should contain host source body");
+        assertTrue(combined.contains("/* Mock source */"), "Should contain template analyzer header");
+        assertTrue(combined.contains("<div>Template Content</div>"), "Should contain template source body");
     }
 
     @Test
