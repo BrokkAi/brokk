@@ -102,6 +102,7 @@ public class ContextHook {
                 .collect(Collectors.toSet());
 
         if (languages.isEmpty()) {
+            System.err.println("[brokk-context] No analyzable languages found, skipping");
             return null;
         }
 
