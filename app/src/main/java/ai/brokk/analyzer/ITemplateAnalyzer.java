@@ -3,6 +3,7 @@ package ai.brokk.analyzer;
 import ai.brokk.project.IProject;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Focuses on DSLs (Domain Specific Languages) that exist in the context of a Host language.
@@ -59,4 +60,14 @@ public interface ITemplateAnalyzer {
      * Restores the analyzer state from a previously persisted snapshot.
      */
     void restoreState(List<TemplateAnalysisResult> state);
+
+    /**
+     * Returns the template sources associated with the given host class.
+     *
+     * @param hostClass The CodeUnit of the component/class in the host language.
+     * @return A set of template source strings.
+     */
+    default Set<String> getTemplateSources(CodeUnit hostClass) {
+        return Set.of();
+    }
 }

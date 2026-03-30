@@ -3,9 +3,11 @@ package ai.brokk.analyzer;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.testutil.TestProject;
+import ai.brokk.testutil.TestTemplateAnalyzer;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -172,6 +174,23 @@ public class MultiAnalyzerTest {
         assertDoesNotThrow(() -> multiAnalyzer.getDirectChildren(unknownClass));
         assertDoesNotThrow(() -> multiAnalyzer.getDeclarations(unknownFile));
         assertDoesNotThrow(() -> multiAnalyzer.getSkeletons(unknownFile));
+    }
+
+    @Test
+    public void testGetSources_AggregatesTemplateSources() {
+        // GIVEN: A CodeUnit and a MultiAnalyzer with a language delegate and a template analyzer
+        var classUnit = multiAnalyzer.getDefinitions("TestClass").stream().findFirst().orElseThrow();
+        String templateContent = "<div>Template Content</div>";
+        
+        var mockTemplateAnalyzer = new TestTemplateAnalyzer("Mock", Map.of(classUnit, Set.of(templateContent)));
+        var multiWithTemplate = new MultiAnalyzer(multiAnalyzer.getDelegates(), List.of(mockTemplateAnalyzer));
+
+        // WHEN: Calling getSources
+        Set<String> sources = multiWithTemplate.getSources(classUnit, true);
+
+        // THEN: It should contain both the host source and the template source
+        assertTrue(sources.stream().anyMatch(s -> s.contains("public class TestClass")), "Should contain host source");
+        assertTrue(sources.contains(templateContent), "Should contain template source");
     }
 
     @Test
