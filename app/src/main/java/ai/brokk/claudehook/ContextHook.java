@@ -50,8 +50,7 @@ public class ContextHook {
             }
         }
 
-        // Read hook input from stdin
-        String prompt = null;
+        // Read hook input from stdin to extract cwd
         if (System.in.available() > 0) {
             var input = new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8))
                     .lines()
@@ -59,16 +58,13 @@ public class ContextHook {
             if (!input.isBlank()) {
                 try {
                     var hookInput = MAPPER.readTree(input);
-                    if (hookInput.has("prompt")) {
-                        prompt = hookInput.get("prompt").asText();
-                    }
                     if (projectPath == null && hookInput.has("cwd")) {
                         projectPath = Path.of(hookInput.get("cwd").asText())
                                 .toAbsolutePath()
                                 .normalize();
                     }
                 } catch (Exception e) {
-                    prompt = input;
+                    // Not valid JSON — ignore, we'll use cwd or default path
                 }
             }
         }

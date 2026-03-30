@@ -11,6 +11,7 @@ import ai.brokk.project.IProject;
 import java.nio.file.Path;
 import java.util.HashSet;
 import java.util.Set;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * A minimal IProject implementation for the Claude Code plugin.
@@ -22,7 +23,7 @@ import java.util.Set;
 final class LightweightProject implements IProject {
     private final Path root;
     private final IGitRepo repo;
-    private Set<ProjectFile> filesCache;
+    private @Nullable Set<ProjectFile> filesCache;
 
     LightweightProject(Path root) {
         this.root = root.toAbsolutePath().normalize();

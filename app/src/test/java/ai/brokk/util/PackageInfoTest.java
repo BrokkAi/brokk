@@ -1,6 +1,5 @@
 package ai.brokk.util;
 
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.fail;
 
 import java.io.File;
@@ -21,14 +20,11 @@ class PackageInfoTest {
     void allPackagesShouldBeNullMarked() throws IOException {
         var projectRoot = getProjectRoot();
 
-        List<Path> javaSrcDirs;
-        try (var walk = Files.walk(projectRoot)) {
-            javaSrcDirs = walk.filter(p -> p.toFile().isDirectory() && p.endsWith("app/src/main/java"))
-                    .collect(Collectors.toList());
+        var javaSrcDir = projectRoot.resolve("app/src/main/java");
+        if (!Files.isDirectory(javaSrcDir)) {
+            fail("Source directory not found: " + javaSrcDir);
         }
-
-        assertFalse(
-                javaSrcDirs.isEmpty(), "No 'app/src/main/java' directories found. Wrong project root? " + projectRoot);
+        var javaSrcDirs = List.of(javaSrcDir);
 
         var packagesWithoutAnnotation = javaSrcDirs.stream()
                 .flatMap(srcDir -> findUnannotatedPackagesIn(srcDir, projectRoot))
