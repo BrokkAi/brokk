@@ -6,10 +6,12 @@ import ai.brokk.analyzer.cache.AnalyzerCache;
 import ai.brokk.project.IProject;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.Deque;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -36,6 +38,61 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer implements ImportAn
     @Override
     public Optional<String> extractCallReceiver(String reference) {
         return ClassNameExtractor.extractForPython(reference);
+    }
+
+    @Override
+    public int computeCyclomaticComplexity(CodeUnit cu) {
+        if (!cu.isFunction()) return 0;
+
+        return getSource(cu, false)
+                .map(source -> {
+                    try (TSTree tree = getTSParser().parseStringOrThrow(null, source)) {
+                        TSNode root = tree.getRootNode();
+                        if (root == null) return 1;
+
+                        SourceContent content = SourceContent.of(source);
+                        int complexity = 1; // Base complexity
+
+                        Deque<TSNode> stack = new ArrayDeque<>();
+                        stack.push(root);
+
+                        while (!stack.isEmpty()) {
+                            TSNode node = stack.pop();
+                            String type = node.getType();
+                            if (type == null) {
+                                continue;
+                            }
+
+                            switch (type) {
+                                case IF_STATEMENT,
+                                        ELIF_CLAUSE,
+                                        FOR_STATEMENT,
+                                        WHILE_STATEMENT,
+                                        EXCEPT_CLAUSE,
+                                        CONDITIONAL_EXPRESSION,
+                                        CASE_CLAUSE -> complexity++;
+                                case BOOLEAN_OPERATOR -> {
+                                    String op = content.substringFrom(node);
+                                    if (op.contains("and") || op.contains("or")) {
+                                        complexity++;
+                                    }
+                                }
+                            }
+
+                            for (int i = 0; i < node.getNamedChildCount(); i++) {
+                                TSNode child = node.getNamedChild(i);
+                                if (child != null) {
+                                    stack.push(child);
+                                }
+                            }
+                        }
+                        return complexity;
+                    } catch (Exception e) {
+                        log.warn("Failed to compute complexity for {} using AST; falling back", cu.fqName(), e);
+                        return super.computeCyclomaticComplexity(cu);
+                    }
+                })
+                .orElse(0);
     }
 
     @Override
