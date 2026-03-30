@@ -632,6 +632,7 @@ class BrokkAcpBridge:
         self._active_job_by_session: dict[str, str] = {}
         self._started = False
         self._active_workspace_dir = getattr(executor, "workspace_dir", None)
+        self._start_lock = asyncio.Lock()
 
     def _resolved_workspace_dir(self, cwd: Optional[str] = None) -> Path:
         requested = (cwd or "").strip()
@@ -657,25 +658,26 @@ class BrokkAcpBridge:
             self.executor.base_url = None
 
     async def ensure_ready(self, cwd: Optional[str] = None) -> None:
-        target_workspace_dir = self._resolved_workspace_dir(cwd)
-        if self._started and self._active_workspace_dir == target_workspace_dir:
-            return
+        async with self._start_lock:
+            target_workspace_dir = self._resolved_workspace_dir(cwd)
+            if self._started and self._active_workspace_dir == target_workspace_dir:
+                return
 
-        if self._started:
-            logger.info(
-                "ACP cwd changed from %s to %s; restarting executor",
-                self._active_workspace_dir,
-                target_workspace_dir,
-            )
-            await self._cancel_current_work()
-            await self.executor.stop()
-            self._started = False
-            self._reset_executor_session_state()
+            if self._started:
+                logger.info(
+                    "ACP cwd changed from %s to %s; restarting executor",
+                    self._active_workspace_dir,
+                    target_workspace_dir,
+                )
+                await self._cancel_current_work()
+                await self.executor.stop()
+                self._started = False
+                self._reset_executor_session_state()
 
-        self.executor.workspace_dir = target_workspace_dir
-        self._active_workspace_dir = target_workspace_dir
-        await self.executor.start()
-        self._started = True
+            self.executor.workspace_dir = target_workspace_dir
+            self._active_workspace_dir = target_workspace_dir
+            await self.executor.start()
+            self._started = True
 
     async def _wait_until_ready(self) -> None:
         ready = await self.executor.wait_live()
@@ -908,10 +910,7 @@ async def run_acp_server(
             update_agent_thought_text,
             update_user_message_text,
         )
-        from acp.agent import connection as acp_agent_connection
-        from acp.agent import router as acp_agent_router
         from acp.helpers import update_available_commands
-        from acp.meta import AGENT_METHODS
         from acp.schema import (
             AgentCapabilities,
             AvailableCommand,
@@ -921,7 +920,7 @@ async def run_acp_server(
             PromptCapabilities,
             ResumeSessionResponse,
             SessionCapabilities,
-            SessionConfigOption,
+            SessionConfigOptionSelect,
             SessionConfigSelectOption,
             SessionInfo,
             SessionListCapabilities,
@@ -929,10 +928,9 @@ async def run_acp_server(
             SessionModelState,
             SessionModeState,
             SessionResumeCapabilities,
-            SetSessionConfigOptionRequest,
             SetSessionConfigOptionResponse,
         )
-        from acp.utils import normalize_result
+
     except ImportError as e:
         raise RuntimeError(
             "ACP mode requires the official ACP Python SDK. "
@@ -959,30 +957,6 @@ async def run_acp_server(
         brokk_api_key=settings.get_brokk_api_key(),
     )
     bridge = BrokkAcpBridge(executor)
-
-    def _patch_acp_router_for_session_config_option() -> None:
-        if getattr(acp_agent_router, "_brokk_session_config_patch", False):
-            return
-        original_build_agent_router = acp_agent_router.build_agent_router
-
-        def patched_build_agent_router(agent: Any, use_unstable_protocol: bool = False) -> Any:
-            router = original_build_agent_router(agent, use_unstable_protocol=use_unstable_protocol)
-            router.route_request(
-                AGENT_METHODS["session_set_config_option"],
-                SetSessionConfigOptionRequest,
-                agent,
-                "set_session_config_option",
-                adapt_result=normalize_result,
-                unstable=True,
-            )
-            return router
-
-        acp_agent_router.build_agent_router = patched_build_agent_router
-        # AgentSideConnection captured a module-level symbol; patch it too.
-        acp_agent_connection.build_agent_router = patched_build_agent_router
-        acp_agent_router._brokk_session_config_patch = True
-
-    _patch_acp_router_for_session_config_option()
 
     class BrokkAcpAgent(Agent):
         def __init__(self) -> None:
@@ -1095,7 +1069,7 @@ async def run_acp_server(
         def _config_options_for_session(self, session_id: str) -> list[Any]:
             current_mode = self._mode_by_session.get(session_id, "LUTZ")
             options = [
-                SessionConfigOption.model_validate(
+                SessionConfigOptionSelect.model_validate(
                     {
                         "type": "select",
                         "id": "mode",
@@ -1110,14 +1084,12 @@ async def run_acp_server(
                     }
                 ),
             ]
-            if self._profile.is_zed:
-                current_model = self._model_by_session.get(session_id, DEFAULT_MODEL_SELECTION)
-                current_reasoning = self._reasoning_by_session.get(
-                    session_id, DEFAULT_REASONING_LEVEL
-                )
-                model_options = _model_options(self._catalog_for_session(session_id))
+            current_model = self._model_by_session.get(session_id, DEFAULT_MODEL_SELECTION)
+            current_reasoning = self._reasoning_by_session.get(session_id, DEFAULT_REASONING_LEVEL)
+            model_options = _model_options(self._catalog_for_session(session_id))
+            if model_options:
                 options.append(
-                    SessionConfigOption.model_validate(
+                    SessionConfigOptionSelect.model_validate(
                         {
                             "type": "select",
                             "id": "model",
@@ -1136,7 +1108,7 @@ async def run_acp_server(
                     current_model, self._catalog_for_session(session_id)
                 )
                 options.append(
-                    SessionConfigOption.model_validate(
+                    SessionConfigOptionSelect.model_validate(
                         {
                             "type": "select",
                             "id": "reasoning",
@@ -1262,8 +1234,8 @@ async def run_acp_server(
             elif session_id not in self._cwd_by_session:
                 self._cwd_by_session[session_id] = str(workspace_dir)
 
-        def on_connect(self, client: Any) -> None:
-            self.client = client
+        def on_connect(self, conn: Any) -> None:
+            self.client = conn
 
         async def initialize(
             self,
@@ -1294,6 +1266,10 @@ async def run_acp_server(
                     ),
                 ),
             )
+
+        async def authenticate(self, method_id: str, **kwargs: Any) -> Any:
+            del kwargs
+            return None
 
         async def new_session(
             self,
@@ -1367,7 +1343,7 @@ async def run_acp_server(
                 ),
                 models=model_state,
                 config_options=self._config_options_for_session(session_id),
-                _meta=self._variant_meta_for_session(session_id),
+                field_meta=self._variant_meta_for_session(session_id),
             )
 
         async def load_session(
@@ -1402,7 +1378,7 @@ async def run_acp_server(
                 ),
                 models=model_state,
                 config_options=self._config_options_for_session(requested_session_id),
-                _meta=self._variant_meta_for_session(requested_session_id),
+                field_meta=self._variant_meta_for_session(requested_session_id),
             )
 
         async def resume_session(
@@ -1424,8 +1400,20 @@ async def run_acp_server(
                 modes=resumed.modes,
                 models=resumed.models,
                 config_options=resumed.config_options,
-                _meta=resumed.field_meta,
+                field_meta=resumed.field_meta,
             )
+
+        async def fork_session(
+            self,
+            cwd: str,
+            session_id: str,
+            mcp_servers: Optional[list[Any]] = None,
+            **kwargs: Any,
+        ) -> Any:
+            return await self.new_session(cwd=cwd, mcp_servers=mcp_servers, **kwargs)
+
+        async def close_session(self, session_id: str, **kwargs: Any) -> None:
+            del session_id, kwargs
 
         async def list_sessions(
             self,
@@ -1513,21 +1501,22 @@ async def run_acp_server(
                 self._reasoning_by_session[session_id] = selected_reasoning
             elif not self._profile.is_zed:
                 self._reasoning_by_session[session_id] = DEFAULT_VARIANT_VALUE
-            return SetSessionModelResponse(_meta=self._variant_meta_for_session(session_id))
+            return SetSessionModelResponse(field_meta=self._variant_meta_for_session(session_id))
 
-        async def set_session_config_option(
+        async def set_config_option(
             self,
             config_id: str,
             session_id: str,
-            value: str,
+            value: str | bool,
             **kwargs: Any,
         ) -> SetSessionConfigOptionResponse:
             del kwargs
-            if config_id == "mode" and value:
-                self._mode_by_session[session_id] = normalize_mode(value)
-            elif config_id == "model" and value:
+            str_value = str(value)
+            if config_id == "mode" and str_value:
+                self._mode_by_session[session_id] = normalize_mode(str_value)
+            elif config_id == "model" and str_value:
                 await self._refresh_model_catalog_if_fallback(session_id)
-                selected_model, selected_reasoning = resolve_model_selection(value)
+                selected_model, selected_reasoning = resolve_model_selection(str_value)
                 # Validate against catalog
                 catalog = self._catalog_for_session(session_id)
                 available = _available_model_names(catalog)
@@ -1550,12 +1539,12 @@ async def run_acp_server(
                     self._reasoning_by_session[session_id] = selected_reasoning
             elif (
                 config_id in {THOUGHT_LEVEL_CONFIG_ID, "reasoning_effort", "reasoning"}
-                and value in REASONING_LEVEL_IDS
+                and str_value in REASONING_LEVEL_IDS
             ):
                 # Sanitize for model capabilities
                 catalog = self._catalog_for_session(session_id)
                 model = self._model_by_session.get(session_id, self._default_model_id)
-                sanitized = _sanitize_reasoning_level_for_model(model, value, catalog)
+                sanitized = _sanitize_reasoning_level_for_model(model, str_value, catalog)
                 self._reasoning_by_session[session_id] = sanitized
                 # Persist reasoning change
                 try:
@@ -1571,7 +1560,9 @@ async def run_acp_server(
             options = self._config_options_for_session(session_id)
             return SetSessionConfigOptionResponse(config_options=options)
 
-        async def prompt(self, prompt: Any, session_id: str, **kwargs: Any) -> Any:
+        async def prompt(
+            self, prompt: Any, session_id: str, message_id: Optional[str] = None, **kwargs: Any
+        ) -> Any:
             await self._refresh_model_catalog_if_fallback(session_id)
             mode = normalize_mode(kwargs.get("mode") or self._mode_by_session.get(session_id))
             planner_model = (
