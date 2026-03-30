@@ -1,5 +1,6 @@
 package ai.brokk.analyzer.angular;
 
+import ai.brokk.IContextManager;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.CodeUnitType;
 import ai.brokk.analyzer.IAnalyzer;
@@ -108,6 +109,31 @@ public class AngularTemplateAnalyzer implements ITemplateAnalyzer {
         if (templateUrl instanceof String url) {
             hostClassToTemplateUrl.put(hostClass, url);
         }
+    }
+
+    @Override
+    public Set<ProjectFile> getTemplateFiles(CodeUnit hostClass, IContextManager contextManager) {
+        String templateUrl = hostClassToTemplateUrl.get(hostClass);
+        if (templateUrl != null) {
+            try {
+                Path sourcePath = hostClass.source().absPath();
+                Path parentPath = sourcePath.getParent();
+                if (parentPath != null) {
+                    Path templatePath = parentPath.resolve(templateUrl).normalize();
+                    Path projectRoot = contextManager.getProject().getRoot();
+                    if (templatePath.startsWith(projectRoot)) {
+                        Path relPath = projectRoot.relativize(templatePath);
+                        ProjectFile pf = new ProjectFile(projectRoot, relPath);
+                        if (pf.exists()) {
+                            return Set.of(pf);
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("Failed to resolve template file {} for {}: {}", templateUrl, hostClass, e.getMessage());
+            }
+        }
+        return Set.of();
     }
 
     @Override

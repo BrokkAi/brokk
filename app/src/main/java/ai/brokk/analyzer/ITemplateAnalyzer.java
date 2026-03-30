@@ -1,5 +1,6 @@
 package ai.brokk.analyzer;
 
+import ai.brokk.IContextManager;
 import ai.brokk.project.IProject;
 import java.util.List;
 import java.util.Map;
@@ -68,6 +69,17 @@ public interface ITemplateAnalyzer {
      * @return A set of template source strings.
      */
     default Set<String> getTemplateSources(CodeUnit hostClass) {
+        return Set.of();
+    }
+
+    /**
+     * Returns the template files associated with the given host class.
+     *
+     * @param hostClass      The CodeUnit of the component/class in the host language.
+     * @param contextManager The context manager used to resolve relative paths to ProjectFiles.
+     * @return A set of template ProjectFiles.
+     */
+    default Set<ProjectFile> getTemplateFiles(CodeUnit hostClass, IContextManager contextManager) {
         return Set.of();
     }
 }
