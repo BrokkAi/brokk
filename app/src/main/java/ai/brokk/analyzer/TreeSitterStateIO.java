@@ -277,7 +277,8 @@ public final class TreeSitterStateIO {
             @Nullable List<String> signatures,
             @Nullable List<IAnalyzer.Range> ranges,
             boolean hasBody,
-            boolean isTypeAlias) {}
+            boolean isTypeAlias,
+            @Nullable Map<String, Object> attributes) {}
 
     /**
      * DTO entry for CodeUnit -> CodeUnitProperties maps.
@@ -570,7 +571,8 @@ public final class TreeSitterStateIO {
                     new ArrayList<>(props.signatures()),
                     new ArrayList<>(props.ranges()),
                     props.hasBody(),
-                    props.isTypeAlias());
+                    props.isTypeAlias(),
+                    props.attributes().isEmpty() ? null : new HashMap<>(props.attributes()));
 
             cuEntries.add(new CodeUnitEntryDto(toDto(e.getKey()), propsDto));
         }
@@ -646,7 +648,8 @@ public final class TreeSitterStateIO {
                     Collections.unmodifiableSequencedSet(new LinkedHashSet<>(signatures)),
                     Collections.unmodifiableSequencedSet(new LinkedHashSet<>(ranges)),
                     v.hasBody(),
-                    v.isTypeAlias());
+                    v.isTypeAlias(),
+                    v.attributes() == null ? Map.of() : Map.copyOf(v.attributes()));
 
             cuState.put(fromDto(entry.key()), props);
         }
