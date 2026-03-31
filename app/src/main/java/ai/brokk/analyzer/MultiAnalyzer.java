@@ -375,7 +375,9 @@ public class MultiAnalyzer
         for (var delegate : delegates.values()) {
             if (delegate instanceof TreeSitterAnalyzer ts) {
                 var state = ts.snapshotState();
-                if (firstState == null) firstState = state;
+                if (firstState == null) {
+                    firstState = state;
+                }
 
                 // Process Angular component signals from metadata
                 state.codeUnitState().forEach((cu, props) -> {
