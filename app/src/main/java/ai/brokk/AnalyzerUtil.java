@@ -26,9 +26,9 @@ public class AnalyzerUtil {
 
         var methodUses = uses.stream().filter(CodeUnit::isFunction).sorted().toList();
         for (var cu : methodUses) {
-            var source = analyzer.getSource(cu, true);
-            if (source.isPresent()) {
-                results.add(new CodeWithSource(source.get(), cu));
+            Set<String> sources = analyzer.getSources(cu, true);
+            if (!sources.isEmpty()) {
+                sources.forEach(src -> results.add(new CodeWithSource(src, cu)));
             } else if (!(analyzer instanceof DisabledAnalyzer)) {
                 logger.warn("Unable to obtain source code for method use by {}", cu.fqName());
             }
@@ -296,10 +296,17 @@ public class AnalyzerUtil {
      * overloaded methods, will combine sources for these as far as their fqNames match.
      */
     public static Optional<String> getSource(IAnalyzer analyzer, String fqName, boolean includeComments) {
-        return analyzer.getDefinitions(fqName).stream()
+        List<CodeWithSource> allParts = analyzer.getDefinitions(fqName).stream()
                 .filter(cu -> cu.isFunction() || cu.isClass())
-                .flatMap(cu -> analyzer.getSource(cu, includeComments).stream())
-                .reduce((srcA, srcB) -> srcA + "\n\n" + srcB);
+                .flatMap(
+                        cu -> analyzer.getSources(cu, includeComments).stream().map(src -> new CodeWithSource(src, cu)))
+                .toList();
+
+        if (allParts.isEmpty()) {
+            return Optional.empty();
+        }
+
+        return Optional.of(CodeWithSource.text(analyzer, allParts));
     }
 
     /**

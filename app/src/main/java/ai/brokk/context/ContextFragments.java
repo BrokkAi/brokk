@@ -1716,9 +1716,13 @@ public class ContextFragments {
             boolean hasAnySourceCode = false;
 
             for (CodeUnit unit : units) {
-                var codeOpt = analyzer.getSource(unit, true);
-                if (codeOpt.isPresent()) {
-                    textBlocks.add(new AnalyzerUtil.CodeWithSource(codeOpt.get(), unit).text(analyzer));
+                Set<String> sources = analyzer.getSources(unit, true);
+                if (!sources.isEmpty()) {
+                    List<AnalyzerUtil.CodeWithSource> cwsList = sources.stream()
+                            .map(src -> new AnalyzerUtil.CodeWithSource(src, unit))
+                            .toList();
+
+                    textBlocks.add(AnalyzerUtil.CodeWithSource.text(analyzer, cwsList));
                     hasAnySourceCode = true;
 
                     analyzer.as(ImportAnalysisProvider.class)
