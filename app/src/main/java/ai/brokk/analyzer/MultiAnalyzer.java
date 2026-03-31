@@ -29,6 +29,8 @@ public class MultiAnalyzer
     public MultiAnalyzer(Map<Language, IAnalyzer> delegates, Collection<ITemplateAnalyzer> templateAnalyzers) {
         this.delegates = delegates; // Store the live map directly
         this.templateAnalyzers = List.copyOf(templateAnalyzers);
+        // Emit signals to template analyzers immediately upon creation
+        snapshotState();
     }
 
     private <R> Optional<R> findFirst(Function<IAnalyzer, Optional<R>> extractor) {

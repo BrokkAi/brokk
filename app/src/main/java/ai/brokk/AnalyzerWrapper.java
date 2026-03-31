@@ -423,15 +423,11 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
                 try {
                     logger.debug("Attempting to load existing analyzer for {}", lang.name());
                     IAnalyzer delegate = lang.loadAnalyzer(project, progressListener);
-                    if (!delegate.isEmpty()) {
-                        nextDelegates.put(lang, delegate);
-                    }
+                    nextDelegates.put(lang, delegate);
                 } catch (Throwable th) {
                     logger.warn("Failed to load cached analyzer for {}, creating fresh", lang.name(), th);
                     IAnalyzer delegate = lang.createAnalyzer(project, progressListener);
-                    if (!delegate.isEmpty()) {
-                        nextDelegates.put(lang, delegate);
-                    }
+                    nextDelegates.put(lang, delegate);
                     needsRebuild = false;
                 }
             } catch (Throwable th) {
@@ -471,7 +467,16 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
             }
 
             if (stateMismatch(analyzer).isPresent()) {
-                logger.error("Analyzer state remains corrupt after targeted repair attempt.");
+                logger.error("Analyzer state remains corrupt after targeted repair attempt. Triggering full rebuild.");
+                Map<Language, IAnalyzer> finalDelegates = new HashMap<>();
+                for (Language lang : projectLangs) {
+                    finalDelegates.put(lang, lang.createAnalyzer(project, progressListener));
+                }
+                analyzer = finalDelegates.isEmpty()
+                        ? new DisabledAnalyzer(project)
+                        : (finalDelegates.size() == 1 && templates.isEmpty())
+                                ? finalDelegates.values().iterator().next()
+                                : new MultiAnalyzer(finalDelegates, templates);
             }
             // Persist the repaired state
             persistAnalyzerState(analyzer);
