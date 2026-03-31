@@ -77,6 +77,10 @@ public class GitHotspotAnalyzerTest {
 
         assertEquals(15, info.churn());
         assertEquals(3, info.uniqueAuthors());
+        assertEquals(3, info.topAuthors().size());
+        assertEquals(5, info.topAuthors().get(0).commits());
+        assertTrue(info.topAuthors().get(0).name().startsWith("dev"));
+        assertTrue(info.topAuthors().get(0).email().contains("@example.com"));
         assertEquals(GitHotspotAnalyzer.HotspotCategory.HOTSPOT, info.category());
     }
 

@@ -11,11 +11,9 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 import org.eclipse.jgit.api.errors.GitAPIException;
@@ -44,10 +42,13 @@ public class GitHotspotAnalyzer {
         ACTIVE // High activity, low complexity
     }
 
+    public record AuthorInfo(String name, String email, int commits) {}
+
     public record FileHotspotInfo(
             String path,
             int churn,
             int uniqueAuthors,
+            List<AuthorInfo> topAuthors,
             int complexity,
             HotspotCategory category,
             Instant lastModified) {}
@@ -115,8 +116,10 @@ public class GitHotspotAnalyzer {
 
     private void processCommit(RevCommit commit, DiffFormatter df, Map<ProjectFile, FileStats> statsMap)
             throws IOException {
-        String author = commit.getAuthorIdent().getEmailAddress();
-        Instant commitTime = commit.getAuthorIdent().getWhenAsInstant();
+        var ident = commit.getAuthorIdent();
+        String name = ident.getName();
+        String email = ident.getEmailAddress();
+        Instant commitTime = ident.getWhenAsInstant();
 
         RevCommit parent = commit.getParentCount() > 0 ? commit.getParent(0) : null;
         List<DiffEntry> diffs = df.scan(parent != null ? parent.getTree() : null, commit.getTree());
@@ -130,7 +133,8 @@ public class GitHotspotAnalyzer {
             repo.toProjectFile(path).ifPresent(pf -> {
                 FileStats stats = statsMap.computeIfAbsent(pf, k -> new FileStats());
                 stats.churn++;
-                stats.authors.add(author);
+                stats.authorCounts.merge(email, 1, Integer::sum);
+                stats.authorNames.putIfAbsent(email, name);
                 if (stats.lastModified == null || commitTime.isAfter(stats.lastModified)) {
                     stats.lastModified = commitTime;
                 }
@@ -152,10 +156,17 @@ public class GitHotspotAnalyzer {
 
         HotspotCategory category = determineCategory(stats.churn, maxComplexity);
 
+        List<AuthorInfo> topAuthors = stats.authorCounts.entrySet().stream()
+                .map(e -> new AuthorInfo(stats.authorNames.get(e.getKey()), e.getKey(), e.getValue()))
+                .sorted(Comparator.comparingInt(AuthorInfo::commits).reversed())
+                .limit(5)
+                .toList();
+
         return new FileHotspotInfo(
                 pf.toString(),
                 stats.churn,
-                stats.authors.size(),
+                stats.authorCounts.size(),
+                topAuthors,
                 maxComplexity,
                 category,
                 stats.lastModified != null ? stats.lastModified : Instant.EPOCH);
@@ -182,7 +193,8 @@ public class GitHotspotAnalyzer {
 
     private static class FileStats {
         int churn = 0;
-        Set<String> authors = new HashSet<>();
+        Map<String, Integer> authorCounts = new HashMap<>();
+        Map<String, String> authorNames = new HashMap<>();
 
         @Nullable
         Instant lastModified = null;
