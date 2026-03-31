@@ -3,8 +3,12 @@ package ai.brokk;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.analyzer.IAnalyzer;
+import ai.brokk.analyzer.ITemplateAnalyzer;
 import ai.brokk.analyzer.Languages;
+import ai.brokk.analyzer.MultiAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.analyzer.angular.AngularTemplateAnalyzer;
+import ai.brokk.testutil.InlineTestProjectCreator;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.git.TestRepo;
 import ai.brokk.testutil.TestAnalyzerWrapper;
@@ -241,6 +245,43 @@ class AnalyzerWrapperTest {
     /**
      * Test isPaused() method returns correct state.
      */
+    /**
+     * Test that AnalyzerWrapper correctly discovers and sets up template DSLs (like Angular).
+     */
+    @Test
+    void testTemplateAnalyzerDiscovery() throws Exception {
+        String packageJson =
+                """
+                {
+                  "dependencies": {
+                    "@angular/core": "^17.0.0"
+                  }
+                }
+                """;
+
+        // 1. Create a project that triggers AngularTemplateAnalyzer
+        try (var testProject = InlineTestProjectCreator.empty()
+                .addFileContents(packageJson, "package.json")
+                .addFileContents("export class AppComponent {}", "app.component.ts")
+                .addFileContents("<div></div>", "app.component.html")
+                .build()) {
+
+            // 2. Instantiate AnalyzerWrapper
+            analyzerWrapper = new AnalyzerWrapper(testProject, new NullAnalyzerListener(), new NoopWatchService());
+
+            // 3. Assert it returns a MultiAnalyzer containing AngularTemplateAnalyzer
+            IAnalyzer analyzer = analyzerWrapper.get();
+
+            assertTrue(analyzer instanceof MultiAnalyzer, "Analyzer should be a MultiAnalyzer when templates are present");
+            MultiAnalyzer multi = (MultiAnalyzer) analyzer;
+
+            boolean hasAngular = multi.getTemplateAnalyzers().stream()
+                    .anyMatch(ta -> ta instanceof AngularTemplateAnalyzer);
+
+            assertTrue(hasAngular, "MultiAnalyzer should contain AngularTemplateAnalyzer");
+        }
+    }
+
     @Test
     void testIsPausedReturnsCorrectState() throws Exception {
         var projectRoot = tempDir.resolve("project");
