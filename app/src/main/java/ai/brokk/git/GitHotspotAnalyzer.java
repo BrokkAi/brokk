@@ -136,7 +136,15 @@ public class GitHotspotAnalyzer {
             // Rename detection requires blob contents which may be missing in blobless/partial clones.
             if (isMissingObjectException(e)) {
                 df.setDetectRenames(false);
-                diffs = df.scan(parent != null ? parent.getTree() : null, commit.getTree());
+                try {
+                    diffs = df.scan(parent != null ? parent.getTree() : null, commit.getTree());
+                } catch (Exception fallbackEx) {
+                    logger.debug(
+                            "Fallback diff scan failed for commit {}, skipping diffs: {}",
+                            commit.name(),
+                            fallbackEx.getMessage());
+                    diffs = List.of();
+                }
             } else {
                 if (e instanceof IOException ioException) {
                     throw ioException;
