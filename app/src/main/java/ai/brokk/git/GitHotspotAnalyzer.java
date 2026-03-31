@@ -19,6 +19,7 @@ import java.util.stream.Collectors;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.diff.DiffEntry;
 import org.eclipse.jgit.diff.DiffFormatter;
+import org.eclipse.jgit.errors.MissingObjectException;
 import org.eclipse.jgit.lib.Constants;
 import org.eclipse.jgit.lib.ObjectId;
 import org.eclipse.jgit.lib.Repository;
@@ -114,15 +115,22 @@ public class GitHotspotAnalyzer {
         return new HotspotReport(repo.getWorkTreeRoot().toString(), commitCount, since.toString(), hotspotInfos);
     }
 
-    private void processCommit(RevCommit commit, DiffFormatter df, Map<ProjectFile, FileStats> statsMap)
-            throws IOException {
+    void processCommit(RevCommit commit, DiffFormatter df, Map<ProjectFile, FileStats> statsMap) throws IOException {
         var ident = commit.getAuthorIdent();
         String name = ident.getName();
         String email = ident.getEmailAddress();
         Instant commitTime = ident.getWhenAsInstant();
 
         RevCommit parent = commit.getParentCount() > 0 ? commit.getParent(0) : null;
-        List<DiffEntry> diffs = df.scan(parent != null ? parent.getTree() : null, commit.getTree());
+        List<DiffEntry> diffs;
+        try {
+            diffs = df.scan(parent != null ? parent.getTree() : null, commit.getTree());
+        } catch (MissingObjectException e) {
+            // Rename detection requires blob contents which may be missing in blobless/partial clones.
+            // Disable it and retry the scan to proceed with basic path tracking.
+            df.setDetectRenames(false);
+            diffs = df.scan(parent != null ? parent.getTree() : null, commit.getTree());
+        }
 
         for (DiffEntry diff : diffs) {
             String path = diff.getNewPath();
@@ -191,7 +199,7 @@ public class GitHotspotAnalyzer {
         return HotspotCategory.STABLE;
     }
 
-    private static class FileStats {
+    static class FileStats {
         int churn = 0;
         Map<String, Integer> authorCounts = new HashMap<>();
         Map<String, String> authorNames = new HashMap<>();

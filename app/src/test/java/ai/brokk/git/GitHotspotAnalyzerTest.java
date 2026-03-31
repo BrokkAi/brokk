@@ -10,7 +10,15 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.HashMap;
+import java.util.List;
 import org.eclipse.jgit.api.Git;
+import org.eclipse.jgit.diff.DiffEntry;
+import org.eclipse.jgit.diff.DiffFormatter;
+import org.eclipse.jgit.errors.MissingObjectException;
+import org.eclipse.jgit.lib.ObjectId;
+import org.eclipse.jgit.util.io.DisabledOutputStream;
+import org.jetbrains.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -106,5 +114,53 @@ public class GitHotspotAnalyzerTest {
         assertFalse(report.files().isEmpty());
         assertEquals(
                 GitHotspotAnalyzer.HotspotCategory.STABLE, report.files().get(0).category());
+    }
+
+    @Test
+    void testMissingObjectFallback() throws Exception {
+        // We simulate the fallback by providing a DiffFormatter that throws on first scan
+        // but succeeds when renames are disabled.
+        GitHotspotAnalyzer hotspotAnalyzer = new GitHotspotAnalyzer(repo, analyzer);
+
+        try (DiffFormatter df = new DiffFormatter(DisabledOutputStream.INSTANCE) {
+            private boolean throwOnce = true;
+
+            @Override
+            public List<DiffEntry> scan(
+                    @Nullable org.eclipse.jgit.treewalk.AbstractTreeIterator oldTree,
+                    @Nullable org.eclipse.jgit.treewalk.AbstractTreeIterator newTree)
+                    throws java.io.IOException {
+                if (throwOnce && isDetectRenames()) {
+                    throwOnce = false;
+                    throw new MissingObjectException(ObjectId.zeroId(), "blob");
+                }
+                return super.scan(oldTree, newTree);
+            }
+        }) {
+            df.setRepository(repo.getRepository());
+            df.setDetectRenames(true);
+
+            // Create a commit to process
+            Path filePath = tempDir.resolve("Fallback.java");
+            ProjectFile pf = new ProjectFile(tempDir, "Fallback.java");
+            Files.writeString(filePath, "class Fallback {}");
+            repo.add(pf);
+            String commitId = repo.getGit()
+                    .commit()
+                    .setSign(false)
+                    .setMessage("Fallback test")
+                    .call()
+                    .name();
+
+            org.eclipse.jgit.revwalk.RevCommit commit;
+            try (org.eclipse.jgit.revwalk.RevWalk rw = new org.eclipse.jgit.revwalk.RevWalk(repo.getRepository())) {
+                commit = rw.parseCommit(repo.getRepository().resolve(commitId));
+            }
+
+            // This should not throw MissingObjectException because processCommit catches and retries
+            hotspotAnalyzer.processCommit(commit, df, new HashMap<>());
+
+            assertFalse(df.isDetectRenames(), "Rename detection should have been disabled after exception");
+        }
     }
 }
