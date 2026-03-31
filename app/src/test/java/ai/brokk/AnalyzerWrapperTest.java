@@ -3,12 +3,10 @@ package ai.brokk;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.analyzer.IAnalyzer;
-import ai.brokk.analyzer.ITemplateAnalyzer;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.MultiAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.angular.AngularTemplateAnalyzer;
-import ai.brokk.testutil.InlineTestProjectCreator;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.git.TestRepo;
 import ai.brokk.testutil.TestAnalyzerWrapper;

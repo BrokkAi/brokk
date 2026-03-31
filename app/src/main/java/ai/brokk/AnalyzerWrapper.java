@@ -12,7 +12,7 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.TreeSitterStateIO;
 import ai.brokk.concurrent.LoggingExecutorService;
 import ai.brokk.concurrent.LoggingFuture;
-import ai.brokk.project.AbstractProject;
+
 import ai.brokk.project.IProject;
 import ai.brokk.project.WorktreeProject;
 import ai.brokk.watchservice.AbstractWatchService;
@@ -24,7 +24,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Locale;
+
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -511,12 +511,17 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
                 .map(it -> it.internalName())
                 .collect(Collectors.toSet());
         var actualTemplates = (analyzer instanceof MultiAnalyzer ma)
-                ? ma.getTemplateAnalyzers().stream().map(it -> it.internalName()).collect(Collectors.toSet())
+                ? ma.getTemplateAnalyzers().stream()
+                        .map(it -> it.internalName())
+                        .collect(Collectors.toSet())
                 : Set.of();
 
         if (!expectedTemplates.equals(actualTemplates)) {
             templateMismatch = true;
-            logger.info("Template analyzer mismatch detected. Expected: {}, Actual: {}", expectedTemplates, actualTemplates);
+            logger.info(
+                    "Template analyzer mismatch detected. Expected: {}, Actual: {}",
+                    expectedTemplates,
+                    actualTemplates);
         }
 
         Set<ProjectFile> expectedFiles = projectLangs.stream()
