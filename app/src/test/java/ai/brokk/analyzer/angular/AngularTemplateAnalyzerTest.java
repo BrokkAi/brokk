@@ -11,7 +11,11 @@ import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.MultiAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.TemplateAnalysisResult;
+import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.testutil.InlineTestProjectCreator;
+import ai.brokk.testutil.TestConsoleIO;
+import ai.brokk.testutil.TestContextManager;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -173,6 +177,52 @@ class AngularTemplateAnalyzerTest {
             assertCodeContains(mergedSource, "export class AppComponent", "Should contain TS class definition");
             assertCodeContains(mergedSource, "/* Angular source */", "Should contain Angular header");
             assertCodeContains(mergedSource, "<h1>Hello Angular</h1>", "Should contain HTML template content");
+        }
+    }
+
+    @Test
+    void testCodeFragmentIncludesTemplateFiles_Integration() {
+        String tsCode =
+                """
+                import { Component } from '@angular/core';
+
+                @Component({
+                  selector: 'app-test',
+                  templateUrl: './test.component.html'
+                })
+                export class TestComponent {}
+                """;
+        String htmlCode = "<p>External Template Content</p>";
+
+        try (var project = InlineTestProjectCreator.empty()
+                .addFileContents(tsCode, "src/app/test.component.ts")
+                .addFileContents(htmlCode, "src/app/test.component.html")
+                .addFileContents("{}", "angular.json")
+                .build()) {
+
+            IAnalyzer tsAnalyzer = Languages.TYPESCRIPT.createAnalyzer(project, IAnalyzer.ProgressListener.NOOP);
+            AngularTemplateAnalyzer angularTemplateAnalyzer = new AngularTemplateAnalyzer();
+            MultiAnalyzer multi =
+                    new MultiAnalyzer(Map.of(Languages.TYPESCRIPT, tsAnalyzer), List.of(angularTemplateAnalyzer));
+
+            multi.snapshotState();
+
+            CodeUnit testComponent = multi.getAllDeclarations().stream()
+                    .filter(cu -> cu.isClass() && cu.fqName().endsWith("TestComponent"))
+                    .findFirst()
+                    .orElseThrow();
+
+            TestContextManager cm = new TestContextManager(project, new TestConsoleIO(), project.getAllFiles(), multi);
+
+            var fragment = new ContextFragments.CodeFragment(cm, testComponent);
+            Set<ContextFragment> supporting = fragment.supportingFragments();
+
+            boolean hasTemplate = supporting.stream()
+                    .filter(f -> f instanceof ContextFragments.ProjectPathFragment)
+                    .map(f -> (ContextFragments.ProjectPathFragment) f)
+                    .anyMatch(pf -> pf.file().getFileName().equals("test.component.html"));
+
+            assertTrue(hasTemplate, "Supporting fragments should include the external template file");
         }
     }
 
