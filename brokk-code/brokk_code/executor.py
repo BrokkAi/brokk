@@ -454,7 +454,7 @@ class ExecutorManager:
         return httpx.AsyncClient(
             base_url=base_url,
             headers={"Authorization": f"Bearer {self.auth_token}"},
-            timeout=120.0,
+            timeout=30.0,
         )
 
     async def get_health_live(self) -> Dict[str, Any]:
