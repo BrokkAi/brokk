@@ -3,6 +3,9 @@ package ai.brokk.git;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.concurrent.ExecutorsUtil;
+import ai.brokk.concurrent.LoggingExecutorService;
+import ai.brokk.concurrent.LoggingFuture;
 import java.io.IOException;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -13,6 +16,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.diff.DiffEntry;
@@ -90,11 +94,21 @@ public class GitHotspotAnalyzer {
             }
         }
 
-        List<FileHotspotInfo> hotspotInfos = statsMap.entrySet().stream()
-                .map(entry -> createInfo(entry.getKey(), entry.getValue()))
-                .filter(Objects::nonNull)
-                .sorted(Comparator.comparing(FileHotspotInfo::churn).reversed())
-                .collect(Collectors.toList());
+        List<FileHotspotInfo> hotspotInfos;
+        try (LoggingExecutorService executor = ExecutorsUtil.newVirtualThreadExecutor("HotspotAnalyzer", 20)) {
+            List<CompletableFuture<FileHotspotInfo>> futures = statsMap.entrySet().stream()
+                    .map(entry ->
+                            LoggingFuture.supplyAsync(() -> createInfo(entry.getKey(), entry.getValue()), executor))
+                    .toList();
+
+            LoggingFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+
+            hotspotInfos = futures.stream()
+                    .map(CompletableFuture::join)
+                    .filter(Objects::nonNull)
+                    .sorted(Comparator.comparing(FileHotspotInfo::churn).reversed())
+                    .collect(Collectors.toList());
+        }
 
         return new HotspotReport(repo.getWorkTreeRoot().toString(), commitCount, since.toString(), hotspotInfos);
     }
