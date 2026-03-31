@@ -686,10 +686,17 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
             Map.entry("input_cost_per_token", 0.0),
             Map.entry("output_cost_per_token", 0.0),
             Map.entry("cache_read_input_token_cost", 0.0),
-            Map.entry("supported_openai_params", List.of(
-                    "temperature", "max_tokens", "stream", "top_p",
-                    "stop", "tools", "tool_choice", "parallel_tool_calls"))
-    );
+            Map.entry(
+                    "supported_openai_params",
+                    List.of(
+                            "temperature",
+                            "max_tokens",
+                            "stream",
+                            "top_p",
+                            "stop",
+                            "tools",
+                            "tool_choice",
+                            "parallel_tool_calls")));
 
     public boolean supportsParallelCalls(StreamingChatModel model) {
         var name = nameOf(model);

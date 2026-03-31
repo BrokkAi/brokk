@@ -85,6 +85,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     private JTextField customEndpointUrlField = new JTextField();
     private JPasswordField customEndpointApiKeyField = new JPasswordField();
     private JTextField customEndpointModelField = new JTextField();
+
+    @Nullable
     private JPanel customEndpointFieldsPanel;
 
     // OpenAI OAuth connection controls
@@ -166,8 +168,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         customEndpointApiKeyField.setText(MainProject.getCustomEndpointApiKey());
         customEndpointModelField.setText(MainProject.getCustomEndpointModel());
         if (customEndpointFieldsPanel != null) {
-            customEndpointFieldsPanel.setVisible(
-                    customEndpointRadio != null && customEndpointRadio.isSelected());
+            customEndpointFieldsPanel.setVisible(customEndpointRadio != null && customEndpointRadio.isSelected());
         }
 
         // OpenAI connection UI and subscription gating
@@ -391,8 +392,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             customEndpointFieldsPanel.add(new JLabel("API Key:"), ceGbc);
             ceGbc.gridx = 1;
             ceGbc.weightx = 1.0;
-            customEndpointApiKeyField.setToolTipText(
-                    "Leave blank for local models that don't require auth");
+            customEndpointApiKeyField.setToolTipText("Leave blank for local models that don't require auth");
             customEndpointFieldsPanel.add(customEndpointApiKeyField, ceGbc);
 
             ceGbc.gridx = 0;
@@ -410,10 +410,11 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             servicePanel.add(customEndpointFieldsPanel, gbc);
 
             // Toggle visibility of custom endpoint fields based on radio selection
+            var localFieldsPanel = requireNonNull(customEndpointFieldsPanel);
             Runnable updateCustomFieldsVisibility = () -> {
                 boolean show = customEndpointRadio != null && customEndpointRadio.isSelected();
-                customEndpointFieldsPanel.setVisible(show);
-                customEndpointFieldsPanel.revalidate();
+                localFieldsPanel.setVisible(show);
+                localFieldsPanel.revalidate();
             };
             if (brokkProxyRadio != null) {
                 brokkProxyRadio.addActionListener(e -> updateCustomFieldsVisibility.run());

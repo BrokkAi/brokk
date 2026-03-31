@@ -81,12 +81,12 @@ public class Service extends AbstractService implements ExceptionReporter.Report
 
         // STT model initialization — custom endpoints (Ollama, LM Studio, etc.) don't support /audio/transcriptions
         if (MainProject.isCustomProvider()) {
-            LogManager.getLogger(Service.class)
-                    .info("Custom endpoint selected — speech-to-text is not available.");
+            LogManager.getLogger(Service.class).info("Custom endpoint selected — speech-to-text is not available.");
             sttModel = new UnavailableSTT();
         } else {
             var sttModelName = modelInfoMap.entrySet().stream()
-                    .filter(entry -> "audio_transcription".equals(entry.getValue().get("mode")))
+                    .filter(entry ->
+                            "audio_transcription".equals(entry.getValue().get("mode")))
                     .map(Map.Entry::getKey)
                     .findFirst()
                     .orElse(null);
@@ -519,8 +519,7 @@ public class Service extends AbstractService implements ExceptionReporter.Report
      * Tries the standard GET /v1/models endpoint first, falls back to manual model name configuration.
      */
     private void fetchCustomEndpointModels(
-            Map<String, String> locationsTarget,
-            Map<String, Map<String, Object>> infoTarget) {
+            Map<String, String> locationsTarget, Map<String, Map<String, Object>> infoTarget) {
         locationsTarget.clear();
         infoTarget.clear();
 
@@ -559,7 +558,10 @@ public class Service extends AbstractService implements ExceptionReporter.Report
             }
         } catch (Exception e) {
             LogManager.getLogger(Service.class)
-                    .info("Could not fetch models from {}: {} (falling back to manual config)", modelsUrl, e.getMessage());
+                    .info(
+                            "Could not fetch models from {}: {} (falling back to manual config)",
+                            modelsUrl,
+                            e.getMessage());
         }
 
         // If no models discovered via API, use the manually configured model name
@@ -572,12 +574,12 @@ public class Service extends AbstractService implements ExceptionReporter.Report
 
         if (locationsTarget.isEmpty()) {
             LogManager.getLogger(Service.class)
-                    .warn("No models discovered from custom endpoint {} and no manual model configured. "
+                    .warn(
+                            "No models discovered from custom endpoint {} and no manual model configured. "
                                     + "Configure a model name in Settings > Custom Endpoint, or ensure the endpoint is running.",
                             baseUrl);
         } else {
-            LogManager.getLogger(Service.class)
-                    .info("Custom endpoint models discovered: {}", locationsTarget.keySet());
+            LogManager.getLogger(Service.class).info("Custom endpoint models discovered: {}", locationsTarget.keySet());
         }
 
         // No model info from custom endpoints — the defaults in CUSTOM_MODEL_DEFAULTS will be used
