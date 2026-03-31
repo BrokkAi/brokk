@@ -1,5 +1,7 @@
 package ai.brokk.git;
 
+import static java.util.Objects.requireNonNull;
+
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
@@ -52,7 +54,7 @@ public class GitHotspotAnalyzer {
             List<AuthorInfo> topAuthors,
             int complexity,
             HotspotCategory category,
-            Instant lastModified) {}
+            String lastModified) {}
 
     public record HotspotReport(
             String repository, int analyzedCommits, String timeframe, List<FileHotspotInfo> files) {}
@@ -165,7 +167,7 @@ public class GitHotspotAnalyzer {
         HotspotCategory category = determineCategory(stats.churn, maxComplexity);
 
         List<AuthorInfo> topAuthors = stats.authorCounts.entrySet().stream()
-                .map(e -> new AuthorInfo(stats.authorNames.get(e.getKey()), e.getKey(), e.getValue()))
+                .map(e -> new AuthorInfo(requireNonNull(stats.authorNames.get(e.getKey())), e.getKey(), e.getValue()))
                 .sorted(Comparator.comparingInt(AuthorInfo::commits).reversed())
                 .limit(5)
                 .toList();
@@ -177,7 +179,7 @@ public class GitHotspotAnalyzer {
                 topAuthors,
                 maxComplexity,
                 category,
-                stats.lastModified != null ? stats.lastModified : Instant.EPOCH);
+                stats.lastModified != null ? stats.lastModified.toString() : Instant.EPOCH.toString());
     }
 
     private List<CodeUnit> flatten(CodeUnit cu) {
