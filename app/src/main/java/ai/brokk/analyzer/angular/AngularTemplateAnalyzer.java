@@ -136,6 +136,17 @@ public class AngularTemplateAnalyzer implements ITemplateAnalyzer {
     }
 
     @Override
+    public Optional<String> summarizeTemplate(ProjectFile templateFile, IContextManager contextManager) {
+        try {
+            AngularHtmlParser parser = new AngularHtmlParser(contextManager.getProject());
+            return Optional.ofNullable(parser.summarizeSymbols(templateFile));
+        } catch (Exception e) {
+            log.warn("Failed to summarize Angular template {}: {}", templateFile, e.getMessage());
+            return Optional.empty();
+        }
+    }
+
+    @Override
     public Set<String> getTemplateSources(CodeUnit hostClass) {
         String inline = hostClassToInlineTemplate.get(hostClass);
         if (inline != null) {

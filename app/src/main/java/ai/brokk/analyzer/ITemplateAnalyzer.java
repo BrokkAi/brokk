@@ -4,6 +4,7 @@ import ai.brokk.IContextManager;
 import ai.brokk.project.IProject;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -81,5 +82,16 @@ public interface ITemplateAnalyzer {
      */
     default Set<ProjectFile> getTemplateFiles(CodeUnit hostClass, IContextManager contextManager) {
         return Set.of();
+    }
+
+    /**
+     * Provides a summary (skeletons/definitions) of the template file itself.
+     *
+     * @param templateFile   The template file to summarize.
+     * @param contextManager The context manager.
+     * @return An Optional containing the template summary text, if available.
+     */
+    default Optional<String> summarizeTemplate(ProjectFile templateFile, IContextManager contextManager) {
+        return Optional.empty();
     }
 }

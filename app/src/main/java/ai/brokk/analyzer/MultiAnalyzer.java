@@ -1,5 +1,6 @@
 package ai.brokk.analyzer;
 
+import ai.brokk.IContextManager;
 import ai.brokk.project.IProject;
 import java.util.*;
 import java.util.function.Function;
@@ -417,6 +418,18 @@ public class MultiAnalyzer
                         "Error routing signal {} to template analyzer {}", signal, templateAnalyzer.internalName(), e);
             }
         }
+    }
+
+    /**
+     * Provides a summary of a template file using applicable template analyzers.
+     */
+    public Optional<String> summarizeTemplate(ProjectFile templateFile, IContextManager contextManager) {
+        var extension = templateFile.extension();
+        return templateAnalyzers.stream()
+                .filter(ta -> ta.getSupportedExtensions().contains(extension))
+                .map(ta -> ta.summarizeTemplate(templateFile, contextManager))
+                .flatMap(opt -> opt.map(Stream::of).orElseGet(Stream::empty))
+                .findFirst();
     }
 
     /**

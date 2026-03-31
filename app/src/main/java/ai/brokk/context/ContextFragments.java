@@ -2020,6 +2020,20 @@ public class ContextFragments {
         private static ContentSnapshot computeSnapshotFor(
                 String targetIdentifier, SummaryType summaryType, IContextManager contextManager) {
             var analyzer = contextManager.getAnalyzerUninterrupted();
+
+            // 1. Check for Template Summaries (e.g. .html via MultiAnalyzer)
+            if (summaryType == SummaryType.FILE_SKELETONS && analyzer instanceof MultiAnalyzer multi) {
+                ProjectFile file = contextManager.toFile(targetIdentifier);
+                var templateSummary = multi.summarizeTemplate(file, contextManager);
+                if (templateSummary.isPresent()) {
+                    String text = templateSummary.get();
+                    // For template summaries we don't have a stable way to extract CodeUnits without
+                    // re-parsing, so we return a text-only snapshot mapped to the file.
+                    return new ContentSnapshot(text, Set.of(), Set.of(file), (List<Byte>) null, true);
+                }
+            }
+
+            // 2. Standard Skeleton Summary
             Map<CodeUnit, String> skeletonsMap = new LinkedHashMap<>();
             Set<CodeUnit> primaryTargets =
                     resolvePrimaryTargets(targetIdentifier, summaryType, analyzer, contextManager);
