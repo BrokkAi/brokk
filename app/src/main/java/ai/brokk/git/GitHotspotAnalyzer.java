@@ -14,6 +14,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
@@ -130,11 +131,15 @@ public class GitHotspotAnalyzer {
         List<DiffEntry> diffs;
         try {
             diffs = df.scan(parent != null ? parent.getTree() : null, commit.getTree());
-        } catch (MissingObjectException e) {
+        } catch (IOException e) {
+            // JGit or internal wrappers may wrap MissingObjectException inside an IOException.
             // Rename detection requires blob contents which may be missing in blobless/partial clones.
-            // Disable it and retry the scan to proceed with basic path tracking.
-            df.setDetectRenames(false);
-            diffs = df.scan(parent != null ? parent.getTree() : null, commit.getTree());
+            if (isMissingObjectException(e)) {
+                df.setDetectRenames(false);
+                diffs = df.scan(parent != null ? parent.getTree() : null, commit.getTree());
+            } else {
+                throw e;
+            }
         }
 
         for (DiffEntry diff : diffs) {
@@ -189,6 +194,19 @@ public class GitHotspotAnalyzer {
                 maxComplexity,
                 category,
                 stats.lastModified != null ? stats.lastModified.toString() : Instant.EPOCH.toString());
+    }
+
+    private boolean isMissingObjectException(IOException e) {
+        if (e instanceof MissingObjectException) return true;
+        Throwable cause = e.getCause();
+        if (cause instanceof MissingObjectException) return true;
+
+        String msg = e.getMessage();
+        if (msg != null) {
+            String lowerMsg = msg.toLowerCase(Locale.ROOT);
+            return lowerMsg.contains("missing blob") || lowerMsg.contains("missingobjectexception");
+        }
+        return false;
     }
 
     private List<CodeUnit> flatten(CodeUnit cu) {

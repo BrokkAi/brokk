@@ -132,7 +132,9 @@ public class GitHotspotAnalyzerTest {
                     throws java.io.IOException {
                 if (throwOnce && isDetectRenames()) {
                     throwOnce = false;
-                    throw new MissingObjectException(ObjectId.zeroId(), "blob");
+                    // Wrap it to test the more robust detection
+                    throw new java.io.IOException(
+                            "Wrapped failure", new MissingObjectException(ObjectId.zeroId(), "blob"));
                 }
                 return super.scan(oldTree, newTree);
             }
