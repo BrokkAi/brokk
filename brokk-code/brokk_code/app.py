@@ -3053,7 +3053,6 @@ class BrokkApp(App):
                 )
             self._plan_iteration_prompt = task_input
             self._awaiting_plan_decision = True
-            return
 
         # Yield to the event loop to allow any rapid subsequent submissions
         # triggered by the cancellation to be processed before we check _pending_prompt.
