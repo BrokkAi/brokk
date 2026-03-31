@@ -131,14 +131,20 @@ public class GitHotspotAnalyzer {
         List<DiffEntry> diffs;
         try {
             diffs = df.scan(parent != null ? parent.getTree() : null, commit.getTree());
-        } catch (IOException e) {
-            // JGit or internal wrappers may wrap MissingObjectException inside an IOException.
+        } catch (Exception e) {
+            // JGit or internal wrappers may wrap MissingObjectException inside an IOException or RuntimeException.
             // Rename detection requires blob contents which may be missing in blobless/partial clones.
             if (isMissingObjectException(e)) {
                 df.setDetectRenames(false);
                 diffs = df.scan(parent != null ? parent.getTree() : null, commit.getTree());
             } else {
-                throw e;
+                if (e instanceof IOException ioException) {
+                    throw ioException;
+                }
+                if (e instanceof RuntimeException runtimeException) {
+                    throw runtimeException;
+                }
+                throw new RuntimeException(e);
             }
         }
 
@@ -196,10 +202,13 @@ public class GitHotspotAnalyzer {
                 stats.lastModified != null ? stats.lastModified.toString() : Instant.EPOCH.toString());
     }
 
-    private boolean isMissingObjectException(IOException e) {
+    private boolean isMissingObjectException(Exception e) {
         if (e instanceof MissingObjectException) return true;
         Throwable cause = e.getCause();
-        if (cause instanceof MissingObjectException) return true;
+        while (cause != null) {
+            if (cause instanceof MissingObjectException) return true;
+            cause = cause.getCause();
+        }
 
         String msg = e.getMessage();
         if (msg != null) {
