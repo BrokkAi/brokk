@@ -24,19 +24,12 @@ class McpServerCommandTest {
 
             assertTrue(names.containsAll(Set.of(
                     "scan",
-                    "callCodeAgent",
-                    "runBuild",
-                    "configureBuild",
-                    "merge",
                     "searchSymbols",
                     "scanUsages",
-                    "skimFiles",
                     "getFileSummaries",
-                    "getClassSkeletons",
                     "searchFileContents",
                     "getClassSources",
-                    "getMethodSources",
-                    "getSymbolLocations")));
+                    "getMethodSources")));
         }
     }
 }

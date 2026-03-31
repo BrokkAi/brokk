@@ -22,21 +22,17 @@ _BROKK_INSTRUCTIONS_BODY_CLAUDE = f"""{_BROKK_MARKER}
 - Use searchSymbols (not Grep) to find class/function/field definitions by name.
 - Use scanUsages (not Grep) to find call sites and usages of a known symbol.
 - Use getMethodSources (not Read) to retrieve specific method implementations.
-- Use getClassSkeletons (not Read) to understand a class's API and structure.
 - Use getClassSources (not Read) only when you need the full class implementation.
-- Use getFileSummaries or skimFiles (not Read/Glob) for multi-file overviews.
-- Use scan to get oriented when starting a new task.
-- Use callCodeAgent (not Edit/Write) for all code changes."""
+- Use getFileSummaries (not Read/Glob) for multi-file overviews.
+- Use scan to get oriented when starting a new task."""
 
 _BROKK_INSTRUCTIONS_BODY_CODEX = f"""{_BROKK_MARKER}
 - Use searchSymbols (not Grep) to find class/function/field definitions by name.
 - Use scanUsages (not Grep) to find call sites and usages of a known symbol.
 - Use getMethodSources (not Read) to retrieve specific method implementations.
-- Use getClassSkeletons (not Read) to understand a class's API and structure.
 - Use getClassSources (not Read) only when you need the full class implementation.
-- Use getFileSummaries or skimFiles (not Read/Glob) for multi-file overviews.
+- Use getFileSummaries (not Read/Glob) for multi-file overviews.
 - Use scan to get oriented when starting a new task.
-- Use callCodeAgent (not Edit/Write) for all code changes.
 - At the start of each Codex session, activate Brokk MCP for the current workspace by
   calling activateWorkspace, then verify with getActiveWorkspace."""
 
@@ -61,6 +57,16 @@ _LEGACY_BLOCKS = [
 - At the start of each Codex session, activate Brokk MCP for the current workspace by
   calling activateWorkspace, then verify with getActiveWorkspace.""",
     # tools-specific guidance block from b7efcf...
+    f"""{_BROKK_MARKER}
+- Use searchSymbols (not Grep) to find class/function/field definitions by name.
+- Use scanUsages (not Grep) to find call sites and usages of a known symbol.
+- Use getMethodSources (not Read) to retrieve specific method implementations.
+- Use getClassSkeletons (not Read) to understand a class's API and structure.
+- Use getClassSources (not Read) only when you need the full class implementation.
+- Use getFileSummaries or skimFiles (not Read/Glob) for multi-file overviews.
+- Use scan to get oriented when starting a new task.
+- Use callCodeAgent (not Edit/Write) for all code changes.""",
+    # current reduced tool surface
     _BROKK_INSTRUCTIONS_BODY_CLAUDE,
 ]
 _BROKK_MCP_PERMISSION_ALLOW: list[str] = [
