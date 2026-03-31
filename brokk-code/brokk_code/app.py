@@ -3223,6 +3223,7 @@ class BrokkApp(App):
     def _set_mode(self, new_mode: str, *, announce: bool = True) -> None:
         """Sets the agent mode, updates the status line, and optionally announces to chat."""
         self.agent_mode = new_mode
+        self._awaiting_plan_decision = False
         # Update statusline if present
         self._update_statusline()
         if announce:
