@@ -10,6 +10,8 @@ import ai.brokk.context.ContextFragments;
 import ai.brokk.context.SpecialTextType;
 import ai.brokk.executor.http.SimpleHttpServer;
 import ai.brokk.executor.jobs.ErrorPayload;
+import ai.brokk.git.GitHotspotAnalyzer;
+import ai.brokk.git.GitRepo;
 import ai.brokk.tasks.TaskList;
 import ai.brokk.util.Messages;
 import com.sun.net.httpserver.HttpExchange;
@@ -21,6 +23,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -68,6 +71,9 @@ public final class ContextRouter implements SimpleHttpServer.CheckedHttpHandler 
                 return;
             } else if (normalizedPath.equals("/v1/session/costs")) {
                 handleGetSessionCosts(exchange);
+                return;
+            } else if (normalizedPath.equals("/v1/context/analytics/git-hotspots")) {
+                handleGetGitHotspots(exchange);
                 return;
             }
         }
@@ -174,6 +180,66 @@ public final class ContextRouter implements SimpleHttpServer.CheckedHttpHandler 
             logger.error("Error handling GET /v1/context", e);
             SimpleHttpServer.sendJsonResponse(
                     exchange, 500, ErrorPayload.internalError("Failed to retrieve context", e));
+        }
+    }
+
+    /**
+     * Handles GET /v1/context/analytics/git-hotspots.
+     * Parses 'since' (duration string) and 'maxCommits' (integer) query parameters.
+     */
+    private void handleGetGitHotspots(HttpExchange exchange) throws IOException {
+        if (!RouterUtil.ensureMethod(exchange, "GET")) {
+            return;
+        }
+
+        try {
+            var queryParams =
+                    RouterUtil.parseQueryParams(exchange.getRequestURI().getQuery());
+
+            // Parse 'since' duration, default to 6 months
+            var sinceStr = queryParams.getOrDefault("since", "180d");
+            Instant since;
+            try {
+                // Support simple 'd' for days as a fallback/common usage
+                if (sinceStr.endsWith("d")) {
+                    long days = Long.parseLong(sinceStr.substring(0, sinceStr.length() - 1));
+                    since = Instant.now().minus(Duration.ofDays(days));
+                } else {
+                    // Try standard ISO duration or fallback to 6 months
+                    since = Instant.now().minus(Duration.ofDays(180));
+                }
+            } catch (Exception e) {
+                since = Instant.now().minus(Duration.ofDays(180));
+            }
+
+            // Parse maxCommits, default to 1000
+            int maxCommits = 1000;
+            var maxCommitsStr = queryParams.get("maxCommits");
+            if (maxCommitsStr != null) {
+                try {
+                    maxCommits = Integer.parseInt(maxCommitsStr);
+                } catch (NumberFormatException e) {
+                    RouterUtil.sendValidationError(exchange, "maxCommits must be an integer");
+                    return;
+                }
+            }
+
+            var repo = contextManager.getProject().getRepo();
+            if (!(repo instanceof GitRepo jgitRepo)) {
+                RouterUtil.sendValidationError(exchange, "Git analysis requires a valid Git repository");
+                return;
+            }
+
+            var analyzer = contextManager.getAnalyzerUninterrupted();
+            var hotspotAnalyzer = new GitHotspotAnalyzer(jgitRepo, analyzer);
+
+            var report = hotspotAnalyzer.analyze(since, maxCommits);
+            SimpleHttpServer.sendJsonResponse(exchange, report);
+
+        } catch (Exception e) {
+            logger.error("Error handling GET /v1/context/analytics/git-hotspots", e);
+            SimpleHttpServer.sendJsonResponse(
+                    exchange, 500, ErrorPayload.internalError("Failed to analyze git hotspots", e));
         }
     }
 
