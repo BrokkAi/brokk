@@ -527,8 +527,8 @@ public final class JobRunner {
                                         }
                                     }
                                     case LITE_AGENT, LITE_PLAN -> {
-                                        // ContextAgent scan + ArchitectAgent with builds always deferred.
-                                        // LITE_PLAN additionally instructs the LLM to only produce a plan.
+                                        // ContextAgent scan + ArchitectAgent with build tools disabled.
+                                        // LITE_PLAN is additionally read-only and may only return a plan.
                                         var baseGoal = spec.taskInput();
                                         var architectGoal = (mode == Mode.LITE_PLAN)
                                                 ? baseGoal + "\n\n"
@@ -555,6 +555,10 @@ public final class JobRunner {
                                                     context,
                                                     compressedHistory);
                                             architectAgent.setAlwaysDeferBuild(true);
+                                            architectAgent.setBuildToolsEnabled(false);
+                                            if (mode == Mode.LITE_PLAN) {
+                                                architectAgent.setReadOnly(true);
+                                            }
                                             var result = architectAgent.executeWithScan();
                                             scope.append(result);
                                         }

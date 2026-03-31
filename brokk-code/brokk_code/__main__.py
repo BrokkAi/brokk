@@ -2147,6 +2147,7 @@ def main():
         resume_session = False
 
     if args.command == "exec":
+        workspace_path = resolve_workspace_dir(workspace_path)
         asyncio.run(
             run_headless_job(
                 workspace_dir=workspace_path,
