@@ -389,107 +389,68 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
             if (isStale(lang, storagePath, tracked)) needsRebuild = true; // cache older than sources
         }
 
-        /* ── 3.  Load or build the analyzer via the Language handle ─────────────────── */
+        /* ── 3.  Load or build the analyzer delegates ───────────────────────────────── */
         // Create progress listener to pass through construction
         IAnalyzer.ProgressListener progressListener = listener::onProgress;
 
-        IAnalyzer analyzer;
-        try {
-            logger.debug("Attempting to load existing analyzer");
-            analyzer = langHandle.loadAnalyzer(project, progressListener);
-            logger.info(
-                    "Loaded existing analyzer: {} for directory: {}",
-                    analyzer.getClass().getSimpleName(),
-                    project.getRoot());
+        Set<Language> projectLangs = project.getAnalyzerLanguages().stream()
+                .filter(l -> l != Languages.NONE)
+                .collect(Collectors.toSet());
 
-            // Validate the loaded analyzer's state against project files
-            Optional<StateMismatch> mismatch = stateMismatch(analyzer);
-            if (mismatch.isPresent()) {
-                StateMismatch delta = mismatch.get();
-
-                // If languages are missing from the loaded analyzer, we must instantiate them
-                // so that the subsequent update() call can process the missing files.
-                Set<Language> projectLangs = project.getAnalyzerLanguages().stream()
-                        .filter(l -> l != Languages.NONE)
-                        .collect(Collectors.toSet());
-                Set<Language> analyzerLangs = analyzer.languages();
-
-                if (!analyzerLangs.containsAll(projectLangs)) {
-                    Map<Language, IAnalyzer> nextDelegates = new HashMap<>();
-                    for (Language lang : analyzerLangs) {
-                        analyzer.subAnalyzer(lang).ifPresent(sub -> nextDelegates.put(lang, sub));
-                    }
-                    for (Language lang : projectLangs) {
-                        if (!nextDelegates.containsKey(lang)) {
-                            logger.info("Instantiating missing analyzer delegate for {} during recovery", lang.name());
-                            nextDelegates.put(lang, lang.createAnalyzer(project, progressListener));
-                        }
-                    }
-
-                    // Restore template state for the newly reconstructed multi-analyzer
-                    if (Files.exists(templateStorage)) {
-                        var savedResults = TreeSitterStateIO.loadTemplateState(templateStorage);
-                        for (var ta : templates) {
-                            ta.restoreState(savedResults.stream()
-                                    .filter(r -> r.analyzerName().equals(ta.name()))
-                                    .toList());
-                        }
-                    }
-
-                    analyzer = (nextDelegates.size() == 1 && templates.isEmpty())
-                            ? nextDelegates.values().iterator().next()
-                            : new MultiAnalyzer(nextDelegates, templates);
+        Map<Language, IAnalyzer> nextDelegates = new HashMap<>();
+        for (Language lang : projectLangs) {
+            try {
+                logger.debug("Attempting to load existing analyzer for {}", lang.name());
+                IAnalyzer delegate = lang.loadAnalyzer(project, progressListener);
+                if (!delegate.isEmpty()) {
+                    nextDelegates.put(lang, delegate);
                 }
-
-                logger.warn(
-                        "Loaded analyzer state appears corrupt (file mismatch). Attempting targeted repair of {} files.",
-                        delta.missing().size() + delta.unexpected().size());
-
-                analyzer = analyzer.update(delta.all());
-
-                // Prune any delegates for languages no longer in the project after the repair is complete
-                if (!analyzer.languages().equals(projectLangs)) {
-                    Map<Language, IAnalyzer> finalDelegates = new HashMap<>();
-                    for (Language lang : projectLangs) {
-                        analyzer.subAnalyzer(lang).ifPresent(sub -> finalDelegates.put(lang, sub));
-                    }
-
-                    // Restore template state for the pruned multi-analyzer
-                    if (Files.exists(templateStorage)) {
-                        var savedResults = TreeSitterStateIO.loadTemplateState(templateStorage);
-                        for (var ta : templates) {
-                            ta.restoreState(savedResults.stream()
-                                    .filter(r -> r.analyzerName().equals(ta.name()))
-                                    .toList());
-                        }
-                    }
-
-                    if (finalDelegates.isEmpty()) {
-                        analyzer = new DisabledAnalyzer(project);
-                    } else if (finalDelegates.size() == 1 && templates.isEmpty()) {
-                        analyzer = finalDelegates.values().iterator().next();
-                    } else {
-                        analyzer = new MultiAnalyzer(finalDelegates, templates);
-                    }
+            } catch (Throwable th) {
+                logger.warn("Failed to load cached analyzer for {}, creating fresh", lang.name(), th);
+                IAnalyzer delegate = lang.createAnalyzer(project, progressListener);
+                if (!delegate.isEmpty()) {
+                    nextDelegates.put(lang, delegate);
                 }
-
-                if (stateMismatch(analyzer).isPresent()) {
-                    throw new IllegalStateException("Analyzer state remains corrupt after targeted repair attempt.");
-                }
-                // Persist the repaired state so we don't have to repair it again on next load
-                persistAnalyzerState(analyzer);
+                needsRebuild = false;
             }
-        } catch (Throwable th) {
-            // cache missing or corrupt, rebuild
-            logger.warn("Failed to load or validate cached analyzer", th);
-            analyzer = langHandle.createAnalyzer(project, progressListener);
-            logger.info(
-                    "Created new analyzer: {} for directory: {}",
-                    analyzer.getClass().getSimpleName(),
-                    project.getRoot());
-            // Persist analyzer snapshots by language (best-effort)
+        }
+
+        IAnalyzer analyzer = nextDelegates.isEmpty()
+                ? new DisabledAnalyzer(project)
+                : (nextDelegates.size() == 1 && templates.isEmpty())
+                        ? nextDelegates.values().iterator().next()
+                        : new MultiAnalyzer(nextDelegates, templates);
+
+        // Validate the loaded analyzer's state against project files
+        Optional<StateMismatch> mismatch = stateMismatch(analyzer);
+        if (mismatch.isPresent()) {
+            StateMismatch delta = mismatch.get();
+            logger.warn(
+                    "Loaded analyzer state appears corrupt (file mismatch). Attempting targeted repair of {} files.",
+                    delta.missing().size() + delta.unexpected().size());
+
+            analyzer = analyzer.update(delta.all());
+
+            // Check if we need to prune or add delegates after update
+            Set<Language> analyzerLangs = analyzer.languages();
+            if (!analyzerLangs.equals(projectLangs)) {
+                Map<Language, IAnalyzer> finalDelegates = new HashMap<>();
+                for (Language lang : projectLangs) {
+                    analyzer.subAnalyzer(lang).ifPresent(sub -> finalDelegates.put(lang, sub));
+                }
+
+                analyzer = finalDelegates.isEmpty()
+                        ? new DisabledAnalyzer(project)
+                        : (finalDelegates.size() == 1 && templates.isEmpty())
+                                ? finalDelegates.values().iterator().next()
+                                : new MultiAnalyzer(finalDelegates, templates);
+            }
+
+            if (stateMismatch(analyzer).isPresent()) {
+                logger.error("Analyzer state remains corrupt after targeted repair attempt.");
+            }
+            // Persist the repaired state
             persistAnalyzerState(analyzer);
-            needsRebuild = false;
         }
 
         logger.debug("Analyzer became ready, notifying listeners");
