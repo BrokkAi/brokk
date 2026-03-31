@@ -18,6 +18,8 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.diff.DiffEntry;
 import org.eclipse.jgit.diff.DiffFormatter;
@@ -37,6 +39,7 @@ import org.jspecify.annotations.NullMarked;
  */
 @NullMarked
 public class GitHotspotAnalyzer {
+    private static final Logger logger = LogManager.getLogger(GitHotspotAnalyzer.class);
 
     public enum HotspotCategory {
         HOTSPOT, // High activity, high complexity
@@ -157,12 +160,18 @@ public class GitHotspotAnalyzer {
 
         // Find complexity. We look at top-level declarations (usually classes)
         // and take the max complexity of any function found.
-        int maxComplexity = analyzer.getTopLevelDeclarations(pf).stream()
-                .flatMap(cu -> flatten(cu).stream())
-                .filter(CodeUnit::isFunction)
-                .mapToInt(analyzer::computeCyclomaticComplexity)
-                .max()
-                .orElse(0);
+        int maxComplexity;
+        try {
+            maxComplexity = analyzer.getTopLevelDeclarations(pf).stream()
+                    .flatMap(cu -> flatten(cu).stream())
+                    .filter(CodeUnit::isFunction)
+                    .mapToInt(analyzer::computeCyclomaticComplexity)
+                    .max()
+                    .orElse(0);
+        } catch (Exception e) {
+            logger.debug("Failed to compute complexity for file {}, defaulting to 0: {}", pf, e.getMessage());
+            maxComplexity = 0;
+        }
 
         HotspotCategory category = determineCategory(stats.churn, maxComplexity);
 
