@@ -106,26 +106,47 @@ public class ContextFragments {
 
         // 2. Resolve Templates (Angular/Guest DSLs)
         if (analyzer instanceof MultiAnalyzer multi) {
+            var templateAnalyzers = multi.getTemplateAnalyzers();
+            logger.debug(
+                    "Resolving templates using MultiAnalyzer with {} template analyzers", templateAnalyzers.size());
             for (var unit : units) {
-                for (var templateAnalyzer : multi.getTemplateAnalyzers()) {
+                boolean foundAny = false;
+                for (var templateAnalyzer : templateAnalyzers) {
                     var files = templateAnalyzer.getTemplateFiles(unit, contextManager);
                     if (!files.isEmpty()) {
+                        logger.debug(
+                                "Found {} template files for {} via {}",
+                                files.size(),
+                                unit.shortName(),
+                                templateAnalyzer.name());
                         files.stream()
                                 .map(f -> new ProjectPathFragment(f, contextManager))
                                 .forEach(supporting::add);
+                        foundAny = true;
                     } else {
                         var sources = templateAnalyzer.getTemplateSources(unit);
                         if (!sources.isEmpty()) {
+                            logger.debug(
+                                    "Found {} template sources for {} via {}",
+                                    sources.size(),
+                                    unit.shortName(),
+                                    templateAnalyzer.name());
                             String combinedSource = String.join("\n\n", sources);
                             supporting.add(new StringFragment(
                                     contextManager,
                                     combinedSource,
                                     "Inline template for " + unit.shortName(),
                                     "text/html"));
+                            foundAny = true;
                         }
                     }
                 }
+                if (!foundAny) {
+                    logger.debug("No template files or sources found for CodeUnit: {}", unit.shortName());
+                }
             }
+        } else {
+            logger.debug("Analyzer is not a MultiAnalyzer; skipping template resolution.");
         }
 
         return supporting;

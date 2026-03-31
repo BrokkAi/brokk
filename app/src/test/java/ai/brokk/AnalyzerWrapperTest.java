@@ -21,7 +21,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collection;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
@@ -273,8 +272,8 @@ class AnalyzerWrapperTest {
                     analyzer instanceof MultiAnalyzer, "Analyzer should be a MultiAnalyzer when templates are present");
             MultiAnalyzer multi = (MultiAnalyzer) analyzer;
 
-            boolean hasAngular = multi.getTemplateAnalyzers().stream()
-                    .anyMatch(ta -> ta instanceof AngularTemplateAnalyzer);
+            boolean hasAngular =
+                    multi.getTemplateAnalyzers().stream().anyMatch(ta -> ta instanceof AngularTemplateAnalyzer);
 
             assertTrue(hasAngular, "MultiAnalyzer should contain AngularTemplateAnalyzer");
         }
