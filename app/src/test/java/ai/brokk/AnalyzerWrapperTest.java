@@ -9,6 +9,7 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.angular.AngularTemplateAnalyzer;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.git.TestRepo;
+import ai.brokk.testutil.InlineTestProjectCreator;
 import ai.brokk.testutil.TestAnalyzerWrapper;
 import ai.brokk.testutil.TestProject;
 import ai.brokk.util.FileUtil;
@@ -20,6 +21,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
@@ -241,9 +243,6 @@ class AnalyzerWrapperTest {
     }
 
     /**
-     * Test isPaused() method returns correct state.
-     */
-    /**
      * Test that AnalyzerWrapper correctly discovers and sets up template DSLs (like Angular).
      */
     @Test
@@ -270,7 +269,8 @@ class AnalyzerWrapperTest {
             // 3. Assert it returns a MultiAnalyzer containing AngularTemplateAnalyzer
             IAnalyzer analyzer = analyzerWrapper.get();
 
-            assertTrue(analyzer instanceof MultiAnalyzer, "Analyzer should be a MultiAnalyzer when templates are present");
+            assertTrue(
+                    analyzer instanceof MultiAnalyzer, "Analyzer should be a MultiAnalyzer when templates are present");
             MultiAnalyzer multi = (MultiAnalyzer) analyzer;
 
             boolean hasAngular = multi.getTemplateAnalyzers().stream()

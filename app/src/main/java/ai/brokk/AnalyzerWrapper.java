@@ -12,7 +12,6 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.TreeSitterStateIO;
 import ai.brokk.concurrent.LoggingExecutorService;
 import ai.brokk.concurrent.LoggingFuture;
-
 import ai.brokk.project.IProject;
 import ai.brokk.project.WorktreeProject;
 import ai.brokk.watchservice.AbstractWatchService;
@@ -24,7 +23,6 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
-
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -308,6 +306,15 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
             }
 
             var templates = Languages.discoverTemplateAnalyzers(project, projectLangs);
+            if (!templates.isEmpty()) {
+                logger.info(
+                        "Discovered {} template analyzers: {}",
+                        templates.size(),
+                        templates.stream().map(it -> it.name()).collect(Collectors.joining(", ")));
+            } else {
+                logger.debug("No template analyzers discovered for this project.");
+            }
+
             Path templateStorage = getTemplateStoragePath();
             if (Files.exists(templateStorage)) {
                 var savedResults = TreeSitterStateIO.loadTemplateState(templateStorage);
@@ -349,6 +356,15 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
         Language langHandle = Languages.aggregate(projectLangsSet);
 
         var templates = Languages.discoverTemplateAnalyzers(project, projectLangsSet);
+        if (!templates.isEmpty()) {
+            logger.info(
+                    "Discovered {} template analyzers: {}",
+                    templates.size(),
+                    templates.stream().map(it -> it.name()).collect(Collectors.joining(", ")));
+        } else {
+            logger.debug("No template analyzers discovered for this project.");
+        }
+
         Path templateStorage = getTemplateStoragePath();
         if (Files.exists(templateStorage)) {
             var savedResults = TreeSitterStateIO.loadTemplateState(templateStorage);
