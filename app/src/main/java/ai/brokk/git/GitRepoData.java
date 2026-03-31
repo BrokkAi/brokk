@@ -323,7 +323,8 @@ public class GitRepoData {
                     return diffFormatter.scan(oldTreeIter, newTreeIter);
                 } catch (Exception e) {
                     if (GitRepo.isMissingObjectException(e)) {
-                        logger.debug("Missing object during rename detection in scanDiffs; falling back to no-rename scan.");
+                        logger.debug(
+                                "Missing object during rename detection in scanDiffs; falling back to no-rename scan.");
                         diffFormatter.setDetectRenames(false);
                         try {
                             return diffFormatter.scan(oldTreeIter, newTreeIter);
