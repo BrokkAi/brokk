@@ -14,8 +14,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.diff.DiffEntry;
 import org.eclipse.jgit.diff.DiffFormatter;
@@ -34,7 +32,6 @@ import org.jspecify.annotations.NullMarked;
  */
 @NullMarked
 public class GitHotspotAnalyzer {
-    private static final Logger log = LogManager.getLogger(GitHotspotAnalyzer.class);
 
     public enum HotspotCategory {
         HOTSPOT, // High activity, high complexity
