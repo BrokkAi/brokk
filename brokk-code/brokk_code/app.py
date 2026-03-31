@@ -3590,7 +3590,8 @@ class BrokkApp(App):
     def action_select_mode(self) -> None:
         chat = self._maybe_chat()
         if chat:
-            chat.open_mode_menu(["LITE_AGENT", "LITE_PLAN"], self.agent_mode)
+            modes = ["LITE_AGENT", "LITE_PLAN", "CODE", "ASK", "LUTZ", "PLAN"]
+            chat.open_mode_menu(modes, self.agent_mode)
 
     def action_toggle_dependencies(self) -> None:
         if isinstance(self.screen, DependenciesModalScreen):
@@ -4033,8 +4034,8 @@ class BrokkApp(App):
             chat.refresh_log(self.show_verbose_output)
 
     def action_toggle_mode(self) -> None:
-        """Cycles through agent modes: LITE_AGENT -> LITE_PLAN -> LITE_AGENT."""
-        modes = ["LITE_AGENT", "LITE_PLAN"]
+        """Cycles through available agent modes."""
+        modes = ["LITE_AGENT", "LITE_PLAN", "CODE", "ASK", "LUTZ", "PLAN"]
         try:
             current_index = modes.index(self.agent_mode)
         except ValueError:

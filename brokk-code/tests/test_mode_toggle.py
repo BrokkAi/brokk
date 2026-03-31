@@ -17,22 +17,22 @@ def test_action_toggle_mode_cycles_correctly():
     mock_chat = MagicMock(spec=ChatPanel)
     app.query_one = MagicMock(return_value=mock_chat)
 
+    expected_modes = ["LITE_AGENT", "LITE_PLAN", "CODE", "ASK", "LUTZ", "PLAN"]
+
     # Initial state
     assert app.agent_mode == "LITE_AGENT"
 
-    # Cycle 1: LITE_AGENT -> LITE_PLAN
-    app.action_toggle_mode()
-    assert app.agent_mode == "LITE_PLAN"
-    mock_chat.add_system_message_markup.assert_called_with("Mode changed to: [bold]LITE_PLAN[/]")
-
-    # Cycle 2: LITE_PLAN -> LITE_AGENT
-    app.action_toggle_mode()
-    assert app.agent_mode == "LITE_AGENT"
-    mock_chat.add_system_message_markup.assert_called_with("Mode changed to: [bold]LITE_AGENT[/]")
+    # Cycle through all modes and back to the start
+    for i in range(len(expected_modes)):
+        next_mode = expected_modes[(i + 1) % len(expected_modes)]
+        app.action_toggle_mode()
+        assert app.agent_mode == next_mode
+        expected = f"Mode changed to: [bold]{next_mode}[/]"
+        mock_chat.add_system_message_markup.assert_called_with(expected)
 
 
 def test_handle_command_modes_removed():
-    """Verify that mode slash commands are now treated as unknown."""
+    """Verify that mode slash commands are treated as unknown."""
     app = BrokkApp(executor=MagicMock())
     mock_chat = MagicMock(spec=ChatPanel)
     app.query_one = MagicMock(return_value=mock_chat)
@@ -156,15 +156,25 @@ async def test_shift_tab_keypress_cycles_mode_in_running_app():
     assert app.agent_mode == "LITE_AGENT"
 
     async with app.run_test() as pilot:
-        # Cycle: LITE_AGENT -> LITE_PLAN -> LITE_AGENT
+        # Cycle through all modes
         await pilot.press("shift+tab")
         assert app.agent_mode == "LITE_PLAN"
 
+        await pilot.press("shift+tab")
+        assert app.agent_mode == "CODE"
+
+        await pilot.press("shift+tab")
+        assert app.agent_mode == "ASK"
+
+        await pilot.press("shift+tab")
+        assert app.agent_mode == "LUTZ"
+
+        await pilot.press("shift+tab")
+        assert app.agent_mode == "PLAN"
+
+        # Wraps back to LITE_AGENT
         await pilot.press("shift+tab")
         assert app.agent_mode == "LITE_AGENT"
-
-        await pilot.press("shift+tab")
-        assert app.agent_mode == "LITE_PLAN"
 
 
 def test_textual_command_palette_is_enabled():
@@ -178,7 +188,7 @@ def test_action_toggle_mode_handles_unknown_mode():
     app.query_one = MagicMock(return_value=mock_chat)
 
     app.agent_mode = "UNKNOWN"
-    # Defaults to idx 0 ("LITE_AGENT") then increments: (0+1)%2 = 1
+    # Defaults to idx 0 ("LITE_AGENT") then increments: (0+1)%6 = 1
     app.action_toggle_mode()
     assert app.agent_mode == "LITE_PLAN"
 
