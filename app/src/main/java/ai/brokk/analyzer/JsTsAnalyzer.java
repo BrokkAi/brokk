@@ -100,7 +100,7 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
         // Handle ES6 imports
         TSNode importNode = capturedNodesForMatch.get(CaptureNames.IMPORT_DECLARATION);
 
-        if (importNode != null && !importNode.isNull()) {
+        if (importNode != null) {
             String rawSnippet = sourceContent.substringFrom(importNode).strip();
             if (!rawSnippet.isEmpty()) {
                 localImportInfos.add(new ImportInfo(rawSnippet, false, null, null));
@@ -326,7 +326,7 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
             requireCallNode = capturedNodesForMatch.get("module.require_call");
         }
 
-        if (requireCallNode == null || requireCallNode.isNull()) {
+        if (requireCallNode == null) {
             return;
         }
 
@@ -340,7 +340,7 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
         }
 
         boolean isRequire = false;
-        if (requireFuncNode != null && !requireFuncNode.isNull()) {
+        if (requireFuncNode != null) {
             String funcName = sourceContent.substringFrom(requireFuncNode).strip();
             isRequire = "require".equals(funcName);
         } else {
@@ -353,7 +353,7 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
 
             // Search upwards for the containing statement to capture the full 'require' assignment/usage
             TSNode current = requireCallNode;
-            while (current != null && !current.isNull()) {
+            while (current != null) {
                 String type = current.getType();
                 if ("lexical_declaration".equals(type)
                         || "variable_declaration".equals(type)
@@ -362,7 +362,8 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
                     nodeToCapture = current;
                     // If we found a declarator, try one more step for the full declaration
                     TSNode parent = current.getParent();
-                    if (parent != null && !parent.isNull() && parent.getType().contains("declaration")) {
+                    if (parent != null
+                            && Optional.ofNullable(parent.getType()).orElse("").contains("declaration")) {
                         nodeToCapture = parent;
                     }
                     break;
@@ -381,7 +382,8 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
     }
 
     @Override
-    protected boolean isConstructor(CodeUnit candidate, @Nullable CodeUnit enclosingClass, String captureName) {
+    protected boolean isConstructor(
+            CodeUnit candidate, @Nullable CodeUnit enclosingClass, @Nullable String captureName) {
         return "constructor".equals(candidate.identifier());
     }
 }

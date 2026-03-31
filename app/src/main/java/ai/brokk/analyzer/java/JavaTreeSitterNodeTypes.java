@@ -1,6 +1,7 @@
 package ai.brokk.analyzer.java;
 
 import ai.brokk.analyzer.CommonTreeSitterNodeTypes;
+import java.util.Set;
 
 /** Constants for Java TreeSitter node type names. */
 public final class JavaTreeSitterNodeTypes {
@@ -79,6 +80,26 @@ public final class JavaTreeSitterNodeTypes {
     public static final String TRUE = "true";
     public static final String FALSE = "false";
     public static final String NULL = "null";
+
+    public static final Set<String> DECLARATION_TYPES = Set.of(
+            METHOD_DECLARATION,
+            FIELD_DECLARATION,
+            CLASS_DECLARATION,
+            INTERFACE_DECLARATION,
+            ENUM_DECLARATION,
+            RECORD_DECLARATION,
+            VARIABLE_DECLARATOR,
+            FORMAL_PARAMETER);
+    public static final Set<String> ACCESS_TYPES = Set.of(
+            METHOD_INVOCATION,
+            FIELD_ACCESS,
+            OBJECT_CREATION_EXPRESSION,
+            TYPE_IDENTIFIER,
+            SCOPED_TYPE_IDENTIFIER,
+            MARKER_ANNOTATION,
+            ANNOTATION,
+            CLASS_LITERAL,
+            IMPORT_DECLARATION);
 
     private JavaTreeSitterNodeTypes() {}
 }

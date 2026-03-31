@@ -137,8 +137,8 @@ public final class SourceContent {
     /**
      * Extracts a substring from the source code based on node boundaries using a cached SourceContent.
      */
-    public String substringFrom(TSNode node) {
-        if (node.isNull()) {
+    public String substringFrom(@Nullable TSNode node) {
+        if (node == null) {
             return "";
         }
         return substringFromBytes(node.getStartByte(), node.getEndByte());

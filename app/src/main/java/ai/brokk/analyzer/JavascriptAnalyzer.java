@@ -148,7 +148,7 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
         // 1. Unwrap export statement
         if ("export_statement".equals(definitionNode.getType())) {
             TSNode declarationInExport = definitionNode.getChildByFieldName("declaration");
-            if (declarationInExport != null && !declarationInExport.isNull()) {
+            if (declarationInExport != null) {
                 nodeForSignature = declarationInExport;
                 nodeForContent = declarationInExport;
             }
@@ -159,13 +159,11 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
             String nodeType = nodeForContent.getType();
             if ("lexical_declaration".equals(nodeType) || "variable_declaration".equals(nodeType)) {
                 // Find the variable_declarator child that matches the simpleName
-                for (int i = 0; i < nodeForContent.getChildCount(); i++) {
-                    TSNode child = nodeForContent.getChild(i);
+                for (TSNode child : nodeForContent.getChildren()) {
                     if ("variable_declarator".equals(child.getType())) {
                         TSNode nameNode = child.getChildByFieldName(
                                 getLanguageSyntaxProfile().identifierFieldName());
                         if (nameNode != null
-                                && !nameNode.isNull()
                                 && sourceContent.substringFrom(nameNode).equals(simpleName)) {
                             nodeForContent = child;
                             break;
@@ -240,8 +238,8 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
         return signature + bodySuffix; // Do not prepend indent here
     }
 
-    private boolean isJsxNode(TSNode node) {
-        if (node.isNull()) return false;
+    private boolean isJsxNode(@Nullable TSNode node) {
+        if (node == null) return false;
         String type = node.getType();
         return "jsx_element".equals(type) || "jsx_self_closing_element".equals(type) || "jsx_fragment".equals(type);
     }
@@ -249,7 +247,7 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
     private boolean returnsJsxElement(TSNode funcNode, SourceContent sourceContent) {
         TSNode bodyNode =
                 funcNode.getChildByFieldName(getLanguageSyntaxProfile().bodyFieldName());
-        if (bodyNode == null || bodyNode.isNull()) {
+        if (bodyNode == null) {
             return false;
         }
 
@@ -298,8 +296,8 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
 
     @Override
     protected List<String> getExtraFunctionComments(
-            TSNode bodyNode, SourceContent sourceContent, @Nullable CodeUnit functionCu) {
-        if (bodyNode.isNull()) {
+            @Nullable TSNode bodyNode, SourceContent sourceContent, @Nullable CodeUnit functionCu) {
+        if (bodyNode == null) {
             return List.of();
         }
 
@@ -343,25 +341,23 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
 
         TSNode parent = node.getParent();
 
-        if (parent != null && !parent.isNull()) {
+        if (parent != null) {
             // Check if 'node' is a variable_declarator and its parent is lexical_declaration or variable_declaration
             // This is for field definitions like `const a = 1;` or `export let b = 2;`
             // where `node` is the `variable_declarator` (e.g., `a = 1`).
             if (("lexical_declaration".equals(parent.getType()) || "variable_declaration".equals(parent.getType()))
-                    && node.getType().equals("variable_declarator")) {
-                TSNode declarationNode = parent; // lexical_declaration or variable_declaration
+                    && "variable_declarator".equals(node.getType())) {
+                // lexical_declaration or variable_declaration
                 String keyword = "";
                 // The first child of lexical/variable_declaration is the keyword (const, let, var)
-                TSNode keywordNode = declarationNode.getChild(0);
-                if (keywordNode != null && !keywordNode.isNull()) {
+                TSNode keywordNode = parent.getChild(0);
+                if (keywordNode != null) {
                     keyword = sourceContent.substringFrom(keywordNode); // "const", "let", or "var"
                 }
 
                 String exportStr = "";
-                TSNode exportStatementNode = declarationNode.getParent(); // Parent of lexical/variable_declaration
-                if (exportStatementNode != null
-                        && !exportStatementNode.isNull()
-                        && "export_statement".equals(exportStatementNode.getType())) {
+                TSNode exportStatementNode = parent.getParent(); // Parent of lexical/variable_declaration
+                if (exportStatementNode != null && "export_statement".equals(exportStatementNode.getType())) {
                     exportStr = "export ";
                 }
 
@@ -390,13 +386,10 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
             if ("variable_declarator".equals(parent.getType())) {
                 TSNode lexicalOrVarDeclNode = parent.getParent();
                 if (lexicalOrVarDeclNode != null
-                        && !lexicalOrVarDeclNode.isNull()
                         && ("lexical_declaration".equals(lexicalOrVarDeclNode.getType())
                                 || "variable_declaration".equals(lexicalOrVarDeclNode.getType()))) {
                     TSNode exportStatementNode = lexicalOrVarDeclNode.getParent();
-                    if (exportStatementNode != null
-                            && !exportStatementNode.isNull()
-                            && "export_statement".equals(exportStatementNode.getType())) {
+                    if (exportStatementNode != null && "export_statement".equals(exportStatementNode.getType())) {
                         // For `export const Foo = () => {}`, this returns "export "
                         return "export ";
                     }
@@ -447,7 +440,8 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
     // that logic would need to to be integrated into analyzeFileDeclarations or a new helper.
     // For now, assume main query captures are sufficient for JS CUs.
 
-    private boolean isLiteralType(String type) {
+    private boolean isLiteralType(@Nullable String type) {
+        if (type == null) return false;
         return type.endsWith("literal")
                 || type.equals("number")
                 || type.equals("string")
@@ -472,7 +466,7 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
 
         if (VARIABLE_DECLARATOR.equals(fieldNode.getType())) {
             TSNode valueNode = fieldNode.getChildByFieldName("value");
-            if (valueNode != null && !valueNode.isNull() && !isLiteralType(valueNode.getType())) {
+            if (valueNode != null && !isLiteralType(valueNode.getType())) {
                 String valueText = sourceContent.substringFrom(valueNode).strip();
                 int idx = fullSignature.lastIndexOf(valueText);
                 if (idx != -1) {
@@ -502,7 +496,7 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
 
         // Enhance the last added ImportInfo with JS-specific identifier/alias extraction
         TSNode importNode = capturedNodesForMatch.get(getLanguageSyntaxProfile().importNodeType());
-        if (importNode != null && !importNode.isNull() && !localImportInfos.isEmpty()) {
+        if (importNode != null && !localImportInfos.isEmpty()) {
             ImportInfo last = localImportInfos.getLast();
             // Verify this is the info for the node we just processed via super
             if (last.rawSnippet().equals(sourceContent.substringFrom(importNode))) {
@@ -570,9 +564,10 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
         Set<String> identifiers = new HashSet<>();
         TSParser parser = getTSParser();
         try {
-            SourceContent sourceContent = SourceContent.of(importStatement);
-            TSTree tree = parser.parseString(null, importStatement);
+            TSTree tree = parser.parseStringOrThrow(null, importStatement);
             TSNode rootNode = tree.getRootNode();
+            if (rootNode == null) return identifiers;
+            SourceContent sourceContent = SourceContent.of(importStatement);
 
             String queryStr =
                     """
@@ -634,11 +629,12 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
         Set<String> identifiers = new HashSet<>();
         TSParser parser = getTSParser();
         try (TSTree tree = parser.parseString(null, source)) {
-            if (tree == null || tree.getRootNode().isNull()) {
+            if (tree == null) {
                 return identifiers;
             }
-            SourceContent sourceContent = SourceContent.of(source);
             TSNode rootNode = tree.getRootNode();
+            if (rootNode == null) return identifiers;
+            SourceContent sourceContent = SourceContent.of(source);
 
             try (TSQuery query = createQuery(QueryType.IDENTIFIERS)) {
                 if (query != null) {
@@ -649,7 +645,7 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
                         while (cursor.nextMatch(match)) {
                             for (TSQueryCapture capture : match.getCaptures()) {
                                 TSNode node = capture.getNode();
-                                if (node != null && !node.isNull()) {
+                                if (node != null) {
                                     identifiers.add(sourceContent.substringFrom(node));
                                 }
                             }

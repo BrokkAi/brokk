@@ -65,9 +65,10 @@ fun calculateVersionFromGit(): String {
             exactTagProcess.inputStream.bufferedReader().readText().trim()
         } else {
             // Not on exact tag - get development version with version tags only
-            val devVersionProcess = ProcessBuilder("git", "describe", "--tags", "--always", "--match", "[0-9]*", "--dirty=-SNAPSHOT")
-                .directory(rootDir)
-                .start()
+            val devVersionProcess =
+                ProcessBuilder("git", "describe", "--tags", "--always", "--match", "[0-9]*", "--dirty=-SNAPSHOT")
+                    .directory(rootDir)
+                    .start()
             devVersionProcess.waitFor()
             devVersionProcess.inputStream.bufferedReader().readText().trim()
         }
@@ -121,6 +122,7 @@ tasks.register("printVersion") {
     }
 }
 
+
 tasks.register("deployMcpShadowJar") {
     description = "Builds :app:shadowJar and copies it to a stable MCP jar path."
     group = "distribution"
@@ -162,7 +164,12 @@ tasks.register("configureMcpStableJar") {
         val codexBlock = """
 [mcp_servers.brokk]
 command = "java"
-args = ["--enable-native-access=ALL-UNNAMED", "-Djava.awt.headless=true", "-Dapple.awt.UIElement=true", "-cp", "${targetPath.absolutePath.replace("\\", "/")}", "ai.brokk.mcpserver.BrokkExternalMcpServer"]
+args = ["--enable-native-access=ALL-UNNAMED", "-Djava.awt.headless=true", "-Dapple.awt.UIElement=true", "-cp", "${
+            targetPath.absolutePath.replace(
+                "\\",
+                "/"
+            )
+        }", "ai.brokk.mcpserver.BrokkExternalMcpServer"]
 type = "stdio"
 startup_timeout_sec = 60.0
 tool_timeout_sec = 300.0
@@ -174,7 +181,7 @@ tool_timeout_sec = 300.0
             ""
         )
         val codexUpdated = codexWithoutBrokk.trimEnd() + System.lineSeparator() + System.lineSeparator() +
-            codexBlock + System.lineSeparator()
+                codexBlock + System.lineSeparator()
         codexPath.writeText(codexUpdated)
 
         val claudePath = File(home, ".claude.json")
@@ -184,10 +191,12 @@ tool_timeout_sec = 300.0
         @Suppress("UNCHECKED_CAST")
         val root = (JsonSlurper().parseText(claudePath.readText()) as? MutableMap<String, Any?>)
             ?: throw GradleException("Expected JSON object in ${claudePath.absolutePath}")
+
         @Suppress("UNCHECKED_CAST")
         val mcpServers = (root["mcpServers"] as? MutableMap<String, Any?>) ?: mutableMapOf<String, Any?>().also {
             root["mcpServers"] = it
         }
+
         @Suppress("UNCHECKED_CAST")
         val existingBrokk = (mcpServers["brokk"] as? MutableMap<String, Any?>) ?: mutableMapOf()
         val envMap = mutableMapOf<String, Any?>("MCP_TIMEOUT" to "60000", "MCP_TOOL_TIMEOUT" to "300000")
@@ -362,16 +371,9 @@ subprojects {
     repositories {
         mavenCentral()
         google()
-        // Additional repositories for dependencies
-        maven {
-            url = uri("https://repo.gradle.org/gradle/libs-releases")
-        }
-        maven {
-            url = uri("https://www.jetbrains.com/intellij-repository/releases")
-        }
-        maven {
-            url = uri("https://repo.eclipse.org/content/groups/releases/")
-        }
+        maven("https://repo.gradle.org/gradle/libs-releases")
+        maven("https://www.jetbrains.com/intellij-repository/releases")
+        maven("https://repo.eclipse.org/content/groups/releases/")
     }
 
 
@@ -384,4 +386,5 @@ subprojects {
     tasks.withType<JavaCompile> {
         options.encoding = "UTF-8"
     }
+
 }
