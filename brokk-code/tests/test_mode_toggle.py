@@ -178,7 +178,7 @@ def test_action_toggle_mode_handles_unknown_mode():
     app.query_one = MagicMock(return_value=mock_chat)
 
     app.agent_mode = "UNKNOWN"
-    # The implementation defaults to index 0 ("LITE_AGENT") then increments: (0+1) % 2 = 1 ("LITE_PLAN")
+    # Defaults to idx 0 ("LITE_AGENT") then increments: (0+1)%2 = 1
     app.action_toggle_mode()
     assert app.agent_mode == "LITE_PLAN"
 

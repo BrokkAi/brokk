@@ -1706,7 +1706,7 @@ async def run_headless_job(
                 _record_issue_url_from_issue_writer_notification(message)
                 _record_issue_url(message)
                 level = str(data.get("level", event.get("level", "INFO"))).strip().upper()
-                # LITE_AGENT always shows notifications; other modes only show WARN/ERROR unless verbose.
+                # LITE_AGENT always shows notifications; others only show WARN/ERROR.
                 if (
                     not verbose
                     and mode not in {"LITE_AGENT", "LITE_PLAN"}

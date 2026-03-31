@@ -2794,16 +2794,16 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
         cleanupOldHistoryAsync();
 
-        // no AnalyzerListener, instead we will block for it to be ready
-        // Headless mode doesn't need file watching, so pass null for both analyzerListener and watchService
+        // Start the analyzer asynchronously — the AnalyzerWrapper constructor submits the initial
+        // build to its own executor.  We do NOT block here; any code path that actually needs the
+        // analyzer (e.g. Context.copyAndRefresh, tool execution) will wait lazily via getAnalyzer().
+        // This allows headless init (and therefore job creation / MCP workspace activation) to
+        // complete quickly instead of being gated on a potentially long analyzer build.
         this.analyzerWrapper = new AnalyzerWrapper(project, new NullAnalyzerListener(), new NoopWatchService());
-        try {
-            analyzerWrapper.get();
-        } catch (InterruptedException e) {
-            throw new RuntimeException(e);
-        }
 
-        // potentially requires analyzer to load existing session
+        // Session init may touch the analyzer if an existing session contains code fragments that
+        // need refreshing — in that case getAnalyzer() will block naturally until the build finishes.
+        // For new / empty sessions this returns immediately.
         initializeCurrentSessionAndHistory(createNewSession);
 
         checkBalanceAndNotify();
