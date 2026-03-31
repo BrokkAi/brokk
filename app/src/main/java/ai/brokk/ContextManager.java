@@ -421,6 +421,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         watchService.addListener(fileWatchListener);
 
         this.sessionsSyncActive = MainProject.getProxySetting() != MainProject.LlmProxySetting.LOCALHOST
+                && MainProject.getProxySetting() != MainProject.LlmProxySetting.CUSTOM
                 && !MainProject.getBrokkKey().isBlank()
                 && !project.getRemoteProjectName().isBlank();
 

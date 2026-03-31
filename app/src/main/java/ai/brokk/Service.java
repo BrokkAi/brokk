@@ -79,25 +79,34 @@ public class Service extends AbstractService implements ExceptionReporter.Report
         this.modelInfoMap = Map.copyOf(tempModelInfoMap);
         this.modelLocations = Map.copyOf(tempModelLocations);
 
-        // STT model initialization
-        var sttModelName = modelInfoMap.entrySet().stream()
-                .filter(entry -> "audio_transcription".equals(entry.getValue().get("mode")))
-                .map(Map.Entry::getKey)
-                .findFirst()
-                .orElse(null);
-
-        if (sttModelName == null) {
+        // STT model initialization — custom endpoints (Ollama, LM Studio, etc.) don't support /audio/transcriptions
+        if (MainProject.isCustomProvider()) {
             LogManager.getLogger(Service.class)
-                    .warn("No suitable transcription model found via LiteLLM proxy. STT will be unavailable.");
+                    .info("Custom endpoint selected — speech-to-text is not available.");
             sttModel = new UnavailableSTT();
         } else {
-            LogManager.getLogger(Service.class).info("Found transcription model: {}", sttModelName);
-            sttModel = new OpenAIStt(sttModelName);
+            var sttModelName = modelInfoMap.entrySet().stream()
+                    .filter(entry -> "audio_transcription".equals(entry.getValue().get("mode")))
+                    .map(Map.Entry::getKey)
+                    .findFirst()
+                    .orElse(null);
+
+            if (sttModelName == null) {
+                LogManager.getLogger(Service.class)
+                        .warn("No suitable transcription model found via LiteLLM proxy. STT will be unavailable.");
+                sttModel = new UnavailableSTT();
+            } else {
+                LogManager.getLogger(Service.class).info("Found transcription model: {}", sttModelName);
+                sttModel = new OpenAIStt(sttModelName);
+            }
         }
     }
 
     @Override
     public float getUserBalance() throws IOException {
+        if (MainProject.isCustomProvider()) {
+            return Float.MAX_VALUE; // unlimited for custom endpoints
+        }
         return getUserBalance(MainProject.getBrokkKey());
     }
 
@@ -338,6 +347,12 @@ public class Service extends AbstractService implements ExceptionReporter.Report
             Map<String, String> locationsTarget,
             Map<String, Map<String, Object>> infoTarget)
             throws IOException {
+        // For custom OpenAI-compatible endpoints, use a dedicated discovery path
+        if (MainProject.isCustomProvider()) {
+            fetchCustomEndpointModels(locationsTarget, infoTarget);
+            return;
+        }
+
         locationsTarget.clear();
         infoTarget.clear();
 
@@ -497,6 +512,75 @@ public class Service extends AbstractService implements ExceptionReporter.Report
                             "Discovered models {}",
                             locationsTarget.keySet().stream().sorted().toList());
         }
+    }
+
+    /**
+     * Fetches models from a custom OpenAI-compatible endpoint.
+     * Tries the standard GET /v1/models endpoint first, falls back to manual model name configuration.
+     */
+    private void fetchCustomEndpointModels(
+            Map<String, String> locationsTarget,
+            Map<String, Map<String, Object>> infoTarget) {
+        locationsTarget.clear();
+        infoTarget.clear();
+
+        String baseUrl = MainProject.getCustomEndpointUrl();
+        String apiKey = MainProject.getCustomEndpointApiKey();
+        if (apiKey.isBlank()) {
+            apiKey = CUSTOM_ENDPOINT_DUMMY_KEY;
+        }
+
+        // Try OpenAI-standard /v1/models (or /models if baseUrl already ends with /v1)
+        String modelsUrl = baseUrl.endsWith("/v1") || baseUrl.endsWith("/v1/")
+                ? baseUrl.replaceAll("/+$", "") + "/models"
+                : baseUrl.replaceAll("/+$", "") + "/v1/models";
+
+        var request = new Request.Builder()
+                .url(modelsUrl)
+                .header("Authorization", "Bearer " + apiKey)
+                .get()
+                .build();
+
+        boolean discoveredViaApi = false;
+        try (Response response = httpClient.newCall(request).execute()) {
+            if (response.isSuccessful() && response.body() != null) {
+                String body = response.body().string();
+                JsonNode root = objectMapper.readTree(body);
+                JsonNode data = root.path("data");
+                if (data.isArray()) {
+                    for (JsonNode modelNode : data) {
+                        String id = modelNode.path("id").asText("");
+                        if (!id.isBlank()) {
+                            locationsTarget.put(id, id);
+                            discoveredViaApi = true;
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            LogManager.getLogger(Service.class)
+                    .info("Could not fetch models from {}: {} (falling back to manual config)", modelsUrl, e.getMessage());
+        }
+
+        // If no models discovered via API, use the manually configured model name
+        if (!discoveredViaApi) {
+            String manualModel = MainProject.getCustomEndpointModel();
+            if (!manualModel.isBlank()) {
+                locationsTarget.put(manualModel, manualModel);
+            }
+        }
+
+        if (locationsTarget.isEmpty()) {
+            LogManager.getLogger(Service.class)
+                    .warn("No models discovered from custom endpoint {} and no manual model configured. "
+                                    + "Configure a model name in Settings > Custom Endpoint, or ensure the endpoint is running.",
+                            baseUrl);
+        } else {
+            LogManager.getLogger(Service.class)
+                    .info("Custom endpoint models discovered: {}", locationsTarget.keySet());
+        }
+
+        // No model info from custom endpoints — the defaults in CUSTOM_MODEL_DEFAULTS will be used
     }
 
     /**
@@ -845,6 +929,9 @@ public class Service extends AbstractService implements ExceptionReporter.Report
     }
 
     public static List<RemoteSessionMeta> listRemoteSessions(String remote) throws IOException {
+        if (MainProject.isCustomProvider()) {
+            return List.of();
+        }
         var builder = BrokkHttp.sessionServiceRequest();
         if (builder == null || remote.isBlank()) {
             log.debug("Skipping listRemoteSessions: missing auth or remote");
@@ -866,6 +953,9 @@ public class Service extends AbstractService implements ExceptionReporter.Report
     }
 
     public static byte[] getRemoteSessionContent(UUID id) throws IOException {
+        if (MainProject.isCustomProvider()) {
+            return new byte[0];
+        }
         var builder = BrokkHttp.sessionServiceRequest();
         if (builder == null) {
             throw new IOException("Missing Brokk key for remote session content fetch");
@@ -883,6 +973,9 @@ public class Service extends AbstractService implements ExceptionReporter.Report
 
     public static RemoteSessionMeta writeRemoteSession(
             UUID id, String remote, String name, long modifiedAt, byte[] contentZip) throws IOException {
+        if (MainProject.isCustomProvider()) {
+            throw new IOException("Remote sessions are not available with a custom endpoint");
+        }
         var builder = BrokkHttp.sessionServiceRequest();
         if (builder == null || remote.isBlank()) {
             throw new IOException("Missing auth or remote for writeRemoteSession");
@@ -907,6 +1000,9 @@ public class Service extends AbstractService implements ExceptionReporter.Report
     }
 
     public static RemoteSessionMeta updateSessionSharing(UUID id, String sharing) throws IOException {
+        if (MainProject.isCustomProvider()) {
+            throw new IOException("Remote sessions are not available with a custom endpoint");
+        }
         var builder = BrokkHttp.sessionServiceRequest();
         if (builder == null) {
             throw new IOException("Missing auth for updateRemoteSessionSharing");
@@ -933,6 +1029,9 @@ public class Service extends AbstractService implements ExceptionReporter.Report
     }
 
     public static void deleteRemoteSession(UUID id) throws IOException {
+        if (MainProject.isCustomProvider()) {
+            return;
+        }
         var builder = BrokkHttp.sessionServiceRequest();
         if (builder == null) {
             throw new IOException("Missing auth for deleteRemoteSession");
@@ -950,8 +1049,14 @@ public class Service extends AbstractService implements ExceptionReporter.Report
     private static class BrokkHttp {
         public static Request.Builder proxyRequest() {
             var builder = new Request.Builder();
-            var authHeader = "Bearer dummy-key";
-            if (MainProject.getProxySetting() != MainProject.LlmProxySetting.LOCALHOST) {
+            var setting = MainProject.getProxySetting();
+            String authHeader;
+            if (setting == MainProject.LlmProxySetting.LOCALHOST) {
+                authHeader = "Bearer dummy-key";
+            } else if (setting == MainProject.LlmProxySetting.CUSTOM) {
+                String apiKey = MainProject.getCustomEndpointApiKey();
+                authHeader = "Bearer " + (apiKey.isBlank() ? CUSTOM_ENDPOINT_DUMMY_KEY : apiKey);
+            } else {
                 var kp = parseKey(MainProject.getBrokkKey());
                 authHeader = "Bearer " + kp.token();
             }
