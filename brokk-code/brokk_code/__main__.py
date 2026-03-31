@@ -44,6 +44,10 @@ from brokk_code.uv_utils import UvSetupError, ensure_uv_ready
 from brokk_code.workspace import resolve_workspace_dir
 from brokk_code.zed_config import ExistingBrokkCodeEntryError, configure_zed_acp_settings
 
+# Default model names used across CLI subcommands
+DEFAULT_PLANNER_MODEL = "gpt-5.4"
+DEFAULT_CODE_MODEL = "gemini-3-flash-preview"
+
 REPO_COMPONENT_ALLOWLIST_REGEX = r"^[A-Za-z0-9_.-]+$"
 _EXECUTOR_JAR_BASE_URL = "https://github.com/BrokkAi/brokk-releases/releases/download"
 _HEADLESS_EXECUTOR_MAIN_CLASS = "ai.brokk.executor.HeadlessExecutorMain"
@@ -71,7 +75,7 @@ def _resolve_neovim_plugin(*, plugin: str | None) -> str:
 
 def _add_github_issue_args(
     parser: argparse.ArgumentParser,
-    planner_model_default: str = "gemini-3-flash-preview",
+    planner_model_default: str = DEFAULT_CODE_MODEL,
 ) -> None:
     """Add common GitHub issue arguments to a parser."""
     parser.add_argument(
@@ -942,14 +946,14 @@ def _build_parser() -> argparse.ArgumentParser:
     exec_parser.add_argument(
         "--planner-model",
         type=str,
-        default="gpt-5.4",
-        help="LLM model for planning (default: gpt-5.4)",
+        default=DEFAULT_PLANNER_MODEL,
+        help=f"LLM model for planning (default: {DEFAULT_PLANNER_MODEL})",
     )
     exec_parser.add_argument(
         "--code-model",
         type=str,
-        default="gemini-3-flash-preview",
-        help="LLM model for code generation (default: gemini-3-flash-preview)",
+        default=DEFAULT_CODE_MODEL,
+        help=f"LLM model for code generation (default: {DEFAULT_CODE_MODEL})",
     )
     exec_parser.add_argument(
         "--planner-reasoning-level",
@@ -1005,13 +1009,13 @@ def _build_parser() -> argparse.ArgumentParser:
         required=True,
         help="The GitHub issue number to solve",
     )
-    _add_github_issue_args(issue_solve_parser, planner_model_default="gpt-5.4")
+    _add_github_issue_args(issue_solve_parser, planner_model_default=DEFAULT_PLANNER_MODEL)
     # Additional solve-specific arguments
     issue_solve_parser.add_argument(
         "--code-model",
         type=str,
-        default="gemini-3-flash-preview",
-        help="LLM model for code generation (default: gemini-3-flash-preview)",
+        default=DEFAULT_CODE_MODEL,
+        help=f"LLM model for code generation (default: {DEFAULT_CODE_MODEL})",
     )
     issue_solve_parser.add_argument(
         "--planner-reasoning-level",
@@ -1110,8 +1114,8 @@ def _build_parser() -> argparse.ArgumentParser:
     pr_review_parser.add_argument(
         "--planner-model",
         type=str,
-        default="gpt-5.4",
-        help="LLM model for the review (default: gpt-5.4)",
+        default=DEFAULT_PLANNER_MODEL,
+        help=f"LLM model for the review (default: {DEFAULT_PLANNER_MODEL})",
     )
     pr_review_parser.add_argument(
         "--severity",
