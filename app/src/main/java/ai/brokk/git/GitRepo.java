@@ -2833,7 +2833,7 @@ public class GitRepo implements Closeable, IGitRepo {
         throw new NoDefaultBranchException("Repository has no local branches and no default can be determined.");
     }
 
-    private static boolean isMissingObjectException(Throwable t) {
+    static boolean isMissingObjectException(Throwable t) {
         Throwable curr = t;
         while (curr != null) {
             if (curr instanceof MissingObjectException) {

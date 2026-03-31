@@ -319,7 +319,25 @@ public class GitRepoData {
 
                 var newTreeIter = prepareTreeParser(newRef);
                 if (newTreeIter == null) return List.of();
-                return diffFormatter.scan(oldTreeIter, newTreeIter);
+                try {
+                    return diffFormatter.scan(oldTreeIter, newTreeIter);
+                } catch (Exception e) {
+                    if (GitRepo.isMissingObjectException(e)) {
+                        logger.debug("Missing object during rename detection in scanDiffs; falling back to no-rename scan.");
+                        diffFormatter.setDetectRenames(false);
+                        try {
+                            return diffFormatter.scan(oldTreeIter, newTreeIter);
+                        } catch (Exception ex) {
+                            logger.warn("Fallback scan failed in scanDiffs: {}", ex.getMessage());
+                            return List.of();
+                        } finally {
+                            diffFormatter.setDetectRenames(true);
+                        }
+                    }
+                    if (e instanceof IOException io) throw io;
+                    if (e instanceof RuntimeException re) throw re;
+                    throw new RuntimeException(e);
+                }
             } catch (IOException e) {
                 throw new GitRepo.GitWrappedIOException(e);
             }
@@ -337,7 +355,29 @@ public class GitRepoData {
             try (var diffFormatter = new DiffFormatter(DisabledOutputStream.INSTANCE)) {
                 diffFormatter.setRepository(repository);
                 diffFormatter.setDetectRenames(true);
-                for (var entry : diffFormatter.scan(oldTreeIter, headTreeIter)) {
+                List<DiffEntry> diffs;
+                try {
+                    diffs = diffFormatter.scan(oldTreeIter, headTreeIter);
+                } catch (Exception e) {
+                    if (GitRepo.isMissingObjectException(e)) {
+                        logger.debug("Missing object during Part 1 rename detection in scanDiffs; falling back.");
+                        diffFormatter.setDetectRenames(false);
+                        try {
+                            diffs = diffFormatter.scan(oldTreeIter, headTreeIter);
+                        } catch (Exception ex) {
+                            logger.warn("Fallback scan failed in Part 1 scanDiffs: {}", ex.getMessage());
+                            diffs = List.of();
+                        } finally {
+                            diffFormatter.setDetectRenames(true);
+                        }
+                    } else {
+                        if (e instanceof IOException io) throw io;
+                        if (e instanceof RuntimeException re) throw re;
+                        throw new RuntimeException(e);
+                    }
+                }
+
+                for (var entry : diffs) {
                     if (!"/dev/null".equals(entry.getOldPath())) {
                         changedPaths.add(entry.getOldPath());
                     }
@@ -375,7 +415,25 @@ public class GitRepoData {
             diffFormatter.setDetectRenames(true);
             diffFormatter.setPathFilter(filterGroup);
             var workingTreeIter = new FileTreeIterator(repository);
-            return diffFormatter.scan(oldTreeIter, workingTreeIter);
+            try {
+                return diffFormatter.scan(oldTreeIter, workingTreeIter);
+            } catch (Exception e) {
+                if (GitRepo.isMissingObjectException(e)) {
+                    logger.debug("Missing object during Part 3 rename detection in scanDiffs; falling back.");
+                    diffFormatter.setDetectRenames(false);
+                    try {
+                        return diffFormatter.scan(oldTreeIter, workingTreeIter);
+                    } catch (Exception ex) {
+                        logger.warn("Fallback scan failed in Part 3 scanDiffs: {}", ex.getMessage());
+                        return List.of();
+                    } finally {
+                        diffFormatter.setDetectRenames(true);
+                    }
+                }
+                if (e instanceof IOException io) throw io;
+                if (e instanceof RuntimeException re) throw re;
+                throw new RuntimeException(e);
+            }
         } catch (IOException e) {
             throw new GitRepo.GitWrappedIOException(e);
         }
