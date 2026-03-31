@@ -404,18 +404,22 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
         Map<Language, IAnalyzer> nextDelegates = new HashMap<>();
         for (Language lang : projectLangs) {
             try {
-                logger.debug("Attempting to load existing analyzer for {}", lang.name());
-                IAnalyzer delegate = lang.loadAnalyzer(project, progressListener);
-                if (!delegate.isEmpty()) {
-                    nextDelegates.put(lang, delegate);
+                try {
+                    logger.debug("Attempting to load existing analyzer for {}", lang.name());
+                    IAnalyzer delegate = lang.loadAnalyzer(project, progressListener);
+                    if (!delegate.isEmpty()) {
+                        nextDelegates.put(lang, delegate);
+                    }
+                } catch (Throwable th) {
+                    logger.warn("Failed to load cached analyzer for {}, creating fresh", lang.name(), th);
+                    IAnalyzer delegate = lang.createAnalyzer(project, progressListener);
+                    if (!delegate.isEmpty()) {
+                        nextDelegates.put(lang, delegate);
+                    }
+                    needsRebuild = false;
                 }
             } catch (Throwable th) {
-                logger.warn("Failed to load cached analyzer for {}, creating fresh", lang.name(), th);
-                IAnalyzer delegate = lang.createAnalyzer(project, progressListener);
-                if (!delegate.isEmpty()) {
-                    nextDelegates.put(lang, delegate);
-                }
-                needsRebuild = false;
+                logger.error("Critical failure building analyzer for language {}: {}", lang.name(), th.toString(), th);
             }
         }
 
@@ -487,7 +491,7 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
     }
 
     /**
-     * Checks if the analyzer's tracked file set and languages match the project's configuration.
+     * Checks if the analyzer's tracked file set, languages, and template analyzers match the project's configuration.
      * Returns an Optional containing the mismatch details if corruption is detected.
      */
     private Optional<StateMismatch> stateMismatch(IAnalyzer analyzer) {
@@ -501,13 +505,27 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
             logger.info("Analyzer language mismatch detected. Project: {}, Analyzer: {}", projectLangs, analyzerLangs);
         }
 
+        // Check for template analyzer mismatch
+        boolean templateMismatch = false;
+        var expectedTemplates = Languages.discoverTemplateAnalyzers(project, projectLangs).stream()
+                .map(it -> it.internalName())
+                .collect(Collectors.toSet());
+        var actualTemplates = (analyzer instanceof MultiAnalyzer ma)
+                ? ma.getTemplateAnalyzers().stream().map(it -> it.internalName()).collect(Collectors.toSet())
+                : Set.of();
+
+        if (!expectedTemplates.equals(actualTemplates)) {
+            templateMismatch = true;
+            logger.info("Template analyzer mismatch detected. Expected: {}, Actual: {}", expectedTemplates, actualTemplates);
+        }
+
         Set<ProjectFile> expectedFiles = projectLangs.stream()
                 .flatMap(l -> project.getAnalyzableFiles(l).stream())
                 .collect(Collectors.toSet());
 
         Set<ProjectFile> actualFiles = analyzer.getAnalyzedFiles();
 
-        if (langMismatch || !actualFiles.equals(expectedFiles)) {
+        if (langMismatch || templateMismatch || !actualFiles.equals(expectedFiles)) {
             Set<ProjectFile> missing = new HashSet<>(expectedFiles);
             missing.removeAll(actualFiles);
             Set<ProjectFile> unexpected = new HashSet<>(actualFiles);
