@@ -1,10 +1,9 @@
-package ai.brokk.analyzer.angular;
+package ai.brokk.analyzer.frameworks;
 
 import ai.brokk.IContextManager;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.CodeUnitType;
 import ai.brokk.analyzer.IAnalyzer;
-import ai.brokk.analyzer.IAnalyzer.ProgressListener;
 import ai.brokk.analyzer.ITemplateAnalyzer;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.ProjectFile;

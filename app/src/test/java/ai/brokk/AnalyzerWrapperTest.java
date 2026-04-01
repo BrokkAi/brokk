@@ -6,7 +6,7 @@ import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.MultiAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.analyzer.angular.AngularTemplateAnalyzer;
+import ai.brokk.analyzer.frameworks.AngularTemplateAnalyzer;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.git.TestRepo;
 import ai.brokk.testutil.InlineTestProjectCreator;

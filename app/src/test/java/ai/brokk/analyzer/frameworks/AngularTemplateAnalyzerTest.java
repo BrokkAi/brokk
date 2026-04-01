@@ -1,4 +1,4 @@
-package ai.brokk.analyzer.angular;
+package ai.brokk.analyzer.frameworks;
 
 import static ai.brokk.testutil.AssertionHelperUtil.assertCodeContains;
 import static org.junit.jupiter.api.Assertions.assertFalse;
