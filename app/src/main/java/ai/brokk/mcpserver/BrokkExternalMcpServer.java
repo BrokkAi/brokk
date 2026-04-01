@@ -8,6 +8,7 @@ import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
 import ai.brokk.LlmOutputMeta;
 import ai.brokk.MutedConsoleIO;
+import ai.brokk.TaskResult;
 import ai.brokk.agents.ContextAgent;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
@@ -16,10 +17,13 @@ import ai.brokk.analyzer.usages.FuzzyResult;
 import ai.brokk.analyzer.usages.UsageFinder;
 import ai.brokk.analyzer.usages.UsageHit;
 import ai.brokk.cli.MemoryConsole;
+import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments.SummaryFragment;
 import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
+import ai.brokk.project.ModelProperties;
+import ai.brokk.tools.ParallelSearch;
 import ai.brokk.tools.SearchTools;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
@@ -81,6 +85,7 @@ public class BrokkExternalMcpServer {
     private static final List<String> BASE_TOOL_NAMES = List.of(
             "activateWorkspace",
             "getActiveWorkspace",
+            "callSearchAgent",
             "scan",
             "searchSymbols",
             "scanUsages",
@@ -847,10 +852,68 @@ public class BrokkExternalMcpServer {
 
     private ToolRegistry buildToolRegistryForCurrentWorkspace() {
         SearchTools searchTools = new SearchTools(cm);
+        var searchModel = cm.getService().getModel(ModelProperties.ModelType.SEARCH);
+        var ps = new ParallelSearch(new Context(cm), "", searchModel);
         return ToolRegistry.fromBase(ToolRegistry.empty())
-                .register(this)
                 .register(searchTools)
+                .register(ps) // sentinel for schema
+                .register(this) // real impl overrides
                 .build();
+    }
+
+    @Tool(
+            """
+                    Invoke the Search Agent to find relevant code, files, tests, or build/config context when the exact locations are not already known.
+
+                    Use `callSearchAgent` when:
+                    - the relevant symbols or files are unclear,
+                    - there are multiple plausible places to look,
+                    - you need to connect findings across code, tests, templates, resources, or build/config files before deciding what to add to the Workspace,
+                    - or you want to explore several search branches in parallel before deciding what to add to the Workspace.
+
+                    Direct search tools can be better for one-hop anchored lookup when you already have a concrete symbol, filename, or literal string.
+
+                    Query guidance:
+                    - Make the query self-contained.
+                    - State the goal, what to find, and any likely locations, clues, or constraints.
+                    - You can ask for either Workspace additions or a direct answer, depending on `mode`.
+                    Use `mode="WORKSPACE"` to have Search Agent add relevant context to the Workspace.
+                    Use `mode="ANSWER"` to get findings back without modifying the Workspace.
+
+                    Prefer direct `add*ToWorkspace` tools instead when you already know exactly what you need to add.""")
+    public String callSearchAgent(
+            @P(
+                            "A complete, explicit search request for SearchAgent in English (not just keywords). Do not rely on prior Architect conversation history; include the goal, constraints, relevant code locations, and what information you need.")
+                    String query,
+            @P(
+                            "The search mode: WORKSPACE to add relevant fragments to the Workspace, or ANSWER to return an answer without modifying the Workspace.")
+                    String mode)
+            throws InterruptedException {
+        var searchModel = cm.getService().getModel(ModelProperties.ModelType.SEARCH);
+        var ps = new ParallelSearch(new Context(cm), query, searchModel);
+        var helperRegistry =
+                ToolRegistry.fromBase(ToolRegistry.empty()).register(ps).build();
+
+        String jsonArgs;
+        try {
+            jsonArgs = OBJECT_MAPPER.writeValueAsString(Map.of("query", query, "mode", mode));
+        } catch (JsonProcessingException e) {
+            throw new RuntimeException(e);
+        }
+        ToolExecutionRequest request = ToolExecutionRequest.builder()
+                .id("1")
+                .name("callSearchAgent")
+                .arguments(jsonArgs)
+                .build();
+
+        var result = ps.execute(List.of(request), helperRegistry);
+
+        if (result.stopDetails().reason() == TaskResult.StopReason.LLM_ERROR) {
+            throw new ToolRegistry.ToolCallException(
+                    ToolExecutionResult.Status.FATAL, result.stopDetails().explanation());
+        }
+
+        return result.toolExecutionMessages().stream().map(m -> m.text()).collect(Collectors.joining("\n"));
     }
 
     private <T> T runWithWorkspaceLock(Supplier<T> supplier) {
