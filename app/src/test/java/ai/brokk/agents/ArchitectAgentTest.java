@@ -12,10 +12,10 @@ import ai.brokk.context.ContextFragments;
 import ai.brokk.context.SpecialTextType;
 import ai.brokk.prompts.WorkspacePrompts;
 import ai.brokk.tasks.TaskList;
-import ai.brokk.tools.ToolRegistry;
 import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestContextManager;
 import ai.brokk.testutil.TestProject;
+import ai.brokk.tools.ToolRegistry;
 import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
@@ -133,8 +133,7 @@ class ArchitectAgentTest {
         var agent = new ArchitectAgent(cm, model, model, "goal", null, new Context(cm), consoleIO);
         agent.setReadOnly(true);
 
-        var ex = assertThrows(
-                ToolRegistry.FatalLlmException.class, () -> agent.callCodeAgent("edit the file", false));
+        var ex = assertThrows(ToolRegistry.FatalLlmException.class, () -> agent.callCodeAgent("edit the file", false));
 
         assertTrue(ex.getMessage().contains("disabled"));
     }

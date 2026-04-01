@@ -936,7 +936,10 @@ public class ArchitectAgent {
                 }
 
                 if (buildToolsEnabled
-                        && cm.getProject().awaitBuildDetails().buildLintCommand().isBlank()
+                        && cm.getProject()
+                                .awaitBuildDetails()
+                                .buildLintCommand()
+                                .isBlank()
                         && !Objects.equals(System.getenv("BRK_ALLOW_SET_BUILD_DETAILS"), "false")) {
                     allowed.add("setBuildDetails");
                     allowed.add("verifyBuildCommand");
