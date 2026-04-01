@@ -245,7 +245,7 @@ public class SearchPrompts {
 
     private static final Set<String> SYNTAX_AWARE_SEARCH_TOOLS =
             Set.of("searchSymbols", "scanUsages", "getSymbolLocations");
-    private static final Set<String> STRUCTURED_DATA_TOOLS = Set.of("jq", "xmlSkim", "xmlSelect");
+    private static final Set<String> STRUCTURED_DATA_TOOLS = Set.of("xmlSkim", "xmlSelect");
     private static final Set<String> GIT_HISTORY_TOOLS =
             Set.of("searchGitCommitMessages", "getGitLog", "explainCommit");
 
@@ -384,7 +384,7 @@ public class SearchPrompts {
                       Do not use scanUsages for literal/text/config search, or when you already know the exact file or method to read.
                 {{/if}}
                 {{#if hasStructuredDataTools}}
-                    - Prefer structured query tools (jq, xmlSelect) for JSON or XML when structure matters.
+                    - Prefer structured query tools (xmlSelect) for XML when structure matters.
                 {{/if}}
                 {{#if hasGitHistoryTools}}
                     - Use Git-history tools only when repository history is relevant to the request.

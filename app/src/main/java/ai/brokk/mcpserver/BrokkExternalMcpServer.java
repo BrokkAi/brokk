@@ -23,7 +23,6 @@ import ai.brokk.project.MainProject;
 import ai.brokk.tools.SearchTools;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
-import ai.brokk.util.Environment;
 import ai.brokk.util.Lines;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -86,7 +85,6 @@ public class BrokkExternalMcpServer {
             "searchSymbols",
             "scanUsages",
             "getFileSummaries",
-            "searchFileContents",
             "getClassSources",
             "getMethodSources");
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
@@ -193,7 +191,7 @@ public class BrokkExternalMcpServer {
                 BASE_TOOL_NAMES.forEach(name -> System.out.printf("  - %s%n", name));
                 System.out.println();
                 System.out.println(
-                        "Additional tools (xmlSkim, xmlSelect, jq) may be available depending on project contents.");
+                        "Additional tools (xmlSkim, xmlSelect) may be available depending on project contents.");
                 System.exit(0);
             }
         }
@@ -754,15 +752,10 @@ public class BrokkExternalMcpServer {
         List<String> toolNames = new ArrayList<>(BASE_TOOL_NAMES);
         var allFiles = cm.getProject().getAllFiles();
         boolean hasXml = allFiles.stream().anyMatch(f -> f.toString().endsWith(".xml"));
-        boolean hasJson = allFiles.stream().anyMatch(f -> f.toString().endsWith(".json"));
 
         if (hasXml) {
             toolNames.add("xmlSkim");
             toolNames.add("xmlSelect");
-        }
-
-        if (hasJson && !isJqOnPath()) {
-            toolNames.add("jq");
         }
 
         return registry.getTools(toolNames).stream()
@@ -879,16 +872,6 @@ public class BrokkExternalMcpServer {
         }
     }
 
-    private boolean isJqOnPath() {
-        try {
-            Environment.instance.runShellCommand(
-                    "jq --version", cm.getProject().getRoot(), out -> {}, Duration.ofSeconds(2));
-            return true;
-        } catch (Environment.SubprocessException | InterruptedException e) {
-            return false;
-        }
-    }
-
     @Tool(
             """
             Set the active workspace for this running Brokk MCP server.
@@ -987,7 +970,6 @@ public class BrokkExternalMcpServer {
             Start here when beginning a new task or when you need to understand what code is relevant to a goal.
             Uses semantic analysis (import graphs, code structure) to recommend the most relevant files and classes -- much more accurate than text search for finding related code.
             Returns summaries (skeletons) of recommended context.
-            Not for raw-text search (config, comments, literals) -- use searchFileContents for that.
             """)
     public String scan(
             @P("The natural-language goal or prompt to scan for.") String goal,
