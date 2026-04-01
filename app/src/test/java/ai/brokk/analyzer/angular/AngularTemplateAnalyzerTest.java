@@ -18,6 +18,7 @@ import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestContextManager;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 
@@ -223,6 +224,51 @@ class AngularTemplateAnalyzerTest {
                     .anyMatch(pf -> pf.file().getFileName().equals("test.component.html"));
 
             assertTrue(hasTemplate, "Supporting fragments should include the external template file");
+        }
+    }
+
+    @Test
+    void testSummarizeTemplate() {
+        System.setProperty("brokk.debug.ast", "true");
+        String html =
+                """
+                <div [class.active]="isActive">
+                  <app-header (logout)="onLogout()"></app-header>
+                  @if (user) {
+                    <span>{{ user.name | uppercase }}</span>
+                  }
+                  <section *ngIf="showSection"></section>
+                </div>
+                """;
+        try (var project = InlineTestProjectCreator.empty()
+                .addFileContents(html, "src/app/test.component.html")
+                .build()) {
+
+            AngularTemplateAnalyzer analyzer = new AngularTemplateAnalyzer();
+            ProjectFile templateFile = project.getAllFiles().iterator().next();
+
+            // Create the internal parser to use as the analyzer for the context manager
+            IAnalyzer htmlAnalyzer = new AngularTemplateAnalyzer.AngularHtmlParser(project);
+            TestContextManager cm =
+                    new TestContextManager(project, new TestConsoleIO(), Set.of(templateFile), htmlAnalyzer);
+
+            Optional<String> summaryOpt = analyzer.summarizeTemplate(templateFile, cm);
+
+            assertTrue(summaryOpt.isPresent());
+            String summary = summaryOpt.get();
+
+            assertCodeContains(summary, "Components:", "Should list components");
+            assertCodeContains(summary, "- app-header", "Should identify app-header");
+            assertCodeContains(summary, "Control Flow:", "Should list control flow");
+            assertCodeContains(summary, "- @if", "Should identify @if block");
+            assertCodeContains(summary, "Directives:", "Should list structural directives");
+            assertCodeContains(summary, "- *ngIf", "Should identify *ngIf");
+            assertCodeContains(summary, "Pipes:", "Should list pipes");
+            assertCodeContains(summary, "- uppercase", "Should identify pipe");
+            assertCodeContains(summary, "Bindings:", "Should list bindings");
+            assertCodeContains(summary, "- class.active", "Should identify property binding");
+            assertCodeContains(summary, "Events:", "Should list events");
+            assertCodeContains(summary, "- logout", "Should identify event binding");
         }
     }
 

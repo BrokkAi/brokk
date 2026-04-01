@@ -23,6 +23,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -30,6 +31,9 @@ import org.jetbrains.annotations.Nullable;
 import org.jspecify.annotations.NullMarked;
 import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
+import org.treesitter.TSQueryCapture;
+import org.treesitter.TSQueryCursor;
+import org.treesitter.TSQueryMatch;
 import org.treesitter.TreeSitterAngular;
 
 /**
@@ -238,7 +242,7 @@ public class AngularTemplateAnalyzer implements ITemplateAnalyzer {
     /**
      * Internal TreeSitter parser for Angular HTML templates.
      */
-    private static class AngularHtmlParser extends TreeSitterAnalyzer {
+    static class AngularHtmlParser extends TreeSitterAnalyzer {
         private static final LanguageSyntaxProfile PROFILE = new LanguageSyntaxProfile(
                 Set.of("element"), // classLikeNodeTypes
                 Set.of(), // functionLikeNodeTypes
@@ -272,11 +276,11 @@ public class AngularTemplateAnalyzer implements ITemplateAnalyzer {
 
         @Override
         protected Optional<String> getQueryResource(QueryType type) {
-            if (type == QueryType.DEFINITIONS) {
-                // Coarse-grained capture of top-level elements
-                return Optional.of("treesitter/angular/definitions.scm");
-            }
-            return Optional.empty();
+            return switch (type) {
+                case DEFINITIONS -> Optional.of("treesitter/angular/definitions.scm");
+                case SUMMARY -> Optional.of("treesitter/angular/summary.scm");
+                default -> Optional.empty();
+            };
         }
 
         @Override
@@ -345,6 +349,27 @@ public class AngularTemplateAnalyzer implements ITemplateAnalyzer {
         }
 
         @Override
+        protected Optional<String> extractSimpleName(TSNode node, SourceContent sourceContent) {
+            if ("element".equals(node.getType())) {
+                // In tree-sitter-angular, tag_name is inside start_tag or self_closing_tag
+                for (int i = 0; i < node.getChildCount(); i++) {
+                    TSNode child = node.getChild(i);
+                    String type = child.getType();
+                    if ("start_tag".equals(type) || "self_closing_tag".equals(type)) {
+                        for (int j = 0; j < child.getChildCount(); j++) {
+                            TSNode grandChild = child.getChild(j);
+                            if ("tag_name".equals(grandChild.getType())) {
+                                return Optional.of(
+                                        sourceContent.substringFrom(grandChild).strip());
+                            }
+                        }
+                    }
+                }
+            }
+            return super.extractSimpleName(node, sourceContent);
+        }
+
+        @Override
         public Optional<IAnalyzer> subAnalyzer(Language language) {
             return Optional.of(this);
         }
@@ -352,6 +377,139 @@ public class AngularTemplateAnalyzer implements ITemplateAnalyzer {
         @Override
         public Optional<String> extractCallReceiver(String reference) {
             return Optional.empty();
+        }
+
+        @Override
+        public @Nullable String summarizeSymbols(ProjectFile templateFile) {
+            return withTreeOf(
+                    templateFile,
+                    tree -> withSource(
+                            templateFile,
+                            sc -> withCachedQuery(
+                                    QueryType.SUMMARY,
+                                    query -> {
+                                        TSNode root = tree.getRootNode();
+                                        if (root == null) return null;
+
+                                        Set<String> components = new TreeSet<>();
+                                        Set<String> directives = new TreeSet<>();
+                                        Set<String> controlFlow = new TreeSet<>();
+                                        Set<String> pipes = new TreeSet<>();
+                                        Set<String> bindings = new TreeSet<>();
+                                        Set<String> events = new TreeSet<>();
+
+                                        try (TSQueryCursor cursor = new TSQueryCursor()) {
+                                            cursor.exec(query, root, sc.text());
+                                            TSQueryMatch match = new TSQueryMatch();
+                                            while (cursor.nextMatch(match)) {
+                                                for (TSQueryCapture capture : match.getCaptures()) {
+                                                    String name = query.getCaptureNameForId(capture.getIndex());
+                                                    TSNode node = capture.getNode();
+                                                    String text = sc.substringFrom(node)
+                                                            .strip();
+                                                    if (text.isEmpty()) continue;
+
+                                                    switch (name) {
+                                                        case "tag_name" -> {
+                                                            if (text.contains("-")) components.add(text);
+                                                        }
+                                                        case "attr_name" -> {
+                                                            if (text.startsWith("*")) directives.add(text);
+                                                        }
+                                                        case "control_flow" -> {
+                                                            // For statement nodes, the first child is usually the
+                                                            // keyword
+                                                            String kw = text.split("\\s|\\(")[0];
+                                                            if (!kw.isEmpty()) {
+                                                                controlFlow.add(kw.startsWith("@") ? kw : "@" + kw);
+                                                            }
+                                                        }
+                                                        case "pipe_node" -> {
+                                                            // pipe_call contains the whole expression, identifier is
+                                                            // the pipe name
+                                                            TSNode idNode = node.getChildByFieldName("name");
+                                                            if (idNode == null) {
+                                                                // fallback to looking for identifier children
+                                                                for (int i = 0; i < node.getChildCount(); i++) {
+                                                                    if ("identifier"
+                                                                            .equals(node.getChild(i)
+                                                                                    .getType())) {
+                                                                        idNode = node.getChild(i);
+                                                                        break;
+                                                                    }
+                                                                }
+                                                            }
+                                                            if (idNode != null) {
+                                                                pipes.add(sc.substringFrom(idNode)
+                                                                        .strip());
+                                                            }
+                                                        }
+                                                        case "prop_binding" -> {
+                                                            // property_binding contains [name]="val" or similar
+                                                            for (int i = 0; i < node.getChildCount(); i++) {
+                                                                TSNode child = node.getChild(i);
+                                                                String type = child.getType();
+                                                                if ("binding_name".equals(type)
+                                                                        || "class_binding".equals(type)) {
+                                                                    String clean = sc.substringFrom(child)
+                                                                            .strip()
+                                                                            .replace("[", "")
+                                                                            .replace("]", "");
+                                                                    if (!clean.isEmpty()) bindings.add(clean);
+                                                                }
+                                                            }
+                                                        }
+                                                        case "evt_binding" -> {
+                                                            // event_binding contains (name)="handler()"
+                                                            for (int i = 0; i < node.getChildCount(); i++) {
+                                                                TSNode child = node.getChild(i);
+                                                                if ("binding_name".equals(child.getType())) {
+                                                                    String clean = sc.substringFrom(child)
+                                                                            .strip()
+                                                                            .replace("(", "")
+                                                                            .replace(")", "");
+                                                                    if (!clean.isEmpty()) events.add(clean);
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+
+                                        if (components.isEmpty()
+                                                && directives.isEmpty()
+                                                && controlFlow.isEmpty()
+                                                && pipes.isEmpty()
+                                                && bindings.isEmpty()
+                                                && events.isEmpty()) {
+                                            return null;
+                                        }
+
+                                        StringBuilder summary = new StringBuilder();
+                                        summary.append("<!--\n");
+                                        summary.append("  Angular Template Summary\n");
+                                        appendCategory(summary, "Components", components);
+                                        appendCategory(summary, "Directives", directives);
+                                        appendCategory(summary, "Control Flow", controlFlow);
+                                        appendCategory(summary, "Pipes", pipes);
+                                        appendCategory(summary, "Bindings", bindings);
+                                        appendCategory(summary, "Events", events);
+                                        summary.append("-->");
+                                        return summary.toString();
+                                    },
+                                    null),
+                            null),
+                    null);
+        }
+
+        private void appendCategory(StringBuilder sb, String title, Set<String> items) {
+            if (!items.isEmpty()) {
+                sb.append("\n  ").append(title).append(":\n");
+                for (String item : items) {
+                    sb.append("    - ").append(item).append("\n");
+                }
+            }
         }
     }
 }

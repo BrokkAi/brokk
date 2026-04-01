@@ -93,7 +93,7 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
         return switch (type) {
             case DEFINITIONS -> Optional.of("treesitter/c_sharp/definitions.scm");
             case IMPORTS -> Optional.of("treesitter/c_sharp/imports.scm");
-            case IDENTIFIERS -> Optional.empty();
+            case IDENTIFIERS, SUMMARY -> Optional.empty();
         };
     }
 

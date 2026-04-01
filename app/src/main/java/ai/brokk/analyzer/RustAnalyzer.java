@@ -82,7 +82,7 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
         return switch (type) {
             case DEFINITIONS -> Optional.of("treesitter/rust/definitions.scm");
             case IMPORTS -> Optional.of("treesitter/rust/imports.scm");
-            case IDENTIFIERS -> Optional.empty();
+            case IDENTIFIERS, SUMMARY -> Optional.empty();
         };
     }
 
