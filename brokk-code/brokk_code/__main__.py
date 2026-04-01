@@ -919,6 +919,64 @@ def _build_parser() -> argparse.ArgumentParser:
         default=False,
         help="Print the JBang prefetch command(s) instead of executing them",
     )
+    install_parser.add_argument(
+        "--provider",
+        choices=["brokk", "custom"],
+        default=None,
+        help="Set the LLM provider during installation (brokk or custom)",
+    )
+    install_parser.add_argument(
+        "--provider-url",
+        default=None,
+        help="Custom endpoint URL (requires --provider custom)",
+    )
+    install_parser.add_argument(
+        "--provider-model",
+        default=None,
+        help="Custom endpoint model name (optional, used with --provider custom)",
+    )
+    install_parser.add_argument(
+        "--provider-api-key",
+        default=None,
+        help="Custom endpoint API key (optional, used with --provider custom)",
+    )
+
+    # ── brokk provider ─────────────────────────────────────────────────
+    provider_parser = subparsers.add_parser(
+        "provider",
+        help="Configure the LLM provider (brokk proxy or custom OpenAI-compatible endpoint)",
+    )
+    provider_subparsers = provider_parser.add_subparsers(dest="provider_command", required=True)
+
+    provider_custom_parser = provider_subparsers.add_parser(
+        "custom",
+        help="Use a custom OpenAI-compatible endpoint (Ollama, LM Studio, etc.)",
+    )
+    provider_custom_parser.add_argument(
+        "--url",
+        required=True,
+        help="Base URL of the OpenAI-compatible endpoint (e.g. http://localhost:11434/v1)",
+    )
+    provider_custom_parser.add_argument(
+        "--model",
+        default="",
+        help="Model name to use (optional; auto-discovered from /v1/models if omitted)",
+    )
+    provider_custom_parser.add_argument(
+        "--api-key",
+        default="",
+        help="API key for the endpoint (optional; blank for local models)",
+    )
+
+    provider_subparsers.add_parser(
+        "brokk",
+        help="Switch back to the default Brokk proxy provider",
+    )
+
+    provider_subparsers.add_parser(
+        "status",
+        help="Show current provider configuration",
+    )
 
     commit_parser = subparsers.add_parser("commit", help="Commit current changes")
     _add_common_runtime_args(commit_parser)
@@ -1772,6 +1830,26 @@ def main():
         if args.plugin and args.target not in {"nvim", "neovim"}:
             print("Error: --plugin is only valid for install targets nvim/neovim", file=sys.stderr)
             sys.exit(1)
+        if args.provider == "custom" and not args.provider_url:
+            print("Error: --provider-url is required when --provider is custom", file=sys.stderr)
+            sys.exit(1)
+        if args.provider_url and args.provider != "custom":
+            print("Error: --provider-url requires --provider custom", file=sys.stderr)
+            sys.exit(1)
+
+        # Apply provider settings if specified
+        if args.provider == "custom":
+            write_brokk_properties(
+                {
+                    "llmProxySetting": "CUSTOM",
+                    "customEndpointUrl": args.provider_url,
+                    "customEndpointApiKey": args.provider_api_key or "",
+                    "customEndpointModel": args.provider_model or "",
+                }
+            )
+            print(f"Provider set to custom endpoint: {args.provider_url}")
+        elif args.provider == "brokk":
+            write_brokk_properties({"llmProxySetting": "BROKK"})
 
         messages: list[str] = []
         prefetch_commands: list[tuple[str, list[str]]] = []
@@ -1981,6 +2059,48 @@ def main():
             print(f"Error: {exc}", file=sys.stderr)
             sys.exit(1)
 
+        return
+
+    if args.command == "provider":
+        if args.provider_command == "custom":
+            url = args.url.strip()
+            if not url:
+                print("Error: --url is required", file=sys.stderr)
+                sys.exit(1)
+            write_brokk_properties(
+                {
+                    "llmProxySetting": "CUSTOM",
+                    "customEndpointUrl": url,
+                    "customEndpointApiKey": args.api_key or "",
+                    "customEndpointModel": args.model or "",
+                }
+            )
+            print(f"Provider set to custom endpoint: {url}")
+            if args.model:
+                print(f"Model: {args.model}")
+            else:
+                print("Model: (auto-discover from /v1/models)")
+            if args.api_key:
+                print("API key: (set)")
+            else:
+                print("API key: (none)")
+        elif args.provider_command == "brokk":
+            write_brokk_properties(
+                {
+                    "llmProxySetting": "BROKK",
+                }
+            )
+            print("Provider reset to Brokk proxy (default).")
+        elif args.provider_command == "status":
+            props = read_brokk_properties()
+            provider = props.get("llmProxySetting", "BROKK")
+            print(f"Provider: {provider}")
+            if provider == "CUSTOM":
+                print(f"  URL:    {props.get('customEndpointUrl', '(not set)')}")
+                print(
+                    f"  Model:  {props.get('customEndpointModel', '(auto-discover)') or '(auto-discover)'}"
+                )
+                print(f"  API key: {'(set)' if props.get('customEndpointApiKey') else '(none)'}")
         return
 
     if args.command == "version":

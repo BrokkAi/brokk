@@ -582,7 +582,10 @@ public class Service extends AbstractService implements ExceptionReporter.Report
             LogManager.getLogger(Service.class).info("Custom endpoint models discovered: {}", locationsTarget.keySet());
         }
 
-        // No model info from custom endpoints — the defaults in CUSTOM_MODEL_DEFAULTS will be used
+        // Populate model info with sensible defaults so getAvailableModels() returns these models
+        for (String modelName : locationsTarget.keySet()) {
+            infoTarget.put(modelName, CUSTOM_MODEL_DEFAULTS);
+        }
     }
 
     /**

@@ -671,7 +671,7 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
      * Reasonable capability defaults for models served by custom OpenAI-compatible endpoints.
      * Assumes a modern chat model with tool calling but no exotic features.
      */
-    private static final Map<String, Object> CUSTOM_MODEL_DEFAULTS = Map.ofEntries(
+    static final Map<String, Object> CUSTOM_MODEL_DEFAULTS = Map.ofEntries(
             Map.entry("max_input_tokens", 131072),
             Map.entry("max_output_tokens", 16384),
             Map.entry("supports_tool_choice", true),
