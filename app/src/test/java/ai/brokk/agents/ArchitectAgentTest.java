@@ -2,6 +2,7 @@ package ai.brokk.agents;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.TaskEntry;
@@ -14,6 +15,7 @@ import ai.brokk.tasks.TaskList;
 import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestContextManager;
 import ai.brokk.testutil.TestProject;
+import ai.brokk.tools.ToolRegistry;
 import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
@@ -123,5 +125,40 @@ class ArchitectAgentTest {
         assertEquals(
                 List.of(initialMsg, finalMessages.getFirst()),
                 updatedContext.getTaskHistory().getLast().mopLog().messages());
+    }
+
+    @Test
+    void testCallCodeAgentRejectedWhenReadOnly() {
+        StreamingChatModel model = new StubModel();
+        var agent = new ArchitectAgent(cm, model, model, "goal", null, new Context(cm), consoleIO);
+        agent.setReadOnly(true);
+
+        var ex = assertThrows(ToolRegistry.FatalLlmException.class, () -> agent.callCodeAgent("edit the file", false));
+
+        assertTrue(ex.getMessage().contains("disabled"));
+    }
+
+    @Test
+    void testSetBuildDetailsRejectedWhenBuildToolsDisabled() {
+        StreamingChatModel model = new StubModel();
+        var agent = new ArchitectAgent(cm, model, model, "goal", null, new Context(cm), consoleIO);
+        agent.setBuildToolsEnabled(false);
+
+        var result = agent.setBuildDetails(
+                "./gradlew test", "./gradlew test", "./gradlew test --tests ExampleTest", List.of("build"));
+
+        assertEquals("Build/test tools are disabled for this Architect run.", result);
+        assertFalse(project.hasBuildDetails(), "Disabled build tools should not persist new build details");
+    }
+
+    @Test
+    void testVerifyBuildCommandRejectedWhenBuildToolsDisabled() {
+        StreamingChatModel model = new StubModel();
+        var agent = new ArchitectAgent(cm, model, model, "goal", null, new Context(cm), consoleIO);
+        agent.setBuildToolsEnabled(false);
+
+        var result = agent.verifyBuildCommand();
+
+        assertEquals("Build/test tools are disabled for this Architect run.", result);
     }
 }

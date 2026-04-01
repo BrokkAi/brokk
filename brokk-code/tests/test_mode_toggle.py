@@ -17,32 +17,22 @@ def test_action_toggle_mode_cycles_correctly():
     mock_chat = MagicMock(spec=ChatPanel)
     app.query_one = MagicMock(return_value=mock_chat)
 
+    expected_modes = ["LITE_AGENT", "LITE_PLAN", "CODE", "ASK", "LUTZ", "PLAN"]
+
     # Initial state
-    assert app.agent_mode == "LUTZ"
+    assert app.agent_mode == "LITE_AGENT"
 
-    # Cycle 1: LUTZ -> PLAN
-    app.action_toggle_mode()
-    assert app.agent_mode == "PLAN"
-    mock_chat.add_system_message_markup.assert_called_with("Mode changed to: [bold]PLAN[/]")
-
-    # Cycle 2: PLAN -> CODE
-    app.action_toggle_mode()
-    assert app.agent_mode == "CODE"
-    mock_chat.add_system_message_markup.assert_called_with("Mode changed to: [bold]CODE[/]")
-
-    # Cycle 3: CODE -> ASK
-    app.action_toggle_mode()
-    assert app.agent_mode == "ASK"
-    mock_chat.add_system_message_markup.assert_called_with("Mode changed to: [bold]ASK[/]")
-
-    # Cycle 4: ASK -> LUTZ
-    app.action_toggle_mode()
-    assert app.agent_mode == "LUTZ"
-    mock_chat.add_system_message_markup.assert_called_with("Mode changed to: [bold]LUTZ[/]")
+    # Cycle through all modes and back to the start
+    for i in range(len(expected_modes)):
+        next_mode = expected_modes[(i + 1) % len(expected_modes)]
+        app.action_toggle_mode()
+        assert app.agent_mode == next_mode
+        expected = f"Mode changed to: [bold]{next_mode}[/]"
+        mock_chat.add_system_message_markup.assert_called_with(expected)
 
 
 def test_handle_command_modes_removed():
-    """Verify that mode slash commands are now treated as unknown."""
+    """Verify that mode slash commands are treated as unknown."""
     app = BrokkApp(executor=MagicMock())
     mock_chat = MagicMock(spec=ChatPanel)
     app.query_one = MagicMock(return_value=mock_chat)
@@ -163,12 +153,12 @@ async def test_shift_tab_keypress_cycles_mode_in_running_app():
     app._poll_tasklist = _noop  # type: ignore[method-assign]
     app._poll_context = _noop  # type: ignore[method-assign]
 
-    assert app.agent_mode == "LUTZ"
+    assert app.agent_mode == "LITE_AGENT"
 
     async with app.run_test() as pilot:
-        # Cycle: CODE -> ASK -> LUTZ -> PLAN
+        # Cycle through all modes
         await pilot.press("shift+tab")
-        assert app.agent_mode == "PLAN"
+        assert app.agent_mode == "LITE_PLAN"
 
         await pilot.press("shift+tab")
         assert app.agent_mode == "CODE"
@@ -182,6 +172,10 @@ async def test_shift_tab_keypress_cycles_mode_in_running_app():
         await pilot.press("shift+tab")
         assert app.agent_mode == "PLAN"
 
+        # Wraps back to LITE_AGENT
+        await pilot.press("shift+tab")
+        assert app.agent_mode == "LITE_AGENT"
+
 
 def test_textual_command_palette_is_enabled():
     app = BrokkApp(executor=MagicMock())
@@ -194,9 +188,9 @@ def test_action_toggle_mode_handles_unknown_mode():
     app.query_one = MagicMock(return_value=mock_chat)
 
     app.agent_mode = "UNKNOWN"
-    # The implementation defaults to index 0 ("CODE") then increments: (0+1) % 4 = 1 ("ASK")
+    # Defaults to idx 0 ("LITE_AGENT") then increments: (0+1)%6 = 1
     app.action_toggle_mode()
-    assert app.agent_mode == "ASK"
+    assert app.agent_mode == "LITE_PLAN"
 
 
 def test_status_line_is_composed_and_updates_on_mode_change():
@@ -206,7 +200,7 @@ def test_status_line_is_composed_and_updates_on_mode_change():
     so we don't require a full Textual runtime or active app context.
     """
     app = BrokkApp(executor=MagicMock())
-    assert app.agent_mode == "LUTZ"
+    assert app.agent_mode == "LITE_AGENT"
 
     # Replace the status widget with a mock that records updates.
     mock_status = MagicMock(spec=StatusLine)

@@ -1213,8 +1213,10 @@ class BrokkApp(App):
         self.resume_session = resume_session
         self.pick_session = pick_session
         self._set_theme(self.settings.theme)
-        self.agent_mode = "LUTZ"
+        self.agent_mode = "LITE_AGENT"
         self.show_verbose_output: bool = False
+        self._plan_iteration_prompt: str = ""
+        self._awaiting_plan_decision: bool = False
 
         # Initialize model and reasoning settings from persisted Settings if present,
         # otherwise fall back to safe defaults.
@@ -2359,6 +2361,19 @@ class BrokkApp(App):
                     self._startup_pending_prompt = raw_text
                     if chat:
                         chat.add_system_message("Queuing prompt until Brokk is ready...")
+                elif self._awaiting_plan_decision:
+                    self._awaiting_plan_decision = False
+                    if raw_text.strip().lower() in ("e", "execute", "run"):
+                        self._set_mode("LITE_AGENT", announce=True)
+                        self.run_worker(self._run_job(self._plan_iteration_prompt))
+                    else:
+                        # Iterate: re-run as LITE_PLAN with feedback appended
+                        feedback_prompt = (
+                            self._plan_iteration_prompt
+                            + "\n\nFeedback on previous plan: "
+                            + raw_text
+                        )
+                        self.run_worker(self._run_job(feedback_prompt))
                 else:
                     self.run_worker(self._run_job(raw_text))
 
@@ -3026,7 +3041,18 @@ class BrokkApp(App):
             chat.add_system_message(f"Logout failed: {e}", level="ERROR")
 
     async def _run_job(self, task_input: str) -> None:
-        await self._execute_job_lifecycle(task_input, mode=self.current_mode)
+        result = await self._execute_job_lifecycle(task_input, mode=self.current_mode)
+
+        # LITE_PLAN: after plan completes, offer execute or iterate
+        if self.current_mode == "LITE_PLAN" and result == _JobLifecycleResult.SUCCEEDED:
+            chat = self._maybe_chat()
+            if chat:
+                chat.add_system_message(
+                    "Plan complete. Type 'execute' to run this plan as LITE_AGENT, "
+                    "or type feedback to iterate on the plan."
+                )
+            self._plan_iteration_prompt = task_input
+            self._awaiting_plan_decision = True
 
         # Yield to the event loop to allow any rapid subsequent submissions
         # triggered by the cancellation to be processed before we check _pending_prompt.
@@ -3196,6 +3222,7 @@ class BrokkApp(App):
     def _set_mode(self, new_mode: str, *, announce: bool = True) -> None:
         """Sets the agent mode, updates the status line, and optionally announces to chat."""
         self.agent_mode = new_mode
+        self._awaiting_plan_decision = False
         # Update statusline if present
         self._update_statusline()
         if announce:
@@ -3563,7 +3590,8 @@ class BrokkApp(App):
     def action_select_mode(self) -> None:
         chat = self._maybe_chat()
         if chat:
-            chat.open_mode_menu(["CODE", "ASK", "LUTZ", "PLAN"], self.agent_mode)
+            modes = ["LITE_AGENT", "LITE_PLAN", "CODE", "ASK", "LUTZ", "PLAN"]
+            chat.open_mode_menu(modes, self.agent_mode)
 
     def action_toggle_dependencies(self) -> None:
         if isinstance(self.screen, DependenciesModalScreen):
@@ -4006,8 +4034,8 @@ class BrokkApp(App):
             chat.refresh_log(self.show_verbose_output)
 
     def action_toggle_mode(self) -> None:
-        """Cycles through agent modes: CODE -> ASK -> LUTZ -> PLAN -> CODE."""
-        modes = ["CODE", "ASK", "LUTZ", "PLAN"]
+        """Cycles through available agent modes."""
+        modes = ["LITE_AGENT", "LITE_PLAN", "CODE", "ASK", "LUTZ", "PLAN"]
         try:
             current_index = modes.index(self.agent_mode)
         except ValueError:
