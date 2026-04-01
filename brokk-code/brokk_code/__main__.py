@@ -44,6 +44,10 @@ from brokk_code.uv_utils import UvSetupError, ensure_uv_ready
 from brokk_code.workspace import resolve_workspace_dir
 from brokk_code.zed_config import ExistingBrokkCodeEntryError, configure_zed_acp_settings
 
+# Default model names used across CLI subcommands
+DEFAULT_PLANNER_MODEL = "gpt-5.4"
+DEFAULT_CODE_MODEL = "gemini-3-flash-preview"
+
 REPO_COMPONENT_ALLOWLIST_REGEX = r"^[A-Za-z0-9_.-]+$"
 _EXECUTOR_JAR_BASE_URL = "https://github.com/BrokkAi/brokk-releases/releases/download"
 _HEADLESS_EXECUTOR_MAIN_CLASS = "ai.brokk.executor.HeadlessExecutorMain"
@@ -71,7 +75,7 @@ def _resolve_neovim_plugin(*, plugin: str | None) -> str:
 
 def _add_github_issue_args(
     parser: argparse.ArgumentParser,
-    planner_model_default: str = "gemini-3-flash-preview",
+    planner_model_default: str = DEFAULT_CODE_MODEL,
 ) -> None:
     """Add common GitHub issue arguments to a parser."""
     parser.add_argument(
@@ -930,6 +934,47 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Commit message (optional; if omitted, a message will be generated)",
     )
 
+    exec_parser = subparsers.add_parser(
+        "exec", help="Run a prompt with LITE_AGENT (scan + architect, no build)"
+    )
+    _add_common_runtime_args(exec_parser)
+    exec_parser.add_argument(
+        "prompt",
+        type=str,
+        help="The task to execute",
+    )
+    exec_parser.add_argument(
+        "--planner-model",
+        type=str,
+        default=DEFAULT_PLANNER_MODEL,
+        help=f"LLM model for planning (default: {DEFAULT_PLANNER_MODEL})",
+    )
+    exec_parser.add_argument(
+        "--code-model",
+        type=str,
+        default=DEFAULT_CODE_MODEL,
+        help=f"LLM model for code generation (default: {DEFAULT_CODE_MODEL})",
+    )
+    exec_parser.add_argument(
+        "--planner-reasoning-level",
+        type=str,
+        default="high",
+        help="Reasoning level for planner model (default: high)",
+    )
+    exec_parser.add_argument(
+        "--code-reasoning-level",
+        type=str,
+        default=None,
+        help="Reasoning level for code model (default: none)",
+    )
+    exec_parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        default=False,
+        help="Show full output (events/tokens) for debugging",
+    )
+
     issue_parser = subparsers.add_parser("issue", help="Manage GitHub issues")
     issue_subparsers = issue_parser.add_subparsers(dest="issue_command", required=True)
 
@@ -964,19 +1009,19 @@ def _build_parser() -> argparse.ArgumentParser:
         required=True,
         help="The GitHub issue number to solve",
     )
-    _add_github_issue_args(issue_solve_parser, planner_model_default="gpt-5.1")
+    _add_github_issue_args(issue_solve_parser, planner_model_default=DEFAULT_PLANNER_MODEL)
     # Additional solve-specific arguments
     issue_solve_parser.add_argument(
         "--code-model",
         type=str,
-        default="gemini-3-flash-preview",
-        help="LLM model for code generation (default: gemini-3-flash-preview)",
+        default=DEFAULT_CODE_MODEL,
+        help=f"LLM model for code generation (default: {DEFAULT_CODE_MODEL})",
     )
     issue_solve_parser.add_argument(
         "--planner-reasoning-level",
         type=str,
-        default="medium",
-        help="Reasoning level for planner model (default: medium)",
+        default="high",
+        help="Reasoning level for planner model (default: high)",
     )
     issue_solve_parser.add_argument(
         "--code-reasoning-level",
@@ -1069,8 +1114,8 @@ def _build_parser() -> argparse.ArgumentParser:
     pr_review_parser.add_argument(
         "--planner-model",
         type=str,
-        default="gpt-5.1",
-        help="LLM model for the review (default: gpt-5.1)",
+        default=DEFAULT_PLANNER_MODEL,
+        help=f"LLM model for the review (default: {DEFAULT_PLANNER_MODEL})",
     )
     pr_review_parser.add_argument(
         "--severity",
@@ -1665,9 +1710,12 @@ async def run_headless_job(
                 _record_issue_url_from_issue_writer_notification(message)
                 _record_issue_url(message)
                 level = str(data.get("level", event.get("level", "INFO"))).strip().upper()
-                # Keep headless issue mode quiet by default: warnings/errors matter,
-                # routine INFO/COST/CONFIRM notifications do not.
-                if not verbose and level not in {"WARN", "WARNING", "ERROR"}:
+                # LITE_AGENT always shows notifications; others only show WARN/ERROR.
+                if (
+                    not verbose
+                    and mode not in {"LITE_AGENT", "LITE_PLAN"}
+                    and level not in {"WARN", "WARNING", "ERROR"}
+                ):
                     continue
                 _clear_spinner()
                 print(f"[{level}] {message}")
@@ -1680,7 +1728,8 @@ async def run_headless_job(
             elif event_type in {"TOKEN", "LLM_TOKEN"}:
                 text = str(data.get("token", event.get("text", "")))
                 _record_issue_url(text)
-                if verbose and text:
+                # LITE_AGENT always streams tokens; other modes only when verbose.
+                if (verbose or mode in {"LITE_AGENT", "LITE_PLAN"}) and text:
                     sys.stdout.write(text)
                     sys.stdout.flush()
                 continue
@@ -2096,6 +2145,27 @@ def main():
         pick_session = True
         session_id = None
         resume_session = False
+
+    if args.command == "exec":
+        workspace_path = resolve_workspace_dir(workspace_path)
+        asyncio.run(
+            run_headless_job(
+                workspace_dir=workspace_path,
+                task_input=args.prompt,
+                planner_model=args.planner_model,
+                code_model=args.code_model,
+                planner_reasoning_level=args.planner_reasoning_level,
+                code_reasoning_level=args.code_reasoning_level,
+                mode="LITE_AGENT",
+                tags={"mode": "LITE_AGENT"},
+                verbose=args.verbose,
+                jar_path=jar_path,
+                executor_version=args.executor_version,
+                executor_snapshot=args.executor_snapshot,
+                vendor=args.vendor,
+            )
+        )
+        return
 
     if args.command == "commit":
         asyncio.run(

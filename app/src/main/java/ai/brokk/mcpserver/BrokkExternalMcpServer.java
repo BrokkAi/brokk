@@ -8,12 +8,7 @@ import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
 import ai.brokk.LlmOutputMeta;
 import ai.brokk.MutedConsoleIO;
-import ai.brokk.TaskResult;
-import ai.brokk.agents.BuildAgent;
-import ai.brokk.agents.CodeAgent;
-import ai.brokk.agents.ConflictInspector;
 import ai.brokk.agents.ContextAgent;
-import ai.brokk.agents.MergeAgent;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
@@ -21,18 +16,13 @@ import ai.brokk.analyzer.usages.FuzzyResult;
 import ai.brokk.analyzer.usages.UsageFinder;
 import ai.brokk.analyzer.usages.UsageHit;
 import ai.brokk.cli.MemoryConsole;
-import ai.brokk.context.ContextDelta;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments.SummaryFragment;
 import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
-import ai.brokk.project.ModelProperties;
 import ai.brokk.tools.SearchTools;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
-import ai.brokk.tools.WorkspaceTools;
-import ai.brokk.util.BuildTools;
-import ai.brokk.util.BuildVerifier;
 import ai.brokk.util.Environment;
 import ai.brokk.util.Lines;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -41,7 +31,6 @@ import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.ChatMessageType;
-import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.request.json.JsonArraySchema;
 import dev.langchain4j.model.chat.request.json.JsonBooleanSchema;
 import dev.langchain4j.model.chat.request.json.JsonIntegerSchema;
@@ -66,7 +55,6 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
-import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -84,7 +72,6 @@ import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.eclipse.jgit.api.errors.GitAPIException;
 import org.jetbrains.annotations.Nullable;
 import org.jspecify.annotations.NullMarked;
 
@@ -96,16 +83,9 @@ public class BrokkExternalMcpServer {
             "activateWorkspace",
             "getActiveWorkspace",
             "scan",
-            "callCodeAgent",
-            "runBuild",
-            "configureBuild",
-            "merge",
             "searchSymbols",
             "scanUsages",
-            "skimFiles",
             "getFileSummaries",
-            "getClassSkeletons",
-            "getSymbolLocations",
             "searchFileContents",
             "getClassSources",
             "getMethodSources");
@@ -204,6 +184,20 @@ public class BrokkExternalMcpServer {
     public static void main(String[] args) {
         System.setProperty("java.awt.headless", "true");
 
+        for (String arg : args) {
+            if ("--help".equals(arg) || "-h".equals(arg)) {
+                System.out.println("Brokk MCP Server v" + BuildInfo.version);
+                System.out.println("Provides Model Context Protocol (MCP) access to Brokk's agentic tools.");
+                System.out.println();
+                System.out.println("Available Tools:");
+                BASE_TOOL_NAMES.forEach(name -> System.out.printf("  - %s%n", name));
+                System.out.println();
+                System.out.println(
+                        "Additional tools (xmlSkim, xmlSelect, jq) may be available depending on project contents.");
+                System.exit(0);
+            }
+        }
+
         Path projectPath = resolveProjectRoot(Path.of("."));
         logger.info("Brokk MCP Server starting");
 
@@ -216,21 +210,6 @@ public class BrokkExternalMcpServer {
             instance.activeWorkspaceRoot = startupWorkspace.workspaceRoot();
             instance.activeWorkspaceSource = WorkspaceActivationSource.STARTUP;
             instance.mcpToolCallHistoryWriter = startupWorkspace.historyWriter();
-
-            for (String arg : args) {
-                if ("--help".equals(arg) || "-h".equals(arg)) {
-                    System.out.println("Brokk MCP Server v" + BuildInfo.version);
-                    System.out.println("Provides Model Context Protocol (MCP) access to Brokk's agentic tools.");
-                    System.out.println();
-                    System.out.println("Available Tools:");
-                    instance.toolSpecifications().forEach(spec -> {
-                        System.out.printf(
-                                "  - %-20s : %s%n",
-                                spec.tool().name(), spec.tool().description());
-                    });
-                    System.exit(0);
-                }
-            }
 
             McpJsonMapper mapper = McpJsonDefaults.getMapper();
             AtomicReference<McpSyncServer> serverRef = new AtomicReference<>();
@@ -1029,200 +1008,6 @@ public class BrokkExternalMcpServer {
 
         cm.pushContext(ctx -> ctx.addFragments(recommendations.fragments()));
         return result;
-    }
-
-    @Tool(
-            """
-            ALWAYS use the `callCodeAgent` tool to make changes to code; it is faster and more accurate than doing so by hand.
-            Code Agent is as smart as you are, so you only have to
-            describe what you want and it will perform the changes. However! Code Agent does not have access to your
-            conversation history or your thinking process, and it starts fresh with each command, so your requests must
-            be self-contained, complete, and unambiguous.
-            When possible, prefer giving Code Agent complete tasks that allow it to verify the build and run tests, since it is
-            easier to fix regressions when they are introduced rather than later. In general, the size of tasks should be
-            bounded by your ability to accurately describe the changes you need at the current stage. If you give
-            Code Agent a task that is too difficult, it will tell you what it changed and (if it can run build/tests)
-            what problems it could not resolve.
-
-            Code Agent can ONLY write (and test) code changes (and configuration/fixture files). It cannot call
-            other tools or execute cli tasks.
-            """)
-    @Destructive
-    public String callCodeAgent(
-            @P(
-                            "Instructions for the changes. If there is context needed outside the files being edited, make sure to include it here.")
-                    String instructions,
-            @P("List of files to edit, including new files to create. Specify full project-relative paths.")
-                    List<String> editFiles,
-            @P("Set to true when the task is not expected to leave the project buildable/lint-able.")
-                    boolean deferBuild,
-            @P("List of filenames containing tests to run. Ignored when deferBuild=True.") List<String> testFiles) {
-        if (editFiles.isEmpty()) {
-            return "Code agent called with no files to edit";
-        }
-        var wst = new WorkspaceTools(cm.liveContext());
-        var updatedContext = wst.addFilesToWorkspace(editFiles).context();
-        cm.pushContext(ctx -> updatedContext);
-
-        var initialContext = cm.liveContext();
-
-        var model = requireNonNull(
-                cm.getService().getModel(cm.getProject().getModelConfig(ModelProperties.ModelType.CODE)));
-        var ca = new CodeAgent(cm, model);
-
-        EnumSet<CodeAgent.Option> options =
-                deferBuild ? EnumSet.of(CodeAgent.Option.DEFER_BUILD) : EnumSet.noneOf(CodeAgent.Option.class);
-
-        List<ProjectFile> testFilesOverride = testFiles.isEmpty() || deferBuild
-                ? List.of()
-                : testFiles.stream().map(cm::toFile).toList();
-
-        TaskResult result = ca.execute(instructions, options, testFilesOverride);
-
-        var finalContext = result.context();
-        var stopDetails = result.stopDetails();
-        var reason = stopDetails.reason();
-
-        var delta = ContextDelta.between(initialContext, finalContext).join();
-        var changedFragments = delta.getChangedFragments();
-        var unifiedDiff = CodeAgent.cumulativeDiffForFragments(initialContext, finalContext, changedFragments);
-
-        String explanation = stopDetails.explanation();
-        if (reason == TaskResult.StopReason.BUILD_ERROR) {
-            String buildError = finalContext.getBuildError();
-            if (!buildError.isBlank() && !explanation.contains(buildError)) {
-                explanation = (explanation.isBlank() ? "" : (explanation.stripTrailing() + "\n\n")) + buildError;
-            }
-        }
-
-        String diffSection = unifiedDiff.isBlank()
-                ? "# Diff\n(No file changes)"
-                : """
-                # Diff
-                ```diff
-                %s
-                ```
-                """
-                        .formatted(unifiedDiff.strip())
-                        .stripIndent()
-                        .stripTrailing();
-
-        if (reason == TaskResult.StopReason.SUCCESS) {
-            String statusLine = deferBuild ? "Success (build deferred)." : "Success.";
-            return """
-                    # Status
-                    %s
-
-                    %s
-                    """
-                    .formatted(statusLine, diffSection)
-                    .stripIndent()
-                    .stripTrailing();
-        }
-
-        var diffPresentation =
-                unifiedDiff.isBlank() ? CodeAgent.DiffPresentation.NONE : CodeAgent.DiffPresentation.INLINE;
-        String failureText = CodeAgent.formatPostFailureResponse(reason, explanation, diffPresentation, unifiedDiff);
-        return """
-                %s
-
-                %s
-                """
-                .formatted(failureText, diffSection)
-                .stripIndent()
-                .stripTrailing();
-    }
-
-    @Tool(
-            """
-            Run build verification (compile and test) without making changes.
-            Use after callCodeAgent to verify the build is still passing, or to check current build status.
-            """)
-    public String runBuild() throws InterruptedException {
-        String error = cm.getProject().getBuildRunner().runVerification(cm);
-        return error.isEmpty() ? "Build successful" : "Build failed:\n\n" + error;
-    }
-
-    @Tool(
-            "Configure build and test commands for the project. You can assume it has already been configured unless you are told otherwise.")
-    public String configureBuild(
-            @P("Command to build or lint incrementally, e.g. 'mvn compile', 'cargo check'. Must not be null.")
-                    String buildOnlyCmd,
-            @P(
-                            "Mustache template for running specific tests. Supports {{#files}}, {{#classes}}, {{#fqclasses}}. Must not be null.")
-                    String testSomeCmd)
-            throws InterruptedException {
-        var project = cm.getProject();
-        var existingDetails = project.loadBuildDetails().orElse(BuildAgent.BuildDetails.EMPTY);
-
-        // 1. Verify buildOnlyCmd
-        BuildVerifier.VerificationResult buildResult = BuildVerifier.verify(project, buildOnlyCmd);
-        if (!buildResult.success()) {
-            return "Configuration failed: buildOnlyCmd ('" + buildOnlyCmd + "') failed with exit code "
-                    + buildResult.exitCode() + ":\n" + buildResult.output();
-        }
-
-        // 2. Verify testSomeCmd
-        // Find a test file to verify the template works
-        var testFileOpt = project.getAllFiles().stream()
-                .filter(f -> cm.getAnalyzerUninterrupted().containsTests(f))
-                .findFirst();
-
-        var bd = new BuildAgent.BuildDetails(
-                buildOnlyCmd,
-                existingDetails.buildLintEnabled(),
-                existingDetails.testAllCommand(),
-                existingDetails.testAllEnabled(),
-                testSomeCmd,
-                true, // Enabled by default if set via tool
-                existingDetails.exclusionPatterns(),
-                existingDetails.environmentVariables(),
-                existingDetails.maxBuildAttempts(),
-                existingDetails.afterTaskListCommand(),
-                existingDetails.modules());
-        if (testFileOpt.isPresent()) {
-            String interpolatedTestCmd = BuildTools.getBuildLintSomeCommand(cm, bd, List.of(testFileOpt.get()));
-
-            BuildVerifier.VerificationResult testResult = BuildVerifier.verify(project, interpolatedTestCmd);
-            if (!testResult.success()) {
-                return "Configuration failed: testSomeCmd verification failed using command '" + interpolatedTestCmd
-                        + "'. Exit code " + testResult.exitCode() + ":\n" + testResult.output();
-            }
-        }
-
-        // 3. Persist only if both succeeded
-        project.setCodeAgentTestScope(IProject.CodeAgentTestScope.WORKSPACE);
-        project.setBuildDetails(bd);
-        project.saveBuildDetails(bd);
-
-        return "Build configuration verified (build and test) and updated.";
-    }
-
-    @Tool(
-            """
-            Resolve all merge/rebase/cherry-pick conflicts in the repository using blame-aware analysis.
-            Understands which side made which changes and preserves intent from both sides.
-            Only works when the repository is in a conflict state.
-            """)
-    public String merge() throws InterruptedException, IOException, GitAPIException {
-        var conflictOpt = ConflictInspector.inspectFromProject(cm.getProject());
-        if (conflictOpt.isEmpty()) {
-            return "Error: Repository is not in a merge conflict state.";
-        }
-
-        StreamingChatModel planModel = requireNonNull(
-                cm.getService().getModel(cm.getProject().getModelConfig(ModelProperties.ModelType.ARCHITECT)));
-        StreamingChatModel codeModel = requireNonNull(
-                cm.getService().getModel(cm.getProject().getModelConfig(ModelProperties.ModelType.CODE)));
-
-        TaskResult result;
-        try (var scope = cm.beginTaskUngrouped("Merge")) {
-            var mergeAgent = new MergeAgent(
-                    cm, planModel, codeModel, conflictOpt.get(), scope, MergeAgent.DEFAULT_MERGE_INSTRUCTIONS);
-            result = mergeAgent.execute();
-            scope.append(result);
-        }
-        return result.stopDetails().explanation();
     }
 
     private List<SummaryFragment> toSummaryFragments(ContextFragment fragment) {

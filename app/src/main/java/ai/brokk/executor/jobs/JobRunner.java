@@ -6,22 +6,28 @@ import ai.brokk.ContextManager;
 import ai.brokk.GitHubAuth;
 import ai.brokk.IConsoleIO;
 import ai.brokk.Llm;
+import ai.brokk.LlmOutputMeta;
 import ai.brokk.Service;
 import ai.brokk.TaskResult;
+import ai.brokk.agents.ArchitectAgent;
 import ai.brokk.agents.CodeAgent;
+import ai.brokk.agents.ContextAgent;
 import ai.brokk.agents.IssueRewriterAgent;
 import ai.brokk.agents.LutzAgent;
 import ai.brokk.agents.ReviewAgent;
 import ai.brokk.agents.ReviewScope;
 import ai.brokk.context.Context;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.executor.io.HeadlessHttpConsole;
 import ai.brokk.git.GitRepo;
 import ai.brokk.issues.GitHubIssueService;
 import ai.brokk.issues.IssueHeader;
 import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.tasks.TaskList;
+import ai.brokk.util.Messages;
 import ai.brokk.util.ReviewParser;
 import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
@@ -46,6 +52,7 @@ import java.util.function.Function;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
+import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -241,6 +248,8 @@ public final class JobRunner {
         ISSUE,
         ISSUE_DIAGNOSE,
         ISSUE_WRITER,
+        LITE_AGENT,
+        LITE_PLAN,
         SLOP_SCAN
     }
 
@@ -248,7 +257,8 @@ public final class JobRunner {
         return switch (mode) {
             case ASK, SEARCH, REVIEW, GUIDED_REVIEW, SLOP_SCAN -> SearchPrompts.Objective.ANSWER_ONLY;
             case LUTZ -> SearchPrompts.Objective.LUTZ;
-            case PLAN, ARCHITECT, CODE, ISSUE, ISSUE_DIAGNOSE, ISSUE_WRITER -> SearchPrompts.Objective.TASKS_ONLY;
+            case PLAN, ARCHITECT, CODE, ISSUE, ISSUE_DIAGNOSE, ISSUE_WRITER, LITE_AGENT, LITE_PLAN ->
+                SearchPrompts.Objective.TASKS_ONLY;
         };
     }
 
@@ -360,17 +370,24 @@ public final class JobRunner {
                         (rawCodeModelName != null && !rawCodeModelName.isBlank()) ? rawCodeModelName.trim() : null;
                 var hasCodeModelOverride = trimmedCodeModelName != null;
 
-                final StreamingChatModel architectPlannerModel =
-                        (mode == Mode.ARCHITECT || mode == Mode.LUTZ || mode == Mode.PLAN || mode == Mode.ISSUE)
-                                ? resolveModelOrThrow(spec.plannerModel(), spec.reasoningLevel(), spec.temperature())
-                                : null;
-                final StreamingChatModel architectCodeModel =
-                        (mode == Mode.ARCHITECT || mode == Mode.LUTZ || mode == Mode.ISSUE)
-                                ? (trimmedCodeModelName != null
-                                        ? resolveModelOrThrow(
-                                                trimmedCodeModelName, spec.reasoningLevelCode(), spec.temperatureCode())
-                                        : defaultCodeModel(spec))
-                                : null;
+                final StreamingChatModel architectPlannerModel = (mode == Mode.ARCHITECT
+                                || mode == Mode.LUTZ
+                                || mode == Mode.PLAN
+                                || mode == Mode.ISSUE
+                                || mode == Mode.LITE_AGENT
+                                || mode == Mode.LITE_PLAN)
+                        ? resolveModelOrThrow(spec.plannerModel(), spec.reasoningLevel(), spec.temperature())
+                        : null;
+                final StreamingChatModel architectCodeModel = (mode == Mode.ARCHITECT
+                                || mode == Mode.LUTZ
+                                || mode == Mode.ISSUE
+                                || mode == Mode.LITE_AGENT
+                                || mode == Mode.LITE_PLAN)
+                        ? (trimmedCodeModelName != null
+                                ? resolveModelOrThrow(
+                                        trimmedCodeModelName, spec.reasoningLevelCode(), spec.temperatureCode())
+                                : defaultCodeModel(spec))
+                        : null;
                 final StreamingChatModel reviewPlannerModel = mode == Mode.REVIEW
                         ? resolveModelOrThrow(spec.plannerModel(), spec.reasoningLevel(), spec.temperature())
                         : null;
@@ -407,7 +424,8 @@ public final class JobRunner {
 
                 String plannerModelNameForLog =
                         switch (mode) {
-                            case ARCHITECT, LUTZ, PLAN, ISSUE -> service.nameOf(requireNonNull(architectPlannerModel));
+                            case ARCHITECT, LUTZ, PLAN, ISSUE, LITE_AGENT, LITE_PLAN ->
+                                service.nameOf(requireNonNull(architectPlannerModel));
                             case ASK -> service.nameOf(requireNonNull(askPlannerModel));
                             case SEARCH -> service.nameOf(requireNonNull(searchPlannerModel));
                             case CODE -> {
@@ -420,7 +438,8 @@ public final class JobRunner {
                         };
                 String codeModelNameForLog =
                         switch (mode) {
-                            case ARCHITECT, LUTZ, ISSUE -> service.nameOf(requireNonNull(architectCodeModel));
+                            case ARCHITECT, LUTZ, ISSUE, LITE_AGENT, LITE_PLAN ->
+                                service.nameOf(requireNonNull(architectCodeModel));
                             case ASK -> "(default, ignored for ASK)";
                             case SEARCH -> "(default, ignored for SEARCH)";
                             case PLAN -> "(default, ignored for PLAN)";
@@ -431,7 +450,7 @@ public final class JobRunner {
                         };
                 boolean usesDefaultCodeModel =
                         switch (mode) {
-                            case ARCHITECT, LUTZ, ISSUE -> !hasCodeModelOverride;
+                            case ARCHITECT, LUTZ, ISSUE, LITE_AGENT, LITE_PLAN -> !hasCodeModelOverride;
                             case ASK, SEARCH, PLAN, REVIEW, GUIDED_REVIEW, SLOP_SCAN -> true;
                             case CODE -> !hasCodeModelOverride;
                             case ISSUE_DIAGNOSE, ISSUE_WRITER -> true;
@@ -504,6 +523,43 @@ public final class JobRunner {
                                                 requireNonNull(codeModeModel, "code model unavailable for CODE jobs"));
                                         try (var scope = cm.beginTaskUngrouped(spec.taskInput())) {
                                             var result = agent.execute(spec.taskInput(), Set.of());
+                                            scope.append(result);
+                                        }
+                                    }
+                                    case LITE_AGENT, LITE_PLAN -> {
+                                        // ContextAgent scan + ArchitectAgent with build tools disabled.
+                                        // LITE_PLAN is additionally read-only and may only return a plan.
+                                        var baseGoal = spec.taskInput();
+                                        var architectGoal = (mode == Mode.LITE_PLAN)
+                                                ? baseGoal + "\n\n"
+                                                        + "[IMPORTANT: Write no code. Do not make any file changes. "
+                                                        + "Only produce a detailed implementation plan.]"
+                                                : baseGoal;
+                                        var initialContext = cm.liveContext();
+                                        var compressedHistory = cm.compressHistoryAsync(initialContext);
+                                        try (var scope = cm.beginTaskUngrouped(baseGoal)) {
+                                            var context = runContextAgentScan(
+                                                    initialContext, spec, baseGoal, requireNonNull(architectCodeModel));
+                                            scope.publish(context);
+
+                                            var architectAgent = new ArchitectAgent(
+                                                    cm,
+                                                    requireNonNull(
+                                                            architectPlannerModel,
+                                                            "plannerModel required for " + mode + " jobs"),
+                                                    requireNonNull(
+                                                            architectCodeModel,
+                                                            "code model unavailable for " + mode + " jobs"),
+                                                    architectGoal,
+                                                    scope,
+                                                    context,
+                                                    compressedHistory);
+                                            architectAgent.setAlwaysDeferBuild(true);
+                                            architectAgent.setBuildToolsEnabled(false);
+                                            if (mode == Mode.LITE_PLAN) {
+                                                architectAgent.setReadOnly(true);
+                                            }
+                                            var result = architectAgent.executeWithScan();
                                             scope.append(result);
                                         }
                                     }
@@ -1468,6 +1524,84 @@ public final class JobRunner {
         var service = cm.getService();
         var baseConfig = Service.ModelConfig.from(service.getScanModel(), service);
         return resolveModelOrThrow(baseConfig, spec.reasoningLevel(), spec.temperature());
+    }
+
+    /**
+     * Runs ContextAgent to scan the repository for files relevant to the goal,
+     * adding recommended fragments to the context.
+     */
+    private Context runContextAgentScan(Context context, JobSpec spec, String goal, StreamingChatModel codeModel)
+            throws InterruptedException {
+        StreamingChatModel scanModel;
+        try {
+            scanModel = (spec.scanModel() != null && !spec.scanModel().trim().isEmpty())
+                    ? resolveModelOrThrow(spec.scanModel().trim(), spec.reasoningLevel(), spec.temperature())
+                    : defaultScanModel(spec);
+        } catch (Exception e) {
+            logger.warn("Scan model unavailable, skipping ContextAgent scan: {}", e.getMessage());
+            return context;
+        }
+
+        var io = cm.getIo();
+        io.llmOutput(
+                "\n**Brokk Context Engine** analyzing repository context…\n",
+                ChatMessageType.AI,
+                LlmOutputMeta.newMessage());
+
+        var contextAgent = new ContextAgent(cm, scanModel, goal, io);
+        var recommendation = contextAgent.getRecommendations(context);
+
+        if (recommendation.success() && !recommendation.fragments().isEmpty()) {
+            var totalTokens = contextAgent.calculateFragmentTokens(recommendation.fragments());
+            int budget = cm.getService().getMaxInputTokens(codeModel) / 2 - Messages.getApproximateTokens(context);
+            if (totalTokens > budget) {
+                var preamble = "ContextAgent analyzed the repository and marked these fragments as highly relevant. "
+                        + "Since including all would exceed the model's context capacity, "
+                        + "their summarized descriptions are provided below:\n\n";
+                int preambleTokens = Messages.getApproximateTokens(preamble);
+                var truncationNote =
+                        "\n\n[Truncated: additional relevant fragments were omitted to fit within the model's context budget]";
+                int truncationTokens = Messages.getApproximateTokens(truncationNote);
+                // Reserve space for the preamble and potential truncation notice
+                int summaryBudget = Math.max(0, budget - preambleTokens - truncationTokens);
+
+                var sb = new StringBuilder();
+                boolean truncated = false;
+                int usedTokens = 0;
+                for (var fragment : recommendation.fragments()) {
+                    var desc = fragment.description().join();
+                    if (desc.isBlank()) {
+                        continue;
+                    }
+                    int descTokens = Messages.getApproximateTokens(desc);
+                    if (usedTokens + descTokens > summaryBudget) {
+                        truncated = true;
+                        break;
+                    }
+                    if (!sb.isEmpty()) {
+                        sb.append("\n");
+                    }
+                    sb.append(desc);
+                    usedTokens += descTokens;
+                }
+                var summaryText = preamble + sb;
+                if (truncated) {
+                    summaryText += truncationNote;
+                }
+                context = context.addFragments(List.of(new ContextFragments.StringFragment(
+                        cm, summaryText, "Summary of ContextAgent Findings", SyntaxConstants.SYNTAX_STYLE_NONE)));
+            } else {
+                context = context.addFragments(recommendation.fragments());
+                io.llmOutput(
+                        "\n\n**Brokk Context Engine** complete — contextual insights added to Workspace.\n",
+                        ChatMessageType.AI,
+                        LlmOutputMeta.DEFAULT);
+            }
+        } else {
+            io.llmOutput("\n\nNo additional context insights found\n", ChatMessageType.AI, LlmOutputMeta.DEFAULT);
+        }
+
+        return context;
     }
 
     /**
