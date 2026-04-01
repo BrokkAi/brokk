@@ -834,6 +834,10 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
     }
 
     public StreamingChatModel getModel(ModelType type) {
+        if (MainProject.isCustomProvider()) {
+            return getModelForCustomProvider(type);
+        }
+
         var cfg = project.getModelConfig(type);
         var model = getModel(cfg);
         if (model != null) {
@@ -853,6 +857,27 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
         }
 
         return new OfflineStreamingModel();
+    }
+
+    /**
+     * For custom providers, all model type slots resolve to a single custom endpoint model.
+     * Prefers the user-configured custom model, otherwise picks the first discovered model.
+     */
+    private StreamingChatModel getModelForCustomProvider(ModelType type) {
+        // Try user-configured model first
+        String customModel = MainProject.getCustomEndpointModel();
+        if (customModel.isBlank()) {
+            // Fall back to first discovered model
+            var available = getAvailableModels();
+            if (available.isEmpty()) {
+                logger.warn("No custom endpoint models available for ModelType {}", type);
+                return new OfflineStreamingModel();
+            }
+            customModel = available.keySet().iterator().next();
+        }
+        var cfg = new ModelConfig(customModel, ReasoningLevel.DEFAULT);
+        var model = getModel(cfg);
+        return model != null ? model : new OfflineStreamingModel();
     }
 
     public boolean hasSttModel() {
