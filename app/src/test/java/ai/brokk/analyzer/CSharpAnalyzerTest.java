@@ -440,7 +440,7 @@ public final class CSharpAnalyzerTest {
             var xCu = xDefs.iterator().next();
             var xSkeleton = analyzer.getSkeleton(xCu);
             assertTrue(xSkeleton.isPresent());
-            // The attribute is currently ignored/omitted by C# analyzer
+            // Should contain 'public' and NOT contain the attribute
             assertCodeEquals("public int x = 1;", xSkeleton.get());
 
             var yDefs = analyzer.getDefinitions("C.y");

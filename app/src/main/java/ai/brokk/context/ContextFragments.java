@@ -1474,7 +1474,8 @@ public class ContextFragments {
                     .flatMap(Optional::stream)
                     .toList();
 
-            StringBuilder sb = new StringBuilder("# Usages of ").append(targetIdentifier).append("\n\n");
+            StringBuilder sb =
+                    new StringBuilder("# Usages of ").append(targetIdentifier).append("\n\n");
             sb.append("Call sites (").append(externalHits.size()).append("):\n");
             externalHits.forEach(hit -> sb.append("- `")
                     .append(hit.enclosing().fqName())

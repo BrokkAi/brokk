@@ -3,11 +3,9 @@ package ai.brokk.analyzer;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.testutil.TestProject;
-import ai.brokk.testutil.TestTemplateAnalyzer;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -175,7 +173,6 @@ public class MultiAnalyzerTest {
         assertDoesNotThrow(() -> multiAnalyzer.getDeclarations(unknownFile));
         assertDoesNotThrow(() -> multiAnalyzer.getSkeletons(unknownFile));
     }
-
 
     @Test
     public void testIsTestFile_FallsBackToHeuristicsWhenDelegateLacksCapability() {
