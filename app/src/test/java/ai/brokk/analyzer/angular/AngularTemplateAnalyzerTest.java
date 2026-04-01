@@ -119,7 +119,6 @@ class AngularTemplateAnalyzerTest {
         }
     }
 
-
     @Test
     void testCodeFragmentIncludesTemplateFiles_Integration() {
         String tsCode =
@@ -210,5 +209,4 @@ class AngularTemplateAnalyzerTest {
             assertCodeContains(summary, "- logout", "Should identify event binding");
         }
     }
-
 }

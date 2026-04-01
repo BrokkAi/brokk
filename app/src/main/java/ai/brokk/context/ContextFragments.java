@@ -44,7 +44,6 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -1697,7 +1696,8 @@ public class ContextFragments {
         @Blocking
         public Set<ContextFragment> supportingFragments() {
             IAnalyzer analyzer = contextManager.getAnalyzerUninterrupted();
-            return resolveRelatedFragments(List.copyOf(analyzer.getDefinitions(fullyQualifiedName)), contextManager, false);
+            return resolveRelatedFragments(
+                    List.copyOf(analyzer.getDefinitions(fullyQualifiedName)), contextManager, false);
         }
     }
 

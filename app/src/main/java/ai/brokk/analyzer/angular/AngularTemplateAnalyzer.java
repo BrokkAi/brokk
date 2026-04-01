@@ -381,6 +381,7 @@ public class AngularTemplateAnalyzer implements ITemplateAnalyzer {
 
         @Override
         public String summarizeSymbols(ProjectFile templateFile) {
+            var defaultValue = "<!-- Unable to summarize template -->";
             return withTreeOf(
                     templateFile,
                     tree -> withSource(
@@ -389,7 +390,10 @@ public class AngularTemplateAnalyzer implements ITemplateAnalyzer {
                                     QueryType.SUMMARY,
                                     query -> {
                                         TSNode root = tree.getRootNode();
-                                        if (root == null) return "";
+                                        if (root == null) {
+                                            log.warn("Could not obtain root node for template: {}", templateFile);
+                                            return defaultValue + "\n<!-- Reason: No root node found in AST -->";
+                                        }
 
                                         Set<String> components = new TreeSet<>();
                                         Set<String> directives = new TreeSet<>();
@@ -468,7 +472,8 @@ public class AngularTemplateAnalyzer implements ITemplateAnalyzer {
                                                 && pipes.isEmpty()
                                                 && bindings.isEmpty()
                                                 && events.isEmpty()) {
-                                            return "";
+                                            log.debug("No Angular symbols captured by query for template: {}", templateFile);
+                                            return defaultValue + "\n<!-- Reason: No recognizable Angular symbols found -->";
                                         }
 
                                         StringBuilder summary = new StringBuilder();
@@ -483,9 +488,9 @@ public class AngularTemplateAnalyzer implements ITemplateAnalyzer {
                                         summary.append("-->");
                                         return summary.toString();
                                     },
-                                    ""),
-                            ""),
-                    "");
+                                    defaultValue + "\n<!-- Reason: Summary query failed or was unavailable -->"),
+                            defaultValue + "\n<!-- Reason: Template source code was unreadable -->"),
+                    defaultValue + "\n<!-- Reason: Failed to parse template AST -->");
         }
 
         private void appendCategory(StringBuilder sb, String title, Set<String> items) {
