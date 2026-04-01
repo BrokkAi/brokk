@@ -31,7 +31,10 @@ _BROKK_TRUST_URLS = [
     "https://github.com/BrokkAi/brokk-releases/releases/download/",
 ]
 _JBANG_SETUP_LOCK_PATH: Optional[Path] = None
-_JBANG_SETUP_LOCK_TIMEOUT_SECONDS = 120.0
+_DEFAULT_JBANG_TIMEOUT_SECONDS = 300.0
+_JBANG_SETUP_LOCK_TIMEOUT_SECONDS = float(
+    os.environ.get("BROKK_JBANG_TIMEOUT", _DEFAULT_JBANG_TIMEOUT_SECONDS)
+)
 
 
 class ExecutorError(Exception):
@@ -188,7 +191,7 @@ def ensure_jbang_ready() -> str:
                     cmd,
                     capture_output=True,
                     text=True,
-                    timeout=120.0,
+                    timeout=_JBANG_SETUP_LOCK_TIMEOUT_SECONDS,
                 )
                 if proc.returncode != 0:
                     stderr_hint = f": {proc.stderr.strip()}" if proc.stderr else ""
@@ -196,7 +199,11 @@ def ensure_jbang_ready() -> str:
                         f"jbang installer exited with code {proc.returncode}{stderr_hint}"
                     )
             except subprocess.TimeoutExpired:
-                raise ExecutorError("jbang installation timed out after 2 minutes")
+                timeout_s = int(_JBANG_SETUP_LOCK_TIMEOUT_SECONDS)
+                raise ExecutorError(
+                    f"jbang installation timed out after {timeout_s}s. "
+                    "Set BROKK_JBANG_TIMEOUT to a higher value."
+                )
             except ExecutorError:
                 raise
             except Exception as e:
