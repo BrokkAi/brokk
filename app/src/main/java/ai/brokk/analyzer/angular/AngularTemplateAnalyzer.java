@@ -246,6 +246,8 @@ public class AngularTemplateAnalyzer implements ITemplateAnalyzer {
      * Internal TreeSitter parser for Angular HTML templates.
      */
     static class AngularHtmlParser extends TreeSitterAnalyzer {
+        private static final Pattern CONTROL_FLOW_KEYWORD_PATTERN = Pattern.compile("[\\s(]");
+
         private static final LanguageSyntaxProfile PROFILE = new LanguageSyntaxProfile(
                 Set.of("element"), // classLikeNodeTypes
                 Set.of(), // functionLikeNodeTypes
@@ -425,7 +427,7 @@ public class AngularTemplateAnalyzer implements ITemplateAnalyzer {
                                                             // For statement nodes, the first child is usually the
                                                             // keyword
                                                             String kw = Iterables.get(
-                                                                    Splitter.on(Pattern.compile("[\\s(]"))
+                                                                    Splitter.on(CONTROL_FLOW_KEYWORD_PATTERN)
                                                                             .split(text),
                                                                     0);
                                                             if (kw != null && !kw.isEmpty()) {
