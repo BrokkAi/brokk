@@ -1316,7 +1316,7 @@ public class ContextFragments {
         }
 
         private static UsageMode inferUsageModeFromFrozenText(String snapshotText) {
-            return snapshotText.contains("Call sites (") ? UsageMode.SAMPLE : UsageMode.FULL;
+            return snapshotText.contains("\nExamples:\n") ? UsageMode.SAMPLE : UsageMode.FULL;
         }
 
         private static ContentSnapshot decodeFrozen(IContextManager contextManager, byte[] bytes) {
@@ -1474,9 +1474,19 @@ public class ContextFragments {
                     .flatMap(Optional::stream)
                     .toList();
 
-            String header = "# Usages of " + targetIdentifier + "\n\nFound " + externalHits.size() + " call sites.\n\n";
+            StringBuilder sb = new StringBuilder("# Usages of ").append(targetIdentifier).append("\n\n");
+            sb.append("Call sites (").append(externalHits.size()).append("):\n");
+            externalHits.forEach(hit -> sb.append("- `")
+                    .append(hit.enclosing().fqName())
+                    .append("` (")
+                    .append(hit.file().getFileName())
+                    .append(":")
+                    .append(hit.line())
+                    .append(")\n"));
+            sb.append("\n");
+
             String body = AnalyzerUtil.CodeWithSource.text(analyzer, parts);
-            String text = (header + body).trim();
+            String text = (sb + body).trim();
 
             Set<CodeUnit> sources = new LinkedHashSet<>(enclosingMethods);
             Set<ProjectFile> files = sources.stream().map(CodeUnit::source).collect(Collectors.toSet());
