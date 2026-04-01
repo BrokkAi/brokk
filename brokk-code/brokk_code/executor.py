@@ -32,9 +32,32 @@ _BROKK_TRUST_URLS = [
 ]
 _JBANG_SETUP_LOCK_PATH: Optional[Path] = None
 _DEFAULT_JBANG_TIMEOUT_SECONDS = 300.0
-_JBANG_SETUP_LOCK_TIMEOUT_SECONDS = float(
-    os.environ.get("BROKK_JBANG_TIMEOUT", _DEFAULT_JBANG_TIMEOUT_SECONDS)
-)
+
+
+def _parse_jbang_timeout() -> float:
+    raw = os.environ.get("BROKK_JBANG_TIMEOUT")
+    if raw is None:
+        return _DEFAULT_JBANG_TIMEOUT_SECONDS
+    try:
+        value = float(raw)
+    except ValueError:
+        logger.warning(
+            "BROKK_JBANG_TIMEOUT=%r is not a number, using default %ss",
+            raw,
+            int(_DEFAULT_JBANG_TIMEOUT_SECONDS),
+        )
+        return _DEFAULT_JBANG_TIMEOUT_SECONDS
+    if value <= 0:
+        logger.warning(
+            "BROKK_JBANG_TIMEOUT=%s must be positive, using default %ss",
+            raw,
+            int(_DEFAULT_JBANG_TIMEOUT_SECONDS),
+        )
+        return _DEFAULT_JBANG_TIMEOUT_SECONDS
+    return value
+
+
+_JBANG_SETUP_LOCK_TIMEOUT_SECONDS = _parse_jbang_timeout()
 
 
 class ExecutorError(Exception):
