@@ -1319,68 +1319,6 @@ public class ContextFragments {
             Set<ProjectFile> files = new LinkedHashSet<>();
             Set<CodeUnit> units = new LinkedHashSet<>();
 
-            // Match each <methods ...>...</methods> block
-            var blockMatcher =
-                    Pattern.compile("(?is)<methods\\s+([^>]*)>(.*?)</methods>").matcher(text);
-
-            // Support attributes with:
-            // - standard quotes: key="value"
-            // - single quotes: key='value'
-            // - backslash-escaped quotes: key=\"value\"
-            var attrPattern = Pattern.compile(
-                    "(\\w+)\\s*=\\s*(?:\"([^\"\\\\]*(?:\\\\.[^\"\\\\]*)*)\"|'([^'\\\\]*(?:\\\\.[^'\\\\]*)*)'|([^\\s>]+))");
-
-            while (blockMatcher.find()) {
-                String attrs = blockMatcher.group(1);
-
-                Map<String, String> attrMap = new HashMap<>();
-                var attrMatcher = attrPattern.matcher(attrs);
-                while (attrMatcher.find()) {
-                    String key = attrMatcher.group(1);
-                    String value = Stream.of(attrMatcher.group(2), attrMatcher.group(3), attrMatcher.group(4))
-                            .filter(Objects::nonNull)
-                            .findFirst()
-                            .orElse(null);
-                    if (value != null) {
-                        value = value.replace("\\\"", "\"").replace("\\'", "'");
-                        if ((value.startsWith("\"") && value.endsWith("\""))
-                                || (value.startsWith("'") && value.endsWith("'"))) {
-                            value = value.substring(1, value.length() - 1);
-                        }
-                        attrMap.put(key, value);
-                    }
-                }
-
-                String classFqn = Optional.ofNullable(attrMap.get("class"))
-                        .map(String::trim)
-                        .filter(s -> !s.isBlank())
-                        .orElse(null);
-                String fileRelPathRaw = Optional.ofNullable(attrMap.get("file"))
-                        .map(String::trim)
-                        .filter(s -> !s.isBlank())
-                        .orElse(null);
-
-                // Resolve file attribute if present, normalizing separators for cross-OS compatibility
-                if (fileRelPathRaw != null) {
-                    String fileRelPath = fileRelPathRaw.replace('\\', '/');
-                    try {
-                        ProjectFile pf = contextManager.toFile(fileRelPath);
-                        files.add(pf);
-                    } catch (Exception t) {
-                        logger.warn("Unable to resolve ProjectFile for '{}'", fileRelPathRaw, t);
-                    }
-                }
-
-                // Resolve class unit(s)
-                if (classFqn != null) {
-                    try {
-                        units.addAll(analyzer.getDefinitions(classFqn));
-                    } catch (Exception e) {
-                        logger.warn("Unable to resolve class CodeUnit for '{}'", classFqn, e);
-                    }
-                }
-            }
-
             // SAMPLE-mode frozen text also contains a call-site list. Rebuild sources/files from that list as well.
             var callSiteMatcher = Pattern.compile("(?m)^-\\s*`([^`]+)`(?:\\s*\\(([^)]*)\\))?\\s*$")
                     .matcher(text);
@@ -1712,29 +1650,23 @@ public class ContextFragments {
             }
 
             Set<String> allImports = new LinkedHashSet<>();
-            List<String> textBlocks = new ArrayList<>();
+            List<AnalyzerUtil.CodeWithSource> parts = new ArrayList<>();
             boolean hasAnySourceCode = false;
 
             for (CodeUnit unit : units) {
                 Set<String> sources = analyzer.getSources(unit, true);
                 if (!sources.isEmpty()) {
-                    List<AnalyzerUtil.CodeWithSource> cwsList = sources.stream()
-                            .map(src -> new AnalyzerUtil.CodeWithSource(src, unit))
-                            .toList();
-
-                    textBlocks.add(AnalyzerUtil.CodeWithSource.text(analyzer, cwsList));
+                    sources.forEach(src -> parts.add(new AnalyzerUtil.CodeWithSource(src, unit)));
                     hasAnySourceCode = true;
 
                     analyzer.as(ImportAnalysisProvider.class)
                             .map(p -> (Collection<String>) p.relevantImportsFor(unit))
                             .orElseGet(() -> analyzer.importStatementsOf(unit.source()))
                             .forEach(allImports::add);
-                } else {
-                    textBlocks.add("No source found for %s: %s".formatted(unit.kind(), unit.fqName()));
                 }
             }
 
-            String body = String.join("\n\n", textBlocks);
+            String body = AnalyzerUtil.CodeWithSource.text(analyzer, parts);
             String text;
             if (!allImports.isEmpty()) {
                 List<String> orderedImports = new ArrayList<>(allImports);

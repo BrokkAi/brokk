@@ -621,65 +621,10 @@ public class AnalyzerUtil {
         }
 
         /**
-         * Same output format as {@link #text(IAnalyzer, List)}, but uses analyzer resolution for better accuracy.
+         * Returns the joined source text from the provided parts.
          */
         public static String text(IAnalyzer analyzer, List<CodeWithSource> parts) {
-            Map<CodeUnit, List<String>> methodsByOwner = new LinkedHashMap<>();
-            List<CodeWithSource> classParts = new ArrayList<>();
-
-            for (var cws : parts) {
-                var cu = cws.source();
-                if (cu.isFunction()) {
-                    var owner = analyzer.parentOf(cu).orElse(cu);
-                    methodsByOwner
-                            .computeIfAbsent(owner, k -> new ArrayList<>())
-                            .add(cws.code());
-                } else if (cu.isClass()) {
-                    classParts.add(cws);
-                }
-            }
-
-            StringBuilder sb = new StringBuilder();
-
-            if (!methodsByOwner.isEmpty()) {
-                for (var entry : methodsByOwner.entrySet()) {
-                    var owner = entry.getKey();
-                    sb.append(
-                            """
-                            <methods class="%s" file="%s">
-                            %s
-                            </methods>
-                            """
-                                    .formatted(
-                                            owner.fqName(),
-                                            owner.source().toString(),
-                                            String.join("\n\n", entry.getValue())));
-                }
-            }
-
-            if (!classParts.isEmpty()) {
-                Map<CodeUnit, List<String>> classCodesByCu = new LinkedHashMap<>();
-                for (var cws : classParts) {
-                    var cu = cws.source();
-                    if (!cu.isClass()) continue;
-                    classCodesByCu.computeIfAbsent(cu, k -> new ArrayList<>()).add(cws.code());
-                }
-
-                for (var entry : classCodesByCu.entrySet()) {
-                    var cls = entry.getKey();
-                    var codesForClass = entry.getValue();
-
-                    sb.append(
-                            """
-                            <class file="%s">
-                            %s
-                            </class>
-                            """
-                                    .formatted(cls.source().toString(), String.join("\n\n", codesForClass)));
-                }
-            }
-
-            return sb.toString();
+            return parts.stream().map(CodeWithSource::code).collect(Collectors.joining("\n\n"));
         }
     }
 }
