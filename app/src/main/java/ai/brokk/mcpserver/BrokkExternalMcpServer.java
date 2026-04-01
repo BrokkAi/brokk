@@ -190,8 +190,7 @@ public class BrokkExternalMcpServer {
                 System.out.println("Available Tools:");
                 BASE_TOOL_NAMES.forEach(name -> System.out.printf("  - %s%n", name));
                 System.out.println();
-                System.out.println(
-                        "Additional tools (xmlSkim, xmlSelect) may be available depending on project contents.");
+                System.out.println("No additional tools beyond the base set.");
                 System.exit(0);
             }
         }
@@ -750,13 +749,6 @@ public class BrokkExternalMcpServer {
     public List<McpServerFeatures.SyncToolSpecification> toolSpecifications() {
         ToolRegistry registry = buildToolRegistryForCurrentWorkspace();
         List<String> toolNames = new ArrayList<>(BASE_TOOL_NAMES);
-        var allFiles = cm.getProject().getAllFiles();
-        boolean hasXml = allFiles.stream().anyMatch(f -> f.toString().endsWith(".xml"));
-
-        if (hasXml) {
-            toolNames.add("xmlSkim");
-            toolNames.add("xmlSelect");
-        }
 
         return registry.getTools(toolNames).stream()
                 .map(spec -> {
