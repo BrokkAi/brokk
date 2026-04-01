@@ -219,11 +219,13 @@ public class CodeFragmentTest {
         var fragment = new ContextFragments.CodeFragment(contextManager, cls);
         String text = fragment.text().join();
 
-        assertCodeContains("""
+        assertCodeContains(
+                """
                 <class file="NoImports.java">
                 class NoImports {}
                 </class>
-                """, text);
+                """,
+                text);
     }
 
     @Test
