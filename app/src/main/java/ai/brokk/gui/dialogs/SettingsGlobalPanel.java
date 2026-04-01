@@ -78,6 +78,17 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     @Nullable
     private JRadioButton localhostProxyRadio;
 
+    @Nullable
+    private JRadioButton customEndpointRadio;
+
+    // Custom endpoint fields
+    private JTextField customEndpointUrlField = new JTextField();
+    private JPasswordField customEndpointApiKeyField = new JPasswordField();
+    private JTextField customEndpointModelField = new JTextField();
+
+    @Nullable
+    private JPanel customEndpointFieldsPanel;
+
     // OpenAI OAuth connection controls
     private JLabel openAiStatusLabel = new JLabel();
     private MaterialButton openAiConnectButton = new MaterialButton("Connect");
@@ -143,11 +154,21 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         updateSignupLabelVisibility();
 
         if (brokkProxyRadio != null && localhostProxyRadio != null) {
-            if (MainProject.getProxySetting() == MainProject.LlmProxySetting.BROKK) {
+            var currentProxy = MainProject.getProxySetting();
+            if (currentProxy == MainProject.LlmProxySetting.CUSTOM && customEndpointRadio != null) {
+                customEndpointRadio.setSelected(true);
+            } else if (currentProxy == MainProject.LlmProxySetting.BROKK) {
                 brokkProxyRadio.setSelected(true);
             } else {
                 localhostProxyRadio.setSelected(true);
             }
+        }
+        // Populate custom endpoint fields
+        customEndpointUrlField.setText(MainProject.getCustomEndpointUrl());
+        customEndpointApiKeyField.setText(MainProject.getCustomEndpointApiKey());
+        customEndpointModelField.setText(MainProject.getCustomEndpointModel());
+        if (customEndpointFieldsPanel != null) {
+            customEndpointFieldsPanel.setVisible(customEndpointRadio != null && customEndpointRadio.isSelected());
         }
 
         // OpenAI connection UI and subscription gating
@@ -325,9 +346,11 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         } else {
             brokkProxyRadio = new JRadioButton("Brokk");
             localhostProxyRadio = new JRadioButton("Localhost");
+            customEndpointRadio = new JRadioButton("Custom Endpoint");
             var proxyGroup = new ButtonGroup();
             proxyGroup.add(brokkProxyRadio);
             proxyGroup.add(localhostProxyRadio);
+            proxyGroup.add(customEndpointRadio);
 
             gbc.gridx = 1;
             gbc.weightx = 1.0;
@@ -342,12 +365,73 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             gbc.insets = new Insets(0, 25, 2, 5);
             gbc.gridy = ++row;
             servicePanel.add(proxyInfoLabel, gbc);
+            gbc.insets = new Insets(2, 5, 2, 5);
+
+            gbc.gridy = ++row;
+            servicePanel.add(customEndpointRadio, gbc);
+
+            // Custom endpoint configuration fields (shown/hidden based on radio selection)
+            customEndpointFieldsPanel = new JPanel(new GridBagLayout());
+            var ceGbc = new GridBagConstraints();
+            ceGbc.insets = new Insets(2, 25, 2, 5);
+            ceGbc.anchor = GridBagConstraints.WEST;
+            ceGbc.fill = GridBagConstraints.HORIZONTAL;
+
+            ceGbc.gridx = 0;
+            ceGbc.gridy = 0;
+            ceGbc.weightx = 0;
+            customEndpointFieldsPanel.add(new JLabel("URL:"), ceGbc);
+            ceGbc.gridx = 1;
+            ceGbc.weightx = 1.0;
+            customEndpointUrlField.setToolTipText("e.g. http://localhost:11434/v1 for Ollama");
+            customEndpointFieldsPanel.add(customEndpointUrlField, ceGbc);
+
+            ceGbc.gridx = 0;
+            ceGbc.gridy = 1;
+            ceGbc.weightx = 0;
+            customEndpointFieldsPanel.add(new JLabel("API Key:"), ceGbc);
+            ceGbc.gridx = 1;
+            ceGbc.weightx = 1.0;
+            customEndpointApiKeyField.setToolTipText("Leave blank for local models that don't require auth");
+            customEndpointFieldsPanel.add(customEndpointApiKeyField, ceGbc);
+
+            ceGbc.gridx = 0;
+            ceGbc.gridy = 2;
+            ceGbc.weightx = 0;
+            customEndpointFieldsPanel.add(new JLabel("Model:"), ceGbc);
+            ceGbc.gridx = 1;
+            ceGbc.weightx = 1.0;
+            customEndpointModelField.setToolTipText(
+                    "Model name (e.g. llama3, codellama). Leave blank for auto-discovery via /v1/models");
+            customEndpointFieldsPanel.add(customEndpointModelField, ceGbc);
+
+            gbc.gridy = ++row;
+            gbc.insets = new Insets(0, 5, 2, 5);
+            servicePanel.add(customEndpointFieldsPanel, gbc);
+
+            // Toggle visibility of custom endpoint fields based on radio selection
+            var localFieldsPanel = requireNonNull(customEndpointFieldsPanel);
+            Runnable updateCustomFieldsVisibility = () -> {
+                boolean show = customEndpointRadio != null && customEndpointRadio.isSelected();
+                localFieldsPanel.setVisible(show);
+                localFieldsPanel.revalidate();
+            };
+            if (brokkProxyRadio != null) {
+                brokkProxyRadio.addActionListener(e -> updateCustomFieldsVisibility.run());
+            }
+            if (localhostProxyRadio != null) {
+                localhostProxyRadio.addActionListener(e -> updateCustomFieldsVisibility.run());
+            }
+            customEndpointRadio.addActionListener(e -> updateCustomFieldsVisibility.run());
 
             var restartLabel = new JLabel("Restart required after changing proxy settings");
             restartLabel.setFont(restartLabel.getFont().deriveFont(Font.ITALIC));
             gbc.gridy = ++row;
-            servicePanel.add(restartLabel, gbc);
             gbc.insets = new Insets(2, 5, 2, 5);
+            servicePanel.add(restartLabel, gbc);
+
+            // Set initial visibility
+            updateCustomFieldsVisibility.run();
         }
 
         // Connections section
@@ -1141,10 +1225,41 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         MainProject.LlmProxySetting proxySetting;
         if (brokkProxyRadio == null) {
             proxySetting = MainProject.getProxySetting();
+        } else if (customEndpointRadio != null && customEndpointRadio.isSelected()) {
+            proxySetting = MainProject.LlmProxySetting.CUSTOM;
         } else {
             proxySetting = brokkProxyRadio.isSelected()
                     ? MainProject.LlmProxySetting.BROKK
                     : MainProject.LlmProxySetting.LOCALHOST;
+        }
+
+        // Validate custom endpoint URL when CUSTOM is selected
+        if (proxySetting == MainProject.LlmProxySetting.CUSTOM) {
+            String url = customEndpointUrlField.getText().trim();
+            if (url.isBlank()) {
+                JOptionPane.showMessageDialog(
+                        this,
+                        "Custom endpoint URL must not be blank.",
+                        "Invalid Custom Endpoint",
+                        JOptionPane.ERROR_MESSAGE);
+                return false;
+            }
+            try {
+                var uri = URI.create(url);
+                if (uri.getScheme() == null || !uri.getScheme().matches("https?")) {
+                    throw new IllegalArgumentException("scheme must be http or https");
+                }
+                if (uri.getHost() == null || uri.getHost().isBlank()) {
+                    throw new IllegalArgumentException("host must not be blank");
+                }
+            } catch (IllegalArgumentException ex) {
+                JOptionPane.showMessageDialog(
+                        this,
+                        "Custom endpoint URL is not a valid HTTP URL: " + url,
+                        "Invalid Custom Endpoint",
+                        JOptionPane.ERROR_MESSAGE);
+                return false;
+            }
         }
 
         // Appearance: theme
@@ -2640,6 +2755,10 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         protected Void doInBackground() {
             MainProject.setBrokkKey(newBrokkKeyFromField);
             MainProject.setLlmProxySetting(proxySetting);
+            // Always save custom endpoint fields so switching radios doesn't lose the values
+            MainProject.setCustomEndpointUrl(customEndpointUrlField.getText());
+            MainProject.setCustomEndpointApiKey(new String(customEndpointApiKeyField.getPassword()));
+            MainProject.setCustomEndpointModel(customEndpointModelField.getText());
             MainProject.setTheme(newTheme);
             MainProject.setCodeBlockWrapMode(newWrapMode);
 

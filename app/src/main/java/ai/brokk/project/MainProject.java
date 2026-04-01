@@ -192,7 +192,8 @@ public final class MainProject extends AbstractProject {
     public enum LlmProxySetting {
         BROKK,
         LOCALHOST,
-        STAGING
+        STAGING,
+        CUSTOM
     }
 
     public enum StartupOpenMode {
@@ -201,6 +202,9 @@ public final class MainProject extends AbstractProject {
     }
 
     private static final String LLM_PROXY_SETTING_KEY = "llmProxySetting";
+    private static final String CUSTOM_ENDPOINT_URL_KEY = "customEndpointUrl";
+    private static final String CUSTOM_ENDPOINT_API_KEY_KEY = "customEndpointApiKey";
+    private static final String CUSTOM_ENDPOINT_MODEL_KEY = "customEndpointModel";
     public static final String BROKK_PROXY_URL = "https://proxy.brokk.ai";
     public static final String LOCALHOST_PROXY_URL = "http://localhost:4000";
     public static final String STAGING_PROXY_URL = "https://staging.brokk.ai";
@@ -950,11 +954,49 @@ public final class MainProject extends AbstractProject {
         logger.debug("Set headless proxy setting override: {}", setting != null ? setting.name() : "(cleared)");
     }
 
+    public static boolean isCustomProvider() {
+        return getProxySetting() == LlmProxySetting.CUSTOM;
+    }
+
+    public static String getCustomEndpointUrl() {
+        var props = loadGlobalProperties();
+        return props.getProperty(CUSTOM_ENDPOINT_URL_KEY, "http://localhost:11434/v1");
+    }
+
+    public static void setCustomEndpointUrl(String url) {
+        var props = loadGlobalProperties();
+        props.setProperty(CUSTOM_ENDPOINT_URL_KEY, url.trim());
+        saveGlobalProperties(props);
+    }
+
+    public static String getCustomEndpointApiKey() {
+        var props = loadGlobalProperties();
+        return props.getProperty(CUSTOM_ENDPOINT_API_KEY_KEY, "");
+    }
+
+    public static void setCustomEndpointApiKey(String apiKey) {
+        var props = loadGlobalProperties();
+        props.setProperty(CUSTOM_ENDPOINT_API_KEY_KEY, apiKey.trim());
+        saveGlobalProperties(props);
+    }
+
+    public static String getCustomEndpointModel() {
+        var props = loadGlobalProperties();
+        return props.getProperty(CUSTOM_ENDPOINT_MODEL_KEY, "");
+    }
+
+    public static void setCustomEndpointModel(String model) {
+        var props = loadGlobalProperties();
+        props.setProperty(CUSTOM_ENDPOINT_MODEL_KEY, model.trim());
+        saveGlobalProperties(props);
+    }
+
     public static String getProxyUrl() {
         return switch (getProxySetting()) {
             case BROKK -> BROKK_PROXY_URL;
             case LOCALHOST -> LOCALHOST_PROXY_URL;
             case STAGING -> STAGING_PROXY_URL;
+            case CUSTOM -> getCustomEndpointUrl();
         };
     }
 
@@ -963,6 +1005,7 @@ public final class MainProject extends AbstractProject {
             case BROKK -> BROKK_SERVICE_URL;
             case LOCALHOST -> BROKK_SERVICE_URL;
             case STAGING -> STAGING_SERVICE_URL;
+            case CUSTOM -> BROKK_SERVICE_URL; // not used for custom, but must be exhaustive
         };
     }
 
@@ -971,6 +1014,7 @@ public final class MainProject extends AbstractProject {
             case BROKK -> BROKK_FRONTEND_URL;
             case LOCALHOST -> LOCALHOST_FRONTEND_URL;
             case STAGING -> STAGING_FRONTEND_URL;
+            case CUSTOM -> BROKK_FRONTEND_URL; // not used for custom, but must be exhaustive
         };
     }
 
@@ -1552,7 +1596,16 @@ public final class MainProject extends AbstractProject {
     }
 
     // Grouped settings records for atomic batch saving
-    public record ServiceSettings(String brokkApiKey, LlmProxySetting proxySetting) {
+    public record ServiceSettings(
+            String brokkApiKey,
+            LlmProxySetting proxySetting,
+            String customEndpointUrl,
+            String customEndpointApiKey,
+            String customEndpointModel) {
+        public ServiceSettings(String brokkApiKey, LlmProxySetting proxySetting) {
+            this(brokkApiKey, proxySetting, "", "", "");
+        }
+
         public void applyTo(Properties props) {
             var existingKey = props.getProperty("brokkApiKey", "");
             if (brokkApiKey.isBlank()) {
@@ -1564,6 +1617,15 @@ public final class MainProject extends AbstractProject {
                 props.setProperty("brokkApiKey", brokkApiKey.trim());
             }
             props.setProperty(LLM_PROXY_SETTING_KEY, proxySetting.name());
+            if (!customEndpointUrl.isBlank()) {
+                props.setProperty(CUSTOM_ENDPOINT_URL_KEY, customEndpointUrl.trim());
+            }
+            if (!customEndpointApiKey.isBlank()) {
+                props.setProperty(CUSTOM_ENDPOINT_API_KEY_KEY, customEndpointApiKey.trim());
+            }
+            if (!customEndpointModel.isBlank()) {
+                props.setProperty(CUSTOM_ENDPOINT_MODEL_KEY, customEndpointModel.trim());
+            }
         }
     }
 
