@@ -19,7 +19,7 @@ import java.util.regex.Pattern;
 import org.jetbrains.annotations.Nullable;
 import org.treesitter.*;
 
-public class TypescriptAnalyzer extends JsTsAnalyzer {
+public final class TypescriptAnalyzer extends JsTsAnalyzer {
     // Compiled regex patterns for memory efficiency
     private static final Pattern TRAILING_SEMICOLON = Pattern.compile(";\\s*$");
     private static final Pattern ENUM_COMMA_CLEANUP = Pattern.compile(",\\s*\\r?\\n(\\s*})");
