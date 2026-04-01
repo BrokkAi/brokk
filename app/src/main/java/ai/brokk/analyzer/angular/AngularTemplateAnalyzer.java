@@ -13,6 +13,8 @@ import ai.brokk.analyzer.TemplateAnalysisResult;
 import ai.brokk.analyzer.TreeSitterAnalyzer;
 import ai.brokk.analyzer.cache.AnalyzerCache;
 import ai.brokk.project.IProject;
+import com.google.common.base.Splitter;
+import com.google.common.collect.Iterables;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -24,6 +26,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.regex.Pattern;
 import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -352,12 +355,10 @@ public class AngularTemplateAnalyzer implements ITemplateAnalyzer {
         protected Optional<String> extractSimpleName(TSNode node, SourceContent sourceContent) {
             if ("element".equals(node.getType())) {
                 // In tree-sitter-angular, tag_name is inside start_tag or self_closing_tag
-                for (int i = 0; i < node.getChildCount(); i++) {
-                    TSNode child = node.getChild(i);
+                for (var child : node.getChildren()) {
                     String type = child.getType();
                     if ("start_tag".equals(type) || "self_closing_tag".equals(type)) {
-                        for (int j = 0; j < child.getChildCount(); j++) {
-                            TSNode grandChild = child.getChild(j);
+                        for (var grandChild : child.getChildren()) {
                             if ("tag_name".equals(grandChild.getType())) {
                                 return Optional.of(
                                         sourceContent.substringFrom(grandChild).strip());
@@ -423,8 +424,11 @@ public class AngularTemplateAnalyzer implements ITemplateAnalyzer {
                                                         case "control_flow" -> {
                                                             // For statement nodes, the first child is usually the
                                                             // keyword
-                                                            String kw = text.split("[\\s(]")[0];
-                                                            if (!kw.isEmpty()) {
+                                                            String kw = Iterables.get(
+                                                                    Splitter.on(Pattern.compile("[\\s(]"))
+                                                                            .split(text),
+                                                                    0);
+                                                            if (kw != null && !kw.isEmpty()) {
                                                                 controlFlow.add(kw.startsWith("@") ? kw : "@" + kw);
                                                             }
                                                         }
@@ -472,8 +476,11 @@ public class AngularTemplateAnalyzer implements ITemplateAnalyzer {
                                                 && pipes.isEmpty()
                                                 && bindings.isEmpty()
                                                 && events.isEmpty()) {
-                                            log.debug("No Angular symbols captured by query for template: {}", templateFile);
-                                            return defaultValue + "\n<!-- Reason: No recognizable Angular symbols found -->";
+                                            log.debug(
+                                                    "No Angular symbols captured by query for template: {}",
+                                                    templateFile);
+                                            return defaultValue
+                                                    + "\n<!-- Reason: No recognizable Angular symbols found -->";
                                         }
 
                                         StringBuilder summary = new StringBuilder();
