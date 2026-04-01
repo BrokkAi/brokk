@@ -8,6 +8,7 @@ plugins {
 java {
     toolchain {
         languageVersion.set(JavaLanguageVersion.of(21))
+        vendor.set(JvmVendorSpec.JETBRAINS)
     }
 }
 
