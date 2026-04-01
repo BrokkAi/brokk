@@ -82,10 +82,13 @@ public class ContextFragments {
     /**
      * Resolves supporting fragments for the given code units, including direct ancestors
      * and template files/sources for component-like units.
+     *
+     * @param asSummary if true, template files are added as {@link SummaryFragment}s;
+     *                  if false, they are added as {@link ProjectPathFragment}s (full code).
      */
     @Blocking
     public static Set<ContextFragment> resolveRelatedFragments(
-            Collection<CodeUnit> units, IContextManager contextManager) {
+            Collection<CodeUnit> units, IContextManager contextManager, boolean asSummary) {
         IAnalyzer analyzer = contextManager.getAnalyzerUninterrupted();
         Set<ContextFragment> supporting = new LinkedHashSet<>();
 
@@ -120,10 +123,15 @@ public class ContextFragments {
                                 unit.shortName(),
                                 templateAnalyzer.name());
                         files.stream()
-                                .map(f -> new ProjectPathFragment(f, contextManager))
+                                .map(f -> asSummary
+                                        ? new SummaryFragment(
+                                                contextManager,
+                                                f.getRelPath().toString(),
+                                                ContextFragment.SummaryType.FILE_SKELETONS)
+                                        : new ProjectPathFragment(f, contextManager))
                                 .forEach(supporting::add);
                         foundAny = true;
-                    } else {
+                    } else if (!asSummary) {
                         var sources = templateAnalyzer.getTemplateSources(unit);
                         if (!sources.isEmpty()) {
                             logger.debug(
@@ -558,7 +566,7 @@ public class ContextFragments {
         @Blocking
         public Set<ContextFragment> supportingFragments() {
             IAnalyzer analyzer = contextManager.getAnalyzerUninterrupted();
-            return resolveRelatedFragments(analyzer.getTopLevelDeclarations(file), contextManager);
+            return resolveRelatedFragments(analyzer.getTopLevelDeclarations(file), contextManager, false);
         }
     }
 
@@ -1689,7 +1697,7 @@ public class ContextFragments {
         @Blocking
         public Set<ContextFragment> supportingFragments() {
             IAnalyzer analyzer = contextManager.getAnalyzerUninterrupted();
-            return resolveRelatedFragments(List.copyOf(analyzer.getDefinitions(fullyQualifiedName)), contextManager);
+            return resolveRelatedFragments(List.copyOf(analyzer.getDefinitions(fullyQualifiedName)), contextManager, false);
         }
     }
 
@@ -1946,7 +1954,7 @@ public class ContextFragments {
                             yield analyzer.getTopLevelDeclarations(file);
                         }
                     };
-            return resolveRelatedFragments(codeUnits, contextManager);
+            return resolveRelatedFragments(codeUnits, contextManager, true);
         }
 
         private static ContentSnapshot computeSnapshotFor(
