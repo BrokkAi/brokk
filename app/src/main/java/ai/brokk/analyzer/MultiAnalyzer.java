@@ -215,54 +215,9 @@ public class MultiAnalyzer
 
     @Override
     public Set<String> getSources(CodeUnit codeUnit, boolean includeComments) {
-        Set<String> sources = new LinkedHashSet<>();
-        var lang = Languages.fromExtension(codeUnit.source().extension());
-        var delegateOpt = delegateFor(codeUnit);
-
-        Set<String> hostSources = delegateOpt
+        return delegateFor(codeUnit)
                 .map(analyzer -> analyzer.getSources(codeUnit, includeComments))
                 .orElse(Set.of());
-
-        Map<ITemplateAnalyzer, Set<String>> templateResults = new LinkedHashMap<>();
-        for (var templateAnalyzer : templateAnalyzers) {
-            Set<String> tSources = templateAnalyzer.getTemplateSources(codeUnit);
-            if (!tSources.isEmpty()) {
-                templateResults.put(templateAnalyzer, tSources);
-            }
-        }
-
-        // Always include headers when template sources are present.
-        // If no template results, just return host sources as-is.
-        if (templateResults.isEmpty()) {
-            return hostSources;
-        }
-
-        for (String hostSource : hostSources) {
-            StringBuilder merged = new StringBuilder();
-            merged.append("/* ").append(lang.name()).append(" source */\n");
-            merged.append(hostSource.stripTrailing()).append("\n");
-
-            for (var entry : templateResults.entrySet()) {
-                ITemplateAnalyzer ta = entry.getKey();
-                for (String templateSource : entry.getValue()) {
-                    merged.append("/* ").append(ta.name()).append(" source */\n");
-                    merged.append(templateSource.stripTrailing()).append("\n");
-                }
-            }
-            sources.add(merged.toString().stripTrailing());
-        }
-
-        // Handle case where there are ONLY template sources (unlikely but possible for synthetic units)
-        if (hostSources.isEmpty()) {
-            for (var entry : templateResults.entrySet()) {
-                ITemplateAnalyzer ta = entry.getKey();
-                for (String templateSource : entry.getValue()) {
-                    sources.add("/* " + ta.name() + " source */\n" + templateSource.stripTrailing());
-                }
-            }
-        }
-
-        return sources;
     }
 
     @Override
