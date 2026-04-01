@@ -5,6 +5,13 @@ plugins {
     `java-library`
 }
 
+java {
+    toolchain {
+        languageVersion.set(JavaLanguageVersion.of(21))
+        vendor.set(JvmVendorSpec.JETBRAINS)
+    }
+}
+
 val treeSitterNgVersion = libs.versions.treesitter.get()
 val jarsDir = layout.buildDirectory.dir("jars").get().asFile
 
