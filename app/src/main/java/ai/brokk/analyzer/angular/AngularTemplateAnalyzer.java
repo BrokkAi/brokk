@@ -380,7 +380,7 @@ public class AngularTemplateAnalyzer implements ITemplateAnalyzer {
         }
 
         @Override
-        public @Nullable String summarizeSymbols(ProjectFile templateFile) {
+        public String summarizeSymbols(ProjectFile templateFile) {
             return withTreeOf(
                     templateFile,
                     tree -> withSource(
@@ -389,7 +389,7 @@ public class AngularTemplateAnalyzer implements ITemplateAnalyzer {
                                     QueryType.SUMMARY,
                                     query -> {
                                         TSNode root = tree.getRootNode();
-                                        if (root == null) return null;
+                                        if (root == null) return "";
 
                                         Set<String> components = new TreeSet<>();
                                         Set<String> directives = new TreeSet<>();
@@ -405,7 +405,8 @@ public class AngularTemplateAnalyzer implements ITemplateAnalyzer {
                                                 for (TSQueryCapture capture : match.getCaptures()) {
                                                     String name = query.getCaptureNameForId(capture.getIndex());
                                                     TSNode node = capture.getNode();
-                                                    String text = sc.substringFrom(node).strip();
+                                                    String text = sc.substringFrom(node)
+                                                            .strip();
                                                     if (node == null || text.isEmpty()) continue;
 
                                                     switch (name) {
@@ -426,16 +427,12 @@ public class AngularTemplateAnalyzer implements ITemplateAnalyzer {
                                                         case "pipe_node" -> {
                                                             // pipe_call contains the whole expression, identifier is
                                                             // the pipe name
-                                                            TSNode idNode = node.getChildByFieldName("name");
-                                                            if (idNode == null) {
-                                                                idNode = node.getChildren().stream()
-                                                                        .filter(c -> "identifier".equals(c.getType()))
-                                                                        .findFirst()
-                                                                        .orElse(null);
-                                                            }
-                                                            if (idNode != null) {
-                                                                pipes.add(sc.substringFrom(idNode).strip());
-                                                            }
+                                                            node.getChildren().stream()
+                                                                    .filter(c -> "identifier".equals(c.getType()))
+                                                                    .findFirst()
+                                                                    .ifPresent(
+                                                                            idNode -> pipes.add(sc.substringFrom(idNode)
+                                                                                    .strip()));
                                                         }
                                                         case "prop_binding" -> {
                                                             // property_binding contains [name]="val" or similar
@@ -444,7 +441,8 @@ public class AngularTemplateAnalyzer implements ITemplateAnalyzer {
                                                                             || "class_binding".equals(c.getType()))
                                                                     .map(sc::substringFrom)
                                                                     .map(String::strip)
-                                                                    .map(s -> s.replace("[", "").replace("]", ""))
+                                                                    .map(s -> s.replace("[", "")
+                                                                            .replace("]", ""))
                                                                     .filter(s -> !s.isEmpty())
                                                                     .forEach(bindings::add);
                                                         }
@@ -454,7 +452,8 @@ public class AngularTemplateAnalyzer implements ITemplateAnalyzer {
                                                                     .filter(c -> "binding_name".equals(c.getType()))
                                                                     .map(sc::substringFrom)
                                                                     .map(String::strip)
-                                                                    .map(s -> s.replace("(", "").replace(")", ""))
+                                                                    .map(s -> s.replace("(", "")
+                                                                            .replace(")", ""))
                                                                     .filter(s -> !s.isEmpty())
                                                                     .forEach(events::add);
                                                         }
@@ -469,7 +468,7 @@ public class AngularTemplateAnalyzer implements ITemplateAnalyzer {
                                                 && pipes.isEmpty()
                                                 && bindings.isEmpty()
                                                 && events.isEmpty()) {
-                                            return null;
+                                            return "";
                                         }
 
                                         StringBuilder summary = new StringBuilder();
@@ -484,9 +483,9 @@ public class AngularTemplateAnalyzer implements ITemplateAnalyzer {
                                         summary.append("-->");
                                         return summary.toString();
                                     },
-                                    null),
-                            null),
-                    null);
+                                    ""),
+                            ""),
+                    "");
         }
 
         private void appendCategory(StringBuilder sb, String title, Set<String> items) {
