@@ -17,7 +17,6 @@ import ai.brokk.agents.LutzAgent;
 import ai.brokk.agents.ReviewAgent;
 import ai.brokk.agents.ReviewScope;
 import ai.brokk.context.Context;
-import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.executor.io.HeadlessHttpConsole;
 import ai.brokk.git.GitRepo;
@@ -1528,15 +1527,41 @@ public final class JobRunner {
             var totalTokens = contextAgent.calculateFragmentTokens(recommendation.fragments());
             int budget = cm.getService().getMaxInputTokens(codeModel) / 2 - Messages.getApproximateTokens(context);
             if (totalTokens > budget) {
-                var summaries = ContextFragment.describe(recommendation.fragments().stream());
+                var preamble = "ContextAgent analyzed the repository and marked these fragments as highly relevant. "
+                        + "Since including all would exceed the model's context capacity, "
+                        + "their summarized descriptions are provided below:\n\n";
+                int preambleTokens = Messages.getApproximateTokens(preamble);
+                var truncationNote =
+                        "\n\n[Truncated: additional relevant fragments were omitted to fit within the model's context budget]";
+                int truncationTokens = Messages.getApproximateTokens(truncationNote);
+                // Reserve space for the preamble and potential truncation notice
+                int summaryBudget = Math.max(0, budget - preambleTokens - truncationTokens);
+
+                var sb = new StringBuilder();
+                boolean truncated = false;
+                int usedTokens = 0;
+                for (var fragment : recommendation.fragments()) {
+                    var desc = fragment.description().join();
+                    if (desc.isBlank()) {
+                        continue;
+                    }
+                    int descTokens = Messages.getApproximateTokens(desc);
+                    if (usedTokens + descTokens > summaryBudget) {
+                        truncated = true;
+                        break;
+                    }
+                    if (!sb.isEmpty()) {
+                        sb.append("\n");
+                    }
+                    sb.append(desc);
+                    usedTokens += descTokens;
+                }
+                var summaryText = preamble + sb;
+                if (truncated) {
+                    summaryText += truncationNote;
+                }
                 context = context.addFragments(List.of(new ContextFragments.StringFragment(
-                        cm,
-                        "ContextAgent analyzed the repository and marked these fragments as highly relevant. "
-                                + "Since including all would exceed the model's context capacity, "
-                                + "their summarized descriptions are provided below:\n\n"
-                                + summaries,
-                        "Summary of ContextAgent Findings",
-                        SyntaxConstants.SYNTAX_STYLE_NONE)));
+                        cm, summaryText, "Summary of ContextAgent Findings", SyntaxConstants.SYNTAX_STYLE_NONE)));
             } else {
                 context = context.addFragments(recommendation.fragments());
                 io.llmOutput(
