@@ -2045,21 +2045,41 @@ public class ContextFragments {
             }
 
             Map<CodeUnitKey, CodeUnitSkeleton> deduped = new LinkedHashMap<>();
+            List<String> rawTextBlocks = new ArrayList<>();
+
             for (SummaryFragment fragment : fragments) {
-                fragment.skeletonsByCodeUnit()
-                        .forEach((cu, skeleton) -> deduped.putIfAbsent(CodeUnitKey.of(cu), skeleton));
+                var skeletons = fragment.skeletonsByCodeUnit();
+                if (skeletons.isEmpty()) {
+                    String raw = fragment.text().join();
+                    if (raw != null && !raw.isBlank()) {
+                        rawTextBlocks.add(raw);
+                    }
+                } else {
+                    skeletons.forEach((cu, skeleton) -> deduped.putIfAbsent(CodeUnitKey.of(cu), skeleton));
+                }
             }
 
-            if (deduped.isEmpty()) {
-                return "";
+            StringBuilder sb = new StringBuilder();
+            if (!deduped.isEmpty()) {
+                Map<CodeUnit, String> skeletonsMap = new LinkedHashMap<>();
+                deduped.values().forEach(cus -> skeletonsMap.put(cus.codeUnit(), cus.skeleton()));
+
+                String formatted = new SkeletonFragmentFormatter()
+                        .format(new SkeletonFragmentFormatter.Request(
+                                null, List.of(), skeletonsMap, SummaryType.FILE_SKELETONS));
+                if (!formatted.isEmpty()) {
+                    sb.append(formatted);
+                }
             }
 
-            Map<CodeUnit, String> skeletonsMap = new LinkedHashMap<>();
-            deduped.values().forEach(cus -> skeletonsMap.put(cus.codeUnit(), cus.skeleton()));
+            for (String raw : rawTextBlocks) {
+                if (!sb.isEmpty()) {
+                    sb.append("\n\n");
+                }
+                sb.append(raw);
+            }
 
-            return new SkeletonFragmentFormatter()
-                    .format(new SkeletonFragmentFormatter.Request(
-                            null, List.of(), skeletonsMap, SummaryType.FILE_SKELETONS));
+            return sb.toString();
         }
 
         private static Set<CodeUnit> resolvePrimaryTargets(
