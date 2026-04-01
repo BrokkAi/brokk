@@ -64,7 +64,6 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
             case DEFINITIONS -> Optional.of("treesitter/java/definitions.scm");
             case IMPORTS -> Optional.of("treesitter/java/imports.scm");
             case IDENTIFIERS -> Optional.of("treesitter/java/identifiers.scm");
-            case SUMMARY -> Optional.empty();
         };
     }
 

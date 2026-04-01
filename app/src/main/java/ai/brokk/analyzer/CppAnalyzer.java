@@ -196,7 +196,6 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
             case DEFINITIONS -> Optional.of("treesitter/cpp/definitions.scm");
             case IMPORTS -> Optional.of("treesitter/cpp/imports.scm");
             case IDENTIFIERS -> Optional.of("treesitter/cpp/identifiers.scm");
-            case SUMMARY -> Optional.empty();
         };
     }
 

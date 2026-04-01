@@ -16,6 +16,8 @@ import ai.brokk.project.IProject;
 import com.google.common.base.Splitter;
 import com.google.common.collect.Iterables;
 import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -32,8 +34,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 import org.jspecify.annotations.NullMarked;
-import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
 import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
 import org.treesitter.TSParser;
@@ -390,110 +390,124 @@ public class AngularTemplateAnalyzer implements ITemplateAnalyzer {
         public String summarizeSymbols(ProjectFile templateFile) {
             var defaultValue = "<!-- Unable to summarize template -->";
 
-            return withSource(templateFile, sc -> {
-                String querySource;
-                try (InputStream in = AngularTemplateAnalyzer.class.getClassLoader()
-                        .getResourceAsStream("treesitter/angular/summary.scm")) {
-                    if (in == null) return defaultValue + "\n<!-- Reason: summary.scm resource missing -->";
-                    querySource = new String(in.readAllBytes(), StandardCharsets.UTF_8);
-                } catch (IOException e) {
-                    return defaultValue + "\n<!-- Reason: Failed to read summary.scm -->";
-                }
-
-                TSLanguage lang = new TreeSitterAngular();
-                try (TSParser parser = new TSParser()) {
-                    if (!parser.setLanguage(lang)) {
-                        return defaultValue + "\n<!-- Reason: Failed to set Tree-sitter language -->";
-                    }
-                    try (TSTree tree = parser.parseString(null, sc.text())) {
-                        TSNode root = tree != null ? tree.getRootNode() : null;
-                        if (root == null) {
-                            log.warn("Could not obtain root node for template: {}", templateFile);
-                            return defaultValue + "\n<!-- Reason: No root node found in AST -->";
+            return withSource(
+                    templateFile,
+                    sc -> {
+                        String querySource;
+                        try (InputStream in = AngularTemplateAnalyzer.class
+                                .getClassLoader()
+                                .getResourceAsStream("treesitter/angular/summary.scm")) {
+                            if (in == null) return defaultValue + "\n<!-- Reason: summary.scm resource missing -->";
+                            querySource = new String(in.readAllBytes(), StandardCharsets.UTF_8);
+                        } catch (IOException e) {
+                            return defaultValue + "\n<!-- Reason: Failed to read summary.scm -->";
                         }
 
-                        try (TSQuery query = new TSQuery(lang, querySource);
-                             TSQueryCursor cursor = new TSQueryCursor()) {
-                            
-                            Set<String> components = new TreeSet<>();
-                            Set<String> directives = new TreeSet<>();
-                            Set<String> controlFlow = new TreeSet<>();
-                            Set<String> pipes = new TreeSet<>();
-                            Set<String> bindings = new TreeSet<>();
-                            Set<String> events = new TreeSet<>();
+                        TSLanguage lang = new TreeSitterAngular();
+                        try (TSParser parser = new TSParser()) {
+                            if (!parser.setLanguage(lang)) {
+                                return defaultValue + "\n<!-- Reason: Failed to set Tree-sitter language -->";
+                            }
+                            try (TSTree tree = parser.parseString(null, sc.text())) {
+                                TSNode root = tree != null ? tree.getRootNode() : null;
+                                if (root == null) {
+                                    log.warn("Could not obtain root node for template: {}", templateFile);
+                                    return defaultValue + "\n<!-- Reason: No root node found in AST -->";
+                                }
 
-                            cursor.exec(query, root, sc.text());
-                            TSQueryMatch match = new TSQueryMatch();
-                            while (cursor.nextMatch(match)) {
-                                for (TSQueryCapture capture : match.getCaptures()) {
-                                    String name = query.getCaptureNameForId(capture.getIndex());
-                                    TSNode node = capture.getNode();
-                                    String text = sc.substringFrom(node).strip();
-                                    if (node == null || text.isEmpty()) continue;
+                                try (TSQuery query = new TSQuery(lang, querySource);
+                                        TSQueryCursor cursor = new TSQueryCursor()) {
 
-                                    switch (name) {
-                                        case "tag_name" -> {
-                                            if (text.contains("-")) components.add(text);
-                                        }
-                                        case "directive_name" -> {
-                                            directives.add("*" + text);
-                                        }
-                                        case "control_flow" -> {
-                                            String kw = Iterables.get(
-                                                    Splitter.on(CONTROL_FLOW_KEYWORD_PATTERN).split(text), 0);
-                                            if (kw != null && !kw.isEmpty()) {
-                                                controlFlow.add(kw.startsWith("@") ? kw : "@" + kw);
+                                    Set<String> components = new TreeSet<>();
+                                    Set<String> directives = new TreeSet<>();
+                                    Set<String> controlFlow = new TreeSet<>();
+                                    Set<String> pipes = new TreeSet<>();
+                                    Set<String> bindings = new TreeSet<>();
+                                    Set<String> events = new TreeSet<>();
+
+                                    cursor.exec(query, root, sc.text());
+                                    TSQueryMatch match = new TSQueryMatch();
+                                    while (cursor.nextMatch(match)) {
+                                        for (TSQueryCapture capture : match.getCaptures()) {
+                                            String name = query.getCaptureNameForId(capture.getIndex());
+                                            TSNode node = capture.getNode();
+                                            String text = sc.substringFrom(node).strip();
+                                            if (node == null || text.isEmpty()) continue;
+
+                                            switch (name) {
+                                                case "tag_name" -> {
+                                                    if (text.contains("-")) components.add(text);
+                                                }
+                                                case "directive_name" -> {
+                                                    directives.add("*" + text);
+                                                }
+                                                case "control_flow" -> {
+                                                    String kw = Iterables.get(
+                                                            Splitter.on(CONTROL_FLOW_KEYWORD_PATTERN)
+                                                                    .split(text),
+                                                            0);
+                                                    if (kw != null && !kw.isEmpty()) {
+                                                        controlFlow.add(kw.startsWith("@") ? kw : "@" + kw);
+                                                    }
+                                                }
+                                                case "pipe_node" -> {
+                                                    node.getChildren().stream()
+                                                            .filter(c -> "identifier".equals(c.getType()))
+                                                            .findFirst()
+                                                            .ifPresent(idNode -> pipes.add(sc.substringFrom(idNode)
+                                                                    .strip()));
+                                                }
+                                                case "prop_binding" -> {
+                                                    node.getChildren().stream()
+                                                            .filter(c -> "binding_name".equals(c.getType())
+                                                                    || "class_binding".equals(c.getType()))
+                                                            .map(sc::substringFrom)
+                                                            .map(String::strip)
+                                                            .map(s -> s.replace("[", "")
+                                                                    .replace("]", ""))
+                                                            .filter(s -> !s.isEmpty())
+                                                            .forEach(bindings::add);
+                                                }
+                                                case "evt_binding" -> {
+                                                    node.getChildren().stream()
+                                                            .filter(c -> "binding_name".equals(c.getType()))
+                                                            .map(sc::substringFrom)
+                                                            .map(String::strip)
+                                                            .map(s -> s.replace("(", "")
+                                                                    .replace(")", ""))
+                                                            .filter(s -> !s.isEmpty())
+                                                            .forEach(events::add);
+                                                }
                                             }
                                         }
-                                        case "pipe_node" -> {
-                                            node.getChildren().stream()
-                                                    .filter(c -> "identifier".equals(c.getType()))
-                                                    .findFirst()
-                                                    .ifPresent(idNode -> pipes.add(sc.substringFrom(idNode).strip()));
-                                        }
-                                        case "prop_binding" -> {
-                                            node.getChildren().stream()
-                                                    .filter(c -> "binding_name".equals(c.getType())
-                                                            || "class_binding".equals(c.getType()))
-                                                    .map(sc::substringFrom)
-                                                    .map(String::strip)
-                                                    .map(s -> s.replace("[", "").replace("]", ""))
-                                                    .filter(s -> !s.isEmpty())
-                                                    .forEach(bindings::add);
-                                        }
-                                        case "evt_binding" -> {
-                                            node.getChildren().stream()
-                                                    .filter(c -> "binding_name".equals(c.getType()))
-                                                    .map(sc::substringFrom)
-                                                    .map(String::strip)
-                                                    .map(s -> s.replace("(", "").replace(")", ""))
-                                                    .filter(s -> !s.isEmpty())
-                                                    .forEach(events::add);
-                                        }
                                     }
+
+                                    if (components.isEmpty()
+                                            && directives.isEmpty()
+                                            && controlFlow.isEmpty()
+                                            && pipes.isEmpty()
+                                            && bindings.isEmpty()
+                                            && events.isEmpty()) {
+                                        return defaultValue
+                                                + "\n<!-- Reason: No recognizable Angular symbols found -->";
+                                    }
+
+                                    StringBuilder summary = new StringBuilder();
+                                    summary.append("<!--\n");
+                                    summary.append("  Angular Template Summary\n");
+                                    appendCategory(summary, "Components", components);
+                                    appendCategory(summary, "Directives", directives);
+                                    appendCategory(summary, "Control Flow", controlFlow);
+                                    appendCategory(summary, "Pipes", pipes);
+                                    appendCategory(summary, "Bindings", bindings);
+                                    appendCategory(summary, "Events", events);
+                                    summary.append("-->");
+                                    return summary.toString();
                                 }
                             }
-
-                            if (components.isEmpty() && directives.isEmpty() && controlFlow.isEmpty()
-                                    && pipes.isEmpty() && bindings.isEmpty() && events.isEmpty()) {
-                                return defaultValue + "\n<!-- Reason: No recognizable Angular symbols found -->";
-                            }
-
-                            StringBuilder summary = new StringBuilder();
-                            summary.append("<!--\n");
-                            summary.append("  Angular Template Summary\n");
-                            appendCategory(summary, "Components", components);
-                            appendCategory(summary, "Directives", directives);
-                            appendCategory(summary, "Control Flow", controlFlow);
-                            appendCategory(summary, "Pipes", pipes);
-                            appendCategory(summary, "Bindings", bindings);
-                            appendCategory(summary, "Events", events);
-                            summary.append("-->");
-                            return summary.toString();
                         }
-                    }
-                }
-            }, defaultValue + "\n<!-- Reason: Template source code was unreadable -->");
+                    },
+                    defaultValue + "\n<!-- Reason: Template source code was unreadable -->");
         }
 
         private void appendCategory(StringBuilder sb, String title, Set<String> items) {

@@ -52,7 +52,7 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer implements JvmBasedAnalyze
         return switch (type) {
             case DEFINITIONS -> Optional.of("treesitter/scala/definitions.scm");
             case IMPORTS -> Optional.of("treesitter/scala/imports.scm");
-            case IDENTIFIERS, SUMMARY -> Optional.empty();
+            case IDENTIFIERS -> Optional.empty();
         };
     }
 
