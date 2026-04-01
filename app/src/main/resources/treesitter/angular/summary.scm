@@ -2,7 +2,9 @@
 (tag_name) @tag_name
 
 ; Attributes & Directives
-(attribute_name) @attr_name
+(attribute
+  (structural_directive
+    (identifier) @directive_name))
 
 ; Control Flow (Statement nodes)
 (if_statement) @control_flow

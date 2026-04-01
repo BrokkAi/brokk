@@ -405,21 +405,20 @@ public class AngularTemplateAnalyzer implements ITemplateAnalyzer {
                                                 for (TSQueryCapture capture : match.getCaptures()) {
                                                     String name = query.getCaptureNameForId(capture.getIndex());
                                                     TSNode node = capture.getNode();
-                                                    String text = sc.substringFrom(node)
-                                                            .strip();
-                                                    if (text.isEmpty()) continue;
+                                                    String text = sc.substringFrom(node).strip();
+                                                    if (node == null || text.isEmpty()) continue;
 
                                                     switch (name) {
                                                         case "tag_name" -> {
                                                             if (text.contains("-")) components.add(text);
                                                         }
-                                                        case "attr_name" -> {
-                                                            if (text.startsWith("*")) directives.add(text);
+                                                        case "directive_name" -> {
+                                                            directives.add("*" + text);
                                                         }
                                                         case "control_flow" -> {
                                                             // For statement nodes, the first child is usually the
                                                             // keyword
-                                                            String kw = text.split("\\s|\\(")[0];
+                                                            String kw = text.split("[\\s(]")[0];
                                                             if (!kw.isEmpty()) {
                                                                 controlFlow.add(kw.startsWith("@") ? kw : "@" + kw);
                                                             }
@@ -429,48 +428,35 @@ public class AngularTemplateAnalyzer implements ITemplateAnalyzer {
                                                             // the pipe name
                                                             TSNode idNode = node.getChildByFieldName("name");
                                                             if (idNode == null) {
-                                                                // fallback to looking for identifier children
-                                                                for (int i = 0; i < node.getChildCount(); i++) {
-                                                                    if ("identifier"
-                                                                            .equals(node.getChild(i)
-                                                                                    .getType())) {
-                                                                        idNode = node.getChild(i);
-                                                                        break;
-                                                                    }
-                                                                }
+                                                                idNode = node.getChildren().stream()
+                                                                        .filter(c -> "identifier".equals(c.getType()))
+                                                                        .findFirst()
+                                                                        .orElse(null);
                                                             }
                                                             if (idNode != null) {
-                                                                pipes.add(sc.substringFrom(idNode)
-                                                                        .strip());
+                                                                pipes.add(sc.substringFrom(idNode).strip());
                                                             }
                                                         }
                                                         case "prop_binding" -> {
                                                             // property_binding contains [name]="val" or similar
-                                                            for (int i = 0; i < node.getChildCount(); i++) {
-                                                                TSNode child = node.getChild(i);
-                                                                String type = child.getType();
-                                                                if ("binding_name".equals(type)
-                                                                        || "class_binding".equals(type)) {
-                                                                    String clean = sc.substringFrom(child)
-                                                                            .strip()
-                                                                            .replace("[", "")
-                                                                            .replace("]", "");
-                                                                    if (!clean.isEmpty()) bindings.add(clean);
-                                                                }
-                                                            }
+                                                            node.getChildren().stream()
+                                                                    .filter(c -> "binding_name".equals(c.getType())
+                                                                            || "class_binding".equals(c.getType()))
+                                                                    .map(sc::substringFrom)
+                                                                    .map(String::strip)
+                                                                    .map(s -> s.replace("[", "").replace("]", ""))
+                                                                    .filter(s -> !s.isEmpty())
+                                                                    .forEach(bindings::add);
                                                         }
                                                         case "evt_binding" -> {
                                                             // event_binding contains (name)="handler()"
-                                                            for (int i = 0; i < node.getChildCount(); i++) {
-                                                                TSNode child = node.getChild(i);
-                                                                if ("binding_name".equals(child.getType())) {
-                                                                    String clean = sc.substringFrom(child)
-                                                                            .strip()
-                                                                            .replace("(", "")
-                                                                            .replace(")", "");
-                                                                    if (!clean.isEmpty()) events.add(clean);
-                                                                }
-                                                            }
+                                                            node.getChildren().stream()
+                                                                    .filter(c -> "binding_name".equals(c.getType()))
+                                                                    .map(sc::substringFrom)
+                                                                    .map(String::strip)
+                                                                    .map(s -> s.replace("(", "").replace(")", ""))
+                                                                    .filter(s -> !s.isEmpty())
+                                                                    .forEach(events::add);
                                                         }
                                                     }
                                                 }
