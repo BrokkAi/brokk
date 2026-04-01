@@ -387,6 +387,38 @@ def test_main_mcp_help_forwarding(monkeypatch, tmp_path) -> None:
     assert captured["kwargs"]["passthrough_args"] == ["--help"]
 
 
+def test_main_exec_resolves_workspace_to_repo_root(monkeypatch, tmp_path) -> None:
+    captured: dict[str, Any] = {"ran": False}
+    repo_root = tmp_path / "repo"
+    nested_workspace = repo_root / "src" / "pkg"
+    nested_workspace.mkdir(parents=True)
+    (repo_root / ".git").mkdir()
+
+    async def fake_run_headless_job(**kwargs: Any) -> None:
+        captured["kwargs"] = kwargs
+        captured["ran"] = True
+
+    monkeypatch.setattr(main_module, "run_headless_job", fake_run_headless_job)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "brokk",
+            "exec",
+            "--workspace",
+            str(nested_workspace),
+            "Fix the bug",
+        ],
+    )
+
+    main_module.main()
+
+    assert captured["ran"] is True
+    assert captured["kwargs"]["workspace_dir"] == repo_root.resolve()
+    assert captured["kwargs"]["mode"] == "LITE_AGENT"
+    assert captured["kwargs"]["tags"] == {"mode": "LITE_AGENT"}
+
+
 def test_main_acp_accepts_legacy_ide_flag_but_ignores_it(monkeypatch, tmp_path) -> None:
     captured: dict[str, Any] = {}
     fake_acp_module = ModuleType("brokk_code.acp_server")
@@ -2917,7 +2949,7 @@ def test_main_pr_review_uses_default_planner_model(monkeypatch, tmp_path) -> Non
 
     main_module.main()
 
-    assert captured["kwargs"]["planner_model"] == "gpt-5.1"
+    assert captured["kwargs"]["planner_model"] == "gpt-5.4"
 
 
 def test_infer_github_repo_from_remote_https_format(monkeypatch, tmp_path) -> None:
