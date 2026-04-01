@@ -168,7 +168,9 @@ public class CodeFragmentTest {
                 import java.util.Map;
                 </imports>
 
+                <class file="Example.java">
                 class Example {}
+                </class>
                 """,
                 text);
     }
@@ -197,7 +199,9 @@ public class CodeFragmentTest {
                 import java.util.List;
                 </imports>
 
+                <methods class="com.example.Example.run" file="Example.java">
                 void run(List list) {}
+                </methods>
                 """,
                 text);
     }
@@ -216,7 +220,9 @@ public class CodeFragmentTest {
         String text = fragment.text().join();
 
         assertCodeContains("""
+                <class file="NoImports.java">
                 class NoImports {}
+                </class>
                 """, text);
     }
 
@@ -241,7 +247,9 @@ public class CodeFragmentTest {
                 import java.util.List;
                 </imports>
 
+                <methods class="com.example.Example.run" file="Example.java">
                 void run() {}
+                </methods>
                 """,
                 text);
     }
@@ -274,9 +282,13 @@ public class CodeFragmentTest {
                 import java.util.Map;
                 </imports>
 
+                <methods class="com.example.Overloads.verify" file="Overloads.java">
                 public static void verify(IProject p, String s) {}
+                </methods>
 
+                <methods class="com.example.Overloads.verify" file="Overloads.java">
                 public static void verify(IProject p, String s, Map m) {}
+                </methods>
                 """,
                 text);
     }
