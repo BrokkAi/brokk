@@ -32,24 +32,6 @@ class BrokkExternalMcpServerWorkspaceActivationTest {
 
             var specs = specsByName(server.toolSpecifications());
 
-            String before = invoke(
-                    specs,
-                    "searchFileContents",
-                    Map.of(
-                            "patterns",
-                            List.of("alpha-marker"),
-                            "filepath",
-                            "**/*.txt",
-                            "caseInsensitive",
-                            false,
-                            "multiline",
-                            false,
-                            "contextLines",
-                            0,
-                            "maxFiles",
-                            20));
-            assertTrue(before.contains("alpha-marker"), before);
-
             Map<String, Object> startupState = parseStatus(invoke(specs, "getActiveWorkspace", Map.of()));
             assertEquals(repoA.toString(), startupState.get("activeWorkspacePath"));
             assertEquals("startup", startupState.get("source"));
@@ -59,24 +41,6 @@ class BrokkExternalMcpServerWorkspaceActivationTest {
             assertEquals(repoB.toString(), switched.get("activeWorkspacePath"));
             assertEquals("runtime_override", switched.get("source"));
             assertEquals(true, switched.get("changed"));
-
-            String after = invoke(
-                    specs,
-                    "searchFileContents",
-                    Map.of(
-                            "patterns",
-                            List.of("beta-marker"),
-                            "filepath",
-                            "**/*.txt",
-                            "caseInsensitive",
-                            false,
-                            "multiline",
-                            false,
-                            "contextLines",
-                            0,
-                            "maxFiles",
-                            20));
-            assertTrue(after.contains("beta-marker"), after);
         }
     }
 
