@@ -192,7 +192,8 @@ public class BrokkExternalMcpServer {
                 System.out.println("Available Tools:");
                 BASE_TOOL_NAMES.forEach(name -> System.out.printf("  - %s%n", name));
                 System.out.println();
-                System.out.println("Additional tools (xmlSkim, xmlSelect, jq) may be available depending on project contents.");
+                System.out.println(
+                        "Additional tools (xmlSkim, xmlSelect, jq) may be available depending on project contents.");
                 System.exit(0);
             }
         }
