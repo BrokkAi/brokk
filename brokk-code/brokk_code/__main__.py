@@ -2097,9 +2097,8 @@ def main():
             print(f"Provider: {provider}")
             if provider == "CUSTOM":
                 print(f"  URL:    {props.get('customEndpointUrl', '(not set)')}")
-                print(
-                    f"  Model:  {props.get('customEndpointModel', '(auto-discover)') or '(auto-discover)'}"
-                )
+                model = props.get("customEndpointModel") or "(auto-discover)"
+                print(f"  Model:  {model}")
                 print(f"  API key: {'(set)' if props.get('customEndpointApiKey') else '(none)'}")
         return
 
