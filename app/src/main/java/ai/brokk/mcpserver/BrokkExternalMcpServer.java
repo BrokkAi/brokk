@@ -908,9 +908,15 @@ public class BrokkExternalMcpServer {
 
         var result = ps.execute(List.of(request), helperRegistry);
 
-        if (result.stopDetails().reason() == TaskResult.StopReason.LLM_ERROR) {
-            throw new ToolRegistry.ToolCallException(
-                    ToolExecutionResult.Status.FATAL, result.stopDetails().explanation());
+        var stopReason = result.stopDetails().reason();
+        if (stopReason != TaskResult.StopReason.SUCCESS) {
+            var status =
+                    (stopReason == TaskResult.StopReason.LLM_ERROR || stopReason == TaskResult.StopReason.INTERRUPTED)
+                            ? ToolExecutionResult.Status.FATAL
+                            : ToolExecutionResult.Status.INTERNAL_ERROR;
+            var explanation = result.stopDetails().explanation();
+            var message = explanation.isBlank() ? stopReason.toString() : explanation;
+            throw new ToolRegistry.ToolCallException(status, message);
         }
 
         return result.toolExecutionMessages().stream().map(m -> m.text()).collect(Collectors.joining("\n"));
