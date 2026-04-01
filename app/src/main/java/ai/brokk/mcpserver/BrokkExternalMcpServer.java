@@ -184,6 +184,20 @@ public class BrokkExternalMcpServer {
     public static void main(String[] args) {
         System.setProperty("java.awt.headless", "true");
 
+        for (String arg : args) {
+            if ("--help".equals(arg) || "-h".equals(arg)) {
+                System.out.println("Brokk MCP Server v" + BuildInfo.version);
+                System.out.println("Provides Model Context Protocol (MCP) access to Brokk's agentic tools.");
+                System.out.println();
+                System.out.println("Available Tools:");
+                BASE_TOOL_NAMES.forEach(name -> System.out.printf("  - %s%n", name));
+                System.out.println();
+                System.out.println(
+                        "Additional tools (xmlSkim, xmlSelect, jq) may be available depending on project contents.");
+                System.exit(0);
+            }
+        }
+
         Path projectPath = resolveProjectRoot(Path.of("."));
         logger.info("Brokk MCP Server starting");
 
@@ -196,21 +210,6 @@ public class BrokkExternalMcpServer {
             instance.activeWorkspaceRoot = startupWorkspace.workspaceRoot();
             instance.activeWorkspaceSource = WorkspaceActivationSource.STARTUP;
             instance.mcpToolCallHistoryWriter = startupWorkspace.historyWriter();
-
-            for (String arg : args) {
-                if ("--help".equals(arg) || "-h".equals(arg)) {
-                    System.out.println("Brokk MCP Server v" + BuildInfo.version);
-                    System.out.println("Provides Model Context Protocol (MCP) access to Brokk's agentic tools.");
-                    System.out.println();
-                    System.out.println("Available Tools:");
-                    instance.toolSpecifications().forEach(spec -> {
-                        System.out.printf(
-                                "  - %-20s : %s%n",
-                                spec.tool().name(), spec.tool().description());
-                    });
-                    System.exit(0);
-                }
-            }
 
             McpJsonMapper mapper = McpJsonDefaults.getMapper();
             AtomicReference<McpSyncServer> serverRef = new AtomicReference<>();
