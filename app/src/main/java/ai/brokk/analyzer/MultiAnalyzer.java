@@ -3,6 +3,7 @@ package ai.brokk.analyzer;
 import ai.brokk.IContextManager;
 import ai.brokk.project.IProject;
 import java.util.*;
+import java.util.TreeSet;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
