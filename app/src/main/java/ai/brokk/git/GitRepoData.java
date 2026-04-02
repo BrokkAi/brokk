@@ -25,6 +25,7 @@ import org.eclipse.jgit.lib.Repository;
 import org.eclipse.jgit.revwalk.RevWalk;
 import org.eclipse.jgit.treewalk.AbstractTreeIterator;
 import org.eclipse.jgit.treewalk.CanonicalTreeParser;
+import org.eclipse.jgit.treewalk.EmptyTreeIterator;
 import org.eclipse.jgit.treewalk.FileTreeIterator;
 import org.eclipse.jgit.treewalk.TreeWalk;
 import org.eclipse.jgit.treewalk.filter.PathFilter;
@@ -467,13 +468,21 @@ public class GitRepoData {
             throws GitAPIException {
         boolean wasDetectRenames = df.isDetectRenames();
         try {
-            return df.scan(oldTreeProv.get(), newTreeProv.get());
+            AbstractTreeIterator oldTree = oldTreeProv.get();
+            AbstractTreeIterator newTree = newTreeProv.get();
+            if (oldTree == null && newTree == null) return List.of();
+
+            return df.scan(orEmpty(oldTree), orEmpty(newTree));
         } catch (Exception e) {
             if (GitRepo.isMissingObjectException(e)) {
                 logger.trace("Missing object during {} scan; falling back by disabling rename detection.", context);
                 df.setDetectRenames(false);
                 try {
-                    return df.scan(oldTreeProv.get(), newTreeProv.get());
+                    AbstractTreeIterator oldTree = oldTreeProv.get();
+                    AbstractTreeIterator newTree = newTreeProv.get();
+                    if (oldTree == null && newTree == null) return List.of();
+
+                    return df.scan(orEmpty(oldTree), orEmpty(newTree));
                 } catch (Exception ex) {
                     if (GitRepo.isMissingObjectException(ex)) {
                         logger.warn("Fallback scan failed in {}: {}", context, ex.getMessage());
@@ -486,6 +495,10 @@ public class GitRepoData {
         } finally {
             df.setDetectRenames(wasDetectRenames);
         }
+    }
+
+    private static AbstractTreeIterator orEmpty(@Nullable AbstractTreeIterator it) {
+        return it != null ? it : new EmptyTreeIterator();
     }
 
     private static RuntimeException wrapException(String context, Exception e) throws GitAPIException {

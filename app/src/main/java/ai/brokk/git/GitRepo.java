@@ -2186,7 +2186,6 @@ public class GitRepo implements Closeable, IGitRepo {
                 boolean wasDetectRenames = df.isDetectRenames();
                 RevCommit parent = (commit.getParentCount() > 0) ? revWalk.parseCommit(commit.getParent(0)) : null;
                 final var newTree = commit.getTree();
-                final var oldTree = (parent == null) ? null : parent.getTree();
 
                 final RevCommit finalParent = parent;
                 List<DiffEntry> diffs = GitRepoData.scanWithFallback(
