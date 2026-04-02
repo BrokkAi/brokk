@@ -11,6 +11,7 @@ import ai.brokk.analyzer.MultiAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.concurrent.LoggingExecutorService;
 import ai.brokk.concurrent.LoggingFuture;
+import ai.brokk.project.AbstractProject;
 import ai.brokk.project.IProject;
 import ai.brokk.project.WorktreeProject;
 import ai.brokk.watchservice.AbstractWatchService;
@@ -18,10 +19,12 @@ import ai.brokk.watchservice.AbstractWatchService.EventBatch;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -112,6 +115,8 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
             if (project instanceof WorktreeProject wp) {
                 wp.warmStartAnalyzerCachesFromParent();
             }
+
+            migrateAnalyzerState();
 
             long start = System.currentTimeMillis();
             IAnalyzer analyzer = loadOrCreateAnalyzer();
@@ -736,45 +741,41 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
             } catch (IOException e) {
                 logger.debug("Failed to delete analyzer state file {}: {}", storage, e.getMessage());
             }
-
-            // Also remove legacy gzip-based filenames that may linger from older versions.
-            Path fileNamePath = storage.getFileName();
-            if (fileNamePath == null) {
-                return;
-            }
-
-            // Derive the legacy stem from the current storage filename by stripping ONLY the trailing ".lz4"
-            // Example: 'java.bin.lz4' -> legacyStem 'java.bin'
-            String name = fileNamePath.toString();
-            String legacyStem = name.endsWith(".lz4") ? name.substring(0, name.length() - 4) : name;
-
-            Path parent = storage.getParent();
-            if (parent == null) {
-                parent = project.getRoot();
-            }
-
-            Path legacyGz = parent.resolve(legacyStem + ".gz");
-            try {
-                if (Files.deleteIfExists(legacyGz)) {
-                    logger.info("Deleted legacy analyzer state file: {}", legacyGz);
-                }
-            } catch (IOException e) {
-                logger.debug("Failed to delete legacy analyzer state file {}: {}", legacyGz, e.getMessage());
-            }
-
-            Path legacyGzip = parent.resolve(legacyStem + ".gzip");
-            try {
-                if (Files.deleteIfExists(legacyGzip)) {
-                    logger.info("Deleted legacy analyzer state file: {}", legacyGzip);
-                }
-            } catch (IOException e) {
-                logger.debug("Failed to delete legacy analyzer state file {}: {}", legacyGzip, e.getMessage());
-            }
         } catch (Throwable t) {
             logger.debug(
                     "Unexpected error while attempting to delete persisted state for language {}: {}",
                     lang,
                     t.toString());
+        }
+    }
+
+    /**
+     * Migrates analyzer state files from .brokk/ to .brokk/code_intelligence/.
+     */
+    private void migrateAnalyzerState() {
+        Path brokkDir = project.getRoot().resolve(AbstractProject.BROKK_DIR);
+        if (!Files.exists(brokkDir)) {
+            return;
+        }
+
+        Path targetDir = brokkDir.resolve(AbstractProject.CODE_INTELLIGENCE_DIR);
+
+        for (Language lang : project.getAnalyzerLanguages()) {
+            if (lang == Languages.NONE) continue;
+
+            String fileName = lang.internalName().toLowerCase(Locale.ROOT) + Language.ANALYZER_STATE_SUFFIX;
+            Path oldPath = brokkDir.resolve(fileName);
+
+            if (Files.exists(oldPath)) {
+                try {
+                    Files.createDirectories(targetDir);
+                    Path newPath = targetDir.resolve(fileName);
+                    logger.info("Migrating analyzer state for {} from {} to {}", lang.name(), oldPath, newPath);
+                    Files.move(oldPath, newPath, StandardCopyOption.REPLACE_EXISTING);
+                } catch (IOException e) {
+                    logger.warn("Failed to migrate analyzer state for {}: {}", lang.name(), e.getMessage());
+                }
+            }
         }
     }
 
