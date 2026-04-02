@@ -2093,26 +2093,8 @@ public class GitRepo implements Closeable, IGitRepo {
                 for (int i = 0; i < commit.getParentCount() && !renameFound; i++) {
                     try {
                         var parent = revWalk.parseCommit(commit.getParent(i).getId());
-                        List<DiffEntry> diffs;
-                        try {
-                            diffs = diffFmt.scan(parent.getTree(), commit.getTree());
-                        } catch (Exception e) {
-                            if (isMissingObjectException(e)) {
-                                logger.trace(
-                                        "Missing object during rename detection in getFileHistoryWithPaths; falling back.");
-                                diffFmt.setDetectRenames(false);
-                                try {
-                                    diffs = diffFmt.scan(parent.getTree(), commit.getTree());
-                                } catch (Exception ex) {
-                                    logger.warn("Fallback scan failed in getFileHistoryWithPaths: {}", ex.getMessage());
-                                    diffs = List.of();
-                                } finally {
-                                    diffFmt.setDetectRenames(true);
-                                }
-                            } else {
-                                throw e;
-                            }
-                        }
+                        List<DiffEntry> diffs = GitRepoData.scanWithFallback(
+                                diffFmt, parent.getTree(), commit.getTree(), "getFileHistoryWithPaths");
 
                         for (var d : diffs) {
                             if (d.getChangeType() == DiffEntry.ChangeType.RENAME
@@ -2193,25 +2175,7 @@ public class GitRepo implements Closeable, IGitRepo {
                 final var newTree = commit.getTree();
                 final var oldTree = (parent == null) ? null : parent.getTree();
 
-                List<DiffEntry> diffs;
-                try {
-                    diffs = df.scan(oldTree, newTree);
-                } catch (Exception e) {
-                    if (isMissingObjectException(e)) {
-                        logger.trace("Missing object during rename detection in getFileHistories; falling back.");
-                        df.setDetectRenames(false);
-                        try {
-                            diffs = df.scan(oldTree, newTree);
-                        } catch (Exception ex) {
-                            logger.warn("Fallback scan failed in getFileHistories: {}", ex.getMessage());
-                            diffs = List.of();
-                        } finally {
-                            df.setDetectRenames(true);
-                        }
-                    } else {
-                        throw e;
-                    }
-                }
+                List<DiffEntry> diffs = GitRepoData.scanWithFallback(df, oldTree, newTree, "getFileHistories");
                 if (diffs.isEmpty()) continue;
 
                 final Set<String> currentPaths = new HashSet<>();
@@ -2942,27 +2906,8 @@ public class GitRepo implements Closeable, IGitRepo {
                         throw new GitWrappedIOException(e);
                     }
 
-                    List<DiffEntry> diffs;
-                    try {
-                        diffs = df.scan(parent.getTree(), commit.getTree());
-                    } catch (Exception e) {
-                        if (isMissingObjectException(e)) {
-                            logger.trace("Missing object during rename detection in buildCanonicalizer; falling back.");
-                            df.setDetectRenames(false);
-                            try {
-                                diffs = df.scan(parent.getTree(), commit.getTree());
-                            } catch (Exception ex) {
-                                logger.warn("Fallback scan failed in buildCanonicalizer: {}", ex.getMessage());
-                                diffs = List.of();
-                            } finally {
-                                df.setDetectRenames(true);
-                            }
-                        } else if (e instanceof IOException io) {
-                            throw new GitWrappedIOException(io);
-                        } else {
-                            throw e;
-                        }
-                    }
+                    List<DiffEntry> diffs = GitRepoData.scanWithFallback(
+                            df, parent.getTree(), commit.getTree(), "buildCanonicalizer");
 
                     List<Canonicalizer.RenameEdge> edgesForThisCommit = null;
                     for (var de : diffs) {
