@@ -9,20 +9,22 @@ import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import java.util.Collections;
 import org.eclipse.jgit.api.Git;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.api.errors.NoHeadException;
 import org.eclipse.jgit.diff.DiffEntry;
 import org.eclipse.jgit.diff.DiffFormatter;
+import org.eclipse.jgit.lib.AnyObjectId;
 import org.eclipse.jgit.lib.Repository;
 import org.eclipse.jgit.revwalk.RevWalk;
+import org.eclipse.jgit.treewalk.AbstractTreeIterator;
 import org.eclipse.jgit.treewalk.CanonicalTreeParser;
 import org.eclipse.jgit.treewalk.FileTreeIterator;
 import org.eclipse.jgit.treewalk.TreeWalk;
@@ -449,10 +451,8 @@ public class GitRepoData {
      * Executes {@link DiffFormatter#scan} with a fallback that disables rename detection if a missing object is encountered.
      */
     static List<DiffEntry> scanWithFallback(
-            DiffFormatter df,
-            org.eclipse.jgit.lib.AnyObjectId oldTree,
-            org.eclipse.jgit.lib.AnyObjectId newTree,
-            String context) throws GitAPIException {
+            DiffFormatter df, @Nullable AnyObjectId oldTree, @Nullable AnyObjectId newTree, String context)
+            throws GitAPIException {
         try {
             return df.scan(oldTree, newTree);
         } catch (Exception e) {
@@ -480,9 +480,10 @@ public class GitRepoData {
      */
     static List<DiffEntry> scanWithFallback(
             DiffFormatter df,
-            org.eclipse.jgit.treewalk.AbstractTreeIterator oldTree,
-            org.eclipse.jgit.treewalk.AbstractTreeIterator newTree,
-            String context) throws GitAPIException {
+            @Nullable AbstractTreeIterator oldTree,
+            @Nullable AbstractTreeIterator newTree,
+            String context)
+            throws GitAPIException {
         try {
             return df.scan(oldTree, newTree);
         } catch (Exception e) {

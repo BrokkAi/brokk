@@ -2906,8 +2906,8 @@ public class GitRepo implements Closeable, IGitRepo {
                         throw new GitWrappedIOException(e);
                     }
 
-                    List<DiffEntry> diffs = GitRepoData.scanWithFallback(
-                            df, parent.getTree(), commit.getTree(), "buildCanonicalizer");
+                    List<DiffEntry> diffs =
+                            GitRepoData.scanWithFallback(df, parent.getTree(), commit.getTree(), "buildCanonicalizer");
 
                     List<Canonicalizer.RenameEdge> edgesForThisCommit = null;
                     for (var de : diffs) {
