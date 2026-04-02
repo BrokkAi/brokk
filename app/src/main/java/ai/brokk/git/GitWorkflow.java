@@ -18,9 +18,9 @@ import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolContext;
 import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.data.message.ChatMessage;
-import dev.langchain4j.model.chat.request.ToolChoice;
 import dev.langchain4j.model.chat.request.ResponseFormat;
 import dev.langchain4j.model.chat.request.ResponseFormatType;
+import dev.langchain4j.model.chat.request.ToolChoice;
 import dev.langchain4j.model.chat.request.json.JsonArraySchema;
 import dev.langchain4j.model.chat.request.json.JsonBooleanSchema;
 import dev.langchain4j.model.chat.request.json.JsonObjectSchema;
@@ -53,6 +53,7 @@ public final class GitWorkflow {
     public record BranchDiff(List<CommitInfo> commits, List<GitRepo.ModifiedFile> files, @Nullable String mergeBase) {}
 
     public record PrSuggestion(String title, String description, boolean usedCommitMessages) {}
+
     record CommitMessageDraft(String subject, @Nullable List<String> body, boolean useBody) {}
 
     private final IContextManager cm;
@@ -176,7 +177,9 @@ public final class GitWorkflow {
                         .addProperty("subject", new JsonStringSchema())
                         .addProperty(
                                 "body",
-                                JsonArraySchema.builder().items(new JsonStringSchema()).build())
+                                JsonArraySchema.builder()
+                                        .items(new JsonStringSchema())
+                                        .build())
                         .addProperty("useBody", new JsonBooleanSchema())
                         .required("subject", "body", "useBody")
                         .additionalProperties(false)
@@ -193,20 +196,7 @@ public final class GitWorkflow {
         if (rawText == null || rawText.isBlank()) {
             return Optional.empty();
         }
-
-        var direct = parseCommitMessageDraftJson(rawText, oneLine);
-        if (direct.isPresent()) {
-            return direct;
-        }
-
-        var candidates = extractBalancedJsonObjects(rawText);
-        for (int i = candidates.size() - 1; i >= 0; i--) {
-            var parsed = parseCommitMessageDraftJson(candidates.get(i), oneLine);
-            if (parsed.isPresent()) {
-                return parsed;
-            }
-        }
-        return Optional.empty();
+        return parseCommitMessageDraftJson(rawText.trim(), oneLine);
     }
 
     private static Optional<CommitMessageDraft> parseCommitMessageDraftJson(String candidateText, boolean oneLine) {
@@ -219,8 +209,12 @@ public final class GitWorkflow {
             var subjectNode = root.get("subject");
             var bodyNode = root.get("body");
             var useBodyNode = root.get("useBody");
-            if (subjectNode == null || !subjectNode.isTextual() || bodyNode == null || !bodyNode.isArray()
-                    || useBodyNode == null || !useBodyNode.isBoolean()) {
+            if (subjectNode == null
+                    || !subjectNode.isTextual()
+                    || bodyNode == null
+                    || !bodyNode.isArray()
+                    || useBodyNode == null
+                    || !useBodyNode.isBoolean()) {
                 return Optional.empty();
             }
 
@@ -237,10 +231,6 @@ public final class GitWorkflow {
 
             var subject = subjectNode.asText().strip();
             boolean useBody = useBodyNode.asBoolean();
-            if (oneLine) {
-                useBody = false;
-                body.clear();
-            }
 
             var draft = new CommitMessageDraft(subject, body, useBody);
             return isValidCommitMessageDraft(draft, oneLine) ? Optional.of(draft) : Optional.empty();
@@ -250,7 +240,9 @@ public final class GitWorkflow {
     }
 
     private static boolean isValidCommitMessageDraft(CommitMessageDraft draft, boolean oneLine) {
-        if (draft.subject().isBlank() || draft.subject().contains("\n") || draft.subject().length() > 72) {
+        if (draft.subject().isBlank()
+                || draft.subject().contains("\n")
+                || draft.subject().length() > 72) {
             return false;
         }
         if (containsMetaNarration(draft.subject())) {
@@ -296,46 +288,6 @@ public final class GitWorkflow {
         return draft.subject() + "\n\n" + String.join("\n", body);
     }
 
-    private static List<String> extractBalancedJsonObjects(String text) {
-        var objects = new ArrayList<String>();
-        int depth = 0;
-        int start = -1;
-        boolean inString = false;
-        boolean escape = false;
-
-        for (int i = 0; i < text.length(); i++) {
-            char c = text.charAt(i);
-            if (inString) {
-                if (escape) {
-                    escape = false;
-                } else if (c == '\\') {
-                    escape = true;
-                } else if (c == '"') {
-                    inString = false;
-                }
-                continue;
-            }
-
-            if (c == '"') {
-                inString = true;
-                continue;
-            }
-
-            if (c == '{') {
-                if (depth == 0) {
-                    start = i;
-                }
-                depth++;
-            } else if (c == '}' && depth > 0) {
-                depth--;
-                if (depth == 0 && start >= 0) {
-                    objects.add(text.substring(start, i + 1));
-                    start = -1;
-                }
-            }
-        }
-        return objects;
-    }
 
     public PushPullState evaluatePushPull(String branch) throws GitAPIException {
         if (repo.isRemoteBranch(branch) || isSyntheticBranchName(branch)) {

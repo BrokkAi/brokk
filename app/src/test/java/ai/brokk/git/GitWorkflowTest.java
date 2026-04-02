@@ -7,27 +7,28 @@ import org.junit.jupiter.api.Test;
 class GitWorkflowTest {
 
     @Test
-    void parseCommitMessageDraftFindsBalancedJsonAtEndOfNarratedOutput() {
+    void parseCommitMessageDraftRejectsNarratedOutput() {
         String input =
                 """
                 Wait, let me think this through.
                 The prompt says most commits should only contain a subject line.
 
-                {"subject":"test: simplify persistence and ensure cache directories exist","body":["- Remove legacy `.gz` and `.gzip` file deletion checks.","- Legacy compressed formats are no longer supported.","- Ensure parent directories exist in `WorktreeProjectWarmStartTest`.","- This prevents cache file writing errors."],"useBody":true}
+                {"subject":"test: simplify persistence","body":[],"useBody":false}
                 """;
 
         var parsed = GitWorkflow.parseCommitMessageDraft(input, false);
+        assertEquals(true, parsed.isEmpty());
+    }
 
-        assertEquals(
+    @Test
+    void parseCommitMessageDraftAcceptsCleanJson() {
+        String input =
                 """
-                test: simplify persistence and ensure cache directories exist
+                {"subject":"test: simplify persistence","body":[],"useBody":false}
+                """;
 
-                - Remove legacy `.gz` and `.gzip` file deletion checks.
-                - Legacy compressed formats are no longer supported.
-                - Ensure parent directories exist in `WorktreeProjectWarmStartTest`.
-                - This prevents cache file writing errors.
-                """,
-                parsed.map(GitWorkflow::formatCommitMessage).orElseThrow());
+        var parsed = GitWorkflow.parseCommitMessageDraft(input, false);
+        assertEquals("test: simplify persistence", parsed.map(GitWorkflow::formatCommitMessage).orElseThrow());
     }
 
     @Test
