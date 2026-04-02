@@ -99,8 +99,8 @@ public class Environment {
 
     // Default factory creates the real runner. Tests can replace this.
     public static final BiFunction<String, Path, ShellCommandRunner> DEFAULT_SHELL_COMMAND_RUNNER_FACTORY =
-            (cmd, projectRoot) -> (outputConsumer, timeout) ->
-                    runShellCommandInternal(cmd, projectRoot, false, timeout, outputConsumer, null, Map.of(), null);
+            (cmd, projectRoot) -> (outputConsumer, timeout) -> runShellCommandInternal(
+                    cmd, projectRoot, SandboxPolicy.NONE, timeout, outputConsumer, null, Map.of(), null);
 
     public static BiFunction<String, Path, ShellCommandRunner> shellCommandRunnerFactory =
             DEFAULT_SHELL_COMMAND_RUNNER_FACTORY;
@@ -121,14 +121,14 @@ public class Environment {
     }
 
     /**
-     * Runs a shell command with optional sandbox and configurable timeout.
+     * Runs a shell command with the specified sandbox policy and configurable timeout.
      *
      * @param timeout timeout duration; {@code Duration.ZERO} or negative disables the guard
      */
     public String runShellCommand(
-            String command, Path root, boolean sandbox, Consumer<String> outputConsumer, Duration timeout)
+            String command, Path root, SandboxPolicy sandboxPolicy, Consumer<String> outputConsumer, Duration timeout)
             throws SubprocessException, InterruptedException {
-        return runShellCommandInternal(command, root, sandbox, timeout, outputConsumer, null, Map.of(), null);
+        return runShellCommandInternal(command, root, sandboxPolicy, timeout, outputConsumer, null, Map.of(), null);
     }
 
     /**
@@ -144,12 +144,33 @@ public class Environment {
             @Nullable ShellConfig shellConfig,
             Map<String, String> environment)
             throws SubprocessException, InterruptedException {
-        return runShellCommand(command, root, outputConsumer, timeout, shellConfig, environment, null);
+        return runShellCommand(
+                command, root, SandboxPolicy.NONE, outputConsumer, timeout, shellConfig, environment, null);
     }
 
     public String runShellCommand(
             String command,
             Path root,
+            Consumer<String> outputConsumer,
+            Duration timeout,
+            @Nullable ShellConfig shellConfig,
+            Map<String, String> environment,
+            @Nullable Consumer<Process> processConsumer)
+            throws SubprocessException, InterruptedException {
+        return runShellCommand(
+                command, root, SandboxPolicy.NONE, outputConsumer, timeout, shellConfig, environment, processConsumer);
+    }
+
+    /**
+     * Runs a shell command with sandbox policy, shell configuration, and environment variables.
+     *
+     * @param sandboxPolicy the sandbox policy to apply (NONE, READ_ONLY, or WORKSPACE_WRITE)
+     * @param timeout timeout duration; {@code Duration.ZERO} or negative disables the guard
+     */
+    public String runShellCommand(
+            String command,
+            Path root,
+            SandboxPolicy sandboxPolicy,
             Consumer<String> outputConsumer,
             Duration timeout,
             @Nullable ShellConfig shellConfig,
@@ -164,16 +185,16 @@ public class Environment {
             return shellCommandRunnerFactory.apply(command, root).run(outputConsumer, timeout);
         }
 
-        // Production path: use the new overload with full support
+        // Production path
         return runShellCommandInternal(
-                command, root, false, timeout, outputConsumer, shellConfig, environment, processConsumer);
+                command, root, sandboxPolicy, timeout, outputConsumer, shellConfig, environment, processConsumer);
     }
 
     /** Internal helper that supports running the command in a sandbox when requested. */
     private static String runShellCommandInternal(
             String command,
             Path root,
-            boolean sandbox,
+            SandboxPolicy sandboxPolicy,
             Duration timeout,
             Consumer<String> outputConsumer,
             @Nullable ShellConfig shellConfig,
@@ -184,7 +205,7 @@ public class Environment {
                 "Running internal `{}` in `{}` (sandbox={}, has-consumer={})",
                 command,
                 root,
-                sandbox,
+                sandboxPolicy,
                 processConsumer != null);
 
         // Resolve active shell configuration
@@ -199,55 +220,34 @@ public class Environment {
         }
 
         String[] shellCommand;
-        if (sandbox) {
+        if (sandboxPolicy.isSandboxed()) {
             if (isWindows()) {
-                throw new UnsupportedOperationException("sandboxing is not supported on Windows");
-            }
-
-            if (isMacOs()) {
-                // Build a seatbelt policy: read-only everywhere, write only inside root
-                String absPath = root.toAbsolutePath().toString();
-                String writeRule;
-                try {
-                    String realPath = root.toRealPath().toString();
-                    if (realPath.equals(absPath)) {
-                        writeRule = "(allow file-write* (subpath \"" + escapeForSeatbelt(absPath) + "\"))";
-                    } else {
-                        writeRule = "(allow file-write* (subpath \"" + escapeForSeatbelt(absPath) + "\") "
-                                + "(subpath \"" + escapeForSeatbelt(realPath) + "\"))";
-                    }
-                } catch (IOException e) {
-                    // Fallback to only the absolute path if realPath resolution fails
-                    writeRule = "(allow file-write* (subpath \"" + escapeForSeatbelt(absPath) + "\"))";
-                }
-
-                var fullPolicy = READ_ONLY_SEATBELT_POLICY + "\n" + writeRule;
-
-                // Write policy to a temporary file; avoids newline-parsing issues
-                Path policyFile;
-                try {
-                    policyFile = Files.createTempFile("brokk-seatbelt-", ".sb");
-                    AtomicWrites.save(policyFile, fullPolicy);
-                } catch (IOException e) {
-                    throw new StartupException("unable to create seatbelt policy file: " + e.getMessage(), "");
-                }
-                policyFile.toFile().deleteOnExit();
-
-                // Support custom executors in sandbox mode
-                String[] executorCommand = activeConfig.buildCommand(command);
-                String[] sandboxedCommand = new String[executorCommand.length + 4];
-                sandboxedCommand[0] = "sandbox-exec";
-                sandboxedCommand[1] = "-f";
-                sandboxedCommand[2] = policyFile.toString();
-                sandboxedCommand[3] = "--";
-                System.arraycopy(executorCommand, 0, sandboxedCommand, 4, executorCommand.length);
-                shellCommand = sandboxedCommand;
-
-                logger.info("using custom executor '{}' with sandbox", activeConfig.getDisplayName());
+                // Windows: log a warning and fall through without sandboxing.
+                // Kernel-level sandboxing on Windows requires Win32 Restricted Tokens via JNA,
+                // which is not yet implemented.
+                logger.warn(
+                        "Sandbox policy {} requested but sandboxing is not available on Windows; "
+                                + "running without sandbox",
+                        sandboxPolicy);
+                shellCommand = activeConfig.buildCommand(command);
+            } else if (isMacOs()) {
+                shellCommand = buildSeatbeltCommand(activeConfig, command, root, sandboxPolicy);
+                logger.info(
+                        "using custom executor '{}' with seatbelt sandbox ({})",
+                        activeConfig.getDisplayName(),
+                        sandboxPolicy);
             } else if (isLinux()) {
-                throw new UnsupportedOperationException("sandboxing is not supported yet on Linux");
+                shellCommand = buildBubblewrapCommand(activeConfig, command, root, sandboxPolicy);
+                logger.info(
+                        "using custom executor '{}' with bubblewrap sandbox ({})",
+                        activeConfig.getDisplayName(),
+                        sandboxPolicy);
             } else {
-                throw new UnsupportedOperationException("sandboxing is not supported on this OS");
+                logger.warn(
+                        "Sandbox policy {} requested but sandboxing is not available on this OS; "
+                                + "running without sandbox",
+                        sandboxPolicy);
+                shellCommand = activeConfig.buildCommand(command);
             }
         } else {
             shellCommand = activeConfig.buildCommand(command);
@@ -411,10 +411,127 @@ public class Environment {
     }
 
     /**
-     * Seatbelt policy that grants read access everywhere and write access only to explicitly whitelisted roots.
+     * Builds a macOS Seatbelt (sandbox-exec) command wrapping the given shell command.
+     * In READ_ONLY mode, no write rules are added; in WORKSPACE_WRITE mode, write access
+     * is granted to the project root directory.
+     */
+    private static String[] buildSeatbeltCommand(
+            ShellConfig activeConfig, String command, Path root, SandboxPolicy policy) throws StartupException {
+        String policyContent;
+        if (policy.allowsWorkspaceWrites()) {
+            // Build write rule for the project root
+            String absPath = root.toAbsolutePath().toString();
+            String writeRule;
+            try {
+                String realPath = root.toRealPath().toString();
+                if (realPath.equals(absPath)) {
+                    writeRule = "(allow file-write* (subpath \"" + escapeForSeatbelt(absPath) + "\"))";
+                } else {
+                    writeRule = "(allow file-write* (subpath \"" + escapeForSeatbelt(absPath) + "\") " + "(subpath \""
+                            + escapeForSeatbelt(realPath) + "\"))";
+                }
+            } catch (IOException e) {
+                writeRule = "(allow file-write* (subpath \"" + escapeForSeatbelt(absPath) + "\"))";
+            }
+            policyContent = SEATBELT_BASE_POLICY + "\n" + writeRule;
+        } else {
+            // READ_ONLY: no write rules at all
+            policyContent = SEATBELT_BASE_POLICY;
+        }
+
+        // Write policy to a temporary file; avoids newline-parsing issues
+        Path policyFile;
+        try {
+            policyFile = Files.createTempFile("brokk-seatbelt-", ".sb");
+            AtomicWrites.save(policyFile, policyContent);
+        } catch (IOException e) {
+            throw new StartupException("unable to create seatbelt policy file: " + e.getMessage(), "");
+        }
+        policyFile.toFile().deleteOnExit();
+
+        String[] executorCommand = activeConfig.buildCommand(command);
+        String[] sandboxedCommand = new String[executorCommand.length + 4];
+        sandboxedCommand[0] = "sandbox-exec";
+        sandboxedCommand[1] = "-f";
+        sandboxedCommand[2] = policyFile.toString();
+        sandboxedCommand[3] = "--";
+        System.arraycopy(executorCommand, 0, sandboxedCommand, 4, executorCommand.length);
+        return sandboxedCommand;
+    }
+
+    /**
+     * Builds a Linux Bubblewrap (bwrap) command wrapping the given shell command.
+     * In READ_ONLY mode, the entire filesystem is mounted read-only.
+     * In WORKSPACE_WRITE mode, the project root is bind-mounted read-write.
+     */
+    private static String[] buildBubblewrapCommand(
+            ShellConfig activeConfig, String command, Path root, SandboxPolicy policy) {
+        if (!isBubblewrapAvailable()) {
+            logger.warn("Bubblewrap (bwrap) not found on PATH; running without sandbox");
+            return activeConfig.buildCommand(command);
+        }
+
+        var bwrapArgs = new ArrayList<String>();
+        bwrapArgs.add("bwrap");
+
+        // Mount entire filesystem read-only
+        bwrapArgs.add("--ro-bind");
+        bwrapArgs.add("/");
+        bwrapArgs.add("/");
+
+        // Essential virtual filesystems
+        bwrapArgs.add("--dev");
+        bwrapArgs.add("/dev");
+        bwrapArgs.add("--proc");
+        bwrapArgs.add("/proc");
+
+        // Allow writes to /tmp for scratch files
+        bwrapArgs.add("--tmpfs");
+        bwrapArgs.add("/tmp");
+
+        if (policy.allowsWorkspaceWrites()) {
+            // Bind-mount the project root read-write
+            String absPath = root.toAbsolutePath().toString();
+            bwrapArgs.add("--bind");
+            bwrapArgs.add(absPath);
+            bwrapArgs.add(absPath);
+
+            // Also bind the real path if it differs (e.g. symlinks)
+            try {
+                String realPath = root.toRealPath().toString();
+                if (!realPath.equals(absPath)) {
+                    bwrapArgs.add("--bind");
+                    bwrapArgs.add(realPath);
+                    bwrapArgs.add(realPath);
+                }
+            } catch (IOException ignored) {
+                // If we can't resolve the real path, the absPath binding is sufficient
+            }
+        }
+
+        // Unshare all namespaces for isolation
+        bwrapArgs.add("--unshare-all");
+        // Share network (needed for build tools that fetch dependencies)
+        bwrapArgs.add("--share-net");
+
+        bwrapArgs.add("--die-with-parent");
+        bwrapArgs.add("--");
+
+        // Append the actual shell command
+        String[] executorCommand = activeConfig.buildCommand(command);
+        for (String arg : executorCommand) {
+            bwrapArgs.add(arg);
+        }
+
+        return bwrapArgs.toArray(new String[0]);
+    }
+
+    /**
+     * Seatbelt base policy that grants read access everywhere.
+     * Write rules are appended dynamically based on the SandboxPolicy.
      * Networking remains blocked.
      */
-    private static final String READ_ONLY_SEATBELT_POLICY =
+    private static final String SEATBELT_BASE_POLICY =
             """
         (version 1)
 
@@ -626,10 +743,17 @@ public class Environment {
             return existsOnPath("sandbox-exec");
         }
         if (isLinux()) {
-            // TODO
-            return false;
+            return isBubblewrapAvailable();
         }
         return false;
+    }
+
+    /** Determines if Bubblewrap (bwrap) is available on the current Linux system. */
+    public static boolean isBubblewrapAvailable() {
+        if (new File("/usr/bin/bwrap").canExecute()) {
+            return true;
+        }
+        return existsOnPath("bwrap");
     }
 
     private static boolean existsOnPath(String executable) {

@@ -133,6 +133,7 @@ public final class BuildVerifier {
             Environment.instance.runShellCommand(
                     trimmed,
                     root,
+                    SandboxPolicy.WORKSPACE_WRITE,
                     line -> {
                         synchronized (lines) {
                             appendBounded(lines, line);
@@ -143,7 +144,8 @@ public final class BuildVerifier {
                     },
                     Environment.DEFAULT_TIMEOUT,
                     execCfg,
-                    env);
+                    env,
+                    null);
 
             String output;
             synchronized (lines) {
