@@ -245,6 +245,7 @@ public final class TreeSitterStateIO {
             List<CodeUnitEntryDto> codeUnitState,
             List<FileStateEntryDto> fileState,
             List<String> symbolKeys,
+            @Nullable Map<ProjectFileDto, List<TemplateAnalysisResultDto>> templateResults,
             long snapshotEpochNanos,
             @Nullable String schemaVersion,
             @Nullable String languageInternalName) {
@@ -255,6 +256,8 @@ public final class TreeSitterStateIO {
                 @JsonProperty("codeUnitState") List<CodeUnitEntryDto> codeUnitState,
                 @JsonProperty("fileState") List<FileStateEntryDto> fileState,
                 @JsonProperty("symbolKeys") List<String> symbolKeys,
+                @JsonProperty("templateResults") @Nullable
+                        Map<ProjectFileDto, List<TemplateAnalysisResultDto>> templateResults,
                 @JsonProperty("snapshotEpochNanos") long snapshotEpochNanos,
                 @JsonProperty("schemaVersion") @Nullable String schemaVersion,
                 @JsonProperty("languageInternalName") @Nullable String languageInternalName) {
@@ -262,6 +265,7 @@ public final class TreeSitterStateIO {
             this.codeUnitState = codeUnitState;
             this.fileState = fileState;
             this.symbolKeys = symbolKeys;
+            this.templateResults = templateResults;
             this.snapshotEpochNanos = snapshotEpochNanos;
             this.schemaVersion = schemaVersion;
             this.languageInternalName = languageInternalName;
@@ -604,11 +608,27 @@ public final class TreeSitterStateIO {
             symbolKeys.add(key);
         }
 
+        // templateResults -> deep copy to DTO
+        Map<ProjectFileDto, List<TemplateAnalysisResultDto>> templateResultsCopy = new HashMap<>();
+        for (var e : state.templateResults().entrySet()) {
+            var dtos = e.getValue().stream()
+                    .map(r -> new TemplateAnalysisResultDto(
+                            r.analyzerName(),
+                            toDto(r.templateFile()),
+                            r.discoveredUnits().stream()
+                                    .map(TreeSitterStateIO::toDto)
+                                    .collect(Collectors.toSet()),
+                            r.errors()))
+                    .toList();
+            templateResultsCopy.put(toDto(e.getKey()), dtos);
+        }
+
         return new AnalyzerStateDto(
                 symbolIndexCopy,
                 cuEntries,
                 fileEntries,
                 symbolKeys,
+                templateResultsCopy.isEmpty() ? null : templateResultsCopy,
                 state.snapshotEpochNanos(),
                 CURRENT_SCHEMA.toString(),
                 language != null ? language.internalName() : null);
@@ -680,9 +700,27 @@ public final class TreeSitterStateIO {
         var unmodifiableKeys = Collections.unmodifiableNavigableSet(keySet);
         var symbolKeyIndex = new TreeSitterAnalyzer.SymbolKeyIndex(unmodifiableKeys);
 
+        // Rebuild templateResults PMap
+        Map<ProjectFile, List<TemplateAnalysisResult>> templateResultsMap = new HashMap<>();
+        if (dto.templateResults() != null) {
+            for (var entry : dto.templateResults().entrySet()) {
+                var results = entry.getValue().stream()
+                        .map(resDto -> new TemplateAnalysisResult(
+                                resDto.analyzerName(),
+                                fromDto(resDto.templateFile()),
+                                resDto.discoveredUnits().stream()
+                                        .map(TreeSitterStateIO::fromDto)
+                                        .collect(Collectors.toSet()),
+                                resDto.errors()))
+                        .toList();
+                templateResultsMap.put(fromDto(entry.getKey()), results);
+            }
+        }
+        PMap<ProjectFile, List<TemplateAnalysisResult>> templateResults = HashTreePMap.from(templateResultsMap);
+
         // Construct new immutable AnalyzerState
         return new TreeSitterAnalyzer.AnalyzerState(
-                symbolIndex, codeUnitState, fileState, symbolKeyIndex, dto.snapshotEpochNanos());
+                symbolIndex, codeUnitState, fileState, symbolKeyIndex, templateResults, dto.snapshotEpochNanos());
     }
 
     /* ================= Helpers ================= */

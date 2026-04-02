@@ -328,7 +328,18 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
             PMap<CodeUnit, CodeUnitProperties> codeUnitState,
             PMap<ProjectFile, FileProperties> fileState,
             SymbolKeyIndex symbolKeyIndex,
-            long snapshotEpochNanos) {}
+            PMap<ProjectFile, List<TemplateAnalysisResult>> templateResults,
+            long snapshotEpochNanos) {
+
+        public AnalyzerState(
+                PMap<String, Set<CodeUnit>> symbolIndex,
+                PMap<CodeUnit, CodeUnitProperties> codeUnitState,
+                PMap<ProjectFile, FileProperties> fileState,
+                SymbolKeyIndex symbolKeyIndex,
+                long snapshotEpochNanos) {
+            this(symbolIndex, codeUnitState, fileState, symbolKeyIndex, HashTreePMap.empty(), snapshotEpochNanos);
+        }
+    }
 
     // Timestamp of the last successful full-project update (epoch nanos)
     private final AtomicLong lastUpdateEpochNanos = new AtomicLong(0L);
@@ -656,6 +667,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 HashTreePMap.from(localCodeUnitState),
                 HashTreePMap.from(localFileState),
                 symbolKeyIndex,
+                HashTreePMap.empty(),
                 snapshotNanos);
 
         log.debug(
@@ -3862,6 +3874,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
                 HashTreePMap.from(newCodeUnitState),
                 HashTreePMap.from(newFileState),
                 nextSymbolKeyIndex,
+                HashTreePMap.empty(),
                 snapshotNanos);
 
         var filteredCache = createFilteredCache(this.cache, changedFiles);

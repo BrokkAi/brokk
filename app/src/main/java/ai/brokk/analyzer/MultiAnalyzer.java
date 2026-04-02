@@ -326,15 +326,26 @@ public class MultiAnalyzer
 
     @SuppressWarnings("unchecked")
     public TreeSitterAnalyzer.AnalyzerState snapshotState() {
-        // MultiAnalyzer is an aggregator; for signal purposes we provide the first available TS state
-        // This is a simplification; in a perfect world MultiAnalyzer would aggregate states.
-        TreeSitterAnalyzer.AnalyzerState firstState = null;
+        Map<String, Set<CodeUnit>> mergedSymbolIndex = new HashMap<>();
+        Map<CodeUnit, TreeSitterAnalyzer.CodeUnitProperties> mergedCodeUnitState = new HashMap<>();
+        Map<ProjectFile, TreeSitterAnalyzer.FileProperties> mergedFileState = new HashMap<>();
+        NavigableSet<String> mergedSymbolKeys = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+        long maxEpochNanos = 0;
+
         for (var delegate : delegates.values()) {
             if (delegate instanceof TreeSitterAnalyzer ts) {
                 var state = ts.snapshotState();
-                if (firstState == null) {
-                    firstState = state;
-                }
+                maxEpochNanos = Math.max(maxEpochNanos, state.snapshotEpochNanos());
+
+                // Merge indices
+                state.symbolIndex().forEach((symbol, units) -> {
+                    mergedSymbolIndex
+                            .computeIfAbsent(symbol, k -> new HashSet<>())
+                            .addAll(units);
+                    mergedSymbolKeys.add(symbol);
+                });
+                mergedCodeUnitState.putAll(state.codeUnitState());
+                mergedFileState.putAll(state.fileState());
 
                 // Process Angular component signals from metadata
                 state.codeUnitState().forEach((cu, props) -> {
@@ -348,16 +359,28 @@ public class MultiAnalyzer
             }
         }
 
-        if (firstState == null) {
-            return new TreeSitterAnalyzer.AnalyzerState(
-                    HashTreePMap.empty(),
-                    HashTreePMap.empty(),
-                    HashTreePMap.empty(),
-                    new TreeSitterAnalyzer.SymbolKeyIndex(new TreeSet<>()),
-                    System.nanoTime());
+        // Aggregate results from template analyzers
+        Map<ProjectFile, List<TemplateAnalysisResult>> aggregatedTemplateResults = new HashMap<>();
+        for (var templateAnalyzer : templateAnalyzers) {
+            var results = templateAnalyzer.snapshotState();
+            for (var result : results) {
+                aggregatedTemplateResults
+                        .computeIfAbsent(result.templateFile(), k -> new ArrayList<>())
+                        .add(result);
+            }
         }
 
-        return firstState;
+        if (maxEpochNanos == 0) {
+            maxEpochNanos = System.nanoTime();
+        }
+
+        return new TreeSitterAnalyzer.AnalyzerState(
+                HashTreePMap.from(mergedSymbolIndex),
+                HashTreePMap.from(mergedCodeUnitState),
+                HashTreePMap.from(mergedFileState),
+                new TreeSitterAnalyzer.SymbolKeyIndex(Collections.unmodifiableNavigableSet(mergedSymbolKeys)),
+                HashTreePMap.from(aggregatedTemplateResults),
+                maxEpochNanos);
     }
 
     /**

@@ -9,7 +9,7 @@ import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.MultiAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.analyzer.TreeSitterStateIO;
+import ai.brokk.analyzer.TreeSitterAnalyzer;
 import ai.brokk.concurrent.LoggingExecutorService;
 import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.project.IProject;
@@ -315,16 +315,6 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
                 logger.debug("No template analyzers discovered for this project.");
             }
 
-            Path templateStorage = getTemplateStoragePath();
-            if (Files.exists(templateStorage)) {
-                var savedResults = TreeSitterStateIO.loadTemplateState(templateStorage);
-                for (var ta : templates) {
-                    ta.restoreState(savedResults.stream()
-                            .filter(r -> r.analyzerName().equals(ta.name()))
-                            .toList());
-                }
-            }
-
             if (nextDelegates.isEmpty()) {
                 return new DisabledAnalyzer(project);
             } else if (nextDelegates.size() == 1 && templates.isEmpty()) {
@@ -363,16 +353,6 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
                     templates.stream().map(it -> it.name()).collect(Collectors.joining(", ")));
         } else {
             logger.debug("No template analyzers discovered for this project.");
-        }
-
-        Path templateStorage = getTemplateStoragePath();
-        if (Files.exists(templateStorage)) {
-            var savedResults = TreeSitterStateIO.loadTemplateState(templateStorage);
-            for (var ta : templates) {
-                ta.restoreState(savedResults.stream()
-                        .filter(r -> r.analyzerName().equals(ta.name()))
-                        .toList());
-            }
         }
 
         if (langHandle == Languages.NONE) {
@@ -424,6 +404,18 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
                     logger.debug("Attempting to load existing analyzer for {}", lang.name());
                     IAnalyzer delegate = lang.loadAnalyzer(project, progressListener);
                     nextDelegates.put(lang, delegate);
+
+                    // Restore template analyzer state from loaded TreeSitter state if available
+                    if (delegate instanceof TreeSitterAnalyzer ts) {
+                        var templateResults = ts.snapshotState().templateResults();
+                        for (var ta : templates) {
+                            var relevantResults = templateResults.values().stream()
+                                    .flatMap(List::stream)
+                                    .filter(r -> r.analyzerName().equals(ta.internalName()))
+                                    .toList();
+                            ta.restoreState(relevantResults);
+                        }
+                    }
                 } catch (Throwable th) {
                     logger.warn("Failed to load cached analyzer for {}, creating fresh", lang.name(), th);
                     IAnalyzer delegate = lang.createAnalyzer(project, progressListener);
@@ -447,7 +439,7 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
             StateMismatch delta = mismatch.get();
             logger.warn(
                     "Loaded analyzer state appears corrupt (file mismatch). Attempting targeted repair of {} files.",
-                    delta.missing().size() + delta.unexpected().size());
+                    delta.all().size());
 
             analyzer = analyzer.update(delta.all());
 
@@ -776,6 +768,10 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
         }
     }
 
+    private Path getTemplateStoragePath() {
+        return project.getRoot().resolve(".brokk/code_intelligence/template/state.bin.lz4");
+    }
+
     private void deleteStateForLanguage(Language lang) {
         if (lang == Languages.NONE) {
             return;
@@ -833,25 +829,10 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
         }
     }
 
-    private Path getTemplateStoragePath() {
-        return project.getRoot().resolve(".brokk/code_intelligence/template/state.bin.lz4");
-    }
-
     /**
      * Persist per-language analyzer snapshots if the sub-analyzers are TreeSitter-backed.
      */
     private void persistAnalyzerState(IAnalyzer analyzer) {
-        if (analyzer instanceof MultiAnalyzer ma) {
-            LoggingFuture.runAsync(() -> {
-                Path path = getTemplateStoragePath();
-                var results = ma.getTemplateAnalyzers().stream()
-                        .flatMap(ta -> ta.snapshotState().stream())
-                        .toList();
-                if (!results.isEmpty()) {
-                    TreeSitterStateIO.saveTemplateState(results, path);
-                }
-            });
-        }
         var langs = analyzer.languages();
         if (langs.isEmpty()) {
             logger.trace(

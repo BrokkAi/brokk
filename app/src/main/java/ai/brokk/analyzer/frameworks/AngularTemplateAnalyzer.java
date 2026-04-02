@@ -205,7 +205,9 @@ public class AngularTemplateAnalyzer implements ITemplateAnalyzer {
 
     @Override
     public List<TemplateAnalysisResult> snapshotState() {
-        return new ArrayList<>(results.values());
+        synchronized (results) {
+            return new ArrayList<>(results.values());
+        }
     }
 
     @Override
