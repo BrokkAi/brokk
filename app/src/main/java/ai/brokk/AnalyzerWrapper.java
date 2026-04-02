@@ -4,6 +4,7 @@ import static java.util.Objects.requireNonNull;
 
 import ai.brokk.agents.BuildAgent;
 import ai.brokk.analyzer.DisabledAnalyzer;
+import ai.brokk.analyzer.FrameworkTemplates;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
@@ -305,7 +306,7 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
                 }
             }
 
-            var templates = Languages.discoverTemplateAnalyzers(project, projectLangs);
+            var templates = FrameworkTemplates.discoverTemplateAnalyzers(project, projectLangs);
             if (!templates.isEmpty()) {
                 logger.info(
                         "Discovered {} template analyzers: {}",
@@ -345,7 +346,7 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
         Set<Language> projectLangsSet = project.getAnalyzerLanguages();
         Language langHandle = Languages.aggregate(projectLangsSet);
 
-        var templates = Languages.discoverTemplateAnalyzers(project, projectLangsSet);
+        var templates = FrameworkTemplates.discoverTemplateAnalyzers(project, projectLangsSet);
         if (!templates.isEmpty()) {
             logger.info(
                     "Discovered {} template analyzers: {}",
@@ -520,7 +521,7 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
 
         // Check for template analyzer mismatch
         boolean templateMismatch = false;
-        var expectedTemplates = Languages.discoverTemplateAnalyzers(project, projectLangs).stream()
+        var expectedTemplates = FrameworkTemplates.discoverTemplateAnalyzers(project, projectLangs).stream()
                 .map(it -> it.internalName())
                 .collect(Collectors.toSet());
         var actualTemplates = (analyzer instanceof MultiAnalyzer ma)
@@ -762,14 +763,27 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
             for (var lang : languages) {
                 deleteStateForLanguage(lang);
             }
-            Files.deleteIfExists(getTemplateStoragePath());
+
+            // Delete persisted framework template analyzer state (per framework, by internal name)
+            var langs = project.getAnalyzerLanguages().stream()
+                    .filter(l -> l != Languages.NONE)
+                    .collect(Collectors.toSet());
+            for (var template : FrameworkTemplates.discoverTemplates(project, langs)) {
+                try {
+                    Files.deleteIfExists(template.getStoragePath(project));
+                } catch (IOException e) {
+                    logger.debug(
+                            "Failed to delete framework template state file {}: {}",
+                            template.getStoragePath(project),
+                            e.getMessage());
+                }
+            }
+
+            // Legacy location cleanup (migration)
+            Files.deleteIfExists(project.getRoot().resolve(".brokk/code_intelligence/template/state.bin.lz4"));
         } catch (Throwable t) {
             logger.debug("Unexpected error in deletePersistedAnalyzerStateFiles(): {}", t.toString());
         }
-    }
-
-    private Path getTemplateStoragePath() {
-        return project.getRoot().resolve(".brokk/code_intelligence/template/state.bin.lz4");
     }
 
     private void deleteStateForLanguage(Language lang) {

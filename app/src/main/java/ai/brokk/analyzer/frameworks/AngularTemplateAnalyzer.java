@@ -3,6 +3,7 @@ package ai.brokk.analyzer.frameworks;
 import ai.brokk.IContextManager;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.CodeUnitType;
+import ai.brokk.analyzer.FrameworkTemplate;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ITemplateAnalyzer;
 import ai.brokk.analyzer.Language;
@@ -47,7 +48,7 @@ import org.treesitter.TreeSitterAngular;
  * Detects Angular components and analyzes their HTML templates.
  */
 @NullMarked
-public class AngularTemplateAnalyzer implements ITemplateAnalyzer {
+public class AngularTemplateAnalyzer implements ITemplateAnalyzer, FrameworkTemplate {
     private static final Logger log = LogManager.getLogger(AngularTemplateAnalyzer.class);
 
     private final Map<ProjectFile, TemplateAnalysisResult> results = Collections.synchronizedMap(new HashMap<>());
