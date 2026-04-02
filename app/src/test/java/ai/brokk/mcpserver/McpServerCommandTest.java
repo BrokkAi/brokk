@@ -27,7 +27,8 @@ class McpServerCommandTest {
                     "searchSymbols",
                     "scanUsages",
                     "getFileSummaries",
-                    "searchFileContents",
+                    "callSearchAgent",
+                    "callCodeAgent",
                     "getClassSources",
                     "getMethodSources")));
         }

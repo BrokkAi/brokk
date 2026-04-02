@@ -276,6 +276,9 @@ public class LutzAgent {
         tools.add("addFilesToWorkspace");
         tools.add("addUrlContentsToWorkspace");
 
+        // Shell command execution
+        tools.add("runShellCommand");
+
         if (!mcpTools.isEmpty()) {
             tools.add("callMcpTool");
         }

@@ -1,5 +1,6 @@
 package ai.brokk.gui.components;
 
+import ai.brokk.AbstractService;
 import ai.brokk.Service;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.dialogs.SettingsAdvancedPanel;
@@ -10,6 +11,7 @@ import java.awt.event.KeyEvent;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map.Entry;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
@@ -33,6 +35,25 @@ public class ModelSelector {
     private volatile List<Service.FavoriteModel> cachedFavorites = Collections.emptyList();
     private final List<Consumer<Service.ModelConfig>> selectionListeners = new ArrayList<>();
 
+    /**
+     * Returns the effective model list for the selector.
+     * For custom providers, builds favorites dynamically from discovered endpoint models.
+     * For standard providers, returns the user's stored favorite models.
+     */
+    private List<Service.FavoriteModel> loadEffectiveFavorites() {
+        if (MainProject.isCustomProvider()) {
+            var service = chrome.getContextManager().getService();
+            var available = service.getAvailableModels();
+            return available.entrySet().stream()
+                    .sorted(Entry.comparingByValue())
+                    .map(e -> new Service.FavoriteModel(
+                            e.getValue(),
+                            new AbstractService.ModelConfig(e.getKey(), AbstractService.ReasoningLevel.DEFAULT)))
+                    .toList();
+        }
+        return MainProject.loadFavoriteModels();
+    }
+
     public ModelSelector(Chrome chrome) {
         this.chrome = chrome;
         this.splitButton = new SplitButton("No Model", true);
@@ -40,10 +61,10 @@ public class ModelSelector {
 
         Supplier<JPopupMenu> menuSupplier = () -> {
             var menu = new JPopupMenu();
-            var favorites = MainProject.loadFavoriteModels();
+            var favorites = loadEffectiveFavorites();
             cachedFavorites = favorites;
 
-            if (!MainProject.isOpenAiCodexOauthConnected()) {
+            if (!MainProject.isCustomProvider() && !MainProject.isOpenAiCodexOauthConnected()) {
                 var service = chrome.getContextManager().getService();
                 favorites = favorites.stream()
                         .filter(fm -> !service.isCodexModel(fm.config().name()))
@@ -143,7 +164,7 @@ public class ModelSelector {
 
         refresh(); // make sure the button is up to date
 
-        var favorites = MainProject.loadFavoriteModels();
+        var favorites = loadEffectiveFavorites();
         cachedFavorites = favorites;
         for (var fm : favorites) {
             if (fm.config().equals(desired)) {
@@ -175,7 +196,7 @@ public class ModelSelector {
         Runnable task = () -> {
             updating.set(true);
             try {
-                var favorites = MainProject.loadFavoriteModels();
+                var favorites = loadEffectiveFavorites();
                 cachedFavorites = favorites;
                 if (lastSelected != null) {
                     // Try to re-select the last favorite if present
@@ -212,6 +233,15 @@ public class ModelSelector {
         @Nullable Service.FavoriteModel priorSelection = lastSelected;
 
         try {
+            if (MainProject.isCustomProvider()) {
+                // For custom providers, open settings to the Global tab (endpoint config)
+                SettingsDialog.showSettingsDialog(chrome, "Global");
+                dialogOpen = false;
+                // Refresh from discovered models after settings change
+                refresh();
+                return;
+            }
+
             // Preserve previous "no models available" warning behavior
             String[] availableModelNames =
                     service.getAvailableModels().keySet().stream().sorted().toArray(String[]::new);

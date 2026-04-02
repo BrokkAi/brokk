@@ -8,6 +8,8 @@ import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
 import ai.brokk.LlmOutputMeta;
 import ai.brokk.MutedConsoleIO;
+import ai.brokk.TaskResult;
+import ai.brokk.agents.CodeAgent;
 import ai.brokk.agents.ContextAgent;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
@@ -16,14 +18,18 @@ import ai.brokk.analyzer.usages.FuzzyResult;
 import ai.brokk.analyzer.usages.UsageFinder;
 import ai.brokk.analyzer.usages.UsageHit;
 import ai.brokk.cli.MemoryConsole;
+import ai.brokk.context.Context;
+import ai.brokk.context.ContextDelta;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments.SummaryFragment;
 import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
+import ai.brokk.project.ModelProperties;
+import ai.brokk.tools.ParallelSearch;
 import ai.brokk.tools.SearchTools;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
-import ai.brokk.util.Environment;
+import ai.brokk.tools.WorkspaceTools;
 import ai.brokk.util.Lines;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -55,6 +61,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -82,11 +89,12 @@ public class BrokkExternalMcpServer {
     private static final List<String> BASE_TOOL_NAMES = List.of(
             "activateWorkspace",
             "getActiveWorkspace",
+            "callSearchAgent",
+            "callCodeAgent",
             "scan",
             "searchSymbols",
             "scanUsages",
             "getFileSummaries",
-            "searchFileContents",
             "getClassSources",
             "getMethodSources");
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
@@ -192,8 +200,7 @@ public class BrokkExternalMcpServer {
                 System.out.println("Available Tools:");
                 BASE_TOOL_NAMES.forEach(name -> System.out.printf("  - %s%n", name));
                 System.out.println();
-                System.out.println(
-                        "Additional tools (xmlSkim, xmlSelect, jq) may be available depending on project contents.");
+                System.out.println("No additional tools beyond the base set.");
                 System.exit(0);
             }
         }
@@ -752,18 +759,6 @@ public class BrokkExternalMcpServer {
     public List<McpServerFeatures.SyncToolSpecification> toolSpecifications() {
         ToolRegistry registry = buildToolRegistryForCurrentWorkspace();
         List<String> toolNames = new ArrayList<>(BASE_TOOL_NAMES);
-        var allFiles = cm.getProject().getAllFiles();
-        boolean hasXml = allFiles.stream().anyMatch(f -> f.toString().endsWith(".xml"));
-        boolean hasJson = allFiles.stream().anyMatch(f -> f.toString().endsWith(".json"));
-
-        if (hasXml) {
-            toolNames.add("xmlSkim");
-            toolNames.add("xmlSelect");
-        }
-
-        if (hasJson && !isJqOnPath()) {
-            toolNames.add("jq");
-        }
 
         return registry.getTools(toolNames).stream()
                 .map(spec -> {
@@ -862,10 +857,179 @@ public class BrokkExternalMcpServer {
 
     private ToolRegistry buildToolRegistryForCurrentWorkspace() {
         SearchTools searchTools = new SearchTools(cm);
+        var searchModel = cm.getService().getModel(ModelProperties.ModelType.SEARCH);
+        var ps = new ParallelSearch(new Context(cm), "", searchModel);
         return ToolRegistry.fromBase(ToolRegistry.empty())
-                .register(this)
                 .register(searchTools)
+                .register(ps) // sentinel for schema
+                .register(this) // real impl overrides
                 .build();
+    }
+
+    @Tool(
+            """
+                    Invoke the Search Agent to find relevant code, files, tests, or build/config context when the exact locations are not already known.
+
+                    Use `callSearchAgent` when:
+                    - the relevant symbols or files are unclear,
+                    - there are multiple plausible places to look,
+                    - you need to connect findings across code, tests, templates, resources, or build/config files before deciding what to add to the Workspace,
+                    - or you want to explore several search branches in parallel before deciding what to add to the Workspace.
+
+                    Direct search tools can be better for one-hop anchored lookup when you already have a concrete symbol, filename, or literal string.
+
+                    Query guidance:
+                    - Make the query self-contained.
+                    - State the goal, what to find, and any likely locations, clues, or constraints.
+                    - You can ask for either Workspace additions or a direct answer, depending on `mode`.
+                    Use `mode="WORKSPACE"` to have Search Agent add relevant context to the Workspace.
+                    Use `mode="ANSWER"` to get findings back without modifying the Workspace.
+
+                    Prefer direct `add*ToWorkspace` tools instead when you already know exactly what you need to add.""")
+    public String callSearchAgent(
+            @P(
+                            "A complete, explicit search request for SearchAgent in English (not just keywords). Do not rely on prior Architect conversation history; include the goal, constraints, relevant code locations, and what information you need.")
+                    String query,
+            @P(
+                            "The search mode: WORKSPACE to add relevant fragments to the Workspace, or ANSWER to return an answer without modifying the Workspace.")
+                    String mode)
+            throws InterruptedException {
+        var searchModel = cm.getService().getModel(ModelProperties.ModelType.SEARCH);
+        var ps = new ParallelSearch(new Context(cm), query, searchModel);
+        var helperRegistry =
+                ToolRegistry.fromBase(ToolRegistry.empty()).register(ps).build();
+
+        String jsonArgs;
+        try {
+            jsonArgs = OBJECT_MAPPER.writeValueAsString(Map.of("query", query, "mode", mode));
+        } catch (JsonProcessingException e) {
+            throw new RuntimeException(e);
+        }
+        ToolExecutionRequest request = ToolExecutionRequest.builder()
+                .id("1")
+                .name("callSearchAgent")
+                .arguments(jsonArgs)
+                .build();
+
+        var result = ps.execute(List.of(request), helperRegistry);
+
+        var stopReason = result.stopDetails().reason();
+        if (stopReason != TaskResult.StopReason.SUCCESS) {
+            var status =
+                    (stopReason == TaskResult.StopReason.LLM_ERROR || stopReason == TaskResult.StopReason.INTERRUPTED)
+                            ? ToolExecutionResult.Status.FATAL
+                            : ToolExecutionResult.Status.INTERNAL_ERROR;
+            var explanation = result.stopDetails().explanation();
+            var message = explanation.isBlank() ? stopReason.toString() : explanation;
+            throw new ToolRegistry.ToolCallException(status, message);
+        }
+
+        return result.toolExecutionMessages().stream().map(m -> m.text()).collect(Collectors.joining("\n"));
+    }
+
+    @Tool(
+            """
+            ALWAYS use the `callCodeAgent` tool to make changes to code; it is faster and more accurate than doing so by hand.
+            Code Agent is as smart as you are, so you only have to
+            describe what you want and it will perform the changes. However! Code Agent does not have access to your
+            conversation history or your thinking process, and it starts fresh with each command, so your requests must
+            be self-contained, complete, and unambiguous.
+            When possible, prefer giving Code Agent complete tasks that allow it to verify the build and run tests, since it is
+            easier to fix regressions when they are introduced rather than later. In general, the size of tasks should be
+            bounded by your ability to accurately describe the changes you need at the current stage. If you give
+            Code Agent a task that is too difficult, it will tell you what it changed and (if it can run build/tests)
+            what problems it could not resolve.
+
+            Code Agent can ONLY write (and test) code changes (and configuration/fixture files). It cannot call
+            other tools or execute cli tasks.
+            """)
+    @Destructive
+    public String callCodeAgent(
+            @P(
+                            "Instructions for the changes. If there is context needed outside the files being edited, make sure to include it here.")
+                    String instructions,
+            @P("List of files to edit, including new files to create. Specify full project-relative paths.")
+                    List<String> editFiles,
+            @P("Set to true when the task is not expected to leave the project buildable/lint-able.")
+                    boolean deferBuild,
+            @P("List of filenames containing tests to run. Ignored when deferBuild=True.") List<String> testFiles) {
+        if (editFiles.isEmpty()) {
+            return "Code agent called with no files to edit";
+        }
+        return runWithWorkspaceLock(() -> {
+            var wst = new WorkspaceTools(cm.liveContext());
+            var updatedContext = wst.addFilesToWorkspace(editFiles).context();
+            cm.pushContext(ctx -> updatedContext);
+
+            var initialContext = cm.liveContext();
+
+            var model = requireNonNull(
+                    cm.getService().getModel(cm.getProject().getModelConfig(ModelProperties.ModelType.CODE)));
+            var ca = new CodeAgent(cm, model);
+
+            EnumSet<CodeAgent.Option> options =
+                    deferBuild ? EnumSet.of(CodeAgent.Option.DEFER_BUILD) : EnumSet.noneOf(CodeAgent.Option.class);
+
+            List<ProjectFile> testFilesOverride = testFiles.isEmpty() || deferBuild
+                    ? List.of()
+                    : testFiles.stream().map(cm::toFile).toList();
+
+            TaskResult result = ca.execute(instructions, options, testFilesOverride);
+
+            var finalContext = result.context();
+            var stopDetails = result.stopDetails();
+            var reason = stopDetails.reason();
+
+            var delta = ContextDelta.between(initialContext, finalContext).join();
+            var changedFragments = delta.getChangedFragments();
+            var unifiedDiff = CodeAgent.cumulativeDiffForFragments(initialContext, finalContext, changedFragments);
+
+            String explanation = stopDetails.explanation();
+            if (reason == TaskResult.StopReason.BUILD_ERROR) {
+                String buildError = finalContext.getBuildError();
+                if (!buildError.isBlank() && !explanation.contains(buildError)) {
+                    explanation = (explanation.isBlank() ? "" : (explanation.stripTrailing() + "\n\n")) + buildError;
+                }
+            }
+
+            String diffSection = unifiedDiff.isBlank()
+                    ? "# Diff\n(No file changes)"
+                    : """
+                    # Diff
+                    ```diff
+                    %s
+                    ```
+                    """
+                            .formatted(unifiedDiff.strip())
+                            .stripIndent()
+                            .stripTrailing();
+
+            if (reason == TaskResult.StopReason.SUCCESS) {
+                String statusLine = deferBuild ? "Success (build deferred)." : "Success.";
+                return """
+                        # Status
+                        %s
+
+                        %s
+                        """
+                        .formatted(statusLine, diffSection)
+                        .stripIndent()
+                        .stripTrailing();
+            }
+
+            var diffPresentation =
+                    unifiedDiff.isBlank() ? CodeAgent.DiffPresentation.NONE : CodeAgent.DiffPresentation.INLINE;
+            String failureText =
+                    CodeAgent.formatPostFailureResponse(reason, explanation, diffPresentation, unifiedDiff);
+            return """
+                    %s
+
+                    %s
+                    """
+                    .formatted(failureText, diffSection)
+                    .stripIndent()
+                    .stripTrailing();
+        });
     }
 
     private <T> T runWithWorkspaceLock(Supplier<T> supplier) {
@@ -876,16 +1040,6 @@ public class BrokkExternalMcpServer {
             return supplier.get();
         } finally {
             lock.unlock();
-        }
-    }
-
-    private boolean isJqOnPath() {
-        try {
-            Environment.instance.runShellCommand(
-                    "jq --version", cm.getProject().getRoot(), out -> {}, Duration.ofSeconds(2));
-            return true;
-        } catch (Environment.SubprocessException | InterruptedException e) {
-            return false;
         }
     }
 
@@ -987,7 +1141,6 @@ public class BrokkExternalMcpServer {
             Start here when beginning a new task or when you need to understand what code is relevant to a goal.
             Uses semantic analysis (import graphs, code structure) to recommend the most relevant files and classes -- much more accurate than text search for finding related code.
             Returns summaries (skeletons) of recommended context.
-            Not for raw-text search (config, comments, literals) -- use searchFileContents for that.
             """)
     public String scan(
             @P("The natural-language goal or prompt to scan for.") String goal,

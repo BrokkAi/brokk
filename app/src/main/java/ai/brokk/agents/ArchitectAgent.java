@@ -930,6 +930,7 @@ public class ArchitectAgent {
                 allowed.add("addUrlContentsToWorkspace");
                 allowed.add("dropWorkspaceFragments");
                 allowed.add("explainCommit");
+                allowed.add("runShellCommand");
 
                 if (!readOnly) {
                     allowed.add("callCodeAgent");

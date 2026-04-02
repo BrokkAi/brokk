@@ -269,8 +269,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
         this.exceptionReporter = new ExceptionReporter(this.serviceProvider::get);
 
         // set up global tools
-        this.toolRegistry =
-                ToolRegistry.empty().builder().register(new GitTools(this)).build();
+        this.toolRegistry = ToolRegistry.empty()
+                .builder()
+                .register(new GitTools(this))
+                .register(new ShellTools(this))
+                .build();
 
         // dummy ConsoleIO until Chrome is constructed; necessary because Chrome starts submitting background tasks
         // immediately during construction, which means our own reference to it will still be null
@@ -421,6 +424,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         watchService.addListener(fileWatchListener);
 
         this.sessionsSyncActive = MainProject.getProxySetting() != MainProject.LlmProxySetting.LOCALHOST
+                && MainProject.getProxySetting() != MainProject.LlmProxySetting.CUSTOM
                 && !MainProject.getBrokkKey().isBlank()
                 && !project.getRemoteProjectName().isBlank();
 
