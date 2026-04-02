@@ -387,6 +387,38 @@ def test_main_mcp_help_forwarding(monkeypatch, tmp_path) -> None:
     assert captured["kwargs"]["passthrough_args"] == ["--help"]
 
 
+def test_main_exec_resolves_workspace_to_repo_root(monkeypatch, tmp_path) -> None:
+    captured: dict[str, Any] = {"ran": False}
+    repo_root = tmp_path / "repo"
+    nested_workspace = repo_root / "src" / "pkg"
+    nested_workspace.mkdir(parents=True)
+    (repo_root / ".git").mkdir()
+
+    async def fake_run_headless_job(**kwargs: Any) -> None:
+        captured["kwargs"] = kwargs
+        captured["ran"] = True
+
+    monkeypatch.setattr(main_module, "run_headless_job", fake_run_headless_job)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "brokk",
+            "exec",
+            "--workspace",
+            str(nested_workspace),
+            "Fix the bug",
+        ],
+    )
+
+    main_module.main()
+
+    assert captured["ran"] is True
+    assert captured["kwargs"]["workspace_dir"] == repo_root.resolve()
+    assert captured["kwargs"]["mode"] == "LITE_AGENT"
+    assert captured["kwargs"]["tags"] == {"mode": "LITE_AGENT"}
+
+
 def test_main_acp_accepts_legacy_ide_flag_but_ignores_it(monkeypatch, tmp_path) -> None:
     captured: dict[str, Any] = {}
     fake_acp_module = ModuleType("brokk_code.acp_server")
@@ -817,6 +849,15 @@ def test_main_install_mcp_routes_to_installer(monkeypatch, tmp_path, capsys) -> 
     def fake_install_codex_mcp_workspace_skill(*, skills_path: Any = None):
         return tmp_path / ".codex" / "skills" / "brokk-mcp-workspace" / "SKILL.md"
 
+    def fake_install_codex_mcp_summaries_skill(*, skills_path: Any = None):
+        return tmp_path / ".codex" / "skills" / "brokk-get-file-summaries" / "SKILL.md"
+
+    def fake_install_claude_mcp_workspace_skill(*, skills_path: Any = None):
+        return tmp_path / ".claude" / "skills" / "brokk-mcp-workspace" / "SKILL.md"
+
+    def fake_install_claude_mcp_summaries_skill(*, skills_path: Any = None):
+        return tmp_path / ".claude" / "skills" / "brokk-get-file-summaries" / "SKILL.md"
+
     monkeypatch.setattr(
         main_module,
         "configure_claude_code_mcp_settings",
@@ -831,6 +872,21 @@ def test_main_install_mcp_routes_to_installer(monkeypatch, tmp_path, capsys) -> 
         main_module,
         "install_codex_mcp_workspace_skill",
         fake_install_codex_mcp_workspace_skill,
+    )
+    monkeypatch.setattr(
+        main_module,
+        "install_codex_mcp_summaries_skill",
+        fake_install_codex_mcp_summaries_skill,
+    )
+    monkeypatch.setattr(
+        main_module,
+        "install_claude_mcp_workspace_skill",
+        fake_install_claude_mcp_workspace_skill,
+    )
+    monkeypatch.setattr(
+        main_module,
+        "install_claude_mcp_summaries_skill",
+        fake_install_claude_mcp_summaries_skill,
     )
     monkeypatch.setattr(main_module, "ensure_jbang_ready", lambda: "/usr/local/bin/jbang")
     monkeypatch.setattr(main_module, "_run_install_prefetch", fake_run_install_prefetch)
@@ -848,7 +904,10 @@ def test_main_install_mcp_routes_to_installer(monkeypatch, tmp_path, capsys) -> 
     assert "Configured Claude Code MCP integration" in output
     assert "Configured Codex MCP integration" in output
     assert "Installed Codex MCP workspace skill" in output
-    assert "MCP runtime" in str(prefetched["commands"][0][0])
+    assert "Installed Codex MCP summaries skill" in output
+    assert "Installed Claude MCP workspace skill" in output
+    assert "Installed Claude MCP summaries skill" in output
+    assert any("MCP runtime" in str(cmd[0]) for cmd in prefetched["commands"])
 
 
 def test_main_uses_git_repo_root_for_nested_workspace(monkeypatch, tmp_path) -> None:
@@ -2917,7 +2976,7 @@ def test_main_pr_review_uses_default_planner_model(monkeypatch, tmp_path) -> Non
 
     main_module.main()
 
-    assert captured["kwargs"]["planner_model"] == "gpt-5.1"
+    assert captured["kwargs"]["planner_model"] == "gpt-5.4"
 
 
 def test_infer_github_repo_from_remote_https_format(monkeypatch, tmp_path) -> None:
@@ -3211,7 +3270,14 @@ def test_install_mcp_skips_prompt_when_key_configured(monkeypatch, tmp_path) -> 
         lambda *, force=False, settings_path=None, uvx_command=None: tmp_path / "cx.toml",
     )
     monkeypatch.setattr(
-        main_module, "install_codex_mcp_workspace_skill", lambda *, skills_path=None: tmp_path / "s"
+        main_module,
+        "install_codex_mcp_workspace_skill",
+        lambda **_kw: tmp_path / "s1",
+    )
+    monkeypatch.setattr(
+        main_module,
+        "install_codex_mcp_summaries_skill",
+        lambda **_kw: tmp_path / "s2",
     )
 
     monkeypatch.setattr(sys, "argv", ["brokk", "install", "mcp"])
@@ -3303,7 +3369,12 @@ def test_install_mcp_with_missing_key_piped_persists_key(
     monkeypatch.setattr(
         main_module,
         "install_codex_mcp_workspace_skill",
-        lambda **k: tmp_path / "s",
+        lambda **_kw: tmp_path / "s1",
+    )
+    monkeypatch.setattr(
+        main_module,
+        "install_codex_mcp_summaries_skill",
+        lambda **_kw: tmp_path / "s2",
     )
 
     monkeypatch.setattr(sys, "argv", ["brokk", "install", "mcp"])

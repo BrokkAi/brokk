@@ -6,6 +6,9 @@ import pytest
 from brokk_code.mcp_config import (
     configure_claude_code_mcp_settings,
     configure_codex_mcp_settings,
+    install_claude_mcp_summaries_skill,
+    install_claude_mcp_workspace_skill,
+    install_codex_mcp_summaries_skill,
     install_codex_mcp_workspace_skill,
 )
 from brokk_code.zed_config import ExistingBrokkCodeEntryError
@@ -74,9 +77,13 @@ def test_configure_claude_code_mcp_settings_appends_to_claude_md(tmp_path, monke
     content = instructions.read_text()
     assert "<!-- BROKK:BEGIN MANAGED SECTION -->" in content
     assert "# Brokk" in content
-    assert "Use searchSymbols (not Grep)" in content
-    assert "Use scan to get oriented" in content
-    assert "callCodeAgent" not in content
+    assert "getFileSummaries" in content
+    assert "searchSymbols" not in content
+    assert "scanUsages" not in content
+    assert "scan" not in content
+    assert "getMethodSources" not in content
+    assert "getClassSources" not in content
+    assert "callCodeAgent" in content
     assert "activateWorkspace" not in content
     assert "getActiveWorkspace" not in content
     assert "<!-- BROKK:END MANAGED SECTION -->" in content
@@ -110,11 +117,15 @@ def test_configure_codex_mcp_settings_appends_to_codex_agents(tmp_path, monkeypa
     content = agents_md.read_text()
     assert "<!-- BROKK:BEGIN MANAGED SECTION -->" in content
     assert "# Brokk" in content
-    assert "Use searchSymbols (not Grep)" in content
-    assert "Use scan to get oriented" in content
-    assert "callCodeAgent" not in content
+    assert "getFileSummaries" in content
     assert "activateWorkspace" in content
-    assert "getActiveWorkspace" in content
+    assert "searchSymbols" not in content
+    assert "scanUsages" not in content
+    assert "scan" not in content
+    assert "getMethodSources" not in content
+    assert "getClassSources" not in content
+    assert "callCodeAgent" in content
+    assert "getActiveWorkspace" not in content
     assert "<!-- BROKK:END MANAGED SECTION -->" in content
 
 
@@ -251,7 +262,47 @@ def test_install_codex_mcp_workspace_skill_creates_expected_skill(monkeypatch, t
     content = skill_path.read_text(encoding="utf-8")
     assert "name: brokk-mcp-workspace" in content
     assert "activateWorkspace" in content
+    # In the skill itself (not instruction block), getActiveWorkspace verification is fine
     assert "getActiveWorkspace" in content
+
+
+def test_install_codex_mcp_summaries_skill_creates_expected_skill(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    skill_path = install_codex_mcp_summaries_skill()
+
+    assert skill_path == tmp_path / ".codex" / "skills" / "brokk-get-file-summaries" / "SKILL.md"
+    assert skill_path.exists()
+    content = skill_path.read_text(encoding="utf-8")
+    assert "name: brokk-get-file-summaries" in content
+    assert "getFileSummaries" in content
+    assert "class skeletons" in content
+
+
+def test_install_claude_mcp_workspace_skill_creates_expected_skill(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    skill_path = install_claude_mcp_workspace_skill()
+
+    assert skill_path == tmp_path / ".claude" / "skills" / "brokk-mcp-workspace" / "SKILL.md"
+    assert skill_path.exists()
+    content = skill_path.read_text(encoding="utf-8")
+    assert "name: brokk-mcp-workspace" in content
+    assert "activateWorkspace" in content
+    assert "getActiveWorkspace" in content
+
+
+def test_install_claude_mcp_summaries_skill_creates_expected_skill(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    skill_path = install_claude_mcp_summaries_skill()
+
+    assert skill_path == tmp_path / ".claude" / "skills" / "brokk-get-file-summaries" / "SKILL.md"
+    assert skill_path.exists()
+    content = skill_path.read_text(encoding="utf-8")
+    assert "name: brokk-get-file-summaries" in content
+    assert "getFileSummaries" in content
+    assert "class skeletons" in content
 
 
 def test_configure_codex_mcp_settings_recovers_malformed_delimiters(tmp_path, monkeypatch):
@@ -275,7 +326,7 @@ def test_configure_codex_mcp_settings_recovers_malformed_delimiters(tmp_path, mo
         "<!-- BROKK:END MANAGED SECTION -->"
     )
     assert "activateWorkspace" in content
-    assert "getActiveWorkspace" in content
+    assert "getActiveWorkspace" not in content
     # Recovery path strips stray markers; stale text might persist or be moved
     # depending on implementation.
     # but the key is that the managed block is valid.

@@ -28,6 +28,9 @@ from brokk_code.intellij_config import configure_intellij_acp_settings
 from brokk_code.mcp_config import (
     configure_claude_code_mcp_settings,
     configure_codex_mcp_settings,
+    install_claude_mcp_summaries_skill,
+    install_claude_mcp_workspace_skill,
+    install_codex_mcp_summaries_skill,
     install_codex_mcp_workspace_skill,
 )
 from brokk_code.mcp_launcher import run_mcp_server
@@ -43,6 +46,10 @@ from brokk_code.settings import (
 from brokk_code.uv_utils import UvSetupError, ensure_uv_ready
 from brokk_code.workspace import resolve_workspace_dir
 from brokk_code.zed_config import ExistingBrokkCodeEntryError, configure_zed_acp_settings
+
+# Default model names used across CLI subcommands
+DEFAULT_PLANNER_MODEL = "gpt-5.4"
+DEFAULT_CODE_MODEL = "gemini-3-flash-preview"
 
 REPO_COMPONENT_ALLOWLIST_REGEX = r"^[A-Za-z0-9_.-]+$"
 _EXECUTOR_JAR_BASE_URL = "https://github.com/BrokkAi/brokk-releases/releases/download"
@@ -71,7 +78,7 @@ def _resolve_neovim_plugin(*, plugin: str | None) -> str:
 
 def _add_github_issue_args(
     parser: argparse.ArgumentParser,
-    planner_model_default: str = "gemini-3-flash-preview",
+    planner_model_default: str = DEFAULT_CODE_MODEL,
 ) -> None:
     """Add common GitHub issue arguments to a parser."""
     parser.add_argument(
@@ -919,6 +926,64 @@ def _build_parser() -> argparse.ArgumentParser:
         default=False,
         help="Print the JBang prefetch command(s) instead of executing them",
     )
+    install_parser.add_argument(
+        "--provider",
+        choices=["brokk", "custom"],
+        default=None,
+        help="Set the LLM provider during installation (brokk or custom)",
+    )
+    install_parser.add_argument(
+        "--provider-url",
+        default=None,
+        help="Custom endpoint URL (requires --provider custom)",
+    )
+    install_parser.add_argument(
+        "--provider-model",
+        default=None,
+        help="Custom endpoint model name (optional, used with --provider custom)",
+    )
+    install_parser.add_argument(
+        "--provider-api-key",
+        default=None,
+        help="Custom endpoint API key (optional, used with --provider custom)",
+    )
+
+    # ── brokk provider ─────────────────────────────────────────────────
+    provider_parser = subparsers.add_parser(
+        "provider",
+        help="Configure the LLM provider (brokk proxy or custom OpenAI-compatible endpoint)",
+    )
+    provider_subparsers = provider_parser.add_subparsers(dest="provider_command", required=True)
+
+    provider_custom_parser = provider_subparsers.add_parser(
+        "custom",
+        help="Use a custom OpenAI-compatible endpoint (Ollama, LM Studio, etc.)",
+    )
+    provider_custom_parser.add_argument(
+        "--url",
+        required=True,
+        help="Base URL of the OpenAI-compatible endpoint (e.g. http://localhost:11434/v1)",
+    )
+    provider_custom_parser.add_argument(
+        "--model",
+        default="",
+        help="Model name to use (optional; auto-discovered from /v1/models if omitted)",
+    )
+    provider_custom_parser.add_argument(
+        "--api-key",
+        default="",
+        help="API key for the endpoint (optional; blank for local models)",
+    )
+
+    provider_subparsers.add_parser(
+        "brokk",
+        help="Switch back to the default Brokk proxy provider",
+    )
+
+    provider_subparsers.add_parser(
+        "status",
+        help="Show current provider configuration",
+    )
 
     commit_parser = subparsers.add_parser("commit", help="Commit current changes")
     _add_common_runtime_args(commit_parser)
@@ -928,6 +993,47 @@ def _build_parser() -> argparse.ArgumentParser:
         nargs="?",
         default=None,
         help="Commit message (optional; if omitted, a message will be generated)",
+    )
+
+    exec_parser = subparsers.add_parser(
+        "exec", help="Run a prompt with LITE_AGENT (scan + architect, no build)"
+    )
+    _add_common_runtime_args(exec_parser)
+    exec_parser.add_argument(
+        "prompt",
+        type=str,
+        help="The task to execute",
+    )
+    exec_parser.add_argument(
+        "--planner-model",
+        type=str,
+        default=DEFAULT_PLANNER_MODEL,
+        help=f"LLM model for planning (default: {DEFAULT_PLANNER_MODEL})",
+    )
+    exec_parser.add_argument(
+        "--code-model",
+        type=str,
+        default=DEFAULT_CODE_MODEL,
+        help=f"LLM model for code generation (default: {DEFAULT_CODE_MODEL})",
+    )
+    exec_parser.add_argument(
+        "--planner-reasoning-level",
+        type=str,
+        default="high",
+        help="Reasoning level for planner model (default: high)",
+    )
+    exec_parser.add_argument(
+        "--code-reasoning-level",
+        type=str,
+        default=None,
+        help="Reasoning level for code model (default: none)",
+    )
+    exec_parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        default=False,
+        help="Show full output (events/tokens) for debugging",
     )
 
     issue_parser = subparsers.add_parser("issue", help="Manage GitHub issues")
@@ -964,19 +1070,19 @@ def _build_parser() -> argparse.ArgumentParser:
         required=True,
         help="The GitHub issue number to solve",
     )
-    _add_github_issue_args(issue_solve_parser, planner_model_default="gpt-5.1")
+    _add_github_issue_args(issue_solve_parser, planner_model_default=DEFAULT_PLANNER_MODEL)
     # Additional solve-specific arguments
     issue_solve_parser.add_argument(
         "--code-model",
         type=str,
-        default="gemini-3-flash-preview",
-        help="LLM model for code generation (default: gemini-3-flash-preview)",
+        default=DEFAULT_CODE_MODEL,
+        help=f"LLM model for code generation (default: {DEFAULT_CODE_MODEL})",
     )
     issue_solve_parser.add_argument(
         "--planner-reasoning-level",
         type=str,
-        default="medium",
-        help="Reasoning level for planner model (default: medium)",
+        default="high",
+        help="Reasoning level for planner model (default: high)",
     )
     issue_solve_parser.add_argument(
         "--code-reasoning-level",
@@ -1069,8 +1175,8 @@ def _build_parser() -> argparse.ArgumentParser:
     pr_review_parser.add_argument(
         "--planner-model",
         type=str,
-        default="gpt-5.1",
-        help="LLM model for the review (default: gpt-5.1)",
+        default=DEFAULT_PLANNER_MODEL,
+        help=f"LLM model for the review (default: {DEFAULT_PLANNER_MODEL})",
     )
     pr_review_parser.add_argument(
         "--severity",
@@ -1665,9 +1771,12 @@ async def run_headless_job(
                 _record_issue_url_from_issue_writer_notification(message)
                 _record_issue_url(message)
                 level = str(data.get("level", event.get("level", "INFO"))).strip().upper()
-                # Keep headless issue mode quiet by default: warnings/errors matter,
-                # routine INFO/COST/CONFIRM notifications do not.
-                if not verbose and level not in {"WARN", "WARNING", "ERROR"}:
+                # LITE_AGENT always shows notifications; others only show WARN/ERROR.
+                if (
+                    not verbose
+                    and mode not in {"LITE_AGENT", "LITE_PLAN"}
+                    and level not in {"WARN", "WARNING", "ERROR"}
+                ):
                     continue
                 _clear_spinner()
                 print(f"[{level}] {message}")
@@ -1680,7 +1789,8 @@ async def run_headless_job(
             elif event_type in {"TOKEN", "LLM_TOKEN"}:
                 text = str(data.get("token", event.get("text", "")))
                 _record_issue_url(text)
-                if verbose and text:
+                # LITE_AGENT always streams tokens; other modes only when verbose.
+                if (verbose or mode in {"LITE_AGENT", "LITE_PLAN"}) and text:
                     sys.stdout.write(text)
                     sys.stdout.flush()
                 continue
@@ -1772,6 +1882,26 @@ def main():
         if args.plugin and args.target not in {"nvim", "neovim"}:
             print("Error: --plugin is only valid for install targets nvim/neovim", file=sys.stderr)
             sys.exit(1)
+        if args.provider == "custom" and not args.provider_url:
+            print("Error: --provider-url is required when --provider is custom", file=sys.stderr)
+            sys.exit(1)
+        if args.provider_url and args.provider != "custom":
+            print("Error: --provider-url requires --provider custom", file=sys.stderr)
+            sys.exit(1)
+
+        # Apply provider settings if specified
+        if args.provider == "custom":
+            write_brokk_properties(
+                {
+                    "llmProxySetting": "CUSTOM",
+                    "customEndpointUrl": args.provider_url,
+                    "customEndpointApiKey": args.provider_api_key or "",
+                    "customEndpointModel": args.provider_model or "",
+                }
+            )
+            print(f"Provider set to custom endpoint: {args.provider_url}")
+        elif args.provider == "brokk":
+            write_brokk_properties({"llmProxySetting": "BROKK"})
 
         messages: list[str] = []
         prefetch_commands: list[tuple[str, list[str]]] = []
@@ -1952,7 +2082,10 @@ def main():
                 codex_settings_path = configure_codex_mcp_settings(
                     force=args.force, uvx_command=uvx_command
                 )
-                codex_skill_path = install_codex_mcp_workspace_skill()
+                codex_ws_skill = install_codex_mcp_workspace_skill()
+                codex_sum_skill = install_codex_mcp_summaries_skill()
+                claude_ws_skill = install_claude_mcp_workspace_skill()
+                claude_sum_skill = install_claude_mcp_summaries_skill()
                 prefetch_commands = _build_install_prefetch_commands(
                     target=args.target,
                     jbang_binary=jbang_binary,
@@ -1961,7 +2094,10 @@ def main():
                 messages = [
                     f"Configured Claude Code MCP integration in {claude_settings_path}",
                     f"Configured Codex MCP integration in {codex_settings_path}",
-                    f"Installed Codex MCP workspace skill in {codex_skill_path}",
+                    f"Installed Codex MCP workspace skill in {codex_ws_skill}",
+                    f"Installed Codex MCP summaries skill in {codex_sum_skill}",
+                    f"Installed Claude MCP workspace skill in {claude_ws_skill}",
+                    f"Installed Claude MCP summaries skill in {claude_sum_skill}",
                 ]
             else:
                 # Should not happen due to argparse choices
@@ -1981,6 +2117,47 @@ def main():
             print(f"Error: {exc}", file=sys.stderr)
             sys.exit(1)
 
+        return
+
+    if args.command == "provider":
+        if args.provider_command == "custom":
+            url = args.url.strip()
+            if not url:
+                print("Error: --url is required", file=sys.stderr)
+                sys.exit(1)
+            write_brokk_properties(
+                {
+                    "llmProxySetting": "CUSTOM",
+                    "customEndpointUrl": url,
+                    "customEndpointApiKey": args.api_key or "",
+                    "customEndpointModel": args.model or "",
+                }
+            )
+            print(f"Provider set to custom endpoint: {url}")
+            if args.model:
+                print(f"Model: {args.model}")
+            else:
+                print("Model: (auto-discover from /v1/models)")
+            if args.api_key:
+                print("API key: (set)")
+            else:
+                print("API key: (none)")
+        elif args.provider_command == "brokk":
+            write_brokk_properties(
+                {
+                    "llmProxySetting": "BROKK",
+                }
+            )
+            print("Provider reset to Brokk proxy (default).")
+        elif args.provider_command == "status":
+            props = read_brokk_properties()
+            provider = props.get("llmProxySetting", "BROKK")
+            print(f"Provider: {provider}")
+            if provider == "CUSTOM":
+                print(f"  URL:    {props.get('customEndpointUrl', '(not set)')}")
+                model = props.get("customEndpointModel") or "(auto-discover)"
+                print(f"  Model:  {model}")
+                print(f"  API key: {'(set)' if props.get('customEndpointApiKey') else '(none)'}")
         return
 
     if args.command == "version":
@@ -2096,6 +2273,27 @@ def main():
         pick_session = True
         session_id = None
         resume_session = False
+
+    if args.command == "exec":
+        workspace_path = resolve_workspace_dir(workspace_path)
+        asyncio.run(
+            run_headless_job(
+                workspace_dir=workspace_path,
+                task_input=args.prompt,
+                planner_model=args.planner_model,
+                code_model=args.code_model,
+                planner_reasoning_level=args.planner_reasoning_level,
+                code_reasoning_level=args.code_reasoning_level,
+                mode="LITE_AGENT",
+                tags={"mode": "LITE_AGENT"},
+                verbose=args.verbose,
+                jar_path=jar_path,
+                executor_version=args.executor_version,
+                executor_snapshot=args.executor_snapshot,
+                vendor=args.vendor,
+            )
+        )
+        return
 
     if args.command == "commit":
         asyncio.run(

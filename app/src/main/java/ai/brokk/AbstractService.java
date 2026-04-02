@@ -48,6 +48,7 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
     public static final long NEXT_TOKEN_TIMEOUT_SECONDS = DEFAULT_FIRST_TOKEN_TIMEOUT_SECONDS;
 
     public static final String UNAVAILABLE = "AI is unavailable";
+    public static final String CUSTOM_ENDPOINT_DUMMY_KEY = "no-key-required";
 
     protected final Logger logger = LogManager.getLogger(AbstractService.class);
     protected final ObjectMapper objectMapper = new ObjectMapper();
@@ -511,6 +512,10 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
     /** Retrieves or creates a StreamingChatModel for the given configuration. */
     public @Nullable StreamingChatModel getModel(
             ModelConfig config, @Nullable OpenAiChatRequestParameters.Builder parametersOverride) {
+        if (MainProject.isCustomProvider()) {
+            return getModelForCustomEndpoint(config, parametersOverride);
+        }
+
         logger.trace(
                 "Creating new model instance for '{}' with reasoning '{}' via LiteLLM", config.name, config.reasoning);
 
@@ -548,6 +553,40 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
         if (supportsReasoningEffort(config.name) && config.reasoning != ReasoningLevel.DEFAULT) {
             params = params.reasoningEffort(config.reasoning.name().toLowerCase(Locale.ROOT));
         }
+        if (parametersOverride != null) {
+            params = params.overrideWith(parametersOverride.build());
+        }
+        builder.defaultRequestParameters(params.build());
+
+        return builder.build();
+    }
+
+    /**
+     * Creates a StreamingChatModel for a custom OpenAI-compatible endpoint (Ollama, LM Studio, etc).
+     * Uses a raw API key (or empty key for local models) and skips Brokk-specific auth parsing.
+     */
+    private @Nullable StreamingChatModel getModelForCustomEndpoint(
+            ModelConfig config, @Nullable OpenAiChatRequestParameters.Builder parametersOverride) {
+        String baseUrl = MainProject.getCustomEndpointUrl();
+        String apiKey = MainProject.getCustomEndpointApiKey();
+        if (apiKey.isBlank()) {
+            apiKey = CUSTOM_ENDPOINT_DUMMY_KEY;
+        }
+
+        logger.trace("Creating model for custom endpoint: {} model: {}", baseUrl, config.name);
+
+        var params = OpenAiChatRequestParameters.builder();
+        var builder = OpenAiStreamingChatModel.builder()
+                .logRequests(false)
+                .logResponses(false)
+                .strictJsonSchema(false) // most local models don't support strict JSON schema
+                .baseUrl(baseUrl)
+                .apiKey(apiKey)
+                .timeout(Duration.ofSeconds(Math.max(DEFAULT_FIRST_TOKEN_TIMEOUT_SECONDS, NEXT_TOKEN_TIMEOUT_SECONDS)));
+
+        params = params.maxCompletionTokens(getMaxOutputTokens(config.name));
+        params = params.modelName(config.name);
+
         if (parametersOverride != null) {
             params = params.overrideWith(parametersOverride.build());
         }
@@ -613,11 +652,51 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
         }
         // Fallback: some callers might pass the location instead of the name in legacy tests
         // or if modelInfoMap is keyed by location and we haven't reached Service.java yet.
-        return modelInfoMap.values().stream()
+        var byLocation = modelInfoMap.values().stream()
                 .filter(m -> modelName.equals(m.get("model_location")))
                 .findFirst()
-                .orElse(Map.of());
+                .orElse(null);
+        if (byLocation != null) {
+            return byLocation;
+        }
+
+        // For custom providers, return reasonable defaults so capability checks don't fail
+        if (MainProject.isCustomProvider()) {
+            return CUSTOM_MODEL_DEFAULTS;
+        }
+        return Map.of();
     }
+
+    /**
+     * Reasonable capability defaults for models served by custom OpenAI-compatible endpoints.
+     * Assumes a modern chat model with tool calling but no exotic features.
+     */
+    static final Map<String, Object> CUSTOM_MODEL_DEFAULTS = Map.ofEntries(
+            Map.entry("max_input_tokens", 131072),
+            Map.entry("max_output_tokens", 16384),
+            Map.entry("supports_tool_choice", true),
+            Map.entry("supports_response_schema", false),
+            Map.entry("supports_vision", false),
+            Map.entry("supports_reasoning", false),
+            Map.entry("supports_reasoning_disable", false),
+            Map.entry("is_codex", false),
+            Map.entry("free_tier_eligible", true),
+            Map.entry("is_private", true),
+            Map.entry("mode", "chat"),
+            Map.entry("input_cost_per_token", 0.0),
+            Map.entry("output_cost_per_token", 0.0),
+            Map.entry("cache_read_input_token_cost", 0.0),
+            Map.entry(
+                    "supported_openai_params",
+                    List.of(
+                            "temperature",
+                            "max_tokens",
+                            "stream",
+                            "top_p",
+                            "stop",
+                            "tools",
+                            "tool_choice",
+                            "parallel_tool_calls")));
 
     public boolean supportsParallelCalls(StreamingChatModel model) {
         var name = nameOf(model);
@@ -755,6 +834,10 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
     }
 
     public StreamingChatModel getModel(ModelType type) {
+        if (MainProject.isCustomProvider()) {
+            return getModelForCustomProvider(type);
+        }
+
         var cfg = project.getModelConfig(type);
         var model = getModel(cfg);
         if (model != null) {
@@ -774,6 +857,27 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
         }
 
         return new OfflineStreamingModel();
+    }
+
+    /**
+     * For custom providers, all model type slots resolve to a single custom endpoint model.
+     * Prefers the user-configured custom model, otherwise picks the first discovered model.
+     */
+    private StreamingChatModel getModelForCustomProvider(ModelType type) {
+        // Try user-configured model first
+        String customModel = MainProject.getCustomEndpointModel();
+        if (customModel.isBlank()) {
+            // Fall back to first discovered model
+            var available = getAvailableModels();
+            if (available.isEmpty()) {
+                logger.warn("No custom endpoint models available for ModelType {}", type);
+                return new OfflineStreamingModel();
+            }
+            customModel = available.keySet().iterator().next();
+        }
+        var cfg = new ModelConfig(customModel, ReasoningLevel.DEFAULT);
+        var model = getModel(cfg);
+        return model != null ? model : new OfflineStreamingModel();
     }
 
     public boolean hasSttModel() {

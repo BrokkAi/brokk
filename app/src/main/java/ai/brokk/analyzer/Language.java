@@ -68,6 +68,7 @@ public interface Language {
         // Use internalName for stable, filesystem-safe names and LZ4 extension for current format.
         return project.getRoot()
                 .resolve(AbstractProject.BROKK_DIR)
+                .resolve(AbstractProject.CODE_INTELLIGENCE_DIR)
                 .resolve(internalName().toLowerCase(Locale.ROOT) + ANALYZER_STATE_SUFFIX);
     }
 

@@ -123,6 +123,15 @@ public class ArchitectAgent {
 
     private boolean deferBuildForInitialCodeAgentCall = false;
 
+    /** When true, all CodeAgent calls always defer build, regardless of what the LLM requests. */
+    private boolean alwaysDeferBuild = false;
+
+    /** When true, this Architect run may not invoke CodeAgent or other workspace-editing actions. */
+    private boolean readOnly = false;
+
+    /** When false, build-configuration and build-execution tools are unavailable for this run. */
+    private boolean buildToolsEnabled = true;
+
     @Nullable
     private CompletableFuture<List<TaskEntry>> compressedHistoryFuture;
 
@@ -221,6 +230,18 @@ public class ArchitectAgent {
         this.deferBuildForInitialCodeAgentCall = deferBuildForInitialCodeAgentCall;
     }
 
+    public void setAlwaysDeferBuild(boolean alwaysDeferBuild) {
+        this.alwaysDeferBuild = alwaysDeferBuild;
+    }
+
+    public void setReadOnly(boolean readOnly) {
+        this.readOnly = readOnly;
+    }
+
+    public void setBuildToolsEnabled(boolean buildToolsEnabled) {
+        this.buildToolsEnabled = buildToolsEnabled;
+    }
+
     private StreamingChatModel delegatedSearchModel() {
         return ParallelSearch.usePlannerModelForSearchAgent()
                 ? planningModel
@@ -269,6 +290,10 @@ public class ArchitectAgent {
                             "Defer build/verification for this CodeAgent call. Set to true when your changes are an intermediate step that will temporarily break the build")
                     boolean deferBuild)
             throws ToolRegistry.FatalLlmException, InterruptedException {
+        if (readOnly) {
+            throw new ToolRegistry.FatalLlmException(
+                    "CodeAgent is disabled for this Architect run. Produce a plan or final answer without editing files.");
+        }
         logger.debug("callCodeAgent invoked with instructions: {}, deferBuild={}", instructions, deferBuild);
 
         addPlanningToHistory();
@@ -289,8 +314,9 @@ public class ArchitectAgent {
 
         io.llmOutput("**Code Agent** engaged:\n" + instructions, ChatMessageType.CUSTOM, LlmOutputMeta.newMessage());
         var agent = new CodeAgent(cm, codeModel);
+        var effectiveDeferBuild = deferBuild || alwaysDeferBuild;
         var opts = new HashSet<CodeAgent.Option>();
-        if (deferBuild) {
+        if (effectiveDeferBuild) {
             opts.add(CodeAgent.Option.DEFER_BUILD);
         }
         var result = agent.executeWithoutHistory(context, instructions, opts);
@@ -313,7 +339,7 @@ public class ArchitectAgent {
         // checking for changes de-risks that
         if (reason == StopReason.SUCCESS && !changedFragments.isEmpty()) {
             logger.debug("callCodeAgent finished successfully");
-            if (!deferBuild && !changedFragments.isEmpty()) {
+            if (!effectiveDeferBuild && !changedFragments.isEmpty()) {
                 codeAgentJustSucceeded = true;
 
                 if (verifyCommand != null) {
@@ -349,7 +375,7 @@ public class ArchitectAgent {
             %s
             """
                         .formatted(
-                                deferBuild
+                                effectiveDeferBuild
                                         ? "CodeAgent finished with build deferred as requested."
                                         : "CodeAgent finished with a successful build.",
                                 fileList.isEmpty() ? "None" : fileList,
@@ -424,6 +450,9 @@ public class ArchitectAgent {
             "Undo the changes made by the most recent CodeAgent call. This should only be used if Code Agent left the project farther from the goal than when it started.")
     @Blocking
     public String undoLastChanges() throws InterruptedException {
+        if (readOnly) {
+            return "Undo is unavailable during a read-only Architect run.";
+        }
         logger.debug("undoLastChanges invoked");
         io.showNotification(IConsoleIO.NotificationRole.INFO, "Undoing last CodeAgent changes...");
         if (cm.undoContext()) {
@@ -451,6 +480,9 @@ public class ArchitectAgent {
             @P("Command to run all tests.") String testAllCommand,
             @P("Command to run a subset of tests (e.g., a single module/file/class).") String testSomeCommand,
             @P("Directories to exclude from analysis/build context.") List<String> excludedDirectories) {
+        if (!buildToolsEnabled) {
+            return "Build/test tools are disabled for this Architect run.";
+        }
         var existingDetails = cm.getProject().awaitBuildDetails();
         var details = new BuildAgent.BuildDetails(
                 buildLintCommand,
@@ -476,6 +508,9 @@ public class ArchitectAgent {
     @Tool(
             "Verify the currently configured build/lint command by executing it and returning bounded output. Uses the project's saved build details and environment variables.")
     public String verifyBuildCommand() {
+        if (!buildToolsEnabled) {
+            return "Build/test tools are disabled for this Architect run.";
+        }
         var project = cm.getProject();
         var details = project.awaitBuildDetails();
         var buildLintCommand = details.buildLintCommand();
@@ -572,32 +607,34 @@ public class ArchitectAgent {
      *    CTL while the non-workspace conversation history is larger than the workspace itself, abort.
      */
     private TaskResult executeInternal() throws InterruptedException {
-        // run code agent first
-        try {
-            // Note: callCodeAgent(String, boolean) is a @Tool method on ArchitectAgent.
-            // When ArchitectAgent calls it directly here, it bypasses ToolRegistry.executeTool
-            // and thus bypasses the console hooks. However, since this is a direct method call
-            // and we want these events in the headless log, we should manually emit them or
-            // use the registry. Given the current structure, we manually instrument this call.
+        if (!readOnly) {
+            // run code agent first
+            try {
+                // Note: callCodeAgent(String, boolean) is a @Tool method on ArchitectAgent.
+                // When ArchitectAgent calls it directly here, it bypasses ToolRegistry.executeTool
+                // and thus bypasses the console hooks. However, since this is a direct method call
+                // and we want these events in the headless log, we should manually emit them or
+                // use the registry. Given the current structure, we manually instrument this call.
 
-            var req = ToolExecutionRequest.builder()
-                    .name("callCodeAgent")
-                    .arguments("{\"instructions\": \"%s\", \"deferBuild\": false}".formatted(goal))
-                    .build();
+                var req = ToolExecutionRequest.builder()
+                        .name("callCodeAgent")
+                        .arguments("{\"instructions\": \"%s\", \"deferBuild\": false}".formatted(goal))
+                        .build();
 
-            io.beforeToolCall(req);
-            var initialSummary = callCodeAgent(goal, deferBuildForInitialCodeAgentCall);
-            io.afterToolOutput(ToolExecutionResult.success(req, initialSummary));
-            architectMessages.add(new UserMessage(
-                    "[HARNESS NOTE: Before you started, CodeAgent tried and failed to solve this task. Here's the result.]\n\n"
-                            + initialSummary));
-        } catch (ToolRegistry.FatalLlmException e) {
-            var fatalReason = this.lastFatalReason != null ? this.lastFatalReason : StopReason.LLM_ERROR;
-            this.lastFatalReason = null;
-            var errorMessage = "Fatal error executing initial Code Agent: %s".formatted(e.getMessage());
-            logger.warn(errorMessage, e);
-            io.showNotification(IConsoleIO.NotificationRole.INFO, errorMessage);
-            return resultWithMessages(fatalReason);
+                io.beforeToolCall(req);
+                var initialSummary = callCodeAgent(goal, deferBuildForInitialCodeAgentCall);
+                io.afterToolOutput(ToolExecutionResult.success(req, initialSummary));
+                architectMessages.add(new UserMessage(
+                        "[HARNESS NOTE: Before you started, CodeAgent tried and failed to solve this task. Here's the result.]\n\n"
+                                + initialSummary));
+            } catch (ToolRegistry.FatalLlmException e) {
+                var fatalReason = this.lastFatalReason != null ? this.lastFatalReason : StopReason.LLM_ERROR;
+                this.lastFatalReason = null;
+                var errorMessage = "Fatal error executing initial Code Agent: %s".formatted(e.getMessage());
+                logger.warn(errorMessage, e);
+                io.showNotification(IConsoleIO.NotificationRole.INFO, errorMessage);
+                return resultWithMessages(fatalReason);
+            }
         }
 
         if (compressedHistoryFuture != null) {
@@ -656,10 +693,10 @@ public class ArchitectAgent {
             // On the final turn, only callCodeAgent and abortProject are allowed;
             // filter out anything else the LLM may have attempted
             if (isFinalTurn) {
-                var allowed = Set.of("callCodeAgent", "abortProject");
+                var allowed = Set.copyOf(finalTurnAllowedTools());
                 deduplicatedRequests.removeIf(req -> !allowed.contains(req.name()));
                 if (deduplicatedRequests.isEmpty()) {
-                    logger.info("Terminal turn: LLM did not call callCodeAgent or abortProject; ending.");
+                    logger.info("Terminal turn: LLM did not call one of {}; ending.", allowed);
                     return resultWithMessages(StopReason.SUCCESS);
                 }
             }
@@ -835,10 +872,12 @@ public class ArchitectAgent {
                         + " to reduce workspace size.");
             }
             if (isFinalTurn) {
-                var allowedTools = List.of("callCodeAgent", "abortProject");
+                var allowedTools = finalTurnAllowedTools();
                 harnessNotes.add("Turn limit reached. This is your FINAL turn. Tools are restricted to "
                         + allowedTools
-                        + ". You MUST either call callCodeAgent to commit your plan, or abortProject to cancel.");
+                        + ". You MUST either call "
+                        + (readOnly ? "projectFinished to deliver your plan" : "callCodeAgent to commit your plan")
+                        + ", or abortProject to cancel.");
             }
             if (emergencyToolMode) {
                 var allowedTools = criticalAllowedTools();
@@ -872,7 +911,7 @@ public class ArchitectAgent {
             ToolContext toolContext;
             if (isFinalTurn) {
                 // Terminal turn: only allow committing work or aborting
-                var allowed = List.of("callCodeAgent", "abortProject");
+                var allowed = finalTurnAllowedTools();
                 toolSpecs.addAll(tr.getTools(allowed));
                 toolContext = new ToolContext(toolSpecs, ToolChoice.REQUIRED, tr);
             } else if (emergencyToolMode) {
@@ -891,10 +930,17 @@ public class ArchitectAgent {
                 allowed.add("addUrlContentsToWorkspace");
                 allowed.add("dropWorkspaceFragments");
                 allowed.add("explainCommit");
+                allowed.add("runShellCommand");
 
-                allowed.add("callCodeAgent");
+                if (!readOnly) {
+                    allowed.add("callCodeAgent");
+                }
 
-                if (cm.getProject().awaitBuildDetails().buildLintCommand().isBlank()
+                if (buildToolsEnabled
+                        && cm.getProject()
+                                .awaitBuildDetails()
+                                .buildLintCommand()
+                                .isBlank()
                         && !Objects.equals(System.getenv("BRK_ALLOW_SET_BUILD_DETAILS"), "false")) {
                     allowed.add("setBuildDetails");
                     allowed.add("verifyBuildCommand");
@@ -904,7 +950,7 @@ public class ArchitectAgent {
                     allowed.add("importDependency");
                 }
 
-                if (this.offerUndoToolNext) {
+                if (!readOnly && this.offerUndoToolNext) {
                     allowed.add("undoLastChanges");
                     allowed.add("callSearchAgent");
                 }
@@ -1124,7 +1170,26 @@ public class ArchitectAgent {
                     """;
         }
 
-        if (cm.getProject().awaitBuildDetails().buildLintCommand().isBlank()) {
+        if (readOnly) {
+            finalInstructions +=
+                    """
+
+                    <read-only-run>
+                    This Architect run is read-only. Do not make file changes or call CodeAgent.
+                    Produce a plan or final answer using only the current Workspace context.
+                    </read-only-run>
+                    """;
+        }
+
+        if (!buildToolsEnabled) {
+            finalInstructions +=
+                    """
+
+                    <no-build-run>
+                    Build/test tools are disabled for this run. Do not configure or execute build verification.
+                    </no-build-run>
+                    """;
+        } else if (cm.getProject().awaitBuildDetails().buildLintCommand().isBlank()) {
             finalInstructions +=
                     """
 
@@ -1142,6 +1207,10 @@ public class ArchitectAgent {
         messages.add(new UserMessage(finalInstructions));
 
         return messages;
+    }
+
+    private List<String> finalTurnAllowedTools() {
+        return readOnly ? List.of("projectFinished", "abortProject") : List.of("callCodeAgent", "abortProject");
     }
 
     @Blocking

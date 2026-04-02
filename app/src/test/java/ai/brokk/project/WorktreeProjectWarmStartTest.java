@@ -38,6 +38,7 @@ class WorktreeProjectWarmStartTest {
         Path pythonParentCache = python.getStoragePath(parentMain);
         Path typescriptParentCache = typescript.getStoragePath(parentMain);
 
+        Files.createDirectories(javaParentCache.getParent());
         Files.writeString(javaParentCache, "java-cache-content");
         Files.writeString(pythonParentCache, "python-cache-content");
         Files.writeString(typescriptParentCache, "typescript-cache-content");
