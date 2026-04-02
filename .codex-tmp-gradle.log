@@ -1,0 +1,18 @@
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.0/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+Configuration on demand is an incubating feature.
+> Task :app:generateBuildConfig UP-TO-DATE
+> Task :treesitter-provider:downloadTreeSitterNg UP-TO-DATE
+> Task :treesitter-provider:compileJava NO-SOURCE
+> Task :treesitter-provider:processResources NO-SOURCE
+> Task :treesitter-provider:classes UP-TO-DATE
+> Task :treesitter-provider:jar UP-TO-DATE
+> Task :errorprone-checks:compileJava UP-TO-DATE
+> Task :errorprone-checks:processResources NO-SOURCE
+> Task :errorprone-checks:classes UP-TO-DATE
+> Task :errorprone-checks:jar UP-TO-DATE
+> Task :app:verifyNoEmptyJavaSources UP-TO-DATE
+> Task :app:compileJava
+E
+> Task :treesitter-provider:classes UP-TO-DATE
+> Task :treesitter-provider:jar
