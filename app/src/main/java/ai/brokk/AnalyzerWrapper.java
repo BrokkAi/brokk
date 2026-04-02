@@ -4,6 +4,7 @@ import static java.util.Objects.requireNonNull;
 
 import ai.brokk.agents.BuildAgent;
 import ai.brokk.analyzer.DisabledAnalyzer;
+import ai.brokk.analyzer.FrameworkTemplate;
 import ai.brokk.analyzer.FrameworkTemplates;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.Language;
@@ -784,7 +785,11 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
             }
 
             // Legacy location cleanup (migration)
-            Files.deleteIfExists(project.getRoot().resolve(".brokk/code_intelligence/template/state.bin.lz4"));
+            Files.deleteIfExists(project.getRoot()
+                    .resolve(AbstractProject.BROKK_DIR)
+                    .resolve(AbstractProject.CODE_INTELLIGENCE_DIR)
+                    .resolve(FrameworkTemplate.LEGACY_TEMPLATE_DIR)
+                    .resolve("state" + Language.ANALYZER_STATE_SUFFIX));
         } catch (Throwable t) {
             logger.debug("Unexpected error in deletePersistedAnalyzerStateFiles(): {}", t.toString());
         }
