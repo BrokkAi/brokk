@@ -2,8 +2,10 @@ package ai.brokk.analyzer;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import ai.brokk.testutil.FailingTemplateAnalyzer;
 import ai.brokk.testutil.TestAnalyzer;
 import ai.brokk.testutil.TestProject;
+import ai.brokk.testutil.TestTemplateAnalyzer;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
