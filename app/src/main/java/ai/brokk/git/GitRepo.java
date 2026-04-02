@@ -2093,7 +2093,25 @@ public class GitRepo implements Closeable, IGitRepo {
                 for (int i = 0; i < commit.getParentCount() && !renameFound; i++) {
                     try {
                         var parent = revWalk.parseCommit(commit.getParent(i).getId());
-                        var diffs = diffFmt.scan(parent.getTree(), commit.getTree());
+                        List<DiffEntry> diffs;
+                        try {
+                            diffs = diffFmt.scan(parent.getTree(), commit.getTree());
+                        } catch (Exception e) {
+                            if (isMissingObjectException(e)) {
+                                logger.trace("Missing object during rename detection in getFileHistoryWithPaths; falling back.");
+                                diffFmt.setDetectRenames(false);
+                                try {
+                                    diffs = diffFmt.scan(parent.getTree(), commit.getTree());
+                                } catch (Exception ex) {
+                                    logger.warn("Fallback scan failed in getFileHistoryWithPaths: {}", ex.getMessage());
+                                    diffs = List.of();
+                                } finally {
+                                    diffFmt.setDetectRenames(true);
+                                }
+                            } else {
+                                throw e;
+                            }
+                        }
 
                         for (var d : diffs) {
                             if (d.getChangeType() == DiffEntry.ChangeType.RENAME
@@ -2174,7 +2192,25 @@ public class GitRepo implements Closeable, IGitRepo {
                 final var newTree = commit.getTree();
                 final var oldTree = (parent == null) ? null : parent.getTree();
 
-                final List<DiffEntry> diffs = df.scan(oldTree, newTree);
+                List<DiffEntry> diffs;
+                try {
+                    diffs = df.scan(oldTree, newTree);
+                } catch (Exception e) {
+                    if (isMissingObjectException(e)) {
+                        logger.trace("Missing object during rename detection in getFileHistories; falling back.");
+                        df.setDetectRenames(false);
+                        try {
+                            diffs = df.scan(oldTree, newTree);
+                        } catch (Exception ex) {
+                            logger.warn("Fallback scan failed in getFileHistories: {}", ex.getMessage());
+                            diffs = List.of();
+                        } finally {
+                            df.setDetectRenames(true);
+                        }
+                    } else {
+                        throw e;
+                    }
+                }
                 if (diffs.isEmpty()) continue;
 
                 final Set<String> currentPaths = new HashSet<>();
@@ -2835,6 +2871,27 @@ public class GitRepo implements Closeable, IGitRepo {
         public record RenameEdge(ProjectFile old, ProjectFile newPath) {}
     }
 
+    static boolean isMissingObjectException(Throwable t) {
+        Throwable curr = t;
+        while (curr != null) {
+            if (curr instanceof MissingObjectException) {
+                return true;
+            }
+            String msg = curr.getMessage();
+            if (msg != null) {
+                String lower = msg.toLowerCase(Locale.ROOT);
+                if (lower.contains("missing blob")
+                        || lower.contains("missing tree")
+                        || lower.contains("missing commit")
+                        || lower.contains("missingobjectexception")) {
+                    return true;
+                }
+            }
+            curr = curr.getCause();
+        }
+        return false;
+    }
+
     /**
      * Builds a per-commit rename canonicalizer scoped to the minimal window that covers all
      * {@code commits} (i.e., the PMI sample). We walk from HEAD back until we have encountered
@@ -2887,8 +2944,23 @@ public class GitRepo implements Closeable, IGitRepo {
                     List<DiffEntry> diffs;
                     try {
                         diffs = df.scan(parent.getTree(), commit.getTree());
-                    } catch (IOException e) {
-                        throw new GitWrappedIOException(e);
+                    } catch (Exception e) {
+                        if (isMissingObjectException(e)) {
+                            logger.trace("Missing object during rename detection in buildCanonicalizer; falling back.");
+                            df.setDetectRenames(false);
+                            try {
+                                diffs = df.scan(parent.getTree(), commit.getTree());
+                            } catch (Exception ex) {
+                                logger.warn("Fallback scan failed in buildCanonicalizer: {}", ex.getMessage());
+                                diffs = List.of();
+                            } finally {
+                                df.setDetectRenames(true);
+                            }
+                        } else if (e instanceof IOException io) {
+                            throw new GitWrappedIOException(io);
+                        } else {
+                            throw e;
+                        }
                     }
 
                     List<Canonicalizer.RenameEdge> edgesForThisCommit = null;
