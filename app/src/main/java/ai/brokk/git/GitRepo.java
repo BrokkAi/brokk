@@ -2183,6 +2183,7 @@ public class GitRepo implements Closeable, IGitRepo {
             for (var commit : revWalk) {
                 if (active.isEmpty()) break;
 
+                boolean wasDetectRenames = df.isDetectRenames();
                 RevCommit parent = (commit.getParentCount() > 0) ? revWalk.parseCommit(commit.getParent(0)) : null;
                 final var newTree = commit.getTree();
                 final var oldTree = (parent == null) ? null : parent.getTree();
@@ -2235,6 +2236,7 @@ public class GitRepo implements Closeable, IGitRepo {
                 if (anyHit) {
                     active.removeIf(f -> requireNonNull(results.get(f)).size() >= maxResults);
                 }
+                df.setDetectRenames(wasDetectRenames);
             }
 
             return results.values().stream()
@@ -2923,46 +2925,51 @@ public class GitRepo implements Closeable, IGitRepo {
                 var commitId = commit.getName();
                 indexByCommit.put(commitId, idx);
 
-                // Record rename edges (first-parent diff is sufficient for our canonicalization)
-                if (commit.getParentCount() > 0) {
-                    RevCommit parent;
-                    try {
-                        parent = revWalk.parseCommit(commit.getParent(0));
-                    } catch (IOException e) {
-                        throw new GitWrappedIOException(e);
-                    }
-
-                    final RevCommit finalParent = parent;
-                    List<DiffEntry> diffs = GitRepoData.scanWithFallback(
-                            df,
-                            () -> {
-                                try (var reader = repository.newObjectReader()) {
-                                    return new CanonicalTreeParser(null, reader, finalParent.getTree());
-                                }
-                            },
-                            () -> {
-                                try (var reader = repository.newObjectReader()) {
-                                    return new CanonicalTreeParser(null, reader, commit.getTree());
-                                }
-                            },
-                            "buildCanonicalizer");
-
-                    List<Canonicalizer.RenameEdge> edgesForThisCommit = null;
-                    for (var de : diffs) {
-                        if (de.getChangeType() != DiffEntry.ChangeType.RENAME) continue;
-
-                        var oldOpt = toProjectFile(de.getOldPath());
-                        var newOpt = toProjectFile(de.getNewPath());
-                        if (oldOpt.isEmpty() || newOpt.isEmpty()) continue;
-
-                        if (edgesForThisCommit == null) {
-                            edgesForThisCommit = new ArrayList<>();
+                boolean wasDetectRenames = df.isDetectRenames();
+                try {
+                    // Record rename edges (first-parent diff is sufficient for our canonicalization)
+                    if (commit.getParentCount() > 0) {
+                        RevCommit parent;
+                        try {
+                            parent = revWalk.parseCommit(commit.getParent(0));
+                        } catch (IOException e) {
+                            throw new GitWrappedIOException(e);
                         }
-                        edgesForThisCommit.add(new Canonicalizer.RenameEdge(oldOpt.get(), newOpt.get()));
+
+                        final RevCommit finalParent = parent;
+                        List<DiffEntry> diffs = GitRepoData.scanWithFallback(
+                                df,
+                                () -> {
+                                    try (var reader = repository.newObjectReader()) {
+                                        return new CanonicalTreeParser(null, reader, finalParent.getTree());
+                                    }
+                                },
+                                () -> {
+                                    try (var reader = repository.newObjectReader()) {
+                                        return new CanonicalTreeParser(null, reader, commit.getTree());
+                                    }
+                                },
+                                "buildCanonicalizer");
+
+                        List<Canonicalizer.RenameEdge> edgesForThisCommit = null;
+                        for (var de : diffs) {
+                            if (de.getChangeType() != DiffEntry.ChangeType.RENAME) continue;
+
+                            var oldOpt = toProjectFile(de.getOldPath());
+                            var newOpt = toProjectFile(de.getNewPath());
+                            if (oldOpt.isEmpty() || newOpt.isEmpty()) continue;
+
+                            if (edgesForThisCommit == null) {
+                                edgesForThisCommit = new ArrayList<>();
+                            }
+                            edgesForThisCommit.add(new Canonicalizer.RenameEdge(oldOpt.get(), newOpt.get()));
+                        }
+                        if (edgesForThisCommit != null && !edgesForThisCommit.isEmpty()) {
+                            renamesByIndex.put(idx, edgesForThisCommit);
+                        }
                     }
-                    if (edgesForThisCommit != null && !edgesForThisCommit.isEmpty()) {
-                        renamesByIndex.put(idx, edgesForThisCommit);
-                    }
+                } finally {
+                    df.setDetectRenames(wasDetectRenames);
                 }
 
                 // Check if we've found all the required commits

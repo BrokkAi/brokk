@@ -465,12 +465,12 @@ public class GitRepoData {
     static List<DiffEntry> scanWithFallback(
             DiffFormatter df, TreeIteratorSupplier oldTreeProv, TreeIteratorSupplier newTreeProv, String context)
             throws GitAPIException {
+        boolean wasDetectRenames = df.isDetectRenames();
         try {
             return df.scan(oldTreeProv.get(), newTreeProv.get());
         } catch (Exception e) {
             if (GitRepo.isMissingObjectException(e)) {
                 logger.trace("Missing object during {} scan; falling back by disabling rename detection.", context);
-                boolean wasDetectRenames = df.isDetectRenames();
                 df.setDetectRenames(false);
                 try {
                     return df.scan(oldTreeProv.get(), newTreeProv.get());
@@ -480,11 +480,11 @@ public class GitRepoData {
                         return Collections.emptyList();
                     }
                     throw wrapException(context, ex);
-                } finally {
-                    df.setDetectRenames(wasDetectRenames);
                 }
             }
             throw wrapException(context, e);
+        } finally {
+            df.setDetectRenames(wasDetectRenames);
         }
     }
 
