@@ -216,9 +216,31 @@ public class MultiAnalyzer
 
     @Override
     public Set<String> getSources(CodeUnit codeUnit, boolean includeComments) {
-        return delegateFor(codeUnit)
-                .map(analyzer -> analyzer.getSources(codeUnit, includeComments))
-                .orElse(Set.of());
+        Set<String> allSources = new LinkedHashSet<>();
+
+        // 1. Get sources from the primary language delegate
+        delegateFor(codeUnit).ifPresent(delegate -> {
+            try {
+                allSources.addAll(delegate.getSources(codeUnit, includeComments));
+            } catch (Exception e) {
+                log.error("Error getting sources from delegate for {}: {}", codeUnit, e.getMessage());
+            }
+        });
+
+        // 2. Get sources from applicable template analyzers
+        for (var ta : templateAnalyzers) {
+            try {
+                allSources.addAll(ta.getTemplateSources(codeUnit));
+            } catch (Exception e) {
+                log.error(
+                        "Error getting template sources from {} for {}: {}",
+                        ta.internalName(),
+                        codeUnit,
+                        e.getMessage());
+            }
+        }
+
+        return allSources;
     }
 
     @Override
