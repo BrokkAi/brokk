@@ -454,4 +454,3 @@ def install_claude_mcp_summaries_skill(*, skills_path: Path | None = None) -> Pa
     skill_path = skill_dir / "SKILL.md"
     skill_path.write_text(_build_claude_summaries_skill_markdown(), encoding="utf-8")
     return skill_path
-

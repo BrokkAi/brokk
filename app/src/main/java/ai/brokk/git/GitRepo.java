@@ -2098,7 +2098,8 @@ public class GitRepo implements Closeable, IGitRepo {
                             diffs = diffFmt.scan(parent.getTree(), commit.getTree());
                         } catch (Exception e) {
                             if (isMissingObjectException(e)) {
-                                logger.trace("Missing object during rename detection in getFileHistoryWithPaths; falling back.");
+                                logger.trace(
+                                        "Missing object during rename detection in getFileHistoryWithPaths; falling back.");
                                 diffFmt.setDetectRenames(false);
                                 try {
                                     diffs = diffFmt.scan(parent.getTree(), commit.getTree());
