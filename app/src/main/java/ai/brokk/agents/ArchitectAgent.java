@@ -22,7 +22,9 @@ import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.prompts.ArchitectPrompts;
 import ai.brokk.prompts.WorkspacePrompts;
 import ai.brokk.tools.DependencyTools;
+import ai.brokk.tools.Destructive;
 import ai.brokk.tools.ParallelSearch;
+import ai.brokk.tools.ToolExecutionHelper;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
 import ai.brokk.tools.WorkspaceTools;
@@ -280,6 +282,7 @@ public class ArchitectAgent {
      * A tool that invokes the CodeAgent to solve the current top task using the given instructions. The instructions
      * can incorporate the stack's current top task or anything else.
      */
+    @Destructive
     @Tool(
             "Invoke the Code Agent to solve or implement the current task. Provide complete instructions. Only the Workspace and your instructions are visible to the Code Agent, NOT the entire chat history; you must therefore provide appropriate context for your instructions. If you expect your changes to temporarily break the build and plan to fix them in later steps, set 'deferBuild' to true to defer build/verification.")
     public String callCodeAgent(
@@ -621,7 +624,7 @@ public class ArchitectAgent {
                         .arguments("{\"instructions\": \"%s\", \"deferBuild\": false}".formatted(goal))
                         .build();
 
-                io.beforeToolCall(req);
+                io.beforeToolCall(req, true);
                 var initialSummary = callCodeAgent(goal, deferBuildForInitialCodeAgentCall);
                 io.afterToolOutput(ToolExecutionResult.success(req, initialSummary));
                 architectMessages.add(new UserMessage(
@@ -737,12 +740,10 @@ public class ArchitectAgent {
                 } else {
                     logger.debug("LLM decided to projectFinished. We'll finalize and stop");
 
-                    io.beforeToolCall(answerReq);
                     var executionRegistry = ToolRegistry.fromBase(tr)
                             .register(new WorkspaceTools(context))
                             .build();
-                    var toolResult = executionRegistry.executeTool(answerReq);
-                    io.afterToolOutput(toolResult);
+                    var toolResult = ToolExecutionHelper.executeWithApproval(io, executionRegistry, answerReq);
                     llm.recordToolExecution(toolResult);
 
                     io.llmOutput(
@@ -762,12 +763,10 @@ public class ArchitectAgent {
                 } else {
                     logger.debug("LLM decided to abortProject. We'll finalize and stop");
 
-                    io.beforeToolCall(abortReq);
                     var executionRegistry = ToolRegistry.fromBase(tr)
                             .register(new WorkspaceTools(context))
                             .build();
-                    var toolResult = executionRegistry.executeTool(abortReq);
-                    io.afterToolOutput(toolResult);
+                    var toolResult = ToolExecutionHelper.executeWithApproval(io, executionRegistry, abortReq);
                     llm.recordToolExecution(toolResult);
 
                     io.llmOutput(
@@ -779,12 +778,10 @@ public class ArchitectAgent {
             // Execute remaining tool calls in the desired order (all use the local registry)
             otherReqs.sort(Comparator.comparingInt(req -> getPriorityRank(req.name())));
             for (var req : otherReqs) {
-                io.beforeToolCall(req);
                 var executionRegistry = ToolRegistry.fromBase(tr)
                         .register(new WorkspaceTools(context))
                         .build();
-                ToolExecutionResult toolResult = executionRegistry.executeTool(req);
-                io.afterToolOutput(toolResult);
+                ToolExecutionResult toolResult = ToolExecutionHelper.executeWithApproval(io, executionRegistry, req);
                 llm.recordToolExecution(toolResult);
 
                 if (isWorkspaceTool(req, executionRegistry)
@@ -823,12 +820,10 @@ public class ArchitectAgent {
             // code agent calls are done serially
             var initialContext = context;
             for (var req : codeAgentReqs) {
-                io.beforeToolCall(req);
                 var executionRegistry = ToolRegistry.fromBase(tr)
                         .register(new WorkspaceTools(context))
                         .build();
-                ToolExecutionResult toolResult = executionRegistry.executeTool(req);
-                io.afterToolOutput(toolResult);
+                ToolExecutionResult toolResult = ToolExecutionHelper.executeWithApproval(io, executionRegistry, req);
                 llm.recordToolExecution(toolResult);
 
                 if (toolResult.status() == ToolExecutionResult.Status.FATAL) {

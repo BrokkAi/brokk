@@ -25,6 +25,7 @@ import ai.brokk.context.ContextFragments.SummaryFragment;
 import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
 import ai.brokk.project.ModelProperties;
+import ai.brokk.tools.Destructive;
 import ai.brokk.tools.ParallelSearch;
 import ai.brokk.tools.SearchTools;
 import ai.brokk.tools.ToolExecutionResult;

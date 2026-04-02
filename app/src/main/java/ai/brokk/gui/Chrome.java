@@ -40,9 +40,11 @@ import ai.brokk.init.onboarding.OnboardingStep;
 import ai.brokk.init.onboarding.PostGitStyleRegenerationStep;
 import ai.brokk.project.AbstractProject;
 import ai.brokk.project.MainProject;
+import ai.brokk.tools.ApprovalResult;
 import ai.brokk.util.*;
 import com.formdev.flatlaf.util.SystemInfo;
 import com.formdev.flatlaf.util.UIScale;
+import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import java.awt.*;
@@ -2239,6 +2241,19 @@ public class Chrome
             @Nullable Component parent, String message, String title, int optionType, int messageType) {
         //noinspection MagicConstant
         return MaterialOptionPane.showConfirmDialog(parent, message, title, optionType, messageType);
+    }
+
+    @Override
+    public ApprovalResult beforeToolCall(ToolExecutionRequest request, boolean destructive) {
+        if (!destructive) {
+            return ApprovalResult.APPROVED;
+        }
+        int result = showConfirmDialog(
+                "The agent wants to run: " + request.name() + "\n\nThis is a destructive operation. Allow it?",
+                "Tool Approval",
+                JOptionPane.YES_NO_OPTION,
+                JOptionPane.WARNING_MESSAGE);
+        return result == JOptionPane.YES_OPTION ? ApprovalResult.APPROVED : ApprovalResult.DENIED;
     }
 
     @Override

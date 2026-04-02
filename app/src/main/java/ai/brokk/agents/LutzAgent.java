@@ -31,6 +31,7 @@ import ai.brokk.tools.DependencyTools;
 import ai.brokk.tools.ExplanationRenderer;
 import ai.brokk.tools.ParallelSearch;
 import ai.brokk.tools.SearchTools;
+import ai.brokk.tools.ToolExecutionHelper;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
 import ai.brokk.tools.WorkspaceTools;
@@ -937,9 +938,7 @@ public class LutzAgent {
                         continue;
                     }
 
-                    agent.io.beforeToolCall(req);
                     ToolExecutionResult toolResult = executeTool(req);
-                    agent.io.afterToolOutput(toolResult);
 
                     if (toolResult.status() == ToolExecutionResult.Status.FATAL) {
                         var details =
@@ -950,9 +949,7 @@ public class LutzAgent {
                     sessionMessages.add(toolResult.toMessage());
                 }
 
-                agent.io.beforeToolCall(terminalRequest);
                 var termExec = executeTool(terminalRequest);
-                agent.io.afterToolOutput(termExec);
 
                 sessionMessages.add(termExec.toMessage());
 
@@ -1002,9 +999,7 @@ public class LutzAgent {
             var otherPrimaryCalls = searchPartition.otherRequests();
 
             for (var req : otherPrimaryCalls) {
-                agent.io.beforeToolCall(req);
                 ToolExecutionResult toolResult = executeTool(req);
-                agent.io.afterToolOutput(toolResult);
 
                 if (toolResult.status() == ToolExecutionResult.Status.FATAL) {
                     var details = new TaskResult.StopDetails(TaskResult.StopReason.LLM_ERROR, toolResult.resultText());
@@ -1048,9 +1043,7 @@ public class LutzAgent {
 
             boolean contextSafeForTerminal = context.equals(contextAtTurnStart) || !executedNonHygiene;
             if (terminalRequest != null && contextSafeForTerminal) {
-                agent.io.beforeToolCall(terminalRequest);
                 var termExec = executeTool(terminalRequest);
-                agent.io.afterToolOutput(termExec);
 
                 sessionMessages.add(termExec.toMessage());
 
@@ -1074,7 +1067,7 @@ public class LutzAgent {
                 String ignoredMessage = "Terminal call '%s' ignored because tool calls %s changed the Workspace."
                         .formatted(terminalRequest.name(), changedTools);
                 var ignored = ToolExecutionResult.requestError(terminalRequest, ignoredMessage);
-                agent.io.beforeToolCall(terminalRequest);
+                agent.io.beforeToolCall(terminalRequest, false);
                 agent.io.afterToolOutput(ignored);
                 sessionMessages.add(ignored.toMessage());
             }
@@ -1186,7 +1179,7 @@ public class LutzAgent {
             var executionRegistry = ToolRegistry.fromBase(tr)
                     .register(new WorkspaceTools(context))
                     .build();
-            var result = executionRegistry.executeTool(req);
+            var result = ToolExecutionHelper.executeWithApproval(agent.io, executionRegistry, req);
             agent.llm.recordToolExecution(result);
 
             if (agent.isWorkspaceTool(req, executionRegistry)

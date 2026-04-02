@@ -2,6 +2,7 @@ package ai.brokk.tools;
 
 import ai.brokk.IContextManager;
 import ai.brokk.util.Environment;
+import ai.brokk.util.SandboxPolicy;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import java.time.Duration;
@@ -23,6 +24,7 @@ public class ShellTools {
     }
 
     @Blocking
+    @Destructive
     @Tool(
             """
         Run a shell command in the project root directory and return its output (stdout and stderr combined).
@@ -43,6 +45,7 @@ public class ShellTools {
             Environment.instance.runShellCommand(
                     command,
                     root,
+                    SandboxPolicy.WORKSPACE_WRITE,
                     line -> {
                         synchronized (lines) {
                             if (lines.size() >= MAX_OUTPUT_LINES) {
@@ -53,7 +56,8 @@ public class ShellTools {
                     },
                     DEFAULT_TIMEOUT,
                     shellConfig,
-                    Map.of());
+                    Map.of(),
+                    null);
 
             synchronized (lines) {
                 return String.join("\n", lines);
