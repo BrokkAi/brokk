@@ -399,8 +399,8 @@ public class AngularTemplateAnalyzer implements ITemplateAnalyzer, FrameworkTemp
                             return defaultValue + "\n<!-- Reason: Failed to read summary.scm -->";
                         }
 
-                        TSLanguage lang = new TreeSitterAngular();
-                        try (TSParser parser = new TSParser()) {
+                        try (TSLanguage lang = new TreeSitterAngular();
+                                TSParser parser = new TSParser()) {
                             if (!parser.setLanguage(lang)) {
                                 return defaultValue + "\n<!-- Reason: Failed to set Tree-sitter language -->";
                             }
