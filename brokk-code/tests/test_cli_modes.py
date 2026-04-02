@@ -3252,10 +3252,14 @@ def test_install_mcp_skips_prompt_when_key_configured(monkeypatch, tmp_path) -> 
         lambda *, force=False, settings_path=None, uvx_command=None: tmp_path / "cx.toml",
     )
     monkeypatch.setattr(
-        main_module, "install_codex_mcp_workspace_skill", lambda *, skills_path=None: tmp_path / "s1"
+        main_module,
+        "install_codex_mcp_workspace_skill",
+        lambda **_kw: tmp_path / "s1",
     )
     monkeypatch.setattr(
-        main_module, "install_codex_mcp_summaries_skill", lambda *, skills_path=None: tmp_path / "s2"
+        main_module,
+        "install_codex_mcp_summaries_skill",
+        lambda **_kw: tmp_path / "s2",
     )
 
     monkeypatch.setattr(sys, "argv", ["brokk", "install", "mcp"])
@@ -3347,12 +3351,12 @@ def test_install_mcp_with_missing_key_piped_persists_key(
     monkeypatch.setattr(
         main_module,
         "install_codex_mcp_workspace_skill",
-        lambda **k: tmp_path / "s1",
+        lambda **_kw: tmp_path / "s1",
     )
     monkeypatch.setattr(
         main_module,
         "install_codex_mcp_summaries_skill",
-        lambda **k: tmp_path / "s2",
+        lambda **_kw: tmp_path / "s2",
     )
 
     monkeypatch.setattr(sys, "argv", ["brokk", "install", "mcp"])

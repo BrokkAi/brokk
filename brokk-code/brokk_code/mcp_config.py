@@ -379,7 +379,8 @@ Use this skill to get a high-level overview of a module, package, or multiple fi
 ## Guidance
 
 1. Use `getFileSummaries` first for package, module, or multi-file inspection.
-2. Only escalate to heavier read tools (like full file, class, or method reads) once you have narrowed down your area of interest.
+2. Only escalate to heavier read tools (like full file, class, or method
+   reads) once you have narrowed down your area of interest.
 """
 
 
