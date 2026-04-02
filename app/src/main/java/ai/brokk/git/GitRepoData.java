@@ -321,8 +321,6 @@ public class GitRepoData {
                 var newTreeIter = prepareTreeParser(newRef);
                 if (newTreeIter == null) return List.of();
                 return scanWithFallback(diffFormatter, oldTreeIter, newTreeIter, "scanDiffs");
-            } catch (IOException e) {
-                throw new GitRepo.GitWrappedIOException(e);
             }
         }
 
@@ -348,8 +346,6 @@ public class GitRepoData {
                         changedPaths.add(entry.getNewPath());
                     }
                 }
-            } catch (IOException e) {
-                throw new GitRepo.GitWrappedIOException(e);
             }
             // Re-prepare oldTreeIter since DiffFormatter consumed it
             oldTreeIter = prepareTreeParser(oldRef);
@@ -379,8 +375,6 @@ public class GitRepoData {
             diffFormatter.setPathFilter(filterGroup);
             var workingTreeIter = new FileTreeIterator(repository);
             return scanWithFallback(diffFormatter, oldTreeIter, workingTreeIter, "Part 3 scanDiffs");
-        } catch (IOException e) {
-            throw new GitRepo.GitWrappedIOException(e);
         }
     }
 
@@ -458,7 +452,7 @@ public class GitRepoData {
             DiffFormatter df,
             org.eclipse.jgit.lib.AnyObjectId oldTree,
             org.eclipse.jgit.lib.AnyObjectId newTree,
-            String context) throws IOException {
+            String context) throws GitAPIException {
         try {
             return df.scan(oldTree, newTree);
         } catch (Exception e) {
@@ -474,7 +468,8 @@ public class GitRepoData {
                     df.setDetectRenames(true);
                 }
             }
-            if (e instanceof IOException io) throw io;
+            if (e instanceof GitAPIException gae) throw gae;
+            if (e instanceof IOException io) throw new GitRepo.GitWrappedIOException("Scan failed in " + context, io);
             if (e instanceof RuntimeException re) throw re;
             throw new RuntimeException(e);
         }
@@ -487,7 +482,7 @@ public class GitRepoData {
             DiffFormatter df,
             org.eclipse.jgit.treewalk.AbstractTreeIterator oldTree,
             org.eclipse.jgit.treewalk.AbstractTreeIterator newTree,
-            String context) throws IOException {
+            String context) throws GitAPIException {
         try {
             return df.scan(oldTree, newTree);
         } catch (Exception e) {
@@ -503,7 +498,8 @@ public class GitRepoData {
                     df.setDetectRenames(true);
                 }
             }
-            if (e instanceof IOException io) throw io;
+            if (e instanceof GitAPIException gae) throw gae;
+            if (e instanceof IOException io) throw new GitRepo.GitWrappedIOException("Scan failed in " + context, io);
             if (e instanceof RuntimeException re) throw re;
             throw new RuntimeException(e);
         }
