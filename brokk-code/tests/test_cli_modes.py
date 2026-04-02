@@ -852,6 +852,12 @@ def test_main_install_mcp_routes_to_installer(monkeypatch, tmp_path, capsys) -> 
     def fake_install_codex_mcp_summaries_skill(*, skills_path: Any = None):
         return tmp_path / ".codex" / "skills" / "brokk-get-file-summaries" / "SKILL.md"
 
+    def fake_install_claude_mcp_workspace_skill(*, skills_path: Any = None):
+        return tmp_path / ".claude" / "skills" / "brokk-mcp-workspace" / "SKILL.md"
+
+    def fake_install_claude_mcp_summaries_skill(*, skills_path: Any = None):
+        return tmp_path / ".claude" / "skills" / "brokk-get-file-summaries" / "SKILL.md"
+
     monkeypatch.setattr(
         main_module,
         "configure_claude_code_mcp_settings",
@@ -872,6 +878,16 @@ def test_main_install_mcp_routes_to_installer(monkeypatch, tmp_path, capsys) -> 
         "install_codex_mcp_summaries_skill",
         fake_install_codex_mcp_summaries_skill,
     )
+    monkeypatch.setattr(
+        main_module,
+        "install_claude_mcp_workspace_skill",
+        fake_install_claude_mcp_workspace_skill,
+    )
+    monkeypatch.setattr(
+        main_module,
+        "install_claude_mcp_summaries_skill",
+        fake_install_claude_mcp_summaries_skill,
+    )
     monkeypatch.setattr(main_module, "ensure_jbang_ready", lambda: "/usr/local/bin/jbang")
     monkeypatch.setattr(main_module, "_run_install_prefetch", fake_run_install_prefetch)
     monkeypatch.setattr(
@@ -889,7 +905,9 @@ def test_main_install_mcp_routes_to_installer(monkeypatch, tmp_path, capsys) -> 
     assert "Configured Codex MCP integration" in output
     assert "Installed Codex MCP workspace skill" in output
     assert "Installed Codex MCP summaries skill" in output
-    assert "MCP runtime" in str(prefetched["commands"][0][0])
+    assert "Installed Claude MCP workspace skill" in output
+    assert "Installed Claude MCP summaries skill" in output
+    assert any("MCP runtime" in str(cmd[0]) for cmd in prefetched["commands"])
 
 
 def test_main_uses_git_repo_root_for_nested_workspace(monkeypatch, tmp_path) -> None:

@@ -28,6 +28,8 @@ from brokk_code.intellij_config import configure_intellij_acp_settings
 from brokk_code.mcp_config import (
     configure_claude_code_mcp_settings,
     configure_codex_mcp_settings,
+    install_claude_mcp_summaries_skill,
+    install_claude_mcp_workspace_skill,
     install_codex_mcp_summaries_skill,
     install_codex_mcp_workspace_skill,
 )
@@ -2080,8 +2082,10 @@ def main():
                 codex_settings_path = configure_codex_mcp_settings(
                     force=args.force, uvx_command=uvx_command
                 )
-                workspace_skill_path = install_codex_mcp_workspace_skill()
-                summaries_skill_path = install_codex_mcp_summaries_skill()
+                codex_ws_skill = install_codex_mcp_workspace_skill()
+                codex_sum_skill = install_codex_mcp_summaries_skill()
+                claude_ws_skill = install_claude_mcp_workspace_skill()
+                claude_sum_skill = install_claude_mcp_summaries_skill()
                 prefetch_commands = _build_install_prefetch_commands(
                     target=args.target,
                     jbang_binary=jbang_binary,
@@ -2090,8 +2094,10 @@ def main():
                 messages = [
                     f"Configured Claude Code MCP integration in {claude_settings_path}",
                     f"Configured Codex MCP integration in {codex_settings_path}",
-                    f"Installed Codex MCP workspace skill in {workspace_skill_path}",
-                    f"Installed Codex MCP summaries skill in {summaries_skill_path}",
+                    f"Installed Codex MCP workspace skill in {codex_ws_skill}",
+                    f"Installed Codex MCP summaries skill in {codex_sum_skill}",
+                    f"Installed Claude MCP workspace skill in {claude_ws_skill}",
+                    f"Installed Claude MCP summaries skill in {claude_sum_skill}",
                 ]
             else:
                 # Should not happen due to argparse choices

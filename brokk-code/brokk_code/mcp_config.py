@@ -18,6 +18,8 @@ _BROKK_MANAGED_RE = re.compile(
 )
 _BROKK_CODEX_WORKSPACE_SKILL_NAME = "brokk-mcp-workspace"
 _BROKK_CODEX_SUMMARIES_SKILL_NAME = "brokk-get-file-summaries"
+_BROKK_CLAUDE_WORKSPACE_SKILL_NAME = "brokk-mcp-workspace"
+_BROKK_CLAUDE_SUMMARIES_SKILL_NAME = "brokk-get-file-summaries"
 
 _BROKK_INSTRUCTIONS_BODY_CLAUDE = f"""{_BROKK_MARKER}
 - Use getFileSummaries (not Read/Glob) for multi-file and package overviews."""
@@ -133,6 +135,7 @@ def _toml_value(value: Any) -> str:
 
 
 def _serialize_toml(data: dict[str, Any]) -> str:
+    """Serializes a dictionary to TOML format."""
     lines: list[str] = []
 
     for key, value in data.items():
@@ -391,5 +394,64 @@ def install_codex_mcp_summaries_skill(*, skills_path: Path | None = None) -> Pat
 
     skill_path = skill_dir / "SKILL.md"
     skill_path.write_text(_build_codex_summaries_skill_markdown(), encoding="utf-8")
+    return skill_path
+
+
+def _build_claude_workspace_skill_markdown() -> str:
+    return f"""---
+name: {_BROKK_CLAUDE_WORKSPACE_SKILL_NAME}
+description: Activate Brokk MCP for the current workspace with global Claude Code MCP config.
+---
+
+# Brokk MCP Workspace Activation
+
+Use this skill when Brokk MCP is connected but looking at the wrong repository.
+
+## Steps
+
+1. Determine the current workspace path from this session (do not ask the user).
+2. Call Brokk MCP tool `activateWorkspace` with:
+   - `workspacePath`: absolute current workspace path
+3. Call Brokk MCP tool `getActiveWorkspace` and verify:
+   - `activeWorkspacePath` matches the same path (or its normalized git root)
+   - `source` is `runtime_override`
+"""
+
+
+def install_claude_mcp_workspace_skill(*, skills_path: Path | None = None) -> Path:
+    root = skills_path or (Path.home() / ".claude" / "skills")
+    skill_dir = root / _BROKK_CLAUDE_WORKSPACE_SKILL_NAME
+    skill_dir.mkdir(parents=True, exist_ok=True)
+
+    skill_path = skill_dir / "SKILL.md"
+    skill_path.write_text(_build_claude_workspace_skill_markdown(), encoding="utf-8")
+    return skill_path
+
+
+def _build_claude_summaries_skill_markdown() -> str:
+    return f"""---
+name: {_BROKK_CLAUDE_SUMMARIES_SKILL_NAME}
+description: Prefer getFileSummaries for multi-file and package overviews.
+---
+
+# Brokk File Summaries
+
+Use this skill to get a high-level overview of a module, package, or multiple files.
+
+## Guidance
+
+1. Use `getFileSummaries` first for package, module, or multi-file inspection.
+2. Only escalate to heavier read tools (like full file, class, or method
+   reads) once you have narrowed down your area of interest.
+"""
+
+
+def install_claude_mcp_summaries_skill(*, skills_path: Path | None = None) -> Path:
+    root = skills_path or (Path.home() / ".claude" / "skills")
+    skill_dir = root / _BROKK_CLAUDE_SUMMARIES_SKILL_NAME
+    skill_dir.mkdir(parents=True, exist_ok=True)
+
+    skill_path = skill_dir / "SKILL.md"
+    skill_path.write_text(_build_claude_summaries_skill_markdown(), encoding="utf-8")
     return skill_path
 

@@ -6,6 +6,8 @@ import pytest
 from brokk_code.mcp_config import (
     configure_claude_code_mcp_settings,
     configure_codex_mcp_settings,
+    install_claude_mcp_summaries_skill,
+    install_claude_mcp_workspace_skill,
     install_codex_mcp_summaries_skill,
     install_codex_mcp_workspace_skill,
 )
@@ -270,6 +272,32 @@ def test_install_codex_mcp_summaries_skill_creates_expected_skill(monkeypatch, t
     skill_path = install_codex_mcp_summaries_skill()
 
     assert skill_path == tmp_path / ".codex" / "skills" / "brokk-get-file-summaries" / "SKILL.md"
+    assert skill_path.exists()
+    content = skill_path.read_text(encoding="utf-8")
+    assert "name: brokk-get-file-summaries" in content
+    assert "getFileSummaries" in content
+    assert "multi-file and package overviews" in content
+
+
+def test_install_claude_mcp_workspace_skill_creates_expected_skill(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    skill_path = install_claude_mcp_workspace_skill()
+
+    assert skill_path == tmp_path / ".claude" / "skills" / "brokk-mcp-workspace" / "SKILL.md"
+    assert skill_path.exists()
+    content = skill_path.read_text(encoding="utf-8")
+    assert "name: brokk-mcp-workspace" in content
+    assert "activateWorkspace" in content
+    assert "getActiveWorkspace" in content
+
+
+def test_install_claude_mcp_summaries_skill_creates_expected_skill(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    skill_path = install_claude_mcp_summaries_skill()
+
+    assert skill_path == tmp_path / ".claude" / "skills" / "brokk-get-file-summaries" / "SKILL.md"
     assert skill_path.exists()
     content = skill_path.read_text(encoding="utf-8")
     assert "name: brokk-get-file-summaries" in content
