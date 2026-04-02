@@ -956,77 +956,80 @@ public class BrokkExternalMcpServer {
         if (editFiles.isEmpty()) {
             return "Code agent called with no files to edit";
         }
-        var wst = new WorkspaceTools(cm.liveContext());
-        var updatedContext = wst.addFilesToWorkspace(editFiles).context();
-        cm.pushContext(ctx -> updatedContext);
+        return runWithWorkspaceLock(() -> {
+            var wst = new WorkspaceTools(cm.liveContext());
+            var updatedContext = wst.addFilesToWorkspace(editFiles).context();
+            cm.pushContext(ctx -> updatedContext);
 
-        var initialContext = cm.liveContext();
+            var initialContext = cm.liveContext();
 
-        var model = requireNonNull(
-                cm.getService().getModel(cm.getProject().getModelConfig(ModelProperties.ModelType.CODE)));
-        var ca = new CodeAgent(cm, model);
+            var model = requireNonNull(
+                    cm.getService().getModel(cm.getProject().getModelConfig(ModelProperties.ModelType.CODE)));
+            var ca = new CodeAgent(cm, model);
 
-        EnumSet<CodeAgent.Option> options =
-                deferBuild ? EnumSet.of(CodeAgent.Option.DEFER_BUILD) : EnumSet.noneOf(CodeAgent.Option.class);
+            EnumSet<CodeAgent.Option> options =
+                    deferBuild ? EnumSet.of(CodeAgent.Option.DEFER_BUILD) : EnumSet.noneOf(CodeAgent.Option.class);
 
-        List<ProjectFile> testFilesOverride = testFiles.isEmpty() || deferBuild
-                ? List.of()
-                : testFiles.stream().map(cm::toFile).toList();
+            List<ProjectFile> testFilesOverride = testFiles.isEmpty() || deferBuild
+                    ? List.of()
+                    : testFiles.stream().map(cm::toFile).toList();
 
-        TaskResult result = ca.execute(instructions, options, testFilesOverride);
+            TaskResult result = ca.execute(instructions, options, testFilesOverride);
 
-        var finalContext = result.context();
-        var stopDetails = result.stopDetails();
-        var reason = stopDetails.reason();
+            var finalContext = result.context();
+            var stopDetails = result.stopDetails();
+            var reason = stopDetails.reason();
 
-        var delta = ContextDelta.between(initialContext, finalContext).join();
-        var changedFragments = delta.getChangedFragments();
-        var unifiedDiff = CodeAgent.cumulativeDiffForFragments(initialContext, finalContext, changedFragments);
+            var delta = ContextDelta.between(initialContext, finalContext).join();
+            var changedFragments = delta.getChangedFragments();
+            var unifiedDiff = CodeAgent.cumulativeDiffForFragments(initialContext, finalContext, changedFragments);
 
-        String explanation = stopDetails.explanation();
-        if (reason == TaskResult.StopReason.BUILD_ERROR) {
-            String buildError = finalContext.getBuildError();
-            if (!buildError.isBlank() && !explanation.contains(buildError)) {
-                explanation = (explanation.isBlank() ? "" : (explanation.stripTrailing() + "\n\n")) + buildError;
+            String explanation = stopDetails.explanation();
+            if (reason == TaskResult.StopReason.BUILD_ERROR) {
+                String buildError = finalContext.getBuildError();
+                if (!buildError.isBlank() && !explanation.contains(buildError)) {
+                    explanation = (explanation.isBlank() ? "" : (explanation.stripTrailing() + "\n\n")) + buildError;
+                }
             }
-        }
 
-        String diffSection = unifiedDiff.isBlank()
-                ? "# Diff\n(No file changes)"
-                : """
-                # Diff
-                ```diff
-                %s
-                ```
-                """
-                        .formatted(unifiedDiff.strip())
+            String diffSection = unifiedDiff.isBlank()
+                    ? "# Diff\n(No file changes)"
+                    : """
+                    # Diff
+                    ```diff
+                    %s
+                    ```
+                    """
+                            .formatted(unifiedDiff.strip())
+                            .stripIndent()
+                            .stripTrailing();
+
+            if (reason == TaskResult.StopReason.SUCCESS) {
+                String statusLine = deferBuild ? "Success (build deferred)." : "Success.";
+                return """
+                        # Status
+                        %s
+
+                        %s
+                        """
+                        .formatted(statusLine, diffSection)
                         .stripIndent()
                         .stripTrailing();
+            }
 
-        if (reason == TaskResult.StopReason.SUCCESS) {
-            String statusLine = deferBuild ? "Success (build deferred)." : "Success.";
+            var diffPresentation =
+                    unifiedDiff.isBlank() ? CodeAgent.DiffPresentation.NONE : CodeAgent.DiffPresentation.INLINE;
+            String failureText =
+                    CodeAgent.formatPostFailureResponse(reason, explanation, diffPresentation, unifiedDiff);
             return """
-                    # Status
                     %s
 
                     %s
                     """
-                    .formatted(statusLine, diffSection)
+                    .formatted(failureText, diffSection)
                     .stripIndent()
                     .stripTrailing();
-        }
-
-        var diffPresentation =
-                unifiedDiff.isBlank() ? CodeAgent.DiffPresentation.NONE : CodeAgent.DiffPresentation.INLINE;
-        String failureText = CodeAgent.formatPostFailureResponse(reason, explanation, diffPresentation, unifiedDiff);
-        return """
-                %s
-
-                %s
-                """
-                .formatted(failureText, diffSection)
-                .stripIndent()
-                .stripTrailing();
+        });
     }
 
     private <T> T runWithWorkspaceLock(Supplier<T> supplier) {
