@@ -37,6 +37,7 @@ import org.eclipse.jgit.revwalk.*;
 import org.eclipse.jgit.revwalk.filter.RevFilter;
 import org.eclipse.jgit.storage.file.FileRepositoryBuilder;
 import org.eclipse.jgit.transport.UsernamePasswordCredentialsProvider;
+import org.eclipse.jgit.treewalk.CanonicalTreeParser;
 import org.eclipse.jgit.treewalk.TreeWalk;
 import org.eclipse.jgit.util.SystemReader;
 import org.eclipse.jgit.util.io.DisabledOutputStream;
@@ -2094,7 +2095,18 @@ public class GitRepo implements Closeable, IGitRepo {
                     try {
                         var parent = revWalk.parseCommit(commit.getParent(i).getId());
                         List<DiffEntry> diffs = GitRepoData.scanWithFallback(
-                                diffFmt, parent.getTree(), commit.getTree(), "getFileHistoryWithPaths");
+                                diffFmt,
+                                () -> {
+                                    try (var reader = repository.newObjectReader()) {
+                                        return new CanonicalTreeParser(null, reader, parent.getTree());
+                                    }
+                                },
+                                () -> {
+                                    try (var reader = repository.newObjectReader()) {
+                                        return new CanonicalTreeParser(null, reader, commit.getTree());
+                                    }
+                                },
+                                "getFileHistoryWithPaths");
 
                         for (var d : diffs) {
                             if (d.getChangeType() == DiffEntry.ChangeType.RENAME
@@ -2175,7 +2187,21 @@ public class GitRepo implements Closeable, IGitRepo {
                 final var newTree = commit.getTree();
                 final var oldTree = (parent == null) ? null : parent.getTree();
 
-                List<DiffEntry> diffs = GitRepoData.scanWithFallback(df, oldTree, newTree, "getFileHistories");
+                final RevCommit finalParent = parent;
+                List<DiffEntry> diffs = GitRepoData.scanWithFallback(
+                        df,
+                        () -> {
+                            if (finalParent == null) return null;
+                            try (var reader = repository.newObjectReader()) {
+                                return new CanonicalTreeParser(null, reader, finalParent.getTree());
+                            }
+                        },
+                        () -> {
+                            try (var reader = repository.newObjectReader()) {
+                                return new CanonicalTreeParser(null, reader, newTree);
+                            }
+                        },
+                        "getFileHistories");
                 if (diffs.isEmpty()) continue;
 
                 final Set<String> currentPaths = new HashSet<>();
@@ -2906,8 +2932,20 @@ public class GitRepo implements Closeable, IGitRepo {
                         throw new GitWrappedIOException(e);
                     }
 
-                    List<DiffEntry> diffs =
-                            GitRepoData.scanWithFallback(df, parent.getTree(), commit.getTree(), "buildCanonicalizer");
+                    final RevCommit finalParent = parent;
+                    List<DiffEntry> diffs = GitRepoData.scanWithFallback(
+                            df,
+                            () -> {
+                                try (var reader = repository.newObjectReader()) {
+                                    return new CanonicalTreeParser(null, reader, finalParent.getTree());
+                                }
+                            },
+                            () -> {
+                                try (var reader = repository.newObjectReader()) {
+                                    return new CanonicalTreeParser(null, reader, commit.getTree());
+                                }
+                            },
+                            "buildCanonicalizer");
 
                     List<Canonicalizer.RenameEdge> edgesForThisCommit = null;
                     for (var de : diffs) {
