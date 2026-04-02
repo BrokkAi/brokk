@@ -19,7 +19,6 @@ import ai.brokk.watchservice.AbstractWatchService.EventBatch;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -770,8 +769,17 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
                 try {
                     Files.createDirectories(targetDir);
                     Path newPath = targetDir.resolve(fileName);
-                    logger.info("Migrating analyzer state for {} from {} to {}", lang.name(), oldPath, newPath);
-                    Files.move(oldPath, newPath, StandardCopyOption.REPLACE_EXISTING);
+                    if (Files.exists(newPath)) {
+                        logger.info(
+                                "Analyzer state for {} already exists at {}; deleting legacy file {}",
+                                lang.name(),
+                                newPath,
+                                oldPath);
+                        Files.delete(oldPath);
+                    } else {
+                        logger.info("Migrating analyzer state for {} from {} to {}", lang.name(), oldPath, newPath);
+                        Files.move(oldPath, newPath);
+                    }
                 } catch (IOException e) {
                     logger.warn("Failed to migrate analyzer state for {}: {}", lang.name(), e.getMessage());
                 }
