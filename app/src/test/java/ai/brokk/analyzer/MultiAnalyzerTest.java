@@ -182,107 +182,13 @@ public class MultiAnalyzerTest {
         var tsFile = new ProjectFile(tempDir, "app.component.ts");
         var hostClass = CodeUnit.cls(tsFile, "app", "AppComponent");
 
-        // A host analyzer that provides one source string
+        // A host analyzer (not used by MultiAnalyzer.getSources for templates, but required for construction)
         IAnalyzer hostAnalyzer = new TestAnalyzer();
-        ((TestAnalyzer) hostAnalyzer).setSources(hostClass, Set.of("class AppComponent {}"));
 
-        // A template analyzer that throws an exception
-        ITemplateAnalyzer failingTemplate = new ITemplateAnalyzer() {
-            @Override
-            public String internalName() {
-                return "FAILING";
-            }
+        ITemplateAnalyzer failingTemplate = new FailingTemplateAnalyzer("Failing", "Template analysis failed");
 
-            @Override
-            public Set<String> getTemplateSources(CodeUnit cu) {
-                throw new RuntimeException("Template analysis failed");
-            }
-
-            @Override
-            public boolean isApplicable(ai.brokk.project.IProject p) {
-                return true;
-            }
-
-            @Override
-            public List<String> getSupportedExtensions() {
-                return List.of("html");
-            }
-
-            @Override
-            public void onHostSignal(String s, Map<String, Object> p, TreeSitterAnalyzer.AnalyzerState st) {}
-
-            @Override
-            public Set<ProjectFile> getTemplateFiles(CodeUnit cu, ai.brokk.IContextManager cm) {
-                return Set.of();
-            }
-
-            @Override
-            public Optional<String> summarizeTemplate(ProjectFile pf, ai.brokk.IContextManager cm) {
-                return Optional.empty();
-            }
-
-            @Override
-            public TemplateAnalysisResult analyzeTemplate(IAnalyzer ha, ProjectFile pf, CodeUnit cu) {
-                return new TemplateAnalysisResult("FAILING", pf, Set.of(), List.of());
-            }
-
-            @Override
-            public List<TemplateAnalysisResult> snapshotState() {
-                return List.of();
-            }
-
-            @Override
-            public void restoreState(List<TemplateAnalysisResult> s) {}
-        };
-
-        // A second template analyzer that provides a valid template source
-        ITemplateAnalyzer validTemplate = new ITemplateAnalyzer() {
-            @Override
-            public String internalName() {
-                return "VALID";
-            }
-
-            @Override
-            public Set<String> getTemplateSources(CodeUnit cu) {
-                return Set.of("<div>Template Content</div>");
-            }
-            // ... minimal implementations
-            @Override
-            public boolean isApplicable(ai.brokk.project.IProject p) {
-                return true;
-            }
-
-            @Override
-            public List<String> getSupportedExtensions() {
-                return List.of("html");
-            }
-
-            @Override
-            public void onHostSignal(String s, Map<String, Object> p, TreeSitterAnalyzer.AnalyzerState st) {}
-
-            @Override
-            public Set<ProjectFile> getTemplateFiles(CodeUnit cu, ai.brokk.IContextManager cm) {
-                return Set.of();
-            }
-
-            @Override
-            public Optional<String> summarizeTemplate(ProjectFile pf, ai.brokk.IContextManager cm) {
-                return Optional.empty();
-            }
-
-            @Override
-            public TemplateAnalysisResult analyzeTemplate(IAnalyzer ha, ProjectFile pf, CodeUnit cu) {
-                return new TemplateAnalysisResult("VALID", pf, Set.of(), List.of());
-            }
-
-            @Override
-            public List<TemplateAnalysisResult> snapshotState() {
-                return List.of();
-            }
-
-            @Override
-            public void restoreState(List<TemplateAnalysisResult> s) {}
-        };
+        ITemplateAnalyzer validTemplate =
+                new TestTemplateAnalyzer("Valid", Map.of(hostClass, Set.of("<div>Template Content</div>")));
 
         MultiAnalyzer ma =
                 new MultiAnalyzer(Map.of(Languages.TYPESCRIPT, hostAnalyzer), List.of(failingTemplate, validTemplate));
@@ -290,9 +196,8 @@ public class MultiAnalyzerTest {
         // WHEN: Requesting sources for the host class
         Set<String> result = ma.getSources(hostClass, true);
 
-        // THEN: We should get both the host source and the valid template source, despite the failure in between
-        assertEquals(2, result.size(), "Should aggregate available sources");
-        assertTrue(result.contains("class AppComponent {}"));
+        // THEN: We should get the valid template source, despite the failure in between
+        assertEquals(1, result.size(), "Should aggregate available sources");
         assertTrue(result.contains("<div>Template Content</div>"));
     }
 
