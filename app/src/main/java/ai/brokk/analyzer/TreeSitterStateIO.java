@@ -11,6 +11,7 @@ import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonDeserializer;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.JsonSerializer;
+import com.fasterxml.jackson.databind.KeyDeserializer;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializerProvider;
 import com.fasterxml.jackson.databind.exc.MismatchedInputException;
@@ -64,12 +65,40 @@ public final class TreeSitterStateIO {
         module.addDeserializer(CodeUnit.class, new CodeUnitJsonDeserializer());
         module.addSerializer(ProjectFile.class, new ProjectFileJsonSerializer());
         module.addDeserializer(ProjectFile.class, new ProjectFileJsonDeserializer());
+        module.addKeySerializer(ProjectFileDto.class, new ProjectFileDtoKeySerializer());
+        module.addKeyDeserializer(ProjectFileDto.class, new ProjectFileDtoKeyDeserializer());
         SMILE_MAPPER.registerModule(module);
     }
 
     private TreeSitterStateIO() {}
 
     /* ================= Jackson adapters for nested types ================= */
+
+    /**
+     * Serializer for ProjectFileDto when used as a Map key.
+     */
+    static final class ProjectFileDtoKeySerializer extends JsonSerializer<ProjectFileDto> {
+        @Override
+        public void serialize(ProjectFileDto value, JsonGenerator gen, SerializerProvider serializers)
+                throws IOException {
+            // Encode as root|relPath
+            gen.writeFieldName(value.root() + "|" + value.relPath());
+        }
+    }
+
+    /**
+     * Deserializer for ProjectFileDto when used as a Map key.
+     */
+    static final class ProjectFileDtoKeyDeserializer extends KeyDeserializer {
+        @Override
+        public Object deserializeKey(String key, DeserializationContext ctxt) throws IOException {
+            int sep = key.lastIndexOf('|');
+            if (sep == -1) {
+                return new ProjectFileDto("", key);
+            }
+            return new ProjectFileDto(key.substring(0, sep), key.substring(sep + 1));
+        }
+    }
 
     /**
      * Serialize ProjectFile as a minimal DTO with a guaranteed relative relPath.

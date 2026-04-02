@@ -42,7 +42,14 @@ public class TreeSitterStateIOTest {
     private static void writeDtoWithSchemaVersion(
             Path out, String schemaVersion, long snapshotEpochNanos, String languageInternalName) throws Exception {
         AnalyzerStateDto dto = new AnalyzerStateDto(
-                Map.of(), List.of(), List.of(), List.of(), snapshotEpochNanos, schemaVersion, languageInternalName);
+                Map.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                null,
+                snapshotEpochNanos,
+                schemaVersion,
+                languageInternalName);
 
         var mapper = new ObjectMapper(new SmileFactory());
         try (var os = Files.newOutputStream(out);
@@ -162,7 +169,7 @@ public class TreeSitterStateIOTest {
     @Test
     void saveIsAtomicAndLeavesNoTempFiles(@TempDir Path tempDir) throws Exception {
         AnalyzerStateDto emptyDto =
-                new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of(), 1L, CURRENT_SCHEMA_STR, "JAVA");
+                new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of(), null, 1L, CURRENT_SCHEMA_STR, "JAVA");
         var state = TreeSitterStateIO.fromDto(emptyDto);
 
         // Use a recognized language filename to allow successful load inference
@@ -229,7 +236,7 @@ public class TreeSitterStateIOTest {
     void saveLoadRoundTripUnchanged(@TempDir Path tempDir) throws Exception {
         // Create a DTO with the current schema version
         AnalyzerStateDto dto =
-                new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of(), 99L, CURRENT_SCHEMA_STR, "JAVA");
+                new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of(), null, 99L, CURRENT_SCHEMA_STR, "JAVA");
         var original = TreeSitterStateIO.fromDto(dto);
 
         Path out = tempDir.resolve("java" + Language.ANALYZER_STATE_SUFFIX);
@@ -258,7 +265,8 @@ public class TreeSitterStateIOTest {
         var loaded = TreeSitterStateIO.load(out);
         assertTrue(loaded.isEmpty(), "Expected load to return empty on corrupt file");
 
-        AnalyzerStateDto dto = new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of(), 1L, "2.0.0", "JAVA");
+        AnalyzerStateDto dto =
+                new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of(), null, 1L, "2.0.0", "JAVA");
         var state = TreeSitterStateIO.fromDto(dto);
         TreeSitterStateIO.save(state, out, Languages.JAVA);
         assertTrue(Files.exists(out), "Expected analyzer state file to exist after save");
@@ -281,7 +289,8 @@ public class TreeSitterStateIOTest {
 
         Files.writeString(out, "this is corrupt content");
 
-        AnalyzerStateDto dto = new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of(), 42L, "2.0.0", "JAVA");
+        AnalyzerStateDto dto =
+                new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of(), null, 42L, "2.0.0", "JAVA");
         var original = TreeSitterStateIO.fromDto(dto);
 
         TreeSitterStateIO.save(original, out, Languages.JAVA);
@@ -380,7 +389,7 @@ public class TreeSitterStateIOTest {
 
         // Expect CURRENT_SCHEMA version after round-trip
         var originalDto = new AnalyzerStateDto(
-                Map.of(), List.of(), List.of(entryDto), List.of(), 555L, CURRENT_SCHEMA_STR, "JAVA");
+                Map.of(), List.of(), List.of(entryDto), List.of(), null, 555L, CURRENT_SCHEMA_STR, "JAVA");
         var state = TreeSitterStateIO.fromDto(originalDto);
 
         Path out = tempDir.resolve("java" + Language.ANALYZER_STATE_SUFFIX);
@@ -612,6 +621,7 @@ public class TreeSitterStateIOTest {
                     dto.codeUnitState(),
                     dto.fileState(),
                     dto.symbolKeys(),
+                    null,
                     dto.snapshotEpochNanos(),
                     null,
                     null);
@@ -794,7 +804,7 @@ public class TreeSitterStateIOTest {
         // Failing test scenario: generic filename but DTO specifies JAVA.
         Path out = tempDir.resolve("analyzer-state" + Language.ANALYZER_STATE_SUFFIX);
         AnalyzerStateDto dto =
-                new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of(), 123L, CURRENT_SCHEMA_STR, "JAVA");
+                new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of(), null, 123L, CURRENT_SCHEMA_STR, "JAVA");
 
         var mapper = new ObjectMapper(new SmileFactory());
         try (var os = Files.newOutputStream(out);
@@ -810,7 +820,8 @@ public class TreeSitterStateIOTest {
     @Test
     void schemaMajorVersionMismatchReturnsEmpty(@TempDir Path tempDir) throws Exception {
         // Manually serialize a DTO with a different major version (1.0.0 vs current 2.x.x)
-        AnalyzerStateDto dto = new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of(), 1L, "1.0.0", "JAVA");
+        AnalyzerStateDto dto =
+                new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of(), null, 1L, "1.0.0", "JAVA");
         Path out = tempDir.resolve("java" + Language.ANALYZER_STATE_SUFFIX);
 
         var mapper = new ObjectMapper(new SmileFactory());
