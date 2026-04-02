@@ -1674,16 +1674,16 @@ public class ContextFragments {
             for (CodeUnit unit : units) {
                 Set<String> sources = analyzer.getSources(unit, true);
                 if (!sources.isEmpty()) {
+                    String relPath = unit.source().getRelPath().toString();
                     String tag = unit.isClass()
-                            ? "<class file=\"%s\">".formatted(unit.source().getFileName())
-                            : "<methods class=\"%s\" file=\"%s\">"
-                                    .formatted(unit.fqName(), unit.source().getFileName());
+                            ? "<class file=\"%s\">".formatted(relPath)
+                            : "<methods class=\"%s\" file=\"%s\">".formatted(unit.fqName(), relPath);
                     String closingTag = unit.isClass() ? "</class>" : "</methods>";
 
-                    sources.forEach(src -> {
-                        String wrapped = tag + "\n" + src + "\n" + closingTag;
-                        parts.add(new AnalyzerUtil.CodeWithSource(wrapped, unit));
-                    });
+                    String combinedSource = String.join("\n\n", sources);
+                    String wrapped = tag + "\n" + combinedSource + "\n" + closingTag;
+                    parts.add(new AnalyzerUtil.CodeWithSource(wrapped, unit));
+
                     hasAnySourceCode = true;
 
                     analyzer.as(ImportAnalysisProvider.class)
