@@ -28,7 +28,6 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.regex.Pattern;
-import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -57,32 +56,27 @@ public class AngularTemplateAnalyzer implements ITemplateAnalyzer {
 
     @Override
     public boolean isApplicable(IProject project) {
-        Path root = project.getRoot();
+        var allFiles = project.getAllFiles();
 
-        // Check for configuration files up to 5 levels deep
-        try (Stream<Path> stream = Files.walk(root, 5)) {
-            boolean hasConfig = stream.filter(Files::isRegularFile).anyMatch(p -> {
-                String fileName = p.getFileName().toString();
-                if (fileName.equals("angular.json")) {
-                    return true;
+        // Check for configuration files and component templates using the project's file index
+        return allFiles.stream().anyMatch(pf -> {
+            String fileName = pf.getFileName();
+            if (fileName.equals("angular.json")) {
+                return true;
+            }
+            if (fileName.endsWith(".component.html")) {
+                return true;
+            }
+            if (fileName.equals("package.json")) {
+                try {
+                    String content = Files.readString(pf.absPath());
+                    return content.contains("@angular/core");
+                } catch (IOException e) {
+                    return false;
                 }
-                if (fileName.equals("package.json")) {
-                    try {
-                        String content = Files.readString(p);
-                        return content.contains("@angular/core");
-                    } catch (IOException e) {
-                        return false;
-                    }
-                }
-                return false;
-            });
-            if (hasConfig) return true;
-        } catch (IOException e) {
-            log.debug("Error scanning for Angular config in {}: {}", root, e.getMessage());
-        }
-
-        // Check for component templates
-        return project.getAllFiles().stream().anyMatch(pf -> pf.getFileName().endsWith(".component.html"));
+            }
+            return false;
+        });
     }
 
     @Override
