@@ -485,11 +485,11 @@ public class Environment {
         bwrapArgs.add("--proc");
         bwrapArgs.add("/proc");
 
-        // Allow writes to /tmp for scratch files
-        bwrapArgs.add("--tmpfs");
-        bwrapArgs.add("/tmp");
-
         if (policy.allowsWorkspaceWrites()) {
+            // Allow writes to /tmp for scratch files (only in WORKSPACE_WRITE mode)
+            bwrapArgs.add("--tmpfs");
+            bwrapArgs.add("/tmp");
+
             // Bind-mount the project root read-write
             String absPath = root.toAbsolutePath().toString();
             bwrapArgs.add("--bind");
