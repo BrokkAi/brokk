@@ -22,10 +22,14 @@ _BROKK_CLAUDE_WORKSPACE_SKILL_NAME = "brokk-mcp-workspace"
 _BROKK_CLAUDE_SUMMARIES_SKILL_NAME = "brokk-get-file-summaries"
 
 _BROKK_INSTRUCTIONS_BODY_CLAUDE = f"""{_BROKK_MARKER}
-- Use getFileSummaries (not Read/Glob) for multi-file and package overviews."""
+- Use callSearchAgent to explore the codebase when you don't know where relevant code lives.
+- Use callCodeAgent (not Edit/Write) for all code changes.
+- Use getFileSummaries to understand the API surface (skeletons) of packages or directories."""
 
 _BROKK_INSTRUCTIONS_BODY_CODEX = f"""{_BROKK_MARKER}
-- Use getFileSummaries (not Read/Glob) for multi-file and package overviews.
+- Use callSearchAgent to explore the codebase when you don't know where relevant code lives.
+- Use callCodeAgent (not Edit/Write) for all code changes.
+- Use getFileSummaries to understand the API surface (skeletons) of packages or directories.
 - At the start of each Codex session, activate Brokk MCP for the current workspace by
   calling activateWorkspace."""
 
@@ -372,18 +376,22 @@ def install_codex_mcp_workspace_skill(*, skills_path: Path | None = None) -> Pat
 def _build_codex_summaries_skill_markdown() -> str:
     return f"""---
 name: {_BROKK_CODEX_SUMMARIES_SKILL_NAME}
-description: Prefer getFileSummaries for multi-file and package overviews.
+description: Use getFileSummaries to see class skeletons for packages or directories.
 ---
 
 # Brokk File Summaries
 
-Use this skill to get a high-level overview of a module, package, or multiple files.
+Use this skill to understand the API surface of a package or directory
+without reading full source code.
 
 ## Guidance
 
-1. Use `getFileSummaries` first for package, module, or multi-file inspection.
-2. Only escalate to heavier read tools (like full file, class, or method
-   reads) once you have narrowed down your area of interest.
+1. Use `getFileSummaries` with glob patterns to get class skeletons
+   (fields and method signatures, no bodies) for files in a package
+   or directory.
+2. Only escalate to heavier read tools (`getClassSources`,
+   `getMethodSources`) once you have identified the specific classes
+   or methods you need.
 """
 
 
@@ -431,18 +439,22 @@ def install_claude_mcp_workspace_skill(*, skills_path: Path | None = None) -> Pa
 def _build_claude_summaries_skill_markdown() -> str:
     return f"""---
 name: {_BROKK_CLAUDE_SUMMARIES_SKILL_NAME}
-description: Prefer getFileSummaries for multi-file and package overviews.
+description: Use getFileSummaries to see class skeletons for packages or directories.
 ---
 
 # Brokk File Summaries
 
-Use this skill to get a high-level overview of a module, package, or multiple files.
+Use this skill to understand the API surface of a package or directory
+without reading full source code.
 
 ## Guidance
 
-1. Use `getFileSummaries` first for package, module, or multi-file inspection.
-2. Only escalate to heavier read tools (like full file, class, or method
-   reads) once you have narrowed down your area of interest.
+1. Use `getFileSummaries` with glob patterns to get class skeletons
+   (fields and method signatures, no bodies) for files in a package
+   or directory.
+2. Only escalate to heavier read tools (`getClassSources`,
+   `getMethodSources`) once you have identified the specific classes
+   or methods you need.
 """
 
 

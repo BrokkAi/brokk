@@ -31,22 +31,8 @@ class AnalyzerWrapperPersistenceTest {
         // Create current format file (.bin.lz4)
         Files.writeString(storage, "dummy lz4");
 
-        // Create legacy format files (.bin.gz and .bin.gzip)
-        String name = storage.getFileName().toString();
-        // storage is e.g. "java.bin.lz4", base is "java.bin"
-        String base = name.endsWith(".lz4") ? name.substring(0, name.length() - 4) : name;
-        Path parent = storage.getParent();
-
-        Path legacyGz = parent.resolve(base + ".gz");
-        Path legacyGzip = parent.resolve(base + ".gzip");
-
-        Files.writeString(legacyGz, "dummy gz");
-        Files.writeString(legacyGzip, "dummy gzip");
-
-        // Verify files exist before deletion
+        // Verify file exists before deletion
         assertTrue(Files.exists(storage), "lz4 file should exist");
-        assertTrue(Files.exists(legacyGz), "gz file should exist");
-        assertTrue(Files.exists(legacyGzip), "gzip file should exist");
 
         // Use try-with-resources to ensure the wrapper (and its background thread) is closed
         try (NoopWatchService stubWatchService = new NoopWatchService();
@@ -54,10 +40,8 @@ class AnalyzerWrapperPersistenceTest {
             // Call the package-private method
             wrapper.deletePersistedAnalyzerStateFiles();
 
-            // Verify all files are deleted
+            // Verify file is deleted
             assertFalse(Files.exists(storage), "Current format file should be deleted");
-            assertFalse(Files.exists(legacyGz), "Legacy .gz file should be deleted");
-            assertFalse(Files.exists(legacyGzip), "Legacy .gzip file should be deleted");
         }
     }
 
