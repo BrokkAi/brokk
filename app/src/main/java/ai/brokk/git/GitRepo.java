@@ -2834,7 +2834,8 @@ public class GitRepo implements Closeable, IGitRepo {
                 String lower = msg.toLowerCase(Locale.ROOT);
                 if (lower.contains("missing blob")
                         || lower.contains("missing tree")
-                        || lower.contains("missing commit")) {
+                        || lower.contains("missing commit")
+                        || lower.contains("missingobjectexception")) {
                     return true;
                 }
             }
@@ -2881,27 +2882,6 @@ public class GitRepo implements Closeable, IGitRepo {
 
         // A single rename observed in a commit's diff (old -> new)
         public record RenameEdge(ProjectFile old, ProjectFile newPath) {}
-    }
-
-    static boolean isMissingObjectException(Throwable t) {
-        Throwable curr = t;
-        while (curr != null) {
-            if (curr instanceof MissingObjectException) {
-                return true;
-            }
-            String msg = curr.getMessage();
-            if (msg != null) {
-                String lower = msg.toLowerCase(Locale.ROOT);
-                if (lower.contains("missing blob")
-                        || lower.contains("missing tree")
-                        || lower.contains("missing commit")
-                        || lower.contains("missingobjectexception")) {
-                    return true;
-                }
-            }
-            curr = curr.getCause();
-        }
-        return false;
     }
 
     /**

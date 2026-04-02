@@ -24,7 +24,6 @@ import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.diff.DiffEntry;
 import org.eclipse.jgit.diff.DiffFormatter;
-import org.eclipse.jgit.errors.MissingObjectException;
 import org.eclipse.jgit.lib.Constants;
 import org.eclipse.jgit.lib.ObjectId;
 import org.eclipse.jgit.lib.Repository;
@@ -128,33 +127,11 @@ public class GitHotspotAnalyzer {
         Instant commitTime = ident.getWhenAsInstant();
 
         RevCommit parent = commit.getParentCount() > 0 ? commit.getParent(0) : null;
-        List<DiffEntry> diffs;
-        try {
-            diffs = df.scan(parent != null ? parent.getTree() : null, commit.getTree());
-        } catch (Exception e) {
-            // JGit or internal wrappers may wrap MissingObjectException inside an IOException or RuntimeException.
-            // Rename detection requires blob contents which may be missing in blobless/partial clones.
-            if (isMissingObjectException(e)) {
-                df.setDetectRenames(false);
-                try {
-                    diffs = df.scan(parent != null ? parent.getTree() : null, commit.getTree());
-                } catch (Exception fallbackEx) {
-                    logger.debug(
-                            "Fallback diff scan failed for commit {}, skipping diffs: {}",
-                            commit.name(),
-                            fallbackEx.getMessage());
-                    diffs = List.of();
-                }
-            } else {
-                if (e instanceof IOException ioException) {
-                    throw ioException;
-                }
-                if (e instanceof RuntimeException runtimeException) {
-                    throw runtimeException;
-                }
-                throw new RuntimeException(e);
-            }
-        }
+        List<DiffEntry> diffs = GitRepoData.scanWithFallback(
+                df,
+                parent != null ? parent.getTree() : null,
+                commit.getTree(),
+                "GitHotspotAnalyzer");
 
         for (DiffEntry diff : diffs) {
             String path = diff.getNewPath();
@@ -208,22 +185,6 @@ public class GitHotspotAnalyzer {
                 maxComplexity,
                 category,
                 stats.lastModified != null ? stats.lastModified.toString() : Instant.EPOCH.toString());
-    }
-
-    private boolean isMissingObjectException(Exception e) {
-        if (e instanceof MissingObjectException) return true;
-        Throwable cause = e.getCause();
-        while (cause != null) {
-            if (cause instanceof MissingObjectException) return true;
-            cause = cause.getCause();
-        }
-
-        String msg = e.getMessage();
-        if (msg != null) {
-            String lowerMsg = msg.toLowerCase(Locale.ROOT);
-            return lowerMsg.contains("missing blob") || lowerMsg.contains("missingobjectexception");
-        }
-        return false;
     }
 
     private List<CodeUnit> flatten(CodeUnit cu) {

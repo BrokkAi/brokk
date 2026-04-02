@@ -461,6 +461,39 @@ public class GitRepoData {
 
     /**
      * Executes {@link DiffFormatter#scan} with a fallback that disables rename detection if a missing object is encountered.
+     */
+    static List<DiffEntry> scanWithFallback(
+            DiffFormatter df, @Nullable org.eclipse.jgit.lib.AnyObjectId oldTree, org.eclipse.jgit.lib.AnyObjectId newTree, String context)
+            throws IOException {
+        boolean wasDetectRenames = df.isDetectRenames();
+        try {
+            return df.scan(oldTree, newTree);
+        } catch (Exception e) {
+            if (GitRepo.isMissingObjectException(e)) {
+                logger.trace("Missing object during {} scan; falling back by disabling rename detection.", context);
+                df.setDetectRenames(false);
+                try {
+                    return df.scan(oldTree, newTree);
+                } catch (Exception ex) {
+                    if (GitRepo.isMissingObjectException(ex)) {
+                        logger.warn("Fallback scan failed in {}: {}", context, ex.getMessage());
+                        return Collections.emptyList();
+                    }
+                    if (ex instanceof IOException io) throw io;
+                    if (ex instanceof RuntimeException re) throw re;
+                    throw new RuntimeException(ex);
+                }
+            }
+            if (e instanceof IOException io) throw io;
+            if (e instanceof RuntimeException re) throw re;
+            throw new RuntimeException(e);
+        } finally {
+            df.setDetectRenames(wasDetectRenames);
+        }
+    }
+
+    /**
+     * Executes {@link DiffFormatter#scan} with a fallback that disables rename detection if a missing object is encountered.
      * Uses suppliers to recreate iterators for the retry because they are consumed by the first scan attempt.
      */
     static List<DiffEntry> scanWithFallback(
