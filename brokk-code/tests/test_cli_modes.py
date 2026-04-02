@@ -849,6 +849,9 @@ def test_main_install_mcp_routes_to_installer(monkeypatch, tmp_path, capsys) -> 
     def fake_install_codex_mcp_workspace_skill(*, skills_path: Any = None):
         return tmp_path / ".codex" / "skills" / "brokk-mcp-workspace" / "SKILL.md"
 
+    def fake_install_codex_mcp_summaries_skill(*, skills_path: Any = None):
+        return tmp_path / ".codex" / "skills" / "brokk-get-file-summaries" / "SKILL.md"
+
     monkeypatch.setattr(
         main_module,
         "configure_claude_code_mcp_settings",
@@ -863,6 +866,11 @@ def test_main_install_mcp_routes_to_installer(monkeypatch, tmp_path, capsys) -> 
         main_module,
         "install_codex_mcp_workspace_skill",
         fake_install_codex_mcp_workspace_skill,
+    )
+    monkeypatch.setattr(
+        main_module,
+        "install_codex_mcp_summaries_skill",
+        fake_install_codex_mcp_summaries_skill,
     )
     monkeypatch.setattr(main_module, "ensure_jbang_ready", lambda: "/usr/local/bin/jbang")
     monkeypatch.setattr(main_module, "_run_install_prefetch", fake_run_install_prefetch)
@@ -880,6 +888,7 @@ def test_main_install_mcp_routes_to_installer(monkeypatch, tmp_path, capsys) -> 
     assert "Configured Claude Code MCP integration" in output
     assert "Configured Codex MCP integration" in output
     assert "Installed Codex MCP workspace skill" in output
+    assert "Installed Codex MCP summaries skill" in output
     assert "MCP runtime" in str(prefetched["commands"][0][0])
 
 
@@ -3243,7 +3252,10 @@ def test_install_mcp_skips_prompt_when_key_configured(monkeypatch, tmp_path) -> 
         lambda *, force=False, settings_path=None, uvx_command=None: tmp_path / "cx.toml",
     )
     monkeypatch.setattr(
-        main_module, "install_codex_mcp_workspace_skill", lambda *, skills_path=None: tmp_path / "s"
+        main_module, "install_codex_mcp_workspace_skill", lambda *, skills_path=None: tmp_path / "s1"
+    )
+    monkeypatch.setattr(
+        main_module, "install_codex_mcp_summaries_skill", lambda *, skills_path=None: tmp_path / "s2"
     )
 
     monkeypatch.setattr(sys, "argv", ["brokk", "install", "mcp"])
@@ -3335,7 +3347,12 @@ def test_install_mcp_with_missing_key_piped_persists_key(
     monkeypatch.setattr(
         main_module,
         "install_codex_mcp_workspace_skill",
-        lambda **k: tmp_path / "s",
+        lambda **k: tmp_path / "s1",
+    )
+    monkeypatch.setattr(
+        main_module,
+        "install_codex_mcp_summaries_skill",
+        lambda **k: tmp_path / "s2",
     )
 
     monkeypatch.setattr(sys, "argv", ["brokk", "install", "mcp"])
