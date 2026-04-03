@@ -6,6 +6,7 @@ import ai.brokk.AbstractService;
 import ai.brokk.ContextManager;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.executor.JobReservation;
+import ai.brokk.executor.agents.AgentStore;
 import ai.brokk.executor.http.SimpleHttpServer;
 import ai.brokk.executor.jobs.ErrorPayload;
 import ai.brokk.executor.jobs.JobRunner;
@@ -55,18 +56,21 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
     private final JobRunner jobRunner;
     private final JobReservation jobReservation;
     private final CompletableFuture<Void> headlessInit;
+    private final AgentStore agentStore;
 
     public JobsRouter(
             ContextManager contextManager,
             JobStore jobStore,
             JobRunner jobRunner,
             JobReservation jobReservation,
-            CompletableFuture<Void> headlessInit) {
+            CompletableFuture<Void> headlessInit,
+            AgentStore agentStore) {
         this.contextManager = contextManager;
         this.jobStore = jobStore;
         this.jobRunner = jobRunner;
         this.jobReservation = jobReservation;
         this.headlessInit = headlessInit;
+        this.agentStore = agentStore;
     }
 
     @Override
@@ -150,6 +154,18 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
         var tags = request.tags() != null ? new HashMap<>(request.tags()) : new HashMap<String, String>();
         if (sessionIdHeader != null) tags.put("session_id", sessionIdHeader.toString());
         if (githubToken != null && !githubToken.isBlank()) tags.put("github_token", githubToken);
+
+        // If an agent is specified, validate it exists and set the mode
+        if (request.agent() != null && !request.agent().isBlank()) {
+            var agentName = request.agent().strip();
+            var agentDef = agentStore.get(agentName);
+            if (agentDef.isEmpty()) {
+                RouterUtil.sendValidationError(exchange, "Unknown agent: " + agentName);
+                return;
+            }
+            tags.put("agent", agentName);
+            tags.put("mode", "CUSTOM_AGENT");
+        }
 
         var overrides = validateModelOverrides(exchange, request);
         if (overrides == null) return;
@@ -711,7 +727,8 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
             @Nullable String reasoningLevelCode,
             @Nullable Double temperature,
             @Nullable Double temperatureCode,
-            @Nullable Boolean skipVerification) {}
+            @Nullable Boolean skipVerification,
+            @Nullable String agent) {}
 
     private record ContextPayload(@Nullable List<String> text) {}
 

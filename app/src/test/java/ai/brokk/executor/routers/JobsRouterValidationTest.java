@@ -62,7 +62,9 @@ class JobsRouterValidationTest {
         Files.createDirectories(jobStoreDir);
         jobStore = new JobStore(jobStoreDir);
 
-        jobRunner = new JobRunner(contextManager, jobStore);
+        var agentStore = new ai.brokk.executor.agents.AgentStore(
+                tempDir.resolve("agents-project"), tempDir.resolve("agents-user"));
+        jobRunner = new JobRunner(contextManager, jobStore, agentStore);
         jobReservation = new JobReservation();
         // Ensure the reservation is clear
         String currentJob = jobReservation.current();
@@ -73,7 +75,7 @@ class JobsRouterValidationTest {
         CompletableFuture<Void> headlessInit = new CompletableFuture<>();
         headlessInit.complete(null);
 
-        jobsRouter = new JobsRouter(contextManager, jobStore, jobRunner, jobReservation, headlessInit);
+        jobsRouter = new JobsRouter(contextManager, jobStore, jobRunner, jobReservation, headlessInit, agentStore);
 
         // Snapshot filesystem state after construction; invalid requests must not create anything new.
         fsSnapshotBefore = snapshotTree(jobStoreDir);
@@ -204,7 +206,14 @@ class JobsRouterValidationTest {
     void postJobs_withSessionHeader_waitsForHeadlessInit_beforeUnknownSessionValidation() throws Exception {
         var failingInit = new CompletableFuture<Void>();
         failingInit.completeExceptionally(new IllegalStateException("init failed"));
-        var routerWithFailingInit = new JobsRouter(contextManager, jobStore, jobRunner, jobReservation, failingInit);
+        var routerWithFailingInit = new JobsRouter(
+                contextManager,
+                jobStore,
+                jobRunner,
+                jobReservation,
+                failingInit,
+                new ai.brokk.executor.agents.AgentStore(
+                        jobStoreDir.resolve("agents-project"), jobStoreDir.resolve("agents-user")));
 
         Map<String, Object> body = Map.of("taskInput", "unknown session test", "plannerModel", "gpt-4");
         var exchange = TestHttpExchange.jsonRequest("POST", "/v1/jobs", body);

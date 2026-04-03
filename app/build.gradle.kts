@@ -145,6 +145,7 @@ dependencies {
     implementation(libs.java.diff.utils)
     implementation(libs.jackson.databind)
     implementation(libs.jackson.smile)
+    implementation(libs.jackson.yaml)
     implementation(libs.jackson.jq)
     implementation(libs.lz4)
     implementation(libs.jspecify)
