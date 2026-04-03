@@ -439,7 +439,6 @@ curl -sS -X POST "${BASE}/v1/agents" \
   "name": "security-auditor",
   "description": "Reviews code for OWASP top 10 vulnerabilities",
   "tools": ["searchSymbols", "scanUsages", "searchFileContents", "addFilesToWorkspace"],
-  "model": "claude-sonnet-4-20250514",
   "maxTurns": 15,
   "systemPrompt": "You are a security auditor focused on finding vulnerabilities.\nAnalyze the codebase for OWASP top 10 issues including injection, broken auth, and XSS."
 }
@@ -453,7 +452,6 @@ JSON
   "name": "security-auditor",
   "description": "Reviews code for OWASP top 10 vulnerabilities",
   "tools": ["searchSymbols", "scanUsages", "searchFileContents", "addFilesToWorkspace"],
-  "model": "claude-sonnet-4-20250514",
   "maxTurns": 15,
   "systemPrompt": "You are a security auditor focused on finding vulnerabilities.\nAnalyze the codebase for OWASP top 10 issues including injection, broken auth, and XSS.",
   "scope": "project"

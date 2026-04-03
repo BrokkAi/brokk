@@ -864,7 +864,7 @@ public class BrokkExternalMcpServer {
         return ToolRegistry.fromBase(ToolRegistry.empty())
                 .register(searchTools)
                 .register(ps) // sentinel for schema
-                .register(new CustomAgentTools(cm))
+                .register(new CustomAgentTools(cm, searchModel))
                 .register(this) // real impl overrides
                 .build();
     }

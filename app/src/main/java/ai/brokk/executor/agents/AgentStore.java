@@ -139,9 +139,6 @@ public class AgentStore {
                 sb.append("  - ").append(tool).append('\n');
             }
         }
-        if (def.model() != null) {
-            sb.append("model: ").append(def.model()).append('\n');
-        }
         if (def.maxTurns() != null) {
             sb.append("maxTurns: ").append(def.maxTurns()).append('\n');
         }
@@ -233,7 +230,6 @@ public class AgentStore {
                 frontmatter.name,
                 frontmatter.description,
                 frontmatter.tools,
-                frontmatter.model,
                 frontmatter.maxTurns,
                 markdownBody,
                 scope);
@@ -247,6 +243,5 @@ public class AgentStore {
             @Nullable String name,
             @Nullable String description,
             @Nullable List<String> tools,
-            @Nullable String model,
             @Nullable Integer maxTurns) {}
 }

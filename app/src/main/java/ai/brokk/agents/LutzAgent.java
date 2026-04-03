@@ -524,7 +524,7 @@ public class LutzAgent {
                 .register(wst)
                 .register(toolProvider)
                 .register(parallelSearch)
-                .register(new CustomAgentTools(cm));
+                .register(new CustomAgentTools(cm, model));
         if (DependencyTools.isSupported(cm.getProject())) {
             builder.register(new DependencyTools(cm));
         }

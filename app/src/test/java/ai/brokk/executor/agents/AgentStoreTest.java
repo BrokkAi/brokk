@@ -33,7 +33,6 @@ class AgentStoreTest {
                 name,
                 "Test agent " + name,
                 List.of("searchSymbols", "scanUsages"),
-                "claude-sonnet-4-20250514",
                 10,
                 "You are a test agent named " + name + ".",
                 scope);
@@ -51,7 +50,6 @@ class AgentStoreTest {
         assertEquals("my-agent", loaded.get().name());
         assertEquals("Test agent my-agent", loaded.get().description());
         assertEquals(List.of("searchSymbols", "scanUsages"), loaded.get().tools());
-        assertEquals("claude-sonnet-4-20250514", loaded.get().model());
         assertEquals(10, loaded.get().maxTurns());
         assertEquals("You are a test agent named my-agent.", loaded.get().systemPrompt());
         assertEquals("project", loaded.get().scope());
@@ -66,7 +64,6 @@ class AgentStoreTest {
         assertEquals(original.name(), parsed.name());
         assertEquals(original.description(), parsed.description());
         assertEquals(original.tools(), parsed.tools());
-        assertEquals(original.model(), parsed.model());
         assertEquals(original.maxTurns(), parsed.maxTurns());
         assertEquals(original.systemPrompt(), parsed.systemPrompt());
     }
@@ -87,7 +84,6 @@ class AgentStoreTest {
         assertEquals("minimal", parsed.name());
         assertEquals("A minimal agent", parsed.description());
         assertTrue(parsed.tools() == null || parsed.tools().isEmpty());
-        assertTrue(parsed.model() == null);
         assertTrue(parsed.maxTurns() == null);
         assertEquals("Just a simple prompt.", parsed.systemPrompt());
         assertEquals("user", parsed.scope());
@@ -150,10 +146,9 @@ class AgentStoreTest {
 
     @Test
     void list_projectOverridesUser() throws IOException {
-        store.save(new AgentDefinition("shared", "User version", null, null, null, "User prompt", "user"), "user");
+        store.save(new AgentDefinition("shared", "User version", null, null, "User prompt", "user"), "user");
         store.save(
-                new AgentDefinition("shared", "Project version", null, null, null, "Project prompt", "project"),
-                "project");
+                new AgentDefinition("shared", "Project version", null, null, "Project prompt", "project"), "project");
 
         var agents = store.list();
         var shared = agents.stream().filter(a -> a.name().equals("shared")).findFirst();
@@ -164,8 +159,8 @@ class AgentStoreTest {
 
     @Test
     void get_projectTakesPrecedence() throws IOException {
-        store.save(new AgentDefinition("shared", "User", null, null, null, "User prompt", "user"), "user");
-        store.save(new AgentDefinition("shared", "Project", null, null, null, "Project prompt", "project"), "project");
+        store.save(new AgentDefinition("shared", "User", null, null, "User prompt", "user"), "user");
+        store.save(new AgentDefinition("shared", "Project", null, null, "Project prompt", "project"), "project");
 
         var loaded = store.get("shared");
         assertTrue(loaded.isPresent());
@@ -174,7 +169,7 @@ class AgentStoreTest {
 
     @Test
     void get_fallsBackToUser_whenProjectMissing() throws IOException {
-        store.save(new AgentDefinition("user-agent", "User only", null, null, null, "User prompt", "user"), "user");
+        store.save(new AgentDefinition("user-agent", "User only", null, null, "User prompt", "user"), "user");
 
         var loaded = store.get("user-agent");
         assertTrue(loaded.isPresent());
@@ -233,7 +228,7 @@ class AgentStoreTest {
 
     @Test
     void toMarkdown_quotesDescriptionWithColons() throws IOException {
-        var def = new AgentDefinition("test", "Agent: does things", null, null, null, "Prompt", "project");
+        var def = new AgentDefinition("test", "Agent: does things", null, null, "Prompt", "project");
         var markdown = AgentStore.toMarkdown(def);
         var parsed = AgentStore.parseMarkdown(markdown, "project");
         assertEquals("Agent: does things", parsed.description());

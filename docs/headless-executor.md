@@ -521,7 +521,6 @@ tools:
   - scanUsages
   - searchFileContents
   - addFilesToWorkspace
-model: claude-sonnet-4-20250514
 maxTurns: 15
 ---
 
@@ -536,7 +535,6 @@ Analyze the codebase for OWASP top 10 issues.
 | `name` | yes | -- | Identifier (lowercase letters, digits, hyphens) |
 | `description` | yes | -- | What the agent does |
 | `tools` | no | SearchAgent's default set | Tool method name allowlist |
-| `model` | no | Job's plannerModel | LLM model name/ID |
 | `maxTurns` | no | 20 | Max agentic loop iterations |
 
 The markdown body below the frontmatter is the agent's system prompt.
@@ -549,7 +547,7 @@ The markdown body below the frontmatter is the agent's system prompt.
   - Returns: JSON array of agent objects
 
 - **`POST /v1/agents`** - Create a new agent (project-level)
-  - Body: `{ "name": "...", "description": "...", "systemPrompt": "...", "tools": [...], "model": "...", "maxTurns": N }`
+  - Body: `{ "name": "...", "description": "...", "systemPrompt": "...", "tools": [...], "maxTurns": N }`
   - Returns `201`: created agent object
   - Returns `400` if agent already exists at project level (use PUT to update)
 
@@ -581,7 +579,7 @@ Custom agents are registered as the `callCustomAgent` tool, available to all bui
 
 2. **Naturally by the LLM** during any SEARCH, LUTZ, or ARCHITECT job — the LLM can call `callCustomAgent` whenever it decides the task matches a custom agent's specialty.
 
-The agent's system prompt, tool allowlist, and model override (if set) are applied automatically. The project's SEARCH model is used as fallback if the agent doesn't specify a model.
+The agent's system prompt and tool allowlist are applied automatically. The agent inherits the model from the parent agent (the job's planner model for SEARCH jobs).
 
 ### Job Management (Authenticated)
 

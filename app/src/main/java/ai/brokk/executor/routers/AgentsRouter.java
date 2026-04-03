@@ -95,7 +95,6 @@ public final class AgentsRouter implements SimpleHttpServer.CheckedHttpHandler {
                 request.name(),
                 request.description(),
                 request.tools(),
-                request.model(),
                 request.maxTurns(),
                 request.systemPrompt(),
                 "project");
@@ -134,7 +133,6 @@ public final class AgentsRouter implements SimpleHttpServer.CheckedHttpHandler {
                 name,
                 request.description() != null ? request.description() : prev.description(),
                 request.tools() != null ? request.tools() : prev.tools(),
-                request.model() != null ? request.model() : prev.model(),
                 request.maxTurns() != null ? request.maxTurns() : prev.maxTurns(),
                 request.systemPrompt() != null ? request.systemPrompt() : prev.systemPrompt(),
                 prev.scope());
@@ -191,9 +189,6 @@ public final class AgentsRouter implements SimpleHttpServer.CheckedHttpHandler {
         if (def.tools() != null) {
             map.put("tools", def.tools());
         }
-        if (def.model() != null) {
-            map.put("model", def.model());
-        }
         if (def.maxTurns() != null) {
             map.put("maxTurns", def.maxTurns());
         }
@@ -206,7 +201,6 @@ public final class AgentsRouter implements SimpleHttpServer.CheckedHttpHandler {
             @Nullable String name,
             @Nullable String description,
             @Nullable List<String> tools,
-            @Nullable String model,
             @Nullable Integer maxTurns,
             @Nullable String systemPrompt) {}
 }

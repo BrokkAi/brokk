@@ -1,8 +1,6 @@
 package ai.brokk.executor.agents;
 
 import ai.brokk.IContextManager;
-import ai.brokk.Service;
-import ai.brokk.project.ModelProperties;
 import ai.brokk.util.Json;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
@@ -14,14 +12,18 @@ import org.apache.logging.log4j.Logger;
  * Tool provider that exposes custom agents as invocable tools.
  * Register this on any agent (SearchAgent, LutzAgent, ArchitectAgent) to let
  * the LLM call stored custom agents by name during its loop.
+ * The model is inherited from the parent agent, following the same pattern as
+ * {@code ParallelSearch} which receives its model at construction time.
  */
 public class CustomAgentTools {
     private static final Logger logger = LogManager.getLogger(CustomAgentTools.class);
 
     private final IContextManager cm;
+    private final StreamingChatModel model;
 
-    public CustomAgentTools(IContextManager cm) {
+    public CustomAgentTools(IContextManager cm, StreamingChatModel model) {
         this.cm = cm;
+        this.model = model;
     }
 
     @Tool(
@@ -44,20 +46,6 @@ public class CustomAgentTools {
                                 agentStore.list().stream()
                                         .map(AgentDefinition::name)
                                         .toList())));
-
-        // Resolve model: agent definition's model if set, otherwise project's SEARCH model
-        var modelName = agentDef.model();
-        StreamingChatModel model;
-        if (modelName != null && !modelName.isBlank()) {
-            var resolved = cm.getService().getModel(new Service.ModelConfig(modelName));
-            if (resolved == null) {
-                throw new IllegalArgumentException(
-                        "Model unavailable for agent '%s': %s".formatted(agentName, modelName));
-            }
-            model = resolved;
-        } else {
-            model = cm.getService().getModel(ModelProperties.ModelType.SEARCH);
-        }
 
         logger.info(
                 "Invoking custom agent '{}' with model {}",

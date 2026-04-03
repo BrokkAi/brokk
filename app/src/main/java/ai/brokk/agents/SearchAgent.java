@@ -72,6 +72,7 @@ public class SearchAgent {
 
     private final IContextManager cm;
     private final String goal;
+    private final StreamingChatModel model;
     private final Objective objective;
     private final IConsoleIO io;
     private final Llm llm;
@@ -119,6 +120,7 @@ public class SearchAgent {
         }
         this.cm = initialContext.getContextManager();
         this.goal = goal;
+        this.model = model;
         this.objective = objective;
         this.io = io;
         this.metrics = metrics != null
@@ -161,7 +163,7 @@ public class SearchAgent {
 
     private TaskResult executeSearch() throws InterruptedException {
         var workspaceTools = new WorkspaceTools(context);
-        var customAgentTools = new CustomAgentTools(cm);
+        var customAgentTools = new CustomAgentTools(cm, model);
         var toolRegistry = cm.getToolRegistry()
                 .builder()
                 .register(searchTools)

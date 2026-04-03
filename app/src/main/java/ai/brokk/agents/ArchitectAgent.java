@@ -908,7 +908,7 @@ public class ArchitectAgent {
                     .register(this)
                     .register(wst)
                     .register(parallelSearch)
-                    .register(new CustomAgentTools(cm));
+                    .register(new CustomAgentTools(cm, planningModel));
             depTools.ifPresent(builder::register);
             ToolRegistry tr = builder.build();
 

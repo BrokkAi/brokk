@@ -18,7 +18,6 @@ public record AgentDefinition(
         @JsonProperty("name") String name,
         @JsonProperty("description") String description,
         @JsonProperty("tools") @Nullable List<String> tools,
-        @JsonProperty("model") @Nullable String model,
         @JsonProperty("maxTurns") @Nullable Integer maxTurns,
         @JsonProperty("systemPrompt") String systemPrompt,
         @JsonProperty("scope") String scope) {

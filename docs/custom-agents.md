@@ -94,7 +94,6 @@ description: <what the agent does>
 tools:                          # optional — defaults to a broad search+workspace set
   - <tool-name>
   - <tool-name>
-model: <model-name-or-id>      # optional — defaults to the job's plannerModel
 maxTurns: <number>              # optional — defaults to 20
 ---
 
@@ -108,8 +107,9 @@ maxTurns: <number>              # optional — defaults to 20
 | `name` | yes | -- | Lowercase letters, digits, and hyphens (e.g., `my-agent-2`) |
 | `description` | yes | -- | Short description of what the agent does |
 | `tools` | no | All search + workspace tools | Which tools the agent can use (see [Available Tools](#available-tools)) |
-| `model` | no | Job's `plannerModel` | LLM model to use (e.g., `claude-sonnet-4-20250514`) |
 | `maxTurns` | no | 20 | Maximum number of tool-calling turns before the agent must answer |
+
+The agent inherits the model from the parent agent that invokes it (the job's planner model for SEARCH jobs, or the parent agent's model for LUTZ/ARCHITECT jobs). This follows the same pattern as Claude Code — agents define *what* to do, the caller decides *which model* to use.
 
 ### System Prompt
 
@@ -267,7 +267,6 @@ tools:
   - getClassSources
   - getMethodSources
   - addFilesToWorkspace
-model: claude-sonnet-4-20250514
 maxTurns: 15
 ---
 
