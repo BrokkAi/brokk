@@ -17,5 +17,7 @@ public interface DependencyImportable extends Language {
      * @return true if an import was started, false otherwise.
      */
     boolean importDependency(
-            Chrome chrome, Language.DependencyCandidate pkg, @Nullable DependenciesPanel.DependencyLifecycleListener lifecycle);
+            Chrome chrome,
+            Language.DependencyCandidate pkg,
+            @Nullable DependenciesPanel.DependencyLifecycleListener lifecycle);
 }

@@ -459,7 +459,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         this(project, language, listener, new AnalyzerCache());
     }
 
-    protected TreeSitterAnalyzer(ICoreProject project, Language language, ProgressListener listener, AnalyzerCache cache) {
+    protected TreeSitterAnalyzer(
+            ICoreProject project, Language language, ProgressListener listener, AnalyzerCache cache) {
         this.project = project;
         this.language = language;
         // Register listener early so it receives progress during construction

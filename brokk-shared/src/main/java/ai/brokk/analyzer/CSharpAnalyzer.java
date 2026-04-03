@@ -69,7 +69,10 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
     }
 
     private CSharpAnalyzer(
-            ICoreProject project, AnalyzerState prebuiltState, ProgressListener listener, @Nullable AnalyzerCache cache) {
+            ICoreProject project,
+            AnalyzerState prebuiltState,
+            ProgressListener listener,
+            @Nullable AnalyzerCache cache) {
         super(project, Languages.C_SHARP, prebuiltState, listener, cache);
     }
 

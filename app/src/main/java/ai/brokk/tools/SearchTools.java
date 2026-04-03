@@ -1266,7 +1266,10 @@ public class SearchTools {
 
         List<ProjectFile> changedFiles;
         try {
-            changedFiles = ((GitRepo) repo).listFilesChangedInCommit(commit.id()).stream().map(IGitRepo.ModifiedFile::file).toList();
+            changedFiles = ((GitRepo) repo)
+                    .listFilesChangedInCommit(commit.id()).stream()
+                            .map(IGitRepo.ModifiedFile::file)
+                            .toList();
         } catch (GitAPIException e) {
             logger.error("Error retrieving changed files for commit {}", commit.id(), e);
             changedFiles = List.of();
@@ -1352,7 +1355,9 @@ public class SearchTools {
                 try {
                     List<ProjectFile> changedFilesList;
                     try {
-                        changedFilesList = gitRepo.listFilesChangedInCommit(commit.id()).stream().map(IGitRepo.ModifiedFile::file).toList();
+                        changedFilesList = gitRepo.listFilesChangedInCommit(commit.id()).stream()
+                                .map(IGitRepo.ModifiedFile::file)
+                                .toList();
                     } catch (GitAPIException e) {
                         logger.error("Error retrieving changed files for commit {}", commit.id(), e);
                         changedFilesList = List.of();

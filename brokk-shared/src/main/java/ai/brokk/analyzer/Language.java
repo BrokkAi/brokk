@@ -1,7 +1,6 @@
 package ai.brokk.analyzer;
 
 import ai.brokk.project.ICoreProject;
-import ai.brokk.project.ICoreProject;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.stream.Collectors;

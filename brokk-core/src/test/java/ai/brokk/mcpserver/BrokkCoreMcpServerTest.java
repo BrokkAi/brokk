@@ -63,9 +63,7 @@ class BrokkCoreMcpServerTest {
         var specs = server.toolSpecifications();
         assertNotNull(specs);
 
-        var toolNames = specs.stream()
-                .map(s -> s.tool().name())
-                .collect(Collectors.toSet());
+        var toolNames = specs.stream().map(s -> s.tool().name()).collect(Collectors.toSet());
 
         var expectedTools = Set.of(
                 "activateWorkspace",
@@ -99,7 +97,9 @@ class BrokkCoreMcpServerTest {
     void toolSpecificationsHaveDescriptions() {
         var specs = server.toolSpecifications();
         for (var spec : specs) {
-            assertNotNull(spec.tool().description(), "Tool %s missing description".formatted(spec.tool().name()));
+            assertNotNull(
+                    spec.tool().description(),
+                    "Tool %s missing description".formatted(spec.tool().name()));
             assertFalse(
                     spec.tool().description().isBlank(),
                     "Tool %s has blank description".formatted(spec.tool().name()));
@@ -111,7 +111,8 @@ class BrokkCoreMcpServerTest {
         var specs = server.toolSpecifications();
         for (var spec : specs) {
             assertNotNull(
-                    spec.tool().inputSchema(), "Tool %s missing input schema".formatted(spec.tool().name()));
+                    spec.tool().inputSchema(),
+                    "Tool %s missing input schema".formatted(spec.tool().name()));
         }
     }
 
@@ -129,10 +130,7 @@ class BrokkCoreMcpServerTest {
         Files.createDirectories(subDir);
 
         var resolved = BrokkCoreMcpServer.resolveProjectRoot(subDir);
-        assertEquals(
-                projectRoot.toAbsolutePath().normalize(),
-                resolved,
-                "Should walk up to find .git directory");
+        assertEquals(projectRoot.toAbsolutePath().normalize(), resolved, "Should walk up to find .git directory");
     }
 
     @Test
@@ -154,8 +152,7 @@ class BrokkCoreMcpServerTest {
                 .findFirst()
                 .orElseThrow();
 
-        var request = new io.modelcontextprotocol.spec.McpSchema.CallToolRequest(
-                "getActiveWorkspace", Map.of());
+        var request = new io.modelcontextprotocol.spec.McpSchema.CallToolRequest("getActiveWorkspace", Map.of());
         var result = activeTool.callHandler().apply(null, request);
 
         assertNotNull(result);

@@ -370,7 +370,6 @@ public class GitRepo implements Closeable, IGitRepo {
         }
     }
 
-
     /** Represents the different merge strategies available. */
 
     // ==================== Git Operation Status Utility Methods ====================

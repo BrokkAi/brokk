@@ -6,12 +6,11 @@ import ai.brokk.IConsoleIO;
 import ai.brokk.SettingsChangeListener;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ContextFragments;
-import ai.brokk.git.CommitInfo;
 import ai.brokk.git.GitRepo;
-import ai.brokk.git.IGitRepo;
 import ai.brokk.git.GitRepoFactory;
 import ai.brokk.git.GitWorkflow;
 import ai.brokk.git.ICommitInfo;
+import ai.brokk.git.IGitRepo;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.CommitDialog;
 import ai.brokk.gui.MaterialOptionPane;
@@ -444,7 +443,9 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
 
     private static Stream<ProjectFile> safeChangedFiles(GitRepo repo, ICommitInfo c) {
         try {
-            List<ProjectFile> changedFilesList = repo.listFilesChangedInCommit(c.id()).stream().map(IGitRepo.ModifiedFile::file).toList();
+            List<ProjectFile> changedFilesList = repo.listFilesChangedInCommit(c.id()).stream()
+                    .map(IGitRepo.ModifiedFile::file)
+                    .toList();
             return changedFilesList.stream();
         } catch (GitAPIException ex) {
             String commitIdStr = "unknown";

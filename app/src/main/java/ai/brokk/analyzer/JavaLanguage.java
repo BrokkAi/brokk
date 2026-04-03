@@ -1,9 +1,8 @@
 package ai.brokk.analyzer;
 
-import ai.brokk.project.ICoreProject;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.dependencies.DependenciesPanel;
-import ai.brokk.project.IProject;
+import ai.brokk.project.ICoreProject;
 import ai.brokk.util.Decompiler;
 import ai.brokk.util.LocalCacheScanner;
 import java.io.IOException;

@@ -99,7 +99,6 @@ public interface ICoreProject extends AutoCloseable {
     /** Disk cache for project-scoped caching. */
     IStringDiskCache getDiskCache();
 
-
     @Override
     void close();
 }

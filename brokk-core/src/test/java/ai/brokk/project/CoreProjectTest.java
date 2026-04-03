@@ -150,9 +150,8 @@ class CoreProjectTest {
         var languages = project.getAnalyzerLanguages();
 
         assertTrue(
-                languages.stream()
-                        .map(Language::name)
-                        .anyMatch(n -> n.toLowerCase(Locale.ROOT).contains("java")),
+                languages.stream().map(Language::name).anyMatch(n -> n.toLowerCase(Locale.ROOT)
+                        .contains("java")),
                 "Should detect Java language from .java files");
     }
 
@@ -173,9 +172,8 @@ class CoreProjectTest {
         var languages = project.getAnalyzerLanguages();
 
         assertTrue(
-                languages.stream()
-                        .map(Language::name)
-                        .anyMatch(n -> n.toLowerCase(Locale.ROOT).contains("python")),
+                languages.stream().map(Language::name).anyMatch(n -> n.toLowerCase(Locale.ROOT)
+                        .contains("python")),
                 "Should detect Python language from .py files");
     }
 

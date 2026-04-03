@@ -1,13 +1,12 @@
 package ai.brokk.analyzer;
 
-import ai.brokk.project.ICoreProject;
 import static java.util.Objects.requireNonNull;
 
 import ai.brokk.IConsoleIO;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.dependencies.DependenciesPanel;
 import ai.brokk.project.AbstractProject;
-import ai.brokk.project.IProject;
+import ai.brokk.project.ICoreProject;
 import ai.brokk.util.FileUtil;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.databind.DeserializationFeature;

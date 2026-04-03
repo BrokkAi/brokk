@@ -7,7 +7,6 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.difftool.ui.BrokkDiffPanel;
 import ai.brokk.difftool.ui.BufferSource;
-import ai.brokk.git.CommitInfo;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.ICommitInfo;
 import ai.brokk.git.IGitRepo;
@@ -460,7 +459,9 @@ public interface GitDiffUiUtil {
 
         cm.submitBackgroundTask("Opening diff for commit " + ((GitRepo) repo).shortHash(commitInfo.id()), () -> {
             try {
-                var files = repo.listFilesChangedInCommit(commitInfo.id()).stream().map(IGitRepo.ModifiedFile::file).toList();
+                var files = repo.listFilesChangedInCommit(commitInfo.id()).stream()
+                        .map(IGitRepo.ModifiedFile::file)
+                        .toList();
                 if (files.isEmpty()) {
                     chrome.showNotification(IConsoleIO.NotificationRole.INFO, "No files changed in this commit.");
                     return;
@@ -502,7 +503,9 @@ public interface GitDiffUiUtil {
 
         cm.submitBackgroundTask("Opening diff for commit " + ((GitRepo) repo).shortHash(commitInfo.id()), () -> {
             try {
-                var files = repo.listFilesChangedInCommit(commitInfo.id()).stream().map(IGitRepo.ModifiedFile::file).toList();
+                var files = repo.listFilesChangedInCommit(commitInfo.id()).stream()
+                        .map(IGitRepo.ModifiedFile::file)
+                        .toList();
                 if (files.isEmpty()) {
                     chrome.showNotification(IConsoleIO.NotificationRole.INFO, "No files changed in this commit.");
                     return;
@@ -559,7 +562,9 @@ public interface GitDiffUiUtil {
         contextManager.submitBackgroundTask("Comparing commit to local", () -> {
             var repo = (GitRepo) contextManager.getProject().getRepo();
             try {
-                var changedFiles = repo.listFilesChangedInCommit(commitInfo.id()).stream().map(IGitRepo.ModifiedFile::file).toList();
+                var changedFiles = repo.listFilesChangedInCommit(commitInfo.id()).stream()
+                        .map(IGitRepo.ModifiedFile::file)
+                        .toList();
                 if (changedFiles.isEmpty()) {
                     chrome.showNotification(IConsoleIO.NotificationRole.INFO, "No files changed in this commit");
                     return;

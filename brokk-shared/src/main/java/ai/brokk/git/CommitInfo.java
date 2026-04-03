@@ -1,11 +1,8 @@
 package ai.brokk.git;
 
-import ai.brokk.analyzer.ProjectFile;
 import java.time.Instant;
-import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import org.eclipse.jgit.api.errors.GitAPIException;
 
 /** A record to hold commit details */
 public final class CommitInfo implements ICommitInfo {
