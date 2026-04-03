@@ -20,8 +20,6 @@ import ai.brokk.analyzer.usages.UsageHit;
 import ai.brokk.cli.MemoryConsole;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextDelta;
-import ai.brokk.context.ContextFragment;
-import ai.brokk.context.ContextFragments.SummaryFragment;
 import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
 import ai.brokk.project.ModelProperties;
@@ -68,6 +66,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -1140,7 +1139,7 @@ public class BrokkExternalMcpServer {
             """
             Start here when beginning a new task or when you need to understand what code is relevant to a goal.
             Uses semantic analysis (import graphs, code structure) to recommend the most relevant files and classes -- much more accurate than text search for finding related code.
-            Returns summaries (skeletons) of recommended context.
+            Returns a deduplicated, sorted list of relevant file paths. Use getFileSummaries or getClassSources to inspect their contents.
             """)
     public String scan(
             @P("The natural-language goal or prompt to scan for.") String goal,
@@ -1155,27 +1154,15 @@ public class BrokkExternalMcpServer {
         }
 
         String result = recommendations.fragments().stream()
-                .flatMap(f -> toSummaryFragments(f).stream())
-                .map(f -> "## " + f.description().join() + ":\n" + f.text().join() + "\n\n")
-                .collect(Collectors.joining());
+                .flatMap(f -> f.sourceFiles().join().stream())
+                .map(ProjectFile::toString)
+                .collect(Collectors.toCollection(TreeSet::new))
+                .stream()
+                .map(f -> "- " + f)
+                .collect(Collectors.joining("\n", "Recommended files:\n", ""));
 
         cm.pushContext(ctx -> ctx.addFragments(recommendations.fragments()));
         return result;
-    }
-
-    private List<SummaryFragment> toSummaryFragments(ContextFragment fragment) {
-        var results = new ArrayList<SummaryFragment>();
-        var files = fragment.sourceFiles().join();
-        for (var file : files) {
-            results.add(new SummaryFragment(cm, file.toString(), ContextFragment.SummaryType.FILE_SKELETONS));
-        }
-        var sources = fragment.sources().join();
-        for (var codeUnit : sources) {
-            if (codeUnit.isClass()) {
-                results.add(new SummaryFragment(cm, codeUnit.fqName(), ContextFragment.SummaryType.CODEUNIT_SKELETON));
-            }
-        }
-        return results;
     }
 
     private static final class ProgressNotifyingConsole extends MemoryConsole {

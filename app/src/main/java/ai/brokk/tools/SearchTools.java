@@ -787,29 +787,26 @@ public class SearchTools {
             return "No project files found matching the provided patterns: " + String.join(", ", filePaths);
         }
 
-        List<String> allSkeletons = new ArrayList<>();
-        List<String> filesProcessed = new ArrayList<>(); // Still useful for the "not found" message
+        var sb = new StringBuilder();
         for (var file : projectFiles) {
             var skeletonsInFile = getAnalyzer().getSkeletons(file);
             if (!skeletonsInFile.isEmpty()) {
-                // Add all skeleton strings from this file to the list
-                allSkeletons.addAll(skeletonsInFile.values());
-                filesProcessed.add(file.toString());
+                sb.append("<file path=\"")
+                        .append(file.toString().replace('\\', '/'))
+                        .append("\">\n");
+                sb.append(String.join("\n\n", skeletonsInFile.values()));
+                sb.append("\n</file>\n\n");
             } else {
                 logger.debug("No skeletons found in file: {}", file);
             }
         }
 
-        if (allSkeletons.isEmpty()) {
-            // filesProcessed will be empty if no skeletons were found in any matched file
-            var processedFilesString = filesProcessed.isEmpty()
-                    ? projectFiles.stream().map(ProjectFile::toString).collect(Collectors.joining(", "))
-                    : String.join(", ", filesProcessed);
-            return "No class summaries found in the matched files: " + processedFilesString;
+        if (sb.isEmpty()) {
+            return "No class summaries found in the matched files: "
+                    + projectFiles.stream().map(ProjectFile::toString).collect(Collectors.joining(", "));
         }
 
-        // Return the combined skeleton strings directly, joined by newlines
-        return recordResearchTokens(String.join("\n\n", allSkeletons));
+        return recordResearchTokens(sb.toString().trim());
     }
 
     // --- Tool Methods requiring analyzer
