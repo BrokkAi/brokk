@@ -52,6 +52,7 @@ class AnalyzerWrapperPersistenceTest {
         // deletion logic iterates over the Java storage path. This avoids the @TempDir cleanup
         // race on macOS where file handles from a real analyzer build linger after close().
         TestProject project = new TestProject(tempDir);
+        project.setAnalyzerLanguages(Set.of(Languages.NONE));
 
         try (NoopWatchService stubWatchService = new NoopWatchService();
                 AnalyzerWrapper wrapper = new AnalyzerWrapper(project, new NullAnalyzerListener(), stubWatchService)) {
