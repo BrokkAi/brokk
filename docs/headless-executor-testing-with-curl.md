@@ -419,6 +419,101 @@ JSON
 
 ---
 
+## Custom Agents
+
+### List Agents
+
+```bash
+curl -sS "${BASE}/v1/agents" \
+  -H "Authorization: Bearer ${AUTH_TOKEN}"
+```
+
+### Create Agent
+
+```bash
+curl -sS -X POST "${BASE}/v1/agents" \
+  -H "Authorization: Bearer ${AUTH_TOKEN}" \
+  -H "Content-Type: application/json" \
+  --data @- <<'JSON'
+{
+  "name": "security-auditor",
+  "description": "Reviews code for OWASP top 10 vulnerabilities",
+  "tools": ["searchSymbols", "scanUsages", "searchFileContents", "addFilesToWorkspace"],
+  "model": "claude-sonnet-4-20250514",
+  "maxTurns": 15,
+  "systemPrompt": "You are a security auditor focused on finding vulnerabilities.\nAnalyze the codebase for OWASP top 10 issues including injection, broken auth, and XSS."
+}
+JSON
+```
+
+**Response (201 Created):**
+
+```json
+{
+  "name": "security-auditor",
+  "description": "Reviews code for OWASP top 10 vulnerabilities",
+  "tools": ["searchSymbols", "scanUsages", "searchFileContents", "addFilesToWorkspace"],
+  "model": "claude-sonnet-4-20250514",
+  "maxTurns": 15,
+  "systemPrompt": "You are a security auditor focused on finding vulnerabilities.\nAnalyze the codebase for OWASP top 10 issues including injection, broken auth, and XSS.",
+  "scope": "project"
+}
+```
+
+### Get Agent
+
+```bash
+curl -sS "${BASE}/v1/agents/security-auditor" \
+  -H "Authorization: Bearer ${AUTH_TOKEN}"
+```
+
+### Update Agent (Partial)
+
+```bash
+curl -sS -X PUT "${BASE}/v1/agents/security-auditor" \
+  -H "Authorization: Bearer ${AUTH_TOKEN}" \
+  -H "Content-Type: application/json" \
+  --data @- <<'JSON'
+{
+  "maxTurns": 25
+}
+JSON
+```
+
+Omitted fields retain their existing values.
+
+### Delete Agent
+
+```bash
+# Delete from project scope (default)
+curl -sS -X DELETE "${BASE}/v1/agents/security-auditor" \
+  -H "Authorization: Bearer ${AUTH_TOKEN}"
+
+# Delete from user scope explicitly
+curl -sS -X DELETE "${BASE}/v1/agents/security-auditor?scope=user" \
+  -H "Authorization: Bearer ${AUTH_TOKEN}"
+```
+
+### Run a Job with a Custom Agent
+
+```bash
+curl -sS -X POST "${BASE}/v1/jobs" \
+  -H "Authorization: Bearer ${AUTH_TOKEN}" \
+  -H "Idempotency-Key: ${IDEMP_KEY}" \
+  -H "Content-Type: application/json" \
+  --data @- <<'JSON'
+{
+  "taskInput": "Find all security vulnerabilities in the authentication module",
+  "plannerModel": "claude-sonnet-4-20250514",
+  "agent": "security-auditor"
+}
+JSON
+```
+
+The agent's system prompt, tools, and model override are applied automatically.
+
+---
+
 ## Create Job
 
 All job payloads must include `plannerModel`. The examples below use inline JSON via stdin; swap in real identifiers.

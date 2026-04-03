@@ -130,6 +130,12 @@ The `brokk-code/` directory contains the **Python (Textual) terminal UI client**
   - Decompile libraries to Java source so the model sees the exact APIs and versions used in your project.
   - Include relevant dependency types and members into the Workspace as needed so the model operates with precise API knowledge.
 
+- **Custom Agents**
+  - Define reusable agent workflows as markdown files with YAML frontmatter (system prompt, tool allowlist, model, max turns) -- same format as Claude Code custom agents.
+  - Layered storage: project-level (`.brokk/agents/`) overrides user-level (`~/.brokk/agents/`).
+  - Full CRUD REST API at `/v1/agents`; invoke by name via `POST /v1/jobs` with `"agent": "<name>"`.
+  - See [docs/headless-executor.md](docs/headless-executor.md) for the API reference.
+
 - **Session & History**
   - Sessions persist fragments, instructions, edits, and failures with undo/redo; branch from any past step to create a new session and copy workspaces as needed.
   - You can prune or compress history at any time (Keep/Forget/Note), including dropping fragments entirely, to reduce noise, improve privacy, and speed up loops.
