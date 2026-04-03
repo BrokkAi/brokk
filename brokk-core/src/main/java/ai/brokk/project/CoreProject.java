@@ -342,7 +342,6 @@ public final class CoreProject implements ICoreProject {
     }
 
     @Override
-    @Nullable
     public IGitRepo getRepo() {
         return repo;
     }

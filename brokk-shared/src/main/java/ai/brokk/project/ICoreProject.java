@@ -9,7 +9,6 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import org.jetbrains.annotations.Blocking;
-import org.jetbrains.annotations.Nullable;
 
 /**
  * Minimal project interface for code intelligence.
@@ -86,8 +85,7 @@ public interface ICoreProject extends AutoCloseable {
     /** Invalidate the file cache. */
     void invalidateAllFiles();
 
-    /** Get the git repo, or null if no git. */
-    @Nullable
+    /** Get the git repo. Non-git projects still receive a LocalFileRepo. */
     IGitRepo getRepo();
 
     /** Whether this project is in a git repository. */

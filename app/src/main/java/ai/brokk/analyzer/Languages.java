@@ -1,7 +1,5 @@
 package ai.brokk.analyzer;
 
-import static java.util.Objects.requireNonNull;
-
 import ai.brokk.analyzer.scala.ScalaLanguage;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.dependencies.DependenciesPanel;
@@ -511,8 +509,7 @@ public class Languages {
     @Blocking
     public static List<Language> findLanguagesInProject(ICoreProject project) {
         Set<Language> langs = new HashSet<>();
-        Set<ProjectFile> filesToScan =
-                project.hasGit() ? requireNonNull(project.getRepo()).getTrackedFiles() : project.getAllFiles();
+        Set<ProjectFile> filesToScan = project.hasGit() ? project.getRepo().getTrackedFiles() : project.getAllFiles();
         for (var pf : filesToScan) {
             String extension = pf.extension();
             if (!extension.isEmpty()) {
