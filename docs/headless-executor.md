@@ -6,6 +6,8 @@ The `brokk-code` client currently bundles or targets headless executor version *
 
 For end-to-end request examples (sessions, jobs, events, and mode-specific payloads), see [headless-executor-testing-with-curl.md](headless-executor-testing-with-curl.md).
 
+For creating custom agents (reusable AI workflows with custom system prompts and tools), see the [Custom Agents Guide](custom-agents.md).
+
 ## Configuration
 
 The executor requires the following configuration, provided via **environment variables** or **command-line arguments** (arguments take precedence):
