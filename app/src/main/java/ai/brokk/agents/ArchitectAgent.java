@@ -18,6 +18,7 @@ import ai.brokk.context.ContextDelta;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.SpecialTextType;
 import ai.brokk.exception.GlobalExceptionHandler;
+import ai.brokk.executor.agents.CustomAgentTools;
 import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.prompts.ArchitectPrompts;
 import ai.brokk.prompts.WorkspacePrompts;
@@ -902,8 +903,12 @@ public class ArchitectAgent {
                     ? Optional.of(new DependencyTools(cm))
                     : Optional.<DependencyTools>empty();
 
-            var builder =
-                    cm.getToolRegistry().builder().register(this).register(wst).register(parallelSearch);
+            var builder = cm.getToolRegistry()
+                    .builder()
+                    .register(this)
+                    .register(wst)
+                    .register(parallelSearch)
+                    .register(new CustomAgentTools(cm));
             depTools.ifPresent(builder::register);
             ToolRegistry tr = builder.build();
 
@@ -935,6 +940,7 @@ public class ArchitectAgent {
                 if (!readOnly) {
                     allowed.add("callCodeAgent");
                 }
+                allowed.add("callCustomAgent");
 
                 if (buildToolsEnabled
                         && cm.getProject()

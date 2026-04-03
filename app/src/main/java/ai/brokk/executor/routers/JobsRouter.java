@@ -155,7 +155,8 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
         if (sessionIdHeader != null) tags.put("session_id", sessionIdHeader.toString());
         if (githubToken != null && !githubToken.isBlank()) tags.put("github_token", githubToken);
 
-        // If an agent is specified, validate it exists and set the mode
+        // If an agent is specified, validate it exists and route to SEARCH mode with an instruction
+        String effectiveTaskInput = request.taskInput();
         if (request.agent() != null && !request.agent().isBlank()) {
             var agentName = request.agent().strip();
             var agentDef = agentStore.get(agentName);
@@ -163,8 +164,9 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
                 RouterUtil.sendValidationError(exchange, "Unknown agent: " + agentName);
                 return;
             }
-            tags.put("agent", agentName);
-            tags.put("mode", "CUSTOM_AGENT");
+            tags.putIfAbsent("mode", "SEARCH");
+            effectiveTaskInput = "Use the callCustomAgent tool to invoke the '%s' agent for the following task:\n\n%s"
+                    .formatted(agentName, request.taskInput());
         }
 
         var overrides = validateModelOverrides(exchange, request);
@@ -178,7 +180,7 @@ public final class JobsRouter implements SimpleHttpServer.CheckedHttpHandler {
         boolean autoCommitFlag = isIssueMode || request.autoCommit();
 
         var jobSpec = new JobSpec(
-                request.taskInput(),
+                effectiveTaskInput,
                 autoCommitFlag,
                 request.autoCompress(),
                 plannerModel,

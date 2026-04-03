@@ -64,11 +64,7 @@ class HeadlessJobTemperatureOverrideTest {
 
         cm = new NoOpContextManager(project, provider);
         store = new JobStore(tempDir.resolve("jobstore"));
-        runner = new JobRunner(
-                cm,
-                store,
-                new ai.brokk.executor.agents.AgentStore(
-                        tempDir.resolve("agents-project"), tempDir.resolve("agents-user")));
+        runner = new JobRunner(cm, store);
     }
 
     @AfterEach

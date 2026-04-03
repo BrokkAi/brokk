@@ -5,7 +5,6 @@ import static java.util.Objects.requireNonNull;
 import ai.brokk.BuildInfo;
 import ai.brokk.ContextManager;
 import ai.brokk.cli.HeadlessConsole;
-import ai.brokk.executor.agents.AgentStore;
 import ai.brokk.executor.http.SimpleHttpServer;
 import ai.brokk.executor.jobs.JobRunner;
 import ai.brokk.executor.jobs.JobStore;
@@ -277,12 +276,8 @@ public final class HeadlessExecutorMain {
                 this.contextManager, this.contextManager.getProject().getSessionManager());
         this.server.registerAuthenticatedContext("/v1/sessions", sessionsRouter);
 
-        // Initialize agent store with layered paths (project and user level)
-        var projectAgentsDir = workspaceDir.resolve(".brokk").resolve("agents");
-        var userAgentsDir = Path.of(System.getProperty("user.home"), ".brokk", "agents");
-        var agentStore = new AgentStore(projectAgentsDir, userAgentsDir);
-
-        this.jobRunner = new JobRunner(this.contextManager, this.jobStore, agentStore);
+        this.jobRunner = new JobRunner(this.contextManager, this.jobStore);
+        var agentStore = this.contextManager.getAgentStore();
         var jobsRouter = new JobsRouter(
                 this.contextManager, this.jobStore, this.jobRunner, this.jobReservation, this.headlessInit, agentStore);
         this.server.registerAuthenticatedContext("/v1/jobs", jobsRouter);

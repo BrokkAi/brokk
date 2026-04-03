@@ -566,20 +566,22 @@ The markdown body below the frontmatter is the agent's system prompt.
   - Optional query: `?scope=project` (default) or `?scope=user`
   - Returns `204` on success, `404` if not found
 
-**Invoking a custom agent via jobs:**
+**Invoking custom agents:**
 
-To run a custom agent, include the `"agent"` field when creating a job:
+Custom agents are registered as the `callCustomAgent` tool, available to all built-in agents (SearchAgent, LutzAgent, ArchitectAgent) and the MCP server. They can be invoked two ways:
 
-```json
-POST /v1/jobs
-{
-  "taskInput": "Find all security vulnerabilities in the auth module",
-  "plannerModel": "claude-sonnet-4-20250514",
-  "agent": "security-auditor"
-}
-```
+1. **Via the `agent` convenience field** on `POST /v1/jobs` — routes to SEARCH mode with an instruction to call the named agent:
+   ```json
+   {
+     "taskInput": "Find all security vulnerabilities in the auth module",
+     "plannerModel": "claude-sonnet-4-20250514",
+     "agent": "security-auditor"
+   }
+   ```
 
-The agent's system prompt, tool allowlist, and model override (if set) are applied automatically. The `plannerModel` from the job is used as fallback if the agent doesn't specify a model.
+2. **Naturally by the LLM** during any SEARCH, LUTZ, or ARCHITECT job — the LLM can call `callCustomAgent` whenever it decides the task matches a custom agent's specialty.
+
+The agent's system prompt, tool allowlist, and model override (if set) are applied automatically. The project's SEARCH model is used as fallback if the agent doesn't specify a model.
 
 ### Job Management (Authenticated)
 
@@ -600,7 +602,7 @@ The agent's system prompt, tool allowlist, and model override (if set) are appli
   - **ISSUE mode**: Set `"tags": { "mode": "ISSUE" }` to resolve a GitHub Issue. Requires `github_token`, `repo_owner`, `repo_name`, and `issue_number` in tags. ISSUE-mode jobs may include an optional top-level boolean field `skipVerification` in the job JSON; when present and `true` the executor will run the ISSUE quick (skip-verification) flow (see ISSUE Mode section for details). This field is only honored for jobs whose `tags.mode == "ISSUE"`; other modes ignore it.
   - **ISSUE_DIAGNOSE mode**: Set `"tags": { "mode": "ISSUE_DIAGNOSE" }` to analyze a GitHub issue and post a diagnosis comment without code changes. Requires `github_token`, `repo_owner`, `repo_name`, and `issue_number` in tags.
   - **ISSUE_WRITER mode**: Set `"tags": { "mode": "ISSUE_WRITER" }` to discover evidence in the repo and create a GitHub issue (requires github_token, repo_owner, repo_name in tags).
-  - **CUSTOM_AGENT mode**: Runs a stored custom agent by name. Include `"agent": "<name>"` in the job body instead of setting `tags.mode` manually. See the Custom Agents section above for details.
+  - **Custom agent invocation**: Include `"agent": "<name>"` in the job body to invoke a stored custom agent. This defaults to SEARCH mode and instructs the LLM to call `callCustomAgent`. Custom agents are also available as tools in any mode — the LLM can call them during SEARCH, LUTZ, or ARCHITECT jobs. See the [Custom Agents Guide](custom-agents.md).
   - **ARCHITECT mode** (default): Orchestrates multi-step planning and implementation
 
 ### Observability and Model Controls

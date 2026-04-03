@@ -10,6 +10,7 @@ import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextHistory;
+import ai.brokk.executor.agents.CustomAgentTools;
 import ai.brokk.metrics.SearchMetrics;
 import ai.brokk.project.IProject;
 import ai.brokk.project.ModelProperties;
@@ -160,10 +161,12 @@ public class SearchAgent {
 
     private TaskResult executeSearch() throws InterruptedException {
         var workspaceTools = new WorkspaceTools(context);
+        var customAgentTools = new CustomAgentTools(cm);
         var toolRegistry = cm.getToolRegistry()
                 .builder()
                 .register(searchTools)
                 .register(workspaceTools)
+                .register(customAgentTools)
                 .register(this)
                 .build();
         var allowedTools = allowedToolNames(cm.getProject());
@@ -408,6 +411,10 @@ public class SearchAgent {
             names.add("workspaceComplete");
         }
         names.add("abortSearch");
+
+        if (!cm.getAgentStore().list().isEmpty()) {
+            names.add("callCustomAgent");
+        }
 
         return WorkspaceTools.filterByAnalyzerAvailability(names, project);
     }

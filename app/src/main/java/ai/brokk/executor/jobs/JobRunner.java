@@ -18,9 +18,6 @@ import ai.brokk.agents.ReviewAgent;
 import ai.brokk.agents.ReviewScope;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragments;
-import ai.brokk.executor.agents.AgentDefinition;
-import ai.brokk.executor.agents.AgentStore;
-import ai.brokk.executor.agents.CustomAgentExecutor;
 import ai.brokk.executor.io.HeadlessHttpConsole;
 import ai.brokk.git.GitRepo;
 import ai.brokk.issues.GitHubIssueService;
@@ -233,7 +230,6 @@ public final class JobRunner {
 
     private final ContextManager cm;
     private final JobStore store;
-    private final AgentStore agentStore;
 
     private final ExecutorService runner;
     private volatile @Nullable HeadlessHttpConsole console;
@@ -253,13 +249,12 @@ public final class JobRunner {
         ISSUE_DIAGNOSE,
         ISSUE_WRITER,
         LITE_AGENT,
-        LITE_PLAN,
-        CUSTOM_AGENT
+        LITE_PLAN
     }
 
     static SearchPrompts.Objective objectiveForMode(Mode mode) {
         return switch (mode) {
-            case ASK, SEARCH, REVIEW, GUIDED_REVIEW, CUSTOM_AGENT -> SearchPrompts.Objective.ANSWER_ONLY;
+            case ASK, SEARCH, REVIEW, GUIDED_REVIEW -> SearchPrompts.Objective.ANSWER_ONLY;
             case LUTZ -> SearchPrompts.Objective.LUTZ;
             case PLAN, ARCHITECT, CODE, ISSUE, ISSUE_DIAGNOSE, ISSUE_WRITER, LITE_AGENT, LITE_PLAN ->
                 SearchPrompts.Objective.TASKS_ONLY;
@@ -286,12 +281,10 @@ public final class JobRunner {
      *
      * @param cm The ContextManager for task execution
      * @param store The JobStore for persistence
-     * @param agentStore The AgentStore for custom agent definitions
      */
-    public JobRunner(ContextManager cm, JobStore store, AgentStore agentStore) {
+    public JobRunner(ContextManager cm, JobStore store) {
         this.cm = cm;
         this.store = store;
-        this.agentStore = agentStore;
         this.runner = Executors.newSingleThreadExecutor(r -> {
             var t = new Thread(r, "JobRunner");
             t.setDaemon(true);
@@ -385,23 +378,6 @@ public final class JobRunner {
                         ? resolveModelOrThrow(spec.plannerModel(), spec.reasoningLevel(), spec.temperature())
                         : null;
 
-                // Custom agent: resolve definition once and derive model
-                final @Nullable AgentDefinition customAgentDef;
-                final StreamingChatModel customAgentModel;
-                if (mode == Mode.CUSTOM_AGENT) {
-                    var agentName = requireNonNull(spec.tags().get("agent"), "CUSTOM_AGENT requires agent tag");
-                    customAgentDef = agentStore
-                            .get(agentName)
-                            .orElseThrow(() -> new IllegalArgumentException("Agent not found: " + agentName));
-                    var modelName = customAgentDef.model();
-                    var effectiveModelName =
-                            (modelName != null && !modelName.isBlank()) ? modelName : spec.plannerModel();
-                    customAgentModel =
-                            resolveModelOrThrow(effectiveModelName, spec.reasoningLevel(), spec.temperature());
-                } else {
-                    customAgentDef = null;
-                    customAgentModel = null;
-                }
                 final StreamingChatModel architectCodeModel = (mode == Mode.ARCHITECT
                                 || mode == Mode.LUTZ
                                 || mode == Mode.ISSUE
@@ -459,7 +435,6 @@ public final class JobRunner {
                             case REVIEW -> service.nameOf(requireNonNull(reviewPlannerModel));
                             case GUIDED_REVIEW -> spec.plannerModel().trim();
                             case ISSUE_DIAGNOSE, ISSUE_WRITER -> "(unused)";
-                            case CUSTOM_AGENT -> service.nameOf(requireNonNull(customAgentModel));
                         };
                 String codeModelNameForLog =
                         switch (mode) {
@@ -472,12 +447,11 @@ public final class JobRunner {
                             case REVIEW -> "(default, ignored for REVIEW)";
                             case GUIDED_REVIEW -> "(unused)";
                             case ISSUE_DIAGNOSE, ISSUE_WRITER -> "(unused)";
-                            case CUSTOM_AGENT -> "(unused)";
                         };
                 boolean usesDefaultCodeModel =
                         switch (mode) {
                             case ARCHITECT, LUTZ, ISSUE, LITE_AGENT, LITE_PLAN -> !hasCodeModelOverride;
-                            case ASK, SEARCH, PLAN, REVIEW, GUIDED_REVIEW, CUSTOM_AGENT -> true;
+                            case ASK, SEARCH, PLAN, REVIEW, GUIDED_REVIEW -> true;
                             case CODE -> !hasCodeModelOverride;
                             case ISSUE_DIAGNOSE, ISSUE_WRITER -> true;
                         };
@@ -798,16 +772,6 @@ public final class JobRunner {
                                                     scanConfig);
                                             var result = searchAgent.execute();
                                             scope.append(result);
-                                        }
-                                    }
-                                    case CUSTOM_AGENT -> {
-                                        try (var scope = cm.beginTaskUngrouped(spec.taskInput())) {
-                                            var executor = new CustomAgentExecutor(
-                                                    cm,
-                                                    requireNonNull(customAgentDef),
-                                                    requireNonNull(customAgentModel));
-                                            var taskResult = executor.execute(spec.taskInput());
-                                            scope.append(taskResult);
                                         }
                                     }
                                     case REVIEW -> {

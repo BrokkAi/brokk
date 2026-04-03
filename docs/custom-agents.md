@@ -38,6 +38,10 @@ You are an expert code reviewer. When given a task:
 
 ### 2. Invoke it
 
+Custom agents are registered as the `callCustomAgent` tool, available to all built-in agents (SearchAgent, LutzAgent, ArchitectAgent). There are two ways to invoke them:
+
+**Via the `agent` convenience field** (routes to SEARCH mode with an instruction to call the agent):
+
 ```bash
 curl -X POST "${BASE}/v1/jobs" \
   -H "Authorization: Bearer ${AUTH_TOKEN}" \
@@ -50,7 +54,21 @@ curl -X POST "${BASE}/v1/jobs" \
   }'
 ```
 
-Or create it via the API instead of a file:
+**Or naturally from any mode** -- the LLM can call `callCustomAgent` whenever it decides to during any SEARCH, LUTZ, or ARCHITECT job:
+
+```bash
+curl -X POST "${BASE}/v1/jobs" \
+  -H "Authorization: Bearer ${AUTH_TOKEN}" \
+  -H "Idempotency-Key: lutz-$(date +%s)" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "taskInput": "Use the code-reviewer agent to check the auth module, then fix any issues found",
+    "plannerModel": "claude-sonnet-4-20250514",
+    "tags": {"mode": "LUTZ"}
+  }'
+```
+
+**Or create via the API** instead of a file:
 
 ```bash
 curl -X POST "${BASE}/v1/agents" \
@@ -103,17 +121,20 @@ The markdown body below the `---` closing delimiter is the agent's system prompt
 
 ## How Agents Run
 
-When you invoke a custom agent, Brokk:
+Custom agents are registered as the `callCustomAgent` tool on all built-in agents. When the LLM (or the `agent` convenience field) invokes a custom agent:
 
-1. Loads the agent definition (system prompt, tools, model, maxTurns)
-2. Creates an LLM session with the agent's system prompt
-3. Sends the `taskInput` as the first user message, along with the current workspace table of contents
-4. Enters an **agentic loop**: the LLM calls tools, Brokk executes them and feeds results back, repeating up to `maxTurns` times
-5. The loop ends when the LLM calls `answer` (success) or `abortSearch` (gave up), or when the turn limit is reached
+1. Brokk loads the agent definition (system prompt, tools, model, maxTurns)
+2. A sub-agent is spawned with the agent's system prompt as its own LLM session
+3. The task is sent as the first user message, along with the current workspace table of contents
+4. The sub-agent enters its own **agentic loop**: calling tools, getting results, repeating up to `maxTurns` times
+5. The loop ends when the sub-agent calls `answer` (success) or `abortSearch` (gave up), or when the turn limit is reached
+6. The answer is returned to the parent agent as a tool result, which can continue its own work
+
+**Composability:** Because agents are tools, they compose naturally. A LUTZ job can call a custom security-auditor agent, get the findings, and then call `callCodeAgent` to fix the issues — all in one job. This is the same pattern as `callSearchAgent` and `callCodeAgent`.
 
 **Streaming results:** After submitting the job, poll `GET /v1/jobs/{jobId}/events` to stream tool calls, LLM output tokens, and the final answer in real time. See the [events documentation](headless-executor-events.md) for event types.
 
-**Turn limit behavior:** If the agent reaches `maxTurns` without calling `answer`, the job ends with a `TOOL_ERROR` status. On the final turn, the agent is told it must finish — most models will comply. Increase `maxTurns` for complex tasks that require many search steps.
+**Turn limit behavior:** If the agent reaches `maxTurns` without calling `answer`, the sub-agent returns a `TOOL_ERROR` to the parent. On the final turn, the agent is told it must finish — most models will comply. Increase `maxTurns` for complex tasks that require many search steps.
 
 **Context:** The agent starts with whatever is in the current session's workspace. If you've added files or classes to context before running the job, the agent can see them. The agent can also add more context during execution using workspace tools.
 
