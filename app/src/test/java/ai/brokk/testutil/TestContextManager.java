@@ -56,7 +56,9 @@ public final class TestContextManager implements IContextManager {
 
     public TestContextManager(Path projectRoot, IConsoleIO consoleIO, IAnalyzer analyzer) {
         this(
-                analyzer instanceof TestAnalyzer ? new TestProject(projectRoot, Languages.JAVA) : analyzer.getProject(),
+                analyzer instanceof TestAnalyzer
+                        ? new TestProject(projectRoot, Languages.JAVA)
+                        : (IProject) analyzer.getProject(),
                 consoleIO,
                 Set.of(),
                 analyzer,

@@ -103,11 +103,11 @@ class CoreProjectTest {
     void discoversFilesWithoutGit() throws Exception {
         Files.writeString(projectRoot.resolve("hello.py"), "print('hello')");
         Files.createDirectories(projectRoot.resolve("sub"));
-        Files.writeString(projectRoot.resolve("sub/util.py"), "x = 1");
+        Files.writeString(projectRoot.resolve("sub").resolve("util.py"), "x = 1");
 
         project = new CoreProject(projectRoot);
         var files = project.getAllFiles();
-        var names = files.stream().map(ProjectFile::toString).collect(Collectors.toSet());
+        var names = files.stream().map(pf -> pf.toString().replace('\\', '/')).collect(Collectors.toSet());
 
         assertTrue(names.contains("hello.py"), "Should contain hello.py");
         assertTrue(names.contains("sub/util.py"), "Should contain sub/util.py");
