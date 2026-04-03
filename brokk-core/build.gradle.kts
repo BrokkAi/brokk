@@ -37,6 +37,9 @@ configurations.all {
 }
 
 dependencies {
+    // Shared analyzer, git, concurrent, and utility code
+    api(project(":brokk-shared"))
+
     // TreeSitter parsers (native libs)
     implementation(project(":treesitter-provider"))
 
