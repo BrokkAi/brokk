@@ -1,7 +1,7 @@
 package ai.brokk.analyzer;
 
 import ai.brokk.analyzer.scala.ScalaLanguage;
-import ai.brokk.project.IProject;
+import ai.brokk.project.ICoreProject;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -38,12 +38,12 @@ public class Languages {
         } // For compatibility
 
         @Override
-        public IAnalyzer createAnalyzer(IProject project, IAnalyzer.ProgressListener listener) {
+        public IAnalyzer createAnalyzer(ICoreProject project, IAnalyzer.ProgressListener listener) {
             return new CSharpAnalyzer(project, listener);
         }
 
         @Override
-        public IAnalyzer loadAnalyzer(IProject project, IAnalyzer.ProgressListener listener) {
+        public IAnalyzer loadAnalyzer(ICoreProject project, IAnalyzer.ProgressListener listener) {
             var storage = getStoragePath(project);
             return TreeSitterStateIO.load(storage)
                     .map(state -> {
@@ -98,12 +98,12 @@ public class Languages {
         }
 
         @Override
-        public IAnalyzer createAnalyzer(IProject project, IAnalyzer.ProgressListener listener) {
+        public IAnalyzer createAnalyzer(ICoreProject project, IAnalyzer.ProgressListener listener) {
             return new JavascriptAnalyzer(project, listener);
         }
 
         @Override
-        public IAnalyzer loadAnalyzer(IProject project, IAnalyzer.ProgressListener listener) {
+        public IAnalyzer loadAnalyzer(ICoreProject project, IAnalyzer.ProgressListener listener) {
             var storage = getStoragePath(project);
             return TreeSitterStateIO.load(storage)
                     .map(state -> {
@@ -158,12 +158,12 @@ public class Languages {
         }
 
         @Override
-        public IAnalyzer createAnalyzer(IProject project, IAnalyzer.ProgressListener listener) {
+        public IAnalyzer createAnalyzer(ICoreProject project, IAnalyzer.ProgressListener listener) {
             return new GoAnalyzer(project, listener);
         }
 
         @Override
-        public IAnalyzer loadAnalyzer(IProject project, IAnalyzer.ProgressListener listener) {
+        public IAnalyzer loadAnalyzer(ICoreProject project, IAnalyzer.ProgressListener listener) {
             var storage = getStoragePath(project);
             return TreeSitterStateIO.load(storage)
                     .map(state -> {
@@ -224,12 +224,12 @@ public class Languages {
         }
 
         @Override
-        public IAnalyzer createAnalyzer(IProject project, IAnalyzer.ProgressListener listener) {
+        public IAnalyzer createAnalyzer(ICoreProject project, IAnalyzer.ProgressListener listener) {
             return new DisabledAnalyzer(project);
         }
 
         @Override
-        public IAnalyzer loadAnalyzer(IProject project, IAnalyzer.ProgressListener listener) {
+        public IAnalyzer loadAnalyzer(ICoreProject project, IAnalyzer.ProgressListener listener) {
             return createAnalyzer(project, listener);
         }
     };
@@ -257,12 +257,12 @@ public class Languages {
         }
 
         @Override
-        public IAnalyzer createAnalyzer(IProject project, IAnalyzer.ProgressListener listener) {
+        public IAnalyzer createAnalyzer(ICoreProject project, IAnalyzer.ProgressListener listener) {
             return new PhpAnalyzer(project, listener);
         }
 
         @Override
-        public IAnalyzer loadAnalyzer(IProject project, IAnalyzer.ProgressListener listener) {
+        public IAnalyzer loadAnalyzer(ICoreProject project, IAnalyzer.ProgressListener listener) {
             var storage = getStoragePath(project);
             return TreeSitterStateIO.load(storage)
                     .map(state -> {
@@ -295,7 +295,7 @@ public class Languages {
 
         // TODO: Refine isAnalyzed for PHP (e.g. vendor directory)
         @Override
-        public boolean isAnalyzed(IProject project, Path pathToImport) {
+        public boolean isAnalyzed(ICoreProject project, Path pathToImport) {
             assert pathToImport.isAbsolute() : "Path must be absolute for isAnalyzed check: " + pathToImport;
             Path projectRoot = project.getRoot();
             Path normalizedPathToImport = pathToImport.normalize();
@@ -333,12 +333,12 @@ public class Languages {
         }
 
         @Override
-        public IAnalyzer createAnalyzer(IProject project, IAnalyzer.ProgressListener listener) {
+        public IAnalyzer createAnalyzer(ICoreProject project, IAnalyzer.ProgressListener listener) {
             return new SqlAnalyzer(project);
         }
 
         @Override
-        public IAnalyzer loadAnalyzer(IProject project, IAnalyzer.ProgressListener listener) {
+        public IAnalyzer loadAnalyzer(ICoreProject project, IAnalyzer.ProgressListener listener) {
             // SQLAnalyzer does not save/load state from disk beyond re-parsing
             return createAnalyzer(project, listener);
         }
@@ -363,12 +363,12 @@ public class Languages {
         }
 
         @Override
-        public IAnalyzer createAnalyzer(IProject project, IAnalyzer.ProgressListener listener) {
+        public IAnalyzer createAnalyzer(ICoreProject project, IAnalyzer.ProgressListener listener) {
             return new TypescriptAnalyzer(project, listener);
         }
 
         @Override
-        public IAnalyzer loadAnalyzer(IProject project, IAnalyzer.ProgressListener listener) {
+        public IAnalyzer loadAnalyzer(ICoreProject project, IAnalyzer.ProgressListener listener) {
             var storage = getStoragePath(project);
             return TreeSitterStateIO.load(storage)
                     .map(state -> {
@@ -449,7 +449,7 @@ public class Languages {
      * Uses tracked files if it's a git repo, otherwise scans all project files.
      */
     @Blocking
-    public static List<Language> findLanguagesInProject(IProject project) {
+    public static List<Language> findLanguagesInProject(ICoreProject project) {
         Set<Language> langs = new HashSet<>();
         Set<ProjectFile> filesToScan = project.hasGit()
                 ? java.util.Objects.requireNonNull(project.getRepo()).getTrackedFiles()

@@ -5,7 +5,7 @@ import static ai.brokk.analyzer.java.JavaTreeSitterNodeTypes.*;
 import ai.brokk.AnalyzerUtil;
 import ai.brokk.analyzer.cache.AnalyzerCache;
 import ai.brokk.analyzer.java.JavaTypeAnalyzer;
-import ai.brokk.project.IProject;
+import ai.brokk.project.ICoreProject;
 import java.util.*;
 import java.util.Optional;
 import java.util.function.BiFunction;
@@ -25,20 +25,20 @@ public class JavaAnalyzer extends TreeSitterAnalyzer
 
     private static final Pattern LAMBDA_REGEX = Pattern.compile("(\\$anon|\\$\\d+)");
 
-    public JavaAnalyzer(IProject project) {
+    public JavaAnalyzer(ICoreProject project) {
         this(project, ProgressListener.NOOP);
     }
 
-    public JavaAnalyzer(IProject project, ProgressListener listener) {
+    public JavaAnalyzer(ICoreProject project, ProgressListener listener) {
         super(project, Languages.JAVA, listener);
     }
 
     private JavaAnalyzer(
-            IProject project, AnalyzerState state, ProgressListener listener, @Nullable AnalyzerCache cache) {
+            ICoreProject project, AnalyzerState state, ProgressListener listener, @Nullable AnalyzerCache cache) {
         super(project, Languages.JAVA, state, listener, cache);
     }
 
-    public static JavaAnalyzer fromState(IProject project, AnalyzerState state, ProgressListener listener) {
+    public static JavaAnalyzer fromState(ICoreProject project, AnalyzerState state, ProgressListener listener) {
         return new JavaAnalyzer(project, state, listener, null);
     }
 

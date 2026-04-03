@@ -3,7 +3,7 @@ package ai.brokk.analyzer;
 import static ai.brokk.analyzer.cpp.CppTreeSitterNodeTypes.*;
 
 import ai.brokk.analyzer.cache.AnalyzerCache;
-import ai.brokk.project.IProject;
+import ai.brokk.project.ICoreProject;
 import com.google.common.base.Splitter;
 import java.nio.file.InvalidPathException;
 import java.util.*;
@@ -162,20 +162,20 @@ public class CppAnalyzer extends TreeSitterAnalyzer implements ImportAnalysisPro
             "",
             Set.of(STORAGE_CLASS_SPECIFIER, TYPE_QUALIFIER, ACCESS_SPECIFIER));
 
-    public CppAnalyzer(IProject project) {
+    public CppAnalyzer(ICoreProject project) {
         this(project, ProgressListener.NOOP);
     }
 
-    public CppAnalyzer(IProject project, ProgressListener listener) {
+    public CppAnalyzer(ICoreProject project, ProgressListener listener) {
         super(project, Languages.C_CPP, listener);
     }
 
     private CppAnalyzer(
-            IProject project, AnalyzerState state, ProgressListener listener, @Nullable AnalyzerCache cache) {
+            ICoreProject project, AnalyzerState state, ProgressListener listener, @Nullable AnalyzerCache cache) {
         super(project, Languages.C_CPP, state, listener, cache);
     }
 
-    public static CppAnalyzer fromState(IProject project, AnalyzerState state, ProgressListener listener) {
+    public static CppAnalyzer fromState(ICoreProject project, AnalyzerState state, ProgressListener listener) {
         return new CppAnalyzer(project, state, listener, null);
     }
 

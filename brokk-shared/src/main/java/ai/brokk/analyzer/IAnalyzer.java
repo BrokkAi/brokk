@@ -1,7 +1,7 @@
 package ai.brokk.analyzer;
 
 import ai.brokk.AnalyzerUtil;
-import ai.brokk.project.IProject;
+import ai.brokk.project.ICoreProject;
 import java.nio.file.Path;
 import java.util.ArrayDeque;
 import java.util.Collection;
@@ -115,7 +115,7 @@ public interface IAnalyzer {
     /**
      * The project this analyzer targets
      */
-    IProject getProject();
+    ICoreProject getProject();
 
     default List<CodeUnit> getMembersInClass(CodeUnit classUnit) {
         return getDirectChildren(classUnit);

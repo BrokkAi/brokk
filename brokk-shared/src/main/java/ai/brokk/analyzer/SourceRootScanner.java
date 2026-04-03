@@ -1,6 +1,6 @@
 package ai.brokk.analyzer;
 
-import ai.brokk.project.IProject;
+import ai.brokk.project.ICoreProject;
 import java.io.IOException;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
@@ -30,7 +30,7 @@ public final class SourceRootScanner {
      * Respects .gitignore rules and skips hidden directories.
      */
     @Blocking
-    public static List<String> scan(IProject project, Language language) {
+    public static List<String> scan(ICoreProject project, Language language) {
         Path root = project.getRoot();
         List<String> foundRoots = new ArrayList<>();
 

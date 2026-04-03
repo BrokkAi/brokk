@@ -2,7 +2,7 @@ package ai.brokk.analyzer;
 
 import ai.brokk.analyzer.cache.AnalyzerCache;
 import ai.brokk.concurrent.ExecutorsUtil;
-import ai.brokk.project.IProject;
+import ai.brokk.project.ICoreProject;
 import ai.brokk.util.ConcurrencyUtil;
 import ai.brokk.util.TextCanonicalizer;
 import com.github.benmanes.caffeine.cache.Cache;
@@ -322,7 +322,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     // Over-approximation buffer for filesystem mtime comparisons (nanos)
     private static final long MTIME_EPSILON_NANOS = TimeUnit.MILLISECONDS.toNanos(300);
 
-    private final IProject project;
+    private final ICoreProject project;
     private final Language language;
 
     /**
@@ -451,15 +451,15 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     }
 
     // ---------- constructor ----------
-    protected TreeSitterAnalyzer(IProject project, Language language) {
+    protected TreeSitterAnalyzer(ICoreProject project, Language language) {
         this(project, language, ProgressListener.NOOP);
     }
 
-    protected TreeSitterAnalyzer(IProject project, Language language, ProgressListener listener) {
+    protected TreeSitterAnalyzer(ICoreProject project, Language language, ProgressListener listener) {
         this(project, language, listener, new AnalyzerCache());
     }
 
-    protected TreeSitterAnalyzer(IProject project, Language language, ProgressListener listener, AnalyzerCache cache) {
+    protected TreeSitterAnalyzer(ICoreProject project, Language language, ProgressListener listener, AnalyzerCache cache) {
         this.project = project;
         this.language = language;
         // Register listener early so it receives progress during construction
@@ -657,7 +657,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
         lastUpdateEpochNanos.set(initNowNanos);
     }
 
-    protected TreeSitterAnalyzer(IProject project, Language language, AnalyzerState prebuiltState) {
+    protected TreeSitterAnalyzer(ICoreProject project, Language language, AnalyzerState prebuiltState) {
         this(project, language, prebuiltState, ProgressListener.NOOP, null);
     }
 
@@ -678,7 +678,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
      * on parsedTree being non-null after load.
      */
     protected TreeSitterAnalyzer(
-            IProject project, Language language, AnalyzerState prebuiltState, ProgressListener listener) {
+            ICoreProject project, Language language, AnalyzerState prebuiltState, ProgressListener listener) {
         this(project, language, prebuiltState, listener, null);
     }
 
@@ -686,7 +686,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
      * Internal implementation for snapshot instances that supports an optional pre-populated cache.
      */
     protected TreeSitterAnalyzer(
-            IProject project,
+            ICoreProject project,
             Language language,
             AnalyzerState prebuiltState,
             ProgressListener listener,
@@ -2132,7 +2132,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
      * Get the project this analyzer is associated with.
      */
     @Override
-    public IProject getProject() {
+    public ICoreProject getProject() {
         return project;
     }
 

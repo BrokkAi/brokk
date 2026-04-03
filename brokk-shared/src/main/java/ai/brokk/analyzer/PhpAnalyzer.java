@@ -4,7 +4,7 @@ import static ai.brokk.analyzer.php.PhpTreeSitterNodeTypes.*;
 
 import ai.brokk.analyzer.cache.AnalyzerCache;
 import ai.brokk.analyzer.cache.PhpAnalyzerCache;
-import ai.brokk.project.IProject;
+import ai.brokk.project.ICoreProject;
 import java.util.*;
 import org.jetbrains.annotations.Nullable;
 import org.treesitter.*;
@@ -44,24 +44,24 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
 
     private static final String NAMESPACE_QUERY_STR = "(namespace_definition name: (namespace_name) @nsname)";
 
-    public PhpAnalyzer(IProject project) {
+    public PhpAnalyzer(ICoreProject project) {
         this(project, ProgressListener.NOOP);
     }
 
-    public PhpAnalyzer(IProject project, ProgressListener listener) {
+    public PhpAnalyzer(ICoreProject project, ProgressListener listener) {
         this(project, listener, new PhpAnalyzerCache());
     }
 
-    private PhpAnalyzer(IProject project, ProgressListener listener, PhpAnalyzerCache cache) {
+    private PhpAnalyzer(ICoreProject project, ProgressListener listener, PhpAnalyzerCache cache) {
         super(project, Languages.PHP, listener, cache);
     }
 
     private PhpAnalyzer(
-            IProject project, AnalyzerState state, ProgressListener listener, @Nullable PhpAnalyzerCache cache) {
+            ICoreProject project, AnalyzerState state, ProgressListener listener, @Nullable PhpAnalyzerCache cache) {
         super(project, Languages.PHP, state, listener, cache);
     }
 
-    public static PhpAnalyzer fromState(IProject project, AnalyzerState state, ProgressListener listener) {
+    public static PhpAnalyzer fromState(ICoreProject project, AnalyzerState state, ProgressListener listener) {
         return new PhpAnalyzer(project, state, listener, new PhpAnalyzerCache());
     }
 

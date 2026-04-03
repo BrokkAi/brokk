@@ -1,6 +1,6 @@
 package ai.brokk.analyzer;
 
-import ai.brokk.project.IProject;
+import ai.brokk.project.ICoreProject;
 import java.util.Set;
 
 public class CppLanguage implements Language {
@@ -27,12 +27,12 @@ public class CppLanguage implements Language {
     }
 
     @Override
-    public IAnalyzer createAnalyzer(IProject project, IAnalyzer.ProgressListener listener) {
+    public IAnalyzer createAnalyzer(ICoreProject project, IAnalyzer.ProgressListener listener) {
         return new CppAnalyzer(project, listener);
     }
 
     @Override
-    public IAnalyzer loadAnalyzer(IProject project, IAnalyzer.ProgressListener listener) {
+    public IAnalyzer loadAnalyzer(ICoreProject project, IAnalyzer.ProgressListener listener) {
         var storage = getStoragePath(project);
         return TreeSitterStateIO.load(storage)
                 .map(state -> CppAnalyzer.fromState(project, state, listener))

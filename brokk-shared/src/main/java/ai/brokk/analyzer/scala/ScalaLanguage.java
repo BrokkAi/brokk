@@ -5,7 +5,7 @@ import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.JvmLanguage;
 import ai.brokk.analyzer.ScalaAnalyzer;
 import ai.brokk.analyzer.TreeSitterStateIO;
-import ai.brokk.project.IProject;
+import ai.brokk.project.ICoreProject;
 import java.util.Set;
 
 public class ScalaLanguage implements JvmLanguage {
@@ -28,12 +28,12 @@ public class ScalaLanguage implements JvmLanguage {
     }
 
     @Override
-    public IAnalyzer createAnalyzer(IProject project, IAnalyzer.ProgressListener listener) {
+    public IAnalyzer createAnalyzer(ICoreProject project, IAnalyzer.ProgressListener listener) {
         return new ScalaAnalyzer(project, listener);
     }
 
     @Override
-    public IAnalyzer loadAnalyzer(IProject project, IAnalyzer.ProgressListener listener) {
+    public IAnalyzer loadAnalyzer(ICoreProject project, IAnalyzer.ProgressListener listener) {
         var storage = getStoragePath(project);
         return TreeSitterStateIO.load(storage)
                 .map(state -> (IAnalyzer) ScalaAnalyzer.fromState(project, state, listener))

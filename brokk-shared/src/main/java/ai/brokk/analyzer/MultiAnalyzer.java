@@ -1,6 +1,6 @@
 package ai.brokk.analyzer;
 
-import ai.brokk.project.IProject;
+import ai.brokk.project.ICoreProject;
 import java.util.*;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -158,7 +158,7 @@ public class MultiAnalyzer
     }
 
     @Override
-    public IProject getProject() {
+    public ICoreProject getProject() {
         return findFirst(analyzer -> Optional.of(analyzer.getProject())).orElseThrow();
     }
 

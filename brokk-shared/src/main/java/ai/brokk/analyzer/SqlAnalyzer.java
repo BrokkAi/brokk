@@ -1,6 +1,6 @@
 package ai.brokk.analyzer;
 
-import ai.brokk.project.IProject;
+import ai.brokk.project.ICoreProject;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -12,7 +12,7 @@ import org.apache.logging.log4j.Logger;
 public class SqlAnalyzer implements IAnalyzer {
     private static final Logger logger = LogManager.getLogger(SqlAnalyzer.class);
 
-    private final IProject project;
+    private final ICoreProject project;
     private final Map<ProjectFile, List<CodeUnit>> declarationsByFile;
     final Map<CodeUnit, List<Range>> rangesByCodeUnit; // Made package-private for testing
     private final List<CodeUnit> allDeclarationsList;
@@ -26,7 +26,7 @@ public class SqlAnalyzer implements IAnalyzer {
             "CREATE(?:\\s+OR\\s+REPLACE)?(?:\\s+TEMPORARY)?\\s+(TABLE|VIEW)(?:\\s+IF\\s+NOT\\s+EXISTS)?\\s+([a-zA-Z_0-9]+(?:\\.[a-zA-Z_0-9]+)*)",
             Pattern.CASE_INSENSITIVE);
 
-    public SqlAnalyzer(IProject projectInstance) {
+    public SqlAnalyzer(ICoreProject projectInstance) {
         this.project = projectInstance;
         this.declarationsByFile = new HashMap<>();
         this.rangesByCodeUnit = new HashMap<>();
@@ -120,7 +120,7 @@ public class SqlAnalyzer implements IAnalyzer {
     }
 
     @Override
-    public IProject getProject() {
+    public ICoreProject getProject() {
         return project;
     }
 

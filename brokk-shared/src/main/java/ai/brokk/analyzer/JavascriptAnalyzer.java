@@ -3,7 +3,7 @@ package ai.brokk.analyzer;
 import static ai.brokk.analyzer.javascript.JavaScriptTreeSitterNodeTypes.*;
 
 import ai.brokk.analyzer.cache.AnalyzerCache;
-import ai.brokk.project.IProject;
+import ai.brokk.project.ICoreProject;
 import java.util.*;
 import org.jetbrains.annotations.Nullable;
 import org.treesitter.TSLanguage;
@@ -40,20 +40,20 @@ public class JavascriptAnalyzer extends JsTsAnalyzer {
             Set.of() // modifierNodeTypes
             );
 
-    public JavascriptAnalyzer(IProject project) {
+    public JavascriptAnalyzer(ICoreProject project) {
         this(project, ProgressListener.NOOP);
     }
 
-    public JavascriptAnalyzer(IProject project, ProgressListener listener) {
+    public JavascriptAnalyzer(ICoreProject project, ProgressListener listener) {
         super(project, Languages.JAVASCRIPT, listener);
     }
 
     private JavascriptAnalyzer(
-            IProject project, AnalyzerState state, ProgressListener listener, @Nullable AnalyzerCache cache) {
+            ICoreProject project, AnalyzerState state, ProgressListener listener, @Nullable AnalyzerCache cache) {
         super(project, Languages.JAVASCRIPT, state, listener, cache);
     }
 
-    public static JavascriptAnalyzer fromState(IProject project, AnalyzerState state, ProgressListener listener) {
+    public static JavascriptAnalyzer fromState(ICoreProject project, AnalyzerState state, ProgressListener listener) {
         return new JavascriptAnalyzer(project, state, listener, null);
     }
 

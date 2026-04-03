@@ -3,7 +3,7 @@ package ai.brokk.analyzer;
 import static ai.brokk.analyzer.scala.ScalaTreeSitterNodeTypes.*;
 
 import ai.brokk.analyzer.cache.AnalyzerCache;
-import ai.brokk.project.IProject;
+import ai.brokk.project.ICoreProject;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -19,20 +19,20 @@ import org.treesitter.TreeSitterScala;
 
 public class ScalaAnalyzer extends TreeSitterAnalyzer implements JvmBasedAnalyzer {
 
-    public ScalaAnalyzer(IProject project) {
+    public ScalaAnalyzer(ICoreProject project) {
         this(project, ProgressListener.NOOP);
     }
 
-    public ScalaAnalyzer(IProject project, ProgressListener listener) {
+    public ScalaAnalyzer(ICoreProject project, ProgressListener listener) {
         super(project, Languages.SCALA, listener);
     }
 
     private ScalaAnalyzer(
-            IProject project, AnalyzerState state, ProgressListener listener, @Nullable AnalyzerCache cache) {
+            ICoreProject project, AnalyzerState state, ProgressListener listener, @Nullable AnalyzerCache cache) {
         super(project, Languages.SCALA, state, listener, cache);
     }
 
-    public static ScalaAnalyzer fromState(IProject project, AnalyzerState state, ProgressListener listener) {
+    public static ScalaAnalyzer fromState(ICoreProject project, AnalyzerState state, ProgressListener listener) {
         return new ScalaAnalyzer(project, state, listener, null);
     }
 

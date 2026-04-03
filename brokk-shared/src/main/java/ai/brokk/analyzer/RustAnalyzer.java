@@ -3,7 +3,7 @@ package ai.brokk.analyzer;
 import static ai.brokk.analyzer.rust.RustTreeSitterNodeTypes.*;
 
 import ai.brokk.analyzer.cache.AnalyzerCache;
-import ai.brokk.project.IProject;
+import ai.brokk.project.ICoreProject;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collections;
@@ -49,20 +49,20 @@ public final class RustAnalyzer extends TreeSitterAnalyzer implements ImportAnal
             "",
             Set.of(VISIBILITY_MODIFIER));
 
-    public RustAnalyzer(IProject project) {
+    public RustAnalyzer(ICoreProject project) {
         this(project, ProgressListener.NOOP);
     }
 
-    public RustAnalyzer(IProject project, ProgressListener listener) {
+    public RustAnalyzer(ICoreProject project, ProgressListener listener) {
         super(project, Languages.RUST, listener);
     }
 
     private RustAnalyzer(
-            IProject project, AnalyzerState state, ProgressListener listener, @Nullable AnalyzerCache cache) {
+            ICoreProject project, AnalyzerState state, ProgressListener listener, @Nullable AnalyzerCache cache) {
         super(project, Languages.RUST, state, listener, cache);
     }
 
-    public static RustAnalyzer fromState(IProject project, AnalyzerState state, ProgressListener listener) {
+    public static RustAnalyzer fromState(ICoreProject project, AnalyzerState state, ProgressListener listener) {
         return new RustAnalyzer(project, state, listener, null);
     }
 

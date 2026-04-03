@@ -1,6 +1,6 @@
 package ai.brokk.analyzer;
 
-import ai.brokk.project.IProject;
+import ai.brokk.project.ICoreProject;
 import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -11,13 +11,13 @@ import org.jetbrains.annotations.Nullable;
 
 public class DisabledAnalyzer implements IAnalyzer {
     @Nullable
-    private final IProject project;
+    private final ICoreProject project;
 
     public DisabledAnalyzer() {
         this(null);
     }
 
-    public DisabledAnalyzer(@Nullable IProject project) {
+    public DisabledAnalyzer(@Nullable ICoreProject project) {
         this.project = project;
     }
 
@@ -87,7 +87,7 @@ public class DisabledAnalyzer implements IAnalyzer {
     }
 
     @Override
-    public IProject getProject() {
+    public ICoreProject getProject() {
         if (project == null) {
             throw new UnsupportedOperationException("DisabledAnalyzer has no project");
         }

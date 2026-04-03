@@ -4,7 +4,7 @@ import static ai.brokk.analyzer.go.GoTreeSitterNodeTypes.*;
 
 import ai.brokk.analyzer.cache.AnalyzerCache;
 import ai.brokk.analyzer.cache.GoAnalyzerCache;
-import ai.brokk.project.IProject;
+import ai.brokk.project.ICoreProject;
 import com.google.common.base.Splitter;
 import java.nio.file.Path;
 import java.util.Collection;
@@ -71,20 +71,20 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
             Set.of() // modifierNodeTypes (Go visibility is by capitalization)
             );
 
-    public GoAnalyzer(IProject project) {
+    public GoAnalyzer(ICoreProject project) {
         this(project, ProgressListener.NOOP);
     }
 
-    public GoAnalyzer(IProject project, ProgressListener listener) {
+    public GoAnalyzer(ICoreProject project, ProgressListener listener) {
         this(project, listener, new GoAnalyzerCache());
     }
 
-    private GoAnalyzer(IProject project, ProgressListener listener, GoAnalyzerCache cache) {
+    private GoAnalyzer(ICoreProject project, ProgressListener listener, GoAnalyzerCache cache) {
         super(project, Languages.GO, listener, cache);
         checkVendorDirectory(project);
     }
 
-    private void checkVendorDirectory(IProject project) {
+    private void checkVendorDirectory(ICoreProject project) {
         boolean hasVendor = project.getAnalyzableFiles(Languages.GO).stream().anyMatch(pf -> {
             String relPath = pf.getRelPath().toString().replace('\\', '/');
             return relPath.startsWith("vendor/") || relPath.contains("/vendor/");
@@ -98,11 +98,11 @@ public final class GoAnalyzer extends TreeSitterAnalyzer implements ImportAnalys
     }
 
     private GoAnalyzer(
-            IProject project, AnalyzerState state, ProgressListener listener, @Nullable GoAnalyzerCache cache) {
+            ICoreProject project, AnalyzerState state, ProgressListener listener, @Nullable GoAnalyzerCache cache) {
         super(project, Languages.GO, state, listener, cache);
     }
 
-    public static GoAnalyzer fromState(IProject project, AnalyzerState state, ProgressListener listener) {
+    public static GoAnalyzer fromState(ICoreProject project, AnalyzerState state, ProgressListener listener) {
         return new GoAnalyzer(project, state, listener, new GoAnalyzerCache());
     }
 

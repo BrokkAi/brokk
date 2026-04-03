@@ -3,7 +3,7 @@ package ai.brokk.analyzer.usages;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.java.JdtUsageAnalyzer;
-import ai.brokk.project.IProject;
+import ai.brokk.project.ICoreProject;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -13,9 +13,9 @@ import java.util.Set;
  */
 public final class JdtUsageAnalyzerStrategy implements UsageAnalyzer {
 
-    private final IProject project;
+    private final ICoreProject project;
 
-    public JdtUsageAnalyzerStrategy(IProject project) {
+    public JdtUsageAnalyzerStrategy(ICoreProject project) {
         this.project = project;
     }
 

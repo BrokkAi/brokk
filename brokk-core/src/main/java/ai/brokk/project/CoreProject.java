@@ -36,10 +36,10 @@ import org.jetbrains.annotations.Nullable;
 
 /**
  * Standalone project implementation for brokk-core.
- * Implements IProject with file discovery, language detection, gitignore handling,
+ * Implements ICoreProject with file discovery, language detection, gitignore handling,
  * and disk caching. No LLM, GUI, session, or build-agent dependencies.
  */
-public final class CoreProject implements IProject {
+public final class CoreProject implements ICoreProject {
     private static final Logger logger = LogManager.getLogger(CoreProject.class);
     private static final ObjectMapper objectMapper = new ObjectMapper();
 

@@ -7,7 +7,7 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.usages.UsageHit;
 import ai.brokk.concurrent.ExecutorsUtil;
 import ai.brokk.concurrent.LoggingExecutorService;
-import ai.brokk.project.IProject;
+import ai.brokk.project.ICoreProject;
 import com.google.common.collect.Lists;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -75,7 +75,7 @@ public class JdtUsageAnalyzer {
      * Parses Java source code and extracts method FQ names with signatures.
      * Intended for testing signature consistency with other analyzers.
      */
-    public static Set<String> extractMethodSignatures(String sourceCode, IProject project) {
+    public static Set<String> extractMethodSignatures(String sourceCode, ICoreProject project) {
         ASTParser parser = ASTParser.newParser(AST.getJLSLatest());
         parser.setSource(sourceCode.toCharArray());
         parser.setResolveBindings(true);
@@ -136,7 +136,7 @@ public class JdtUsageAnalyzer {
     /**
      * Finds precise usages of a target CodeUnit within a set of candidate files.
      */
-    public static Set<UsageHit> findUsages(CodeUnit target, Set<ProjectFile> candidateFiles, IProject project) {
+    public static Set<UsageHit> findUsages(CodeUnit target, Set<ProjectFile> candidateFiles, ICoreProject project) {
         // Filter candidate files to ensure only Java files are passed to JDT
         List<ProjectFile> javaFiles = candidateFiles.stream()
                 .filter(pf -> pf.getFileName().endsWith(".java"))
@@ -198,7 +198,7 @@ public class JdtUsageAnalyzer {
         return Collections.unmodifiableSet(allHits);
     }
 
-    private static String[] inferSourceRoots(IProject project) {
+    private static String[] inferSourceRoots(ICoreProject project) {
         Path projectRoot = project.getRoot();
         Set<String> roots = new HashSet<>();
 

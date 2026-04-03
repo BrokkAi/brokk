@@ -1,7 +1,7 @@
 package ai.brokk.analyzer;
 
 import ai.brokk.project.ICoreProject;
-import ai.brokk.project.IProject;
+import ai.brokk.project.ICoreProject;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -20,7 +20,7 @@ public interface Language {
 
     String internalName(); // Filesystem-safe
 
-    default IAnalyzer createAnalyzer(IProject project) {
+    default IAnalyzer createAnalyzer(ICoreProject project) {
         return createAnalyzer(project, IAnalyzer.ProgressListener.NOOP);
     }
 
@@ -30,13 +30,13 @@ public interface Language {
      * initial construction progress won't be reported). Implementations should override to
      * pass the listener through construction if progress reporting during build is desired.
      */
-    IAnalyzer createAnalyzer(IProject project, IAnalyzer.ProgressListener listener);
+    IAnalyzer createAnalyzer(ICoreProject project, IAnalyzer.ProgressListener listener);
 
     /**
      * ACHTUNG! LoadAnalyzer can throw if the file on disk is corrupt or simply an obsolete format, so never call it
      * outside of try/catch with recovery!
      */
-    default IAnalyzer loadAnalyzer(IProject project) {
+    default IAnalyzer loadAnalyzer(ICoreProject project) {
         return loadAnalyzer(project, IAnalyzer.ProgressListener.NOOP);
     }
 
@@ -45,7 +45,7 @@ public interface Language {
      * Default implementation loads the analyzer and adds the listener afterward.
      * Implementations should override to pass the listener through if progress reporting is desired.
      */
-    IAnalyzer loadAnalyzer(IProject project, IAnalyzer.ProgressListener listener);
+    IAnalyzer loadAnalyzer(ICoreProject project, IAnalyzer.ProgressListener listener);
 
     /**
      * Get the path where the storage for this analyzer in the given project should be stored.
@@ -61,7 +61,7 @@ public interface Language {
      * @param project The project.
      * @return The path to the database file (LZ4-compressed).
      */
-    default Path getStoragePath(IProject project) {
+    default Path getStoragePath(ICoreProject project) {
         // Use internalName for stable, filesystem-safe names and LZ4 extension for current format.
         return project.getRoot()
                 .resolve(ICoreProject.BROKK_DIR)
@@ -74,7 +74,7 @@ public interface Language {
      * Default implementation saves TreeSitterAnalyzer snapshots to the per-language storage path.
      * Implementations may override to customize or disable saving.
      */
-    default void saveAnalyzer(IAnalyzer analyzer, IProject project) {
+    default void saveAnalyzer(IAnalyzer analyzer, ICoreProject project) {
         try {
             if (analyzer instanceof TreeSitterAnalyzer tsa) {
                 Path file = getStoragePath(project);
@@ -88,7 +88,7 @@ public interface Language {
         }
     }
 
-    default List<Path> getDependencyCandidates(IProject project) {
+    default List<Path> getDependencyCandidates(ICoreProject project) {
         return List.of();
     }
 
@@ -146,7 +146,7 @@ public interface Language {
      * Discover dependency packages for this language to be shown in the unified panel. Defaults to empty list for
      * languages without an importer.
      */
-    default List<DependencyCandidate> listDependencyPackages(IProject project) {
+    default List<DependencyCandidate> listDependencyPackages(ICoreProject project) {
         return List.of();
     }
 
@@ -167,7 +167,7 @@ public interface Language {
      * @param path The absolute path to check.
      * @return {@code true} if the path is considered part of the project's analyzed sources, {@code false} otherwise.
      */
-    default boolean isAnalyzed(IProject project, Path path) {
+    default boolean isAnalyzed(ICoreProject project, Path path) {
         assert path.isAbsolute() : "Path must be absolute for isAnalyzed check: " + path;
         return path.normalize().startsWith(project.getRoot());
     }
@@ -177,7 +177,7 @@ public interface Language {
      * languages and combines the results.
      *
      * <p>Only the operations that make sense for a multi‑language view are implemented. Methods tied to a
-     * single‐language identity ‑ such as {@link #internalName()} or {@link #getStoragePath(IProject)} ‑ throw
+     * single‐language identity ‑ such as {@link #internalName()} or {@link #getStoragePath(ICoreProject)} ‑ throw
      * {@link UnsupportedOperationException}.
      */
     class MultiLanguage implements Language {
@@ -211,12 +211,12 @@ public interface Language {
         }
 
         @Override
-        public Path getStoragePath(IProject project) {
+        public Path getStoragePath(ICoreProject project) {
             throw new UnsupportedOperationException("MultiLanguage has no single CPG file");
         }
 
         @Override
-        public IAnalyzer createAnalyzer(IProject project, IAnalyzer.ProgressListener listener) {
+        public IAnalyzer createAnalyzer(ICoreProject project, IAnalyzer.ProgressListener listener) {
             var delegates = new HashMap<Language, IAnalyzer>();
             for (var lang : languages) {
                 var analyzer = lang.createAnalyzer(project, listener);
@@ -226,7 +226,7 @@ public interface Language {
         }
 
         @Override
-        public IAnalyzer loadAnalyzer(IProject project, IAnalyzer.ProgressListener listener) {
+        public IAnalyzer loadAnalyzer(ICoreProject project, IAnalyzer.ProgressListener listener) {
             var delegates = new HashMap<Language, IAnalyzer>();
             for (var lang : languages) {
                 var analyzer = lang.loadAnalyzer(project, listener);
@@ -236,7 +236,7 @@ public interface Language {
         }
 
         @Override
-        public List<Path> getDependencyCandidates(IProject project) {
+        public List<Path> getDependencyCandidates(ICoreProject project) {
             throw new UnsupportedOperationException(); // should only be called on single languages
         }
 
@@ -252,7 +252,7 @@ public interface Language {
         }
 
         @Override
-        public boolean isAnalyzed(IProject project, Path path) {
+        public boolean isAnalyzed(ICoreProject project, Path path) {
             return languages.stream().anyMatch(l -> l.isAnalyzed(project, path));
         }
 

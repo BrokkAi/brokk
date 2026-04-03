@@ -5,7 +5,7 @@ import static ai.brokk.analyzer.csharp.CSharpTreeSitterNodeTypes.*;
 import ai.brokk.AnalyzerUtil;
 import ai.brokk.analyzer.cache.AnalyzerCache;
 import ai.brokk.analyzer.csharp.CSharpTreeSitterNodeTypes;
-import ai.brokk.project.IProject;
+import ai.brokk.project.ICoreProject;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -59,21 +59,21 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
             "",
             Set.of());
 
-    public CSharpAnalyzer(IProject project) {
+    public CSharpAnalyzer(ICoreProject project) {
         this(project, ProgressListener.NOOP);
     }
 
-    public CSharpAnalyzer(IProject project, ProgressListener listener) {
+    public CSharpAnalyzer(ICoreProject project, ProgressListener listener) {
         super(project, Languages.C_SHARP, listener);
         log.debug("CSharpAnalyzer: Constructor called for project: {}", project);
     }
 
     private CSharpAnalyzer(
-            IProject project, AnalyzerState prebuiltState, ProgressListener listener, @Nullable AnalyzerCache cache) {
+            ICoreProject project, AnalyzerState prebuiltState, ProgressListener listener, @Nullable AnalyzerCache cache) {
         super(project, Languages.C_SHARP, prebuiltState, listener, cache);
     }
 
-    public static CSharpAnalyzer fromState(IProject project, AnalyzerState state, ProgressListener listener) {
+    public static CSharpAnalyzer fromState(ICoreProject project, AnalyzerState state, ProgressListener listener) {
         return new CSharpAnalyzer(project, state, listener, null);
     }
 

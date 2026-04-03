@@ -4,7 +4,7 @@ import static ai.brokk.analyzer.javascript.JavaScriptTreeSitterNodeTypes.REQUIRE
 import static ai.brokk.analyzer.javascript.JavaScriptTreeSitterNodeTypes.REQUIRE_FUNC_CAPTURE_NAME;
 
 import ai.brokk.analyzer.cache.AnalyzerCache;
-import ai.brokk.project.IProject;
+import ai.brokk.project.ICoreProject;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import java.nio.file.Path;
@@ -36,20 +36,20 @@ public abstract class JsTsAnalyzer extends TreeSitterAnalyzer implements ImportA
     private final Cache<ModulePathKey, Optional<ProjectFile>> moduleResolutionCache =
             Caffeine.newBuilder().maximumSize(10_000).build();
 
-    protected JsTsAnalyzer(IProject project, Language language) {
+    protected JsTsAnalyzer(ICoreProject project, Language language) {
         super(project, language);
     }
 
-    protected JsTsAnalyzer(IProject project, Language language, ProgressListener listener) {
+    protected JsTsAnalyzer(ICoreProject project, Language language, ProgressListener listener) {
         super(project, language, listener);
     }
 
-    protected JsTsAnalyzer(IProject project, Language language, AnalyzerState state, ProgressListener listener) {
+    protected JsTsAnalyzer(ICoreProject project, Language language, AnalyzerState state, ProgressListener listener) {
         this(project, language, state, listener, null);
     }
 
     protected JsTsAnalyzer(
-            IProject project,
+            ICoreProject project,
             Language language,
             AnalyzerState state,
             ProgressListener listener,

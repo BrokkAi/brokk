@@ -1,6 +1,6 @@
 package ai.brokk.analyzer;
 
-import ai.brokk.project.IProject;
+import ai.brokk.project.ICoreProject;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -46,12 +46,12 @@ public class RustLanguage implements Language {
     }
 
     @Override
-    public IAnalyzer createAnalyzer(IProject project, IAnalyzer.ProgressListener listener) {
+    public IAnalyzer createAnalyzer(ICoreProject project, IAnalyzer.ProgressListener listener) {
         return new RustAnalyzer(project, listener);
     }
 
     @Override
-    public IAnalyzer loadAnalyzer(IProject project, IAnalyzer.ProgressListener listener) {
+    public IAnalyzer loadAnalyzer(ICoreProject project, IAnalyzer.ProgressListener listener) {
         var storage = getStoragePath(project);
         return TreeSitterStateIO.load(storage)
                 .map(state -> (IAnalyzer) RustAnalyzer.fromState(project, state, listener))
@@ -82,7 +82,7 @@ public class RustLanguage implements Language {
     }
 
     @Override
-    public List<Path> getDependencyCandidates(IProject project) {
+    public List<Path> getDependencyCandidates(ICoreProject project) {
         // Use cargo metadata to detect any packages; return non-empty when Cargo workspace is present.
         try {
             var meta = runCargoMetadata(project.getRoot());
@@ -103,7 +103,7 @@ public class RustLanguage implements Language {
     }
 
     @Override
-    public List<DependencyCandidate> listDependencyPackages(IProject project) {
+    public List<DependencyCandidate> listDependencyPackages(ICoreProject project) {
         try {
             var meta = runCargoMetadata(project.getRoot());
             var idToPkg = new LinkedHashMap<String, CargoPackage>();
@@ -220,7 +220,7 @@ public class RustLanguage implements Language {
 
     // TODO: Refine isAnalyzed for Rust (e.g. target directory, .cargo, vendor)
     @Override
-    public boolean isAnalyzed(IProject project, Path pathToImport) {
+    public boolean isAnalyzed(ICoreProject project, Path pathToImport) {
         assert pathToImport.isAbsolute() : "Path must be absolute for isAnalyzed check: " + pathToImport;
         Path projectRoot = project.getRoot();
         Path normalizedPathToImport = pathToImport.normalize();
