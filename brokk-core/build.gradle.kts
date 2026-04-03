@@ -115,6 +115,11 @@ tasks.withType<JavaCompile> {
     }
 }
 
+// Disable ErrorProne for test compilation (same as app module)
+tasks.named<JavaCompile>("compileTestJava") {
+    options.errorprone.isEnabled = false
+}
+
 tasks.withType<Test> {
     useJUnitPlatform()
     filter {
