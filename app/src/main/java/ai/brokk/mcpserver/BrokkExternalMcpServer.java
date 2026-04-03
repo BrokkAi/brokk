@@ -22,6 +22,7 @@ import ai.brokk.context.Context;
 import ai.brokk.context.ContextDelta;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments.SummaryFragment;
+import ai.brokk.executor.agents.CustomAgentTools;
 import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
 import ai.brokk.project.ModelProperties;
@@ -91,6 +92,7 @@ public class BrokkExternalMcpServer {
             "getActiveWorkspace",
             "callSearchAgent",
             "callCodeAgent",
+            "callCustomAgent",
             "scan",
             "searchSymbols",
             "scanUsages",
@@ -862,6 +864,7 @@ public class BrokkExternalMcpServer {
         return ToolRegistry.fromBase(ToolRegistry.empty())
                 .register(searchTools)
                 .register(ps) // sentinel for schema
+                .register(new CustomAgentTools(cm, searchModel))
                 .register(this) // real impl overrides
                 .build();
     }

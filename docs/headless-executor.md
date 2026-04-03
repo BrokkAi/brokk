@@ -6,6 +6,8 @@ The `brokk-code` client currently bundles or targets headless executor version *
 
 For end-to-end request examples (sessions, jobs, events, and mode-specific payloads), see [headless-executor-testing-with-curl.md](headless-executor-testing-with-curl.md).
 
+For creating custom agents (reusable AI workflows with custom system prompts and tools), see the [Custom Agents Guide](custom-agents.md).
+
 ## Configuration
 
 The executor requires the following configuration, provided via **environment variables** or **command-line arguments** (arguments take precedence):
@@ -501,6 +503,84 @@ Once running, the executor exposes the following endpoints:
 - **`POST /v1/dependencies/{name}/update`** - Update a specific dependency
 - **`DELETE /v1/dependencies/{name}`** - Remove a dependency
 
+### Custom Agents (Authenticated)
+
+Custom agents are reusable agent definitions stored as markdown files with YAML frontmatter,
+following the same pattern as Claude Code's custom agents. Agents are stored in layered
+directories (`.brokk/agents/` project-level, `~/.brokk/agents/` user-level) with project
+overriding user.
+
+**Agent definition format:**
+
+```markdown
+---
+name: security-auditor
+description: Reviews code for OWASP top 10 vulnerabilities
+tools:
+  - searchSymbols
+  - scanUsages
+  - searchFileContents
+  - addFilesToWorkspace
+maxTurns: 15
+---
+
+You are a security auditor focused on finding vulnerabilities.
+Analyze the codebase for OWASP top 10 issues.
+```
+
+**Frontmatter fields:**
+
+| Field | Required | Default | Description |
+|-------|----------|---------|-------------|
+| `name` | yes | -- | Identifier (lowercase letters, digits, hyphens) |
+| `description` | yes | -- | What the agent does |
+| `tools` | no | SearchAgent's default set | Tool method name allowlist |
+| `maxTurns` | no | 20 | Max agentic loop iterations |
+
+The markdown body below the frontmatter is the agent's system prompt.
+
+**Available tools:** `searchSymbols`, `scanUsages`, `getSymbolLocations`, `skimFiles`, `findFilesContaining`, `findFilenames`, `searchFileContents`, `getFileSummaries`, `getClassSkeletons`, `getClassSources`, `getMethodSources`, `getFileContents`, `listFiles`, `searchGitCommitMessages`, `getGitLog`, `explainCommit`, `xmlSkim`, `xmlSelect`, `jq`, `addFilesToWorkspace`, `addLineRangeToWorkspace`, `addClassesToWorkspace`, `addUrlContentsToWorkspace`, `addClassSummariesToWorkspace`, `addFileSummariesToWorkspace`, `addMethodsToWorkspace`, `dropWorkspaceFragments`, `createOrReplaceTaskList`, `runShellCommand`, `importDependency`. Terminal tools (`answer`, `abortSearch`) and `think` are always included.
+
+**API endpoints:**
+
+- **`GET /v1/agents`** - List all agent definitions (merged from project and user levels)
+  - Returns: JSON array of agent objects
+
+- **`POST /v1/agents`** - Create a new agent (project-level)
+  - Body: `{ "name": "...", "description": "...", "systemPrompt": "...", "tools": [...], "maxTurns": N }`
+  - Returns `201`: created agent object
+  - Returns `400` if agent already exists at project level (use PUT to update)
+
+- **`GET /v1/agents/{name}`** - Get an agent definition by name
+  - Returns: agent object (project-level takes precedence over user-level)
+  - Returns `404` if not found
+
+- **`PUT /v1/agents/{name}`** - Update an existing agent
+  - Body: partial update (omitted fields keep existing values)
+  - Returns: updated agent object
+  - Returns `404` if not found
+
+- **`DELETE /v1/agents/{name}`** - Delete an agent
+  - Optional query: `?scope=project` (default) or `?scope=user`
+  - Returns `204` on success, `404` if not found
+
+**Invoking custom agents:**
+
+Custom agents are registered as the `callCustomAgent` tool, available to all built-in agents (SearchAgent, LutzAgent, ArchitectAgent) and the MCP server. They can be invoked two ways:
+
+1. **Via the `agent` convenience field** on `POST /v1/jobs` — routes to SEARCH mode with an instruction to call the named agent:
+   ```json
+   {
+     "taskInput": "Find all security vulnerabilities in the auth module",
+     "plannerModel": "claude-sonnet-4-20250514",
+     "agent": "security-auditor"
+   }
+   ```
+
+2. **Naturally by the LLM** during any SEARCH, LUTZ, or ARCHITECT job — the LLM can call `callCustomAgent` whenever it decides the task matches a custom agent's specialty.
+
+The agent's system prompt and tool allowlist are applied automatically. The agent inherits the model from the parent agent (the job's planner model for SEARCH jobs).
+
 ### Job Management (Authenticated)
 
 - **`POST /v1/jobs`** - Create and execute a job
@@ -520,6 +600,7 @@ Once running, the executor exposes the following endpoints:
   - **ISSUE mode**: Set `"tags": { "mode": "ISSUE" }` to resolve a GitHub Issue. Requires `github_token`, `repo_owner`, `repo_name`, and `issue_number` in tags. ISSUE-mode jobs may include an optional top-level boolean field `skipVerification` in the job JSON; when present and `true` the executor will run the ISSUE quick (skip-verification) flow (see ISSUE Mode section for details). This field is only honored for jobs whose `tags.mode == "ISSUE"`; other modes ignore it.
   - **ISSUE_DIAGNOSE mode**: Set `"tags": { "mode": "ISSUE_DIAGNOSE" }` to analyze a GitHub issue and post a diagnosis comment without code changes. Requires `github_token`, `repo_owner`, `repo_name`, and `issue_number` in tags.
   - **ISSUE_WRITER mode**: Set `"tags": { "mode": "ISSUE_WRITER" }` to discover evidence in the repo and create a GitHub issue (requires github_token, repo_owner, repo_name in tags).
+  - **Custom agent invocation**: Include `"agent": "<name>"` in the job body to invoke a stored custom agent. This defaults to SEARCH mode and instructs the LLM to call `callCustomAgent`. Custom agents are also available as tools in any mode — the LLM can call them during SEARCH, LUTZ, or ARCHITECT jobs. See the [Custom Agents Guide](custom-agents.md).
   - **ARCHITECT mode** (default): Orchestrates multi-step planning and implementation
 
 ### Observability and Model Controls
