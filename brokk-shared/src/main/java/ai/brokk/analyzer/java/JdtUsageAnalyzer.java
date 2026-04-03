@@ -1,0 +1,373 @@
+package ai.brokk.analyzer.java;
+
+import ai.brokk.analyzer.CodeUnit;
+import ai.brokk.analyzer.CodeUnitType;
+import ai.brokk.analyzer.Languages;
+import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.analyzer.usages.UsageHit;
+import ai.brokk.concurrent.ExecutorsUtil;
+import ai.brokk.concurrent.LoggingExecutorService;
+import ai.brokk.project.ICoreProject;
+import com.google.common.collect.Lists;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.*;
+import java.util.concurrent.Callable;
+import java.util.concurrent.Future;
+import java.util.stream.Collectors;
+import org.eclipse.jdt.core.JavaCore;
+import org.eclipse.jdt.core.dom.AST;
+import org.eclipse.jdt.core.dom.ASTNode;
+import org.eclipse.jdt.core.dom.ASTParser;
+import org.eclipse.jdt.core.dom.ASTVisitor;
+import org.eclipse.jdt.core.dom.ClassInstanceCreation;
+import org.eclipse.jdt.core.dom.CompilationUnit;
+import org.eclipse.jdt.core.dom.FieldDeclaration;
+import org.eclipse.jdt.core.dom.FileASTRequestor;
+import org.eclipse.jdt.core.dom.IBinding;
+import org.eclipse.jdt.core.dom.IMethodBinding;
+import org.eclipse.jdt.core.dom.ITypeBinding;
+import org.eclipse.jdt.core.dom.IVariableBinding;
+import org.eclipse.jdt.core.dom.ImportDeclaration;
+import org.eclipse.jdt.core.dom.MethodDeclaration;
+import org.eclipse.jdt.core.dom.MethodInvocation;
+import org.eclipse.jdt.core.dom.SimpleName;
+import org.eclipse.jdt.core.dom.SimpleType;
+import org.eclipse.jdt.core.dom.TypeDeclaration;
+import org.eclipse.jdt.core.dom.VariableDeclarationFragment;
+import org.jetbrains.annotations.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+/**
+ * Uses Eclipse JDT to perform precise usage analysis for Java code.
+ */
+public class JdtUsageAnalyzer {
+    private static final Logger log = LoggerFactory.getLogger(JdtUsageAnalyzer.class);
+
+    /**
+     * Extracts a method signature from an IMethodBinding.
+     * Package-private for testing.
+     */
+    static String extractMethodSignature(IMethodBinding mb) {
+        // Use the method declaration to get the original generic types (e.g., T instead of String/Object)
+        IMethodBinding decl = mb.getMethodDeclaration();
+        ITypeBinding[] paramTypes = decl.getParameterTypes();
+        if (paramTypes.length == 0) {
+            return "()";
+        }
+        // Use getName() to match the simple name convention used by Tree-sitter signatures.
+        return Arrays.stream(paramTypes).map(JdtUsageAnalyzer::getTypeName).collect(Collectors.joining(", ", "(", ")"));
+    }
+
+    private static String getTypeName(ITypeBinding type) {
+        if (type.isArray()) {
+            return getTypeName(type.getElementType()) + "[]".repeat(type.getDimensions());
+        }
+        if (type.isTypeVariable()) {
+            return type.getName();
+        }
+        // For Parameterized Types (List<String>), use erasure (List) to match Tree-sitter's behavior.
+        return type.getErasure().getName();
+    }
+
+    /**
+     * Parses Java source code and extracts method FQ names with signatures.
+     * Intended for testing signature consistency with other analyzers.
+     */
+    public static Set<String> extractMethodSignatures(String sourceCode, ICoreProject project) {
+        ASTParser parser = ASTParser.newParser(AST.getJLSLatest());
+        parser.setSource(sourceCode.toCharArray());
+        parser.setResolveBindings(true);
+        parser.setBindingsRecovery(true);
+        parser.setKind(ASTParser.K_COMPILATION_UNIT);
+        parser.setUnitName("Test.java");
+
+        Map<String, String> options = JavaCore.getOptions();
+        JavaCore.setComplianceOptions(JavaCore.latestSupportedJavaVersion(), options);
+        parser.setCompilerOptions(options);
+
+        String[] sourceRoots = inferSourceRoots(project);
+        parser.setEnvironment(new String[0], sourceRoots, null, true);
+
+        CompilationUnit cu = (CompilationUnit) parser.createAST(null);
+        Set<String> signatures = new HashSet<>();
+
+        cu.accept(new ASTVisitor() {
+            @Override
+            public boolean visit(MethodDeclaration node) {
+                IMethodBinding mb = node.resolveBinding();
+                if (mb != null) {
+                    String fqn = getFqn(mb);
+                    String sig = extractMethodSignature(mb);
+                    signatures.add(fqn + sig);
+                }
+                return super.visit(node);
+            }
+        });
+
+        return signatures;
+    }
+
+    static String getFqn(IBinding binding) {
+        switch (binding) {
+            case ITypeBinding tb -> {
+                return tb.getErasure().getQualifiedName().replace('$', '.');
+            }
+            case IMethodBinding mb -> {
+                IMethodBinding decl = mb.getMethodDeclaration();
+                ITypeBinding declaringClass = decl.getDeclaringClass();
+                String typeFqn = declaringClass != null ? getFqn(declaringClass) : "unknown";
+                String name = decl.isConstructor()
+                        ? (declaringClass != null ? declaringClass.getName() : "unknown")
+                        : decl.getName();
+                return typeFqn + "." + name;
+            }
+            case IVariableBinding vb -> {
+                ITypeBinding owner = vb.getDeclaringClass();
+                String parent = owner != null ? getFqn(owner) : "unknown";
+                return parent + "." + vb.getName();
+            }
+            default -> {}
+        }
+        return binding.getName();
+    }
+
+    /**
+     * Finds precise usages of a target CodeUnit within a set of candidate files.
+     */
+    public static Set<UsageHit> findUsages(CodeUnit target, Set<ProjectFile> candidateFiles, ICoreProject project) {
+        // Filter candidate files to ensure only Java files are passed to JDT
+        List<ProjectFile> javaFiles = candidateFiles.stream()
+                .filter(pf -> pf.getFileName().endsWith(".java"))
+                .toList();
+
+        if (javaFiles.isEmpty()) {
+            return Collections.emptySet();
+        }
+
+        String[] sourceRoots = inferSourceRoots(project);
+        String[] classpath = new String[0];
+        Map<String, String> options = JavaCore.getOptions();
+        JavaCore.setComplianceOptions(JavaCore.latestSupportedJavaVersion(), options);
+
+        // Partition the files into batches to parallelize JDT work.
+        // JDT's ASTParser is not thread-safe, so we use one per batch/thread.
+        List<List<ProjectFile>> batches = Lists.partition(javaFiles, 50);
+
+        Set<UsageHit> allHits = new HashSet<>();
+        int threads = Runtime.getRuntime().availableProcessors();
+        try (LoggingExecutorService executor = ExecutorsUtil.newFixedThreadExecutor("jdt-usage-analyzer-", threads)) {
+            List<Callable<Set<UsageHit>>> tasks = batches.stream()
+                    .map(batch -> (Callable<Set<UsageHit>>) () -> {
+                        ASTParser parser = ASTParser.newParser(AST.getJLSLatest());
+                        parser.setResolveBindings(true);
+                        parser.setBindingsRecovery(true);
+                        parser.setKind(ASTParser.K_COMPILATION_UNIT);
+                        parser.setCompilerOptions(options);
+                        parser.setEnvironment(classpath, sourceRoots, null, true);
+
+                        String[] sourcePaths = batch.stream()
+                                .map(pf -> pf.absPath().toString())
+                                .toArray(String[]::new);
+
+                        UsageCollector collector = new UsageCollector(target, new HashSet<>(batch));
+                        try {
+                            parser.createASTs(sourcePaths, null, new String[0], collector, null);
+                        } catch (AssertionError | Exception t) {
+                            log.error("JDT analysis failed for a batch in {}", target.fqName(), t);
+                            throw new RuntimeException("Failed to analyze JDT batch for " + target.fqName(), t);
+                        }
+                        return collector.getHits();
+                    })
+                    .toList();
+
+            try {
+                List<Future<Set<UsageHit>>> futures = executor.invokeAll(tasks);
+                for (var future : futures) {
+                    allHits.addAll(future.get());
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new RuntimeException("JDT usage analysis interrupted", e);
+            } catch (Exception e) {
+                throw new RuntimeException("JDT usage analysis failed", e);
+            }
+        }
+
+        return Collections.unmodifiableSet(allHits);
+    }
+
+    private static String[] inferSourceRoots(ICoreProject project) {
+        Path projectRoot = project.getRoot();
+        Set<String> roots = new HashSet<>();
+
+        for (String rootPathStr : project.getSourceRoots(Languages.JAVA)) {
+            try {
+                Path resolved =
+                        projectRoot.resolve(rootPathStr).toAbsolutePath().normalize();
+                if (Files.exists(resolved) && Files.isDirectory(resolved)) {
+                    roots.add(resolved.toString());
+                }
+            } catch (Exception e) {
+                log.debug("Error resolving source root: {}", rootPathStr, e);
+            }
+        }
+
+        return roots.toArray(String[]::new);
+    }
+
+    private static class UsageCollector extends FileASTRequestor {
+        private final CodeUnit target;
+        private final Map<String, ProjectFile> pathToFile;
+        private final Set<UsageHit> hits = Collections.synchronizedSet(new HashSet<>());
+
+        UsageCollector(CodeUnit target, Set<ProjectFile> candidateFiles) {
+            this.target = target;
+            this.pathToFile = candidateFiles.stream()
+                    .collect(Collectors.toMap(pf -> pf.absPath().toString(), pf -> pf));
+        }
+
+        public Set<UsageHit> getHits() {
+            return hits;
+        }
+
+        @Override
+        public void acceptAST(String sourceFilePath, CompilationUnit ast) {
+            ProjectFile file = pathToFile.get(sourceFilePath);
+            if (file == null) return;
+
+            String content = file.read().orElse("");
+            if (content.isEmpty()) return;
+
+            String[] lines = content.split("\\R", -1);
+
+            ast.accept(new ASTVisitor() {
+                @Override
+                public boolean visit(SimpleName node) {
+                    if (node.isDeclaration()) return true;
+
+                    ASTNode parent = node.getParent();
+                    if (parent instanceof MethodInvocation mi && Objects.equals(mi.getName(), node)) return true;
+                    if (parent instanceof MethodDeclaration md && Objects.equals(md.getName(), node)) return true;
+
+                    ASTNode walk = node;
+                    while (walk != null) {
+                        if (walk instanceof ImportDeclaration) return false;
+                        walk = walk.getParent();
+                    }
+
+                    checkBinding(node.resolveBinding(), node);
+                    return true;
+                }
+
+                @Override
+                public boolean visit(MethodInvocation node) {
+                    checkBinding(node.resolveMethodBinding(), node);
+                    return true;
+                }
+
+                @Override
+                public boolean visit(ClassInstanceCreation node) {
+                    checkBinding(node.resolveConstructorBinding(), node);
+                    return true;
+                }
+
+                @Override
+                public boolean visit(SimpleType node) {
+                    checkBinding(node.resolveBinding(), node);
+                    return false; // Prevent visiting children (SimpleName) to avoid duplicates
+                }
+
+                private void checkBinding(@Nullable IBinding binding, ASTNode node) {
+                    if (binding == null) return;
+
+                    String fqn = JdtUsageAnalyzer.getFqn(binding);
+                    if (target.fqName().equals(fqn)) {
+                        if (target.hasSignature() && binding instanceof IMethodBinding mb) {
+                            String foundSig = JdtUsageAnalyzer.extractMethodSignature(mb);
+                            if (!Objects.equals(target.signature(), foundSig)) {
+                                log.debug(
+                                        "Signature Mismatch for {}: Target='{}' vs Found='{}'",
+                                        fqn,
+                                        target.signature(),
+                                        foundSig);
+                                return;
+                            }
+                        }
+                        recordHit(node);
+                    }
+                }
+
+                private void recordHit(ASTNode node) {
+                    CodeUnit enclosing = resolveEnclosing(node);
+                    if (enclosing == null) return;
+
+                    int start = node.getStartPosition();
+                    int end = start + node.getLength();
+                    int lineIdx = ast.getLineNumber(start) - 1;
+
+                    int startLine = Math.max(0, lineIdx - 3);
+                    int endLine = Math.min(lines.length - 1, lineIdx + 3);
+                    StringBuilder snippet = new StringBuilder();
+                    for (int i = startLine; i <= endLine; i++) {
+                        snippet.append(lines[i]);
+                        if (i < endLine) snippet.append("\n");
+                    }
+
+                    hits.add(new UsageHit(file, lineIdx + 1, start, end, enclosing, 1.0, snippet.toString()));
+                }
+
+                private @Nullable CodeUnit resolveEnclosing(ASTNode node) {
+                    ASTNode current = node.getParent();
+                    while (current != null) {
+                        if (current instanceof MethodDeclaration md) {
+                            IMethodBinding b = md.resolveBinding();
+                            if (b != null) return createCodeUnit(b, CodeUnitType.FUNCTION);
+                        } else if (current instanceof VariableDeclarationFragment vdf) {
+                            ASTNode parent = vdf.getParent();
+                            if (parent instanceof FieldDeclaration) {
+                                IVariableBinding vb = vdf.resolveBinding();
+                                if (vb != null) return createCodeUnit(vb, CodeUnitType.FIELD);
+                            }
+                        } else if (current instanceof FieldDeclaration fd) {
+                            // If the usage is attached to the FieldDeclaration directly (like the Type),
+                            // and there is exactly one fragment, we can attribute it to that field.
+                            if (fd.fragments().size() == 1) {
+                                Object frag = fd.fragments().get(0);
+                                if (frag instanceof VariableDeclarationFragment vdf) {
+                                    IVariableBinding vb = vdf.resolveBinding();
+                                    if (vb != null) return createCodeUnit(vb, CodeUnitType.FIELD);
+                                }
+                            }
+                        } else if (current instanceof TypeDeclaration td) {
+                            ITypeBinding b = td.resolveBinding();
+                            if (b != null) return createCodeUnit(b, CodeUnitType.CLASS);
+                        }
+                        current = current.getParent();
+                    }
+                    return null;
+                }
+
+                private CodeUnit createCodeUnit(IBinding binding, CodeUnitType type) {
+                    String fqn = JdtUsageAnalyzer.getFqn(binding);
+                    String pkg = "";
+                    String name = fqn;
+                    int lastDot = fqn.lastIndexOf('.');
+                    if (lastDot > 0) {
+                        pkg = fqn.substring(0, lastDot);
+                        name = fqn.substring(lastDot + 1);
+                    }
+
+                    // Extract signature for methods
+                    String signature = null;
+                    if (type == CodeUnitType.FUNCTION && binding instanceof IMethodBinding mb) {
+                        signature = JdtUsageAnalyzer.extractMethodSignature(mb);
+                    }
+
+                    return new CodeUnit(file, type, pkg, name, signature);
+                }
+            });
+        }
+    }
+}

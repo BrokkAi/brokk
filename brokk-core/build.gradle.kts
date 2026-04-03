@@ -37,6 +37,9 @@ configurations.all {
 }
 
 dependencies {
+    // Shared analyzer, git, concurrent, and utility code
+    api(project(":brokk-shared"))
+
     // TreeSitter parsers (native libs)
     implementation(project(":treesitter-provider"))
 
@@ -113,6 +116,11 @@ tasks.withType<JavaCompile> {
         disable("FutureReturnValueIgnored")
         disable("NonCanonicalType")
     }
+}
+
+// Disable ErrorProne for test compilation (same as app module)
+tasks.named<JavaCompile>("compileTestJava") {
+    options.errorprone.isEnabled = false
 }
 
 tasks.withType<Test> {

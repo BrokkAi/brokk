@@ -6,9 +6,9 @@ import ai.brokk.IConsoleIO;
 import ai.brokk.SettingsChangeListener;
 import ai.brokk.difftool.ui.BrokkDiffPanel;
 import ai.brokk.difftool.ui.BufferSource;
-import ai.brokk.git.CommitInfo;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.ICommitInfo;
+import ai.brokk.git.IGitRepo;
 import ai.brokk.git.IGitRepo.ModificationType;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.Constants;
@@ -354,8 +354,10 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                         if (modelRow < currentPrCommitDetailsList.size()) {
                             var commitInfo = currentPrCommitDetailsList.get(modelRow);
                             try {
-                                var projectFiles =
-                                        CommitInfo.changedFiles((GitRepo) contextManager.getRepo(), commitInfo.id());
+                                var projectFiles = ((GitRepo) contextManager.getRepo())
+                                        .listFilesChangedInCommit(commitInfo.id()).stream()
+                                                .map(IGitRepo.ModifiedFile::file)
+                                                .toList();
                                 // projectFiles from CommitInfo.changedFiles -> GitRepo.listFilesChangedInCommit
                                 // is guaranteed to return at least List.of(), not null.
                                 // So, a null check on projectFiles is not strictly necessary here based on current
@@ -2093,7 +2095,10 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                 if (row < currentPrCommitDetailsList.size()) {
                     ICommitInfo commitInfo = currentPrCommitDetailsList.get(row);
                     try {
-                        var projectFiles = CommitInfo.changedFiles((GitRepo) contextManager.getRepo(), commitInfo.id());
+                        var projectFiles = ((GitRepo) contextManager.getRepo())
+                                .listFilesChangedInCommit(commitInfo.id()).stream()
+                                        .map(IGitRepo.ModifiedFile::file)
+                                        .toList();
                         for (var file : projectFiles) {
                             allChangedFiles.add(file.toString());
                         }

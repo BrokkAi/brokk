@@ -170,6 +170,9 @@ dependencies {
     // JGit and SSH
     implementation(libs.bundles.git)
 
+    // Shared analyzer, git, concurrent, and utility code
+    api(project(":brokk-shared"))
+
     // TreeSitter parsers
     implementation(project(":treesitter-provider"))
 
