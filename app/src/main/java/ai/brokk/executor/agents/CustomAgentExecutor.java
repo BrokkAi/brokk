@@ -9,6 +9,7 @@ import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.prompts.WorkspacePrompts;
+import ai.brokk.tools.DependencyTools;
 import ai.brokk.tools.SearchTools;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolOutput;
@@ -90,12 +91,15 @@ public class CustomAgentExecutor {
 
     private TaskResult executeLoop(String taskInput) throws InterruptedException {
         var workspaceTools = new WorkspaceTools(context);
-        var toolRegistry = cm.getToolRegistry()
+        var builder = cm.getToolRegistry()
                 .builder()
                 .register(searchTools)
                 .register(workspaceTools)
-                .register(this)
-                .build();
+                .register(this);
+        if (DependencyTools.isSupported(cm.getProject())) {
+            builder.register(new DependencyTools(cm));
+        }
+        var toolRegistry = builder.build();
         var allowedTools = agentDef.effectiveTools(cm.getProject());
         var toolContext = new ToolContext(toolRegistry.getTools(allowedTools), ToolChoice.REQUIRED, toolRegistry);
 

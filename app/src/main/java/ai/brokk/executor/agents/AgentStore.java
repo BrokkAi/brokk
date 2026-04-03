@@ -183,7 +183,13 @@ public class AgentStore {
         }
         try {
             var content = Files.readString(file);
-            return Optional.of(parseMarkdown(content, scope));
+            var def = parseMarkdown(content, scope);
+            var errors = def.validate();
+            if (!errors.isEmpty()) {
+                logger.warn("Invalid agent file {}: {}", file, errors);
+                return Optional.empty();
+            }
+            return Optional.of(def);
         } catch (Exception e) {
             logger.warn("Failed to parse agent file {}: {}", file, e.getMessage());
             return Optional.empty();
