@@ -101,6 +101,62 @@ The markdown body below the `---` closing delimiter is the agent's system prompt
 - **What** they should do (step-by-step workflow)
 - **How** they should respond (format, structure, level of detail)
 
+## How Agents Run
+
+When you invoke a custom agent, Brokk:
+
+1. Loads the agent definition (system prompt, tools, model, maxTurns)
+2. Creates an LLM session with the agent's system prompt
+3. Sends the `taskInput` as the first user message, along with the current workspace table of contents
+4. Enters an **agentic loop**: the LLM calls tools, Brokk executes them and feeds results back, repeating up to `maxTurns` times
+5. The loop ends when the LLM calls `answer` (success) or `abortSearch` (gave up), or when the turn limit is reached
+
+**Streaming results:** After submitting the job, poll `GET /v1/jobs/{jobId}/events` to stream tool calls, LLM output tokens, and the final answer in real time. See the [events documentation](headless-executor-events.md) for event types.
+
+**Turn limit behavior:** If the agent reaches `maxTurns` without calling `answer`, the job ends with a `TOOL_ERROR` status. On the final turn, the agent is told it must finish — most models will comply. Increase `maxTurns` for complex tasks that require many search steps.
+
+**Context:** The agent starts with whatever is in the current session's workspace. If you've added files or classes to context before running the job, the agent can see them. The agent can also add more context during execution using workspace tools.
+
+## Writing Effective System Prompts
+
+The system prompt is the most important part of your agent definition. A few tips:
+
+**Be specific about the workflow.** Don't just say "review code" — tell the agent which tools to use in what order. Compare:
+
+- Vague: "You are a code reviewer. Review code and report issues."
+- Specific: "You are a code reviewer. First use `searchSymbols` to find the classes mentioned in the task. Then use `getClassSources` to read their full source. Analyze for X, Y, Z. Report findings in a table."
+
+**Define the output format.** If you want structured output (tables, severity levels, numbered findings), say so explicitly. LLMs follow formatting instructions well.
+
+**Match tools to the task.** If your agent only reads code, don't include `runShellCommand`. Fewer tools means fewer distractions for the model and faster execution.
+
+**Set appropriate maxTurns.** Simple lookup tasks need 5-8 turns. Thorough analysis across a subsystem needs 15-20. If your agent keeps hitting the turn limit, either increase it or make the system prompt more focused.
+
+## Choosing Tools
+
+**Leave `tools` empty for general-purpose agents.** The default set includes all search and workspace tools, which is appropriate for most tasks. The default is dynamically filtered based on your project (e.g., git tools are only included if the project has a git repo, XML tools only if you have XML files).
+
+**Restrict tools for focused agents.** If your agent should only search and read (not modify the workspace), omit the `add*ToWorkspace` tools. This makes the agent faster and prevents it from cluttering context with irrelevant files.
+
+**Include `runShellCommand` carefully.** This gives the agent shell access. Useful for agents that need to run linters, check build output, or query APIs — but be aware it can execute arbitrary commands.
+
+## Limitations
+
+Custom agents are currently **read-only search agents**. They can search the codebase, read files, and provide answers, but they **cannot write or modify code**. For code changes, use the built-in ARCHITECT, CODE, or LUTZ modes.
+
+Specifically, custom agents can:
+- Search symbols, files, and git history
+- Read class sources, method sources, and file contents
+- Add/remove items from the workspace context
+- Run shell commands (if `runShellCommand` is in the tool list)
+- Provide a final answer in markdown
+
+Custom agents cannot:
+- Edit or create files
+- Make git commits
+- Create pull requests
+- Run the build/test verification loop
+
 ## Storage and Layering
 
 Agents are stored in two locations, with project overriding user:
@@ -329,6 +385,34 @@ Present findings as a prioritized list with:
 - **Recommendation**: specific action to take
 - **Risk**: what could break if you change it
 ```
+
+## Troubleshooting
+
+### "Unknown agent: my-agent" when submitting a job
+
+The agent name doesn't match any `.md` file in `.brokk/agents/` or `~/.brokk/agents/`. Check:
+- The filename matches the name (e.g., `my-agent.md` for `"agent": "my-agent"`)
+- The `name` field inside the YAML frontmatter matches too
+- The name uses only lowercase letters, digits, and hyphens
+
+### "name must match [a-z][a-z0-9-]*"
+
+Agent names must start with a lowercase letter and contain only lowercase letters, digits, and hyphens. No uppercase, spaces, dots, or underscores.
+
+### "unknown tool: myTool"
+
+The tool name in your `tools` list doesn't match any known tool. Tool names are case-sensitive and must exactly match the names in the [Available Tools](#available-tools) section.
+
+### Agent hits turn limit without answering
+
+The agent ran out of turns before calling `answer`. Either:
+- Increase `maxTurns` in the agent definition
+- Make the system prompt more focused so the agent converges faster
+- Narrow the `taskInput` to a more specific question
+
+### Agent ignores tools and answers immediately
+
+Your system prompt may not be instructing the agent to use tools. Be explicit: "Use `searchSymbols` to find..." rather than "Search for...". Also ensure the tools you reference in the prompt are in the `tools` list.
 
 ## API Reference
 
