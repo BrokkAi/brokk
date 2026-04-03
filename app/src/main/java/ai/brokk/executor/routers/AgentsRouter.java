@@ -105,8 +105,8 @@ public final class AgentsRouter implements SimpleHttpServer.CheckedHttpHandler {
             return;
         }
 
-        // Check if agent already exists
-        if (agentStore.get(def.name()).isPresent()) {
+        // Check if agent already exists in project scope (user-level agents can be overridden)
+        if (agentStore.exists(def.name(), "project")) {
             RouterUtil.sendValidationError(exchange, "Agent already exists: " + def.name() + ". Use PUT to update.");
             return;
         }
@@ -151,14 +151,21 @@ public final class AgentsRouter implements SimpleHttpServer.CheckedHttpHandler {
     }
 
     private void handleDeleteAgent(HttpExchange exchange, String name) throws IOException {
-        // Try project-level first, then user-level
-        boolean deleted = agentStore.delete(name, "project") || agentStore.delete(name, "user");
-        if (!deleted) {
+        // Parse optional scope query parameter (default: project).
+        // Deleting project-level reveals any user-level fallback rather than cascading.
+        var query = RouterUtil.parseQueryParams(exchange.getRequestURI().getQuery());
+        var scope = query.getOrDefault("scope", "project");
+        if (!"project".equals(scope) && !"user".equals(scope)) {
+            RouterUtil.sendValidationError(exchange, "scope must be 'project' or 'user'");
+            return;
+        }
+
+        if (!agentStore.delete(name, scope)) {
             SimpleHttpServer.sendJsonResponse(
                     exchange, 404, ErrorPayload.of(ErrorPayload.Code.NOT_FOUND, "Agent not found: " + name));
             return;
         }
-        logger.info("Deleted agent '{}'", name);
+        logger.info("Deleted agent '{}' from scope '{}'", name, scope);
         exchange.sendResponseHeaders(204, -1);
         exchange.close();
     }

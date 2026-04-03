@@ -6,6 +6,7 @@ import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Optional;
@@ -64,6 +65,17 @@ public class AgentStore {
     }
 
     /**
+     * Checks whether an agent exists in a specific scope only (does not merge).
+     */
+    public boolean exists(String name, String scope) {
+        if (!SAFE_NAME.matcher(name).matches()) {
+            return false;
+        }
+        var dir = "user".equals(scope) ? userDir : projectDir;
+        return Files.exists(dir.resolve(name + ".md"));
+    }
+
+    /**
      * Saves an agent definition to project-level storage.
      */
     public void save(AgentDefinition def) throws IOException {
@@ -74,6 +86,7 @@ public class AgentStore {
      * Saves an agent definition to the specified scope.
      */
     public void save(AgentDefinition def, String scope) throws IOException {
+        assert SAFE_NAME.matcher(def.name()).matches() : "Invalid agent name: " + def.name();
         var dir = "user".equals(scope) ? userDir : projectDir;
         Files.createDirectories(dir);
         var file = dir.resolve(def.name() + ".md");
@@ -141,9 +154,10 @@ public class AgentStore {
                 || value.contains("#")
                 || value.contains("'")
                 || value.contains("\"")
+                || value.contains("\n")
                 || value.startsWith(" ")
                 || value.endsWith(" ")) {
-            return "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\"";
+            return "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n") + "\"";
         }
         return value;
     }
@@ -181,20 +195,26 @@ public class AgentStore {
      * Parses a markdown+YAML frontmatter string into an AgentDefinition.
      */
     static AgentDefinition parseMarkdown(String content, String scope) throws IOException {
-        var trimmed = content.strip();
-        if (!trimmed.startsWith(FRONTMATTER_DELIMITER)) {
+        var lines = content.strip().split("\n");
+        if (lines.length == 0 || !lines[0].strip().equals(FRONTMATTER_DELIMITER)) {
             throw new IOException("Agent file must start with '---' YAML frontmatter delimiter");
         }
 
-        // Find the closing delimiter
-        int secondDelimiter = trimmed.indexOf(FRONTMATTER_DELIMITER, FRONTMATTER_DELIMITER.length());
-        if (secondDelimiter < 0) {
+        // Find the closing delimiter as a standalone line
+        int closingLine = -1;
+        for (int i = 1; i < lines.length; i++) {
+            if (lines[i].strip().equals(FRONTMATTER_DELIMITER)) {
+                closingLine = i;
+                break;
+            }
+        }
+        if (closingLine < 0) {
             throw new IOException("Agent file must have a closing '---' YAML frontmatter delimiter");
         }
 
-        var yamlContent = trimmed.substring(FRONTMATTER_DELIMITER.length(), secondDelimiter)
-                .strip();
-        var markdownBody = trimmed.substring(secondDelimiter + FRONTMATTER_DELIMITER.length())
+        var yamlContent =
+                String.join("\n", Arrays.copyOfRange(lines, 1, closingLine)).strip();
+        var markdownBody = String.join("\n", Arrays.copyOfRange(lines, closingLine + 1, lines.length))
                 .strip();
 
         // Parse YAML frontmatter

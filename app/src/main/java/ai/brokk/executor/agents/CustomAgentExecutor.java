@@ -109,103 +109,95 @@ public class CustomAgentExecutor {
             boolean isFinalTurn = turn == maxTurns;
             messages.add(new UserMessage(buildTurnDirective(turn, maxTurns, taskInput, previousTurnAdditions)));
 
-            try {
-                io.showTransientMessage("Custom agent '%s' preparing next actions...".formatted(agentDef.name()));
-                var response = llm.sendRequest(messages, toolContext);
+            io.showTransientMessage("Custom agent '%s' preparing next actions...".formatted(agentDef.name()));
+            var response = llm.sendRequest(messages, toolContext);
 
-                if (response.error() != null) {
-                    if (response.error() instanceof ContextTooLargeException) {
-                        return errorResult("Context limit exceeded");
-                    }
-                    return errorResult(
-                            "Agent execution failed: " + response.error().getMessage());
+            if (response.error() != null) {
+                if (response.error() instanceof ContextTooLargeException) {
+                    return errorResult("Context limit exceeded");
                 }
-
-                var ai = ToolRegistry.removeDuplicateToolRequests(response.aiMessage());
-                messages.add(ai);
-
-                if (!ai.hasToolExecutionRequests()) {
-                    return errorResult("Model returned no tool calls.");
-                }
-
-                var terminalPartition = ToolRegistry.partitionByNames(ai.toolExecutionRequests(), TERMINAL_TOOL_NAMES);
-                if (isFinalTurn && terminalPartition.matchingRequests().isEmpty()) {
-                    return errorResult("Final turn requires a terminal tool call (answer or abortSearch).");
-                }
-
-                var additionsThisTurn = new ArrayList<ContextFragment>();
-
-                // Parallel execution for safe tools
-                var parallelPartition =
-                        ToolRegistry.partitionByNames(ai.toolExecutionRequests(), PARALLEL_SAFE_SEARCH_TOOL_NAMES);
-                var parallelRequests = parallelPartition.matchingRequests();
-                Map<ToolExecutionRequest, CompletableFuture<ToolExecutionResult>> parallelFutures =
-                        new LinkedHashMap<>();
-                if (parallelRequests.size() > 1) {
-                    for (var request : parallelRequests) {
-                        io.beforeToolCall(request);
-                        Context snapshotContext = context;
-                        parallelFutures.put(
-                                request, LoggingFuture.supplyCallableVirtual(() -> ToolRegistry.fromBase(toolRegistry)
-                                        .register(new WorkspaceTools(snapshotContext))
-                                        .build()
-                                        .executeTool(request)));
-                    }
-                }
-                Runnable cancelOutstandingParallelFutures = () -> parallelFutures.values().stream()
-                        .filter(f -> !f.isDone())
-                        .forEach(f -> f.cancel(true));
-
-                for (var request : ai.toolExecutionRequests()) {
-                    ToolExecutionResult toolResult;
-                    if (parallelFutures.containsKey(request)) {
-                        try {
-                            toolResult = parallelFutures.get(request).join();
-                        } catch (CompletionException e) {
-                            Throwable cause = e.getCause();
-                            if (cause instanceof InterruptedException ie) {
-                                throw ie;
-                            }
-                            String msg = cause == null ? "Unknown error" : cause.getMessage();
-                            toolResult =
-                                    ToolExecutionResult.internalError(request, msg == null ? "Unknown error" : msg);
-                        }
-                        io.afterToolOutput(toolResult);
-                    } else {
-                        io.beforeToolCall(request);
-                        var executionRegistry = ToolRegistry.fromBase(toolRegistry)
-                                .register(new WorkspaceTools(context))
-                                .build();
-                        toolResult = executionRegistry.executeTool(request);
-                        io.afterToolOutput(toolResult);
-                    }
-                    llm.recordToolExecution(toolResult);
-                    messages.add(toolResult.toMessage());
-
-                    if (toolResult.result() instanceof WorkspaceTools.WorkspaceMutationOutput output) {
-                        context = output.context();
-                        additionsThisTurn.addAll(output.addedFragments());
-                    } else if (toolResult.result() instanceof WorkspaceTools.DropWorkspaceOutput output) {
-                        context = output.context();
-                        additionsThisTurn.addAll(output.addedFragments());
-                    }
-
-                    if (toolResult.status() == ToolExecutionResult.Status.FATAL) {
-                        cancelOutstandingParallelFutures.run();
-                        return errorResult(toolResult.resultText());
-                    }
-
-                    if (TERMINAL_TOOL_NAMES.contains(request.name())
-                            && toolResult.result() instanceof TerminalStopOutput tso) {
-                        cancelOutstandingParallelFutures.run();
-                        return new TaskResult(context, tso.stopDetails());
-                    }
-                }
-
-                previousTurnAdditions = List.copyOf(additionsThisTurn);
-            } finally {
-                // No metrics tracking in POC — just continue
+                return errorResult("Agent execution failed: " + response.error().getMessage());
             }
+
+            var ai = ToolRegistry.removeDuplicateToolRequests(response.aiMessage());
+            messages.add(ai);
+
+            if (!ai.hasToolExecutionRequests()) {
+                return errorResult("Model returned no tool calls.");
+            }
+
+            var terminalPartition = ToolRegistry.partitionByNames(ai.toolExecutionRequests(), TERMINAL_TOOL_NAMES);
+            if (isFinalTurn && terminalPartition.matchingRequests().isEmpty()) {
+                return errorResult("Final turn requires a terminal tool call (answer or abortSearch).");
+            }
+
+            var additionsThisTurn = new ArrayList<ContextFragment>();
+
+            // Parallel execution for safe tools
+            var parallelPartition =
+                    ToolRegistry.partitionByNames(ai.toolExecutionRequests(), PARALLEL_SAFE_SEARCH_TOOL_NAMES);
+            var parallelRequests = parallelPartition.matchingRequests();
+            Map<ToolExecutionRequest, CompletableFuture<ToolExecutionResult>> parallelFutures = new LinkedHashMap<>();
+            if (parallelRequests.size() > 1) {
+                for (var request : parallelRequests) {
+                    io.beforeToolCall(request);
+                    Context snapshotContext = context;
+                    parallelFutures.put(
+                            request, LoggingFuture.supplyCallableVirtual(() -> ToolRegistry.fromBase(toolRegistry)
+                                    .register(new WorkspaceTools(snapshotContext))
+                                    .build()
+                                    .executeTool(request)));
+                }
+            }
+            Runnable cancelOutstandingParallelFutures = () ->
+                    parallelFutures.values().stream().filter(f -> !f.isDone()).forEach(f -> f.cancel(true));
+
+            for (var request : ai.toolExecutionRequests()) {
+                ToolExecutionResult toolResult;
+                if (parallelFutures.containsKey(request)) {
+                    try {
+                        toolResult = parallelFutures.get(request).join();
+                    } catch (CompletionException e) {
+                        Throwable cause = e.getCause();
+                        if (cause instanceof InterruptedException ie) {
+                            throw ie;
+                        }
+                        String msg = cause == null ? "Unknown error" : cause.getMessage();
+                        toolResult = ToolExecutionResult.internalError(request, msg == null ? "Unknown error" : msg);
+                    }
+                    io.afterToolOutput(toolResult);
+                } else {
+                    io.beforeToolCall(request);
+                    var executionRegistry = ToolRegistry.fromBase(toolRegistry)
+                            .register(new WorkspaceTools(context))
+                            .build();
+                    toolResult = executionRegistry.executeTool(request);
+                    io.afterToolOutput(toolResult);
+                }
+                llm.recordToolExecution(toolResult);
+                messages.add(toolResult.toMessage());
+
+                if (toolResult.result() instanceof WorkspaceTools.WorkspaceMutationOutput output) {
+                    context = output.context();
+                    additionsThisTurn.addAll(output.addedFragments());
+                } else if (toolResult.result() instanceof WorkspaceTools.DropWorkspaceOutput output) {
+                    context = output.context();
+                    additionsThisTurn.addAll(output.addedFragments());
+                }
+
+                if (toolResult.status() == ToolExecutionResult.Status.FATAL) {
+                    cancelOutstandingParallelFutures.run();
+                    return errorResult(toolResult.resultText());
+                }
+
+                if (TERMINAL_TOOL_NAMES.contains(request.name())
+                        && toolResult.result() instanceof TerminalStopOutput tso) {
+                    cancelOutstandingParallelFutures.run();
+                    return new TaskResult(context, tso.stopDetails());
+                }
+            }
+
+            previousTurnAdditions = List.copyOf(additionsThisTurn);
         }
 
         return errorResult("Turn limit reached (%d turns).".formatted(maxTurns));
