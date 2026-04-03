@@ -57,12 +57,16 @@ public final class CoreProject implements IProject {
 
     @Nullable
     private volatile Map<Path, ProjectFile> filesByRelPathCache;
+
     @Nullable
     private volatile Set<Language> autoDetectedLanguagesCache;
+
     @Nullable
     private IStringDiskCache diskCache;
+
     @Nullable
     private FileChannel cacheLockChannel;
+
     @Nullable
     private FileLock cacheFileLock;
 
@@ -176,8 +180,10 @@ public final class CoreProject implements IProject {
                 logger.debug("No recognized languages found for {}. Defaulting to NONE.", root);
                 autoDetectedLanguagesCache = Set.of(Languages.NONE);
             } else {
-                logger.debug("Auto-detected languages for {}: {}",
-                             root, detected.stream().map(Language::name).collect(Collectors.joining(", ")));
+                logger.debug(
+                        "Auto-detected languages for {}: {}",
+                        root,
+                        detected.stream().map(Language::name).collect(Collectors.joining(", ")));
                 autoDetectedLanguagesCache = Set.copyOf(detected);
             }
             return autoDetectedLanguagesCache;
@@ -211,7 +217,8 @@ public final class CoreProject implements IProject {
         if (languages.isEmpty() || (languages.size() == 1 && languages.contains(Languages.NONE))) {
             projectProps.remove(CODE_INTELLIGENCE_LANGUAGES_KEY);
         } else {
-            var langsString = languages.stream().map(Language::internalName).sorted().collect(Collectors.joining(","));
+            var langsString =
+                    languages.stream().map(Language::internalName).sorted().collect(Collectors.joining(","));
             projectProps.setProperty(CODE_INTELLIGENCE_LANGUAGES_KEY, langsString);
         }
         autoDetectedLanguagesCache = null;
@@ -412,9 +419,7 @@ public final class CoreProject implements IProject {
             return Set.of();
         }
         try (var pathStream = Files.list(dependenciesPath)) {
-            return pathStream
-                    .filter(Files::isDirectory)
-                    .collect(Collectors.toSet());
+            return pathStream.filter(Files::isDirectory).collect(Collectors.toSet());
         } catch (IOException e) {
             logger.error("Error listing dependency directories from {}: {}", dependenciesPath, e.getMessage());
             return Set.of();

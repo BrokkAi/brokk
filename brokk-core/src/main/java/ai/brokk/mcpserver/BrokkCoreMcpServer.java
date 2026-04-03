@@ -87,8 +87,10 @@ public class BrokkCoreMcpServer {
                     }
                 });
                 var metrics = analyzer.getMetrics();
-                logger.info("Analyzer ready: {} declarations across {} files",
-                            metrics.numberOfDeclarations(), metrics.numberOfCodeUnits());
+                logger.info(
+                        "Analyzer ready: {} declarations across {} files",
+                        metrics.numberOfDeclarations(),
+                        metrics.numberOfCodeUnits());
             }
 
             var coreIntelligence = new StandaloneCodeIntelligence(coreProject, analyzer);
@@ -128,12 +130,15 @@ public class BrokkCoreMcpServer {
             serverRef.set(mcpServer);
             logger.info("Brokk Core MCP Server started successfully");
 
-            Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-                var s = serverRef.get();
-                if (s != null) {
-                    s.closeGracefully();
-                }
-            }, "BrokkCoreMCP-ShutdownHook"));
+            Runtime.getRuntime()
+                    .addShutdownHook(new Thread(
+                            () -> {
+                                var s = serverRef.get();
+                                if (s != null) {
+                                    s.closeGracefully();
+                                }
+                            },
+                            "BrokkCoreMCP-ShutdownHook"));
 
             Thread.currentThread().join();
         } catch (InterruptedException e) {
@@ -214,250 +219,275 @@ public class BrokkCoreMcpServer {
     List<McpServerFeatures.SyncToolSpecification> toolSpecifications() {
         var specs = new ArrayList<McpServerFeatures.SyncToolSpecification>();
 
-        specs.add(tool("activateWorkspace",
-                        "Set the active workspace for this MCP server. The path must be absolute. "
+        specs.add(tool(
+                "activateWorkspace",
+                "Set the active workspace for this MCP server. The path must be absolute. "
                         + "The server normalizes to the nearest git root.",
-                        schema(Map.of("workspacePath", stringProp("Absolute path to the desired workspace directory.")),
-                               List.of("workspacePath")),
-                        (exchange, request) -> {
-                            activateWorkspace(stringArg(request, "workspacePath"));
-                            return textResult("Workspace activated: " + activeWorkspaceRoot);
-                        }));
+                schema(
+                        Map.of("workspacePath", stringProp("Absolute path to the desired workspace directory.")),
+                        List.of("workspacePath")),
+                (exchange, request) -> {
+                    activateWorkspace(stringArg(request, "workspacePath"));
+                    return textResult("Workspace activated: " + activeWorkspaceRoot);
+                }));
 
-        specs.add(tool("getActiveWorkspace",
-                        "Return the currently active workspace root.",
-                        schema(Map.of(), List.of()),
-                        (exchange, request) -> textResult(activeWorkspaceRoot.toString())));
+        specs.add(tool(
+                "getActiveWorkspace",
+                "Return the currently active workspace root.",
+                schema(Map.of(), List.of()),
+                (exchange, request) -> textResult(activeWorkspaceRoot.toString())));
 
-        specs.add(tool("searchSymbols",
-                        "Find where classes, functions, fields, and modules are defined. "
+        specs.add(tool(
+                "searchSymbols",
+                "Find where classes, functions, fields, and modules are defined. "
                         + "Patterns are case-insensitive regex with implicit ^ and $, so use wildcarding: "
                         + ".*Foo.*, Abstract.*, [a-z]*DAO.",
-                        schema(Map.of(
+                schema(
+                        Map.of(
                                 "patterns", arrayProp("Case-insensitive regex patterns to search for code symbols."),
                                 "includeTests", boolProp("Include test files in results."),
                                 "limit", intProp("Maximum number of matching files to return (capped at 100).")),
-                               List.of("patterns", "includeTests", "limit")),
-                        (exchange, request) -> withReadLock(() -> {
-                            var patterns = stringListArg(request, "patterns");
-                            var includeTests = boolArg(request, "includeTests", false);
-                            var limit = intArg(request, "limit", 50);
-                            return textResult(searchTools.searchSymbols(patterns, includeTests, limit));
-                        })));
+                        List.of("patterns", "includeTests", "limit")),
+                (exchange, request) -> withReadLock(() -> {
+                    var patterns = stringListArg(request, "patterns");
+                    var includeTests = boolArg(request, "includeTests", false);
+                    var limit = intArg(request, "limit", 50);
+                    return textResult(searchTools.searchSymbols(patterns, includeTests, limit));
+                })));
 
-        specs.add(tool("scanUsages",
-                        "Find where and how a symbol is used/called/accessed across the codebase. "
+        specs.add(tool(
+                "scanUsages",
+                "Find where and how a symbol is used/called/accessed across the codebase. "
                         + "Requires fully qualified symbol names -- call searchSymbols first if you only have a partial name.",
-                        schema(Map.of(
+                schema(
+                        Map.of(
                                 "symbols", arrayProp("Fully qualified symbol names to find usages for."),
                                 "includeTests", boolProp("Include call sites in test files.")),
-                               List.of("symbols", "includeTests")),
-                        (exchange, request) -> withReadLock(() -> {
-                            var symbols = stringListArg(request, "symbols");
-                            var includeTests = boolArg(request, "includeTests", false);
-                            return textResult(searchTools.scanUsages(symbols, includeTests));
-                        })));
+                        List.of("symbols", "includeTests")),
+                (exchange, request) -> withReadLock(() -> {
+                    var symbols = stringListArg(request, "symbols");
+                    var includeTests = boolArg(request, "includeTests", false);
+                    return textResult(searchTools.scanUsages(symbols, includeTests));
+                })));
 
-        specs.add(tool("getFileSummaries",
-                        "Returns class skeletons (fields + method signatures, no bodies) for all classes in the "
+        specs.add(tool(
+                "getFileSummaries",
+                "Returns class skeletons (fields + method signatures, no bodies) for all classes in the "
                         + "specified files. Supports glob patterns: '*' matches one directory, '**' matches recursively.",
-                        schema(Map.of(
-                                "filePaths", arrayProp("File paths relative to project root. Supports glob patterns.")),
-                               List.of("filePaths")),
-                        (exchange, request) -> withReadLock(() -> {
-                            var filePaths = stringListArg(request, "filePaths");
-                            return textResult(searchTools.getFileSummaries(filePaths));
-                        })));
+                schema(
+                        Map.of("filePaths", arrayProp("File paths relative to project root. Supports glob patterns.")),
+                        List.of("filePaths")),
+                (exchange, request) -> withReadLock(() -> {
+                    var filePaths = stringListArg(request, "filePaths");
+                    return textResult(searchTools.getFileSummaries(filePaths));
+                })));
 
-        specs.add(tool("getClassSources",
-                        "Returns full source code of classes. Max 10 classes. "
+        specs.add(tool(
+                "getClassSources",
+                "Returns full source code of classes. Max 10 classes. "
                         + "Prefer getFileSummaries or getMethodSources when possible.",
-                        schema(Map.of(
-                                "classNames", arrayProp("Fully qualified class names to retrieve source for; max 10.")),
-                               List.of("classNames")),
-                        (exchange, request) -> withReadLock(() -> {
-                            var classNames = stringListArg(request, "classNames");
-                            return textResult(searchTools.getClassSources(classNames));
-                        })));
+                schema(
+                        Map.of("classNames", arrayProp("Fully qualified class names to retrieve source for; max 10.")),
+                        List.of("classNames")),
+                (exchange, request) -> withReadLock(() -> {
+                    var classNames = stringListArg(request, "classNames");
+                    return textResult(searchTools.getClassSources(classNames));
+                })));
 
-        specs.add(tool("getMethodSources",
-                        "Returns full source code of specific methods/functions by fully qualified name. "
+        specs.add(tool(
+                "getMethodSources",
+                "Returns full source code of specific methods/functions by fully qualified name. "
                         + "Preferred over getClassSources when you only need 1-2 methods.",
-                        schema(Map.of(
-                                "methodNames", arrayProp("Fully qualified method names to retrieve sources for.")),
-                               List.of("methodNames")),
-                        (exchange, request) -> withReadLock(() -> {
-                            var methodNames = stringListArg(request, "methodNames");
-                            return textResult(searchTools.getMethodSources(methodNames));
-                        })));
+                schema(
+                        Map.of("methodNames", arrayProp("Fully qualified method names to retrieve sources for.")),
+                        List.of("methodNames")),
+                (exchange, request) -> withReadLock(() -> {
+                    var methodNames = stringListArg(request, "methodNames");
+                    return textResult(searchTools.getMethodSources(methodNames));
+                })));
 
-        specs.add(tool("getClassSkeletons",
-                        "Returns class skeletons (fields + method signatures) for specific classes by fully qualified name.",
-                        schema(Map.of(
-                                "classNames", arrayProp("Fully qualified class names to retrieve skeletons for.")),
-                               List.of("classNames")),
-                        (exchange, request) -> withReadLock(() -> {
-                            var classNames = stringListArg(request, "classNames");
-                            return textResult(searchTools.getClassSkeletons(classNames));
-                        })));
+        specs.add(tool(
+                "getClassSkeletons",
+                "Returns class skeletons (fields + method signatures) for specific classes by fully qualified name.",
+                schema(
+                        Map.of("classNames", arrayProp("Fully qualified class names to retrieve skeletons for.")),
+                        List.of("classNames")),
+                (exchange, request) -> withReadLock(() -> {
+                    var classNames = stringListArg(request, "classNames");
+                    return textResult(searchTools.getClassSkeletons(classNames));
+                })));
 
-        specs.add(tool("getSymbolLocations",
-                        "Returns file locations for given fully qualified symbol names.",
-                        schema(Map.of(
-                                "symbols", arrayProp("Fully qualified symbol names to locate.")),
-                               List.of("symbols")),
-                        (exchange, request) -> withReadLock(() -> {
-                            var symbols = stringListArg(request, "symbols");
-                            return textResult(searchTools.getSymbolLocations(symbols));
-                        })));
+        specs.add(tool(
+                "getSymbolLocations",
+                "Returns file locations for given fully qualified symbol names.",
+                schema(Map.of("symbols", arrayProp("Fully qualified symbol names to locate.")), List.of("symbols")),
+                (exchange, request) -> withReadLock(() -> {
+                    var symbols = stringListArg(request, "symbols");
+                    return textResult(searchTools.getSymbolLocations(symbols));
+                })));
 
-        specs.add(tool("findFilenames",
-                        "Search for files by name pattern. Patterns are case-insensitive and match anywhere in the filename.",
-                        schema(Map.of(
+        specs.add(tool(
+                "findFilenames",
+                "Search for files by name pattern. Patterns are case-insensitive and match anywhere in the filename.",
+                schema(
+                        Map.of(
                                 "patterns", arrayProp("Filename patterns to search for."),
                                 "limit", intProp("Maximum results to return.")),
-                               List.of("patterns", "limit")),
-                        (exchange, request) -> withReadLock(() -> {
-                            var patterns = stringListArg(request, "patterns");
-                            var limit = intArg(request, "limit", 50);
-                            return textResult(searchTools.findFilenames(patterns, limit));
-                        })));
+                        List.of("patterns", "limit")),
+                (exchange, request) -> withReadLock(() -> {
+                    var patterns = stringListArg(request, "patterns");
+                    var limit = intArg(request, "limit", 50);
+                    return textResult(searchTools.findFilenames(patterns, limit));
+                })));
 
-        specs.add(tool("findFilesContaining",
-                        "Find files containing text matching the given regex patterns.",
-                        schema(Map.of(
+        specs.add(tool(
+                "findFilesContaining",
+                "Find files containing text matching the given regex patterns.",
+                schema(
+                        Map.of(
                                 "patterns", arrayProp("Regex patterns to search for in file contents."),
                                 "limit", intProp("Maximum results to return.")),
-                               List.of("patterns", "limit")),
-                        (exchange, request) -> withReadLock(() -> {
-                            var patterns = stringListArg(request, "patterns");
-                            var limit = intArg(request, "limit", 50);
-                            return textResult(searchTools.findFilesContaining(patterns, limit));
-                        })));
+                        List.of("patterns", "limit")),
+                (exchange, request) -> withReadLock(() -> {
+                    var patterns = stringListArg(request, "patterns");
+                    var limit = intArg(request, "limit", 50);
+                    return textResult(searchTools.findFilesContaining(patterns, limit));
+                })));
 
-        specs.add(tool("searchFileContents",
-                        "Search for regex patterns in file contents with context lines.",
-                        schema(Map.of(
+        specs.add(tool(
+                "searchFileContents",
+                "Search for regex patterns in file contents with context lines.",
+                schema(
+                        Map.of(
                                 "patterns", arrayProp("Regex patterns to search for."),
                                 "filepath", stringProp("File path or glob pattern to restrict search to."),
                                 "caseInsensitive", boolProp("Case-insensitive matching."),
                                 "multiline", boolProp("Enable multiline matching."),
                                 "contextLines", intProp("Number of context lines around each match."),
                                 "maxFiles", intProp("Maximum number of files to search.")),
-                               List.of("patterns", "filepath")),
-                        (exchange, request) -> withReadLock(() -> {
-                            var patterns = stringListArg(request, "patterns");
-                            var filepath = stringArg(request, "filepath");
-                            var caseInsensitive = boolArg(request, "caseInsensitive", false);
-                            var multiline = boolArg(request, "multiline", false);
-                            var contextLines = intArg(request, "contextLines", 2);
-                            var maxFiles = intArg(request, "maxFiles", 20);
-                            return textResult(searchTools.searchFileContents(
-                                    patterns, filepath, caseInsensitive, multiline, contextLines, maxFiles));
-                        })));
+                        List.of("patterns", "filepath")),
+                (exchange, request) -> withReadLock(() -> {
+                    var patterns = stringListArg(request, "patterns");
+                    var filepath = stringArg(request, "filepath");
+                    var caseInsensitive = boolArg(request, "caseInsensitive", false);
+                    var multiline = boolArg(request, "multiline", false);
+                    var contextLines = intArg(request, "contextLines", 2);
+                    var maxFiles = intArg(request, "maxFiles", 20);
+                    return textResult(searchTools.searchFileContents(
+                            patterns, filepath, caseInsensitive, multiline, contextLines, maxFiles));
+                })));
 
-        specs.add(tool("searchGitCommitMessages",
-                        "Search git commit messages for a pattern.",
-                        schema(Map.of(
+        specs.add(tool(
+                "searchGitCommitMessages",
+                "Search git commit messages for a pattern.",
+                schema(
+                        Map.of(
                                 "pattern", stringProp("Regex pattern to search commit messages for."),
                                 "limit", intProp("Maximum commits to return.")),
-                               List.of("pattern", "limit")),
-                        (exchange, request) -> withReadLock(() -> {
-                            var pattern = stringArg(request, "pattern");
-                            var limit = intArg(request, "limit", 20);
-                            return textResult(searchTools.searchGitCommitMessages(pattern, limit));
-                        })));
+                        List.of("pattern", "limit")),
+                (exchange, request) -> withReadLock(() -> {
+                    var pattern = stringArg(request, "pattern");
+                    var limit = intArg(request, "limit", 20);
+                    return textResult(searchTools.searchGitCommitMessages(pattern, limit));
+                })));
 
-        specs.add(tool("getGitLog",
-                        "Get git log for a file or directory path.",
-                        schema(Map.of(
+        specs.add(tool(
+                "getGitLog",
+                "Get git log for a file or directory path.",
+                schema(
+                        Map.of(
                                 "path", stringProp("File or directory path to get git log for."),
                                 "limit", intProp("Maximum log entries to return.")),
-                               List.of("path", "limit")),
-                        (exchange, request) -> withReadLock(() -> {
-                            var path = stringArg(request, "path");
-                            var limit = intArg(request, "limit", 20);
-                            return textResult(searchTools.getGitLog(path, limit));
-                        })));
+                        List.of("path", "limit")),
+                (exchange, request) -> withReadLock(() -> {
+                    var path = stringArg(request, "path");
+                    var limit = intArg(request, "limit", 20);
+                    return textResult(searchTools.getGitLog(path, limit));
+                })));
 
-        specs.add(tool("getFileContents",
-                        "Read the full contents of one or more files.",
-                        schema(Map.of(
-                                "filenames", arrayProp("Relative file paths to read.")),
-                               List.of("filenames")),
-                        (exchange, request) -> withReadLock(() -> {
-                            var filenames = stringListArg(request, "filenames");
-                            return textResult(searchTools.getFileContents(filenames));
-                        })));
+        specs.add(tool(
+                "getFileContents",
+                "Read the full contents of one or more files.",
+                schema(Map.of("filenames", arrayProp("Relative file paths to read.")), List.of("filenames")),
+                (exchange, request) -> withReadLock(() -> {
+                    var filenames = stringListArg(request, "filenames");
+                    return textResult(searchTools.getFileContents(filenames));
+                })));
 
-        specs.add(tool("listFiles",
-                        "List files in a directory, showing the tree structure.",
-                        schema(Map.of(
-                                "directoryPath", stringProp("Directory path relative to project root.")),
-                               List.of("directoryPath")),
-                        (exchange, request) -> withReadLock(() -> {
-                            var directoryPath = stringArg(request, "directoryPath");
-                            return textResult(searchTools.listFiles(directoryPath));
-                        })));
+        specs.add(tool(
+                "listFiles",
+                "List files in a directory, showing the tree structure.",
+                schema(
+                        Map.of("directoryPath", stringProp("Directory path relative to project root.")),
+                        List.of("directoryPath")),
+                (exchange, request) -> withReadLock(() -> {
+                    var directoryPath = stringArg(request, "directoryPath");
+                    return textResult(searchTools.listFiles(directoryPath));
+                })));
 
-        specs.add(tool("skimFiles",
-                        "Get a quick overview of files showing top-level declarations without full source.",
-                        schema(Map.of(
-                                "filePaths", arrayProp("File paths to skim.")),
-                               List.of("filePaths")),
-                        (exchange, request) -> withReadLock(() -> {
-                            var filePaths = stringListArg(request, "filePaths");
-                            return textResult(searchTools.skimFiles(filePaths));
-                        })));
+        specs.add(tool(
+                "skimFiles",
+                "Get a quick overview of files showing top-level declarations without full source.",
+                schema(Map.of("filePaths", arrayProp("File paths to skim.")), List.of("filePaths")),
+                (exchange, request) -> withReadLock(() -> {
+                    var filePaths = stringListArg(request, "filePaths");
+                    return textResult(searchTools.skimFiles(filePaths));
+                })));
 
-        specs.add(tool("jq",
-                        "Query JSON files using jq filter expressions.",
-                        schema(Map.of(
+        specs.add(tool(
+                "jq",
+                "Query JSON files using jq filter expressions.",
+                schema(
+                        Map.of(
                                 "filepath", stringProp("Path or glob pattern for JSON files."),
                                 "filter", stringProp("jq filter expression."),
                                 "maxFiles", intProp("Maximum number of files to process."),
                                 "matchesPerFile", intProp("Maximum matches per file.")),
-                               List.of("filepath", "filter", "maxFiles", "matchesPerFile")),
-                        (exchange, request) -> withReadLock(() -> {
-                            var filepath = stringArg(request, "filepath");
-                            var filter = stringArg(request, "filter");
-                            var maxFiles = intArg(request, "maxFiles", 10);
-                            var matchesPerFile = intArg(request, "matchesPerFile", 50);
-                            return textResult(searchTools.jq(filepath, filter, maxFiles, matchesPerFile));
-                        })));
+                        List.of("filepath", "filter", "maxFiles", "matchesPerFile")),
+                (exchange, request) -> withReadLock(() -> {
+                    var filepath = stringArg(request, "filepath");
+                    var filter = stringArg(request, "filter");
+                    var maxFiles = intArg(request, "maxFiles", 10);
+                    var matchesPerFile = intArg(request, "matchesPerFile", 50);
+                    return textResult(searchTools.jq(filepath, filter, maxFiles, matchesPerFile));
+                })));
 
-        specs.add(tool("xmlSkim",
-                        "Get a structural overview of XML/HTML files showing element hierarchy.",
-                        schema(Map.of(
+        specs.add(tool(
+                "xmlSkim",
+                "Get a structural overview of XML/HTML files showing element hierarchy.",
+                schema(
+                        Map.of(
                                 "filepath", stringProp("Path or glob pattern for XML/HTML files."),
                                 "maxFiles", intProp("Maximum number of files to process.")),
-                               List.of("filepath", "maxFiles")),
-                        (exchange, request) -> withReadLock(() -> {
-                            var filepath = stringArg(request, "filepath");
-                            var maxFiles = intArg(request, "maxFiles", 10);
-                            return textResult(searchTools.xmlSkim(filepath, maxFiles));
-                        })));
+                        List.of("filepath", "maxFiles")),
+                (exchange, request) -> withReadLock(() -> {
+                    var filepath = stringArg(request, "filepath");
+                    var maxFiles = intArg(request, "maxFiles", 10);
+                    return textResult(searchTools.xmlSkim(filepath, maxFiles));
+                })));
 
-        specs.add(tool("xmlSelect",
-                        "Query XML/HTML files using XPath expressions.",
-                        schema(Map.of(
+        specs.add(tool(
+                "xmlSelect",
+                "Query XML/HTML files using XPath expressions.",
+                schema(
+                        Map.of(
                                 "filepath", stringProp("Path or glob pattern for XML/HTML files."),
                                 "xpath", stringProp("XPath expression to evaluate."),
                                 "output", stringProp("Output format: 'text' (default) or 'xml'."),
                                 "attrName", stringProp("Attribute name to extract (empty for element text)."),
                                 "maxFiles", intProp("Maximum number of files to process."),
                                 "matchesPerFile", intProp("Maximum matches per file.")),
-                               List.of("filepath", "xpath")),
-                        (exchange, request) -> withReadLock(() -> {
-                            var filepath = stringArg(request, "filepath");
-                            var xpath = stringArg(request, "xpath");
-                            var output = stringArgOrDefault(request, "output", "text");
-                            var attrName = stringArgOrDefault(request, "attrName", "");
-                            var maxFiles = intArg(request, "maxFiles", 10);
-                            var matchesPerFile = intArg(request, "matchesPerFile", 50);
-                            return textResult(searchTools.xmlSelect(
-                                    filepath, xpath, output, attrName, maxFiles, matchesPerFile));
-                        })));
+                        List.of("filepath", "xpath")),
+                (exchange, request) -> withReadLock(() -> {
+                    var filepath = stringArg(request, "filepath");
+                    var xpath = stringArg(request, "xpath");
+                    var output = stringArgOrDefault(request, "output", "text");
+                    var attrName = stringArgOrDefault(request, "attrName", "");
+                    var maxFiles = intArg(request, "maxFiles", 10);
+                    var matchesPerFile = intArg(request, "matchesPerFile", 50);
+                    return textResult(
+                            searchTools.xmlSelect(filepath, xpath, output, attrName, maxFiles, matchesPerFile));
+                })));
 
         return specs;
     }
@@ -530,9 +560,7 @@ public class BrokkCoreMcpServer {
     }
 
     private static McpSchema.CallToolResult textResult(String text) {
-        return McpSchema.CallToolResult.builder()
-                .addTextContent(text)
-                .build();
+        return McpSchema.CallToolResult.builder().addTextContent(text).build();
     }
 
     // -- Argument extraction --
