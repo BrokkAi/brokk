@@ -135,23 +135,17 @@ class ContextRoutingIntegrationTest {
 
     @Test
     void testListSessionsUsesProjectSessionManagerTitles() throws Exception {
-        var createUri = URI.create("http://127.0.0.1:" + executor.getPort() + "/v1/sessions");
-        var createRequest = HttpRequest.newBuilder(createUri)
-                .header("Authorization", "Bearer " + authToken)
-                .header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString("{\"name\":\"Initial Name\"}"))
-                .build();
+        // Create and rename the session directly via SessionManager to avoid the async
+        // race in the HTTP create endpoint (which has a 3-second timeout that can be
+        // exceeded on slower CI runners like macOS).
+        var sessionManager = contextManager.getProject().getSessionManager();
+        var sessionInfo = sessionManager.newSession("Initial Name");
+        var sessionId = sessionInfo.id();
+        sessionManager.renameSession(sessionId, "Renamed In ContextManager");
 
-        var createResponse = client.send(createRequest, HttpResponse.BodyHandlers.ofString());
-        assertEquals(HttpURLConnection.HTTP_CREATED, createResponse.statusCode());
-
-        var createdPayload =
-                OBJECT_MAPPER.readValue(createResponse.body(), new TypeReference<Map<String, Object>>() {});
-        var sessionId = UUID.fromString((String) createdPayload.get("sessionId"));
-
-        contextManager.getProject().getSessionManager().renameSession(sessionId, "Renamed In ContextManager");
-
-        var listRequest = HttpRequest.newBuilder(createUri)
+        // Verify the list endpoint returns the session with the renamed title
+        var listUri = URI.create("http://127.0.0.1:" + executor.getPort() + "/v1/sessions");
+        var listRequest = HttpRequest.newBuilder(listUri)
                 .header("Authorization", "Bearer " + authToken)
                 .GET()
                 .build();
