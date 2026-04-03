@@ -250,7 +250,9 @@ public interface GitDiffUiUtil {
 
                 List<ProjectFile> changedFiles;
                 if (newestCommitId.equals(oldestCommitId)) { // Single commit selected
-                    changedFiles = CommitInfo.changedFiles(repo, newestCommitId);
+                    changedFiles = repo.listFilesChangedInCommit(newestCommitId).stream()
+                            .map(IGitRepo.ModifiedFile::file)
+                            .toList();
                 } else {
                     // Files changed between oldest selected commit's parent and newest selected commit
                     changedFiles = repo.listFilesChangedBetweenCommits(oldestCommitId + "^", newestCommitId).stream()
@@ -458,7 +460,7 @@ public interface GitDiffUiUtil {
 
         cm.submitBackgroundTask("Opening diff for commit " + ((GitRepo) repo).shortHash(commitInfo.id()), () -> {
             try {
-                var files = CommitInfo.changedFiles(repo, commitInfo.id());
+                var files = repo.listFilesChangedInCommit(commitInfo.id()).stream().map(IGitRepo.ModifiedFile::file).toList();
                 if (files.isEmpty()) {
                     chrome.showNotification(IConsoleIO.NotificationRole.INFO, "No files changed in this commit.");
                     return;
@@ -500,7 +502,7 @@ public interface GitDiffUiUtil {
 
         cm.submitBackgroundTask("Opening diff for commit " + ((GitRepo) repo).shortHash(commitInfo.id()), () -> {
             try {
-                var files = CommitInfo.changedFiles(repo, commitInfo.id());
+                var files = repo.listFilesChangedInCommit(commitInfo.id()).stream().map(IGitRepo.ModifiedFile::file).toList();
                 if (files.isEmpty()) {
                     chrome.showNotification(IConsoleIO.NotificationRole.INFO, "No files changed in this commit.");
                     return;
@@ -557,7 +559,7 @@ public interface GitDiffUiUtil {
         contextManager.submitBackgroundTask("Comparing commit to local", () -> {
             var repo = (GitRepo) contextManager.getProject().getRepo();
             try {
-                var changedFiles = CommitInfo.changedFiles(repo, commitInfo.id());
+                var changedFiles = repo.listFilesChangedInCommit(commitInfo.id()).stream().map(IGitRepo.ModifiedFile::file).toList();
                 if (changedFiles.isEmpty()) {
                     chrome.showNotification(IConsoleIO.NotificationRole.INFO, "No files changed in this commit");
                     return;

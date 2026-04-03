@@ -1,5 +1,6 @@
 package ai.brokk.analyzer;
 
+import ai.brokk.project.ICoreProject;
 import ai.brokk.analyzer.scala.ScalaLanguage;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.dependencies.DependenciesPanel;
@@ -40,12 +41,12 @@ public class Languages {
         } // For compatibility
 
         @Override
-        public IAnalyzer createAnalyzer(IProject project, IAnalyzer.ProgressListener listener) {
+        public IAnalyzer createAnalyzer(ICoreProject project, IAnalyzer.ProgressListener listener) {
             return new CSharpAnalyzer(project, listener);
         }
 
         @Override
-        public IAnalyzer loadAnalyzer(IProject project, IAnalyzer.ProgressListener listener) {
+        public IAnalyzer loadAnalyzer(ICoreProject project, IAnalyzer.ProgressListener listener) {
             var storage = getStoragePath(project);
             return TreeSitterStateIO.load(storage)
                     .map(state -> {
@@ -76,7 +77,7 @@ public class Languages {
         }
     };
     public static final Language JAVA = new JavaLanguage();
-    public static final Language JAVASCRIPT = new Language() {
+    public static final Language JAVASCRIPT = new DependencyImportable() {
         private final Set<String> extensions = Set.of("js", "mjs", "cjs", "jsx");
 
         @Override
@@ -100,12 +101,12 @@ public class Languages {
         }
 
         @Override
-        public IAnalyzer createAnalyzer(IProject project, IAnalyzer.ProgressListener listener) {
+        public IAnalyzer createAnalyzer(ICoreProject project, IAnalyzer.ProgressListener listener) {
             return new JavascriptAnalyzer(project, listener);
         }
 
         @Override
-        public IAnalyzer loadAnalyzer(IProject project, IAnalyzer.ProgressListener listener) {
+        public IAnalyzer loadAnalyzer(ICoreProject project, IAnalyzer.ProgressListener listener) {
             var storage = getStoragePath(project);
             return TreeSitterStateIO.load(storage)
                     .map(state -> {
@@ -131,16 +132,16 @@ public class Languages {
                         "\\bfrom\\s+.*\\{.*$ident.*\\}" // named imports
                         );
             }
-            return Language.super.getSearchPatterns(type);
+            return DependencyImportable.super.getSearchPatterns(type);
         }
 
         @Override
-        public List<Path> getDependencyCandidates(IProject project) {
+        public List<Path> getDependencyCandidates(ICoreProject project) {
             return NodeJsDependencyHelper.getDependencyCandidates(project);
         }
 
         @Override
-        public List<Language.DependencyCandidate> listDependencyPackages(IProject project) {
+        public List<Language.DependencyCandidate> listDependencyPackages(ICoreProject project) {
             return NodeJsDependencyHelper.listDependencyPackages(project);
         }
 
@@ -158,7 +159,7 @@ public class Languages {
         }
 
         @Override
-        public boolean isAnalyzed(IProject project, Path pathToImport) {
+        public boolean isAnalyzed(ICoreProject project, Path pathToImport) {
             return NodeJsDependencyHelper.isAnalyzed(project, pathToImport);
         }
     };
@@ -188,12 +189,12 @@ public class Languages {
         }
 
         @Override
-        public IAnalyzer createAnalyzer(IProject project, IAnalyzer.ProgressListener listener) {
+        public IAnalyzer createAnalyzer(ICoreProject project, IAnalyzer.ProgressListener listener) {
             return new GoAnalyzer(project, listener);
         }
 
         @Override
-        public IAnalyzer loadAnalyzer(IProject project, IAnalyzer.ProgressListener listener) {
+        public IAnalyzer loadAnalyzer(ICoreProject project, IAnalyzer.ProgressListener listener) {
             var storage = getStoragePath(project);
             return TreeSitterStateIO.load(storage)
                     .map(state -> {
@@ -254,12 +255,12 @@ public class Languages {
         }
 
         @Override
-        public IAnalyzer createAnalyzer(IProject project, IAnalyzer.ProgressListener listener) {
+        public IAnalyzer createAnalyzer(ICoreProject project, IAnalyzer.ProgressListener listener) {
             return new DisabledAnalyzer(project);
         }
 
         @Override
-        public IAnalyzer loadAnalyzer(IProject project, IAnalyzer.ProgressListener listener) {
+        public IAnalyzer loadAnalyzer(ICoreProject project, IAnalyzer.ProgressListener listener) {
             return createAnalyzer(project, listener);
         }
     };
@@ -287,12 +288,12 @@ public class Languages {
         }
 
         @Override
-        public IAnalyzer createAnalyzer(IProject project, IAnalyzer.ProgressListener listener) {
+        public IAnalyzer createAnalyzer(ICoreProject project, IAnalyzer.ProgressListener listener) {
             return new PhpAnalyzer(project, listener);
         }
 
         @Override
-        public IAnalyzer loadAnalyzer(IProject project, IAnalyzer.ProgressListener listener) {
+        public IAnalyzer loadAnalyzer(ICoreProject project, IAnalyzer.ProgressListener listener) {
             var storage = getStoragePath(project);
             return TreeSitterStateIO.load(storage)
                     .map(state -> {
@@ -325,7 +326,7 @@ public class Languages {
 
         // TODO: Refine isAnalyzed for PHP (e.g. vendor directory)
         @Override
-        public boolean isAnalyzed(IProject project, Path pathToImport) {
+        public boolean isAnalyzed(ICoreProject project, Path pathToImport) {
             assert pathToImport.isAbsolute() : "Path must be absolute for isAnalyzed check: " + pathToImport;
             Path projectRoot = project.getRoot();
             Path normalizedPathToImport = pathToImport.normalize();
@@ -363,17 +364,17 @@ public class Languages {
         }
 
         @Override
-        public IAnalyzer createAnalyzer(IProject project, IAnalyzer.ProgressListener listener) {
+        public IAnalyzer createAnalyzer(ICoreProject project, IAnalyzer.ProgressListener listener) {
             return new SqlAnalyzer(project);
         }
 
         @Override
-        public IAnalyzer loadAnalyzer(IProject project, IAnalyzer.ProgressListener listener) {
+        public IAnalyzer loadAnalyzer(ICoreProject project, IAnalyzer.ProgressListener listener) {
             // SQLAnalyzer does not save/load state from disk beyond re-parsing
             return createAnalyzer(project, listener);
         }
     };
-    public static final Language TYPESCRIPT = new Language() {
+    public static final Language TYPESCRIPT = new DependencyImportable() {
         private final Set<String> extensions =
                 Set.of("ts", "tsx"); // Including tsx for now, can be split later if needed
 
@@ -393,12 +394,12 @@ public class Languages {
         }
 
         @Override
-        public IAnalyzer createAnalyzer(IProject project, IAnalyzer.ProgressListener listener) {
+        public IAnalyzer createAnalyzer(ICoreProject project, IAnalyzer.ProgressListener listener) {
             return new TypescriptAnalyzer(project, listener);
         }
 
         @Override
-        public IAnalyzer loadAnalyzer(IProject project, IAnalyzer.ProgressListener listener) {
+        public IAnalyzer loadAnalyzer(ICoreProject project, IAnalyzer.ProgressListener listener) {
             var storage = getStoragePath(project);
             return TreeSitterStateIO.load(storage)
                     .map(state -> {
@@ -428,7 +429,7 @@ public class Languages {
                         "\\bfrom\\s+.*\\{.*$ident.*\\}" // named imports
                         );
             }
-            return Language.super.getSearchPatterns(type);
+            return DependencyImportable.super.getSearchPatterns(type);
         }
 
         @Override
@@ -437,12 +438,12 @@ public class Languages {
         }
 
         @Override
-        public List<Path> getDependencyCandidates(IProject project) {
+        public List<Path> getDependencyCandidates(ICoreProject project) {
             return NodeJsDependencyHelper.getDependencyCandidates(project);
         }
 
         @Override
-        public List<Language.DependencyCandidate> listDependencyPackages(IProject project) {
+        public List<Language.DependencyCandidate> listDependencyPackages(ICoreProject project) {
             return NodeJsDependencyHelper.listDependencyPackages(project);
         }
 
@@ -460,7 +461,7 @@ public class Languages {
         }
 
         @Override
-        public boolean isAnalyzed(IProject project, Path pathToImport) {
+        public boolean isAnalyzed(ICoreProject project, Path pathToImport) {
             return NodeJsDependencyHelper.isAnalyzed(project, pathToImport);
         }
     };
@@ -507,7 +508,7 @@ public class Languages {
      * Uses tracked files if it's a git repo, otherwise scans all project files.
      */
     @Blocking
-    public static List<Language> findLanguagesInProject(IProject project) {
+    public static List<Language> findLanguagesInProject(ICoreProject project) {
         Set<Language> langs = new HashSet<>();
         Set<ProjectFile> filesToScan = project.hasGit() ? project.getRepo().getTrackedFiles() : project.getAllFiles();
         for (var pf : filesToScan) {

@@ -1,5 +1,6 @@
 package ai.brokk.analyzer;
 
+import ai.brokk.project.ICoreProject;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.dependencies.DependenciesPanel;
 import ai.brokk.project.IProject;
@@ -17,7 +18,7 @@ import java.util.zip.ZipFile;
 import javax.swing.SwingUtilities;
 import org.jetbrains.annotations.Nullable;
 
-public class JavaLanguage implements JvmLanguage {
+public class JavaLanguage implements JvmLanguage, DependencyImportable {
     private final Set<String> extensions = Set.of("java");
 
     JavaLanguage() {}
@@ -43,12 +44,12 @@ public class JavaLanguage implements JvmLanguage {
     }
 
     @Override
-    public IAnalyzer createAnalyzer(IProject project, IAnalyzer.ProgressListener listener) {
+    public IAnalyzer createAnalyzer(ICoreProject project, IAnalyzer.ProgressListener listener) {
         return new JavaAnalyzer(project, listener);
     }
 
     @Override
-    public IAnalyzer loadAnalyzer(IProject project, IAnalyzer.ProgressListener listener) {
+    public IAnalyzer loadAnalyzer(ICoreProject project, IAnalyzer.ProgressListener listener) {
         var storage = getStoragePath(project);
         return TreeSitterStateIO.load(storage)
                 .map(state -> {
@@ -87,12 +88,12 @@ public class JavaLanguage implements JvmLanguage {
     }
 
     @Override
-    public List<Path> getDependencyCandidates(IProject project) {
+    public List<Path> getDependencyCandidates(ICoreProject project) {
         return LocalCacheScanner.listAllJars();
     }
 
     @Override
-    public List<DependencyCandidate> listDependencyPackages(IProject project) {
+    public List<DependencyCandidate> listDependencyPackages(ICoreProject project) {
         var jars = getDependencyCandidates(project);
         // Dedup by filename (keep first), then pretty name + count class/java entries
         var byFilename = new LinkedHashMap<String, Path>();

@@ -1,5 +1,6 @@
 package ai.brokk.analyzer;
 
+import ai.brokk.project.ICoreProject;
 import static java.util.Objects.requireNonNull;
 
 import ai.brokk.IConsoleIO;
@@ -47,7 +48,7 @@ public final class NodeJsDependencyHelper {
      * @param project The project to scan for dependencies
      * @return List of paths to dependency candidate directories
      */
-    public static List<Path> getDependencyCandidates(IProject project) {
+    public static List<Path> getDependencyCandidates(ICoreProject project) {
         logger.debug("Scanning for Node.js dependency candidates in project: {}", project.getRoot());
         var results = new ArrayList<Path>();
         Path nodeModules = project.getRoot().resolve("node_modules");
@@ -88,7 +89,7 @@ public final class NodeJsDependencyHelper {
     }
 
     /** Build a list of dependency packages with display name, kind, and file counts for ILP. */
-    public static List<Language.DependencyCandidate> listDependencyPackages(IProject project) {
+    public static List<Language.DependencyCandidate> listDependencyPackages(ICoreProject project) {
         var candidates = getDependencyCandidates(project);
         var pkgs = new ArrayList<Language.DependencyCandidate>();
 
@@ -218,7 +219,7 @@ public final class NodeJsDependencyHelper {
      * @param pathToImport The absolute path to check
      * @return true if the path is considered part of the project's analyzed sources, false otherwise
      */
-    public static boolean isAnalyzed(IProject project, Path pathToImport) {
+    public static boolean isAnalyzed(ICoreProject project, Path pathToImport) {
         assert pathToImport.isAbsolute() : "Path must be absolute for isAnalyzed check: " + pathToImport;
         Path projectRoot = project.getRoot();
         Path normalizedPathToImport = pathToImport.normalize();

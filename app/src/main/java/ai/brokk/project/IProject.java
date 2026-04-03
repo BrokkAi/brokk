@@ -38,7 +38,7 @@ import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.VisibleForTesting;
 
-public interface IProject extends AutoCloseable {
+public interface IProject extends ICoreProject {
 
     default IGitRepo getRepo() {
         throw new UnsupportedOperationException();

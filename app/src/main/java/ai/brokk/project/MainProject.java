@@ -14,6 +14,7 @@ import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.concurrent.AtomicWrites;
 import ai.brokk.git.GitRepo;
+import ai.brokk.git.IGitRepo;
 import ai.brokk.git.GitRepoFactory;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.init.onboarding.GitIgnoreUtils;
@@ -1245,20 +1246,20 @@ public final class MainProject extends AbstractProject {
         invalidateAllFiles();
     }
 
-    public Optional<GitRepo.MergeMode> getLastMergeMode() {
+    public Optional<IGitRepo.MergeMode> getLastMergeMode() {
         String modeName = workspaceProps.getProperty(LAST_MERGE_MODE_KEY);
         if (modeName == null) {
             return Optional.empty();
         }
         try {
-            return Optional.of(GitRepo.MergeMode.valueOf(modeName));
+            return Optional.of(IGitRepo.MergeMode.valueOf(modeName));
         } catch (IllegalArgumentException e) {
             logger.warn("Invalid merge mode '{}' in workspace properties, ignoring.", modeName);
             return Optional.empty();
         }
     }
 
-    public void setLastMergeMode(GitRepo.MergeMode mode) {
+    public void setLastMergeMode(IGitRepo.MergeMode mode) {
         workspaceProps.setProperty(LAST_MERGE_MODE_KEY, mode.name());
         saveWorkspaceProperties();
     }

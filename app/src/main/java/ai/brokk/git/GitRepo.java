@@ -370,25 +370,8 @@ public class GitRepo implements Closeable, IGitRepo {
         }
     }
 
-    // ==================== Merge Mode Enum ====================
 
     /** Represents the different merge strategies available. */
-    public enum MergeMode {
-        MERGE_COMMIT("Merge commit"),
-        SQUASH_COMMIT("Squash and merge"),
-        REBASE_MERGE("Rebase and merge");
-
-        private final String displayName;
-
-        MergeMode(String displayName) {
-            this.displayName = displayName;
-        }
-
-        @Override
-        public String toString() {
-            return displayName;
-        }
-    }
 
     // ==================== Git Operation Status Utility Methods ====================
 
