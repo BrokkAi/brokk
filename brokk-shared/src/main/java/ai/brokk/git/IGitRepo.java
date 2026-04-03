@@ -214,7 +214,7 @@ public interface IGitRepo {
      * @return A string describing conflicts if any, or null/empty if no conflicts.
      * @throws GitAPIException if a Git error occurs during the check.
      */
-    default @Nullable String checkMergeConflicts(String worktreeBranch, String targetBranch, GitRepo.MergeMode mode)
+    default @Nullable String checkMergeConflicts(String worktreeBranch, String targetBranch, MergeMode mode)
             throws GitAPIException {
         throw new UnsupportedOperationException("checkMergeConflicts not implemented");
     }
@@ -244,7 +244,7 @@ public interface IGitRepo {
         throw new UnsupportedOperationException("rebaseMergeIntoHead not implemented");
     }
 
-    default MergeResult performMerge(String branchName, GitRepo.MergeMode mode) throws GitAPIException {
+    default MergeResult performMerge(String branchName, MergeMode mode) throws GitAPIException {
         throw new UnsupportedOperationException("performMerge not implemented");
     }
 
@@ -254,7 +254,7 @@ public interface IGitRepo {
      * local branch (alphabetically)
      *
      * @return The default branch name.
-     * @throws GitRepo.NoDefaultBranchException if no default branch can be determined (e.g., in an empty repository).
+     * @throws RuntimeException if no default branch can be determined (e.g., in an empty repository).
      * @throws GitAPIException if a different error occurs while accessing Git data.
      */
     default String getDefaultBranch() throws GitAPIException {
@@ -303,4 +303,22 @@ public interface IGitRepo {
 
     /** One commit in a file’s history together with the path the file had inside that commit. */
     record FileHistoryEntry(CommitInfo commit, ProjectFile path) {}
+
+    /** Merge strategy for branch merges. */
+    enum MergeMode {
+        MERGE_COMMIT("Merge commit"),
+        SQUASH_COMMIT("Squash and merge"),
+        REBASE_MERGE("Rebase and merge");
+
+        private final String displayName;
+
+        MergeMode(String displayName) {
+            this.displayName = displayName;
+        }
+
+        @Override
+        public String toString() {
+            return displayName;
+        }
+    }
 }
