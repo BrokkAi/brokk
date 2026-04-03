@@ -9,6 +9,7 @@ pluginManagement {
 rootProject.name = "brokk"
 
 include("app")
+include("brokk-core")
 include("errorprone-checks")
 include("treesitter-provider")
 

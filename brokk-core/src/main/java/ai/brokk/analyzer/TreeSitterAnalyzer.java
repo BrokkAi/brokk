@@ -1,0 +1,4329 @@
+package ai.brokk.analyzer;
+
+import ai.brokk.analyzer.cache.AnalyzerCache;
+import ai.brokk.concurrent.ExecutorsUtil;
+import ai.brokk.project.IProject;
+import ai.brokk.util.Environment;
+import ai.brokk.util.TextCanonicalizer;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
+import com.google.common.base.Splitter;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.UncheckedIOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.FileSystemException;
+import java.nio.file.Files;
+import java.time.Instant;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.Deque;
+import java.util.EnumMap;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.NavigableSet;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.Queue;
+import java.util.SequencedSet;
+import java.util.Set;
+import java.util.TreeSet;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Consumer;
+import java.util.function.Function;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
+import org.jetbrains.annotations.Nullable;
+import org.pcollections.HashTreePMap;
+import org.pcollections.PMap;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.treesitter.*;
+
+/**
+ * Generic, language-agnostic skeleton extractor backed by Tree-sitter. Stores summarized skeletons for top-level
+ * definitions only.
+ *
+ * <p>Subclasses provide the language–specific bits: which Tree-sitter grammar, which file extensions, which query, and
+ * how to map a capture to a {@link CodeUnit}.
+ */
+public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider, TestDetectionProvider {
+
+    protected static final Logger log = LoggerFactory.getLogger(TreeSitterAnalyzer.class);
+    // Native library loading is assumed automatic by the io.github.bonede.tree_sitter library.
+
+    private volatile boolean isStale = false;
+    private final AtomicBoolean staleWarningLogged = new AtomicBoolean(false);
+
+    private void checkStale(String methodName) {
+        if (this.isStale && staleWarningLogged.compareAndSet(false, true)) {
+            log.warn("Accessing stale analyzer snapshot in {}", methodName, new IllegalStateException("Stale trace"));
+        }
+    }
+
+    // Adaptive concurrency for I/O: derived from OS file-descriptor limits with conservative headroom.
+    private static final int IO_VT_CAP = Environment.computeAdaptiveIoConcurrencyCap();
+    // Semaphore further gates simultaneous file openings to avoid EMFILE even under short bursts.
+    private static final Semaphore IO_FD_SEMAPHORE = new Semaphore(Math.max(8, IO_VT_CAP), true);
+    private static final int MAX_IO_READ_RETRIES = 6; // exponential backoff attempts for EMFILE
+
+    // Progress listeners for reporting parsing progress to UI
+    private final ProgressListener progressListener;
+
+    /**
+     * Unified transient but transferable cache for lazy computations (trees, imports, hierarchies).
+     *
+     * <p>DESIGN NOTE: This cache is transient to an analyzer snapshot but is structurally shared or
+     * transferred during {@link #update(Set)}. When an update occurs, a filtered version of this
+     * cache is passed to the new analyzer snapshot, excluding entries for changed files or
+     * CodeUnits sourced from those files.
+     *
+     * <p>For {@link ai.brokk.analyzer.cache.BidirectionalCache} instances (imports, hierarchies),
+     * only forward mappings are transferred; reverse mappings are cleared and repopulated lazily
+     * to ensure correctness after incremental changes.
+     */
+    private final AnalyzerCache cache;
+
+    // Comparator for sorting CodeUnit definitions by priority
+    private final Comparator<CodeUnit> DEFINITION_COMPARATOR = Comparator.comparingInt(
+                    (CodeUnit cu) -> firstStartByteForSelection(cu))
+            .thenComparing(cu -> cu.source().toString(), String.CASE_INSENSITIVE_ORDER)
+            .thenComparing(CodeUnit::fqName, String.CASE_INSENSITIVE_ORDER)
+            .thenComparing(cu -> cu.kind().name());
+
+    /* ephemeral instance state */
+    private final ThreadLocal<TSLanguage> threadLocalLanguage = ThreadLocal.withInitial(this::createTSLanguage);
+    private final ThreadLocal<TSParser> threadLocalParser = ThreadLocal.withInitial(() -> {
+        var parser = new TSParser();
+        if (!parser.setLanguage(getTSLanguage())) {
+            log.error("Failed to set language on TSParser");
+        }
+        return parser;
+    });
+
+    public enum QueryType {
+        DEFINITIONS,
+        IMPORTS,
+        IDENTIFIERS
+    }
+
+    private final Map<QueryType, String> querySources;
+
+    /*
+     * Per-thread cache for compiled queries. Since parsing runs on a fixed thread pool,
+     * this keeps native allocations bounded and avoids recompilation overhead.
+     */
+    private final ThreadLocal<Map<QueryType, TSQuery>> threadLocalQueries =
+            ThreadLocal.withInitial(() -> new EnumMap<>(QueryType.class));
+
+    /* Test-only hook to count query compilations. */
+    private final AtomicInteger queryCompilationCount = new AtomicInteger(0);
+
+    protected int getQueryCompilationCount() {
+        return queryCompilationCount.get();
+    }
+
+    /**
+     * Provides borrowed access to a cached compiled query for the duration of the provided function.
+     *
+     * <p>Queries are reused per thread and are scoped to the lifetime of this analyzer snapshot.
+     * Callers <b>must not</b> close the query passed to the function.
+     *
+     * @param type the type of query to access
+     * @param fn the function to execute with the cached query
+     */
+    protected final void withCachedQuery(QueryType type, Consumer<TSQuery> fn) {
+        Map<QueryType, TSQuery> cache = threadLocalQueries.get();
+        TSQuery query = cache.get(type);
+
+        if (query == null) {
+            String source = querySources.get(type);
+            if (source == null) {
+                return;
+            }
+            try {
+                query = new TSQuery(getTSLanguage(), source);
+                queryCompilationCount.incrementAndGet();
+                cache.put(type, query);
+            } catch (TSQueryException e) {
+                log.error("Failed to compile {} query: {}", type, e.getMessage(), e);
+                return;
+            }
+        }
+
+        fn.accept(query);
+    }
+
+    /**
+     * Provides borrowed access to a cached compiled query for the duration of the provided function.
+     *
+     * <p>Queries are reused per thread and are scoped to the lifetime of this analyzer snapshot.
+     * Callers <b>must not</b> close the query passed to the function.
+     *
+     * @param type the type of query to access
+     * @param fn the function to execute with the cached query
+     * @param defaultValue the default value if the query source cannot be found.
+     * @param <T> the return type of the function
+     * @return the result of the function, or {@code defaultValue} if the query source is missing
+     */
+    protected final <T> T withCachedQuery(QueryType type, Function<TSQuery, T> fn, T defaultValue) {
+        Map<QueryType, TSQuery> cache = threadLocalQueries.get();
+        TSQuery query = cache.get(type);
+
+        if (query == null) {
+            String source = querySources.get(type);
+            if (source == null) {
+                log.warn("Unable to resolve a Tree Sitter query source for {}", type.name());
+                return defaultValue;
+            }
+            query = new TSQuery(getTSLanguage(), source);
+            queryCompilationCount.incrementAndGet();
+            cache.put(type, query);
+        }
+
+        return fn.apply(query);
+    }
+
+    /**
+     * Creates a new query instance for the specified type.
+     * The caller is responsible for closing the returned query.
+     *
+     * @param type the type of query to create
+     * @return the query instance, or null if not available for the given type
+     */
+    protected @Nullable TSQuery createQuery(QueryType type) {
+        String source = querySources.get(type);
+        if (source == null) {
+            return null;
+        }
+        return new TSQuery(getTSLanguage(), source);
+    }
+
+    /**
+     * Checks if a query source is available for the given type.
+     */
+    protected boolean hasQuery(QueryType type) {
+        return querySources.containsKey(type);
+    }
+
+    // transferable snapshot of analyzer state
+    private final AnalyzerState state;
+
+    // Stage timing captured during construction
+    private final @Nullable StageTiming stageTiming;
+
+    /**
+     * Properties for a given {@link ProjectFile} for {@link TreeSitterAnalyzer}.
+     *
+     * Note: parsedTree is not persisted on disk. When loading from a saved snapshot, parsedTree will be null.
+     * This is safe and intentional; clients must not assume parsedTree is non-null.
+     *
+     * @param topLevelCodeUnits the top-level code units.
+     * @param importStatements  imports found on this file.
+     */
+    public record FileProperties(
+            SequencedSet<CodeUnit> topLevelCodeUnits,
+            List<ImportInfo> importStatements,
+            boolean containsTests,
+            List<CodeUnit> topLevelList) {
+
+        public FileProperties(
+                SequencedSet<CodeUnit> topLevelCodeUnits, List<ImportInfo> importStatements, boolean containsTests) {
+            this(topLevelCodeUnits, importStatements, containsTests, List.copyOf(topLevelCodeUnits));
+        }
+
+        public static FileProperties empty() {
+            return new FileProperties(Collections.unmodifiableSequencedSet(new LinkedHashSet<>()), List.of(), false);
+        }
+    }
+
+    /**
+     * Per-CodeUnit state: children, signatures, ranges, and AST-derived hasBody flag.
+     * <p>
+     * hasBody indicates that at least one occurrence of this CodeUnit in the analyzed sources has a non-empty body.
+     * During incremental updates and multi-file merges, hasBody is combined using logical OR so that a single
+     * definition anywhere marks the CodeUnit as having a body.
+     */
+    public record CodeUnitProperties(
+            SequencedSet<CodeUnit> children,
+            SequencedSet<String> signatures,
+            SequencedSet<Range> ranges,
+            boolean hasBody,
+            boolean isTypeAlias,
+            List<CodeUnit> childrenList,
+            List<String> signaturesList,
+            List<Range> rangesList) {
+
+        public CodeUnitProperties(
+                SequencedSet<CodeUnit> children,
+                SequencedSet<String> signatures,
+                SequencedSet<Range> ranges,
+                boolean hasBody,
+                boolean isTypeAlias) {
+            this(
+                    children,
+                    signatures,
+                    ranges,
+                    hasBody,
+                    isTypeAlias,
+                    List.copyOf(children),
+                    List.copyOf(signatures),
+                    List.copyOf(ranges));
+        }
+
+        public static CodeUnitProperties empty() {
+            return new CodeUnitProperties(
+                    Collections.unmodifiableSequencedSet(new LinkedHashSet<>()),
+                    Collections.unmodifiableSequencedSet(new LinkedHashSet<>()),
+                    Collections.unmodifiableSequencedSet(new LinkedHashSet<>()),
+                    false,
+                    false);
+        }
+    }
+
+    /**
+     * Read-only index of symbol keys with efficient prefix scan.
+     */
+    record SymbolKeyIndex(NavigableSet<String> keys) {
+
+        Iterable<String> tailFrom(String fromInclusive) {
+            return () -> keys.tailSet(fromInclusive, true).iterator();
+        }
+
+        Iterable<String> all() {
+            return keys;
+        }
+
+        int size() {
+            return keys.size();
+        }
+    }
+
+    public record AnalyzerState(
+            PMap<String, Set<CodeUnit>> symbolIndex,
+            PMap<CodeUnit, CodeUnitProperties> codeUnitState,
+            PMap<ProjectFile, FileProperties> fileState,
+            SymbolKeyIndex symbolKeyIndex,
+            long snapshotEpochNanos) {}
+
+    // Timestamp of the last successful full-project update (epoch nanos)
+    private final AtomicLong lastUpdateEpochNanos = new AtomicLong(0L);
+    // Over-approximation buffer for filesystem mtime comparisons (nanos)
+    private static final long MTIME_EPSILON_NANOS = TimeUnit.MILLISECONDS.toNanos(300);
+
+    private final IProject project;
+    private final Language language;
+
+    /**
+     * Stores information about a definition found by a query match, including associated modifier keywords and
+     * decorators.
+     * The cachedParent field is an optimization to avoid repeated getParent() calls during processing.
+     */
+    protected record DefinitionInfoRecord(
+            String primaryCaptureName,
+            String simpleName,
+            List<String> modifierKeywords,
+            List<TSNode> decoratorNodes,
+            TSNode cachedParent) {}
+
+    protected record LanguageSyntaxProfile(
+            Set<String> classLikeNodeTypes,
+            Set<String> functionLikeNodeTypes,
+            Set<String> fieldLikeNodeTypes,
+            Set<String> constructorNodeTypes,
+            Set<String> decoratorNodeTypes,
+            String importNodeType,
+            String identifierFieldName,
+            String bodyFieldName,
+            String parametersFieldName,
+            String returnTypeFieldName,
+            String typeParametersFieldName, // For generics on type aliases, classes, functions etc.
+            Map<String, SkeletonType> captureConfiguration,
+            String asyncKeywordNodeType,
+            Set<String> modifierNodeTypes) {}
+
+    /**
+     * Mutable accumulator for per-file analysis state.
+     */
+    private record FileAnalysisResult(
+            List<CodeUnit> topLevelCUs,
+            Map<CodeUnit, CodeUnitProperties> codeUnitState,
+            Map<String, Set<CodeUnit>> codeUnitsBySymbol,
+            List<ImportInfo> importStatements,
+            boolean containsTests) {}
+
+    // Public record for stage timing information exposed to external tools
+    public record StageTiming(
+            long readNanos,
+            long parseNanos,
+            long processNanos,
+            long mergeNanos,
+            long readStartNanos,
+            long readEndNanos,
+            long parseStartNanos,
+            long parseEndNanos,
+            long processStartNanos,
+            long processEndNanos,
+            long mergeStartNanos,
+            long mergeEndNanos) {}
+
+    // Timing metrics for constructor-run analysis are tracked via a local Timing record instance.
+    private record ConstructionTiming(
+            AtomicLong readStageNanos,
+            AtomicLong parseStageNanos,
+            AtomicLong processStageNanos,
+            AtomicLong mergeStageNanos,
+            AtomicLong readStageFirstStartNanos,
+            AtomicLong readStageLastEndNanos,
+            AtomicLong parseStageFirstStartNanos,
+            AtomicLong parseStageLastEndNanos,
+            AtomicLong processStageFirstStartNanos,
+            AtomicLong processStageLastEndNanos,
+            AtomicLong mergeStageFirstStartNanos,
+            AtomicLong mergeStageLastEndNanos) {
+
+        static ConstructionTiming create() {
+            return new ConstructionTiming(
+                    new AtomicLong(),
+                    new AtomicLong(),
+                    new AtomicLong(),
+                    new AtomicLong(),
+                    new AtomicLong(Long.MAX_VALUE),
+                    new AtomicLong(0L),
+                    new AtomicLong(Long.MAX_VALUE),
+                    new AtomicLong(0L),
+                    new AtomicLong(Long.MAX_VALUE),
+                    new AtomicLong(0L),
+                    new AtomicLong(Long.MAX_VALUE),
+                    new AtomicLong(0L));
+        }
+    }
+
+    /**
+     * Helper class for push-based progress reporting with debouncing.
+     * Notifies listeners when progress changes, but not more often than the debounce interval.
+     */
+    private class DebouncedProgressReporter {
+        private final int total;
+        private final String phase;
+        private final long debounceMs;
+        private final AtomicInteger completed = new AtomicInteger(0);
+        private volatile long lastReportTimeMs = 0;
+
+        DebouncedProgressReporter(int total, String phase, long debounceMs) {
+            this.total = total;
+            this.phase = phase;
+            this.debounceMs = debounceMs;
+        }
+
+        void increment() {
+            int current = completed.incrementAndGet();
+            long now = System.currentTimeMillis();
+            // Report if debounce time elapsed or if we're done
+            if (now - lastReportTimeMs >= debounceMs || current == total) {
+                lastReportTimeMs = now;
+                notifyProgressListener(current, total, phase);
+            }
+        }
+
+        void reportFinal() {
+            notifyProgressListener(total, total, phase);
+        }
+    }
+
+    private void notifyProgressListener(int completed, int total, String phase) {
+        try {
+            progressListener.onProgress(completed, total, phase);
+        } catch (Exception e) {
+            log.warn("Progress listener threw exception", e);
+        }
+    }
+
+    // ---------- constructor ----------
+    protected TreeSitterAnalyzer(IProject project, Language language) {
+        this(project, language, ProgressListener.NOOP);
+    }
+
+    protected TreeSitterAnalyzer(IProject project, Language language, ProgressListener listener) {
+        this(project, language, listener, new AnalyzerCache());
+    }
+
+    protected TreeSitterAnalyzer(IProject project, Language language, ProgressListener listener, AnalyzerCache cache) {
+        this.project = project;
+        this.language = language;
+        // Register listener early so it receives progress during construction
+        progressListener = listener;
+        this.cache = cache;
+
+        // Initialize query sources from resources.
+        Map<QueryType, String> sources = new EnumMap<>(QueryType.class);
+        for (QueryType type : QueryType.values()) {
+            getQueryResource(type).ifPresent(path -> {
+                sources.put(type, loadResource(path));
+            });
+        }
+        this.querySources = Collections.unmodifiableMap(sources);
+
+        // Debug log using SLF4J
+        log.debug(
+                "Initializing TreeSitterAnalyzer for language: {}, query resource: {}",
+                this.language,
+                getQueryResource(QueryType.DEFINITIONS));
+
+        var validExtensions = this.language.getExtensions();
+        log.trace("Filtering project files for extensions: {}", validExtensions);
+
+        // Track processing statistics for better diagnostics
+        var totalFilesAttempted = new AtomicInteger(0);
+        var successfullyProcessed = new AtomicInteger(0);
+        var failedFiles = new AtomicInteger(0);
+
+        // Collect files to process using gitignore-filtered analyzable files
+        Set<ProjectFile> filesToProcess = project.getAnalyzableFiles(language);
+
+        var timing = ConstructionTiming.create();
+        // Local mutable maps to accumulate analysis results, then snapshotted into immutable PMaps
+        var localSymbolIndex = new ConcurrentHashMap<String, Set<CodeUnit>>();
+        var localCodeUnitState = new ConcurrentHashMap<CodeUnit, CodeUnitProperties>();
+        var localFileState = new ConcurrentHashMap<ProjectFile, FileProperties>();
+        var moduleKeyCache = Caffeine.newBuilder().maximumSize(10000).<String, CodeUnit>build();
+        List<CompletableFuture<?>> futures = new ArrayList<>();
+        int totalFiles = filesToProcess.size();
+        var progressReporter = new DebouncedProgressReporter(totalFiles, "Parsing " + language.name() + " files", 100);
+
+        // Executors: virtual threads for I/O/parsing, single-thread for ingestion
+        try (var ioExecutor = ExecutorsUtil.newVirtualThreadExecutor("ts-io-", IO_VT_CAP);
+                var parseExecutor = ExecutorsUtil.newFixedThreadExecutor(
+                        "ts-parse-", Runtime.getRuntime().availableProcessors());
+                var ingestExecutor = ExecutorsUtil.newFixedThreadExecutor(
+                        "ts-ingest-", Runtime.getRuntime().availableProcessors())) {
+            for (var pf : filesToProcess) {
+                // we do our own exception handling so LoggingFuture is not appropriate here
+                CompletableFuture<Void> future = CompletableFuture.supplyAsync(
+                                () -> {
+                                    totalFilesAttempted.incrementAndGet();
+                                    return readFileBytes(pf, timing);
+                                },
+                                ioExecutor)
+                        .thenApplyAsync(fileBytes -> analyzeFileContent(pf, fileBytes, timing), parseExecutor)
+                        .thenAcceptAsync(
+                                analysisResult -> mergeAnalysisResultIntoMaps(
+                                        pf,
+                                        analysisResult,
+                                        timing,
+                                        localSymbolIndex,
+                                        localCodeUnitState,
+                                        localFileState,
+                                        moduleKeyCache),
+                                ingestExecutor)
+                        .whenComplete((ignored, ex) -> {
+                            progressReporter.increment();
+                            if (ex == null) {
+                                successfullyProcessed.incrementAndGet();
+                            } else {
+                                failedFiles.incrementAndGet();
+                                Throwable cause = (ex instanceof CompletionException ce && ce.getCause() != null)
+                                        ? ce.getCause()
+                                        : ex;
+
+                                if (cause instanceof UncheckedIOException uioe) {
+                                    var ioe = uioe.getCause();
+                                    log.warn(
+                                            "IO error analyzing {}: {}",
+                                            pf,
+                                            ioe != null ? ioe.getMessage() : uioe.getMessage());
+                                } else if (cause instanceof RuntimeException re) {
+                                    log.error("Runtime error analyzing {}: {}", pf, re.getMessage(), re);
+                                } else {
+                                    log.warn("Error analyzing {}: {}", pf, cause.getMessage(), cause);
+                                }
+                            }
+                        })
+                        .exceptionally(ex -> null); // exceptions have been logged already, don't re-throw
+
+                futures.add(future);
+            }
+
+            // Wait for all work to complete
+            CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+
+            // Final progress update (ensures 100% is always reported)
+            progressReporter.reportFinal();
+        }
+
+        // Build immutable snapshot state from accumulated maps
+        var snapshotInstant = Instant.now();
+        long snapshotNanos = snapshotInstant.getEpochSecond() * 1_000_000_000L + snapshotInstant.getNano();
+
+        // Precompute a read-only navigable index of symbol keys for efficient prefix scans
+        var keySet = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+        keySet.addAll(localSymbolIndex.keySet());
+        var symbolKeyIndex = new SymbolKeyIndex(Collections.unmodifiableNavigableSet(keySet));
+
+        // Convert local mutable Sets to immutable Sets before wrapping in PMap
+        var immutableSymbolIndex = new HashMap<String, Set<CodeUnit>>();
+        localSymbolIndex.forEach((key, value) -> immutableSymbolIndex.put(key, Collections.unmodifiableSet(value)));
+
+        // Log summary of file processing results
+        int totalAttempted = totalFilesAttempted.get();
+        int successful = successfullyProcessed.get();
+        int failed = failedFiles.get();
+
+        if (failed > 0) {
+            log.warn(
+                    "File processing summary: {} attempted, {} successful, {} failed",
+                    totalAttempted,
+                    successful,
+                    failed);
+        } else {
+            log.info("File processing summary: {} files processed successfully", successful);
+        }
+
+        // Wall-clock timings per stage (coverage windows; stages overlap)
+        long readWall = wallDuration(timing.readStageFirstStartNanos(), timing.readStageLastEndNanos());
+        long parseWall = wallDuration(timing.parseStageFirstStartNanos(), timing.parseStageLastEndNanos());
+        long processWall = wallDuration(timing.processStageFirstStartNanos(), timing.processStageLastEndNanos());
+        long mergeWall = wallDuration(timing.mergeStageFirstStartNanos(), timing.mergeStageLastEndNanos());
+
+        // Total wall clock derived from stage coverage: min(firstStart) .. max(lastEnd)
+        long totalStart = Math.min(
+                Math.min(
+                        timing.readStageFirstStartNanos().get(),
+                        timing.parseStageFirstStartNanos().get()),
+                Math.min(
+                        timing.processStageFirstStartNanos().get(),
+                        timing.mergeStageFirstStartNanos().get()));
+        long totalEnd = Math.max(
+                Math.max(
+                        timing.readStageLastEndNanos().get(),
+                        timing.parseStageLastEndNanos().get()),
+                Math.max(
+                        timing.processStageLastEndNanos().get(),
+                        timing.mergeStageLastEndNanos().get()));
+        long totalWall =
+                (totalStart == Long.MAX_VALUE || totalEnd == 0L || totalEnd < totalStart) ? 0L : totalEnd - totalStart;
+
+        // Capture timing for external tools (e.g., TreeSitterRepoRunner)
+        this.stageTiming = new StageTiming(
+                timing.readStageNanos().get(),
+                timing.parseStageNanos().get(),
+                timing.processStageNanos().get(),
+                timing.mergeStageNanos().get(),
+                timing.readStageFirstStartNanos().get(),
+                timing.readStageLastEndNanos().get(),
+                timing.parseStageFirstStartNanos().get(),
+                timing.parseStageLastEndNanos().get(),
+                timing.processStageFirstStartNanos().get(),
+                timing.processStageLastEndNanos().get(),
+                timing.mergeStageFirstStartNanos().get(),
+                timing.mergeStageLastEndNanos().get());
+
+        log.debug(
+                "[{}] Stage timing (wall clock coverage; stages overlap): Read Files={}, Parse Files={}, Process Files={}, Merge Results={}, Total={}",
+                language.name(),
+                formatSecondsMillis(readWall),
+                formatSecondsMillis(parseWall),
+                formatSecondsMillis(processWall),
+                formatSecondsMillis(mergeWall),
+                formatSecondsMillis(totalWall));
+
+        this.state = new AnalyzerState(
+                HashTreePMap.from(immutableSymbolIndex),
+                HashTreePMap.from(localCodeUnitState),
+                HashTreePMap.from(localFileState),
+                symbolKeyIndex,
+                snapshotNanos);
+
+        log.debug(
+                "[{}] TreeSitter analysis complete - codeUnits: {}, files: {}",
+                language.name(),
+                state.codeUnitState().size(),
+                state.fileState().size());
+
+        // Record time of initial analysis to support mtime-based incremental updates (nanos precision)
+        var initInstant = Instant.now();
+        long initNowNanos = initInstant.getEpochSecond() * 1_000_000_000L + initInstant.getNano();
+        lastUpdateEpochNanos.set(initNowNanos);
+    }
+
+    protected TreeSitterAnalyzer(IProject project, Language language, AnalyzerState prebuiltState) {
+        this(project, language, prebuiltState, ProgressListener.NOOP, null);
+    }
+
+    protected final ProgressListener getProgressListener() {
+        return this.progressListener;
+    }
+
+    protected final AnalyzerCache getCache() {
+        return this.cache;
+    }
+
+    /**
+     * Secondary constructor for snapshot instances: does not perform initial project-wide analysis,
+     * but installs the provided prebuilt AnalyzerState as-is.
+     *
+     * Note: When constructed from a prebuilt state loaded from disk, all FileProperties.parsedTree
+     * references will be null (parsed trees are not persisted). This is safe; logic must not rely
+     * on parsedTree being non-null after load.
+     */
+    protected TreeSitterAnalyzer(
+            IProject project, Language language, AnalyzerState prebuiltState, ProgressListener listener) {
+        this(project, language, prebuiltState, listener, null);
+    }
+
+    /**
+     * Internal implementation for snapshot instances that supports an optional pre-populated cache.
+     */
+    protected TreeSitterAnalyzer(
+            IProject project,
+            Language language,
+            AnalyzerState prebuiltState,
+            ProgressListener listener,
+            @Nullable AnalyzerCache prebuiltCache) {
+        this.project = project;
+        this.language = language;
+        this.progressListener = listener;
+        this.cache = prebuiltCache != null ? prebuiltCache : new AnalyzerCache();
+
+        Map<QueryType, String> sources = new EnumMap<>(QueryType.class);
+        for (QueryType type : QueryType.values()) {
+            getQueryResource(type).ifPresent(path -> {
+                sources.put(type, loadResource(path));
+            });
+        }
+        this.querySources = Collections.unmodifiableMap(sources);
+
+        this.state = prebuiltState;
+        this.stageTiming = null;
+
+        // Align last update watermark with snapshot's epoch for incremental detection semantics.
+        this.lastUpdateEpochNanos.set(prebuiltState.snapshotEpochNanos());
+        log.debug(
+                "[{}] Snapshot TreeSitterAnalyzer created - codeUnits: {}, files: {}",
+                language.name(),
+                state.codeUnitState().size(),
+                state.fileState().size());
+    }
+
+    /**
+     * A snapshot-safe way to interact with the "codeUnitState" field.
+     */
+    protected <R> R withCodeUnitProperties(Function<Map<CodeUnit, CodeUnitProperties>, R> function) {
+        var current = this.state;
+        return function.apply(current.codeUnitState());
+    }
+
+    /**
+     * A snapshot-safe way to interact with the "fileState" field.
+     */
+    public <R> R withFileProperties(Function<Map<ProjectFile, FileProperties>, R> function) {
+        var current = this.state;
+        return function.apply(current.fileState());
+    }
+
+    /* ---------- Helper methods for accessing various properties ---------- */
+
+    private CodeUnitProperties codeUnitProperties(CodeUnit codeUnit) {
+        return withCodeUnitProperties(props -> props.getOrDefault(codeUnit, CodeUnitProperties.empty()));
+    }
+
+    protected List<CodeUnit> childrenOf(CodeUnit codeUnit) {
+        return codeUnitProperties(codeUnit).childrenList();
+    }
+
+    protected List<String> signaturesOf(CodeUnit codeUnit) {
+        return codeUnitProperties(codeUnit).signaturesList();
+    }
+
+    @Override
+    public List<Range> rangesOf(CodeUnit codeUnit) {
+        return codeUnitProperties(codeUnit).rangesList();
+    }
+
+    protected List<CodeUnit> supertypesOf(CodeUnit codeUnit) {
+        return performGetDirectAncestors(codeUnit);
+    }
+
+    private FileProperties fileProperties(ProjectFile file) {
+        return withFileProperties(props -> props.getOrDefault(file, FileProperties.empty()));
+    }
+
+    /**
+     * Returns stage timing information captured during analyzer construction.
+     * @return StageTiming record containing cumulative and wall-clock durations for each stage
+     */
+    public @Nullable StageTiming getStageTiming() {
+        return stageTiming;
+    }
+
+    /**
+     * Exposes the current immutable AnalyzerState snapshot for persistence.
+     * Intended for use by Language.saveAnalyzer and other persistence hooks.
+     */
+    public AnalyzerState snapshotState() {
+        return this.state;
+    }
+
+    @Override
+    public List<CodeUnit> getTopLevelDeclarations(ProjectFile file) {
+        return fileProperties(file).topLevelList();
+    }
+
+    @Override
+    public Set<ProjectFile> getAnalyzedFiles() {
+        return Set.copyOf(this.state.fileState().keySet());
+    }
+
+    @Override
+    public boolean containsTests(ProjectFile file) {
+        return fileProperties(file).containsTests();
+    }
+
+    @Override
+    public List<String> importStatementsOf(ProjectFile file) {
+        return fileProperties(file).importStatements().stream()
+                .map(ImportInfo::rawSnippet)
+                .toList();
+    }
+
+    /**
+     * Returns the structured import information for the given file.
+     * Subclasses implementing ImportAnalysisProvider should delegate to this method.
+     */
+    public List<ImportInfo> importInfoOf(ProjectFile file) {
+        return fileProperties(file).importStatements();
+    }
+
+    /**
+     * Returns the raw import snippets that are relevant to the given CodeUnit based on type references in its source.
+     *
+     * Base implementation returns an empty set. Language-specific analyzers should override this method
+     * to provide appropriate import filtering logic for their language's import semantics.
+     *
+     * @param cu the CodeUnit to analyze
+     * @return set of raw import snippets relevant to this CodeUnit
+     */
+    public Set<String> relevantImportsFor(CodeUnit cu) {
+        // Base implementation returns empty set.
+        // Language-specific analyzers (JavaAnalyzer, PythonAnalyzer, GoAnalyzer, CppAnalyzer)
+        // override this with appropriate logic for their import semantics.
+        return Set.of();
+    }
+
+    /**
+     * Extracts the package/module name from a wildcard import statement.
+     *
+     * Base implementation returns an empty string. Language-specific analyzers should override
+     * this method to parse their language's wildcard import syntax.
+     *
+     * @param rawSnippet the raw import statement text
+     * @return the package/module name, or empty string if not applicable
+     */
+    protected String extractPackageFromWildcard(String rawSnippet) {
+        return "";
+    }
+
+    /**
+     * Extracts potential type identifiers from source code.
+     *
+     * @param source the source code to analyze
+     * @return set of potential type identifier names
+     */
+    public Set<String> extractTypeIdentifiers(String source) {
+        // Base implementation returns empty set.
+        // Languages without an override will return no identifiers,
+        // causing relevantImportsFor to include all imports as a conservative fallback.
+        return Set.of();
+    }
+
+    /**
+     * Retrieves the resolved import CodeUnits for a given file.
+     *
+     * @param file the project file
+     * @return an unmodifiable set of resolved CodeUnits from import statements
+     */
+    protected Set<CodeUnit> performImportedCodeUnitsOf(ProjectFile file) {
+        // 1. Check lazy cache first
+        Set<CodeUnit> cached = cache.imports().getForward(file);
+        if (cached != null) {
+            return cached;
+        }
+
+        // 2. Compute lazily via resolveImports and cache the result
+        return cache.imports().computeForwardIfAbsent(file, f -> {
+            Set<CodeUnit> resolved = resolveImports(f, importStatementsOf(f));
+            // Update reverse cache for BidirectionalCache manually since the populator is NO-OP
+            for (CodeUnit cu : resolved) {
+                cache.imports().updateReverse(cu.source(), existing -> {
+                    Set<ProjectFile> set = existing != null ? existing : ConcurrentHashMap.newKeySet();
+                    set.add(f);
+                    return set;
+                });
+            }
+            return resolved;
+        });
+    }
+
+    /**
+     * Returns the set of files that import the given file.
+     */
+    protected Set<ProjectFile> performReferencingFilesOf(ProjectFile file) {
+        // 1. Check lazy cache first
+        Set<ProjectFile> cached = cache.imports().getReverse(file);
+        if (cached != null && !cached.isEmpty()) {
+            return cached;
+        }
+
+        // 2. Phase 1: Filter candidates using cheap text-based matching
+        List<ProjectFile> allFiles = List.copyOf(this.state.fileState().keySet());
+        int totalFiles = allFiles.size();
+        notifyProgressListener(0, totalFiles, "Filtering import candidates");
+
+        var filterReporter = new DebouncedProgressReporter(totalFiles, "Filtering import candidates", 100);
+        List<ProjectFile> candidates = allFiles.stream()
+                .filter(f -> {
+                    boolean matches = couldImportFile(f, fileProperties(f).importStatements(), file);
+                    filterReporter.increment();
+                    return matches;
+                })
+                .toList();
+        filterReporter.reportFinal();
+
+        // 4. Phase 2: Resolve imports for candidates to populate reverse cache
+        int totalCandidates = candidates.size();
+        var resolveReporter = new DebouncedProgressReporter(totalCandidates, "Resolving candidate imports", 100);
+        for (ProjectFile f : candidates) {
+            // Calling performImportedCodeUnitsOf ensures forward imports are computed and cached,
+            // which also populates reverse cache.
+            performImportedCodeUnitsOf(f);
+            resolveReporter.increment();
+        }
+        resolveReporter.reportFinal();
+
+        // 5. Return the resolved reverse cache result.
+        Set<ProjectFile> resolved = cache.imports().getReverse(file);
+        if (resolved == null || resolved.isEmpty()) {
+            return Set.of();
+        }
+        return Collections.unmodifiableSet(new HashSet<>(resolved));
+    }
+
+    protected Set<String> typeIdentifiersOf(ProjectFile file) {
+        Set<String> cached = cache.typeIdentifiers().get(file);
+        if (cached != null) {
+            return cached;
+        }
+
+        return withSource(
+                file,
+                sc -> {
+                    Set<String> identifiers = Set.copyOf(extractTypeIdentifiers(sc.text()));
+                    cache.typeIdentifiers().put(file, identifiers);
+                    return identifiers;
+                },
+                Set.of());
+    }
+
+    /**
+     * Executes the provided function with the {@link SourceContent} for the given file.
+     * Uses the internal cache to avoid redundant reads. Exposes seedBytes as a means to give bytes if the file has
+     * already been parsed.
+     */
+    protected <R> R withSource(
+            ProjectFile file, Function<SourceContent, R> fn, R defaultValue, byte @Nullable [] seedBytes) {
+        SourceContent sc = cache.sources().get(file);
+        if (sc == null) {
+            if (Files.exists(file.absPath())) {
+                try {
+                    byte[] bytes = seedBytes == null ? readFileBytes(file, null) : seedBytes;
+                    if (bytes.length == 0) {
+                        return defaultValue;
+                    }
+                    sc = SourceContent.of(new String(TextCanonicalizer.stripUtf8Bom(bytes), StandardCharsets.UTF_8));
+                    cache.sources().put(file, sc);
+                } catch (Exception e) {
+                    log.debug("Failed to read source on-demand for {}: {}", file, e.getMessage());
+                    return defaultValue;
+                }
+            } else {
+                return defaultValue;
+            }
+        }
+        return fn.apply(sc);
+    }
+
+    /**
+     * Executes the provided function with the {@link SourceContent} for the given file.
+     * Uses the internal cache to avoid redundant reads.
+     */
+    protected <R> R withSource(ProjectFile file, Function<SourceContent, R> fn, R defaultValue) {
+        return withSource(file, fn, defaultValue, null);
+    }
+
+    /**
+     * Parses a fresh {@link TSTree} for the given file and executes the provided function.
+     * The tree is automatically closed via try-with-resources after the function returns.
+     */
+    protected <R> R withTreeOf(ProjectFile file, Function<TSTree, R> fn, R defaultValue) {
+        return withSource(
+                file,
+                sc -> {
+                    try (TSTree tree = getTSParser().parseString(null, sc.text())) {
+                        if (tree == null) {
+                            return defaultValue;
+                        }
+                        return fn.apply(tree);
+                    } catch (Exception e) {
+                        log.debug("Failed to parse tree for {}: {}", file, e.getMessage());
+                        return defaultValue;
+                    }
+                },
+                defaultValue);
+    }
+
+    // ---------- IAnalyzer ----------
+    @Override
+    public Set<Language> languages() {
+        return Set.of(language);
+    }
+
+    @Override
+    public Optional<String> getSkeletonHeader(CodeUnit cu) {
+        return Optional.of(reconstructFullSkeleton(cu, true));
+    }
+
+    @Override
+    public SequencedSet<CodeUnit> getDefinitions(String fqName) {
+        checkStale("getDefinitions");
+        String normalizedFqName = normalizeFullName(fqName);
+
+        if (normalizedFqName.contains("(")) {
+            log.warn(
+                    "getDefinitions called with signature in fqName '{}'; filter by CodeUnit.signature() after lookup instead",
+                    fqName);
+        }
+
+        Set<CodeUnit> candidates = lookupCandidatesByFqName(normalizedFqName);
+        if (candidates.isEmpty()) {
+            return new LinkedHashSet<>();
+        }
+
+        var matches = candidates.stream()
+                .filter(cu -> cu.fqName().equals(normalizedFqName))
+                .collect(Collectors.toSet());
+
+        if (matches.isEmpty()) {
+            return new LinkedHashSet<>();
+        }
+
+        return sortDefinitions(matches);
+    }
+
+    @Override
+    public Comparator<CodeUnit> priorityComparator() {
+        return prioritizingComparator().thenComparing(DEFINITION_COMPARATOR);
+    }
+
+    /**
+     * Collects candidate CodeUnits for a fully qualified name using the existing symbolIndex.
+     *
+     * <p>The keys stored in symbolIndex are derived from {@link CodeUnit#identifier()} and, when different,
+     * {@link CodeUnit#shortName()}. For classes and modules this is typically the shortName (FQN minus package),
+     * and for functions/fields it includes both the bare member name and the "Class.member" shortName.</p>
+     *
+     * <p>To stay language-agnostic, this method derives potential symbol keys from the normalized base FQN by
+     * taking the full name and each suffix after a '.' character. This matches how shortName and identifier values
+     * are constructed from {@link CodeUnit#fqName()} across analyzers.</p>
+     *
+     * @param baseName normalized FQN without any parameter signature suffix
+     * @return a set of candidate CodeUnits whose identifier/shortName could correspond to the given FQN
+     */
+    private Set<CodeUnit> lookupCandidatesByFqName(String baseName) {
+        if (baseName.isEmpty()) {
+            return Set.of();
+        }
+
+        var index = this.state.symbolIndex();
+        if (index.isEmpty()) {
+            return Set.of();
+        }
+
+        // Candidate symbol keys: the full baseName and each suffix after a '.'.
+        var candidateKeys = new HashSet<>();
+        candidateKeys.add(baseName);
+
+        int dot = baseName.indexOf('.');
+        while (dot >= 0 && dot + 1 < baseName.length()) {
+            candidateKeys.add(baseName.substring(dot + 1));
+            dot = baseName.indexOf('.', dot + 1);
+        }
+
+        return candidateKeys.stream()
+                .map(index::get)
+                .filter(Objects::nonNull)
+                .flatMap(Set::stream)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toUnmodifiableSet());
+    }
+
+    @Override
+    public List<CodeUnit> getAllDeclarations() {
+        return this.state.codeUnitState.keySet().stream().toList();
+    }
+
+    @Override
+    public Set<CodeUnit> searchDefinitions(String pattern, boolean autoQuote) {
+        // Validate pattern
+        if (pattern.isEmpty()) {
+            throw new IllegalArgumentException("Search pattern may not be empty");
+        }
+
+        // Prepare case-insensitive regex pattern with non-greedy quantifiers
+        // Extract substring filter for pre-filtering optimization (TreeSitter-specific)
+        @Nullable String substringFilter = null;
+        if (autoQuote) {
+            if (!pattern.contains(".*")) {
+                substringFilter = pattern.toLowerCase(Locale.ROOT);
+            }
+            pattern = "(?i)" + (pattern.contains(".*") ? pattern : ".*?" + Pattern.quote(pattern) + ".*?");
+        }
+
+        Pattern compiledPattern = Pattern.compile(pattern);
+        return searchDefinitionsInternal(compiledPattern, substringFilter);
+    }
+
+    @Override
+    public Set<CodeUnit> searchDefinitions(Pattern compiledPattern) {
+        return searchDefinitionsInternal(compiledPattern, null);
+    }
+
+    private Set<CodeUnit> searchDefinitionsInternal(Pattern compiledPattern, @Nullable String substringFilter) {
+        checkStale("searchDefinitionsInternal");
+        var threadLocalMatcher = ThreadLocal.withInitial(() -> compiledPattern.matcher(""));
+        return this.state.codeUnitState.keySet().parallelStream()
+                .filter(cu -> !cu.isSynthetic())
+                .filter(cu -> substringFilter == null
+                        || cu.fqName().toLowerCase(Locale.ROOT).contains(substringFilter))
+                .filter(cu -> threadLocalMatcher.get().reset(cu.fqName()).find())
+                .filter(cu -> !isAnonymousStructure(cu.fqName()))
+                .collect(Collectors.toSet());
+    }
+
+    @Override
+    public Set<CodeUnit> autocompleteDefinitions(String query) {
+        checkStale("autocompleteDefinitions");
+        if (query.isEmpty()) {
+            return Set.of();
+        }
+
+        var results = new LinkedHashSet<CodeUnit>();
+        final String lowerCaseQuery = query.toLowerCase(Locale.ROOT);
+
+        // CamelCase-style query detection (all uppercase letters, length > 1)
+        boolean isAllUpper = query.length() > 1 && query.chars().allMatch(Character::isUpperCase);
+        Pattern camelCasePattern = null;
+        if (isAllUpper) {
+            camelCasePattern = Pattern.compile(
+                    query.chars().mapToObj(c -> String.valueOf((char) c)).collect(Collectors.joining("[a-z0-9_]*")),
+                    Pattern.CASE_INSENSITIVE);
+        }
+
+        // Prefix optimization when the query looks like a simple non-hierarchical prefix
+        boolean usePrefixOptimization =
+                !containsAnyHierarchySeparator(lowerCaseQuery) && !isAllUpper && query.length() >= 2;
+
+        var current = this.state;
+
+        if (usePrefixOptimization) {
+            var keyIndex = current.symbolKeyIndex();
+            try {
+                for (String symbol : keyIndex.tailFrom(query)) {
+                    String symbolLower = symbol.toLowerCase(Locale.ROOT);
+                    if (!symbolLower.startsWith(lowerCaseQuery)) {
+                        break; // stop when the prefix no longer matches
+                    }
+                    Set<CodeUnit> cus = current.symbolIndex().get(symbol);
+                    if (cus != null) {
+                        results.addAll(cus);
+                    }
+                }
+            } catch (IllegalArgumentException e) {
+                // Defensive fallback: if tail scan fails for any reason, ignore and continue with generic scan
+                log.debug("Prefix optimization fallback for query '{}': {}", query, e.toString());
+            }
+        }
+
+        // Generic scan: accept substring or CamelCase camel-hump matches.
+        // Skip symbols already covered by the prefix optimization to avoid duplicate work.
+        Iterable<String> allKeysIterable = current.symbolKeyIndex().all();
+        for (String symbol : allKeysIterable) {
+            String symbolLower = symbol.toLowerCase(Locale.ROOT);
+
+            if (usePrefixOptimization && symbolLower.startsWith(lowerCaseQuery)) {
+                continue; // already collected by prefix scan
+            }
+
+            boolean matches = false;
+            if (symbolLower.contains(lowerCaseQuery)) {
+                matches = true;
+            } else if (isAllUpper
+                    && camelCasePattern != null
+                    && camelCasePattern.matcher(symbol).find()) {
+                matches = true;
+            }
+
+            if (matches) {
+                Set<CodeUnit> cus = current.symbolIndex().get(symbol);
+                if (cus != null) {
+                    results.addAll(cus);
+                }
+            }
+        }
+
+        // Fallback for very short queries (single letter): include any declarations with FQNs containing the query.
+        if (query.length() == 1) {
+            this.state.codeUnitState.keySet().stream()
+                    .filter(cu -> cu.fqName().toLowerCase(Locale.ROOT).contains(lowerCaseQuery))
+                    .forEach(results::add);
+        }
+
+        return results.stream()
+                .filter(Objects::nonNull)
+                .filter(cu -> !cu.isSynthetic())
+                .filter(cu -> !isAnonymousStructure(cu.fqName()))
+                .sorted(IAnalyzer.autocompleteDefinitionsSortComparator())
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+    }
+
+    /**
+     * Returns the top-level declarations organized by file. This method is primarily for testing to examine the raw
+     * declarations before they are filtered by getAllDeclarations().
+     *
+     * @return Map from ProjectFile to List of CodeUnits declared at the top level in that file
+     */
+    public Map<ProjectFile, List<CodeUnit>> getTopLevelDeclarations() {
+        final Map<ProjectFile, List<CodeUnit>> result = new HashMap<>();
+        var current = this.state;
+        current.fileState()
+                .forEach((file, fileProperties) -> result.put(file, List.copyOf(fileProperties.topLevelCodeUnits())));
+        return Map.copyOf(result);
+    }
+
+    @Override
+    public Map<CodeUnit, String> getSkeletons(ProjectFile file) {
+        checkStale("getSkeletons");
+        // Only process files relevant to this analyzer's language
+        if (!isRelevantFile(file)) {
+            return Map.of();
+        }
+
+        List<CodeUnit> topCUs = getTopLevelDeclarations(file);
+        if (topCUs.isEmpty()) return Map.of();
+
+        // Preserve deterministic iteration order
+        Map<CodeUnit, String> resultSkeletons = new LinkedHashMap<>();
+        List<CodeUnit> sortedTopCUs = new ArrayList<>(topCUs);
+        // Sort CUs: MODULE CUs (for imports) should ideally come first.
+        // This simple sort puts them first if their fqName sorts before others.
+        // A more explicit sort could check cu.isModule().
+        Collections.sort(sortedTopCUs);
+
+        for (CodeUnit cu : sortedTopCUs) {
+            resultSkeletons.put(cu, reconstructFullSkeleton(cu, false));
+        }
+        log.trace("getSkeletons: file={}, count={}", file, resultSkeletons.size());
+        return Collections.unmodifiableMap(resultSkeletons);
+    }
+
+    @Override
+    public Set<CodeUnit> getDeclarations(ProjectFile file) {
+        // Only process files relevant to this analyzer's language
+        if (!isRelevantFile(file)) {
+            return Set.of();
+        }
+
+        List<CodeUnit> topCUs = getTopLevelDeclarations(file);
+        if (topCUs.isEmpty()) return Set.of();
+
+        Set<CodeUnit> allDeclarationsInFile = new HashSet<>();
+        Queue<CodeUnit> toProcess = new ArrayDeque<>(topCUs); // Changed to ArrayDeque
+        Set<CodeUnit> visited = new HashSet<>(topCUs); // Track visited to avoid cycles and redundant processing
+
+        while (!toProcess.isEmpty()) {
+            CodeUnit current = toProcess.poll();
+            allDeclarationsInFile.add(current); // Add all encountered CodeUnits
+
+            childrenOf(current).forEach(child -> {
+                if (visited.add(child)) { // Add to queue only if not visited
+                    toProcess.add(child);
+                }
+            });
+        }
+        log.trace("getDeclarationsInFile: file={}, count={}", file, allDeclarationsInFile.size());
+        return Collections.unmodifiableSet(allDeclarationsInFile);
+    }
+
+    private String reconstructFullSkeleton(CodeUnit cu, boolean headerOnly) {
+        StringBuilder sb = new StringBuilder();
+        reconstructSkeletonRecursive(cu, "", headerOnly, sb);
+        return sb.toString().stripTrailing();
+    }
+
+    private void reconstructSkeletonRecursive(CodeUnit cu, String indent, boolean headerOnly, StringBuilder sb) {
+        final List<String> sigList = signaturesOf(cu);
+
+        if (sigList.isEmpty()) {
+            // It's possible for some CUs (e.g., a namespace CU acting only as a parent) to not have direct textual
+            // signatures.
+            // This can be legitimate if they are primarily structural and their children form the content.
+            // For such CUs, we still need to render their children, so don't return early.
+            log.trace(
+                    "No direct signatures found for CU: {}. It might be a structural-only CU. Will still render children if present.",
+                    cu);
+            // Don't return - continue to render children
+        } else {
+            // Render signatures if present
+            for (var individualFullSignature : sigList) {
+                if (individualFullSignature.isBlank()) {
+                    log.warn("Encountered null or blank signature in list for CU: {}. Skipping this signature.", cu);
+                    continue;
+                }
+                // Apply indent to each line of the current signature
+                String[] signatureLines = individualFullSignature.split("\n", -1); // Use -1 limit
+                for (var line : signatureLines) {
+                    sb.append(indent).append(line).append('\n');
+                }
+            }
+        }
+
+        final List<CodeUnit> allChildren = childrenOf(cu);
+
+        final var kids = allChildren.stream()
+                .filter(child -> !headerOnly || child.isField())
+                .toList();
+        // Only add children and class closer.
+        // Functions may have children (e.g., lambdas) but should NOT emit a closer in skeletons.
+        if (!kids.isEmpty()
+                || (cu.isClass() && !getLanguageSpecificCloser(cu).isEmpty())) { // also add closer for empty classes
+            var childIndent = indent + getLanguageSpecificIndent();
+            for (var kid : kids) {
+                reconstructSkeletonRecursive(kid, childIndent, headerOnly, sb);
+            }
+            if (headerOnly && cu.isClass()) {
+                final int nonFieldKidsSize = allChildren.size() - kids.size();
+                if (nonFieldKidsSize > 0) {
+                    sb.append(childIndent).append("[...]").append("\n");
+                }
+            }
+            if (cu.isClass()) {
+                var closer = getLanguageSpecificCloser(cu);
+                if (!closer.isEmpty()) {
+                    sb.append(indent).append(closer).append('\n');
+                }
+            }
+        }
+    }
+
+    @Override
+    public Optional<String> getSkeleton(CodeUnit cu) {
+        var skeleton = reconstructFullSkeleton(cu, false);
+        log.trace("getSkeleton: fqName='{}', found=true", cu.fqName());
+        return Optional.of(skeleton);
+    }
+
+    private static boolean containsAnyHierarchySeparator(String s) {
+        for (String sep : COMMON_HIERARCHY_SEPARATORS) {
+            if (s.contains(sep)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Assuming the fqName is an entity nested within a method, a type, or is a method itself, will return the fqName of
+     * the nearest method or type/class. This is useful with escaping lambdas to their parent method, or normalizing
+     * full names with generic type arguments.
+     *
+     * @param fqName the fqName of a code unit.
+     * @return the surrounding method or type, or the given fqName otherwise.
+     */
+    protected String normalizeFullName(String fqName) {
+        // Should be overridden by the subclasses
+        return fqName;
+    }
+
+    /**
+     * Returns a comparator for language-specific definition priority preferences.
+     * Lower values are preferred. Default comparator treats all CodeUnits equally (returns 0).
+     *
+     * Override in subclasses to provide language-specific ordering, such as preferring
+     * definitions with bodies in source files (.cpp) over declarations in headers (.h).
+     */
+    protected Comparator<CodeUnit> prioritizingComparator() {
+        return Comparator.comparingInt(cu -> 0);
+    }
+
+    /**
+     * Returns the earliest startByte among recorded ranges for deterministic ordering.
+     */
+    private int firstStartByteForSelection(CodeUnit cu) {
+        return rangesOf(cu).stream().mapToInt(Range::startByte).min().orElse(Integer.MAX_VALUE);
+    }
+
+    @Override
+    public Optional<String> getSource(CodeUnit codeUnit, boolean includeComments) {
+        checkStale("getSource");
+        var sources = getSources(codeUnit, includeComments);
+        if (sources.isEmpty()) {
+            return Optional.empty();
+        }
+        return Optional.of(String.join("\n\n", sources));
+    }
+
+    @Override
+    public Set<String> getSources(CodeUnit codeUnit, boolean includeComments) {
+        if (codeUnit.isFunction()) {
+            return getSourcesForFunction(codeUnit, includeComments);
+        }
+        if (codeUnit.isClass()) {
+            return getSourceForClass(codeUnit, includeComments).map(Set::of).orElse(Set.of());
+        }
+        return Set.of();
+    }
+
+    private Optional<String> getSourceForClass(CodeUnit cu, boolean includeComments) {
+        if (!cu.isClass()) {
+            return Optional.empty();
+        }
+
+        var ranges = rangesOf(cu);
+        if (ranges.isEmpty()) {
+            return Optional.empty();
+        }
+
+        // For classes, expect one primary definition range (already expanded with comments)
+        var range = ranges.getFirst();
+
+        var scOpt = SourceContent.read(cu.source());
+        if (scOpt.isEmpty()) {
+            return Optional.empty();
+        }
+
+        // Choose start byte based on includeComments parameter
+        int extractStartByte = includeComments ? range.commentStartByte() : range.startByte();
+        var extractedSource = scOpt.get().substringFromBytes(extractStartByte, range.endByte());
+
+        return Optional.of(extractedSource);
+    }
+
+    private Set<String> getSourcesForFunction(CodeUnit cu, boolean includeComments) {
+        if (!cu.isFunction()) {
+            return Collections.emptySet();
+        }
+
+        List<Range> rangesForOverloads = rangesOf(cu);
+        if (rangesForOverloads.isEmpty()) {
+            log.warn("No source ranges found for CU {} (fqName {}) although definition was found.", cu, cu.fqName());
+            return Collections.emptySet();
+        }
+
+        var scOpt = SourceContent.read(cu.source());
+        if (scOpt.isEmpty()) {
+            log.warn("Could not read source for CU {} (fqName {}): {}", cu, cu.fqName(), "unreadable");
+            return Collections.emptySet();
+        }
+
+        // Sort ranges by startByte to ensure they appear in source order (important for function overloads)
+        // Always sort by the actual code start byte, not the comment start byte, to maintain source order
+        var sortedRanges = rangesForOverloads.stream()
+                .sorted(Comparator.comparingInt(Range::startByte))
+                .toList();
+
+        var methodSources = new LinkedHashSet<String>();
+        for (Range range : sortedRanges) {
+            // Choose start byte based on includeComments parameter
+            int extractStartByte = includeComments ? range.commentStartByte() : range.startByte();
+            String methodSource = scOpt.get().substringFromBytes(extractStartByte, range.endByte());
+            if (!methodSource.isEmpty()) {
+                methodSources.add(methodSource);
+            } else {
+                log.warn(
+                        "Could not extract valid method source for range [{}, {}] for CU {} (fqName {}). Skipping this range.",
+                        extractStartByte,
+                        range.endByte(),
+                        cu,
+                        cu.fqName());
+            }
+        }
+        if (methodSources.isEmpty()) {
+            log.warn("After processing ranges, no valid method sources found for CU {} (fqName {}).", cu, cu.fqName());
+        }
+        return Collections.unmodifiableSequencedSet(methodSources);
+    }
+
+    @Override
+    public boolean isTypeAlias(CodeUnit cu) {
+        return withCodeUnitProperties(
+                props -> props.getOrDefault(cu, CodeUnitProperties.empty()).isTypeAlias());
+    }
+
+    /**
+     * Gets the starting line number (0-based) for the given CodeUnit for UI positioning purposes. Returns the original
+     * code definition line (not expanded with comments) for better navigation.
+     *
+     * @param codeUnit The CodeUnit to get the line number for
+     * @return The 0-based starting line number of the actual definition, or -1 if not found
+     */
+    public int getStartLineForCodeUnit(CodeUnit codeUnit) {
+        var ranges = rangesOf(codeUnit);
+        if (ranges.isEmpty()) {
+            return -1;
+        }
+        var range = ranges.getFirst();
+        return range.startLine();
+    }
+
+    /* ---------- abstract hooks ---------- */
+
+    /**
+     * Creates a new TSLanguage instance for the specific language. Called by ThreadLocal initializer.
+     */
+    protected abstract TSLanguage createTSLanguage();
+
+    /**
+     * Provides a thread-safe TSLanguage instance.
+     *
+     * @return A TSLanguage instance for the current thread.
+     */
+    protected TSLanguage getTSLanguage() {
+        return threadLocalLanguage.get();
+    }
+
+    protected TSParser getTSParser() {
+        return threadLocalParser.get();
+    }
+
+    /**
+     * Provides the language-specific syntax profile.
+     */
+    protected abstract LanguageSyntaxProfile getLanguageSyntaxProfile();
+
+    /**
+     * Class-path resource for the query (e.g. {@code "treesitter/python.scm"}).
+     */
+    protected abstract Optional<String> getQueryResource(QueryType type);
+
+    /**
+     * Defines the general type of skeleton that should be built for a given capture.
+     */
+    public enum SkeletonType {
+        CLASS_LIKE,
+        FUNCTION_LIKE,
+        FIELD_LIKE,
+        ALIAS_LIKE,
+        DECORATOR,
+        MODULE_STATEMENT, // For individual import/directive lines if treated as CUs
+        UNSUPPORTED
+    }
+
+    /**
+     * Indicates whether a scope segment represents a class-like or function-like scope.
+     * Used by analyzers that need to distinguish between class nesting and function-local definitions.
+     */
+    public enum ScopeType {
+        CLASS,
+        FUNCTION,
+        UNKNOWN
+    }
+
+    /**
+     * A segment in the enclosing scope chain with its name and type.
+     * Built during AST traversal and passed to createCodeUnit for type-safe scope handling.
+     */
+    public record ScopeSegment(String name, ScopeType scopeType) {
+        public boolean isFunctionScope() {
+            return scopeType == ScopeType.FUNCTION;
+        }
+
+        public boolean isClassScope() {
+            return scopeType == ScopeType.CLASS;
+        }
+    }
+
+    /**
+     * Determines the {@link SkeletonType} for a given capture name. This allows subclasses to map their specific query
+     * capture names (e.g., "class.definition", "method.declaration") to a general category for skeleton building.
+     *
+     * @param captureName The name of the capture from the Tree-sitter query.
+     * @return The {@link SkeletonType} indicating how to process this capture for skeleton generation.
+     */
+    protected SkeletonType getSkeletonTypeForCapture(String captureName) {
+        var profile = getLanguageSyntaxProfile();
+        return profile.captureConfiguration().getOrDefault(captureName, SkeletonType.UNSUPPORTED);
+    }
+
+    /**
+     * Refines the skeleton type for a given capture by examining the definition node.
+     * This hook allows subclasses to perform cheap, idempotent, language-specific
+     * reclassification of a captured node's SkeletonType based on AST structure.
+     *
+     * <p><strong>Default behavior:</strong> Returns {@code getSkeletonTypeForCapture(captureName)},
+     * which maps the capture name to a skeleton type without inspecting the AST structure.
+     *
+     * <p><strong>When to override:</strong> Override when your language requires reclassification
+     * that depends on AST structure rather than just the capture name (e.g., distinguishing
+     * arrow functions from regular variable declarations in TypeScript/JavaScript).
+     */
+    protected SkeletonType refineSkeletonType(
+            String captureName, TSNode definitionNode, LanguageSyntaxProfile profile) {
+        return getSkeletonTypeForCapture(captureName);
+    }
+
+    protected TSNode adjustSourceRangeNode(TSNode definitionNode, String captureName) {
+        return definitionNode;
+    }
+
+    /**
+     * Translate a capture produced by the query into a {@link CodeUnit}. Return {@code null} to ignore this capture.
+     *
+     * @param file the source file
+     * @param captureName the query capture name identifying the kind of definition
+     * @param simpleName the simple name of the symbol
+     * @param packageName the package/module name
+     * @param classChain dot-separated chain of enclosing class names
+     * @param scopeChain typed list of enclosing scopes (outermost first), never null but may be empty
+     * @param definitionNode the AST node for the definition, may be null
+     * @param skeletonType the refined skeleton type for this capture
+     */
+    @Nullable
+    protected abstract CodeUnit createCodeUnit(
+            ProjectFile file,
+            String captureName,
+            String simpleName,
+            String packageName,
+            String classChain,
+            List<ScopeSegment> scopeChain,
+            @Nullable TSNode definitionNode,
+            SkeletonType skeletonType);
+
+    // ---------- Signature Building Logic ----------
+
+    /**
+     * Hook for subclasses to enhance the FQN before CodeUnit creation.
+     * Called during analysis with access to the definition node and source code.
+     * Default implementation returns the input FQName unchanged.
+     *
+     * @param fqName         the computed FQName
+     * @param captureName    the capture name from the query
+     * @param definitionNode the AST node for this definition
+     * @param sourceContent            the source code
+     * @return enhanced FQName, or input FQName if no enhancement needed
+     */
+    protected String enhanceFqName(
+            String fqName, String captureName, TSNode definitionNode, SourceContent sourceContent) {
+        return fqName;
+    }
+
+    /**
+     * Extracts the signature string for a callable entity (function/method).
+     * Subclasses can override this to provide language-specific signature extraction.
+     *
+     * @param captureName    The capture name from the query
+     * @param definitionNode The AST node for the definition
+     * @param sourceContent  The source content wrapper for this file
+     * @return The signature string (e.g., "(int, String)"), or null if not applicable
+     */
+    protected @Nullable String extractSignature(
+            String captureName, TSNode definitionNode, SourceContent sourceContent) {
+        return null;
+    }
+
+    /**
+     * Determines the package or namespace name for a given definition.
+     *
+     * @param file           The project file being analyzed.
+     * @param definitionNode The TSNode representing the definition (e.g., class, function).
+     * @param rootNode       The root TSNode of the file's syntax tree.
+     * @param sourceContent            The source code of the file.
+     * @return The package or namespace name, or an empty string if not applicable.
+     */
+    protected abstract String determinePackageName(
+            ProjectFile file, TSNode definitionNode, TSNode rootNode, SourceContent sourceContent);
+
+    /**
+     * Checks if the given AST node represents a class-like declaration (e.g., class, interface, struct) in the specific
+     * language. Subclasses must implement this to guide class chain extraction.
+     *
+     * @param node The TSNode to check.
+     * @return true if the node is a class-like declaration, false otherwise.
+     */
+    protected boolean isClassLike(@Nullable TSNode node) {
+        if (node == null) {
+            return false;
+        }
+        return getLanguageSyntaxProfile().classLikeNodeTypes().contains(node.getType());
+    }
+
+    /**
+     * Determines if the given syntax tree contains markers (e.g., annotations, specific keywords)
+     * indicating that the file contains tests.
+     *
+     * @param tree the parsed Tree-sitter tree for the file.
+     * @return true if the file is identified as containing tests.
+     */
+    protected boolean containsTestMarkers(TSTree tree) {
+        return false;
+    }
+
+    /**
+     * Determines if the given syntax tree contains markers indicating that the file contains tests,
+     * providing access to the source content for manual filtering.
+     *
+     * @param tree the parsed Tree-sitter tree for the file.
+     * @param sourceContent the source code of the file.
+     * @return true if the file is identified as containing tests.
+     */
+    protected boolean containsTestMarkers(TSTree tree, SourceContent sourceContent) {
+        return containsTestMarkers(tree);
+    }
+
+    /**
+     * Builds the parent FQName from scope chain for parent-child relationship lookup.
+     * This overload provides type-safe access to enclosing scope information.
+     *
+     * @param scopeChain typed list of enclosing scopes (outermost first)
+     */
+    protected String buildParentFqName(CodeUnit cu, String classChain, List<ScopeSegment> scopeChain) {
+        // Default: delegate to string-based version
+        return buildParentFqName(cu, classChain);
+    }
+
+    /**
+     * Builds the parent FQName from class chain for parent-child relationship lookup. Override this
+     * method to apply language-specific FQName correction logic.
+     */
+    protected String buildParentFqName(CodeUnit cu, String classChain) {
+        return Stream.of(cu.packageName(), classChain).filter(s -> !s.isBlank()).collect(Collectors.joining("."));
+    }
+
+    /**
+     * Captures that should be ignored entirely.
+     */
+    protected Set<String> getIgnoredCaptures() {
+        return Set.of();
+    }
+
+    /**
+     * Language-specific indentation string, e.g., " " or " ".
+     */
+    protected String getLanguageSpecificIndent() {
+        return "  ";
+    } // Default
+
+    /**
+     * Checks if a node should be skipped for top-level processing.
+     * Default implementation returns false (no skipping).
+     * Language-specific analyzers can override this to filter out certain nodes.
+     */
+    protected boolean shouldSkipNode(TSNode node, String captureName, SourceContent sourceContent) {
+        return false;
+    }
+
+    /**
+     * Determines whether a duplicate CodeUnit with the same FQN should replace the existing one.
+     * Default behavior is to keep the first definition and reject duplicates.
+     *
+     * @param existing the CodeUnit already in the list
+     * @param candidate the new CodeUnit that would be a duplicate
+     * @return true if candidate should replace existing (Python "last wins"), false otherwise
+     */
+    protected boolean shouldReplaceOnDuplicate(CodeUnit existing, CodeUnit candidate) {
+        return false;
+    }
+
+    /**
+     * Determines whether decorators are wrapped in a parent node vs appearing as preceding siblings.
+     * Python wraps decorators in a decorated_definition node containing both decorators and the definition.
+     * Other languages (TypeScript, Java) have decorators as preceding sibling nodes.
+     *
+     * @return true if decorators are wrapped in a parent node, false if they precede the definition
+     */
+    protected boolean hasWrappingDecoratorNode() {
+        return false;
+    }
+
+    /**
+     * Extracts the actual definition node from a decorator-wrapping node and collects decorator text.
+     * Only called if hasWrappingDecoratorNode() returns true.
+     *
+     * @param decoratedNode     the wrapping node (e.g., Python's decorated_definition)
+     * @param outDecoratorLines list to append decorator text to
+     * @param sourceContent     source code
+     * @param profile           language syntax profile for identifying decorator and definition node types
+     * @return the unwrapped definition node
+     */
+    protected TSNode extractContentFromDecoratedNode(
+            TSNode decoratedNode,
+            List<String> outDecoratorLines,
+            SourceContent sourceContent,
+            LanguageSyntaxProfile profile) {
+        return decoratedNode; // default: no unwrapping needed
+    }
+
+    /**
+     * Determines whether export statements should be unwrapped to access the inner declaration.
+     * JavaScript/TypeScript wrap exported declarations in export_statement nodes.
+     *
+     * @return true if this language uses export statement wrappers that need unwrapping
+     */
+    protected boolean shouldUnwrapExportStatements() {
+        return false;
+    }
+
+    /**
+     * Resolved nodes used for signature generation and content extraction.
+     *
+     * @param signatureNode the node used to slice the textual signature (e.g. including 'export' keyword)
+     * @param contentNode the inner node used for body extraction and child traversal
+     */
+    protected record ResolvedNodes(TSNode signatureNode, TSNode contentNode) {}
+
+    /**
+     * Resolves the nodes to be used for signature and content processing.
+     * Allows languages to unwrap wrappers (like export statements or variable declarations).
+     *
+     * <p>Default implementation returns the input node for both signature and content.
+     *
+     * @param definitionNode the primary node captured by the query
+     * @param simpleName the simple name of the definition
+     * @param refined the refined skeleton type
+     * @param sourceContent the source content
+     * @return a record containing the signature and content nodes
+     */
+    protected ResolvedNodes resolveSignatureNodes(
+            TSNode definitionNode, String simpleName, SkeletonType refined, SourceContent sourceContent) {
+        return new ResolvedNodes(definitionNode, definitionNode);
+    }
+
+    /**
+     * Determines whether multiple signatures with the same FQN should be merged.
+     * JavaScript/TypeScript allow function overloads and prefer exported versions.
+     *
+     * @return true if signatures should be merged when FQNs match
+     */
+    protected boolean shouldMergeSignaturesForSameFqn() {
+        return false;
+    }
+
+    /**
+     * Extracts receiver type for method definitions in languages that support receivers.
+     * Examples: Go methods, Rust impl blocks, C++ member functions.
+     *
+     * @param node               the method definition node
+     * @param primaryCaptureName the primary capture name (e.g., "method.definition")
+     * @param sourceContent      source code
+     * @return the receiver type name (with leading * removed for pointers), or empty if no receiver
+     */
+    protected Optional<String> extractReceiverType(
+            TSNode node, String primaryCaptureName, SourceContent sourceContent) {
+        return Optional.empty();
+    }
+
+    /**
+     * Determines whether a duplicate CodeUnit should be ignored.
+     * Called when a CodeUnit with matching fqName already exists.
+     * Subclasses can override to implement language-specific duplicate handling.
+     *
+     * @param existing  The CodeUnit already in the list
+     * @param candidate The new CodeUnit being considered for addition
+     * @param file      The file being analyzed
+     * @return true if the candidate should be ignored (existing kept), false if candidate should be added
+     */
+    protected boolean shouldIgnoreDuplicate(CodeUnit existing, CodeUnit candidate, ProjectFile file) {
+        // Default: ignore duplicates (keep first)
+        // Subclasses can override for language-specific logic
+        return true;
+    }
+
+    /**
+     * Determines whether a duplicate is an expected/benign pattern that should only log at trace level.
+     * This is used to suppress warnings for language-specific patterns like TypeScript declaration merging.
+     *
+     * NOTE: This hook is about comparing two CodeUnit instances encountered during one parsing pass and deciding
+     * whether they are semantically equivalent for the language and therefore safe to collapse earlier than strict
+     * equality would allow. Default: no language-specific benign patterns.
+     */
+    protected boolean isBenignDuplicate(CodeUnit existing, CodeUnit candidate) {
+        // Default: no language-specific benign patterns
+        return false;
+    }
+
+    /**
+     * Adds a CodeUnit to the top-level list, applying language-specific duplicate handling.
+     * Uses shouldReplaceOnDuplicate and shouldIgnoreDuplicate hooks for language-specific behavior.
+     * <p>
+     * Definition vs Declaration (hasBody-based tie-breaker):
+     * - For function-like CodeUnits, we compute an AST-derived boolean hasBody during analysis and store it in
+     * CodeUnitProperties.
+     * - When two CodeUnits share the same fqName, a candidate with hasBody == true (a definition) is preferred over
+     * one with hasBody == false (a forward declaration). This preference applies both to top-level items and to
+     * children (see addChildCodeUnit for analogous child handling).
+     * - This decision is based solely on the hasBody boolean and does NOT inspect signature strings or any
+     * presentation placeholders.
+     * - If both candidates have the same hasBody value (both true or both false), existing duplicate/overload logic
+     * still applies (signature comparison, language-specific policies, etc.).
+     * - When a replacement occurs, we remove the old CodeUnit and all its descendants from the local maps to avoid
+     * orphaned children.
+     * <p>
+     * Presentation-only placeholders:
+     * - bodyPlaceholder() may still be appended by language analyzers when rendering skeleton text purely for UI
+     * clarity. It MUST NOT be used for semantic decisions like duplicate handling.
+     * <p>
+     * Incremental updates:
+     * - The hasBody flag is merged across snapshots using logical OR semantics so that a definition discovered in
+     * any pass/file marks the CodeUnit as having a body.
+     */
+    private void addTopLevelCodeUnit(CodeUnit cu, FileAnalysisAccumulator acc, ProjectFile file) {
+        CodeUnit existingDuplicate = acc.findTopLevelDuplicate(cu);
+
+        CodeUnit crossKindDuplicate = null;
+        if (existingDuplicate == null) {
+            crossKindDuplicate = acc.findTopLevelCrossKindDuplicate(cu);
+        }
+
+        if (existingDuplicate == null) {
+            if (crossKindDuplicate != null) {
+                if (shouldReplaceOnDuplicate(crossKindDuplicate, cu)) {
+                    log.trace(
+                            "Replacing cross-kind duplicate: existing='{}', candidate='{}'",
+                            crossKindDuplicate.fqName(),
+                            cu.fqName());
+                    acc.replaceTopLevelCodeUnit(crossKindDuplicate, cu);
+                    return;
+                }
+                if (isBenignDuplicate(crossKindDuplicate, cu)) {
+                    log.trace("Merging benign cross-kind duplicate: {}", cu.fqName());
+                    mergeCodeUnitProperties(crossKindDuplicate, cu, acc);
+                    return;
+                }
+                if (shouldIgnoreDuplicate(crossKindDuplicate, cu, file)) {
+                    log.trace("Ignoring cross-kind duplicate {} per language policy", cu.fqName());
+                    return;
+                }
+            }
+            acc.addTopLevel(cu);
+            acc.registerCodeUnit(cu);
+            return;
+        }
+
+        // preference for definitions over declarations
+        if ((cu.isFunction()
+                        && existingDuplicate.isFunction()
+                        && Objects.equals(cu.signature(), existingDuplicate.signature()))
+                || (cu.isClass() && existingDuplicate.isClass())) {
+            boolean existingHasBody = acc.getHasBody(existingDuplicate, false);
+            boolean candidateHasBody = acc.getHasBody(cu, false);
+
+            if (existingHasBody && !candidateHasBody) {
+                log.trace(
+                        "Ignoring {} declaration for {} (definition already present)",
+                        cu.kind().name().toLowerCase(Locale.ROOT),
+                        cu.fqName());
+                return;
+            } else if (candidateHasBody && !existingHasBody) {
+                log.trace("Replacing forward declaration with definition for: {}", cu.fqName());
+                acc.replaceTopLevelCodeUnit(existingDuplicate, cu);
+                return;
+            }
+        }
+
+        if (shouldReplaceOnDuplicate(existingDuplicate, cu)) {
+            log.trace(
+                    "Replacing duplicate CodeUnit: existing='{}', candidate='{}'",
+                    existingDuplicate.fqName(),
+                    cu.fqName());
+            acc.replaceTopLevelCodeUnit(existingDuplicate, cu);
+        } else if (isBenignDuplicate(existingDuplicate, cu)) {
+            mergeCodeUnitProperties(existingDuplicate, cu, acc);
+        } else if (shouldIgnoreDuplicate(existingDuplicate, cu, file)) {
+            log.trace("Ignoring duplicate {} per language policy", cu.fqName());
+        } else {
+            acc.addTopLevel(cu);
+            acc.registerCodeUnit(cu);
+        }
+    }
+
+    /**
+     * Recursively removes a CodeUnit and all its descendants from the analysis maps.
+     * Used when replacing duplicates to ensure children of the old definition don't appear in results.
+     */
+    private void mergeCodeUnitProperties(CodeUnit target, CodeUnit source, FileAnalysisAccumulator acc) {
+        if (target.equals(source)) return;
+        log.trace("Merging properties from {} into {}", source.fqName(), target.fqName());
+
+        // Transfer children
+        List<CodeUnit> sourceChildren = acc.getChildren(source);
+        if (!sourceChildren.isEmpty()) {
+            for (CodeUnit child : sourceChildren) {
+                acc.addChild(target, child);
+            }
+        }
+
+        // Transfer signatures
+        List<String> sourceSigs = acc.getSignatures(source);
+        if (!sourceSigs.isEmpty()) {
+            for (String sig : sourceSigs) {
+                acc.addSignature(target, sig);
+            }
+        }
+
+        // Transfer ranges
+        List<Range> sourceRangesMap = acc.getRanges(source);
+        if (!sourceRangesMap.isEmpty()) {
+            for (Range range : sourceRangesMap) {
+                acc.addRange(target, range);
+            }
+        }
+
+        // Transfer hasBody flag
+        if (acc.getHasBody(source, false)) {
+            acc.setHasBody(target, true);
+        }
+
+        List<String> sourceLookupKeys = acc.getLookupKeys(source);
+        for (String lookupKey : sourceLookupKeys) {
+            acc.addLookupKey(lookupKey, target);
+        }
+
+        // Detach the source children mapping so remove does not recursively delete moved nodes
+        acc.detachChildren(source);
+
+        // Purge source to avoid orphaned references or duplicate index entries
+        acc.remove(source);
+    }
+
+    /**
+     * Adds a child CodeUnit to its parent's children list.
+     * Duplicate handling is controlled by shouldReplaceOnDuplicate().
+     * Similar to addTopLevelCodeUnit but for nested elements (methods, class attributes, nested classes).
+     */
+    private void addChildCodeUnit(CodeUnit cu, @Nullable CodeUnit parentCu, FileAnalysisAccumulator acc) {
+        if (parentCu == null) {
+            addTopLevelCodeUnit(cu, acc, cu.source());
+            return;
+        }
+        CodeUnit existingDuplicate = acc.findChildDuplicate(parentCu, cu);
+
+        if (existingDuplicate == null) {
+            CodeUnit crossKindDuplicate = acc.findChildCrossKindDuplicate(parentCu, cu);
+
+            if (crossKindDuplicate != null) {
+                if (shouldReplaceOnDuplicate(crossKindDuplicate, cu)) {
+                    log.trace(
+                            "Replacing cross-kind child duplicate: existing='{}', candidate='{}'",
+                            crossKindDuplicate.fqName(),
+                            cu.fqName());
+                    acc.replaceChildCodeUnit(parentCu, crossKindDuplicate, cu);
+                    return;
+                }
+                if (isBenignDuplicate(crossKindDuplicate, cu)) {
+                    log.trace("Merging benign cross-kind child duplicate: {}", cu.fqName());
+                    mergeCodeUnitProperties(crossKindDuplicate, cu, acc);
+                    return;
+                }
+            }
+            acc.addChild(parentCu, cu);
+            acc.registerCodeUnit(cu);
+            return;
+        }
+
+        // preference for definitions over declarations
+        if ((cu.isFunction()
+                        && existingDuplicate.isFunction()
+                        && Objects.equals(cu.signature(), existingDuplicate.signature()))
+                || (cu.isClass() && existingDuplicate.isClass())) {
+            boolean existingHasBody = acc.getHasBody(existingDuplicate, false);
+            boolean candidateHasBody = acc.getHasBody(cu, false);
+
+            if (existingHasBody && !candidateHasBody) {
+                log.trace(
+                        "Skipping {} child '{}' in parent '{}' - definition already present",
+                        cu.kind().name().toLowerCase(Locale.ROOT),
+                        cu.fqName(),
+                        parentCu.fqName());
+                return;
+            } else if (candidateHasBody && !existingHasBody) {
+                log.trace("Replacing child forward declaration with definition for: {}", cu.fqName());
+                acc.replaceChildCodeUnit(parentCu, existingDuplicate, cu);
+                return;
+            }
+        }
+
+        if (shouldReplaceOnDuplicate(existingDuplicate, cu)) {
+            log.trace(
+                    "Replacing duplicate child CodeUnit: existing='{}', candidate='{}'",
+                    existingDuplicate.fqName(),
+                    cu.fqName());
+            acc.replaceChildCodeUnit(parentCu, existingDuplicate, cu);
+        } else if (isBenignDuplicate(existingDuplicate, cu)) {
+            mergeCodeUnitProperties(existingDuplicate, cu, acc);
+        } else if (shouldIgnoreDuplicate(existingDuplicate, cu, cu.source())) {
+            log.trace("Skipping duplicate child '{}' per language policy", cu.fqName());
+        } else {
+            acc.addChild(parentCu, cu);
+            acc.registerCodeUnit(cu);
+        }
+    }
+
+    /**
+     * Finds a specific declarator node matching simpleName among children of parent.
+     */
+    protected Optional<TSNode> findDeclarator(
+            TSNode parent, String simpleName, SourceContent sourceContent, String declaratorType, String nameField) {
+        for (TSNode child : parent.getChildren()) {
+            if (declaratorType.equals(child.getType())) {
+                TSNode nameNode = child.getChildByFieldName(nameField);
+                if (nameNode != null) {
+                    if (simpleName.equals(sourceContent.substringFrom(nameNode).strip())) {
+                        return Optional.of(child);
+                    }
+                }
+            }
+        }
+        return Optional.empty();
+    }
+
+    /**
+     * Builds a space-separated prefix string from nodes appearing before the target node.
+     */
+    protected String getPrefixText(
+            TSNode parent, TSNode target, SourceContent sourceContent, Set<String> acceptedNodeTypes) {
+        StringBuilder sb = new StringBuilder();
+        for (TSNode child : parent.getChildren()) {
+            if (child == null || child.getEndByte() > target.getStartByte()) break;
+            if (acceptedNodeTypes.contains(child.getType())) {
+                String text = sourceContent.substringFrom(child).strip();
+                if (!text.isEmpty()) {
+                    sb.append(text).append(" ");
+                }
+            }
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Language-specific closing token for a class or namespace (e.g., "}"). Empty if none.
+     */
+    protected abstract String getLanguageSpecificCloser(CodeUnit cu);
+
+    /**
+     * Get the project this analyzer is associated with.
+     */
+    @Override
+    public IProject getProject() {
+        return project;
+    }
+
+    private FileAnalysisResult analyzeFileContent(
+            ProjectFile file, byte[] fileBytes, @Nullable TreeSitterAnalyzer.ConstructionTiming timing) {
+        log.trace("analyzeFileContent: Parsing file: {}", file);
+        final var defaultResult = new FileAnalysisResult(List.of(), Map.of(), Map.of(), List.of(), false);
+        if (fileBytes.length == 0) {
+            log.trace("Skipping binary/empty file: {}", file);
+            return defaultResult;
+        }
+
+        SourceContent sourceContent = withSource(file, Function.identity(), SourceContent.of(""), fileBytes);
+        if (sourceContent.text().isBlank()) {
+            log.warn(
+                    "Unable to create source content from {} although it was originally non-blank. Returning empty result",
+                    file);
+            return defaultResult;
+        }
+
+        FileAnalysisAccumulator acc = new FileAnalysisAccumulator();
+        Map<CodeUnit, String> cuToCaptureName = new HashMap<>();
+        List<ImportInfo> localImportInfos = new ArrayList<>();
+
+        long __parseStart = System.nanoTime();
+        return withTreeOf(
+                file,
+                tree -> {
+                    long __parseEnd = System.nanoTime();
+                    if (timing != null) {
+                        timing.parseStageNanos().addAndGet(__parseEnd - __parseStart);
+                        timing.parseStageFirstStartNanos().accumulateAndGet(__parseStart, Math::min);
+                        timing.parseStageLastEndNanos().accumulateAndGet(__parseEnd, Math::max);
+                    }
+                    long __processStart = System.nanoTime();
+                    try {
+                        TSNode rootNode = tree.getRootNode();
+                        if (rootNode == null) {
+                            throw new RuntimeException("Failed to parse tree for " + file);
+                        }
+                        log.trace("Root node type for {}: {}", file, rootNode.getType());
+
+                        // Phase 1: Explicit Imports Pass (New Multi-Query Architecture)
+                        final String sourceText = sourceContent.text();
+                        withCachedQuery(
+                                QueryType.IMPORTS,
+                                importsQuery -> {
+                                    try (TSQueryCursor cursor = new TSQueryCursor()) {
+                                        cursor.exec(importsQuery, rootNode, sourceText);
+                                        TSQueryMatch match = new TSQueryMatch();
+                                        while (cursor.nextMatch(match)) {
+                                            Map<String, TSNode> capturedNodesForMatch = new HashMap<>();
+                                            for (TSQueryCapture capture : match.getCaptures()) {
+                                                String captureName =
+                                                        importsQuery.getCaptureNameForId(capture.getIndex());
+                                                TSNode node = capture.getNode();
+                                                if (node != null) {
+                                                    capturedNodesForMatch.putIfAbsent(captureName, node);
+                                                }
+                                            }
+                                            extractImports(capturedNodesForMatch, sourceContent, localImportInfos);
+                                        }
+                                    }
+                                    return true;
+                                },
+                                false);
+
+                        // Phase 2: Definitions Pass (Includes legacy imports pass if QueryType.IMPORTS is missing)
+                        List<Map.Entry<TSNode, DefinitionInfoRecord>> declarationNodes =
+                                collectDefinitions(rootNode, sourceContent, localImportInfos, file);
+
+                        List<Map.Entry<TSNode, DefinitionInfoRecord>> sortedDeclarationEntries =
+                                declarationNodes.stream()
+                                        .sorted(Comparator.comparingInt(
+                                                entry -> entry.getKey().getStartByte()))
+                                        .toList();
+
+                        for (var entry : sortedDeclarationEntries) {
+                            TSNode node = entry.getKey();
+                            DefinitionInfoRecord defInfo = entry.getValue();
+                            String primaryCaptureName = defInfo.primaryCaptureName();
+                            String simpleName = defInfo.simpleName();
+
+                            if (isClassLike(node)) {
+                                simpleName = determineClassName(node.getType(), simpleName);
+                            }
+
+                            if (simpleName.isBlank()) {
+                                log.warn(
+                                        "Simple name was null/blank for node type {} (capture: {}) in file {}. Skipping.",
+                                        node.getType(),
+                                        primaryCaptureName,
+                                        file);
+                                continue;
+                            }
+
+                            log.trace(
+                                    "Processing definition: Name='{}', Capture='{}', Node Type='{}'",
+                                    simpleName,
+                                    primaryCaptureName,
+                                    node.getType());
+
+                            SkeletonType skeletonType =
+                                    refineSkeletonType(primaryCaptureName, node, getLanguageSyntaxProfile());
+                            String packageName = determinePackageName(file, node, rootNode, sourceContent);
+                            List<ScopeSegment> scopeChain = buildScopeChain(node, rootNode, sourceContent);
+                            String classChain = buildClassChain(node, rootNode, sourceContent);
+
+                            Optional<String> receiverType =
+                                    extractReceiverType(node, primaryCaptureName, sourceContent);
+                            if (receiverType.isPresent()) {
+                                String receiverTypeText = receiverType.get();
+                                simpleName = receiverTypeText + "." + simpleName;
+                                classChain = receiverTypeText;
+                                scopeChain = List.of(new ScopeSegment(receiverTypeText, ScopeType.CLASS));
+                                log.trace(
+                                        "Adjusted method with receiver: simpleName='{}', classChain='{}'",
+                                        simpleName,
+                                        classChain);
+                            }
+
+                            if (shouldSkipNode(node, primaryCaptureName, sourceContent)) {
+                                log.trace(
+                                        "Skipping node {} ({}) in file {} due to language-specific filtering",
+                                        simpleName,
+                                        primaryCaptureName,
+                                        file.getFileName());
+                                continue;
+                            }
+
+                            CodeUnit cu = createCodeUnit(
+                                    file,
+                                    primaryCaptureName,
+                                    simpleName,
+                                    packageName,
+                                    classChain,
+                                    scopeChain,
+                                    node,
+                                    skeletonType);
+                            if (cu == null) {
+                                log.trace(
+                                        "createCodeUnit returned null for node {} ({}) in file {}",
+                                        simpleName,
+                                        primaryCaptureName,
+                                        file.getFileName());
+                                continue;
+                            }
+
+                            String enhancedFqName = enhanceFqName(cu.fqName(), primaryCaptureName, node, sourceContent);
+                            @Nullable
+                            String codeUnitSignature = extractSignature(primaryCaptureName, node, sourceContent);
+
+                            String cuLookupKey = (codeUnitSignature != null)
+                                    ? enhancedFqName + "(" + codeUnitSignature + ")@" + node.getStartByte()
+                                    : enhancedFqName;
+
+                            CodeUnit existingCUforKeyLookup = acc.getByFqName(cuLookupKey);
+                            if (existingCUforKeyLookup != null
+                                    && cu.isFunction()
+                                    && existingCUforKeyLookup.isFunction()) {
+                                cu = existingCUforKeyLookup;
+                            }
+
+                            if (!enhancedFqName.equals(cu.fqName())
+                                    || !Objects.equals(codeUnitSignature, cu.signature())) {
+                                String enhancedShortName = enhancedFqName;
+                                if (!cu.packageName().isEmpty() && enhancedFqName.startsWith(cu.packageName() + ".")) {
+                                    enhancedShortName = enhancedFqName.substring(
+                                            cu.packageName().length() + 1);
+                                }
+                                cu = new CodeUnit(
+                                        cu.source(), cu.kind(), cu.packageName(), enhancedShortName, codeUnitSignature);
+                            }
+
+                            String signature = buildSignatureString(
+                                    node,
+                                    simpleName,
+                                    sourceContent,
+                                    primaryCaptureName,
+                                    defInfo.modifierKeywords(),
+                                    file);
+
+                            // Use the already-resolved content node (from signature building) for hasBody computation
+                            SkeletonType refined =
+                                    refineSkeletonType(primaryCaptureName, node, getLanguageSyntaxProfile());
+                            ResolvedNodes resolved = resolveSignatureNodes(node, simpleName, refined, sourceContent);
+                            acc.setHasBody(
+                                    cu, computeHasBody(resolved.contentNode(), primaryCaptureName, sourceContent));
+                            if (CaptureNames.TYPEALIAS_DEFINITION.equals(primaryCaptureName)) {
+                                acc.setIsTypeAlias(cu, true);
+                            }
+
+                            if (existingCUforKeyLookup != null
+                                    && !existingCUforKeyLookup.equals(cu)
+                                    && shouldMergeSignaturesForSameFqn()) {
+                                List<String> existingSignatures = acc.getSignatures(existingCUforKeyLookup);
+                                boolean newIsExported = signature.trim().startsWith("export");
+                                boolean oldIsExported = !existingSignatures.isEmpty()
+                                        && existingSignatures.get(0).trim().startsWith("export");
+
+                                if (newIsExported && !oldIsExported) {
+                                    acc.remove(existingCUforKeyLookup);
+                                } else if (!newIsExported && oldIsExported) {
+                                    continue;
+                                }
+                            }
+
+                            if (!signature.isBlank()) {
+                                acc.addSignature(cu, signature);
+                            }
+
+                            cuToCaptureName.put(cu, primaryCaptureName);
+
+                            if (shouldAttachToParent(cu, node, primaryCaptureName, classChain, scopeChain)) {
+                                CodeUnit parentCu = findParentForCodeUnit(
+                                        cu, node, primaryCaptureName, classChain, scopeChain, acc, sourceContent);
+                                if (parentCu != null) {
+                                    addChildCodeUnit(cu, parentCu, acc);
+                                } else {
+                                    addTopLevelCodeUnit(cu, acc, file);
+                                }
+                            } else {
+                                addTopLevelCodeUnit(cu, acc, file);
+                            }
+
+                            var rangeNode = adjustSourceRangeNode(node, primaryCaptureName);
+                            var finalRange = (cu.isClass() || cu.isFunction())
+                                    ? expandRangeWithComments(rangeNode, sourceContent)
+                                    : new Range(
+                                            rangeNode.getStartByte(),
+                                            rangeNode.getEndByte(),
+                                            rangeNode.getStartPoint().getRow(),
+                                            rangeNode.getEndPoint().getRow(),
+                                            rangeNode.getStartByte());
+
+                            acc.addRange(cu, finalRange);
+                            acc.addLookupKey(cuLookupKey, cu);
+                        }
+
+                        List<String> localImportStatements = localImportInfos.stream()
+                                .map(ImportInfo::rawSnippet)
+                                .toList();
+
+                        // Register modules from imports
+                        wrapModulesFromImports(file, localImportStatements, rootNode, sourceContent, acc);
+
+                        // Synthesize implicit constructors
+                        for (CodeUnit cu : List.copyOf(acc.cuByFqName().values())) {
+                            if (cu.isClass()) {
+                                List<CodeUnit> kids = acc.getChildren(cu);
+                                boolean hasExplicitConstructor = kids.stream().anyMatch(k -> {
+                                    String capture = cuToCaptureName.getOrDefault(k, "");
+                                    return isConstructor(k, cu, capture);
+                                });
+
+                                if (!hasExplicitConstructor) {
+                                    String classCaptureName = cuToCaptureName.getOrDefault(cu, "");
+                                    CodeUnit implicit = createImplicitConstructor(cu, classCaptureName);
+                                    if (implicit != null) {
+                                        acc.registerCodeUnit(implicit);
+                                        acc.setHasBody(implicit, true);
+                                        acc.addChild(cu, implicit);
+                                    }
+                                }
+                            }
+                        }
+
+                        boolean containsTests = containsTestMarkers(tree, sourceContent);
+                        Map<CodeUnit, CodeUnitProperties> localStates = acc.toCodeUnitProperties();
+
+                        long __processEnd = System.nanoTime();
+                        if (timing != null) {
+                            timing.processStageNanos().addAndGet(__processEnd - __processStart);
+                            timing.processStageFirstStartNanos().accumulateAndGet(__processStart, Math::min);
+                            timing.processStageLastEndNanos().accumulateAndGet(__processEnd, Math::max);
+                        }
+                        return new FileAnalysisResult(
+                                acc.topLevelCUs().stream().distinct().toList(),
+                                Collections.unmodifiableMap(localStates),
+                                acc.codeUnitsBySymbol().entrySet().stream()
+                                        .collect(Collectors.toMap(Map.Entry::getKey, e -> new HashSet<>(e.getValue()))),
+                                Collections.unmodifiableList(localImportInfos),
+                                containsTests);
+                    } catch (TSException | IllegalStateException | IndexOutOfBoundsException e) {
+                        log.warn("Parsing failed or produced null root node for {}", file, e);
+                        long __processEnd = System.nanoTime();
+                        if (timing != null) {
+                            timing.processStageNanos().addAndGet(__processEnd - __processStart);
+                            timing.processStageFirstStartNanos().accumulateAndGet(__processStart, Math::min);
+                            timing.processStageLastEndNanos().accumulateAndGet(__processEnd, Math::max);
+                        }
+                        return new FileAnalysisResult(List.of(), Map.of(), Map.of(), List.of(), false);
+                    } catch (Exception e) {
+                        log.warn("Parsing failed due to unknown reason {}", file);
+                        throw e;
+                    }
+                },
+                defaultResult);
+    }
+
+    private List<Map.Entry<TSNode, DefinitionInfoRecord>> collectDefinitions(
+            TSNode rootNode, SourceContent sourceContent, List<ImportInfo> localImportInfos, ProjectFile file) {
+        if (!hasQuery(QueryType.DEFINITIONS)) {
+            throw new IllegalStateException("Required DEFINITIONS query source is missing for " + language);
+        }
+
+        final String sourceText = sourceContent.text();
+        return withCachedQuery(
+                QueryType.DEFINITIONS,
+                query -> {
+                    List<Map.Entry<TSNode, DefinitionInfoRecord>> declarationNodes = new ArrayList<>();
+                    try (TSQueryCursor cursor = new TSQueryCursor()) {
+                        cursor.exec(query, rootNode, sourceText);
+
+                        TSQueryMatch match = new TSQueryMatch();
+                        while (cursor.nextMatch(match)) {
+                            Map<String, TSNode> capturedNodesForMatch = new HashMap<>();
+                            List<TSNode> modifierNodesForMatch = new ArrayList<>();
+                            List<TSNode> decoratorNodesForMatch = new ArrayList<>();
+
+                            for (TSQueryCapture capture : match.getCaptures()) {
+                                String captureName = query.getCaptureNameForId(capture.getIndex());
+                                if (getIgnoredCaptures().contains(captureName)) continue;
+
+                                TSNode node = capture.getNode();
+                                if (node != null) {
+                                    if ("keyword.modifier".equals(captureName)) {
+                                        modifierNodesForMatch.add(node);
+                                    } else if (CaptureNames.DECORATOR_DEFINITION.equals(captureName)) {
+                                        decoratorNodesForMatch.add(node);
+                                    } else {
+                                        capturedNodesForMatch.putIfAbsent(captureName, node);
+                                    }
+                                }
+                            }
+
+                            modifierNodesForMatch.sort(Comparator.comparingInt(TSNode::getStartByte));
+                            List<String> sortedModifierStrings = modifierNodesForMatch.stream()
+                                    .map(modNode ->
+                                            sourceContent.substringFrom(modNode).strip())
+                                    .toList();
+
+                            decoratorNodesForMatch.sort(Comparator.comparingInt(TSNode::getStartByte));
+
+                            // Backward Compatibility: Only run extractImports during definition pass
+                            // if a dedicated IMPORTS query is NOT provided.
+                            if (!hasQuery(QueryType.IMPORTS)) {
+                                extractImports(capturedNodesForMatch, sourceContent, localImportInfos);
+                            }
+
+                            for (var captureEntry : capturedNodesForMatch.entrySet()) {
+                                String captureName = captureEntry.getKey();
+                                TSNode definitionNode = captureEntry.getValue();
+
+                                if (captureName.endsWith(".definition")) {
+                                    Optional<String> simpleNameOpt = resolveSimpleName(
+                                            captureName, definitionNode, capturedNodesForMatch, sourceContent, file);
+                                    if (simpleNameOpt.isPresent()
+                                            && !simpleNameOpt.get().isBlank()) {
+                                        String simpleName = simpleNameOpt.get();
+                                        var parent = definitionNode.getParent();
+                                        if (parent != null) {
+                                            declarationNodes.add(Map.entry(
+                                                    definitionNode,
+                                                    new DefinitionInfoRecord(
+                                                            captureName,
+                                                            simpleName,
+                                                            sortedModifierStrings,
+                                                            decoratorNodesForMatch,
+                                                            parent)));
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    return declarationNodes;
+                },
+                List.of());
+    }
+
+    private Optional<String> resolveSimpleName(
+            String captureName,
+            TSNode definitionNode,
+            Map<String, TSNode> matchCaptures,
+            SourceContent sourceContent,
+            ProjectFile file) {
+        String expectedNameCapture = captureName.replace(".definition", ".name");
+        TSNode nameNode = matchCaptures.get(expectedNameCapture);
+        Optional<String> simpleName = Optional.empty();
+
+        if (CaptureNames.LAMBDA_DEFINITION.equals(captureName)) {
+            simpleName = extractSimpleName(definitionNode, sourceContent);
+        } else if (nameNode != null) {
+            String nameText = sourceContent.substringFrom(nameNode);
+            if (nameText.isBlank()
+                    && !isBlankNameAllowed(captureName, nameText, definitionNode.getType(), file.getFileName())) {
+                simpleName = extractSimpleName(definitionNode, sourceContent);
+            } else {
+                simpleName = Optional.of(nameText);
+            }
+        } else {
+            simpleName = extractSimpleName(definitionNode, sourceContent);
+        }
+        return simpleName;
+    }
+
+    protected List<ScopeSegment> buildScopeChain(TSNode node, TSNode rootNode, SourceContent sourceContent) {
+        List<ScopeSegment> enclosingScopes = new ArrayList<>();
+        var profile = getLanguageSyntaxProfile();
+        TSNode tempParent = node.getParent();
+        while (tempParent != null && !tempParent.equals(rootNode)) {
+            if (isClassLike(tempParent)) {
+                final var parent = tempParent;
+                extractSimpleName(tempParent, sourceContent).ifPresent(parentName -> {
+                    if (!parentName.isBlank()) {
+                        var nodeType = parent.getType();
+                        var scopeType = profile.functionLikeNodeTypes().contains(nodeType)
+                                ? ScopeType.FUNCTION
+                                : profile.classLikeNodeTypes().contains(nodeType) ? ScopeType.CLASS : ScopeType.UNKNOWN;
+                        enclosingScopes.addFirst(new ScopeSegment(parentName, scopeType));
+                    }
+                });
+            }
+            tempParent = tempParent.getParent();
+        }
+        return enclosingScopes;
+    }
+
+    protected String buildClassChain(TSNode node, TSNode rootNode, SourceContent sourceContent) {
+        Deque<String> segments = new ArrayDeque<>();
+        TSNode current = node.getParent();
+        while (current != null && !current.equals(rootNode)) {
+            if (isClassLike(current)) {
+                final TSNode parent = current;
+                extractSimpleName(parent, sourceContent).ifPresent(name -> {
+                    if (!name.isBlank()) {
+                        segments.addFirst(determineClassChainSegmentName(parent.getType(), name));
+                    }
+                });
+            }
+            current = current.getParent();
+        }
+        return String.join(".", segments);
+    }
+
+    /**
+     * Computes whether the given node (already resolved/unwrapped for content) has a body.
+     *
+     * @param nodeForBody    the resolved content node (e.g. variable_declarator or function_declaration)
+     * @param captureName    the primary capture name
+     * @param sourceContent  the source content
+     */
+    protected boolean computeHasBody(TSNode nodeForBody, String captureName, SourceContent sourceContent) {
+        SkeletonType primarySkeletonType = getSkeletonTypeForCapture(captureName);
+        // Field-likes (variables) can have initializers which are treated as "bodies" for content purposes.
+        if (primarySkeletonType != SkeletonType.FUNCTION_LIKE
+                && primarySkeletonType != SkeletonType.CLASS_LIKE
+                && primarySkeletonType != SkeletonType.FIELD_LIKE) {
+            return false;
+        }
+
+        var langProfile = getLanguageSyntaxProfile();
+
+        if (hasWrappingDecoratorNode()) {
+            nodeForBody = extractContentFromDecoratedNode(nodeForBody, new ArrayList<>(), sourceContent, langProfile);
+        }
+
+        TSNode bodyNodeCandidate = nodeForBody.getChildByFieldName(langProfile.bodyFieldName());
+        return bodyNodeCandidate != null && bodyNodeCandidate.getEndByte() > bodyNodeCandidate.getStartByte();
+    }
+
+    protected boolean shouldAttachToParent(
+            CodeUnit cu, TSNode node, String captureName, String classChain, List<ScopeSegment> scopeChain) {
+        return !classChain.isEmpty();
+    }
+
+    protected @Nullable CodeUnit findParentForCodeUnit(
+            CodeUnit cu,
+            TSNode node,
+            String captureName,
+            String classChain,
+            List<ScopeSegment> scopeChain,
+            FileAnalysisAccumulator acc,
+            SourceContent sourceContent) {
+        String parentFqName = buildParentFqName(cu, classChain, scopeChain);
+        return acc.getByFqName(parentFqName);
+    }
+
+    private void wrapModulesFromImports(
+            ProjectFile file,
+            List<String> localImportStatements,
+            TSNode rootNode,
+            SourceContent sourceContent,
+            FileAnalysisAccumulator acc) {
+        createModulesFromImports(
+                file,
+                localImportStatements,
+                rootNode,
+                determinePackageName(file, rootNode, rootNode, sourceContent),
+                acc);
+    }
+
+    /**
+     * Useful for languages that separate the concept of instance and singleton classes that have the same names in
+     * source code, but are identified by some suffix or other transformation on a lower level, e.g., Kotlin, Scala, Ruby.
+     */
+    protected String determineClassName(@Nullable String captureName, String shortName) {
+        return shortName;
+    }
+
+    /**
+     * Determines how a parent node's name should appear in the classChain.
+     * By default, delegates to determineClassName, but can be overridden to add type markers
+     * (e.g., Python adds ":F" for functions to distinguish them from classes in the chain).
+     */
+    protected String determineClassChainSegmentName(@Nullable String nodeType, String shortName) {
+        return determineClassName(nodeType, shortName);
+    }
+
+    /**
+     * Returns raw supertype names (extends/implements) for a class-like entity, computing them lazily if necessary.
+     */
+    protected List<String> getRawSupertypesLazily(@Nullable CodeUnit cu) {
+        if (cu == null) return List.of();
+        if (!cu.isClass()) {
+            return List.of();
+        }
+
+        List<String> cached = cache.rawSupertypes().get(cu);
+        if (cached != null) {
+            return cached;
+        }
+
+        return withTreeOf(
+                cu.source(),
+                tree -> withSource(
+                        cu.source(),
+                        sc -> {
+                            List<Range> ranges = rangesOf(cu);
+                            if (ranges.isEmpty()) {
+                                return List.of();
+                            }
+
+                            Range primary = ranges.getFirst();
+                            TSNode root = tree.getRootNode();
+                            if (root == null) return List.of();
+
+                            TSNode node = root.getDescendantForByteRange(primary.startByte(), primary.endByte());
+                            if (node == null) {
+                                return List.of();
+                            }
+
+                            List<String> extracted = extractRawSupertypesForClassLike(
+                                    cu, node, cu.signature() != null ? cu.signature() : "", sc);
+                            cache.rawSupertypes().put(cu, extracted);
+                            return extracted;
+                        },
+                        List.of()),
+                List.of());
+    }
+
+    /**
+     * Hook to extract raw supertype names (extends/implements) for a class-like node.
+     * Default implementation returns an empty list. Language analyzers (e.g., JavaAnalyzer)
+     * should override this to return ordered raw type names as they appear in source.
+     *
+     * The returned names should be raw textual representations (possibly including generics)
+     * and will be resolved later in runTypeAnalysis via imports and global search.
+     *
+     * @param cu           the CodeUnit representing the class-like declaration
+     * @param classNode    the TSNode for the class/interface/enum/record declaration
+     * @param signature    the rendered signature text (first line typically), if useful
+     * @param sourceContent the source code
+     * @return ordered list of raw supertypes; empty if none or not applicable
+     */
+    protected List<String> extractRawSupertypesForClassLike(
+            CodeUnit cu, TSNode classNode, String signature, SourceContent sourceContent) {
+        // Default: languages that need inheritance extraction should override this.
+        return List.of();
+    }
+
+    /**
+     * Useful for languages that have a module system, e.g., dynamic languages, to declare MODULE code units with.
+     * Operates on the mutable FileAnalysisAccumulator to register modules and their properties.
+     */
+    protected FileAnalysisAccumulator createModulesFromImports(
+            ProjectFile file,
+            List<String> localImportStatements,
+            TSNode rootNode,
+            String modulePackageName,
+            FileAnalysisAccumulator acc) {
+        return acc;
+    }
+
+    /**
+     * Renders the opening part of a class-like structure (e.g., "public class Foo {").
+     *
+     * @param classNode     The AST node representing the class-like declaration.
+     * @param sourceContent The source code wrapper for extracting text from the class node.
+     * @param exportPrefix  The export/visibility modifier prefix (e.g., "export ", "public ").
+     * @param signatureText The signature text of the class header.
+     * @param baseIndent    The base indentation string for this line.
+     * @return The fully rendered class header line.
+     */
+    protected abstract String renderClassHeader(
+            TSNode classNode,
+            SourceContent sourceContent,
+            String exportPrefix,
+            String signatureText,
+            String baseIndent);
+
+    // ---------- Granular Signature Rendering Callbacks (Formatting) ----------
+
+    /**
+     * Formats the parameter list for a function. Subclasses may override to provide language-specific formatting using
+     * the full AST subtree. The default implementation simply returns the raw text of {@code parametersNode} extracted
+     * from the provided {@code sourceContent}.
+     *
+     * @param parametersNode The AST node representing the parameter list.
+     * @param sourceContent  The source code wrapper for extracting text.
+     * @return The formatted parameter list text, or an empty string if the node is null.
+     */
+    protected String formatParameterList(@Nullable TSNode parametersNode, SourceContent sourceContent) {
+        return parametersNode == null ? "" : sourceContent.substringFrom(parametersNode);
+    }
+
+    /**
+     * Formats the return-type portion of a function signature. Subclasses may override to provide language-specific
+     * formatting. The default implementation returns the raw text of {@code returnTypeNode} extracted from the provided
+     * {@code sourceContent}, or an empty string if the node is null.
+     *
+     * @param returnTypeNode The AST node representing the return type, or null if not applicable.
+     * @param sourceContent  The source code wrapper for extracting text.
+     * @return The formatted return type text, or an empty string if the node is null.
+     */
+    protected String formatReturnType(@Nullable TSNode returnTypeNode, SourceContent sourceContent) {
+        return returnTypeNode == null ? "" : sourceContent.substringFrom(returnTypeNode);
+    }
+
+    protected String formatHeritage(String signatureText) {
+        return signatureText;
+    }
+
+    // ---------- Granular Signature Rendering Callbacks (Assembly) ----------
+    protected String assembleFunctionSignature(
+            TSNode funcNode,
+            SourceContent sourceContent,
+            String exportPrefix,
+            String asyncPrefix,
+            String functionName,
+            String typeParamsText,
+            String paramsText,
+            String returnTypeText,
+            String indent) {
+        return renderFunctionDeclaration(
+                funcNode,
+                sourceContent,
+                exportPrefix,
+                asyncPrefix,
+                functionName,
+                typeParamsText,
+                paramsText,
+                returnTypeText,
+                indent);
+    }
+
+    protected String assembleClassSignature(
+            TSNode classNode,
+            SourceContent sourceContent,
+            String exportPrefix,
+            String classSignatureText,
+            String baseIndent) {
+        return renderClassHeader(classNode, sourceContent, exportPrefix, classSignatureText, baseIndent);
+    }
+
+    /**
+     * Formats the complete signature for a field-like declaration. Subclasses must implement this to provide
+     * language-specific formatting, including any necessary keywords, type annotations, and terminators (e.g.,
+     * semicolon).
+     *
+     * @param fieldNode      The AST node representing the field declaration.
+     * @param sourceContent  The source code wrapper for extracting or processing text.
+     * @param exportPrefix   The export/visibility modifier prefix (e.g., "export ", "public ").
+     * @param signatureText  The base signature text to format.
+     * @param baseIndent     The base indentation string for this line.
+     * @param file           The project file being analyzed.
+     * @return The fully formatted field signature line.
+     */
+    protected String formatFieldSignature(
+            TSNode fieldNode,
+            SourceContent sourceContent,
+            String exportPrefix,
+            String signatureText,
+            String simpleName,
+            String baseIndent,
+            ProjectFile file) {
+        var fullSignature = (exportPrefix.stripTrailing() + " " + signatureText.strip()).strip();
+        if (requiresSemicolons() && !fullSignature.endsWith(";")) {
+            fullSignature += ";";
+        }
+        return baseIndent + fullSignature;
+    }
+
+    /**
+     * Whether this language requires semicolons after field declarations. Override in subclasses that don't use
+     * semicolons (e.g., Python, Go).
+     */
+    protected boolean requiresSemicolons() {
+        return true;
+    }
+
+    /**
+     * Determines a visibility or export prefix (e.g., "export ", "public ") for a given node. Subclasses can override
+     * this to provide language-specific logic. The default implementation returns an empty string.
+     *
+     * @param node The node to check for visibility/export modifiers.
+     * @param sourceContent The source code.
+     * @return The visibility or export prefix string.
+     */
+    protected String getVisibilityPrefix(TSNode node, SourceContent sourceContent) {
+        return ""; // Default implementation returns an empty string
+    }
+
+    /**
+     * Builds a signature string for a given definition node. This includes any decorators and the main
+     * declaration line (e.g., class header, function signature, field declaration).
+     *
+     * <p>When the query does not capture modifier keywords (export, declare, async, etc.), this method
+     * synthesizes them using getVisibilityPrefix. It also supports language-specific structural
+     * unwrapping (export statements, variable declarators) via hooks.</p>
+     */
+    private String buildSignatureString(
+            TSNode definitionNode,
+            String simpleName,
+            SourceContent sourceContent,
+            String primaryCaptureName,
+            List<String> capturedModifierKeywords,
+            ProjectFile file) {
+
+        var signatureLines = new ArrayList<String>();
+        var profile = getLanguageSyntaxProfile();
+
+        // Recompute refined type defensively to ensure consistency with any subclass overrides.
+        var refined = refineSkeletonType(primaryCaptureName, definitionNode, profile);
+
+        ResolvedNodes resolved = resolveSignatureNodes(definitionNode, simpleName, refined, sourceContent);
+        TSNode nodeForSignature = resolved.signatureNode();
+        TSNode nodeForContent = resolved.contentNode();
+
+        // Decorators handling:
+        if (hasWrappingDecoratorNode()) {
+            nodeForContent = extractContentFromDecoratedNode(definitionNode, signatureLines, sourceContent, profile);
+        } else {
+            for (TSNode decoratorNode : getPrecedingDecorators(nodeForContent)) {
+                signatureLines.add(sourceContent.substringFrom(decoratorNode).stripLeading());
+            }
+        }
+
+        // Derive modifiers: prefer captured modifier keywords; otherwise synthesize via getVisibilityPrefix.
+        var modifierTokens = new LinkedHashSet<String>();
+        if (!capturedModifierKeywords.isEmpty()) {
+            modifierTokens.addAll(capturedModifierKeywords);
+        } else {
+            String fallback =
+                    getVisibilityPrefix(nodeForSignature, sourceContent).strip();
+            if (!fallback.isEmpty()) {
+                for (String tok :
+                        Splitter.on(Pattern.compile("\\s+")).omitEmptyStrings().split(fallback)) {
+                    modifierTokens.add(tok);
+                }
+            }
+        }
+        String exportPrefix = modifierTokens.isEmpty() ? "" : String.join(" ", modifierTokens) + " ";
+
+        switch (refined) {
+            case CLASS_LIKE: {
+                TSNode bodyNode = nodeForContent.getChildByFieldName(profile.bodyFieldName());
+                String classSignatureText;
+                if (bodyNode != null) {
+                    // If unwrapped from export, slice from original node to include any prefix text up to body.
+                    int startByte;
+                    if (!Objects.equals(nodeForSignature, nodeForContent)) {
+                        startByte = nodeForSignature.getStartByte();
+                    } else {
+                        startByte = nodeForContent.getStartByte();
+                    }
+                    int endByte = bodyNode.getStartByte();
+                    classSignatureText =
+                            sourceContent.substringFromBytes(startByte, endByte).stripTrailing();
+                } else {
+                    // No explicit body node - slice entire node
+                    int startByte;
+                    int endByte;
+                    if (!Objects.equals(nodeForSignature, nodeForContent)) {
+                        startByte = nodeForSignature.getStartByte();
+                        endByte = nodeForSignature.getEndByte();
+                    } else {
+                        startByte = nodeForContent.getStartByte();
+                        endByte = nodeForContent.getEndByte();
+                    }
+                    classSignatureText =
+                            sourceContent.substringFromBytes(startByte, endByte).stripTrailing();
+                    // Remove trailing "{" or ";" if present for cleaner header
+                    if (classSignatureText.endsWith("{")) {
+                        classSignatureText = classSignatureText
+                                .substring(0, classSignatureText.length() - 1)
+                                .stripTrailing();
+                    } else if (classSignatureText.endsWith(";")) {
+                        classSignatureText = classSignatureText
+                                .substring(0, classSignatureText.length() - 1)
+                                .stripTrailing();
+                    }
+                }
+
+                // Avoid duplicating any exportPrefix already present at the start of classSignatureText
+                var stripped = exportPrefix.strip();
+                if (!stripped.isEmpty() && classSignatureText.startsWith(stripped)) {
+                    classSignatureText =
+                            classSignatureText.substring(stripped.length()).stripLeading();
+                } else if (!exportPrefix.isEmpty() && classSignatureText.startsWith(exportPrefix)) {
+                    classSignatureText =
+                            classSignatureText.substring(exportPrefix.length()).stripLeading();
+                }
+
+                String headerLine =
+                        assembleClassSignature(nodeForContent, sourceContent, exportPrefix, classSignatureText, "");
+                if (!headerLine.isBlank()) signatureLines.add(headerLine);
+                break;
+            }
+
+            case FUNCTION_LIKE: {
+                // Extra comments derived from the function body if any.
+                TSNode bodyNode = nodeForContent.getChildByFieldName(profile.bodyFieldName());
+                if (bodyNode != null) {
+                    for (String c : getExtraFunctionComments(bodyNode, sourceContent, null)) {
+                        if (!c.isBlank()) signatureLines.add(c);
+                    }
+                }
+                buildFunctionSkeleton(
+                        nodeForContent, Optional.of(simpleName), sourceContent, "", signatureLines, exportPrefix);
+                break;
+            }
+
+            case FIELD_LIKE: {
+                String fieldText = sourceContent.substringFrom(nodeForContent).strip();
+
+                // Avoid duplicating tokens like "const" when both exportPrefix and fieldText contain them.
+                if (!exportPrefix.isBlank()) {
+                    var stripped = exportPrefix.strip();
+                    if (fieldText.startsWith(stripped)) {
+                        fieldText = fieldText.substring(stripped.length()).stripLeading();
+                    } else {
+                        // Handle partial duplication: e.g., "export const" prefix and "const ..." in fieldText
+                        var exportTokens = Splitter.on(Pattern.compile("\\s+"))
+                                .omitEmptyStrings()
+                                .splitToList(stripped);
+                        var fieldTokens = Splitter.on(Pattern.compile("\\s+"))
+                                .omitEmptyStrings()
+                                .limit(2)
+                                .splitToList(fieldText);
+                        if (!exportTokens.isEmpty() && !fieldTokens.isEmpty()) {
+                            String lastExport = exportTokens.get(exportTokens.size() - 1);
+                            String firstField = fieldTokens.get(0);
+                            if (lastExport.equals(firstField)) {
+                                fieldText =
+                                        fieldText.substring(firstField.length()).stripLeading();
+                            }
+                        }
+                    }
+                }
+
+                String line = formatFieldSignature(
+                        nodeForContent, sourceContent, exportPrefix, fieldText, simpleName, "", file);
+                if (!line.isBlank()) signatureLines.add(line);
+                break;
+            }
+
+            case ALIAS_LIKE: {
+                String aliasSig =
+                        renderAliasSignature(nodeForContent, sourceContent, exportPrefix, simpleName, profile, file);
+                if (!aliasSig.isBlank()) {
+                    signatureLines.add(aliasSig);
+                }
+                break;
+            }
+
+            case MODULE_STATEMENT: {
+                // For namespace/internal_module, keep only the first line without the body.
+                String fullText = sourceContent.substringFrom(definitionNode);
+                var lines = Splitter.on('\n').splitToList(fullText);
+                String firstLine = lines.isEmpty() ? "" : lines.getFirst().strip();
+                if (firstLine.endsWith("{")) {
+                    firstLine = firstLine.substring(0, firstLine.length() - 1).stripTrailing();
+                }
+                String moduleSig = exportPrefix + firstLine;
+                if (requiresSemicolons() && !moduleSig.endsWith(";")) {
+                    moduleSig += ";";
+                }
+                signatureLines.add(moduleSig);
+                break;
+            }
+
+            case DECORATOR:
+            case UNSUPPORTED:
+            default: {
+                // Fallback: raw text with any derived prefix
+                String raw = sourceContent.substringFrom(definitionNode).stripLeading();
+                signatureLines.add(exportPrefix + raw);
+                break;
+            }
+        }
+
+        String result = String.join("\n", signatureLines).stripTrailing();
+        log.trace(
+                "buildSignatureString: nodeType={}, name={}, capture='{}', refined={}, modifiers='{}', firstLine='{}'",
+                definitionNode.getType(),
+                simpleName,
+                primaryCaptureName,
+                refined,
+                exportPrefix.strip(),
+                result.isEmpty() ? "EMPTY" : result.lines().findFirst().orElse("EMPTY"));
+        return result;
+    }
+
+    protected void buildFunctionSkeleton(
+            TSNode funcNode,
+            Optional<String> providedNameOpt,
+            SourceContent sourceContent,
+            String indent,
+            List<String> lines,
+            String exportPrefix) {
+        var profile = getLanguageSyntaxProfile();
+        String functionName;
+        TSNode nameNode = funcNode.getChildByFieldName(profile.identifierFieldName());
+
+        if (nameNode != null) {
+            functionName = sourceContent.substringFrom(nameNode);
+        } else if (providedNameOpt.isPresent()) {
+            functionName = providedNameOpt.get();
+        } else {
+            // Try to extract name using extractSimpleName as a last resort if the specific field isn't found/helpful
+            Optional<String> extractedNameOpt = extractSimpleName(funcNode, sourceContent);
+            if (extractedNameOpt.isPresent()) {
+                functionName = extractedNameOpt.get();
+            } else {
+                String funcNodeText = sourceContent.substringFrom(funcNode);
+                log.warn(
+                        "Function node type {} has no name field '{}' and no name was provided or extracted. Raw text: {}",
+                        funcNode.getType(),
+                        profile.identifierFieldName(),
+                        funcNodeText.lines().findFirst().orElse(""));
+                lines.add(indent + funcNodeText);
+                log.warn("-> Falling back to raw text slice for function skeleton due to missing name.");
+                return;
+            }
+        }
+
+        TSNode paramsNode = null;
+        if (!profile.parametersFieldName().isEmpty()) {
+            paramsNode = funcNode.getChildByFieldName(profile.parametersFieldName());
+        }
+        TSNode returnTypeNode = null;
+        if (!profile.returnTypeFieldName().isEmpty()) {
+            returnTypeNode = funcNode.getChildByFieldName(profile.returnTypeFieldName());
+        }
+        TSNode bodyNode = funcNode.getChildByFieldName(profile.bodyFieldName());
+
+        // Parameter node is usually essential for a valid function signature.
+        if (paramsNode == null) {
+            log.trace(
+                    "Parameters node (field '{}') not found for function node type '{}', name '{}'. Assuming empty parameter list.",
+                    profile.parametersFieldName(),
+                    funcNode.getType(),
+                    functionName);
+        }
+
+        // Body node might be missing for abstract/interface methods.
+        if (bodyNode == null) {
+            log.trace(
+                    "Body node (field '{}') not found for function node type '{}', name '{}'. Renderer or placeholder logic must handle this.",
+                    profile.bodyFieldName(),
+                    funcNode.getType(),
+                    functionName);
+        }
+
+        String paramsText = formatParameterList(paramsNode, sourceContent);
+        String returnTypeText = formatReturnType(returnTypeNode, sourceContent);
+
+        // Extract type parameters if available
+        String typeParamsText = "";
+        if (!profile.typeParametersFieldName().isEmpty()) {
+            TSNode typeParamsNode = funcNode.getChildByFieldName(profile.typeParametersFieldName());
+            if (typeParamsNode != null) {
+                typeParamsText = sourceContent.substringFrom(typeParamsNode); // Raw text including < >
+            }
+        }
+
+        // Combine captured/export prefix with any modifier nodes present on the function node itself.
+        var modifierTokens = new LinkedHashSet<String>();
+        var trimmedExport = exportPrefix.strip();
+        if (!trimmedExport.isEmpty()) {
+            for (String tok :
+                    Splitter.on(Pattern.compile("\\s+")).omitEmptyStrings().split(trimmedExport)) {
+                modifierTokens.add(tok);
+            }
+        }
+
+        for (TSNode child : funcNode.getChildren()) {
+            String t = child.getType();
+            boolean isModifierType = profile.modifierNodeTypes().contains(t)
+                    || (!profile.asyncKeywordNodeType().isEmpty()
+                            && profile.asyncKeywordNodeType().equals(t));
+            if (isModifierType) {
+                String text = sourceContent.substringFrom(child).strip();
+                if (!text.isEmpty()) {
+                    for (String tok : Splitter.on(Pattern.compile("\\s+"))
+                            .omitEmptyStrings()
+                            .split(text)) {
+                        modifierTokens.add(tok);
+                    }
+                }
+            }
+        }
+        String combinedPrefix = modifierTokens.isEmpty() ? "" : String.join(" ", modifierTokens) + " ";
+
+        String functionLine = assembleFunctionSignature(
+                funcNode,
+                sourceContent,
+                combinedPrefix,
+                "",
+                functionName,
+                typeParamsText,
+                paramsText,
+                returnTypeText,
+                indent);
+        if (!functionLine.isBlank()) {
+            lines.add(functionLine);
+        }
+    }
+
+    /**
+     * Retrieves extra comment lines to be added to a function's skeleton, typically before the body. Example: mutation
+     * tracking comments.
+     *
+     * @param bodyNode   The TSNode representing the function's body. Can be null.
+     * @param sourceContent The source code.
+     * @param functionCu The CodeUnit for the function. Can be null if not available.
+     * @return A list of comment strings, or an empty list if none.
+     */
+    protected List<String> getExtraFunctionComments(
+            TSNode bodyNode, SourceContent sourceContent, @Nullable CodeUnit functionCu) {
+        return List.of(); // Default: no extra comments
+    }
+
+    /**
+     * Returns the language-specific string marker appended to rendered function signatures to visually indicate
+     * the presence of a body in skeleton output.
+     * <p>
+     * Important:
+     * - This value is used for presentation only and MUST NOT be used by any semantic logic such as duplicate
+     * resolution or definition-preference. Those decisions rely on the AST-derived hasBody flag stored in
+     * CodeUnitProperties.
+     * - Language analyzers should ensure their renderers append this marker consistently for display clarity only.
+     * <p>
+     * Examples:
+     * - C++/Java: "{...}"
+     * - Scala: "= {...}"
+     * - JavaScript/TypeScript/Python/Go: "..."
+     *
+     * @return The string marker to append in skeleton rendering (e.g., "{...}", "...", "= {...}")
+     */
+    protected abstract String bodyPlaceholder();
+
+    /**
+     * Renders a type alias or similar construct.
+     *
+     * @param node           The node representing the alias.
+     * @param sourceContent  The source content.
+     * @param exportPrefix   The export/visibility prefix.
+     * @param simpleName     The simple name of the alias.
+     * @param profile        The language syntax profile.
+     * @param file           The project file.
+     * @return The rendered signature string.
+     */
+    protected String renderAliasSignature(
+            TSNode node,
+            SourceContent sourceContent,
+            String exportPrefix,
+            String simpleName,
+            LanguageSyntaxProfile profile,
+            ProjectFile file) {
+        String typeParamsText = "";
+        if (!profile.typeParametersFieldName().isEmpty()) {
+            TSNode tp = node.getChildByFieldName(profile.typeParametersFieldName());
+            if (tp != null) {
+                typeParamsText = sourceContent.substringFrom(tp).strip();
+            }
+        }
+        TSNode valueNode = node.getChildByFieldName("value");
+        String valueText =
+                (valueNode != null) ? sourceContent.substringFrom(valueNode).strip() : "";
+        if (valueText.isEmpty()) {
+            valueText = "any";
+        }
+        String aliasSig =
+                (exportPrefix.stripTrailing() + " type " + simpleName + typeParamsText + " = " + valueText).strip();
+        if (!aliasSig.endsWith(";") && requiresSemicolons()) {
+            aliasSig += ";";
+        }
+        return aliasSig;
+    }
+
+    /**
+     * Renders the complete declaration line for a function, including any prefixes, name, parameters, return type, and
+     * language-specific syntax like "def" or "function" keywords, colons, or braces. Implementations are responsible
+     * for constructing the entire line, including indentation and any language-specific body placeholder if the
+     * function body is not empty or trivial.
+     *
+     * @param funcNode                The Tree-sitter node representing the function.
+     * @param sourceContent           The source code wrapper for extracting text from the function node.
+     * @param exportAndModifierPrefix The combined export and modifier prefix (e.g., "export async ", "public static ").
+     * @param asyncPrefix             This parameter is deprecated and no longer used; async is part of exportAndModifierPrefix.
+     *                                Pass empty string.
+     * @param functionName            The name of the function.
+     * @param typeParamsText          The text content of the function's type parameters, or empty if none.
+     * @param paramsText              The text content of the function's parameters.
+     * @param returnTypeText          The text content of the function's return type, or empty if none.
+     * @param indent                  The base indentation string for this line.
+     * @return The fully rendered function declaration line, or null/blank if it should not be added.
+     */
+    protected abstract String renderFunctionDeclaration(
+            TSNode funcNode,
+            SourceContent sourceContent,
+            String exportAndModifierPrefix,
+            String asyncPrefix, // Kept for signature compatibility, but ignored
+            String functionName,
+            String typeParamsText,
+            String paramsText,
+            String returnTypeText,
+            String indent);
+
+    /**
+     * Finds decorator nodes immediately preceding a given node.
+     */
+    private List<TSNode> getPrecedingDecorators(TSNode decoratedNode) {
+        List<TSNode> decorators = new ArrayList<>();
+        var decoratorNodeTypes = getLanguageSyntaxProfile().decoratorNodeTypes();
+        if (decoratorNodeTypes.isEmpty()) {
+            return decorators;
+        }
+        TSNode current = decoratedNode.getPrevSibling();
+        while (current != null && decoratorNodeTypes.contains(current.getType())) {
+            decorators.add(current);
+            current = current.getPrevSibling();
+        }
+        Collections.reverse(decorators); // Decorators should be in source order
+        return decorators;
+    }
+
+    // ---------- helpers ----------
+
+    private static String formatSecondsMillis(long nanos) {
+        long seconds = nanos / 1_000_000_000L;
+        long millis = (nanos % 1_000_000_000L) / 1_000_000L;
+        return seconds + "s " + millis + "ms";
+    }
+
+    /**
+     * Compute wall-clock duration from firstStart/lastEnd AtomicLongs, returning 0 if not recorded.
+     */
+    private static long wallDuration(AtomicLong firstStart, AtomicLong lastEnd) {
+        long start = firstStart.get();
+        long end = lastEnd.get();
+        if (start == Long.MAX_VALUE || end == 0L || end < start) {
+            return 0L;
+        }
+        return end - start;
+    }
+
+    protected Optional<String> extractSimpleName(TSNode decl, SourceContent sourceContent) {
+        Optional<String> nameOpt = Optional.empty();
+        String identifierFieldName = getLanguageSyntaxProfile().identifierFieldName();
+        if (identifierFieldName.isEmpty()) {
+            log.warn(
+                    "Identifier field name is empty in LanguageSyntaxProfile for node type {} at line {}. Cannot extract simple name by field.",
+                    decl.getType(),
+                    decl.getStartPoint().getRow() + 1);
+            return Optional.empty();
+        }
+
+        TSNode nameNode = decl.getChildByFieldName(identifierFieldName);
+        if (nameNode != null) {
+            nameOpt = Optional.of(sourceContent.substringFrom(nameNode));
+        } else if (!isNullNameExpectedForExtraction(decl.getType())) {
+            log.debug(
+                    "getChildByFieldName('{}') returned null or isNull for node type {} at line {}",
+                    identifierFieldName,
+                    decl.getType(),
+                    decl.getStartPoint().getRow() + 1);
+        }
+
+        if (nameOpt.isEmpty() && !isNullNameExpectedForExtraction(decl.getType())) {
+            log.debug(
+                    "extractSimpleName: Failed using getChildByFieldName('{}') for node type {} at line {}",
+                    identifierFieldName,
+                    decl.getType(),
+                    decl.getStartPoint().getRow() + 1);
+        }
+        log.trace(
+                "extractSimpleName: DeclNode={}, IdentifierField='{}', ExtractedName='{}'",
+                decl.getType(),
+                identifierFieldName,
+                nameOpt.orElse("N/A"));
+        return nameOpt;
+    }
+
+    protected Optional<String> findEnclosingFunctionName(TSNode node, SourceContent sourceContent) {
+        var profile = getLanguageSyntaxProfile();
+        TSNode current = node.getParent();
+        while (current != null) {
+            if (profile.functionLikeNodeTypes().contains(current.getType())) {
+                return extractSimpleName(current, sourceContent);
+            }
+            current = current.getParent();
+        }
+        return Optional.empty();
+    }
+
+    private static String loadResource(String path) {
+        try (InputStream in = TreeSitterAnalyzer.class.getClassLoader().getResourceAsStream(path)) {
+            if (in == null) throw new IOException("Resource not found: " + path);
+            return new String(in.readAllBytes(), StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
+    /**
+     * Returns the immediate children of the given CodeUnit based on TreeSitter parsing results.
+     *
+     * <p>This implementation uses the pre-built {@code childrenByParent} map that was populated during AST parsing. The
+     * parent-child relationships are determined by the TreeSitter grammar and capture queries for the specific
+     * language.
+     */
+    @Override
+    public List<CodeUnit> getDirectChildren(CodeUnit cu) {
+        return childrenOf(cu);
+    }
+
+    /**
+     * Returns the direct supertypes/basetypes of the given CodeUnit if it is a class-like entity. For non-class code
+     * units, returns an empty list.
+     */
+    protected List<CodeUnit> performGetDirectAncestors(CodeUnit cu) {
+        if (!cu.isClass()) {
+            return List.of();
+        }
+
+        // 1. Check lazy cache
+        List<CodeUnit> cached = cache.typeHierarchy().getForward(cu);
+        if (cached != null) {
+            return cached;
+        }
+
+        // 2. Compute lazily (atomic per key)
+        return cache.typeHierarchy().computeForwardIfAbsent(cu, k -> {
+            List<CodeUnit> supertypes = computeSupertypes(k);
+            // Update reverse index for BidirectionalCache manually since populator is NO-OP
+            for (CodeUnit ancestor : supertypes) {
+                cache.typeHierarchy().updateReverse(ancestor, (existing) -> {
+                    Set<CodeUnit> set = existing != null ? existing : new HashSet<>();
+                    set.add(k);
+                    return set;
+                });
+            }
+            return supertypes;
+        });
+    }
+
+    /**
+     * Returns the direct subtypes/descendants for the given CodeUnit.
+     */
+    protected Set<CodeUnit> performGetDirectDescendants(CodeUnit cu) {
+        if (!cu.isClass()) {
+            return Set.of();
+        }
+
+        // 1. Check lazy cache first (populated as side-effect of supertype computation)
+        Set<CodeUnit> cached = cache.typeHierarchy().getReverse(cu);
+        if (cached != null) {
+            return cached;
+        }
+
+        // 2. Filter candidate classes by checking rawSupertypes text (cheap pre-filter)
+        String targetName = cu.shortName();
+        List<CodeUnit> candidates = this.state.codeUnitState().keySet().stream()
+                .filter(CodeUnit::isClass)
+                .filter(candidate ->
+                        getRawSupertypesLazily(candidate).stream().anyMatch(raw -> raw.contains(targetName)))
+                .toList();
+
+        // 4. Resolve ancestors for candidates to populate the reverse index
+        for (CodeUnit candidate : candidates) {
+            performGetDirectAncestors(candidate);
+        }
+
+        // 5. Now check cache again - it should be populated from step 4
+        Set<CodeUnit> result = cache.typeHierarchy().getReverse(cu);
+        return result != null ? Set.copyOf(result) : Set.of();
+    }
+
+    // ---------- file filtering helpers ----------
+
+    /**
+     * Checks if a file is relevant to this analyzer based on its language extensions.
+     *
+     * @param file the file to check
+     * @return true if the file extension matches this analyzer's language extensions
+     */
+    private boolean isRelevantFile(ProjectFile file) {
+        var languageExtensions = this.language.getExtensions();
+        return languageExtensions.contains(file.extension());
+    }
+
+    /**
+     * Filters a set of files to only include those relevant to this analyzer.
+     *
+     * @param files the files to filter
+     * @return a new set containing only files with extensions matching this analyzer's language
+     */
+    private Set<ProjectFile> filterRelevantFiles(Set<ProjectFile> files) {
+        return files.stream().filter(this::isRelevantFile).collect(Collectors.toSet());
+    }
+
+    // ---------- async stage helpers ----------
+
+    private byte[] readFileBytes(ProjectFile pf, @Nullable ConstructionTiming timing) {
+        long __readStart = System.nanoTime();
+        try {
+            if (pf.isBinary()) {
+                log.trace("Detected binary file during read, skipping: {}", pf);
+                return new byte[0];
+            }
+
+            int attempt = 0;
+            while (true) {
+                attempt++;
+                try {
+                    IO_FD_SEMAPHORE.acquire();
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    throw new RuntimeException("Interrupted while acquiring IO permit", ie);
+                }
+                try {
+                    return Files.readAllBytes(pf.absPath());
+                } catch (IOException ioe) {
+                    // Retry if we hit an EMFILE/too-many-open-files situation, otherwise rethrow
+                    if (isTooManyOpenFiles(ioe) && attempt < MAX_IO_READ_RETRIES) {
+                        long backoffMs = computeBackoffMillis(attempt);
+                        log.debug(
+                                "Too many open files while reading {} (attempt {}/{}). Backing off {} ms and retrying.",
+                                pf,
+                                attempt,
+                                MAX_IO_READ_RETRIES,
+                                backoffMs);
+                        sleepQuietly(backoffMs);
+                        continue;
+                    }
+                    throw new UncheckedIOException(ioe);
+                } finally {
+                    IO_FD_SEMAPHORE.release();
+                }
+            }
+        } finally {
+            long __readEnd = System.nanoTime();
+            if (timing != null) {
+                timing.readStageFirstStartNanos().accumulateAndGet(__readStart, Math::min);
+                timing.readStageLastEndNanos().accumulateAndGet(__readEnd, Math::max);
+                timing.readStageNanos().addAndGet(__readEnd - __readStart);
+            }
+        }
+    }
+
+    private static boolean isTooManyOpenFiles(IOException e) {
+        // Check common paths: FileSystemException.getReason(), messages in cause chain, and EMFILE hints.
+        if (e instanceof FileSystemException fse) {
+            var reason = fse.getReason();
+            if (reason != null) {
+                String r = reason.toLowerCase(Locale.ROOT);
+                if (r.contains("too many open files") || r.contains("emfile")) return true;
+            }
+        }
+        for (Throwable t = e; t != null; t = t.getCause()) {
+            String msg = t.getMessage();
+            if (msg != null) {
+                String m = msg.toLowerCase(Locale.ROOT);
+                if (m.contains("too many open files") || m.contains("emfile")) return true;
+            }
+        }
+        return false;
+    }
+
+    private static long computeBackoffMillis(int attempt) {
+        // Exponential backoff with jitter: 25, 50, 100, 200, 400, 800 ms (capped), plus up to 25ms jitter
+        long base = 25L;
+        long delay = Math.min(1000L, base << Math.max(0, attempt - 1));
+        long jitter = ThreadLocalRandom.current().nextLong(0L, base + 1);
+        return delay + jitter;
+    }
+
+    private static void sleepQuietly(long ms) {
+        try {
+            Thread.sleep(ms);
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    private void mergeAnalysisResultIntoMaps(
+            ProjectFile pf,
+            FileAnalysisResult analysisResult,
+            @Nullable ConstructionTiming timing,
+            Map<String, Set<CodeUnit>> targetSymbolIndex,
+            Map<CodeUnit, CodeUnitProperties> targetCodeUnitState,
+            Map<ProjectFile, FileProperties> targetFileState,
+            Cache<String, CodeUnit> moduleKeyCache) {
+        long __mergeStart = System.nanoTime();
+
+        // Merge symbol index
+        analysisResult.codeUnitsBySymbol().forEach((symbol, cus) -> {
+            targetSymbolIndex.compute(symbol, (s, existing) -> {
+                if (existing == null || existing.isEmpty()) {
+                    return new HashSet<>(cus);
+                }
+                if (cus.isEmpty()) return existing;
+                var merged = new HashSet<>(existing);
+                merged.addAll(cus);
+                return merged;
+            });
+        });
+
+        // Merge code unit state
+        analysisResult.codeUnitState().forEach((cu, newState) -> {
+            // For MODULE CodeUnits (e.g., Java packages), prefer merging using a canonical key
+            // so that children from multiple files aggregate under a single module entry.
+            CodeUnit mergeKey = cu;
+            if (cu.isModule()) {
+                CodeUnit existingKey = moduleKeyCache.getIfPresent(cu.fqName());
+                if (existingKey != null) {
+                    mergeKey = existingKey;
+                }
+            }
+
+            final CodeUnit finalMergeKey = mergeKey;
+            targetCodeUnitState.compute(mergeKey, (k, existing) -> {
+                if (existing == null) {
+                    return new CodeUnitProperties(
+                            newState.children(),
+                            newState.signatures(),
+                            newState.ranges(),
+                            newState.hasBody(),
+                            newState.isTypeAlias());
+                }
+                SequencedSet<CodeUnit> mergedKids = new LinkedHashSet<>(existing.children());
+                mergedKids.addAll(newState.children());
+
+                SequencedSet<String> mergedSigs = new LinkedHashSet<>(existing.signatures());
+                mergedSigs.addAll(newState.signatures());
+
+                SequencedSet<Range> mergedRanges = new LinkedHashSet<>(existing.ranges());
+                mergedRanges.addAll(newState.ranges());
+
+                // Merge semantics: flags are combined using logical OR.
+                boolean mergedHasBody = existing.hasBody() || newState.hasBody();
+                boolean mergedIsTypeAlias = existing.isTypeAlias() || newState.isTypeAlias();
+                return new CodeUnitProperties(
+                        Collections.unmodifiableSequencedSet(mergedKids),
+                        Collections.unmodifiableSequencedSet(mergedSigs),
+                        Collections.unmodifiableSequencedSet(mergedRanges),
+                        mergedHasBody,
+                        mergedIsTypeAlias);
+            });
+
+            if (cu.isModule()) {
+                // Assignment is here to pass linting
+                var unused = moduleKeyCache.get(cu.fqName(), k -> finalMergeKey);
+            }
+        });
+
+        // Update file state
+        targetFileState.put(
+                pf,
+                new FileProperties(
+                        Collections.unmodifiableSequencedSet(new LinkedHashSet<>(analysisResult.topLevelCUs())),
+                        analysisResult.importStatements(),
+                        analysisResult.containsTests()));
+
+        long __mergeEnd = System.nanoTime();
+        if (timing != null) {
+            timing.mergeStageNanos().addAndGet(__mergeEnd - __mergeStart);
+            timing.mergeStageFirstStartNanos().accumulateAndGet(__mergeStart, Math::min);
+            timing.mergeStageLastEndNanos().accumulateAndGet(__mergeEnd, Math::max);
+        }
+    }
+
+    // ---------- incremental updates ----------
+
+    /**
+     * Given a new state, construct a new immutable snapshot of the analyzer using this state.
+     *
+     * @param state the new state to construct with.
+     * @return a new analyzer.
+     */
+    protected final IAnalyzer newSnapshot(AnalyzerState state) {
+        return newSnapshot(state, getProgressListener(), null);
+    }
+
+    protected final IAnalyzer newSnapshot(AnalyzerState state, ProgressListener listener) {
+        return newSnapshot(state, listener, null);
+    }
+
+    protected abstract IAnalyzer newSnapshot(
+            AnalyzerState state, ProgressListener listener, @Nullable AnalyzerCache previousCache);
+
+    protected AnalyzerCache createFilteredCache(AnalyzerCache previous, Set<ProjectFile> changedFiles) {
+        return new AnalyzerCache(previous, changedFiles);
+    }
+
+    @Override
+    public IAnalyzer update(Set<ProjectFile> changedFiles) {
+        if (changedFiles.isEmpty()) return this;
+
+        long overallStartMs = System.currentTimeMillis();
+        var relevantFiles = filterRelevantFiles(changedFiles);
+        if (relevantFiles.isEmpty()) return this;
+
+        final var base = this.state;
+        long cleanupStart = System.nanoTime();
+
+        // 1. Identify all CodeUnits and files to remove
+        Set<CodeUnit> codeUnitsToRemove = base.codeUnitState().keySet().stream()
+                .filter(cu -> relevantFiles.contains(cu.source()))
+                .collect(Collectors.toSet());
+
+        // 2. Perform cleanup once
+        var newSymbolIndex = new ConcurrentHashMap<>(base.symbolIndex());
+        var newCodeUnitState = new ConcurrentHashMap<>(base.codeUnitState());
+        var newFileState = new ConcurrentHashMap<>(base.fileState());
+        var moduleKeyCache = Caffeine.newBuilder().maximumSize(10000).<String, CodeUnit>build();
+
+        relevantFiles.forEach(newFileState::remove);
+        codeUnitsToRemove.forEach(newCodeUnitState::remove);
+
+        // Filter children lists in remaining entries
+        newCodeUnitState.replaceAll((cu, props) -> {
+            SequencedSet<CodeUnit> children = props.children();
+            SequencedSet<CodeUnit> filtered = children.stream()
+                    .filter(child -> !codeUnitsToRemove.contains(child))
+                    .collect(Collectors.toCollection(LinkedHashSet::new));
+            return (filtered.size() == children.size())
+                    ? props
+                    : new CodeUnitProperties(
+                            Collections.unmodifiableSequencedSet(filtered),
+                            props.signatures(),
+                            props.ranges(),
+                            props.hasBody(),
+                            props.isTypeAlias());
+        });
+
+        // Filter symbol index
+        newSymbolIndex.replaceAll((symbol, cus) ->
+                cus.stream().filter(cu -> !codeUnitsToRemove.contains(cu)).collect(Collectors.toSet()));
+        newSymbolIndex.entrySet().removeIf(e -> e.getValue().isEmpty());
+
+        long cleanupNanos = System.nanoTime() - cleanupStart;
+
+        // Evict old source content entries to ensure re-analysis uses fresh data
+        cache.sources().removeAll(relevantFiles);
+
+        // 3. Re-analyze changed files in parallel
+        int total = relevantFiles.size();
+        var reanalyzedCount = new AtomicInteger(0);
+        var deletedCount = new AtomicInteger(0);
+        var reanalyzeNanos = new AtomicLong(0L);
+
+        int parallelism = Math.max(1, Math.min(Runtime.getRuntime().availableProcessors(), total));
+        List<CompletableFuture<Void>> futures = new ArrayList<>();
+        var progressReporter = new DebouncedProgressReporter(total, "Updating " + language.name() + " files", 100);
+
+        try (var executor = ExecutorsUtil.newFixedThreadExecutor("ts-update-", parallelism)) {
+            for (var file : relevantFiles) {
+                futures.add(CompletableFuture.runAsync(
+                                () -> {
+                                    if (Files.exists(file.absPath())) {
+                                        long reanStart = System.nanoTime();
+                                        try {
+                                            byte[] bytes = readFileBytes(file, null);
+                                            var analysisResult = analyzeFileContent(file, bytes, null);
+                                            mergeAnalysisResultIntoMaps(
+                                                    file,
+                                                    analysisResult,
+                                                    null,
+                                                    newSymbolIndex,
+                                                    newCodeUnitState,
+                                                    newFileState,
+                                                    moduleKeyCache);
+                                            reanalyzedCount.incrementAndGet();
+                                        } catch (UncheckedIOException e) {
+                                            log.warn("IO error re-analysing {}: {}", file, e.getMessage());
+                                        } finally {
+                                            reanalyzeNanos.addAndGet(System.nanoTime() - reanStart);
+                                        }
+                                    } else {
+                                        deletedCount.incrementAndGet();
+                                        log.trace("File {} deleted; state cleaned.", file);
+                                    }
+                                },
+                                executor)
+                        .whenComplete((ignored, ex) -> progressReporter.increment()));
+            }
+            if (!futures.isEmpty())
+                CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
+                        .join();
+
+            // Final progress update (ensures 100% is always reported)
+            progressReporter.reportFinal();
+        }
+
+        // Build new immutable snapshot and return a new analyzer instance
+        var snapshotInstant = Instant.now();
+        long snapshotNanos = snapshotInstant.getEpochSecond() * 1_000_000_000L + snapshotInstant.getNano();
+
+        var nextKeySet = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+        nextKeySet.addAll(newSymbolIndex.keySet());
+        var nextSymbolKeyIndex = new SymbolKeyIndex(Collections.unmodifiableNavigableSet(nextKeySet));
+
+        // Convert mutable Sets to immutable Sets before wrapping in PMap
+        var immutableNextSymbolIndex = new HashMap<String, Set<CodeUnit>>();
+        newSymbolIndex.forEach((key, value) -> immutableNextSymbolIndex.put(key, Collections.unmodifiableSet(value)));
+
+        long totalMs = System.currentTimeMillis() - overallStartMs;
+        long cleanupMs = TimeUnit.NANOSECONDS.toMillis(cleanupNanos);
+        long reanalyzeMs = TimeUnit.NANOSECONDS.toMillis(reanalyzeNanos.get());
+        log.debug(
+                "[{}] TreeSitter incremental update: relevantFiles={}, reanalyzed={}, deleted={}, cleanup={} ms, reanalyze={} ms, total={} ms",
+                language.name(),
+                total,
+                reanalyzedCount.get(),
+                deletedCount.get(),
+                cleanupMs,
+                reanalyzeMs,
+                totalMs);
+
+        var typedState = new AnalyzerState(
+                HashTreePMap.from(immutableNextSymbolIndex),
+                HashTreePMap.from(newCodeUnitState),
+                HashTreePMap.from(newFileState),
+                nextSymbolKeyIndex,
+                snapshotNanos);
+
+        var filteredCache = createFilteredCache(this.cache, changedFiles);
+        this.isStale = true;
+        return newSnapshot(typedState, getProgressListener(), filteredCache);
+    }
+
+    /**
+     * Full-project incremental update: detect created/modified/deleted files using filesystem mtimes (nanos precision,
+     * with a 300ms over-approximation buffer), then delegate to {@link #update(Set)}.
+     */
+    @Override
+    public IAnalyzer update() {
+        long detectStartMs = System.currentTimeMillis();
+
+        // files currently on disk that this analyser is interested in
+        // (getAllFiles() already applies exclusion pattern filtering)
+        Set<ProjectFile> currentFiles = project.getAllFiles().stream()
+                .filter(pf -> {
+                    var p = pf.absPath().toAbsolutePath().normalize().toString();
+                    return language.getExtensions().stream().anyMatch(p::endsWith);
+                })
+                .collect(Collectors.toSet());
+
+        // Snapshot known files (those we've analyzed)
+        var current = this.state;
+        Set<ProjectFile> knownFiles = new HashSet<>(current.fileState().keySet());
+
+        Set<ProjectFile> changed = new HashSet<>();
+        long last = lastUpdateEpochNanos.get();
+        long threshold = (last > MTIME_EPSILON_NANOS) ? (last - MTIME_EPSILON_NANOS) : 0L;
+
+        // deleted or no-longer-relevant files
+        for (ProjectFile known : knownFiles) {
+            if (!currentFiles.contains(known) || !Files.exists(known.absPath())) {
+                changed.add(known);
+            }
+        }
+
+        // new or modified files (parallelized)
+        int parallelism = Math.max(1, Runtime.getRuntime().availableProcessors());
+        var concurrentChanged = ConcurrentHashMap.<ProjectFile>newKeySet();
+
+        try (var detectExecutor = ExecutorsUtil.newFixedThreadExecutor("ts-detect-", parallelism)) {
+            List<CompletableFuture<?>> futures = new ArrayList<>();
+            for (ProjectFile pf : currentFiles) {
+                if (!knownFiles.contains(pf)) {
+                    // New file we have not seen before
+                    concurrentChanged.add(pf);
+                    continue;
+                }
+
+                futures.add(CompletableFuture.runAsync(
+                        () -> {
+                            try {
+                                long mtimeNanos =
+                                        Files.getLastModifiedTime(pf.absPath()).to(TimeUnit.NANOSECONDS);
+                                if (mtimeNanos > threshold) {
+                                    concurrentChanged.add(pf);
+                                }
+                            } catch (IOException e) {
+                                log.warn("Could not stat {}: {}", pf, e.getMessage());
+                                concurrentChanged.add(pf); // treat as changed; will retry next time
+                            }
+                        },
+                        detectExecutor));
+            }
+
+            if (!futures.isEmpty()) {
+                CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
+                        .join();
+            }
+        }
+
+        changed.addAll(concurrentChanged);
+
+        long detectMs = System.currentTimeMillis() - detectStartMs;
+
+        // reuse the existing incremental logic, then recompute type and import analysis
+        long updateStartMs = System.currentTimeMillis();
+        var analyzer = update(changed);
+        long updateMs = System.currentTimeMillis() - updateStartMs;
+
+        long totalMs = detectMs + updateMs;
+        log.debug(
+                "[{}] TreeSitter full incremental scan: changed={} files, detect={} ms, update={} ms, total={} ms",
+                language.name(),
+                changed.size(),
+                detectMs,
+                updateMs,
+                totalMs);
+
+        return analyzer;
+    }
+
+    // ---------- type analysis (supertypes/basetypes) ----------
+
+    /**
+     * Overridable hook to compute direct supertypes/basetypes for a given CodeUnit. Default implementation returns an
+     * empty list.
+     */
+    protected List<CodeUnit> computeSupertypes(CodeUnit cu) {
+        return List.of();
+    }
+
+    /**
+     * Hook for language-specific analyzers to extract import statements from query captures.
+     * Called during file analysis for each query match. Override in subclasses to handle language-specific
+     * import patterns and to produce structured ImportInfo records.
+     *
+     * @param capturedNodesForMatch map of capture names to captured nodes for the current match
+     * @param sourceContent the source code content
+     * @param localImportInfos list to add extracted ImportInfo records to
+     */
+    protected void extractImports(
+            Map<String, TSNode> capturedNodesForMatch, SourceContent sourceContent, List<ImportInfo> localImportInfos) {
+        TSNode importNode = capturedNodesForMatch.get(getLanguageSyntaxProfile().importNodeType());
+        if (importNode != null) {
+            String importText = sourceContent.substringFrom(importNode).strip();
+            if (!importText.isEmpty()) {
+                // Default implementation: create basic ImportInfo without identifier extraction
+                // Subclasses should override to provide language-specific parsing
+                localImportInfos.add(new ImportInfo(importText, false, null, null));
+            }
+        }
+    }
+
+    /**
+     * Overridable hook to resolve import statements to concrete CodeUnits for a given file.
+     * Default implementation returns an empty set. Subclasses can override to provide language-specific
+     * import resolution logic.
+     *
+     * @param file             the project file being analyzed
+     * @param importStatements the raw import statement strings from the file
+     * @return a set of resolved CodeUnits corresponding to the imports
+     */
+    protected Set<CodeUnit> resolveImports(ProjectFile file, List<String> importStatements) {
+        return Set.of();
+    }
+
+    /**
+     * Public API for checking if imports from a source file could reference a target file.
+     * This is a conservative text-based pre-filter used to reduce expensive import resolution.
+     *
+     * @param sourceFile the file containing the import statements
+     * @param imports the import statements from the source file
+     * @param target the target file to check
+     * @return true if any import could potentially reference the target (may have false positives)
+     */
+    public boolean couldImportFile(ProjectFile sourceFile, List<ImportInfo> imports, ProjectFile target) {
+        return couldImportFile(imports, target);
+    }
+
+    /**
+     * Internal implementation for checking if imports could reference a target file.
+     *
+     * <p>Implementations should be conservative and return {@code true} when uncertain to avoid
+     * false negatives. It is acceptable to return {@code true} for imports that don't actually
+     * reference the target (false positives), but returning {@code false} when the import does
+     * reference the target (false negatives) would cause incorrect behavior.
+     *
+     * @param imports the list of import statements from a source file
+     * @param target the target file to check if any import could reference
+     * @return {@code true} if any import could potentially reference the target file,
+     *         {@code false} only if it's certain that none of the imports reference the target
+     */
+    public boolean couldImportFile(List<ImportInfo> imports, ProjectFile target) {
+        return true;
+    }
+
+    // ---------- comment detection for source expansion ----------
+
+    /**
+     * Checks if a Tree-Sitter node represents a comment. Supports common comment node types across languages.
+     */
+    protected boolean isCommentNode(@Nullable TSNode node) {
+        if (node == null) {
+            return false;
+        }
+        String nodeType = node.getType();
+        if (nodeType == null) return false;
+        return nodeType.equals(CommonTreeSitterNodeTypes.COMMENT)
+                || nodeType.equals(CommonTreeSitterNodeTypes.LINE_COMMENT)
+                || nodeType.equals(CommonTreeSitterNodeTypes.BLOCK_COMMENT)
+                || nodeType.equals(CommonTreeSitterNodeTypes.DOC_COMMENT)
+                || nodeType.equals(CommonTreeSitterNodeTypes.DOCUMENTATION_COMMENT);
+    }
+
+    /**
+     * Returns true if the node is considered leading metadata (comments or attribute-like nodes).
+     */
+    protected boolean isLeadingMetadataNode(TSNode node) {
+        if (isCommentNode(node)) {
+            return true;
+        }
+        String type = node.getType();
+        return getLeadingMetadataNodeTypes().contains(type);
+    }
+
+    /**
+     * Node types considered attribute-like metadata that should be included with leading comments. Default is empty;
+     * language-specific analyzers should override to add their own metadata node types.
+     */
+    protected Set<String> getLeadingMetadataNodeTypes() {
+        return Set.of();
+    }
+
+    /**
+     * Finds all comment nodes that directly precede the given declaration node. Returns comments in source order
+     * (earliest first).
+     */
+    protected List<TSNode> findPrecedingComments(TSNode declarationNode) {
+        List<TSNode> comments = new ArrayList<>();
+        TSNode current = declarationNode.getPrevSibling();
+
+        while (current != null) {
+            if (isCommentNode(current)) {
+                comments.add(current);
+            } else if (!isWhitespaceOnlyNode(current)) {
+                // Stop at first non-comment, non-whitespace node
+                break;
+            }
+            current = current.getPrevSibling();
+        }
+
+        // Reverse to get source order (earliest first)
+        Collections.reverse(comments);
+        return comments;
+    }
+
+    /**
+     * Checks if a node contains only whitespace (spaces, tabs, newlines).
+     */
+    protected boolean isWhitespaceOnlyNode(@Nullable TSNode node) {
+        if (node == null) {
+            return false;
+        }
+        // Common whitespace node types in Tree-Sitter grammars
+        String nodeType = node.getType();
+        if (nodeType == null) return false;
+        return nodeType.equals(CommonTreeSitterNodeTypes.WHITESPACE)
+                || nodeType.equals(CommonTreeSitterNodeTypes.NEWLINE)
+                || nodeType.equals("\n")
+                || nodeType.equals(" ");
+    }
+
+    /**
+     * Checks if the byte range contains only whitespace (spaces and tabs).
+     */
+    private boolean isOnlyWhitespace(byte[] bytes, int start, int end) {
+        for (int i = start; i < end; i++) {
+            byte b = bytes[i];
+            if (b != ' ' && b != '\t') {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * Finds the byte offset of the start of the line containing the given byte offset.
+     * Scans backward from the offset to find the preceding newline (or beginning of file).
+     *
+     * @param byteOffset the byte offset to find the line start for
+     * @param sourceContent the source content wrapper
+     * @return the byte offset of the first character on the line (after the newline, or 0 if at file start)
+     */
+    private int findLineStartByte(int byteOffset, SourceContent sourceContent) {
+        if (byteOffset <= 0) {
+            return 0;
+        }
+
+        byte[] bytes = sourceContent.utf8Bytes();
+        if (byteOffset > bytes.length) {
+            byteOffset = bytes.length;
+        }
+
+        // Scan backward from byteOffset - 1 to find the preceding newline
+        for (int i = byteOffset - 1; i >= 0; i--) {
+            if (bytes[i] == '\n') {
+                // Found newline; line starts after it
+                return i + 1;
+            }
+        }
+
+        // No newline found; line starts at beginning of file
+        return 0;
+    }
+
+    /**
+     * Expands a source range to include contiguous leading metadata (comments and attribute-like nodes) immediately
+     * preceding the declaration node. Backs up to the start of the line containing the first metadata node
+     * to capture any indentation, but only if there's pure whitespace before the metadata.
+     *
+     * @param declarationNode the declaration node to expand
+     * @param sourceContent the source content wrapper for byte offset calculations
+     * @return the expanded range with commentStartByte including leading indentation
+     */
+    protected Range expandRangeWithComments(TSNode declarationNode, SourceContent sourceContent) {
+        var originalRange = new Range(
+                declarationNode.getStartByte(),
+                declarationNode.getEndByte(),
+                declarationNode.getStartPoint().getRow(),
+                declarationNode.getEndPoint().getRow(),
+                declarationNode.getStartByte()); // initial commentStartByte equals start
+
+        // Walk preceding siblings and collect contiguous leading metadata nodes (comments, attributes)
+        List<TSNode> leading = new ArrayList<>();
+        TSNode current = declarationNode.getPrevSibling();
+        while (current != null) {
+            if (isLeadingMetadataNode(current)) {
+                leading.add(current);
+                current = current.getPrevSibling();
+                continue;
+            }
+            break;
+        }
+
+        // No leading metadata; keep the original range
+        if (leading.isEmpty()) {
+            return originalRange;
+        }
+
+        // Reverse to get earliest-first
+        Collections.reverse(leading);
+        int firstMetadataNodeStartByte = leading.getFirst().getStartByte();
+
+        // Back up to line start only if content before metadata is pure whitespace
+        int lineStartByte = findLineStartByte(firstMetadataNodeStartByte, sourceContent);
+        int commentStartByte = isOnlyWhitespace(sourceContent.utf8Bytes(), lineStartByte, firstMetadataNodeStartByte)
+                ? lineStartByte
+                : firstMetadataNodeStartByte;
+
+        Range expandedRange = new Range(
+                originalRange.startByte(),
+                originalRange.endByte(),
+                originalRange.startLine(),
+                originalRange.endLine(),
+                commentStartByte);
+
+        log.trace(
+                "Expanded range for node. Body range [{}, {}], comment range starts at {} (added {} preceding metadata nodes)",
+                originalRange.startByte(),
+                originalRange.endByte(),
+                expandedRange.commentStartByte(),
+                leading.size());
+
+        return expandedRange;
+    }
+
+    /**
+     * Returns true if the fqName seems like it belongs to a lambda function or anonymous class.
+     *
+     * @param fqName the full name of the code unit to run this check for.
+     * @return true if the fqName seems like it belongs to a lambda function or anonymous class, false if otherwise.
+     */
+    protected boolean isAnonymousStructure(String fqName) {
+        return false;
+    }
+
+    // Helper container to track depth alongside the matching CodeUnit
+    private static final class CUWithDepth {
+        final CodeUnit cu;
+        final int depth;
+
+        CUWithDepth(CodeUnit cu, int depth) {
+            this.cu = cu;
+            this.depth = depth;
+        }
+    }
+
+    @Override
+    public Optional<CodeUnit> enclosingCodeUnit(ProjectFile file, Range range) {
+        if (range.isEmpty()) return Optional.empty();
+
+        CodeUnit best = null;
+        int bestDepth = -1;
+
+        // Start from top-level declarations to ensure deterministic traversal order
+        for (var top : getTopLevelDeclarations(file)) {
+            var res = findDeepestEnclosing(top, range, 0);
+            if (res != null && res.depth > bestDepth) {
+                best = res.cu;
+                bestDepth = res.depth;
+            }
+        }
+
+        return Optional.ofNullable(best);
+    }
+
+    private @Nullable CUWithDepth findDeepestEnclosing(CodeUnit current, Range range, int depth) {
+        // If the range is not contained within this CU, skip
+        boolean containsCurrent = rangesOf(current).stream().anyMatch(range::isContainedWithin);
+        if (!containsCurrent) {
+            return null;
+        }
+
+        CUWithDepth best = new CUWithDepth(current, depth);
+        for (var child : childrenOf(current)) {
+            var candidate = findDeepestEnclosing(child, range, depth + 1);
+            if (candidate != null && candidate.depth > best.depth) {
+                best = candidate;
+            }
+        }
+        return best;
+    }
+
+    @Override
+    public Optional<CodeUnit> enclosingCodeUnit(ProjectFile file, int startLine, int endLine) {
+        if (startLine > endLine) return Optional.empty();
+
+        CodeUnit best = null;
+        int bestDepth = -1;
+
+        for (var top : getTopLevelDeclarations(file)) {
+            var res = findDeepestEnclosingByLine(top, startLine, endLine, 0);
+            if (res != null && res.depth > bestDepth) {
+                best = res.cu;
+                bestDepth = res.depth;
+            }
+        }
+
+        return Optional.ofNullable(best);
+    }
+
+    private @Nullable CUWithDepth findDeepestEnclosingByLine(CodeUnit current, int startLine, int endLine, int depth) {
+        boolean containsCurrent =
+                rangesOf(current).stream().anyMatch(r -> startLine >= r.startLine() && endLine <= r.endLine());
+        if (!containsCurrent) {
+            return null;
+        }
+
+        CUWithDepth best = new CUWithDepth(current, depth);
+        for (var child : childrenOf(current)) {
+            var candidate = findDeepestEnclosingByLine(child, startLine, endLine, depth + 1);
+            if (candidate != null && candidate.depth > best.depth) {
+                best = candidate;
+            }
+        }
+        return best;
+    }
+
+    protected boolean isBlankNameAllowed(
+            String captureName, String simpleName, @Nullable String nodeType, String file) {
+        return false;
+    }
+
+    protected boolean isNullNameAllowed(
+            String identifierFieldName, @Nullable String nodeType, int lineNumber, String file) {
+        return false;
+    }
+
+    /**
+     * Hook for subclasses to suppress DEBUG logging when the expected name capture is missing
+     * from a query match but extractSimpleName will be used as fallback.
+     */
+    protected boolean isMissingNameCaptureAllowed(String captureName, String nodeType, String fileName) {
+        return false;
+    }
+
+    /**
+     * Hook for subclasses to suppress logging when extractSimpleName encounters null/missing names
+     * that are expected for the language (e.g., C++ declarations, anonymous structures).
+     *
+     * @param nodeType the AST node type
+     * @return true if null names are expected and logging should be suppressed
+     */
+    protected boolean isNullNameExpectedForExtraction(@Nullable String nodeType) {
+        return false;
+    }
+
+    /**
+     * Determines if a CodeUnit is a constructor for the given enclosing class.
+     * Checks the language profile's constructorNodeTypes first, then falls back to custom logic.
+     *
+     * @param captureName the Tree-sitter capture name (e.g., "constructor.definition")
+     */
+    protected boolean isConstructor(
+            CodeUnit candidate, @Nullable CodeUnit enclosingClass, @Nullable String captureName) {
+        if (getLanguageSyntaxProfile().constructorNodeTypes().contains(captureName)) {
+            return true;
+        }
+        // Fallback: If no node types are specified in the profile, check for name matching
+        if (getLanguageSyntaxProfile().constructorNodeTypes().isEmpty() && enclosingClass != null) {
+            return candidate.isFunction() && candidate.identifier().equals(enclosingClass.identifier());
+        }
+        return false;
+    }
+
+    /**
+     * Creates a synthetic implicit constructor for the given enclosing class.
+     * Default implementation returns null.
+     */
+    protected @Nullable CodeUnit createImplicitConstructor(CodeUnit enclosingClass, String classCaptureName) {
+        return null;
+    }
+
+    /**
+     * Extracts potential type identifiers from source code.
+     */
+    public Set<String> performIdentifierExtraction(@Nullable TSNode root, String source) {
+        if (root == null) {
+            return Set.of();
+        }
+
+        Set<String> identifiers = new HashSet<>();
+        SourceContent sourceContent = SourceContent.of(source);
+        final String sourceText = sourceContent.text();
+        withCachedQuery(
+                QueryType.IDENTIFIERS,
+                query -> {
+                    try (TSQueryCursor cursor = new TSQueryCursor()) {
+                        cursor.exec(query, root, sourceText);
+
+                        TSQueryMatch match = new TSQueryMatch();
+
+                        while (cursor.nextMatch(match)) {
+                            for (TSQueryCapture capture : match.getCaptures()) {
+                                TSNode node = capture.getNode();
+                                if (node != null) {
+                                    String text =
+                                            sourceContent.substringFrom(node).strip();
+                                    if (!text.isEmpty()) {
+                                        identifiers.add(text);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    return true;
+                },
+                false);
+        return identifiers;
+    }
+}
