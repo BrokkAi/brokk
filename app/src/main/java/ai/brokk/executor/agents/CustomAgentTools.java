@@ -2,8 +2,8 @@ package ai.brokk.executor.agents;
 
 import ai.brokk.IContextManager;
 import ai.brokk.Service;
-import ai.brokk.TaskResult;
 import ai.brokk.project.ModelProperties;
+import ai.brokk.util.Json;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.model.chat.StreamingChatModel;
@@ -67,14 +67,23 @@ public class CustomAgentTools {
         var executor = new CustomAgentExecutor(cm, agentDef, model);
         var result = executor.execute(task);
 
-        if (result.stopDetails().reason() == TaskResult.StopReason.SUCCESS) {
-            return result.stopDetails().explanation();
-        } else {
-            return "Agent '%s' finished with status %s: %s"
-                    .formatted(
-                            agentName,
-                            result.stopDetails().reason(),
-                            result.stopDetails().explanation());
+        return extractExplanation(result.stopDetails().explanation());
+    }
+
+    /**
+     * The executor stores stop details as JSON ({@code {"explanation":"..."}}).
+     * Extract the inner explanation text so the parent agent gets plain markdown.
+     */
+    private static String extractExplanation(String raw) {
+        try {
+            var node = Json.getMapper().readTree(raw);
+            var explanation = node.get("explanation");
+            if (explanation != null && explanation.isTextual()) {
+                return explanation.asText();
+            }
+        } catch (Exception ignored) {
+            // Not JSON — return as-is
         }
+        return raw;
     }
 }

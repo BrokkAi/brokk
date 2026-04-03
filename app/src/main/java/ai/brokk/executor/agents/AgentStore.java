@@ -86,7 +86,9 @@ public class AgentStore {
      * Saves an agent definition to the specified scope.
      */
     public void save(AgentDefinition def, String scope) throws IOException {
-        assert SAFE_NAME.matcher(def.name()).matches() : "Invalid agent name: " + def.name();
+        if (!SAFE_NAME.matcher(def.name()).matches()) {
+            throw new IllegalArgumentException("Invalid agent name: " + def.name());
+        }
         var dir = "user".equals(scope) ? userDir : projectDir;
         Files.createDirectories(dir);
         var file = dir.resolve(def.name() + ".md");
