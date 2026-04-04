@@ -287,6 +287,23 @@ public class Context {
     }
 
     /**
+     * Returns files relevant to the provided seed files, prioritizing Git-based distance and
+     * supplementing with import-based PageRank if fewer than {@code topK} results are found.
+     */
+    @Blocking
+    public List<ProjectFile> getMostRelevantFiles(Collection<ProjectFile> seedFiles, int topK)
+            throws InterruptedException {
+        if (topK <= 0) return List.of();
+
+        var weightedSeeds = seedFiles.stream()
+                .filter(Objects::nonNull)
+                .filter(ProjectFile::exists)
+                .collect(Collectors.groupingBy(file -> file, HashMap::new, Collectors.summingDouble(file -> 1.0)));
+
+        return getMostRelevantFiles(weightedSeeds, Set.of(), topK);
+    }
+
+    /**
      * Returns files relevant to this context, prioritizing Git-based distance and supplementing with
      * import-based PageRank if fewer than {@code topK} results are found.
      */
@@ -310,7 +327,13 @@ public class Context {
                 })
                 .collect(Collectors.groupingBy(wf -> wf.file, HashMap::new, Collectors.summingDouble(wf -> wf.weight)));
 
-        if (weightedSeeds.isEmpty()) {
+        return getMostRelevantFiles(weightedSeeds, ineligibleSources, topK);
+    }
+
+    private List<ProjectFile> getMostRelevantFiles(
+            Map<ProjectFile, Double> weightedSeeds, Set<ProjectFile> ineligibleSources, int topK)
+            throws InterruptedException {
+        if (topK <= 0 || weightedSeeds.isEmpty()) {
             return List.of();
         }
 
@@ -319,12 +342,8 @@ public class Context {
 
         // 1. Try Git-based distance first if a real GitRepo is available
         if (repoObj instanceof GitRepo gr) {
-            try {
-                var gitResults = GitDistance.getRelatedFiles(gr, weightedSeeds, topK);
-                resultFiles.addAll(filterResults(gitResults, ineligibleSources));
-            } catch (Exception e) {
-                logger.warn("Failed to compute Git-based related files; falling back to imports.", e);
-            }
+            var gitResults = GitDistance.getRelatedFiles(gr, weightedSeeds, topK);
+            resultFiles.addAll(filterResults(gitResults, ineligibleSources));
         }
 
         // 2. Supplement with Import-based PageRank if we need more results

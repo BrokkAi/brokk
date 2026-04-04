@@ -620,7 +620,7 @@ tasks.withType<Test> {
 
     jvmArgs = listOf(
         "-ea",  // Enable assertions
-        "-Xmx1G",  // minimum heap size
+        "-Xmx2G",  // Increase test JVM heap for the full app:test suite
         "-Dbrokk.devmode=true",
         "-XX:+HeapDumpOnOutOfMemoryError",
         "-XX:HeapDumpPath=./build/test-heap-dumps/"
@@ -769,6 +769,16 @@ tasks.register<JavaExec>("runHeadlessCli") {
     description = "Runs the HeadlessExecCli"
     mainClass.set("ai.brokk.tools.HeadlessExecCli")
     classpath = sourceSets.main.get().runtimeClasspath
+}
+
+tasks.register<JavaExec>("runMostRelevantFiles") {
+    group = "application"
+    description = "Runs the MostRelevantFiles CLI"
+    mainClass.set("ai.brokk.tools.MostRelevantFilesCli")
+    classpath = sourceSets.main.get().runtimeClasspath
+    if (project.hasProperty("args")) {
+        args(Commandline.translateCommandline(project.property("args") as String).toList())
+    }
 }
 
 tasks.register<JavaExec>("runSkeletonPrinter") {

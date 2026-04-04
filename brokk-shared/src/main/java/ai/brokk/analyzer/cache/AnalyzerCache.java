@@ -6,6 +6,7 @@ import ai.brokk.analyzer.SourceContent;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Composes all analyzer-specific caches into a single helper object.
@@ -15,14 +16,18 @@ import java.util.Set;
  * by transferring only those entries that remain valid given a set of changed files.
  */
 public class AnalyzerCache {
+    private static final AtomicLong NEXT_GENERATION = new AtomicLong();
 
+    private final long generation;
     private final SimpleCache<ProjectFile, SourceContent> sources;
     private final SimpleCache<ProjectFile, Set<String>> typeIdentifiers;
     private final SimpleCache<CodeUnit, List<String>> rawSupertypes;
     private final BidirectionalCache<ProjectFile, Set<CodeUnit>, Set<ProjectFile>> imports;
+    private final SimpleCache<ProjectFile, Long> importReverseCompleteGenerations;
     private final BidirectionalCache<CodeUnit, List<CodeUnit>, Set<CodeUnit>> typeHierarchy;
 
     public AnalyzerCache() {
+        this.generation = NEXT_GENERATION.incrementAndGet();
         this.sources = new CaffeineSimpleCache<>(1000);
         this.typeIdentifiers = new CaffeineSimpleCache<>(10000);
         this.rawSupertypes = new CaffeineSimpleCache<>(5000);
@@ -32,6 +37,7 @@ public class AnalyzerCache {
                     // Logic for reverse population is handled by the caller during resolve
                 },
                 Collections::emptySet);
+        this.importReverseCompleteGenerations = new CaffeineSimpleCache<>(10000);
         this.typeHierarchy = new CaffeineBidirectionalCache<>(
                 10000,
                 (cache, supers) -> {
@@ -88,6 +94,10 @@ public class AnalyzerCache {
         return sources;
     }
 
+    public long generation() {
+        return generation;
+    }
+
     public SimpleCache<ProjectFile, Set<String>> typeIdentifiers() {
         return typeIdentifiers;
     }
@@ -98,6 +108,10 @@ public class AnalyzerCache {
 
     public BidirectionalCache<ProjectFile, Set<CodeUnit>, Set<ProjectFile>> imports() {
         return imports;
+    }
+
+    public SimpleCache<ProjectFile, Long> importReverseCompleteGenerations() {
+        return importReverseCompleteGenerations;
     }
 
     public BidirectionalCache<CodeUnit, List<CodeUnit>, Set<CodeUnit>> typeHierarchy() {
@@ -112,6 +126,7 @@ public class AnalyzerCache {
                 && typeIdentifiers.isEmpty()
                 && rawSupertypes.isEmpty()
                 && imports.isEmpty()
+                && importReverseCompleteGenerations.isEmpty()
                 && typeHierarchy.isEmpty();
     }
 

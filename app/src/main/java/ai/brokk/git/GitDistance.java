@@ -7,6 +7,7 @@ import java.time.Duration;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
@@ -165,7 +166,15 @@ public final class GitDistance {
         // Build and sort results
         return scores.entrySet().stream()
                 .map(e -> new IAnalyzer.FileRelevance(e.getKey(), e.getValue()))
-                .sorted((a, b) -> Double.compare(b.score(), a.score()))
+                .sorted((a, b) -> {
+                    int byScore = Double.compare(b.score(), a.score());
+                    return byScore != 0
+                            ? byScore
+                            : a.file()
+                                    .toString()
+                                    .toLowerCase(Locale.ROOT)
+                                    .compareTo(b.file().toString().toLowerCase(Locale.ROOT));
+                })
                 .limit(k)
                 .toList();
     }

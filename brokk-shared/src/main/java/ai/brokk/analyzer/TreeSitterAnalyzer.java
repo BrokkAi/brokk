@@ -882,8 +882,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
     protected Set<ProjectFile> performReferencingFilesOf(ProjectFile file) {
         // 1. Check lazy cache first
         Set<ProjectFile> cached = cache.imports().getReverse(file);
-        if (cached != null && !cached.isEmpty()) {
-            return cached;
+        if (isImportReverseComplete(file)) {
+            if (cached == null || cached.isEmpty()) {
+                return Set.of();
+            }
+            return Collections.unmodifiableSet(new HashSet<>(cached));
         }
 
         // 2. Phase 1: Filter candidates using cheap text-based matching
@@ -914,10 +917,16 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, TypeAliasProvider
 
         // 5. Return the resolved reverse cache result.
         Set<ProjectFile> resolved = cache.imports().getReverse(file);
+        cache.importReverseCompleteGenerations().put(file, cache.generation());
         if (resolved == null || resolved.isEmpty()) {
             return Set.of();
         }
         return Collections.unmodifiableSet(new HashSet<>(resolved));
+    }
+
+    private boolean isImportReverseComplete(ProjectFile file) {
+        Long completedGeneration = cache.importReverseCompleteGenerations().get(file);
+        return completedGeneration != null && completedGeneration == cache.generation();
     }
 
     protected Set<String> typeIdentifiersOf(ProjectFile file) {
