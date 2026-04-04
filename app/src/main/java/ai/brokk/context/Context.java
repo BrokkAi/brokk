@@ -14,6 +14,7 @@ import ai.brokk.concurrent.ComputedValue;
 import ai.brokk.context.ContextFragments.HistoryFragment;
 import ai.brokk.git.GitDistance;
 import ai.brokk.git.GitRepo;
+import ai.brokk.git.IGitRepo;
 import ai.brokk.ranking.ImportPageRanker;
 import ai.brokk.tasks.TaskList;
 import ai.brokk.util.*;
@@ -291,7 +292,8 @@ public class Context {
      * supplementing with import-based PageRank if fewer than {@code topK} results are found.
      */
     @Blocking
-    public List<ProjectFile> getMostRelevantFiles(Collection<ProjectFile> seedFiles, int topK)
+    public static List<ProjectFile> getMostRelevantFiles(
+            IGitRepo repo, IAnalyzer analyzer, Collection<ProjectFile> seedFiles, int topK)
             throws InterruptedException {
         if (topK <= 0) return List.of();
 
@@ -300,7 +302,7 @@ public class Context {
                 .filter(ProjectFile::exists)
                 .collect(Collectors.groupingBy(file -> file, HashMap::new, Collectors.summingDouble(file -> 1.0)));
 
-        return getMostRelevantFiles(weightedSeeds, Set.of(), topK);
+        return getMostRelevantFiles(repo, analyzer, weightedSeeds, Set.of(), topK);
     }
 
     /**
@@ -327,18 +329,22 @@ public class Context {
                 })
                 .collect(Collectors.groupingBy(wf -> wf.file, HashMap::new, Collectors.summingDouble(wf -> wf.weight)));
 
-        return getMostRelevantFiles(weightedSeeds, ineligibleSources, topK);
+        return getMostRelevantFiles(
+                contextManager.getRepo(), contextManager.getAnalyzer(), weightedSeeds, ineligibleSources, topK);
     }
 
-    private List<ProjectFile> getMostRelevantFiles(
-            Map<ProjectFile, Double> weightedSeeds, Set<ProjectFile> ineligibleSources, int topK)
+    private static List<ProjectFile> getMostRelevantFiles(
+            IGitRepo repoObj,
+            IAnalyzer analyzer,
+            Map<ProjectFile, Double> weightedSeeds,
+            Set<ProjectFile> ineligibleSources,
+            int topK)
             throws InterruptedException {
         if (topK <= 0 || weightedSeeds.isEmpty()) {
             return List.of();
         }
 
         Set<ProjectFile> resultFiles = new LinkedHashSet<>();
-        var repoObj = contextManager.getRepo();
 
         // 1. Try Git-based distance first if a real GitRepo is available
         if (repoObj instanceof GitRepo gr) {
@@ -349,7 +355,6 @@ public class Context {
         // 2. Supplement with Import-based PageRank if we need more results
         if (resultFiles.size() < topK) {
             int remaining = topK - resultFiles.size();
-            IAnalyzer analyzer = contextManager.getAnalyzer();
             var importResults = ImportPageRanker.getRelatedFilesByImports(analyzer, weightedSeeds, topK, false);
             filterResults(importResults, ineligibleSources).stream()
                     .filter(file -> !resultFiles.contains(file))
@@ -360,7 +365,8 @@ public class Context {
         return List.copyOf(resultFiles);
     }
 
-    private List<ProjectFile> filterResults(List<IAnalyzer.FileRelevance> results, Set<ProjectFile> ineligibleSources) {
+    private static List<ProjectFile> filterResults(
+            List<IAnalyzer.FileRelevance> results, Set<ProjectFile> ineligibleSources) {
         return results.stream()
                 .map(IAnalyzer.FileRelevance::file)
                 .filter(file -> !ineligibleSources.contains(file))
