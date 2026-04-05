@@ -4,11 +4,14 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.analyzer.ProjectFile;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
 import org.eclipse.jgit.api.Git;
+import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.diff.DiffEntry;
+import org.eclipse.jgit.lib.ObjectId;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -19,13 +22,16 @@ class GitRepoDataTest {
 
     @Test
     void getFileDiffs_skips_content_loading_for_binary_files() throws Exception {
-        // Arrange
-        // Initialize a real git repo so GitRepo constructor succeeds
         try (Git git = Git.init().setDirectory(tempDir.toFile()).call()) {
-            // repo initialized
+            Files.write(tempDir.resolve("large_binary.bin"), new byte[] {0, 1, 2, 3});
+            git.add().addFilepattern("large_binary.bin").call();
+            git.commit().setMessage("Initial binary").setSign(false).call();
+
+            Files.write(tempDir.resolve("large_binary.bin"), new byte[] {0, 5, 6, 7});
+            git.add().addFilepattern("large_binary.bin").call();
+            git.commit().setMessage("Updated binary").setSign(false).call();
         }
 
-        // Create a fake binary ProjectFile
         var binaryFile = new ProjectFile(tempDir, "large_binary.bin") {
             @Override
             public boolean isBinary() {
@@ -34,66 +40,102 @@ class GitRepoDataTest {
 
             @Override
             public Optional<Long> size() {
-                /** Simulate a very large size (e.g., 1GB). */
                 return Optional.of(1024L * 1024L * 1024L);
             }
         };
 
-        // Local subclass of GitRepo in the same package as GitRepoData
-        // to handle path resolution for the test
-        var mockRepo = new GitRepo(tempDir) {
+        var repo = new GitRepo(tempDir) {
             @Override
             public Optional<ProjectFile> toProjectFile(String repoRelativePath) {
                 if ("large_binary.bin".equals(repoRelativePath)) {
                     return Optional.of(binaryFile);
                 }
-                return Optional.empty();
+                return super.toProjectFile(repoRelativePath);
             }
         };
 
-        // Subclass GitRepoData to verify getRefContent is never called
-        var gitRepoData = new GitRepoData(mockRepo) {
+        var gitRepoData = new GitRepoData(repo) {
             @Override
             public String getRefContent(String ref, ProjectFile file) {
                 throw new AssertionError("getRefContent should NOT be called for binary files");
             }
-
-            // We need to provide a mock implementation of scanDiffs
-            @Override
-            protected List<DiffEntry> scanDiffs(String oldRef, String newRef) {
-                // Use reflection or a factory to create a DiffEntry since the constructor is protected
-                try {
-                    var constructor = DiffEntry.class.getDeclaredConstructor();
-                    constructor.setAccessible(true);
-                    DiffEntry entry = constructor.newInstance();
-
-                    var oldPathField = DiffEntry.class.getDeclaredField("oldPath");
-                    oldPathField.setAccessible(true);
-                    oldPathField.set(entry, "large_binary.bin");
-
-                    var newPathField = DiffEntry.class.getDeclaredField("newPath");
-                    newPathField.setAccessible(true);
-                    newPathField.set(entry, "large_binary.bin");
-
-                    var changeTypeField = DiffEntry.class.getDeclaredField("changeType");
-                    changeTypeField.setAccessible(true);
-                    changeTypeField.set(entry, DiffEntry.ChangeType.MODIFY);
-
-                    return List.of(entry);
-                } catch (Exception e) {
-                    throw new RuntimeException(e);
-                }
-            }
         };
 
-        // Act
         var diffs = gitRepoData.getFileDiffs("HEAD^", "HEAD");
 
-        // Assert
         assertEquals(1, diffs.size());
         var diff = diffs.getFirst();
         assertTrue(diff.isBinary());
         assertEquals(GitRepoData.BINARY_FILE_MARKER, diff.oldText());
         assertEquals(GitRepoData.BINARY_FILE_MARKER, diff.newText());
+    }
+
+    @Test
+    void getFileDiffs_modifyUsesOneTreeLookupPerRefEvenWithDuplicateDiffEntries() throws Exception {
+        try (Git git = Git.init().setDirectory(tempDir.toFile()).call()) {
+            Files.writeString(tempDir.resolve("tracked.txt"), "before\n");
+            git.add().addFilepattern("tracked.txt").call();
+            git.commit().setMessage("Initial").setSign(false).call();
+
+            Files.writeString(tempDir.resolve("tracked.txt"), "after\n");
+            git.add().addFilepattern("tracked.txt").call();
+            git.commit().setMessage("Update").setSign(false).call();
+        }
+
+        try (var repo = new GitRepo(tempDir)) {
+            var gitRepoData = new CountingGitRepoData(repo, true);
+
+            var diffs = gitRepoData.getFileDiffs("HEAD^", "HEAD");
+
+            assertEquals(2, diffs.size());
+            assertEquals(2, gitRepoData.treeLookupCount);
+        }
+    }
+
+    @Test
+    void getFileDiffs_addChecksOnlyNewPathAtEachRef() throws Exception {
+        try (Git git = Git.init().setDirectory(tempDir.toFile()).call()) {
+            Files.writeString(tempDir.resolve("base.txt"), "base\n");
+            git.add().addFilepattern("base.txt").call();
+            git.commit().setMessage("Initial").setSign(false).call();
+
+            Files.writeString(tempDir.resolve("added.txt"), "added\n");
+            git.add().addFilepattern("added.txt").call();
+            git.commit().setMessage("Add file").setSign(false).call();
+        }
+
+        try (var repo = new GitRepo(tempDir)) {
+            var gitRepoData = new CountingGitRepoData(repo, false);
+
+            var diffs = gitRepoData.getFileDiffs("HEAD^", "HEAD");
+
+            assertEquals(1, diffs.size());
+            assertEquals(2, gitRepoData.treeLookupCount);
+        }
+    }
+
+    private static final class CountingGitRepoData extends GitRepoData {
+        private final boolean duplicateDiffEntries;
+        private int treeLookupCount = 0;
+
+        private CountingGitRepoData(GitRepo repo, boolean duplicateDiffEntries) {
+            super(repo);
+            this.duplicateDiffEntries = duplicateDiffEntries;
+        }
+
+        @Override
+        boolean pathExistsInTree(ObjectId treeId, String path) throws GitAPIException {
+            treeLookupCount++;
+            return super.pathExistsInTree(treeId, path);
+        }
+
+        @Override
+        protected List<DiffEntry> scanDiffs(String oldRef, String newRef) throws GitAPIException {
+            var diffs = super.scanDiffs(oldRef, newRef);
+            if (!duplicateDiffEntries || diffs.isEmpty()) {
+                return diffs;
+            }
+            return List.of(diffs.getFirst(), diffs.getFirst());
+        }
     }
 }

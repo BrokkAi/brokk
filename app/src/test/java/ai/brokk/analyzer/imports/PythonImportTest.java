@@ -382,7 +382,7 @@ public class PythonImportTest {
     @Test
     public void testImportPackageAttributeAccess() throws IOException {
         // Test: import mypackage followed by mypackage.ClassName usage
-        // This pattern uses attribute access rather than direct import
+        // This pattern resolves the imported package module; symbol lookup then follows package attributes.
         var builder = InlineTestProjectCreator.code(
                 """
                 class InitClass:
@@ -404,18 +404,12 @@ public class PythonImportTest {
             var consumerFile =
                     AnalyzerUtil.getFileFor(analyzer, "consumer.Consumer").get();
 
-            // For 'import mypackage' style, resolveImports only tracks the import statement itself
-            // The attribute access mypackage.InitClass is NOT resolved via importedCodeUnitsOf -
-            // it's a different kind of reference (qualified name lookup, not import resolution)
             var resolvedImports = analyzer.importedCodeUnitsOf(consumerFile);
 
-            // Document expected behavior: 'import mypackage' does not bring InitClass into
-            // the resolved imports - only 'from mypackage import InitClass' would do that
-            // The class IS accessible at runtime via mypackage.InitClass, but that's not import resolution
             assertTrue(
-                    resolvedImports.isEmpty(),
-                    "import mypackage style does not resolve to specific symbols - "
-                            + "use 'from mypackage import ClassName' for import resolution");
+                    resolvedImports.stream()
+                            .anyMatch(cu -> cu.isModule() && cu.fqName().equals("mypackage")),
+                    "'import mypackage' should resolve to the package module for attribute access");
 
             // Verify the class itself still has the correct FQN (matches Python import semantics)
             var initClassDefinitions = analyzer.getDefinitions("mypackage.InitClass");
@@ -1021,6 +1015,46 @@ public class PythonImportTest {
 
             boolean result = analyzer.couldImportFile(sourceFile, imports, targetFile);
             assertFalse(result, "import os should not match any project file");
+        }
+    }
+
+    @Test
+    public void testMultilineFromImportResolvesTopLevelFields() throws IOException {
+        var builder = InlineTestProjectCreator.code("# Package marker\n", "pkg/__init__.py")
+                .addFileContents(
+                        """
+                        VALUE_A = 1
+                        VALUE_B = 2
+                        """,
+                        "pkg/defaults.py");
+
+        try (var testProject = builder.addFileContents(
+                        """
+                        from pkg.defaults import (
+                            VALUE_A,
+                            VALUE_B,
+                        )
+
+                        class Consumer:
+                            pass
+                        """,
+                        "consumer.py")
+                .build()) {
+            var analyzer = new PythonAnalyzer(testProject);
+            var consumerFile =
+                    AnalyzerUtil.getFileFor(analyzer, "consumer.Consumer").get();
+            var resolvedImports = analyzer.importedCodeUnitsOf(consumerFile);
+
+            assertTrue(
+                    resolvedImports.stream()
+                            .anyMatch(cu -> cu.identifier().equals("VALUE_A")
+                                    && cu.source().toString().equals("pkg/defaults.py")),
+                    "Should resolve VALUE_A to pkg/defaults.py");
+            assertTrue(
+                    resolvedImports.stream()
+                            .anyMatch(cu -> cu.identifier().equals("VALUE_B")
+                                    && cu.source().toString().equals("pkg/defaults.py")),
+                    "Should resolve VALUE_B to pkg/defaults.py");
         }
     }
 
