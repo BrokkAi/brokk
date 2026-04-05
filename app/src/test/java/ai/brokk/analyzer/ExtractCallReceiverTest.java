@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import ai.brokk.testutil.TestProject;
 import java.nio.file.Path;
 import java.util.Optional;
+import java.util.Set;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -15,8 +16,14 @@ import org.junit.jupiter.api.Test;
  */
 public class ExtractCallReceiverTest {
 
+    /**
+     * Analyzers walk {@link ai.brokk.project.ICoreProject#getAnalyzableFiles} at construction, which calls
+     * {@link ai.brokk.project.IProject#getAllFiles}. Using {@code java.io.tmpdir} as root without an override would scan
+     * the entire system temp tree (slow, huge allocations). These tests only exercise string heuristics, so pin an empty
+     * file set. Additionally, we don't need a session manager, which adds a couple hundred `ms` to the test suite.
+     */
     private final TestProject mockProject =
-            new TestProject(Path.of(System.getProperty("java.io.tmpdir")), Languages.NONE);
+            new TestProject(Path.of(System.getProperty("java.io.tmpdir")), Languages.NONE, false).withAllFiles(Set.of());
 
     @Test
     @DisplayName("Java analyzer - extractCallReceiver with various method references")
