@@ -256,6 +256,47 @@ public class JavaScriptImportTest {
     }
 
     @Test
+    public void testResolveDefaultImportFromVariableAssignedFunctionExpression() throws IOException {
+        try (var testProject = InlineTestProjectCreator.code(
+                        """
+                const readBlob = async function* (blob) {
+                    yield blob;
+                }
+
+                export default readBlob;
+                """,
+                        "lib/helpers/readBlob.js")
+                .addFileContents(
+                        """
+                import readBlob from "../helpers/readBlob.js";
+
+                export default function httpAdapter() {
+                    return readBlob;
+                }
+                """,
+                        "lib/adapters/http.js")
+                .build()) {
+
+            var analyzer = createTreeSitterAnalyzer(testProject);
+            var httpFile = testProject.getAllFiles().stream()
+                    .filter(f -> f.getRelPath().toString().endsWith("lib/adapters/http.js"))
+                    .findFirst()
+                    .get();
+
+            Set<CodeUnit> importedUnits =
+                    analyzer.as(ImportAnalysisProvider.class).orElseThrow().importedCodeUnitsOf(httpFile);
+
+            boolean foundReadBlob = importedUnits.stream()
+                    .anyMatch(cu -> cu.shortName().equals("readBlob")
+                            && cu.source().getRelPath().toString().contains("lib/helpers/readBlob.js"));
+
+            assertTrue(
+                    foundReadBlob,
+                    "Should resolve default import from variable-assigned function expression export");
+        }
+    }
+
+    @Test
     public void testImportWithExplicitExtension() throws IOException {
         // Test that importing './foo.js' resolves correctly without trying 'foo.js.js'
         try (var testProject = InlineTestProjectCreator.code(

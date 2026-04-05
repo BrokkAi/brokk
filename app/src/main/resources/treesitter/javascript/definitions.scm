@@ -16,6 +16,27 @@
       name: (identifier) @arrow_function.name
       value: ((arrow_function) @arrow_function.definition))))
 
+; Top-level variable-assigned function expressions
+(program
+  [
+    (lexical_declaration
+      ["const" "let"] @keyword.modifier
+      (variable_declarator
+        name: (identifier) @function.name
+        value: [
+          (function_expression)
+          (generator_function)
+        ] @function.definition))
+    (variable_declaration
+      ["var"] @keyword.modifier
+      (variable_declarator
+        name: (identifier) @function.name
+        value: [
+          (function_expression)
+          (generator_function)
+        ] @function.definition))
+  ])
+
 ; Class method
 (
   (class_declaration
@@ -177,5 +198,34 @@
         value: ((arrow_function) @arrow_function.definition)
       )
     )
+  )
+)
+
+; Exported top-level variable-assigned function expressions
+(
+  (export_statement
+    "export" @keyword.modifier
+    declaration: [
+      (lexical_declaration
+        ["const" "let"] @keyword.modifier
+        (variable_declarator
+          name: (identifier) @function.name
+          value: [
+            (function_expression)
+            (generator_function)
+          ] @function.definition
+        )
+      )
+      (variable_declaration
+        ["var"] @keyword.modifier
+        (variable_declarator
+          name: (identifier) @function.name
+          value: [
+            (function_expression)
+            (generator_function)
+          ] @function.definition
+        )
+      )
+    ]
   )
 )
