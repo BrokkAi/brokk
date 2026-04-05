@@ -584,7 +584,7 @@ public class Languages {
      * @param languages The set of active host languages.
      * @return A list of discovered template analyzers.
      */
-    public static List<ITemplateAnalyzer> discoverTemplateAnalyzers(IProject project, Set<Language> languages) {
+    public static List<ITemplateAnalyzer> discoverTemplateAnalyzers(ICoreProject project, Set<Language> languages) {
         List<ITemplateAnalyzer> analyzers = new ArrayList<>();
 
         // Angular template analysis is relevant if TypeScript is active

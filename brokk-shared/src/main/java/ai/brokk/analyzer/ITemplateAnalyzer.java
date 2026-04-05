@@ -1,7 +1,8 @@
 package ai.brokk.analyzer;
 
-import ai.brokk.IContextManager;
-import ai.brokk.project.IProject;
+import ai.brokk.project.ICoreProject;
+
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -17,7 +18,7 @@ public interface ITemplateAnalyzer {
      * Returns true if this template analyzer should be active for the given project.
      * This typically checks for framework-specific markers, dependencies, or configuration files.
      */
-    boolean isApplicable(IProject project);
+    boolean isApplicable(ICoreProject projectRoot);
 
     /**
      * @return The human-readable name of the analyzer (e.g., "Angular").
@@ -77,10 +78,10 @@ public interface ITemplateAnalyzer {
      * Returns the template files associated with the given host class.
      *
      * @param hostClass      The CodeUnit of the component/class in the host language.
-     * @param contextManager The context manager used to resolve relative paths to ProjectFiles.
+     * @param project The core project used to resolve relative paths to ProjectFiles.
      * @return A set of template ProjectFiles.
      */
-    default Set<ProjectFile> getTemplateFiles(CodeUnit hostClass, IContextManager contextManager) {
+    default Set<ProjectFile> getTemplateFiles(CodeUnit hostClass, ICoreProject project) {
         return Set.of();
     }
 
@@ -88,10 +89,10 @@ public interface ITemplateAnalyzer {
      * Provides a summary (skeletons/definitions) of the template file itself.
      *
      * @param templateFile   The template file to summarize.
-     * @param contextManager The context manager.
+     * @param project The project.
      * @return An Optional containing the template summary text, if available.
      */
-    default Optional<String> summarizeTemplate(ProjectFile templateFile, IContextManager contextManager) {
+    default Optional<String> summarizeTemplate(ProjectFile templateFile, ICoreProject project) {
         return Optional.empty();
     }
 }

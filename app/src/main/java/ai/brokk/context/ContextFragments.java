@@ -114,7 +114,7 @@ public class ContextFragments {
             for (var unit : units) {
                 boolean foundAny = false;
                 for (var templateAnalyzer : templateAnalyzers) {
-                    var files = templateAnalyzer.getTemplateFiles(unit, contextManager);
+                    var files = templateAnalyzer.getTemplateFiles(unit, contextManager.getProject());
                     if (!files.isEmpty()) {
                         logger.debug(
                                 "Found {} template files for {} via {}",
@@ -1984,7 +1984,7 @@ public class ContextFragments {
             // 1. Check for Template Summaries (e.g. .html via MultiAnalyzer)
             if (summaryType == SummaryType.FILE_SKELETONS && analyzer instanceof MultiAnalyzer multi) {
                 ProjectFile file = contextManager.toFile(targetIdentifier);
-                var templateSummary = multi.summarizeTemplate(file, contextManager);
+                var templateSummary = multi.summarizeTemplate(file, contextManager.getProject());
                 if (templateSummary.isPresent()) {
                     String text = templateSummary.get();
                     // For template summaries we don't have a stable way to extract CodeUnits without

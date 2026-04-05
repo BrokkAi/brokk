@@ -1,6 +1,5 @@
 package ai.brokk.analyzer.frameworks;
 
-import ai.brokk.IContextManager;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.CodeUnitType;
 import ai.brokk.analyzer.FrameworkTemplate;
@@ -12,7 +11,7 @@ import ai.brokk.analyzer.SourceContent;
 import ai.brokk.analyzer.TemplateAnalysisResult;
 import ai.brokk.analyzer.TreeSitterAnalyzer;
 import ai.brokk.analyzer.cache.AnalyzerCache;
-import ai.brokk.project.IProject;
+import ai.brokk.project.ICoreProject;
 import com.google.common.base.Splitter;
 import com.google.common.collect.Iterables;
 import java.io.IOException;
@@ -56,7 +55,7 @@ public class AngularTemplateAnalyzer implements ITemplateAnalyzer, FrameworkTemp
     private final Map<CodeUnit, String> hostClassToTemplateUrl = Collections.synchronizedMap(new HashMap<>());
 
     @Override
-    public boolean isApplicable(IProject project) {
+    public boolean isApplicable(ICoreProject project) {
         var allFiles = project.getAllFiles();
 
         // Check for configuration files and component templates using the project's file index
@@ -118,7 +117,7 @@ public class AngularTemplateAnalyzer implements ITemplateAnalyzer, FrameworkTemp
     }
 
     @Override
-    public Set<ProjectFile> getTemplateFiles(CodeUnit hostClass, IContextManager contextManager) {
+    public Set<ProjectFile> getTemplateFiles(CodeUnit hostClass, ICoreProject project) {
         String templateUrl = hostClassToTemplateUrl.get(hostClass);
         if (templateUrl == null) {
             return Set.of();
@@ -130,7 +129,7 @@ public class AngularTemplateAnalyzer implements ITemplateAnalyzer, FrameworkTemp
             Path resolvedPath = hostDir.resolve(templateUrl).normalize();
 
             // ProjectFile requires a path relative to the project root
-            ProjectFile pf = new ProjectFile(contextManager.getProject().getRoot(), resolvedPath);
+            ProjectFile pf = new ProjectFile(project.getRoot(), resolvedPath);
             if (pf.exists()) {
                 return Set.of(pf);
             }
@@ -142,10 +141,10 @@ public class AngularTemplateAnalyzer implements ITemplateAnalyzer, FrameworkTemp
     }
 
     @Override
-    public Optional<String> summarizeTemplate(ProjectFile templateFile, IContextManager contextManager) {
+    public Optional<String> summarizeTemplate(ProjectFile templateFile, ICoreProject project) {
         try {
-            AngularHtmlParser parser = new AngularHtmlParser(contextManager.getProject());
-            return Optional.ofNullable(parser.summarizeSymbols(templateFile));
+            AngularHtmlParser parser = new AngularHtmlParser(project);
+            return Optional.of(parser.summarizeSymbols(templateFile));
         } catch (Exception e) {
             log.warn("Failed to summarize Angular template {}: {}", templateFile, e.getMessage());
             return Optional.empty();
@@ -183,7 +182,7 @@ public class AngularTemplateAnalyzer implements ITemplateAnalyzer, FrameworkTemp
             IAnalyzer hostAnalyzer, ProjectFile templateFile, CodeUnit hostClass) {
         try {
             // Ensure the parser sees the template file by using a focused project view
-            IProject focusedProject = hostAnalyzer.getProject();
+            ICoreProject focusedProject = hostAnalyzer.getProject();
             AngularHtmlParser parser = new AngularHtmlParser(focusedProject);
             List<CodeUnit> topLevel = parser.getTopLevelDeclarations(templateFile);
 
@@ -233,12 +232,12 @@ public class AngularTemplateAnalyzer implements ITemplateAnalyzer, FrameworkTemp
         }
 
         @Override
-        public IAnalyzer createAnalyzer(IProject project, IAnalyzer.ProgressListener listener) {
+        public IAnalyzer createAnalyzer(ICoreProject project, IAnalyzer.ProgressListener listener) {
             return new AngularHtmlParser(project);
         }
 
         @Override
-        public IAnalyzer loadAnalyzer(IProject project, IAnalyzer.ProgressListener listener) {
+        public IAnalyzer loadAnalyzer(ICoreProject project, IAnalyzer.ProgressListener listener) {
             return createAnalyzer(project, listener);
         }
     };
@@ -266,7 +265,7 @@ public class AngularTemplateAnalyzer implements ITemplateAnalyzer, FrameworkTemp
                 Set.of() // modifierNodeTypes
                 );
 
-        AngularHtmlParser(IProject project) {
+        AngularHtmlParser(ICoreProject project) {
             super(project, ANGULAR_HTML, ProgressListener.NOOP);
         }
 
@@ -349,7 +348,7 @@ public class AngularTemplateAnalyzer implements ITemplateAnalyzer, FrameworkTemp
         }
 
         AngularHtmlParser(
-                IProject project, AnalyzerState state, ProgressListener listener, @Nullable AnalyzerCache cache) {
+                ICoreProject project, AnalyzerState state, ProgressListener listener, @Nullable AnalyzerCache cache) {
             super(project, ANGULAR_HTML, state, listener, cache);
         }
 

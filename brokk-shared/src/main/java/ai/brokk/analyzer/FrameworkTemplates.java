@@ -1,7 +1,7 @@
 package ai.brokk.analyzer;
 
 import ai.brokk.analyzer.frameworks.AngularTemplateAnalyzer;
-import ai.brokk.project.IProject;
+import ai.brokk.project.ICoreProject;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -14,7 +14,7 @@ public final class FrameworkTemplates {
     private FrameworkTemplates() {}
 
     @Blocking
-    public static List<FrameworkTemplate> discoverTemplates(IProject project, Set<Language> languages) {
+    public static List<FrameworkTemplate> discoverTemplates(ICoreProject project, Set<Language> languages) {
         List<FrameworkTemplate> templates = new ArrayList<>();
 
         if (languages.contains(Languages.TYPESCRIPT)) {
@@ -28,24 +28,24 @@ public final class FrameworkTemplates {
     }
 
     @Blocking
-    public static List<ITemplateAnalyzer> discoverTemplateAnalyzers(IProject project, Set<Language> languages) {
+    public static List<ITemplateAnalyzer> discoverTemplateAnalyzers(ICoreProject project, Set<Language> languages) {
         return discoverTemplates(project, languages).stream()
                 .map(t -> (ITemplateAnalyzer) t)
                 .toList();
     }
 
-    public static Path getStoragePath(FrameworkTemplate template, IProject project) {
-        return template.getStoragePath(project);
+    public static Path getStoragePath(FrameworkTemplate template, ICoreProject project) {
+        return template.getStoragePath(project.getRoot());
     }
 
     @Blocking
     public static void saveTemplateAnalyzerState(
-            FrameworkTemplate template, IProject project, List<TemplateAnalysisResult> results) {
+            FrameworkTemplate template, ICoreProject project, List<TemplateAnalysisResult> results) {
         TreeSitterStateIO.saveTemplateState(results, getStoragePath(template, project));
     }
 
     @Blocking
-    public static List<TemplateAnalysisResult> loadTemplateAnalyzerState(FrameworkTemplate template, IProject project) {
+    public static List<TemplateAnalysisResult> loadTemplateAnalyzerState(FrameworkTemplate template, ICoreProject project) {
         return TreeSitterStateIO.loadTemplateState(getStoragePath(template, project));
     }
 }

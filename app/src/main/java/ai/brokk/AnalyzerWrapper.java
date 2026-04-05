@@ -775,21 +775,14 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
                     .collect(Collectors.toSet());
             for (var template : FrameworkTemplates.discoverTemplates(project, langs)) {
                 try {
-                    Files.deleteIfExists(template.getStoragePath(project));
+                    Files.deleteIfExists(template.getStoragePath(project.getRoot()));
                 } catch (IOException e) {
                     logger.debug(
                             "Failed to delete framework template state file {}: {}",
-                            template.getStoragePath(project),
+                            template.getStoragePath(project.getRoot()),
                             e.getMessage());
                 }
             }
-
-            // Legacy location cleanup (migration)
-            Files.deleteIfExists(project.getRoot()
-                    .resolve(AbstractProject.BROKK_DIR)
-                    .resolve(AbstractProject.CODE_INTELLIGENCE_DIR)
-                    .resolve(FrameworkTemplate.LEGACY_TEMPLATE_DIR)
-                    .resolve("state" + Language.ANALYZER_STATE_SUFFIX));
         } catch (Throwable t) {
             logger.debug("Unexpected error in deletePersistedAnalyzerStateFiles(): {}", t.toString());
         }

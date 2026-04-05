@@ -185,12 +185,7 @@ class AngularTemplateAnalyzerTest {
             AngularTemplateAnalyzer analyzer = new AngularTemplateAnalyzer();
             ProjectFile templateFile = project.getAllFiles().iterator().next();
 
-            // Create the internal parser to use as the analyzer for the context manager
-            IAnalyzer htmlAnalyzer = new AngularTemplateAnalyzer.AngularHtmlParser(project);
-            TestContextManager cm =
-                    new TestContextManager(project, new TestConsoleIO(), Set.of(templateFile), htmlAnalyzer);
-
-            Optional<String> summaryOpt = analyzer.summarizeTemplate(templateFile, cm);
+            Optional<String> summaryOpt = analyzer.summarizeTemplate(templateFile, project);
 
             assertTrue(summaryOpt.isPresent());
             String summary = summaryOpt.get();

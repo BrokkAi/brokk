@@ -1,7 +1,7 @@
 package ai.brokk.analyzer;
 
-import ai.brokk.IContextManager;
 import ai.brokk.project.ICoreProject;
+
 import java.util.*;
 import java.util.TreeSet;
 import java.util.function.Function;
@@ -424,12 +424,12 @@ public class MultiAnalyzer
     /**
      * Provides a summary of a template file using applicable template analyzers.
      */
-    public Optional<String> summarizeTemplate(ProjectFile templateFile, IContextManager contextManager) {
+    public Optional<String> summarizeTemplate(ProjectFile templateFile, ICoreProject projectRoot) {
         var extension = templateFile.extension();
         return templateAnalyzers.stream()
                 .filter(ta -> ta.getSupportedExtensions().contains(extension))
-                .map(ta -> ta.summarizeTemplate(templateFile, contextManager))
-                .flatMap(opt -> opt.map(Stream::of).orElseGet(Stream::empty))
+                .map(ta -> ta.summarizeTemplate(templateFile, projectRoot))
+                .flatMap(Optional::stream)
                 .findFirst();
     }
 
@@ -442,10 +442,7 @@ public class MultiAnalyzer
                 .filter(ta -> ta.getSupportedExtensions().contains(extension))
                 .flatMap(ta -> {
                     var hostAnalyzer = delegateFor(hostClass);
-                    if (hostAnalyzer.isPresent()) {
-                        return Stream.of(ta.analyzeTemplate(hostAnalyzer.get(), templateFile, hostClass));
-                    }
-                    return Stream.empty();
+                    return hostAnalyzer.stream().map(iAnalyzer -> ta.analyzeTemplate(iAnalyzer, templateFile, hostClass));
                 })
                 .toList();
     }
