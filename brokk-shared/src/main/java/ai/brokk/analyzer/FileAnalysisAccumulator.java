@@ -13,11 +13,14 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import org.jetbrains.annotations.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Mutable accumulator for per-file analysis state.
  */
 public class FileAnalysisAccumulator {
+    private static final Logger log = LoggerFactory.getLogger(FileAnalysisAccumulator.class);
     private final Set<CodeUnit> topLevelCUs = new LinkedHashSet<>();
     private final Map<CodeUnit, Set<CodeUnit>> children = new LinkedHashMap<>();
     private final Map<CodeUnit, CodeUnit> childToParent = new HashMap<>();
@@ -43,9 +46,18 @@ public class FileAnalysisAccumulator {
 
     /**
      * Adds a parent-child relationship. Mutations should only be performed via these APIs.
+     * If parent and child are equal, the edge is ignored and a WARN is logged (self-parenting is invalid).
      * @return this accumulator for chaining.
      */
     public FileAnalysisAccumulator addChild(CodeUnit parent, CodeUnit child) {
+        if (parent.equals(child)) {
+            log.warn(
+                    "Ignoring self-parent edge for {} kind={} source={}",
+                    parent.fqName(),
+                    parent.kind(),
+                    parent.source());
+            return this;
+        }
         children.computeIfAbsent(parent, k -> new LinkedHashSet<>()).add(child);
         childToParent.put(child, parent);
         addLookupKey(child.fqName(), child);
