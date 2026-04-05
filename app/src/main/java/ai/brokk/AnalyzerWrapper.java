@@ -407,34 +407,34 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
         Map<Language, IAnalyzer> nextDelegates = new HashMap<>();
         for (Language lang : projectLangs) {
             try {
+                IAnalyzer delegate;
                 try {
                     logger.debug("Attempting to load existing analyzer for {}", lang.name());
-                    IAnalyzer delegate = lang.loadAnalyzer(project, progressListener);
-                    nextDelegates.put(lang, delegate);
-
-                    // Restore template analyzer state
-                    for (var ta : templates) {
-                        List<TemplateAnalysisResult> restored = List.of();
-                        // 1. Try to restore from host's TreeSitter state if available
-                        if (delegate instanceof TreeSitterAnalyzer ts) {
-                            restored = ts.snapshotState().templateResults().values().stream()
-                                    .flatMap(List::stream)
-                                    .filter(r -> r.analyzerName().equals(ta.internalName()))
-                                    .toList();
-                        }
-                        // 2. If host had no state for this template, try loading from its own dedicated cache
-                        if (restored.isEmpty() && ta instanceof FrameworkTemplate ft) {
-                            restored = FrameworkTemplates.loadTemplateAnalyzerState(ft, project);
-                        }
-                        if (!restored.isEmpty()) {
-                            ta.restoreState(restored);
-                        }
-                    }
+                    delegate = lang.loadAnalyzer(project, progressListener);
                 } catch (Throwable th) {
                     logger.warn("Failed to load cached analyzer for {}, creating fresh", lang.name(), th);
-                    IAnalyzer delegate = lang.createAnalyzer(project, progressListener);
-                    nextDelegates.put(lang, delegate);
+                    delegate = lang.createAnalyzer(project, progressListener);
                     needsRebuild = true;
+                }
+                nextDelegates.put(lang, delegate);
+
+                // Restore template analyzer state
+                for (var ta : templates) {
+                    List<TemplateAnalysisResult> restored = List.of();
+                    // 1. Try to restore from host's TreeSitter state if available
+                    if (delegate instanceof TreeSitterAnalyzer ts) {
+                        restored = ts.snapshotState().templateResults().values().stream()
+                                .flatMap(List::stream)
+                                .filter(r -> r.analyzerName().equals(ta.internalName()))
+                                .toList();
+                    }
+                    // 2. If host had no state for this template, try loading from its own dedicated cache
+                    if (restored.isEmpty() && ta instanceof FrameworkTemplate ft) {
+                        restored = FrameworkTemplates.loadTemplateAnalyzerState(ft, project);
+                    }
+                    if (!restored.isEmpty()) {
+                        ta.restoreState(restored);
+                    }
                 }
             } catch (Throwable th) {
                 logger.error("Critical failure building analyzer for language {}: {}", lang.name(), th.toString(), th);
