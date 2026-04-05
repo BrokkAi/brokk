@@ -736,7 +736,7 @@ class AnalyzerWrapperTest {
             analyzerWrapper.close();
 
             Path tsCache = Languages.TYPESCRIPT.getStoragePath(testProject);
-            Path angularCache = angular.getStoragePath(testProject);
+            Path angularCache = angular.getStoragePath(testProject.getRoot());
 
             assertTrue(Files.exists(tsCache), "TS cache should exist");
             assertTrue(Files.exists(angularCache), "Angular cache should exist");

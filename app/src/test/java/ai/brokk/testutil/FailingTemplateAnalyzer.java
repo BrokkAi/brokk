@@ -6,6 +6,7 @@ import ai.brokk.analyzer.ITemplateAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.TemplateAnalysisResult;
 import ai.brokk.analyzer.TreeSitterAnalyzer;
+import ai.brokk.project.ICoreProject;
 import ai.brokk.project.IProject;
 import java.util.List;
 import java.util.Map;
@@ -26,7 +27,7 @@ public class FailingTemplateAnalyzer implements ITemplateAnalyzer {
     }
 
     @Override
-    public boolean isApplicable(IProject project) {
+    public boolean isApplicable(ICoreProject project) {
         return true;
     }
 
@@ -64,12 +65,12 @@ public class FailingTemplateAnalyzer implements ITemplateAnalyzer {
     public void restoreState(List<TemplateAnalysisResult> state) {}
 
     @Override
-    public Set<ProjectFile> getTemplateFiles(CodeUnit hostClass, ai.brokk.IContextManager contextManager) {
+    public Set<ProjectFile> getTemplateFiles(CodeUnit hostClass, ICoreProject project) {
         return Set.of();
     }
 
     @Override
-    public Optional<String> summarizeTemplate(ProjectFile templateFile, ai.brokk.IContextManager contextManager) {
+    public Optional<String> summarizeTemplate(ProjectFile templateFile, ICoreProject project) {
         return Optional.empty();
     }
 
