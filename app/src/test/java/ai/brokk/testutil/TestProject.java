@@ -20,6 +20,7 @@ import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
+import java.util.Collections;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
@@ -51,9 +52,6 @@ public class TestProject implements IProject {
     private @Nullable IGitRepo repo;
     private @Nullable Supplier<Set<ProjectFile>> allFilesSupplier;
     private @Nullable Set<ProjectFile> allFiles;
-
-    /** Cached result of the intrinsic {@link Files#walk} when not using {@link #withAllFiles} or {@link #withAllFilesSupplier}. */
-    private volatile @Nullable Set<ProjectFile> walkedFilesCache;
 
     private Set<ProjectFile> allOnDiskDependencies = Set.of();
     private Set<IProject.Dependency> liveDependencies = Set.of();
@@ -137,14 +135,12 @@ public class TestProject implements IProject {
     public TestProject withAllFilesSupplier(Supplier<Set<ProjectFile>> filesSupplier) {
         this.allFilesSupplier = filesSupplier;
         this.allFiles = null;
-        this.walkedFilesCache = null;
         return this;
     }
 
     public TestProject withAllFiles(Set<ProjectFile> files) {
         this.allFiles = Set.copyOf(files);
         this.allFilesSupplier = null;
-        this.walkedFilesCache = null;
         return this;
     }
 
@@ -309,21 +305,12 @@ public class TestProject implements IProject {
     }
 
     @Override
-    public void invalidateAllFiles() {
-        walkedFilesCache = null;
-    }
-
-    @Override
     public Set<ProjectFile> getAllFiles() {
         if (allFilesSupplier != null) {
             return allFilesSupplier.get();
         }
         if (allFiles != null) {
             return allFiles;
-        }
-        Set<ProjectFile> cached = walkedFilesCache;
-        if (cached != null) {
-            return cached;
         }
         if (isBareSystemTempDirectory(root)) {
             throw new IllegalStateException(
@@ -332,11 +319,9 @@ public class TestProject implements IProject {
                             + "files with withAllFiles(...) / withAllFilesSupplier(...).");
         }
         try (Stream<Path> stream = Files.walk(root)) {
-            Set<ProjectFile> walked = stream.filter(p -> Files.isRegularFile(p))
+            return stream.filter(p -> Files.isRegularFile(p))
                     .map(p -> new ProjectFile(root, root.relativize(p)))
                     .collect(Collectors.toSet());
-            walkedFilesCache = Set.copyOf(walked);
-            return walkedFilesCache;
         } catch (IOException | UncheckedIOException e) {
             System.err.printf("ERROR (TestProject.getAllFiles): walk failed on %s: %s%n", root, e.getMessage());
             // NoSuchFileException can occur directly (from Files.walk) or wrapped in UncheckedIOException (from stream
@@ -345,8 +330,7 @@ public class TestProject implements IProject {
             if (!(cause instanceof NoSuchFileException)) {
                 e.printStackTrace(System.err);
             }
-            walkedFilesCache = Set.of();
-            return walkedFilesCache;
+            return Collections.emptySet();
         }
     }
 
