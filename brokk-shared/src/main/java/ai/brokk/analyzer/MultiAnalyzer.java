@@ -1,7 +1,6 @@
 package ai.brokk.analyzer;
 
 import ai.brokk.project.ICoreProject;
-
 import java.util.*;
 import java.util.TreeSet;
 import java.util.function.Function;
@@ -381,6 +380,18 @@ public class MultiAnalyzer
             }
         }
 
+        // Trigger analysis for all discovered templates
+        ICoreProject project = getProject();
+        for (var templateAnalyzer : templateAnalyzers) {
+            // Use the symbol index to find host classes that might have templates
+            for (var hostClass : mergedCodeUnitState.keySet()) {
+                Set<ProjectFile> templateFiles = templateAnalyzer.getTemplateFiles(hostClass, project);
+                for (var templateFile : templateFiles) {
+                    analyzeTemplates(templateFile, hostClass);
+                }
+            }
+        }
+
         // Aggregate results from template analyzers
         Map<ProjectFile, List<TemplateAnalysisResult>> aggregatedTemplateResults = new HashMap<>();
         for (var templateAnalyzer : templateAnalyzers) {
@@ -442,7 +453,8 @@ public class MultiAnalyzer
                 .filter(ta -> ta.getSupportedExtensions().contains(extension))
                 .flatMap(ta -> {
                     var hostAnalyzer = delegateFor(hostClass);
-                    return hostAnalyzer.stream().map(iAnalyzer -> ta.analyzeTemplate(iAnalyzer, templateFile, hostClass));
+                    return hostAnalyzer.stream()
+                            .map(iAnalyzer -> ta.analyzeTemplate(iAnalyzer, templateFile, hostClass));
                 })
                 .toList();
     }

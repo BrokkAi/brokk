@@ -11,6 +11,7 @@ import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.MultiAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.analyzer.TemplateAnalysisResult;
 import ai.brokk.analyzer.TreeSitterAnalyzer;
 import ai.brokk.concurrent.LoggingExecutorService;
 import ai.brokk.concurrent.LoggingFuture;
@@ -411,22 +412,29 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
                     IAnalyzer delegate = lang.loadAnalyzer(project, progressListener);
                     nextDelegates.put(lang, delegate);
 
-                    // Restore template analyzer state from loaded TreeSitter state if available
-                    if (delegate instanceof TreeSitterAnalyzer ts) {
-                        var templateResults = ts.snapshotState().templateResults();
-                        for (var ta : templates) {
-                            var relevantResults = templateResults.values().stream()
+                    // Restore template analyzer state
+                    for (var ta : templates) {
+                        List<TemplateAnalysisResult> restored = List.of();
+                        // 1. Try to restore from host's TreeSitter state if available
+                        if (delegate instanceof TreeSitterAnalyzer ts) {
+                            restored = ts.snapshotState().templateResults().values().stream()
                                     .flatMap(List::stream)
                                     .filter(r -> r.analyzerName().equals(ta.internalName()))
                                     .toList();
-                            ta.restoreState(relevantResults);
+                        }
+                        // 2. If host had no state for this template, try loading from its own dedicated cache
+                        if (restored.isEmpty() && ta instanceof FrameworkTemplate ft) {
+                            restored = FrameworkTemplates.loadTemplateAnalyzerState(ft, project);
+                        }
+                        if (!restored.isEmpty()) {
+                            ta.restoreState(restored);
                         }
                     }
                 } catch (Throwable th) {
                     logger.warn("Failed to load cached analyzer for {}, creating fresh", lang.name(), th);
                     IAnalyzer delegate = lang.createAnalyzer(project, progressListener);
                     nextDelegates.put(lang, delegate);
-                    needsRebuild = false;
+                    needsRebuild = true;
                 }
             } catch (Throwable th) {
                 logger.error("Critical failure building analyzer for language {}: {}", lang.name(), th.toString(), th);

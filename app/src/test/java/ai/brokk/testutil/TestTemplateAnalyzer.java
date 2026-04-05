@@ -7,7 +7,6 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.TemplateAnalysisResult;
 import ai.brokk.analyzer.TreeSitterAnalyzer;
 import ai.brokk.project.ICoreProject;
-import ai.brokk.project.IProject;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;

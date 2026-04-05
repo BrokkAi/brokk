@@ -45,7 +45,8 @@ public final class FrameworkTemplates {
     }
 
     @Blocking
-    public static List<TemplateAnalysisResult> loadTemplateAnalyzerState(FrameworkTemplate template, ICoreProject project) {
+    public static List<TemplateAnalysisResult> loadTemplateAnalyzerState(
+            FrameworkTemplate template, ICoreProject project) {
         return TreeSitterStateIO.loadTemplateState(getStoragePath(template, project));
     }
 }

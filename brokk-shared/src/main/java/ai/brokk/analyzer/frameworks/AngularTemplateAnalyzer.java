@@ -125,11 +125,15 @@ public class AngularTemplateAnalyzer implements ITemplateAnalyzer, FrameworkTemp
 
         try {
             // Angular template URLs are relative to the component file
-            Path hostDir = hostClass.source().getParent();
-            Path resolvedPath = hostDir.resolve(templateUrl).normalize();
+            Path hostPath = hostClass.source().getRelPath();
+            Path hostDir = hostPath.getParent();
+            // If hostDir is null (file in root), resolve against empty path
+            Path resolvedRelPath = (hostDir == null ? Path.of("") : hostDir)
+                    .resolve(templateUrl)
+                    .normalize();
 
             // ProjectFile requires a path relative to the project root
-            ProjectFile pf = new ProjectFile(project.getRoot(), resolvedPath);
+            ProjectFile pf = new ProjectFile(project.getRoot(), resolvedRelPath);
             if (pf.exists()) {
                 return Set.of(pf);
             }
@@ -206,6 +210,8 @@ public class AngularTemplateAnalyzer implements ITemplateAnalyzer, FrameworkTemp
 
     @Override
     public void restoreState(List<TemplateAnalysisResult> state) {
+        // Note: we don't clear results here if we want to merge, but ITemplateAnalyzer contract
+        // usually implies a full state restoration.
         results.clear();
         for (var res : state) {
             results.put(res.templateFile(), res);
