@@ -23,6 +23,7 @@ public final class GitDistance {
     private static final Logger logger = LogManager.getLogger(GitDistance.class);
     private static final int COMMITS_TO_PROCESS = 1_000;
     private static final int LARGE_SEED_THRESHOLD = 100;
+    private static final double SCORE_TIE_EPSILON = 1.0e-12;
 
     /** Represents an edge between two CodeUnits in the co-occurrence graph. */
     public record FileEdge(ProjectFile src, ProjectFile dst) {}
@@ -166,17 +167,27 @@ public final class GitDistance {
         // Build and sort results
         return scores.entrySet().stream()
                 .map(e -> new IAnalyzer.FileRelevance(e.getKey(), e.getValue()))
-                .sorted((a, b) -> {
-                    int byScore = Double.compare(b.score(), a.score());
-                    return byScore != 0
-                            ? byScore
-                            : a.file()
-                                    .toString()
-                                    .toLowerCase(Locale.ROOT)
-                                    .compareTo(b.file().toString().toLowerCase(Locale.ROOT));
-                })
+                .sorted(GitDistance::compareFileRelevance)
                 .limit(k)
                 .toList();
+    }
+
+    private static int compareFileRelevance(IAnalyzer.FileRelevance a, IAnalyzer.FileRelevance b) {
+        double scoreGap = b.score() - a.score();
+        if (Math.abs(scoreGap) <= SCORE_TIE_EPSILON) {
+            return a.file()
+                    .toString()
+                    .toLowerCase(Locale.ROOT)
+                    .compareTo(b.file().toString().toLowerCase(Locale.ROOT));
+        }
+
+        int byScore = Double.compare(b.score(), a.score());
+        return byScore != 0
+                ? byScore
+                : a.file()
+                        .toString()
+                        .toLowerCase(Locale.ROOT)
+                        .compareTo(b.file().toString().toLowerCase(Locale.ROOT));
     }
 
     @VisibleForTesting

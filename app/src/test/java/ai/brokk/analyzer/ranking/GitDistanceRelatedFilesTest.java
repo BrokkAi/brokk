@@ -13,6 +13,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Comparator;
+import java.util.List;
 import java.util.Map;
 import org.eclipse.jgit.api.Git;
 import org.junit.jupiter.api.AfterAll;
@@ -209,6 +210,55 @@ public class GitDistanceRelatedFilesTest {
             }
         } finally {
             // best-effort cleanup of .git to free locks on Windows and then delete temp dir
+            GitDistanceTestSuite.teardownGitRepository(tempDir);
+            if (Files.exists(tempDir)) {
+                try (var walk = Files.walk(tempDir)) {
+                    walk.sorted(Comparator.reverseOrder()).map(Path::toFile).forEach(File::delete);
+                }
+            }
+        }
+    }
+
+    @Test
+    public void gitDistanceSortsNearTiesByPathName() throws Exception {
+        var tempDir = Files.createTempDirectory("brokk-pmi-tie-order-");
+        try {
+            try (var git = Git.init().setDirectory(tempDir.toFile()).call()) {
+                var config = git.getRepository().getConfig();
+                config.setString("user", null, "name", "Test User");
+                config.setString("user", null, "email", "test@example.com");
+                config.save();
+
+                write(tempDir.resolve("seed.txt"), "seed");
+                write(
+                        tempDir.resolve("Anthropic_Agent_With_Prompt_Caching.cs"),
+                        "class AnthropicAgentWithPromptCaching {}");
+                write(tempDir.resolve("AutoGen.Anthropic.Sample.csproj"), "<Project />");
+                write(tempDir.resolve("Create_Anthropic_Agent.cs"), "class CreateAnthropicAgent {}");
+                git.add()
+                        .addFilepattern("seed.txt")
+                        .addFilepattern("Anthropic_Agent_With_Prompt_Caching.cs")
+                        .addFilepattern("AutoGen.Anthropic.Sample.csproj")
+                        .addFilepattern("Create_Anthropic_Agent.cs")
+                        .call();
+                git.commit().setMessage("single tied change").setSign(false).call();
+            }
+
+            try (var repo = new GitRepo(tempDir)) {
+                var seed = new ProjectFile(tempDir, Path.of("seed.txt"));
+                var results = GitDistance.getRelatedFiles(repo, Map.of(seed, 1.0), 10);
+                var topNames = results.stream()
+                        .map(r -> r.file().getFileName().toString())
+                        .limit(3)
+                        .toList();
+                assertEquals(
+                        List.of(
+                                "Anthropic_Agent_With_Prompt_Caching.cs",
+                                "AutoGen.Anthropic.Sample.csproj",
+                                "Create_Anthropic_Agent.cs"),
+                        topNames);
+            }
+        } finally {
             GitDistanceTestSuite.teardownGitRepository(tempDir);
             if (Files.exists(tempDir)) {
                 try (var walk = Files.walk(tempDir)) {
