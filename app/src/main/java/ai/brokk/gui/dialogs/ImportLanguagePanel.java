@@ -1,5 +1,6 @@
 package ai.brokk.gui.dialogs;
 
+import ai.brokk.analyzer.DependencyImportable;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Language.DependencyCandidate;
 import ai.brokk.analyzer.Language.DependencyKind;
@@ -42,7 +43,7 @@ public class ImportLanguagePanel extends JPanel {
     private static final Logger logger = LogManager.getLogger(ImportLanguagePanel.class);
 
     private final Chrome chrome;
-    private final Language language;
+    private final DependencyImportable language;
 
     private final JTextField searchField = new JTextField();
 
@@ -71,7 +72,7 @@ public class ImportLanguagePanel extends JPanel {
 
     private final List<DependencyCandidate> currentRows = new ArrayList<>();
 
-    public ImportLanguagePanel(Chrome chrome, Language language) {
+    public ImportLanguagePanel(Chrome chrome, DependencyImportable language) {
         super(new BorderLayout(5, 5));
         this.chrome = chrome;
         this.language = language;

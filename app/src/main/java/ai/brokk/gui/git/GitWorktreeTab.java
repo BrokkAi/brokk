@@ -1144,7 +1144,7 @@ public class GitWorktreeTab extends JPanel {
     private void performMergeOperation(
             String worktreeBranchName,
             String targetBranch,
-            GitRepo.MergeMode mode,
+            IGitRepo.MergeMode mode,
             boolean deleteWorktree,
             boolean deleteBranch) {
         var project = contextManager.getProject();

@@ -145,6 +145,7 @@ dependencies {
     implementation(libs.java.diff.utils)
     implementation(libs.jackson.databind)
     implementation(libs.jackson.smile)
+    implementation(libs.jackson.yaml)
     implementation(libs.jackson.jq)
     implementation(libs.lz4)
     implementation(libs.jspecify)
@@ -169,6 +170,9 @@ dependencies {
 
     // JGit and SSH
     implementation(libs.bundles.git)
+
+    // Shared analyzer, git, concurrent, and utility code
+    api(project(":brokk-shared"))
 
     // TreeSitter parsers
     implementation(project(":treesitter-provider"))

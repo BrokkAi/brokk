@@ -2,6 +2,7 @@ package ai.brokk.gui.util;
 
 import ai.brokk.ContextManager;
 import ai.brokk.git.GitRepo;
+import ai.brokk.git.IGitRepo;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.MergeDialogPanel;
 import ai.brokk.project.MainProject;
@@ -59,11 +60,11 @@ public class MergeDialogUtil {
             boolean confirmed,
             String sourceBranch,
             String targetBranch,
-            GitRepo.MergeMode mergeMode,
+            IGitRepo.MergeMode mergeMode,
             boolean deleteWorktree,
             boolean deleteBranch) {
         public static MergeDialogResult cancelled() {
-            return new MergeDialogResult(false, "", "", GitRepo.MergeMode.MERGE_COMMIT, false, false);
+            return new MergeDialogResult(false, "", "", IGitRepo.MergeMode.MERGE_COMMIT, false, false);
         }
     }
 

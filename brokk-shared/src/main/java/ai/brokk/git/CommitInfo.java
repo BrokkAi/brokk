@@ -1,0 +1,85 @@
+package ai.brokk.git;
+
+import java.time.Instant;
+import java.util.Objects;
+import java.util.Optional;
+
+/** A record to hold commit details */
+public final class CommitInfo implements ICommitInfo {
+    private final String id;
+    private final String message;
+    private final String author;
+    private final Instant date;
+    private final Optional<Integer> stashIndex; // Optional stash index
+
+    /** Constructor for regular commits. */
+    public CommitInfo(String id, String message, String author, Instant date) {
+        this(id, message, author, date, Optional.empty());
+    }
+
+    /** Constructor for stash commits. */
+    public CommitInfo(String id, String message, String author, Instant date, int stashIndex) {
+        this(id, message, author, date, Optional.of(stashIndex));
+    }
+
+    /** General purpose constructor. */
+    private CommitInfo(String id, String message, String author, Instant date, Optional<Integer> stashIndex) {
+        this.id = id;
+        this.message = message;
+        this.author = author;
+        this.date = date;
+        this.stashIndex = stashIndex;
+    }
+
+    @Override
+    public String id() {
+        return id;
+    }
+
+    @Override
+    public String message() {
+        return message;
+    }
+
+    @Override
+    public String author() {
+        return author;
+    }
+
+    @Override
+    public Instant date() {
+        return date;
+    }
+
+    @Override
+    public Optional<Integer> stashIndex() {
+        return stashIndex;
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+        if (obj == this) return true;
+        if (!(obj instanceof CommitInfo that)) return false; // Pattern matching
+        return Objects.equals(this.id, that.id)
+                && Objects.equals(this.message, that.message)
+                && Objects.equals(this.author, that.author)
+                && Objects.equals(this.date, that.date)
+                && // Instant has well-defined equals
+                Objects.equals(this.stashIndex, that.stashIndex);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(id, message, author, date, stashIndex);
+    }
+
+    @Override
+    public String toString() {
+        return "CommitInfo[" + "id="
+                + id + ", " + "message="
+                + message + ", " + "author="
+                + author + ", " + "date="
+                + date + ", " + "stashIndex="
+                + stashIndex + ']'; // Include stashIndex in toString
+    }
+}

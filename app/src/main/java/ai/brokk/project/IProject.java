@@ -38,8 +38,9 @@ import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.VisibleForTesting;
 
-public interface IProject extends AutoCloseable {
+public interface IProject extends ICoreProject {
 
+    @Override
     default IGitRepo getRepo() {
         throw new UnsupportedOperationException();
     }
@@ -54,6 +55,7 @@ public interface IProject extends AutoCloseable {
      * <p>Implementations (MainProject) should return a properly initialized StringDiskCache.
      * WorktreeProject will forward to its MainProject parent.
      */
+    @Override
     default IStringDiskCache getDiskCache() {
         return new IStringDiskCache.NoopCache();
     }
@@ -63,16 +65,19 @@ public interface IProject extends AutoCloseable {
      *
      * @return A set of Language enums.
      */
+    @Override
     default Set<Language> getAnalyzerLanguages() {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     default Path getRoot() {
         throw new UnsupportedOperationException();
     }
 
     /** All files in the project, including decompiled dependencies that are not in the git repo. */
     @Blocking
+    @Override
     default Set<ProjectFile> getAllFiles() {
         return Set.of();
     }
@@ -84,6 +89,7 @@ public interface IProject extends AutoCloseable {
      * @return an Optional containing the ProjectFile if found, or empty otherwise
      */
     @Blocking
+    @Override
     default Optional<ProjectFile> getFileByRelPath(Path relPath) {
         return getAllFiles().stream()
                 .filter(f -> f.getRelPath().equals(relPath))
@@ -99,6 +105,7 @@ public interface IProject extends AutoCloseable {
      * .gitignore, etc. since those don't have analyzable extensions.
      */
     @Blocking
+    @Override
     default boolean isEmptyProject() {
         return false;
     }
@@ -111,6 +118,7 @@ public interface IProject extends AutoCloseable {
      * @param language The language to get analyzable files for
      * @return Set of ProjectFile objects that are analyzable for the given language
      */
+    @Override
     default Set<ProjectFile> getAnalyzableFiles(Language language) {
         var extensions = language.getExtensions();
         return getAllFiles().stream()
@@ -118,10 +126,12 @@ public interface IProject extends AutoCloseable {
                 .collect(Collectors.toSet());
     }
 
+    @Override
     default Set<ProjectFile> filterExcludedFiles(Set<ProjectFile> files) {
         return files;
     }
 
+    @Override
     default void invalidateAllFiles() {}
 
     /**
@@ -130,6 +140,7 @@ public interface IProject extends AutoCloseable {
      * @param relPath Path relative to project root
      * @return true if the path is ignored by gitignore rules, false otherwise
      */
+    @Override
     default boolean isGitignored(Path relPath) {
         return false; // Conservative default: assume not ignored
     }
@@ -141,6 +152,7 @@ public interface IProject extends AutoCloseable {
      * @param isDirectory true if the path is a directory
      * @return true if the path is ignored by gitignore rules, false otherwise
      */
+    @Override
     default boolean isGitignored(Path relPath, boolean isDirectory) {
         return false;
     }
@@ -149,6 +161,7 @@ public interface IProject extends AutoCloseable {
      * Combined check: returns true if the path is excluded by project exclusion patterns
      * or by gitignore rules.
      */
+    @Override
     default boolean shouldSkipPath(Path relPath, boolean isDirectory) {
         return isPathExcluded(relPath.toString(), isDirectory) || isGitignored(relPath, isDirectory);
     }
@@ -172,6 +185,7 @@ public interface IProject extends AutoCloseable {
         return "";
     }
 
+    @Override
     default Path getMasterRootPathForConfig() {
         throw new UnsupportedOperationException();
     }
@@ -184,6 +198,7 @@ public interface IProject extends AutoCloseable {
         throw new UnsupportedOperationException();
     }
 
+    @Override
     default boolean hasGit() {
         return false;
     }
@@ -373,6 +388,7 @@ public interface IProject extends AutoCloseable {
 
     default void setCodeAgentTestScope(CodeAgentTestScope selectedScope) {}
 
+    @Override
     default void setAnalyzerLanguages(Set<Language> languages) {}
 
     /**
@@ -383,6 +399,7 @@ public interface IProject extends AutoCloseable {
      * the filesystem if no explicit user configuration exists. This does not clear
      * explicit user configuration set via {@link #setAnalyzerLanguages(Set)}.
      */
+    @Override
     default void invalidateAutoDetectedLanguages() {}
 
     // Command executor configuration: custom shell/interpreter for command execution
@@ -447,10 +464,12 @@ public interface IProject extends AutoCloseable {
     }
 
     @Blocking
+    @Override
     default List<String> getSourceRoots(Language language) {
         return SourceRootScanner.scan(this, language);
     }
 
+    @Override
     default void setSourceRoots(Language language, List<String> roots) {}
 
     default boolean isGitConfigDeclined() {
@@ -514,6 +533,7 @@ public interface IProject extends AutoCloseable {
      * Returns the set of exclusion patterns for code intelligence.
      * Patterns can be simple names (e.g., "node_modules") or globs (e.g., "*.svg").
      */
+    @Override
     default Set<String> getExclusionPatterns() {
         return Set.of();
     }
@@ -522,6 +542,7 @@ public interface IProject extends AutoCloseable {
      * Returns exclusion patterns that are simple directory/file names (no wildcards).
      * Convenience method for callers that need Path-based exclusions.
      */
+    @Override
     default Set<String> getExcludedDirectories() {
         return getExclusionPatterns().stream()
                 .filter(p -> !p.contains("*") && !p.contains("?"))
@@ -532,6 +553,7 @@ public interface IProject extends AutoCloseable {
      * Returns exclusion patterns that contain wildcards (glob patterns).
      * Convenience method for callers that need only glob-style patterns.
      */
+    @Override
     default Set<String> getExcludedGlobPatterns() {
         return getExclusionPatterns().stream()
                 .filter(p -> p.contains("*") || p.contains("?"))
@@ -546,6 +568,7 @@ public interface IProject extends AutoCloseable {
      * @param isDirectory true if the path is a directory (skips Extension pattern checks like *.svg)
      * @return true if the path is excluded
      */
+    @Override
     default boolean isPathExcluded(String relativePath, boolean isDirectory) {
         return false;
     }

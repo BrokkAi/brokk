@@ -6,7 +6,9 @@ import ai.brokk.agents.BuildAgent;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.git.GitRepo;
 import ai.brokk.git.IGitRepo;
+import ai.brokk.git.LocalFileRepo;
 import ai.brokk.mcpclient.McpConfig;
 import ai.brokk.project.FileFilteringService;
 import ai.brokk.project.IProject;
@@ -48,7 +50,6 @@ public class TestProject implements IProject {
     private boolean gitConfigDeclined = false;
     private @Nullable String jdk;
     private @Nullable IGitRepo repo;
-    private boolean repoExplicitlySetToNull = false;
     private @Nullable Supplier<Set<ProjectFile>> allFilesSupplier;
     private @Nullable Set<ProjectFile> allFiles;
     private Set<ProjectFile> allOnDiskDependencies = Set.of();
@@ -166,11 +167,7 @@ public class TestProject implements IProject {
 
     @Override
     public boolean hasGit() {
-        try {
-            return getRepo() != null;
-        } catch (UnsupportedOperationException e) {
-            return false;
-        }
+        return getRepo() instanceof GitRepo;
     }
 
     @Override
@@ -179,12 +176,9 @@ public class TestProject implements IProject {
     }
 
     @Override
-    public @Nullable IGitRepo getRepo() {
+    public IGitRepo getRepo() {
         if (repo == null) {
-            if (repoExplicitlySetToNull) {
-                return null;
-            }
-            throw new UnsupportedOperationException("No repository configured for this TestProject");
+            repo = new LocalFileRepo(root);
         }
         return repo;
     }
@@ -192,7 +186,6 @@ public class TestProject implements IProject {
     @Override
     public void setRepo(IGitRepo repo) {
         this.repo = repo;
-        this.repoExplicitlySetToNull = false;
     }
 
     public TestProject withRepo(IGitRepo repo) {
@@ -202,7 +195,6 @@ public class TestProject implements IProject {
 
     public TestProject withoutRepo() {
         this.repo = null;
-        this.repoExplicitlySetToNull = true;
         return this;
     }
 

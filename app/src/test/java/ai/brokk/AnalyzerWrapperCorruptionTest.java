@@ -7,7 +7,7 @@ import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.project.IProject;
+import ai.brokk.project.ICoreProject;
 import ai.brokk.testutil.TestAnalyzer;
 import ai.brokk.testutil.TestProject;
 import ai.brokk.watchservice.NoopWatchService;
@@ -110,18 +110,18 @@ class AnalyzerWrapperCorruptionTest {
             }
 
             @Override
-            public IAnalyzer loadAnalyzer(IProject p, IAnalyzer.ProgressListener listener) {
+            public IAnalyzer loadAnalyzer(ICoreProject p, IAnalyzer.ProgressListener listener) {
                 return corruptAnalyzer;
             }
 
             @Override
-            public IAnalyzer createAnalyzer(IProject p, IAnalyzer.ProgressListener listener) {
+            public IAnalyzer createAnalyzer(ICoreProject p, IAnalyzer.ProgressListener listener) {
                 createCalled.incrementAndGet();
                 return rebuiltAnalyzer;
             }
 
             @Override
-            public void saveAnalyzer(IAnalyzer analyzer, IProject p) {
+            public void saveAnalyzer(IAnalyzer analyzer, ICoreProject p) {
                 saveCalled.incrementAndGet();
             }
         };

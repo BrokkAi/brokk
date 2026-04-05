@@ -9,6 +9,7 @@ import ai.brokk.executor.http.SimpleHttpServer;
 import ai.brokk.executor.jobs.JobRunner;
 import ai.brokk.executor.jobs.JobStore;
 import ai.brokk.executor.routers.ActivityRouter;
+import ai.brokk.executor.routers.AgentsRouter;
 import ai.brokk.executor.routers.AuthRouter;
 import ai.brokk.executor.routers.CompletionsRouter;
 import ai.brokk.executor.routers.ContextRouter;
@@ -276,9 +277,13 @@ public final class HeadlessExecutorMain {
         this.server.registerAuthenticatedContext("/v1/sessions", sessionsRouter);
 
         this.jobRunner = new JobRunner(this.contextManager, this.jobStore);
+        var agentStore = this.contextManager.getAgentStore();
         var jobsRouter = new JobsRouter(
-                this.contextManager, this.jobStore, this.jobRunner, this.jobReservation, this.headlessInit);
+                this.contextManager, this.jobStore, this.jobRunner, this.jobReservation, this.headlessInit, agentStore);
         this.server.registerAuthenticatedContext("/v1/jobs", jobsRouter);
+
+        var agentsRouter = new AgentsRouter(agentStore);
+        this.server.registerAuthenticatedContext("/v1/agents", agentsRouter);
 
         var contextRouter = new ContextRouter(this.contextManager);
         this.server.registerAuthenticatedContext("/v1/context", contextRouter);
@@ -658,6 +663,11 @@ public final class HeadlessExecutorMain {
             System.out.println("    GET  /v1/dependencies             - list all imported dependencies");
             System.out.println("    GET  /v1/settings                 - get all project settings");
             System.out.println("    POST /v1/settings                 - update all project settings");
+            System.out.println("    GET  /v1/agents                   - list custom agent definitions");
+            System.out.println("    POST /v1/agents                   - create a custom agent");
+            System.out.println("    GET  /v1/agents/{name}            - get an agent definition");
+            System.out.println("    PUT  /v1/agents/{name}            - update an agent definition");
+            System.out.println("    DELETE /v1/agents/{name}          - delete an agent definition");
             System.out.println();
 
             // Create and start executor

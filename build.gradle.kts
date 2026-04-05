@@ -143,6 +143,26 @@ tasks.register("deployMcpShadowJar") {
     }
 }
 
+tasks.register("deployCoreMcpShadowJar") {
+    description = "Builds :brokk-core:shadowJar and copies it to a stable MCP jar path."
+    group = "distribution"
+
+    dependsOn(":brokk-core:shadowJar")
+
+    doLast {
+        val shadowJarFile = rootDir.resolve("brokk-core/build/libs/brokk-core-${project.version}.jar")
+        if (!shadowJarFile.exists()) {
+            throw GradleException("Expected shadow jar not found: ${shadowJarFile.absolutePath}")
+        }
+
+        val targetPath = (findProperty("coreMcpJarTarget") as String?)?.let(::File)
+            ?: File(System.getProperty("user.home"), ".brokk/mcp/brokk-core-mcp.jar")
+        targetPath.parentFile.mkdirs()
+        shadowJarFile.copyTo(targetPath, overwrite = true)
+        println("Deployed core MCP jar to ${targetPath.absolutePath}")
+    }
+}
+
 tasks.register("configureMcpStableJar") {
     description = "Updates Codex and Claude MCP configs to use the stable local MCP jar path."
     group = "distribution"

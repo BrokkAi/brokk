@@ -4,6 +4,7 @@ import static java.util.Objects.requireNonNull;
 
 import ai.brokk.IConsoleIO;
 import ai.brokk.analyzer.BrokkFile;
+import ai.brokk.analyzer.DependencyImportable;
 import ai.brokk.analyzer.ExternalFile;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.ProjectFile;
@@ -139,8 +140,9 @@ public class ImportDependencyDialog {
             for (var lang : project.getAnalyzerLanguages()) {
                 try {
                     if (lang.getDependencyImportSupport() == Language.ImportSupport.NONE) continue;
+                    if (!(lang instanceof DependencyImportable importable)) continue;
 
-                    var lp = new ImportLanguagePanel(chrome, lang);
+                    var lp = new ImportLanguagePanel(chrome, importable);
                     lp.setLifecycleListener(listener);
                     lp.addSelectionListener(pkg -> updateImportButtonState());
                     lp.addDoubleClickListener(() -> {
